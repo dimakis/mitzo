@@ -870,7 +870,7 @@ export class EventStore {
     preparationOperationId?: string,
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
     if (meta.ordinaryWorkspaceId != null) {
-      if (location !== 'local' || !preparationOperationId)
+      if (!['local', 'openshell'].includes(location) || !preparationOperationId)
         throw Error('Ordinary workspace requires its original prepared local admission');
       this.ordinaryWorkspaceSessions.assert(preparationOperationId, meta, binding, input.selection);
     }
@@ -947,8 +947,8 @@ export class EventStore {
     if (meta.ordinaryWorkspaceId != null) {
       const prepared = this.ordinaryWorkspaceSessions.forConversation(meta.sessionId);
       if (
-        location !== 'local' ||
         !prepared ||
+        location !== prepared.settings.binding.execution.location ||
         prepared.firstCommandId === null ||
         prepared.workspaceId !== meta.ordinaryWorkspaceId
       )
@@ -1500,8 +1500,17 @@ export class EventStore {
         getSendCommand: (id) => this.getSendCommand(id),
         getOrdinaryInitialCommandId: (id) => this.getOrdinaryInitialCommandId(id),
         getLatestOrdinaryCommandAdmission: (id) => this.getLatestOrdinaryCommandAdmission(id),
-        admit: (meta, binding, command, operation) =>
-          this.admitOrdinaryCommand(meta, binding, command, 'local', operation),
+        admit: (meta, binding, command, operation) => {
+          const prepared = this.ordinaryWorkspaceSessions.get(operation);
+          if (!prepared) throw Error('Original ordinary workspace preparation required');
+          return this.admitOrdinaryCommand(
+            meta,
+            binding,
+            command,
+            prepared.settings.binding.execution.location,
+            operation,
+          );
+        },
       });
       this.executionLedger = new ExecutionLedger<SessionRow>({
         database: () => this.db,
@@ -1620,6 +1629,12 @@ export class EventStore {
       db.exec('ALTER TABLE sessions ADD COLUMN last_speaker_at INTEGER');
       this.log.info('migrated sessions table: added last_speaker_at');
     }
+    // Attention refreshes need only the newest visible assistant sessions.
+    // Order candidates before reading their potentially large context payloads;
+    // registration and internal-SDK exclusion still run freshly in the query.
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_attention
+      ON sessions(last_speaker_at DESC)
+      WHERE is_hidden = 0 AND last_speaker = 'assistant'`);
   }
 
   private migrateSessionState(db: Database.Database): void {

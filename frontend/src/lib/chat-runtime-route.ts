@@ -39,6 +39,17 @@ export function selectedRuntimeRoute(
   );
   return routes.length === 1 ? routes[0] : undefined;
 }
+function defaultRuntimeRoutes(
+  intent: ChatRuntimeSelection,
+  inventory: ExplicitLocalInventory | null,
+) {
+  const routes = runtimeRoutes(intent, inventory);
+  const native =
+    intent.execution.location === 'local'
+      ? routes.filter((route) => route.account.provider === 'openai' && route.harness === 'codex')
+      : [];
+  return native.length ? native : routes;
+}
 export function resolveRuntimeTarget(
   intent: ChatRuntimeSelection,
   inventory: ExplicitLocalInventory | null,
@@ -62,7 +73,7 @@ export function resolveRuntimeTarget(
     );
     return targets.length === 1 ? targets[0].targetId : null;
   }
-  const routes = runtimeRoutes(intent, inventory);
+  const routes = defaultRuntimeRoutes(intent, inventory);
   return routes.length === 1 ? routes[0].targetId : null;
 }
 /** Each account catalog is scoped to its one route in this environment; absent or
@@ -78,7 +89,7 @@ export function runtimeModelAccounts(
       accountReference: account.account,
       execution: { ...intent.execution, targetId: null },
     };
-    const routes = runtimeRoutes(candidate, inventory);
+    const routes = defaultRuntimeRoutes(candidate, inventory);
     const route =
       account.account.accountId === intent.account?.accountId
         ? selectedRuntimeRoute(intent, inventory)

@@ -16,6 +16,7 @@ import {
   ordinaryOpenShellCodexContractRevision,
   loadOrdinaryOpenShellCodexTarget,
 } from '../ordinary-openshell-codex-entry-owner.js';
+import { verifiedOpenShellSeed } from '../openshell-runtime.js';
 const boundaries = vi.hoisted(() => ({ config: undefined as OpenShellRuntimeConfig | undefined }));
 vi.mock('../openshell-runtime.js', async (original) => ({
   ...(await original<typeof import('../openshell-runtime.js')>()),
@@ -123,3 +124,16 @@ it.each(['permissions', 'symlink', 'parent', 'contract', 'binary', 'policy', 'le
     expect(() => loadOrdinaryOpenShellCodexTarget(f.env)).toThrow('entry unavailable');
   },
 );
+
+it('discovers the runtime target without rescanning publication contents at every identity fence', () => {
+  const f = fixture();
+  const verifySeed = vi.mocked(verifiedOpenShellSeed);
+  verifySeed.mockClear();
+  verifySeed.mockImplementationOnce(() => {
+    throw Error('Publication payload verification belongs to seed upload');
+  });
+  expect(loadOrdinaryOpenShellCodexTarget(f.env)?.target.targetId).toBe('target');
+  expect(loadOrdinaryOpenShellCodexTarget(f.env)?.target.targetId).toBe('target');
+  expect(verifySeed).not.toHaveBeenCalled();
+  verifySeed.mockReset();
+});

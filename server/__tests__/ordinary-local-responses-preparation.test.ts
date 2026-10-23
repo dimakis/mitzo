@@ -108,6 +108,8 @@ it.each(['checkout', 'mcp'] as const)(
       release = resolve;
     });
     let deadline!: () => void;
+    // Freeze the request clock while invoking its deadline callback explicitly.
+    vi.spyOn(performance, 'now').mockReturnValue(Math.trunc(performance.now()));
     const originalTimer = globalThis.setTimeout;
     vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
       callback: () => void,

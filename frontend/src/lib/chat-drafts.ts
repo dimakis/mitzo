@@ -24,7 +24,14 @@ export const ChatDraftSchema = z.object({
   version: z.literal(1),
   id: z.string().min(1),
   text: z.string(),
-  images: z.array(z.object({ data: z.string(), preview: z.string(), mediaType: z.string() })),
+  images: z.array(
+    z.object({
+      data: z.string(),
+      preview: z.string(),
+      mediaType: z.string(),
+      name: z.string().optional(),
+    }),
+  ),
   contextBlocks: z.array(z.string()),
   updatedAt: z.number(),
   settings: z.object({

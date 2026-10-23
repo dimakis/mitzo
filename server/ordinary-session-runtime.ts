@@ -164,7 +164,7 @@ export function resolveOrdinarySessionRuntime(
       ? chosen.harness === 'codex'
       : account.provider === 'openai'
         ? (chosen.harness === 'responses' && target.location === 'local') ||
-          (chosen.harness === 'codex' && target.location === 'openshell')
+          chosen.harness === 'codex'
         : account.provider === 'anthropic-vertex'
           ? chosen.harness === 'claude-sdk' && target.location === 'local'
           : chosen.harness === 'gemini' && target.location === 'local';

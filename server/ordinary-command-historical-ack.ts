@@ -1,3 +1,4 @@
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { resolveTelosWorkSystemPrompt } from './telos-work-role-context.js';
 import { assertOrdinaryCodexSnapshotCustody } from './ordinary-codex-agent-context.js';
 import { buildAgentProfilePrompt } from './agent-library-prompt.js';
@@ -202,7 +203,7 @@ function assertHistoricalAcknowledgement(
       const initial = initialId && events.getOrdinaryCommandAdmission(initialId);
       if (
         !custody ||
-        custody.authSessionId !== authSessionId ||
+        !ordinaryOperatorOwnsConversation(custody.authSessionId, authSessionId) ||
         !initial ||
         initial.state !== 'consumed' ||
         !isDeepStrictEqual(initial.binding, binding) ||

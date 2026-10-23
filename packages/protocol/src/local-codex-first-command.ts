@@ -17,12 +17,12 @@ function validateCommandBounds(
 export const LocalCodexFirstCommandSchema = z
   .strictObject({
     runOn: z.literal('local'),
-    repositoryWorkspaceId: z.uuid(),
+    repositoryWorkspaceId: z.uuid().optional(),
     clientMsgId: reference,
     capabilityRevision: reference,
     runtime: z.strictObject({
       account: SessionRuntimeBindingV1Schema.shape.account
-        .extend({ provider: z.literal('openai-codex') })
+        .extend({ provider: z.enum(['openai-codex', 'openai']) })
         .strict(),
       harness: z.literal('codex'),
       targetId: reference,
@@ -68,6 +68,7 @@ export type LocalCodexFirstCommand = z.infer<typeof LocalCodexFirstCommandSchema
  * Admission verifies both identities; this cannot enroll or switch a session.
  */
 export const LocalCodexContinuationCommandSchema = LocalCodexFirstCommandSchema.safeExtend({
+  repositoryWorkspaceId: z.uuid(),
   sessionId: reference,
 });
 export type LocalCodexContinuationCommand = z.infer<typeof LocalCodexContinuationCommandSchema>;
@@ -86,13 +87,10 @@ export const OrdinaryCodexFirstCommandSchema = z
       }),
     }),
   })
-  .superRefine((request, ctx) => {
-    validateCommandBounds(request, ctx);
-    if (request.runOn === 'local' && request.runtime.account.provider !== 'openai-codex')
-      ctx.addIssue({ code: 'custom', message: 'Unsupported Local account adapter' });
-  });
+  .superRefine(validateCommandBounds);
 export type OrdinaryCodexFirstCommand = z.infer<typeof OrdinaryCodexFirstCommandSchema>;
 export const OrdinaryCodexContinuationCommandSchema = OrdinaryCodexFirstCommandSchema.safeExtend({
+  repositoryWorkspaceId: z.uuid(),
   sessionId: reference,
 });
 export type OrdinaryCodexContinuationCommand = z.infer<
@@ -114,6 +112,7 @@ export const LocalResponsesFirstCommandSchema = z
   })
   .superRefine(validateCommandBounds);
 export const LocalResponsesContinuationCommandSchema = LocalResponsesFirstCommandSchema.safeExtend({
+  repositoryWorkspaceId: z.uuid(),
   sessionId: reference,
 });
 /** Ordinary Local SDK intent only; ADC, SDK history and physical paths remain server-private. */
@@ -142,6 +141,7 @@ export const LocalVertexClaudeFirstCommandSchema = z
   });
 export const LocalVertexClaudeContinuationCommandSchema =
   LocalVertexClaudeFirstCommandSchema.safeExtend({
+    repositoryWorkspaceId: z.uuid(),
     sessionId: z.string().min(1).max(200).regex(/^\S+$/),
   });
 export type LocalVertexClaudeFirstCommand = z.infer<typeof LocalVertexClaudeFirstCommandSchema>;
@@ -169,6 +169,7 @@ export const LocalGeminiFirstCommandSchema = z
       });
   });
 export const LocalGeminiContinuationCommandSchema = LocalGeminiFirstCommandSchema.safeExtend({
+  repositoryWorkspaceId: z.uuid(),
   sessionId: reference,
 });
 export const OrdinaryRuntimeFirstCommandSchema = OrdinaryCodexFirstCommandSchema.or(

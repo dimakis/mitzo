@@ -1,9 +1,14 @@
-import { AgentLibraryVersionSchema, CollaborationSettingsSchema } from '@mitzo/protocol';
+import {
+  AgentLibraryVersionSchema,
+  CollaborationSettingsSchema,
+  OrdinaryWorkspaceSettingsSchema,
+} from '@mitzo/protocol';
 import { contextDigest } from '../agent-context-compiler.js';
 import { assembleSourceSnapshots } from '../source-snapshot-context.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { EventStore } from '../event-store.js';
@@ -24,7 +29,8 @@ afterEach(() => {
   natives.splice(0).forEach((store) => store.close());
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
 });
-function fixture() {
+function fixture(ordinary = false) {
+  const workspaceId = ordinary ? randomUUID() : 'repo';
   const events = new EventStore(':memory:');
   stores.push(events);
   const profiles = new AccountProfiles(
@@ -95,7 +101,7 @@ function fixture() {
   agentProfile.contentHash = contextDigest(agentProfile.definition);
   const meta = {
     sessionId: 'session',
-    repositoryWorkspaceId: 'repo',
+    ...(ordinary ? { ordinaryWorkspaceId: workspaceId } : { repositoryWorkspaceId: workspaceId }),
     cwd: config.workdir,
     accountBinding: account,
     selectedModel: 'first',
@@ -140,6 +146,36 @@ function fixture() {
     baseOid: 'a'.repeat(40),
     createdAt: 1,
   }));
+  const claimOrdinaryWorkspace = vi.fn(async () => ({
+    kind: 'ordinary',
+    id: workspaceId,
+    state: 'claimed',
+    sandbox: true,
+    directory: config.workdir,
+    conversationId: 'session',
+    binding: account,
+  }));
+  const preparationOperationId = ordinary ? randomUUID() : undefined;
+  if (preparationOperationId)
+    events.prepareOrdinaryWorkspaceSession(meta, {
+      allocationOperationId: preparationOperationId,
+      preparationFingerprint: 'a'.repeat(64),
+      settings: OrdinaryWorkspaceSettingsSchema.parse({
+        version: 2,
+        binding: {
+          version: 2,
+          account: command('settings').runtime.account,
+          harness: { implementation: 'codex' },
+          execution: {
+            location: 'openshell',
+            targetId: target.targetId,
+            targetRevision: target.targetRevision,
+          },
+        },
+        selection: command('settings').selection,
+        workspace: { kind: 'ordinary', preparationId: randomUUID() },
+      }),
+    });
   let opened = false;
   const artifact = {
     runtime: {
@@ -193,7 +229,9 @@ function fixture() {
         model: input.expected.selection.model,
         reasoningEffort: input.expected.selection.thinking,
         agentProfile,
-        repositoryWorkspace: input.workspace,
+        ...('kind' in input.workspace && input.workspace.kind === 'ordinary'
+          ? { ordinaryWorkspace: input.workspace }
+          : { repositoryWorkspace: input.workspace }),
       });
       native.setArtifactRuntime('session', account, artifact);
       input.admission.adoptPhysicalRuntime(artifact);
@@ -226,9 +264,10 @@ function fixture() {
     authSessionId: 'signed-operator',
     events,
     profiles,
-    workspace: { claim } as unknown as RepositoryWorkspaces,
+    workspaceKind: ordinary ? ('ordinary' as const) : ('repository' as const),
+    workspace: { claim, claimOrdinaryWorkspace } as unknown as RepositoryWorkspaces,
     sessionId: 'session',
-    workspaceId: 'repo',
+    workspaceId,
     taskRoot: '/fixture/root',
     config,
     target,
@@ -248,6 +287,9 @@ function fixture() {
   const driver = new OrdinaryOpenShellCodexOwnedRuntime(owners);
   return {
     native,
+    claimOrdinaryWorkspace,
+    preparationOperationId,
+    workspaceId,
     pump,
     owners,
     reopen: () => {
@@ -322,7 +364,9 @@ describe('bound ordinary OpenShell owner (offline)', () => {
         model: input.expected.selection.model,
         reasoningEffort: input.expected.selection.thinking,
         agentProfile: f.meta.agentProfile,
-        repositoryWorkspace: input.workspace,
+        ...('kind' in input.workspace && input.workspace.kind === 'ordinary'
+          ? { ordinaryWorkspace: input.workspace }
+          : { repositoryWorkspace: input.workspace }),
       });
       input.admission.persistNativeCustody(reopened);
       await f.dispatch(input);
@@ -726,4 +770,41 @@ it('rejects changed Library source bytes before claiming the ordinary OpenShell 
   expect(f.claim).not.toHaveBeenCalled();
   expect(f.dispatch).not.toHaveBeenCalled();
   expect(f.events.getSendCommand(request.clientMsgId)).toBeUndefined();
+});
+
+it('uses the ordinary default OpenShell workspace through first send, continuation and native restart without a repository claim', async () => {
+  const f = fixture(true);
+  const first = await f.driver.admitPreparedFirst(
+    f.preparationOperationId!,
+    f.meta,
+    f.command('default-first'),
+  );
+  expect(first.dispatched).toBe(true);
+  f.pump();
+  expect(f.events.getSession('session')?.ordinaryWorkspaceId).toBe(f.workspaceId);
+  expect(f.events.getSession('session')?.repositoryWorkspaceId ?? null).toBeNull();
+  expect(f.claim).not.toHaveBeenCalled();
+  expect(f.claimOrdinaryWorkspace).toHaveBeenCalledOnce();
+  expect(f.native.readOpenShellCustody('session', f.account)?.workspaceKind).toBe('ordinary');
+  const nextMeta = { ...f.meta, selectedModel: 'next', reasoningEffort: 'high' };
+  expect(
+    (await f.driver.admit(nextMeta, f.command('default-next', 'next', 'high'))).dispatched,
+  ).toBe(true);
+  f.pump();
+  const reopened = f.reopen();
+  const resumed = new OrdinaryOpenShellCodexOwnedRuntime({
+    ...f.owners,
+    nativeStore: reopened,
+    resume: true,
+  });
+  expect(
+    (await resumed.admit(nextMeta, f.command('default-restarted', 'next', 'high'))).dispatched,
+  ).toBe(true);
+  f.pump();
+  expect(reopened.commands('session', f.account).map((command) => command.status)).toEqual([
+    'completed',
+    'completed',
+    'completed',
+  ]);
+  expect(f.claim).not.toHaveBeenCalled();
 });

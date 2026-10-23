@@ -1,3 +1,4 @@
+import { OrdinaryRepositoryPreparationSchema } from '../ordinary-repository-preparation.js';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
 import { canonicalJson } from '../connections/capabilities/input-validation.js';
 import { openShellPhysicalCustodyFingerprint } from '../openshell-codex-custody.js';
@@ -61,6 +62,7 @@ const fixtures = vi.hoisted(() => ({
   shellTarget: vi.fn(),
   shellResumable: false,
   workspace: vi.fn(),
+  ordinaryWorkspace: vi.fn(),
   library: vi.fn(),
   profiles: vi.fn(),
   controller: false,
@@ -109,6 +111,7 @@ vi.mock('../account-profiles.js', async (original) => ({
 vi.mock('../agent-library-runtime.js', () => ({ getAgentLibrary: fixtures.library }));
 vi.mock('../repository-workspace-runtime.js', () => ({
   getRepositoryWorkspaces: fixtures.workspace,
+  getOrdinaryWorkspaces: fixtures.ordinaryWorkspace,
 }));
 vi.mock('../symposium-custodian-mode.js', () => ({
   custodianControllerClient: undefined,
@@ -264,14 +267,23 @@ beforeEach(() => {
   fixtures.reserveSandbox.mockResolvedValue(undefined);
   fixtures.reserve.mockResolvedValue({ state: 'reserved' });
   fixtures.start.mockImplementation(async (_transport, _client, args) => {
-    const resolved = catalog.resolve(args.command.runtime);
+    const activeProfiles = fixtures.profiles() as AccountProfiles;
+    const resolved = new OrdinaryLocalCodexCapabilityCatalog(
+      activeProfiles,
+      target,
+      'ordinary',
+    ).resolve(args.command.runtime);
+    const activeBinding = activeProfiles.resolve(
+      args.command.runtime.account.accountId,
+      args.command.selection.model,
+    );
     if (resolved.status !== 'compatible') throw Error('Fixture route incompatible');
     store.admitOrdinaryLocalCommand(
       {
         sessionId: args.reservation.conversationId,
         cwd: '/offline/checkout',
         repositoryWorkspaceId: workspaceId,
-        accountBinding: binding,
+        accountBinding: activeBinding,
       },
       resolved.binding,
       {
@@ -313,13 +325,22 @@ afterEach(() => {
   store.close();
   vi.unstubAllEnvs();
 });
-const invoke = (method: string, url: string, body: unknown, login: string | null = auth.id) =>
+const invoke = (
+  method: string,
+  url: string,
+  body: unknown,
+  login: string | null = auth.id,
+  workspaceDefaults = false,
+) =>
   new Promise<{ status: number; body: unknown }>((resolve, reject) => {
     let status = 200;
     const req = {
       method,
       url,
-      headers: { 'x-connection-id': 'entry-stream' },
+      query: workspaceDefaults ? { workspaceDefaults: '1' } : {},
+      headers: {
+        'x-connection-id': 'entry-stream',
+      },
       body,
     } as unknown as express.Request;
     const res = {
@@ -344,6 +365,47 @@ const invoke = (method: string, url: string, body: unknown, login: string | null
 
 const send = (body: unknown = input(), login: string | null = auth.id) =>
   invoke('POST', '/send', body, login);
+
+it('exposes and dispatches API billing through the actual Local Codex entry', async () => {
+  const api = new AccountProfiles(
+    [
+      {
+        id: 'work',
+        label: 'Work API',
+        provider: 'openai',
+        credentialRef: { provider: 'keychain', service: 'offline-test', account: 'work' },
+        models: [{ id: 'fixture', label: 'Offline' }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  fixtures.profiles.mockReturnValue(api);
+  fixtures.library.mockReturnValue({
+    version: () => publishedProfile,
+    list: () => ({ versions: [publishedProfile] }),
+  });
+  const apiCatalog = new OrdinaryLocalCodexCapabilityCatalog(api, target, 'ordinary');
+  const request = {
+    ...input(),
+    capabilityRevision: apiCatalog.inventory().capabilityRevision,
+    runtime: { ...input().runtime, account: apiCatalog.inventory().accounts[0].account },
+  };
+  const capabilities = await invoke('GET', '/capabilities', undefined);
+  expect(capabilities.status).toBe(200);
+  expect((capabilities.body as { accounts: Array<{ account: unknown }> }).accounts).toContainEqual(
+    expect.objectContaining({ account: request.runtime.account }),
+  );
+  expect((await send(request)).status).toBe(202);
+  expect(fixtures.start).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.any(String),
+    expect.objectContaining({
+      command: expect.objectContaining({
+        runtime: expect.objectContaining({ harness: 'codex', account: request.runtime.account }),
+      }),
+    }),
+  );
+});
 
 it('dispatches explicit Local with server-owned identities through the existing wrapper', async () => {
   const response = await send();
@@ -511,6 +573,22 @@ it('aborts retained preparation on logout before bootstrap/dispatch', async () =
   expect((await send()).status).toBe(409);
   expect(preparationSignal?.aborted).toBe(true);
   expect(fixtures.start).not.toHaveBeenCalled();
+});
+it('observes exact consumed receipts without reserving, starting or resubmitting a command', async () => {
+  expect((await invoke('POST', '/send/receipt', input())).status).toBe(409);
+  expect(fixtures.reserve).not.toHaveBeenCalled();
+  expect(fixtures.start).not.toHaveBeenCalled();
+  await send();
+  const starts = fixtures.start.mock.calls.length,
+    reservations = fixtures.reserve.mock.calls.length;
+  const result = await invoke('POST', '/send/receipt', input());
+  expect(result.status).toBe(202);
+  expect(result.body).toMatchObject({ state: 'consumed', dispatched: false });
+  expect(fixtures.start).toHaveBeenCalledTimes(starts);
+  expect(fixtures.reserve).toHaveBeenCalledTimes(reservations);
+  expect(
+    (await invoke('POST', '/send/receipt', { ...input(), payload: { text: 'changed' } })).status,
+  ).toBe(409);
 });
 it('returns an exact consumed duplicate without changing original receipt', async () => {
   expect((await send()).status).toBe(202);
@@ -1253,3 +1331,185 @@ it('reserves a qualified OpenShell preparation model B before admission and an e
     await rm(root, { recursive: true, force: true });
   }
 }, 15000);
+
+async function configuredDefaultShell() {
+  const shell = configuredShell();
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'default-shell-public-')));
+  const taskRoot = join(root, 'tasks');
+  await mkdir(taskRoot, { mode: 0o700 });
+  vi.stubEnv('MITZO_ORDINARY_TASK_ROOT', taskRoot);
+  const binding = shell.shellProfiles.resolve('brokered', 'fixture');
+  const forbidden = vi.fn(async () => {
+    throw Error('No repository authority for default chat');
+  });
+  const capture = vi.fn(async () =>
+    OrdinaryRepositoryPreparationSchema.parse({
+      version: 1 as const,
+      originalBinding: binding,
+      runtimeBinding: shell.admittedBinding,
+      credentialDigest: 'a'.repeat(64),
+      sandboxWorkdir: shell.config.workdir,
+    }),
+  );
+  const workspaces = new RepositoryWorkspaces(join(root, 'owner'), {
+    authorize: forbidden,
+    inspect: forbidden,
+    prepare: forbidden,
+    ordinaryPreparation: { capture, assert: async () => {} },
+  });
+  fixtures.ordinaryWorkspace.mockReturnValue(workspaces);
+  const request = { ...shell.request };
+  Reflect.deleteProperty(request, 'repositoryWorkspaceId');
+  return { shell, root, taskRoot, binding, forbidden, capture, workspaces, request };
+}
+
+it('bounds default OpenShell preparation and dispatch by one overall startup deadline', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] });
+  const { root, capture, workspaces, request } = await configuredDefaultShell();
+  const originalCapture = capture.getMockImplementation()!;
+  capture.mockImplementation(async () => {
+    await vi.advanceTimersByTimeAsync(90_000);
+    return originalCapture();
+  });
+  let abortedAtDeadline = false;
+  fixtures.startShell.mockImplementation(async (_transport, _client, args) => {
+    await vi.advanceTimersByTimeAsync(30_001);
+    abortedAtDeadline = args.signal.aborted;
+    args.signal.throwIfAborted();
+    return { dispatched: true, sessionId: args.meta.sessionId };
+  });
+  try {
+    const response = await invoke('POST', '/send', request);
+    expect(fixtures.startShell).toHaveBeenCalledOnce();
+    expect(abortedAtDeadline).toBe(true);
+    expect(response.status).toBe(409);
+  } finally {
+    vi.useRealTimers();
+    workspaces.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('starts a fresh OpenShell chat through ordinary mgmt custody without selecting a repository', async () => {
+  const { shell, root, taskRoot, binding, forbidden, capture, workspaces, request } =
+    await configuredDefaultShell();
+  fixtures.startShell.mockImplementation(async (_transport, _client, args) => {
+    const record = workspaces.getOrdinaryWorkspace(args.meta.ordinaryWorkspaceId);
+    await workspaces.claimOrdinaryWorkspace({
+      id: record.id,
+      conversationId: record.conversationId,
+      binding,
+      taskRoot,
+      signal: new AbortController().signal,
+    });
+    const artifact = {
+      runtime: {
+        sandboxName: 'default-mgmt-owned',
+        sandboxId: 'default-resource',
+        workdir: shell.config.workdir,
+        appServerCommand: '/sandbox/run-mitzo-subscription-app-server',
+        cli: shell.config.cli,
+        gateway: shell.config.gateway,
+        workspace: shell.config.workspace,
+        gatewayInsecure: false,
+      },
+      route: {
+        kind: 'chatgpt-subscription',
+        provider: 'provider',
+        providerType: 'openai-codex-oauth',
+        providerId: 'provider-id',
+        grantId: 'grant-id',
+        model: 'fixture',
+      },
+    } satisfies ArtifactRuntime;
+    fixtures.shellArtifact.mockReturnValue(artifact);
+    fixtures.shellCustody.mockReturnValue({
+      workspaceKind: 'ordinary',
+      authSessionId: auth.id,
+      binding: shell.admittedBinding,
+      workspace: { workspaceId: record.id, cwd: shell.config.workdir },
+      physicalIdentitySha256: openShellPhysicalCustodyFingerprint(artifact),
+    });
+    const command = {
+      ...args.command,
+      payload: {
+        ...args.command.payload,
+        systemPrompt: buildAgentProfilePrompt(args.meta.agentProfile.definition),
+      },
+    };
+    const expected = {
+      binding: shell.admittedBinding,
+      workspace: { workspaceId: record.id, cwd: shell.config.workdir },
+      selection: command.selection,
+      agentProfile: args.meta.agentProfile,
+    };
+    store.admitPreparedOrdinaryWorkspaceCommand(
+      args.preparationOperationId,
+      args.meta,
+      shell.admittedBinding,
+      {
+        clientMsgId: args.command.clientMsgId,
+        requestFingerprint: `ordinary-openshell-codex-v1:${createHash('sha256')
+          .update(canonicalJson(JSON.parse(JSON.stringify({ request: command, expected }))))
+          .digest('hex')}`,
+        selection: args.command.selection,
+        payload: command.payload,
+      },
+    );
+    store.claimOrdinaryOpenShellCommandDispatch(args.command.clientMsgId);
+    store.completeOrdinaryOpenShellCommand(args.command.clientMsgId);
+    return { dispatched: true, sessionId: record.conversationId };
+  });
+  try {
+    const legacyCapabilities = await invoke('GET', '/capabilities', undefined);
+    expect(legacyCapabilities.body).not.toHaveProperty('defaultOpenShellWorkspace');
+    const capabilities = await invoke('GET', '/capabilities', undefined, auth.id, true);
+    expect(capabilities.body).toMatchObject({ defaultOpenShellWorkspace: true });
+    const accepted = await invoke('POST', '/send', request);
+    expect(accepted.status).toBe(202);
+    const meta = store.getSession((accepted.body as { sessionId: string }).sessionId)!;
+    expect(meta.ordinaryWorkspaceId).toBeTruthy();
+    expect(meta.repositoryWorkspaceId).toBeUndefined();
+    expect(meta.cwd).toBe(shell.config.workdir);
+    expect(fixtures.startShell.mock.calls[0][2].preparationOperationId).toBeTruthy();
+    expect(await invoke('POST', '/send/receipt', request)).toMatchObject({
+      status: 202,
+      body: { dispatched: false, state: 'consumed', sessionId: meta.sessionId },
+    });
+    expect(await invoke('POST', '/send', request)).toMatchObject({
+      status: 202,
+      body: { dispatched: false },
+    });
+    expect(
+      (await invoke('POST', '/send', { ...request, payload: { text: 'Changed frozen command' } }))
+        .status,
+    ).toBe(409);
+    expect(fixtures.startShell).toHaveBeenCalledOnce();
+    expect(capture).toHaveBeenCalledOnce();
+    expect(forbidden).not.toHaveBeenCalled();
+    expect(fixtures.reserveSandbox).not.toHaveBeenCalled();
+    expect(fixtures.reserve).not.toHaveBeenCalled();
+  } finally {
+    workspaces.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('observes an unknown default OpenShell receipt without preparing or allocating a workspace', async () => {
+  const { root, capture, workspaces, request } = await configuredDefaultShell();
+  const reserve = vi.spyOn(workspaces, 'reserveOrdinaryWorkspace');
+  const prepare = vi.spyOn(store, 'prepareOrdinaryWorkspaceSession');
+  try {
+    expect(await invoke('POST', '/send/receipt', request)).toMatchObject({
+      status: 409,
+      body: { code: 'receipt_pending' },
+    });
+    expect(capture).not.toHaveBeenCalled();
+    expect(reserve).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+    expect(fixtures.startShell).not.toHaveBeenCalled();
+  } finally {
+    workspaces.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

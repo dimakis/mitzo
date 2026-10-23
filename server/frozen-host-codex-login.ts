@@ -94,6 +94,8 @@ export interface FrozenHostCodexLoginLease<T extends FrozenHostCodexClient> {
   client: T;
   binding: AccountBinding;
   assertCurrent(): Promise<void>;
+  /** Canonical API credential custody, without native account/catalog discovery. */
+  assertCredentialCurrent?(signal: AbortSignal): Promise<void>;
   /** Final synchronous file/cancellation fence; asynchronous account proof is
    * refreshed by assertCurrent at the preceding owning admission boundary. */
   assertCurrentSync(): void;

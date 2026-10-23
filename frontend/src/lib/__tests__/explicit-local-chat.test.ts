@@ -472,3 +472,41 @@ it.each(['local', 'openshell'] as const)(
     expect(next.payload.sourceSnapshots).toBeUndefined();
   },
 );
+
+it('blocks configured context agents in the default sandbox before sending while preserving explicit repository eligibility', async () => {
+  const { ordinaryRuntimeInventoryFixture } =
+    await import('../../test-utils/ordinary-runtime-inventory-fixture');
+  const data = ordinaryRuntimeInventoryFixture();
+  const definition = {
+    ...data.agentProfiles[0].definition,
+    contextRecipe: { version: 1 as const, source: 'contexgin' as const, agentName: 'configured' },
+  };
+  const profile = {
+    ...data.agentProfiles[0],
+    definition,
+    contentHash: sha256Hex(JSON.stringify(definition)),
+  };
+  const catalog = ExplicitLocalInventorySchema.parse({
+    ...data,
+    defaultOpenShellWorkspace: true,
+    agentProfiles: [profile],
+  });
+  const selection = {
+    ...createChatRuntimeSelection(),
+    agentProfile: { profileId: profile.profileId, revision: profile.revision },
+    account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+    accountReference: catalog.accounts[0].account,
+    execution: { location: 'openshell' as const, targetId: 'sandbox' },
+    capabilityRevision: catalog.capabilityRevision,
+  };
+  const input = { clientMsgId: 'default-context', mode: 'agent' as const, text: 'Use my context' };
+  const unavailable = prepareLocalFirstCommand(selection, catalog, input);
+  expect(unavailable.request).toBeNull();
+  expect(unavailable.reason).toContain('default sandbox');
+  const prepared = prepareLocalFirstCommand(selection, catalog, {
+    ...input,
+    repositoryWorkspaceId: '11111111-1111-4111-8111-111111111111',
+  });
+  expect(prepared.reason).toBeUndefined();
+  expect(prepared.request?.selection.context.source).toBe('contexgin');
+});

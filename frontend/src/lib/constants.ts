@@ -16,7 +16,7 @@ export const DEFAULT_MODEL = 'claude-opus-4-6';
 export const TOOL_GROUP_THRESHOLD = 3;
 
 // --- Attachments ---
-export const MAX_IMAGE_ATTACHMENTS = 4;
+export const MAX_IMAGE_ATTACHMENTS = 10;
 
 // --- Voice / Yapper ---
 // When VITE_API_BASE_URL is unset (browser same-origin), this resolves to the

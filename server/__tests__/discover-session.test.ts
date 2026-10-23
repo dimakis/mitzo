@@ -24,6 +24,7 @@ const mockEventStore = {
   getInternalSdkExecution: vi.fn().mockReturnValue(null),
   isSessionHidden: vi.fn().mockReturnValue(false),
   getSession: mockGetSession,
+  getOrdinaryLocalVertexCustody: vi.fn().mockReturnValue(undefined),
   getKnownSessionIds: mockGetKnownSessionIds,
   listSessions: vi.fn().mockReturnValue([]),
   getEventsAfter: vi.fn().mockReturnValue([]),
@@ -331,6 +332,7 @@ describe('durable history fast path', () => {
       expect(readdirSync).not.toHaveBeenCalled();
       expect(await transcript).toMatchObject({ messages: [expect.any(Object)], cursor: 1 });
       expect(await chat.getMessages('native')).toHaveLength(1);
+      expect(mockEventStore.getOrdinaryLocalVertexCustody).not.toHaveBeenCalled();
     },
   );
 });

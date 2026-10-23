@@ -716,6 +716,12 @@ async function _runQueryLoopInner(
                 // best-effort — session index write failure is non-fatal
               }
             }
+            // Controller-owned routes may have accepted this exact command before
+            // native startup. Its public text must not become the SDK envelope.
+            const initialAlreadyAccepted = !!(
+              options?.initialClientMsgId &&
+              store?.hasUserMessage(resolvedSessionId, options.initialClientMsgId)
+            );
             // Persist session metadata (including initial prompt) to durable store
             if (store) {
               store.upsertSession({
@@ -724,14 +730,14 @@ async function _runQueryLoopInner(
                 mode: currentSession.mode,
                 branch: currentSession.branch,
                 ...(currentSession.worktreePath ? { wtId: currentSession.wtId } : {}),
-                ...(initialPrompt ? { initialPrompt } : {}),
+                ...(initialPrompt && !initialAlreadyAccepted ? { initialPrompt } : {}),
                 ...(currentSession.telosTaskId ? { telosTaskId: currentSession.telosTaskId } : {}),
                 ...(currentSession.agentName ? { agentName: currentSession.agentName } : {}),
                 ...(currentSession.bootContext
                   ? { bootContext: JSON.stringify(currentSession.bootContext) }
                   : {}),
               });
-              if (initialPrompt) {
+              if (initialPrompt && !initialAlreadyAccepted) {
                 // Store the initial prompt as a user_message event so
                 // extractRecentPrompts() can find it for auto-rename.
                 const now = Date.now();

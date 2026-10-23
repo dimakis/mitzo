@@ -50,6 +50,7 @@ export const {
   revokeOperatorSessions,
   setRevocationStore: setAuthRevocationStore,
   hasPersistentRevocationAuthority,
+  isAuthenticatedOperatorSessionId,
 } = interactive;
 const { isSessionRevoked } = interactive;
 export type { AuthSession } from './interactive-auth-core.js';

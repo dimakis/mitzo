@@ -1577,6 +1577,34 @@ describe('runQueryLoop', () => {
       expect(stored.some((e) => e.type === 'session_end')).toBe(true);
     });
 
+    it('preserves a controller-accepted first prompt without echoing its internal SDK envelope', async () => {
+      const sessionId = 'owned-vertex';
+      registry.get(clientId)!.sessionId = sessionId;
+      store.upsertSession({ sessionId, cwd: '/tmp', initialPrompt: 'Read the budget' });
+      store.append(sessionId, 'user_message', {
+        v: 2,
+        type: 'user_message',
+        messageId: 'accepted',
+        text: 'Read the budget',
+      });
+      await runQueryLoop(
+        eventStream([
+          { type: 'assistant', message: { content: [] }, session_id: sessionId },
+          { type: 'result', session_id: sessionId },
+        ]),
+        clientId,
+        registry,
+        abortController,
+        store,
+        'Mitzo repository workspace offline: local/primary. Setup instructions.\n\nRead the budget',
+        { initialClientMsgId: 'accepted' },
+      );
+      expect(
+        store.getSessionEvents(sessionId).filter((event) => event.type === 'user_message'),
+      ).toHaveLength(1);
+      expect(store.getSession(sessionId)?.initialPrompt).toBe('Read the budget');
+    });
+
     it('persists initial prompt on session metadata when sessionId resolves', async () => {
       const events: Record<string, unknown>[] = [
         { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-ip' } } },

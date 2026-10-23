@@ -1,5 +1,6 @@
 import {
   parseLocalCommandDelivery,
+  localCommandSessionId,
   OrdinaryCommandDeliverySchema,
   type OrdinaryCommandPhase,
   type OrdinaryCommandDelivery,
@@ -159,6 +160,8 @@ export interface MitzoStoreState {
     observers?: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned'> & { draftId?: string },
   ): boolean;
   recoverLocalCommand(): boolean;
+  selectLocalCommandDraft(draftId: string): void;
+  selectLocalCommandSession(sessionId: string): void;
   // Actions — chat
   dispatchMessages(action: MessagesAction): void;
   getConnectionId(): string | null;
@@ -333,6 +336,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     ? new SseConnection(options.sseConfig)
     : new MitzoConnection(options.wsConfig);
 
+  let localCommandScope: { draftId: string } | { sessionId: string } | null | undefined;
+  let visibleLocalCommandId: string | undefined;
   let reviewedAuthenticated = options.initiallyAuthenticated !== false;
   let reviewedSendScope = Date.now();
   let taskReadSequence = 0;
@@ -375,6 +380,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           headers: () => ({ 'X-Connection-ID': connection.getConnectionId() ?? '' }),
           notify(event) {
             if (event.type !== '_local_command_state') return;
+            if (event.state === 'idle') {
+              visibleLocalCommandId = undefined;
+              store.setState({ localCommand: null, sendStatus: null });
+              return;
+            }
             let request: LocalCommandRequest | undefined;
             let ordinaryDelivery: OrdinaryCommandDelivery | undefined;
             try {
@@ -399,26 +409,40 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 running: store.getState().messages.running,
               });
             const locationLabel = request?.runOn === 'openshell' ? 'OpenShell' : 'Local';
-            store.setState({
-              localCommand: {
-                request,
-                ...(ordinaryDelivery ? { ordinaryPhase: ordinaryDelivery.phase } : {}),
-                ...(ordinaryDelivery?.version === 1
-                  ? { preparedSessionId: ordinaryDelivery.sessionId }
-                  : {}),
-                state,
-                sessionId,
-                ...(typeof event.originDraftId === 'string'
-                  ? { originDraftId: event.originDraftId }
-                  : {}),
-              },
-              sendStatus:
-                state === 'consumed'
-                  ? `${locationLabel} command dispatched.`
-                  : state === 'pending'
-                    ? `Sending ${locationLabel} command…`
-                    : `${locationLabel} command retained. Review before retrying.`,
-            });
+            const visible =
+              localCommandScope == null
+                ? visibleLocalCommandId === undefined ||
+                  visibleLocalCommandId === request?.clientMsgId
+                : 'draftId' in localCommandScope
+                  ? localCommandScope.draftId === event.originDraftId
+                  : localCommandScope.sessionId ===
+                    localCommandSessionId(
+                      request,
+                      ordinaryDelivery?.version === 1 ? ordinaryDelivery.sessionId : sessionId,
+                    );
+            if (visible) {
+              visibleLocalCommandId = request?.clientMsgId;
+              store.setState({
+                localCommand: {
+                  request,
+                  ...(ordinaryDelivery ? { ordinaryPhase: ordinaryDelivery.phase } : {}),
+                  ...(ordinaryDelivery?.version === 1
+                    ? { preparedSessionId: ordinaryDelivery.sessionId }
+                    : {}),
+                  state,
+                  sessionId,
+                  ...(typeof event.originDraftId === 'string'
+                    ? { originDraftId: event.originDraftId }
+                    : {}),
+                },
+                sendStatus:
+                  state === 'consumed'
+                    ? `${locationLabel} command dispatched.`
+                    : state === 'pending'
+                      ? `Sending ${locationLabel} command…`
+                      : `${locationLabel} command retained. Review before retrying.`,
+              });
+            }
             if (!request) return;
             // Only a validated202 acknowledges this submitted request; a retained409
             // session is an observation and must not consume its launch identity.
@@ -627,6 +651,25 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     const observer = deliveryObservers.get(id);
     const sessionId = deliverySessions.get(id);
     const origin = deliveryOrigins.get(id);
+    if (source === 'local' && status === 'uncertain' && !origin?.sessionId)
+      store.setState((s) => ({
+        messages: {
+          ...s.messages,
+          // No acknowledged conversation owns this draft's optimistic spinner.
+          // Retain its message and frozen recovery request; a selected session,
+          // real stream or newer draft keeps its independently owned busy state.
+          ...(origin?.control === 'send' &&
+          !origin.running &&
+          s.sessions.active === null &&
+          origin.historyRequest === historyRequest &&
+          origin.launchGeneration === launchGeneration &&
+          !s.messages.current &&
+          Object.keys(s.messages.currentByMessage).length === 0 &&
+          s.messages.messages.filter((m) => m.role === 'user').at(-1)?.messageId === id
+            ? { running: false }
+            : {}),
+        },
+      }));
     if (observer && status === 'failed') {
       pendingOptimisticMessageIds.delete(id);
       store.setState((s) => ({
@@ -674,7 +717,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   }
   function confirmPersistedDelivery(sessionId: string, messages: FinishedMessage[]) {
     for (const message of messages)
-      if (message.role === 'user' && matchesDeliverySession(message.messageId, sessionId))
+      if (message.role === 'user' && isLocalDelivery(message.messageId))
+        void localOutbox?.reconcileLocalCommand(message.messageId);
+      else if (message.role === 'user' && matchesDeliverySession(message.messageId, sessionId))
         settleDelivery(message.messageId, 'accepted');
   }
 
@@ -891,12 +936,21 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         ? parserState.currentSessionId !== ordinaryDelivery.sessionId
         : 'sessionId' in frozen
           ? parserState.currentSessionId !== frozen.sessionId
-          : !!parserState.currentSessionId) ||
-      (store.getState().localCommand && store.getState().localCommand!.state !== 'consumed')
+          : !!parserState.currentSessionId)
     )
       return false;
     if (frozen.payload.sourceSnapshots?.length && options.sendHandoff?.prepare(frozen) === false)
       return false;
+    const sessionId = localCommandSessionId(
+      frozen,
+      ordinaryDelivery?.version === 1 ? ordinaryDelivery.sessionId : undefined,
+    );
+    localCommandScope = opts.draftId
+      ? { draftId: opts.draftId }
+      : sessionId
+        ? { sessionId }
+        : undefined;
+    visibleLocalCommandId = frozen.clientMsgId;
     observeDelivery(frozen.clientMsgId, opts, 'send', 'local');
     const sent = localOutbox.enqueue(frozen, Date.now(), opts.draftId, ordinaryDelivery);
     if (!sent) {
@@ -1074,6 +1128,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     newSession() {
+      localCommandScope = null;
+      visibleLocalCommandId = undefined;
       ++launchGeneration;
       set({ pendingSession: null, pendingSessionSending: false });
       unconfirmedPermissionResponses.clear();
@@ -1121,11 +1177,21 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     sendOrdinaryWorkspaceCommand(request, phase, opts = {}) {
       return sendOwnedLocalCommand(request, opts, { version: 2, phase });
     },
+    selectLocalCommandDraft(draftId) {
+      localCommandScope = { draftId };
+      visibleLocalCommandId = undefined;
+      localOutbox?.selectLocalDraft(draftId);
+    },
+    selectLocalCommandSession(sessionId) {
+      localCommandScope = { sessionId };
+      visibleLocalCommandId = undefined;
+      localOutbox?.selectLocalSession(sessionId);
+    },
     recoverLocalCommand() {
       return (
         !!reviewedAuthenticated &&
         !!connection.getConnectionId() &&
-        !!localOutbox?.retryLocalCommand()
+        !!localOutbox?.retryLocalCommand(get().localCommand?.request?.clientMsgId)
       );
     },
     sendMessage(text: string, opts?: SendMessageOptions) {
@@ -1890,6 +1956,20 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     const eventSessionId = msg.sessionId as string | undefined;
+    if (
+      eventSessionId &&
+      ['message_start', 'session_end', 'ordinary_provider_dispatch_started'].includes(
+        String(msg.type),
+      )
+    ) {
+      for (const [id, origin] of deliveryOrigins)
+        if (
+          origin.delivery === 'local' &&
+          (origin.sessionId ?? origin.observedSessionId) === eventSessionId
+        )
+          void localOutbox?.reconcileLocalCommand(id);
+    }
+
     // Explicit view selection owns rendering and controls, independently of
     // the originating Local draft's pending HTTP acknowledgement.
     const selectedEventSession =

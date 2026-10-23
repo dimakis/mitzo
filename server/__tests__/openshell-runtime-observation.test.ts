@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { tracer } from '../tracing.js';
 const child = vi.hoisted(() => ({ execFile: vi.fn() }));
 vi.mock('node:child_process', () => ({ execFile: child.execFile }));
 import {
@@ -275,4 +276,68 @@ it('successful JSON observation contains metadata only and frozen payloads', asy
   expect(events.map((event) => event.stage)).toEqual(['start', 'terminal', 'parsed']);
   expect(events.every(Object.isFrozen)).toBe(true);
   expect(JSON.stringify(events)).not.toContain('PRIVATE_VALUE');
+});
+
+it('exports cold create/readiness/postcreate phases even without diagnostic observers', async () => {
+  const spans = new Map<
+    string,
+    {
+      setStatus: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+      recordException: ReturnType<typeof vi.fn>;
+      setAttribute: ReturnType<typeof vi.fn>;
+    }
+  >();
+  const starting = vi.spyOn(tracer, 'startSpan').mockImplementation((name) => {
+    const span = {
+      setStatus: vi.fn(),
+      end: vi.fn(),
+      recordException: vi.fn(),
+      setAttribute: vi.fn(),
+    };
+    spans.set(name, span);
+    return span as unknown as ReturnType<typeof tracer.startSpan>;
+  });
+  let finish!: () => void;
+  const creating = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  let physical: Record<string, unknown> | undefined;
+  const run = vi.fn(async (args: readonly string[]) => {
+    if (args.includes('create')) {
+      await creating;
+      physical = {
+        name: args[args.indexOf('--name') + 1],
+        id: 'PRIVATE_PHYSICAL',
+        phase: 'Ready',
+        labels: Object.fromEntries(
+          args.flatMap((value, index) => (args[index - 1] === '--label' ? [value.split('=')] : [])),
+        ),
+      };
+      return JSON.stringify(physical);
+    }
+    if (args.includes('get') && physical) return JSON.stringify(physical);
+    throw Error('not found PRIVATE_VALUE');
+  });
+  const preparing = new OpenShellRuntimeManager(base, run).ensure(
+    'PRIVATE_CONVERSATION',
+    new AbortController().signal,
+  );
+  try {
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(spans.has('openshell.ensure.sandbox-create')).toBe(true);
+    expect(spans.get('openshell.ensure.sandbox-create')!.end).not.toHaveBeenCalled();
+  } finally {
+    finish();
+    await preparing;
+    starting.mockRestore();
+  }
+  expect(spans.has('openshell.ensure.sandbox-ready')).toBe(true);
+  expect(spans.has('openshell.ensure.connections-postcreate')).toBe(true);
+  for (const span of spans.values()) {
+    expect(span.end).toHaveBeenCalledOnce();
+    expect(span.recordException).not.toHaveBeenCalled();
+    expect(span.setAttribute).not.toHaveBeenCalled();
+    expect(JSON.stringify(span.setStatus.mock.calls)).not.toMatch(/PRIVATE|not found/);
+  }
 });

@@ -237,6 +237,7 @@ export function createConnectionsRuntime(options: {
       gatewayBinding,
       workspace: options.workspace,
       gate: (work) => service.withCredentialMutation(work),
+      readGate: (work, signal) => service.withCredentialRead(work, signal),
     });
   }
   if (options.openAIEnrollmentDatabase) {
@@ -255,6 +256,7 @@ export function createConnectionsRuntime(options: {
       gatewayBinding,
       workspace: options.workspace,
       gate: (work) => service.withCredentialMutation(work),
+      readGate: (work, signal) => service.withCredentialRead(work, signal),
       existingAccountIds: () =>
         options.configuredAccountIds?.() ??
         (options.openAIKeyAccounts?.() ?? []).map((account) => account.id),

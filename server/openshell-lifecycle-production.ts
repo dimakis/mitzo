@@ -86,17 +86,24 @@ export function createOpenShellLifecycleProductionAdapter(
             if (terminal.has(task.status)) return false;
             // Delegation retains custody without claiming the legacy session
             // field or dispatching work. That immutable owner also protects cleanup.
-            if (
-              deps.taskStore.getTelosExecutionBinding(task.id)?.workerConversationId ===
-              record.conversationId
-            )
-              return true;
+            const worker = deps.taskStore.getTelosExecutionBinding(task.id)?.workerConversationId;
+            if (worker === record.conversationId) return true;
             const owner = task.sessionId;
             if (!owner) return false;
             const isConversation = owner === record.conversationId;
             const isDurableClient = owner === record.ownerClientId;
-            const isLiveClient = clients.get(owner) === record.conversationId;
-            if (!isConversation && !isDurableClient && !isLiveClient) return false;
+            const liveConversation = clients.get(owner);
+            const isLiveClient = liveConversation === record.conversationId;
+            if (!isConversation && !isDurableClient && !isLiveClient) {
+              // Historical records may have no durable client identity. A
+              // disconnected assigned task could still own this workspace;
+              // only an explicit other worker/conversation excludes it.
+              if (!record.ownerClientId && !worker && !liveConversation) {
+                blockers.push('ambiguous_ownership');
+                return true;
+              }
+              return false;
+            }
             if (isDurableClient && !clients.has(owner)) blockers.push('ambiguous_ownership');
             return true;
           })

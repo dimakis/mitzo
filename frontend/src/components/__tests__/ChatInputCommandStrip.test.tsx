@@ -223,7 +223,7 @@ describe('ChatInput command strip', () => {
   it('keeps image attachment directly available while retaining the session tray source action', () => {
     render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
     expect(screen.getByRole('button', { name: 'Commands' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Attach image' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Attach images or PDF' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
     expect(screen.getByRole('button', { name: 'Add images' })).toBeTruthy();
   });

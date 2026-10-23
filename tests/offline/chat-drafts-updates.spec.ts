@@ -1057,6 +1057,8 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue('');
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
   await openChatSetting(page, 'repository');
+  await expect(page.getByText('draft/briefing', { exact: true })).toBeHidden();
+  await page.locator('summary').filter({ hasText: 'Checkout details' }).click();
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
   await expect
     .poll(() =>
@@ -1070,6 +1072,8 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
   await page.reload();
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
   await openChatSetting(page, 'repository');
+  await expect(page.getByText('draft/briefing', { exact: true })).toBeHidden();
+  await page.locator('summary').filter({ hasText: 'Checkout details' }).click();
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
   await expect
     .poll(() =>

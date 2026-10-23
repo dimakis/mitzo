@@ -105,8 +105,19 @@ export function createOrdinaryLocalVertexSdkQuery<
         throw error;
       }
     };
+    const cliGuidance =
+      '\nThis is the selected local Mac Claude SDK route. Native Bash, Read, Glob and Grep use the existing session permissions. For service tasks, inspect workspace instructions and available local CLI tools before concluding access is unavailable. For Google Workspace, check command -v gws and gws --help with Bash; a missing Sheets MCP tool does not establish that the local CLI is unavailable. CLI presence does not establish authentication: try only the authorized service read and report its actual result. Do not run gws auth login or search for credentials to repair access.\n';
+    const systemPrompt = owners.options.systemPrompt;
     const options: Options = {
       ...owners.options,
+      // The command owner requires the native stdin acknowledgement before a
+      // terminal result can settle its exact FIFO entry. The SDK omits this flag.
+      extraArgs: { ...owners.options.extraArgs, 'replay-user-messages': null },
+      systemPrompt: Array.isArray(systemPrompt)
+        ? [...systemPrompt, cliGuidance]
+        : typeof systemPrompt === 'object'
+          ? { ...systemPrompt, append: (systemPrompt.append ?? '') + cliGuidance }
+          : (systemPrompt ?? '') + cliGuidance,
       hooks,
       canUseTool,
       ...(owners.options.spawnClaudeCodeProcess

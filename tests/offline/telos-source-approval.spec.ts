@@ -1,4 +1,5 @@
 import { navigateWithServiceHealth } from '../support/service-health-navigation';
+import { waitForNewFixtureReads } from '../support/fixture-reads';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -691,7 +692,11 @@ for (const theme of ['dark', 'light'] as const)
         expect(replay).toHaveLength(1);
         expect(replay[0]).toMatchObject({ reviewKind: 'telos_source', recoveryOnly: true });
         await page.clock.install();
-        await page.clock.fastForward(121_000);
+        // Finish the next profile poll before unloading this document. WebKit
+        // otherwise reports its intercepted fetch on reload as a pageerror.
+        await waitForNewFixtureReads(page, ['/api/symposium/profile-proposals'], () =>
+          page.clock.fastForward(121_000),
+        );
         expect(await page.evaluate(() => Date.now())).toBeGreaterThan(originalDeadline);
         recoveryReadUnavailable = true;
         const previewCountBeforeRecovery = previews.length;

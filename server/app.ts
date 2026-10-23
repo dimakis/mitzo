@@ -9,7 +9,10 @@ import {
 import { hasPersistentRevocationAuthority, isAuthSessionCurrent } from './auth.js';
 import { createOrdinaryWorkspacePreparationRouter } from './ordinary-workspace-router.js';
 import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
-import { getOrdinaryWorkspaces } from './repository-workspace-runtime.js';
+import {
+  getOrdinaryWorkspaces,
+  getLocalRepositoryWorkspaces,
+} from './repository-workspace-runtime.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { OrdinaryWorkspaceSettingsSchema } from '@mitzo/protocol';
 import { readSandboxOwnershipReview } from './sandbox-ownership-review.js';
@@ -3136,6 +3139,14 @@ app.use(
   createRepositoryWorkspaceRouter({
     resolveBinding: repositoryWorkspaceBinding,
     catalog: repositoryWorkspaceCatalog,
+    selectLocal: (binding, repositoryId, runtime, signal, requestId) =>
+      getLocalRepositoryWorkspaces().selectLocalRepository(
+        binding,
+        repositoryId,
+        runtime,
+        signal,
+        requestId,
+      ),
     chatPreparation: (id) => {
       const service = getRepositoryWorkspaces(true);
       const record = service.get(id);
@@ -3597,7 +3608,9 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
           !isAuthSessionCurrent(auth) ||
           custodianControllerClient ||
           custodianOwnerMode ||
-          process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1'
+          (eventStore.getSessionRuntimeBinding(meta.sessionId)?.execution.location === 'openshell'
+            ? process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED
+            : process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED) !== '1'
         )
           throw Error('Current ordinary operator unavailable');
         resolveTelosWorkCommandScope(
@@ -3958,8 +3971,12 @@ const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
 
 function isRemoteSessionArtifact(sessionId: string) {
   const meta = eventStore.getSession(sessionId);
-  // The ordinary owner is local and must fail closed there, never as a sandbox fallback.
-  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return false;
+  // Ordinary identity covers both host and sandbox workspaces. Its retained
+  // runtime binding selects the reader; custody validation still owns access.
+  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) {
+    const runtime = eventStore.getSessionRuntimeBinding(sessionId);
+    return runtime?.version === 2 && runtime.execution.location === 'openshell';
+  }
   if (!meta?.accountBinding)
     return Boolean(meta?.cwd?.startsWith('/sandbox/') && !isConfiguredAllowedPath(meta.cwd));
   if (!['openai', 'openai-codex'].includes(meta.accountBinding.provider)) return false;

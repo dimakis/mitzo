@@ -326,6 +326,7 @@ export class OpenAIAccountEnrollment {
       validateKey: (value: string, signal: AbortSignal) => Promise<void>;
       discoverModels?: (value: string, signal: AbortSignal) => Promise<CatalogModel[]>;
       gate: <T>(work: () => Promise<T>) => Promise<T>;
+      readGate?: <T>(work: () => Promise<T>, signal: AbortSignal) => Promise<T>;
       existingAccountIds: () => readonly string[];
       gatewayBinding: string;
       workspace: string;
@@ -466,8 +467,14 @@ export class OpenAIAccountEnrollment {
     id: string,
     signal: AbortSignal,
     work: (key: string, observation: OpenAIEnrollmentCredentialObservation) => Promise<T>,
+    readOnly = false,
   ): Promise<T> {
-    return this.options.gate(async () => {
+    const gate =
+      readOnly && this.options.readGate
+        ? <R>(read: () => Promise<R>) => this.options.readGate!(read, signal)
+        : this.options.gate;
+    return gate(async () => {
+      signal.throwIfAborted();
       const captured = await this.verifiedCredential(id, signal);
       // Callback failures belong to their caller and must retain their identity.
       const result = await work(captured.key, captured.observation);
@@ -492,6 +499,38 @@ export class OpenAIAccountEnrollment {
     this.options.store.close();
   }
   resolveKey(id: string, signal: AbortSignal) {
-    return this.withVerifiedCredential(id, signal, async (key) => key);
+    return this.withVerifiedCredential(id, signal, async (key) => key, true);
+  }
+  /** Canonical host custody, independent of live sandbox replica availability. */
+  resolveHostKey(id: string, signal: AbortSignal): Promise<string> {
+    const gate = this.options.readGate
+      ? <R>(read: () => Promise<R>) => this.options.readGate!(read, signal)
+      : this.options.gate;
+    return gate(async () => {
+      signal.throwIfAborted();
+      const row = this.options.store.account(id);
+      if (
+        !row ||
+        row.phase !== 'ready' ||
+        !row.provider ||
+        row.controllerBinding !== this.controllerBinding() ||
+        row.provider.workspace !== this.options.workspace
+      )
+        throw new Error('OpenAI enrolled account needs attention');
+      const key = await this.options.keychain.read(
+        openAIEnrollmentCredentialReference(row.operationId),
+        signal,
+      );
+      signal.throwIfAborted();
+      if (
+        key.version !== row.operationId ||
+        key.managed !== true ||
+        !key.value.trim() ||
+        !isDeepStrictEqual(this.options.store.account(id), row) ||
+        row.controllerBinding !== this.controllerBinding()
+      )
+        throw new Error('OpenAI enrolled account needs attention');
+      return key.value;
+    });
   }
 }

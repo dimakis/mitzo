@@ -5,7 +5,8 @@ import {
 } from './ordinary-repository-preparation-authority.js';
 import { githubRepositoryConnections } from './github-repository-connections.js';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { loadRepoConfig } from './repo-config.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { loadAccountProfiles } from './account-profiles.js';
 import { getConnectionsRuntime } from './connections-runtime.js';
@@ -56,7 +57,31 @@ export function repositoryWorkspaceBinding(accountId: string, model: string) {
     throw new Error('Native Symposium accounts are unavailable for ordinary repository chats');
   return binding;
 }
-export function repositoryWorkspaceCatalog(binding: AccountBinding) {
+export function configuredLocalRepositories(): Readonly<Record<string, string>> {
+  const base = process.env.REPO_PATH;
+  return base ? { ...loadRepoConfig(base).repos, primary: base } : {};
+}
+function localRepositoryWorkspacesEnabled() {
+  return ['CODEX', 'RESPONSES', 'VERTEX', 'GEMINI'].some(
+    (harness) => process.env[`MITZO_ORDINARY_LOCAL_${harness}_ENABLED`] === '1',
+  );
+}
+export function repositoryWorkspaceCatalog(binding: AccountBinding, runOn?: 'local' | 'openshell') {
+  if (runOn === 'local')
+    return {
+      location: 'local',
+      available: localRepositoryWorkspacesEnabled(),
+      repositories: localRepositoryWorkspacesEnabled()
+        ? Object.entries(configuredLocalRepositories())
+            .filter(([id]) => /^[A-Za-z0-9._-]+$/.test(id))
+            .map(([repositoryId, path]) => ({
+              repositoryId,
+              connectionId: 'local',
+              repository: `local/${repositoryId.toLowerCase()}`,
+              label: basename(path),
+            }))
+        : [],
+    };
   if (!repositoryWorkspacesEnabled()) return { available: false, repositories: [] };
   const runtime = getConnectionsRuntime();
   const connections = runtime?.store.list('operator') ?? [];
@@ -85,13 +110,16 @@ export function repositoryWorkspaceCatalog(binding: AccountBinding) {
   return { available: true, repositories };
 }
 /** Lazy, explicit enrollment: importing the app performs no source acquisition or metadata writes. */
-function workspaceOwner(readOnly = false, ordinary = false) {
+function workspaceOwner(readOnly = false, ordinary = false, local = false) {
   if (idleReleased) throw Error('Repository workspace owner released');
   if (
     !readOnly &&
-    (ordinary
-      ? process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1'
-      : !repositoryWorkspacesEnabled())
+    (local
+      ? !localRepositoryWorkspacesEnabled()
+      : ordinary
+        ? process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' &&
+          process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED !== '1'
+        : !repositoryWorkspacesEnabled())
   )
     throw new Error(
       ordinary
@@ -105,6 +133,7 @@ function workspaceOwner(readOnly = false, ordinary = false) {
   )
     throw new Error('Repository preparation state is unavailable');
   service ??= new RepositoryWorkspaces(join(codexPrivateDirectory(), 'repository-sources'), {
+    localRepositories: configuredLocalRepositories,
     ordinaryPreparation: {
       capture: captureOrdinaryRepositoryPreparation,
       assert: assertOrdinaryRepositoryPreparation,
@@ -198,6 +227,10 @@ export function readRepositoryWorkspaceForConversation(
 /** Existing repository callers keep their original enrollment gate. */
 export function getRepositoryWorkspaces(readOnly = false) {
   return workspaceOwner(readOnly);
+}
+/** Local selection reuses configured checkouts and the existing workspace ledger. */
+export function getLocalRepositoryWorkspaces() {
+  return workspaceOwner(false, false, true);
 }
 /** Same allocation/custody owner and SQLite, without requiring a Git feature grant. */
 export function getOrdinaryWorkspaces(readOnly = false) {

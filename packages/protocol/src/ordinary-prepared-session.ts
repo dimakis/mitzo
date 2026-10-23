@@ -46,12 +46,13 @@ export const OrdinarySessionPreparationReceiptV2Schema = z
     (receipt) =>
       receipt.workspaceId !== receipt.sessionId &&
       receipt.workspaceId !== receipt.settings.workspace.preparationId &&
-      receipt.settings.binding.account.provider === 'openai-codex' &&
+      (receipt.settings.binding.execution.location === 'local'
+        ? receipt.settings.binding.account.provider === 'openai-codex'
+        : ['openai', 'openai-codex'].includes(receipt.settings.binding.account.provider)) &&
       receipt.settings.binding.harness.implementation === 'codex' &&
-      receipt.settings.binding.execution.location === 'local' &&
       receipt.settings.selection.context.source === 'none' &&
       receipt.settings.selection.permission.revision === 0,
-    'An ordinary preparation requires distinct identities and the supported local Codex route',
+    'An ordinary preparation requires distinct identities and the supported Codex route',
   );
 export type OrdinarySessionPreparationReceiptV2 = z.infer<
   typeof OrdinarySessionPreparationReceiptV2Schema

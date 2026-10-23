@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { SpanStatusCode } from '@opentelemetry/api';
+import { tracer } from './tracing.js';
 
 const phases = {
   runtime_admission: 'runtime admission',
@@ -111,10 +113,17 @@ export async function duringCodexStartup<T>(
   phase: ConstructorParameters<typeof CodexStartupError>[0],
   action: () => T | Promise<T>,
 ): Promise<T> {
+  // Internal fixed phases and status only: native causes can contain secrets.
+  const span = tracer.startSpan(`codex.startup.${phase}`);
   try {
-    return await action();
+    const result = await action();
+    span.setStatus({ code: SpanStatusCode.OK });
+    return result;
   } catch (cause) {
+    span.setStatus({ code: SpanStatusCode.ERROR });
     if (cause instanceof CodexStartupError) throw cause;
     throw new CodexStartupError(phase, cause);
+  } finally {
+    span.end();
   }
 }

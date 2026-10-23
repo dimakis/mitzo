@@ -47,6 +47,14 @@ the approved chat-settings rows, shared controls, tokens, keyboard interaction
 and motion remain unchanged. Offline picker and prepared-chat regressions cover
 both built-ins on Host Mac API and subscription routes without model calls.
 
+Default OpenShell chats use the existing composer status for workspace-specific
+agent eligibility. An unsupported saved-context agent is explained before Send
+is enabled; choosing Default Mitzo preserves the draft without sending it.
+Explicit repository contexts retain their existing admission. Intercepted browser
+checks cover both account routes, both themes and mobile/desktop layouts.
+Inspected offline captures: [phone](assets/default-openshell-context-mobile-dark.png)
+and [desktop](assets/default-openshell-context-desktop-light.png).
+
 `frontend/src/styles/tokens.css` owns every app palette literal and font stack. It loads before component styles in the production and fixture entry points. Components use semantic variables in CSS and React inline styles. The old `--accent`, `--ui-font`, `--text`, `--bg`, and `--workspace-*` names are aliases to that same source; never give them a second palette.
 
 - Actions and selection: `--color-accent`, with `--color-on-accent` for filled controls. Accent panels derive from the accent and background using `color-mix`.
@@ -337,6 +345,32 @@ request keeps its original settings snapshot. Consumed receipt settings are labe
 remain independently disabled. Metadata loading/failure never enables legacy
 fallback; Retry preserves the conversation and draft.
 
+Unconfirmed Local/OpenShell sends reuse the composer's existing status row with
+one short failure message and one **Retry** action. The action asks the owning outbox
+to check the frozen original request; it does not rebuild or automatically replay
+edited draft content. Retry stays disabled while disconnected. No diagnostic panel,
+repeated payload, account/model summary or duplicate delivery row is shown.
+Unassigned optimistic progress stops on uncertainty; real conversation progress
+keeps its owner and the edited draft remains intact.
+Retained delivery belongs to its originating draft or conversation. New chat, a
+different saved draft and a prepared conversation get independent first-send
+controls and commands; an older uncertain attempt
+cannot disable their Send button or substitute its payload. Opening the original
+draft selects its exact recovery request without dispatching it. Only deliberately
+submitted or explicitly retried entries enter the serial delivery queue.
+Authentication loss retains queued first sends for manual recovery without replay.
+Inspected current application captures: [phone initial send](assets/local-initial-send-mobile-dark.png)
+and [desktop initial send](assets/local-initial-send-desktop-light.png). Traffic is
+intercepted; these verify composer state and HTTP delivery, not a model response.
+
+`ChatStatusMessage` shares this optional action pattern with `ChatInput`, using the
+existing `home-secondary` control, semantic colors, shared spacing and 44px touch
+target. All-intercept real application/shell checks cover all four local account
+types, HTTP 409 and transport loss, exact keyboard recovery, 320px phones and
+1280px desktop, dark Mint/System and light Teal/Georgia. Inspected captures show
+[mobile retry](assets/local-command-recovery-mobile-dark.png) and
+[desktop retry](assets/local-command-recovery-desktop-light.png).
+
 New session elsewhere creates a separately owned blank draft with copied intent
 and no inherited repository preparation. The explicit retained-intent flag keeps
 that blank draft recoverable without changing ordinary empty-draft behavior. Its
@@ -494,6 +528,24 @@ Closing it restores access to the retained draft.
 The settings body owns scrolling between those actions. A 60dvh cap is
 the fallback before measurement, bounded by the viewport. These bounds are structural overlay geometry;
 colors, type, spacing and controls remain shared.
+
+## PDF imports
+
+The existing Attach action accepts PDFs alongside images. PDFs render locally into
+ordered page images, preserving scanned pages and diagrams through the existing
+provider image transport. Imports share the ten-image/page message budget and
+reject PDFs over 20 MB or rendered pages over 12 MB without silently truncating a
+document. Filename/page labels survive saved drafts and image edits and accompany
+the submitted prompt.
+
+This reuses ComposerTools, the thumbnail strip, SessionResourcesDialog,
+ImageAttachmentEditor and the existing composer status row. No palette, type,
+spacing, motion or approved Chat settings layout changes. Loading blocks submission;
+errors preserve the question and prior attachments. Pending work remains bound to
+its originating composer. The all-intercept PDF fixture checks actual PDF.js worker
+rendering, text/vector and scanned pages, preview, errors and submitted page count
+in 320px mobile WebKit/Chromium and 1280px desktop Chromium, dark Mint/System and
+light Teal/Georgia, using the deployed CSP. It invokes no backend or model.
 
 ## Draft image preview and drawing
 
@@ -2016,6 +2068,53 @@ Pending chat-type qualification renders only pure progress/error feedback beside
 the disabled input; it does not mount the ordinary queue or send owner early.
 Outline warnings use the semantic warning foreground on a transparent background;
 filled controls retain their existing paired foreground contrast checks.
+
+## Repository settings editor
+
+The ordinary Repository editor uses the current Chat settings sheet's surface,
+padding and scrolling owner. Its settings variant removes the nested repository
+card and duplicate heading, uses the shared secondary controls and semantic
+type/spacing/radius tokens, and puts branch/commit metadata in the existing native
+Checkout details disclosure. Pending preparation shows the original repository,
+its status and read-only refresh action without repeating source-selection or
+prepare controls. The main approved settings rows and ledger revision are retained.
+
+Local Mac offers the repositories already configured on the host through the same
+editor. Use repository fetches upstream main and selects the local checkout; no
+GitHub connection, source preview or import step is shown. The existing workspace
+owner creates a linked worktree for the command and retains it for continuation.
+The editor displays the repository's name and keeps branch/commit details in the
+shared disclosure. This workspace behavior is independent of the account provider.
+Selecting a repository is optional for a new local chat: first send uses the
+configured default checkout and creates its isolated worktree. Clearing a local
+selection therefore says Use default repository. The composer validates this
+path before a repository is selected. OpenShell also permits a new chat without a
+repository: the existing runtime manager builds the configured mgmt-enabled
+sandbox. Selecting a repository instead prepares that source for the task sandbox.
+The Repository editor and approved settings hierarchy remain unchanged.
+
+The all-intercept repository-preparation-recovery browser fixture renders the real
+responsive chat route, MobileShell/DesktopShell, settings, picker and composer. It
+covers 320px mobile WebKit/Chromium and 1280px desktop Chromium, dark Mint/System
+and light Teal/Georgia, fresh defaults without repeated account confirmation,
+runtime-change invalidation, lost-response recovery, keyboard focus, reachable
+44px actions and retained draft text. Its local-settings-default and
+local-repository captures are retained by the existing Local first-command CI
+artifact upload. These are offline application renders, not live provider evidence.
+The existing-local captures additionally cover ChatGPT, OpenAI API, Claude Vertex
+and Gemini selections in the same real mobile/desktop routes and themes.
+The same fixture verifies first send without a selected repository for all four
+accounts and preserves the draft when the intercepted send loses its response.
+Inspected final captures: [local phone](assets/local-repository-mobile-dark.png)
+and [local desktop](assets/local-repository-desktop-light.png).
+
+The default-OpenShell fixture additionally checks API and subscription first sends,
+restored drafts, optional Repository settings and lost-response draft retention
+in both themes on all three browsers. It renders the actual responsive app and
+intercepts all traffic; it does not start a live sandbox or call a model. The new
+workspace-default capability is explicitly negotiated so existing client builds
+retain their supported inventory shape. Inspected captures: [OpenShell phone](assets/default-openshell-mobile-dark.png)
+and [OpenShell desktop](assets/default-openshell-desktop-light.png).
 
 ## Telos lifecycle actions
 

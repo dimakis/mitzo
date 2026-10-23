@@ -4,17 +4,33 @@ import {
   type OpenShellCodexCustody,
 } from './openshell-codex-custody.js';
 import type { RuntimeMigration } from './openshell-runtime-migration.js';
-import { HostCodexCustodySchema, type HostCodexCustody } from './host-codex-custody.js';
+import {
+  HostCodexCustodySchema,
+  HostCodexCompanionUpgradePlanSchema,
+  type HostCodexCustody,
+} from './host-codex-custody.js';
+import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { chmodSync, closeSync, openSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { chmodSync, closeSync, openSync, lstatSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
 import { AgentSandboxContextScopeSchema } from '@mitzo/protocol';
 import { z } from 'zod';
+const HostBundleUpgrade = z.strictObject({
+  version: z.literal(1),
+  custody: HostCodexCustodySchema,
+  plan: HostCodexCompanionUpgradePlanSchema,
+});
 import type { OpenShellRuntime, OpenShellAccountRoute } from './openshell-runtime.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import type { PersistedWebSearchGrant, WebSearchGrant } from './web-search-policy.js';
+import {
+  normalizeCodexToolResult,
+  MAX_CODEX_RICH_RESULT_BYTES,
+  type CodexToolResult,
+} from './codex-tool-result.js';
 
 export interface ArtifactRuntime {
   runtime: OpenShellRuntime & { sandboxId: string };
@@ -295,7 +311,7 @@ export class CodexConversationStore {
         UNIQUE(conversation_id,id));
       CREATE TABLE IF NOT EXISTS codex_tools (
         conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, call_id TEXT NOT NULL,
-        turn_id TEXT, tool_name TEXT, request_hash TEXT, result_content TEXT, result_is_error INTEGER,
+        turn_id TEXT, tool_name TEXT, request_hash TEXT, result_content TEXT, result_is_error INTEGER, result_content_items TEXT,
         PRIMARY KEY(conversation_id,call_id),
         FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
       CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
@@ -345,6 +361,7 @@ export class CodexConversationStore {
         ['request_hash', 'TEXT'],
         ['result_content', 'TEXT'],
         ['result_is_error', 'INTEGER'],
+        ['result_content_items', 'TEXT'],
       ] as const)
         if (!toolColumns.some((column) => column.name === name))
           this.db.exec(`ALTER TABLE codex_tools ADD COLUMN ${name} ${type}`);
@@ -355,6 +372,8 @@ export class CodexConversationStore {
         this.db.exec('ALTER TABLE codex_conversations ADD COLUMN openshell_custody TEXT');
       if (!conversationColumns.some((column) => column.name === 'host_custody'))
         this.db.exec('ALTER TABLE codex_conversations ADD COLUMN host_custody TEXT');
+      if (!conversationColumns.some((column) => column.name === 'host_bundle_upgrade'))
+        this.db.exec('ALTER TABLE codex_conversations ADD COLUMN host_bundle_upgrade TEXT');
       if (!conversationColumns.some((column) => column.name === 'artifact_runtime'))
         this.db.exec('ALTER TABLE codex_conversations ADD COLUMN artifact_runtime TEXT');
       if (!conversationColumns.some((column) => column.name === 'owner_kind'))
@@ -700,8 +719,37 @@ export class CodexConversationStore {
         const conversation = this.read(id, binding);
         const previous = this.readHostCustody(id, binding);
         if (previous) {
-          if (!isDeepStrictEqual(previous, snapshot))
-            throw new Error('Host Codex custody cannot be replaced');
+          if (!isDeepStrictEqual(previous, snapshot)) {
+            const { codeModeHost, ...originalExecutable } = snapshot.executable;
+            const journal = this.hostBundleUpgrade(id, binding);
+            const companionPlan =
+              codeModeHost && (({ ownedIdentity: _owned, ...plan }) => plan)(codeModeHost);
+            // A reviewed cold bootstrap can complete the runtime distribution.
+            // This never replaces an owner, credential, main binary or history,
+            // and cannot repair unknown/running work by adopting another bundle.
+            if (
+              previous.executable.codeModeHost ||
+              !journal ||
+              !isDeepStrictEqual(journal.custody, previous) ||
+              !isDeepStrictEqual(journal.plan, companionPlan) ||
+              !codeModeHost ||
+              this.hasRunningCommand(id, binding) ||
+              !isDeepStrictEqual({ ...snapshot, executable: originalExecutable }, previous) ||
+              codeModeHost.path !==
+                join(dirname(previous.executable.path), 'codex-code-mode-host') ||
+              codeModeHost.source !==
+                join(dirname(previous.executable.source), 'codex-code-mode-host') ||
+              !isDeepStrictEqual(
+                codeModeHost.sourceDirectory,
+                previous.executable.sourceDirectory,
+              ) ||
+              !isDeepStrictEqual(codeModeHost.ownedDirectory, previous.executable.ownedDirectory)
+            )
+              throw new Error('Host Codex custody cannot be replaced');
+            this.db
+              .prepare('UPDATE codex_conversations SET host_custody=? WHERE id=?')
+              .run(JSON.stringify(snapshot), id);
+          }
           return;
         }
         if (conversation.threadId || this.commands(id, binding).length)
@@ -712,6 +760,70 @@ export class CodexConversationStore {
           )
           .run(JSON.stringify(snapshot), id).changes;
         if (changed !== 1) throw new Error('Host Codex custody changed concurrently');
+      })
+      .immediate();
+  }
+  private hostBundleUpgrade(id: string, binding: AccountBinding) {
+    this.read(id, binding);
+    const row = this.db
+      .prepare('SELECT host_bundle_upgrade FROM codex_conversations WHERE id=?')
+      .get(id) as { host_bundle_upgrade: string | null };
+    return row.host_bundle_upgrade === null
+      ? undefined
+      : HostBundleUpgrade.parse(JSON.parse(row.host_bundle_upgrade));
+  }
+  /** Durable intent precedes every companion file effect. No native launch or
+   * provider await occurs before completion CAS commits. Interrupted copies can
+   * be rebuilt only under this exact original custody/source/home journal.
+   */
+  completeHostRuntimeBundle(
+    id: string,
+    binding: AccountBinding,
+    raw: HostCodexCustody,
+    executable: FrozenHostCodexExecutable,
+  ): void {
+    const custody = HostCodexCustodySchema.parse(raw);
+    const plan = executable.companionUpgradePlan();
+    if (
+      !plan ||
+      custody.executable.codeModeHost ||
+      !isDeepStrictEqual(executable.custodySnapshot(), custody.executable)
+    )
+      throw Error('Original host bundle upgrade required');
+    const intended = HostBundleUpgrade.parse({ version: 1, custody, plan });
+    this.db
+      .transaction(() => {
+        if (
+          !isDeepStrictEqual(this.readHostCustody(id, binding), custody) ||
+          this.hasRunningCommand(id, binding)
+        )
+          throw Error('Original host bundle upgrade required');
+        this.assertNoPendingThreadDispatch(id, binding);
+        this.assertNoPendingThreadOwnership(id, binding);
+        const previous = this.hostBundleUpgrade(id, binding);
+        if (previous) {
+          if (!isDeepStrictEqual(previous, intended)) throw Error('Host bundle upgrade changed');
+        } else {
+          if (lstatSync(plan.path, { throwIfNoEntry: false }))
+            throw Error('Unexplained host bundle artifact');
+          this.db
+            .prepare('UPDATE codex_conversations SET host_bundle_upgrade=? WHERE id=?')
+            .run(JSON.stringify(intended), id);
+        }
+      })
+      .immediate();
+    executable.completeRuntimeBundle(plan);
+    this.db
+      .transaction(() => {
+        if (
+          !isDeepStrictEqual(this.hostBundleUpgrade(id, binding), intended) ||
+          !isDeepStrictEqual(this.readHostCustody(id, binding), custody)
+        )
+          throw Error('Host bundle upgrade changed');
+        this.setHostCustody(id, binding, { ...custody, executable: executable.custodySnapshot() });
+        this.db
+          .prepare('UPDATE codex_conversations SET host_bundle_upgrade=NULL WHERE id=?')
+          .run(id);
       })
       .immediate();
   }
@@ -2545,13 +2657,15 @@ export class CodexConversationStore {
     commandId: string,
     callId: string,
     identity: { turnId: string; toolName: string; requestHash: string },
-    result: { content: string; isError: boolean },
+    result: CodexToolResult,
   ): void {
+    const checked = normalizeCodexToolResult(result);
+    const items = checked.contentItems ? JSON.stringify(checked.contentItems) : null;
     this.db.transaction(() => {
       this.read(id, b);
       const row = this.db
         .prepare(
-          `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error
+          `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error,result_content_items
         FROM codex_tools WHERE conversation_id=? AND call_id=?`,
         )
         .get(id, callId) as
@@ -2562,6 +2676,7 @@ export class CodexConversationStore {
             request_hash: string | null;
             result_content: string | null;
             result_is_error: number | null;
+            result_content_items: string | null;
           }
         | undefined;
       if (
@@ -2573,16 +2688,20 @@ export class CodexConversationStore {
       )
         throw new Error('Codex tool result identity changed');
       if (row.result_content !== null) {
-        if (row.result_content !== result.content || row.result_is_error !== Number(result.isError))
+        if (
+          row.result_content !== checked.content ||
+          row.result_is_error !== Number(checked.isError) ||
+          row.result_content_items !== items
+        )
           throw new Error('Codex tool result changed');
         return;
       }
       this.db
         .prepare(
-          `UPDATE codex_tools SET result_content=?,result_is_error=?
+          `UPDATE codex_tools SET result_content=?,result_is_error=?,result_content_items=?
         WHERE conversation_id=? AND command_id=? AND call_id=?`,
         )
-        .run(result.content, Number(result.isError), id, commandId, callId);
+        .run(checked.content, Number(checked.isError), items, id, commandId, callId);
     })();
   }
   replayToolResult(
@@ -2591,11 +2710,11 @@ export class CodexConversationStore {
     commandId: string,
     callId: string,
     identity: { turnId: string; toolName: string; requestHash: string },
-  ): { content: string; isError: boolean } | null {
+  ): CodexToolResult | null {
     this.read(id, b);
     const row = this.db
       .prepare(
-        `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error
+        `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error,result_content_items
       FROM codex_tools WHERE conversation_id=? AND call_id=?`,
       )
       .get(id, callId) as
@@ -2606,6 +2725,7 @@ export class CodexConversationStore {
           request_hash: string | null;
           result_content: string | null;
           result_is_error: number | null;
+          result_content_items: string | null;
         }
       | undefined;
     if (
@@ -2616,9 +2736,19 @@ export class CodexConversationStore {
       row.request_hash !== identity.requestHash
     )
       throw new Error('Codex tool replay identity changed');
-    return row.result_content === null
-      ? null
-      : { content: row.result_content, isError: row.result_is_error === 1 };
+    if (row.result_content === null) return null;
+    if (
+      row.result_content_items !== null &&
+      Buffer.byteLength(row.result_content_items) > MAX_CODEX_RICH_RESULT_BYTES
+    )
+      throw Error('Stored tool result exceeds bound');
+    return normalizeCodexToolResult({
+      content: row.result_content,
+      isError: row.result_is_error === 1,
+      ...(row.result_content_items !== null
+        ? { contentItems: JSON.parse(row.result_content_items) }
+        : {}),
+    });
   }
   recoverAtStartup(ownerKind?: 'ordinary' | 'symposium') {
     this.db.transaction(() => {

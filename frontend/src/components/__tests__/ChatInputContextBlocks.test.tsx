@@ -102,7 +102,7 @@ describe('ChatInput with externalContextBlocks', () => {
       <ChatInput {...baseProps} externalContextBlocks={['boot-context']} />,
     );
 
-    expect(screen.getByTitle('Attach image')).toBeTruthy();
+    expect(screen.getByTitle('Attach images or PDF')).toBeTruthy();
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File(['image'], 'image.png')] } });
 
@@ -132,7 +132,7 @@ describe('ChatInput with externalContextBlocks', () => {
     const { container } = render(<ChatInput {...baseProps} />);
     expect(container.querySelector('[data-testid="session-tray"]')).toBeTruthy();
     expect(container.querySelector('.chat-input-btn--context')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Attach image' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Attach images or PDF' })).toBeTruthy();
   });
 
   it('keeps the default empty messages reference stable across renders', () => {
