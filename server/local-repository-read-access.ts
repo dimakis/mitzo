@@ -496,21 +496,24 @@ export class LocalRepositoryReadAccess {
       const batch = this.authority.executeDirectoryVerification;
       if (batch !== undefined && typeof batch !== 'function') throw unavailable();
       if (batch) {
-        results = await batch.call(
-          this.authority,
+        results = await Reflect.apply(batch, this.authority, [
           Object.freeze(requests),
           this.authority.signal ?? new AbortController().signal,
           Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
-        );
+        ]);
         current();
       } else {
         const sequential: Array<{ content: string; is_error: boolean }> = [];
         for (const request of requests) {
           sequential.push(
-            await (this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation)(
-              request,
-              this.authority.signal ?? new AbortController().signal,
-              Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+            await Reflect.apply(
+              this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation,
+              this.authority,
+              [
+                request,
+                this.authority.signal ?? new AbortController().signal,
+                Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+              ],
             ),
           );
           current();

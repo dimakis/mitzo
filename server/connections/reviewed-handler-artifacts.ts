@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.598-atomic-directory-preload';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.599-complete-metadata-directory-batches';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,8 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/local-repository-metadata-directory-batch.test.ts':
+    '52d0953d6d2e1e07fcaa6dd292d63d632e1a406b61a6b723a45af149dada45ed',
   '../__tests__/local-repository-initial-directory-batch.test.ts':
-    '817c8bf469218bf2ee18fb7be7b72e5513b7ce1b8606a1e629d4315fdf8ddc8d',
+    'ca7c70fa5dbc801e97ee64dcf88c6f92c729c2b9bda572c217e71eda764eddb4',
   '../__tests__/fixtures/local-repository-native-tools.ts':
     '7823a1694011217e191bb52716c8176dc34a51ddad39a3825b2703dcf5f8fcc1',
   '../__tests__/native-local-repository-read-projection.test.ts':
@@ -60,7 +63,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-status-semantics.test.ts':
     '82925f3ea489fc6196f620753bb0503ad5e5c6d3d0e18420ea0d92a47aee5f3e',
   '../local-repository-git-inspection.ts':
-    '2a4ed1464ade7024c81cc49c04199ba464c409477d71b7185adf482f8dcc026e',
+    'cd92f5541eb68072e636a3fba814e781cceaf48b570a01afe014a62d6dc6c408',
   '../__tests__/existing-local-repository-workspaces.test.ts':
     '5f33af94efe047dbac10317ba60e9461e0e7e7d598fabaab5d11eac476669e46',
   '../__tests__/agent-communication-native.test.ts':
@@ -81,7 +84,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-repository-git-snapshot.ts':
     '4d788b944d9698345858493a508c4f065a8f014c9c9cdd6510a37f63ee87dfe7',
   '../local-repository-read-access.ts':
-    'cbe1f776260f18cb5db46002eb14adc2d24536bc0a67b166264cc5f683d10506',
+    '12a284a6b29492bbb7bbaeb668b98c65d8d62e9d2f02f6e6c0401fe788314c81',
   '../__tests__/native-anchored-read.test.ts':
     '7322ab8566b3649a90876e253f5d66a8cc631ac7148ee47602c71eaed5123628',
   '../__tests__/local-repository-read-security.test.ts':

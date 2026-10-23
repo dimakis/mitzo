@@ -175,3 +175,79 @@ it('keeps generic no-batch fixture reads sequential and stages them before any c
   await f.access.list(`${root}/b`);
   expect(f.authority.executeReadOperation).toHaveBeenCalledTimes(2);
 });
+
+it('invokes the original batch port with its authority receiver despite an own call-property replacement', async () => {
+  const f = fixture();
+  await f.ready();
+  Object.defineProperty(f.authority.executeDirectoryVerification!, 'call', {
+    value: () => {
+      throw Error('Borrowed callback call property');
+    },
+  });
+  await f.access.preloadDirectories([`${root}/a`, `${root}/b`]);
+  expect(f.authority.executeDirectoryVerification).toHaveBeenCalledOnce();
+});
+
+it.each(['current-reference', 'aggregate-budget', 'aggregate-output'] as const)(
+  'refuses a late %s change without staging earlier cache effects',
+  async (kind) => {
+    const f = fixture();
+    await f.ready();
+    const before = kind === 'aggregate-budget' ? 99999 : 8;
+    if (kind === 'aggregate-budget')
+      Object.defineProperty(f.access, 'totalEntries', { value: before, writable: true });
+    vi.mocked(f.authority.executeDirectoryVerification!).mockImplementation(async (requests) => {
+      if (kind === 'current-reference')
+        Object.defineProperty(f.authority, 'assertCurrentSync', {
+          value: () => {},
+          writable: true,
+          configurable: true,
+        });
+      return requests.map((request) => ({
+        content: JSON.stringify({
+          identity: child(request.file_path.at(-1)!).identity,
+          truncated: false,
+          incomplete: true,
+          entries: [{ ...child('z'), name: 'staged' }],
+          ...(kind === 'aggregate-output' ? { padding: 'x'.repeat(1100000) } : {}),
+        }),
+        is_error: false,
+      }));
+    });
+    const pending = f.access.preloadDirectories([`${root}/a`, `${root}/b`]);
+    if (kind === 'aggregate-budget')
+      await expect(pending).rejects.toMatchObject({ kind: 'limit', reason: 'snapshot-entries' });
+    else await expect(pending).rejects.toThrow();
+    expect(f.access.hasExclusionsWithin()).toBe(false);
+    expect(Object.getOwnPropertyDescriptor(f.access, 'totalEntries')?.value).toBe(before);
+    expect(
+      (Object.getOwnPropertyDescriptor(f.access, 'directories')?.value as Map<string, unknown>)
+        .size,
+    ).toBe(1);
+  },
+);
+
+it('refuses reentrant cache drift while retaining the unrelated original observation', async () => {
+  const f = fixture();
+  await f.ready();
+  vi.mocked(f.authority.executeDirectoryVerification!).mockImplementation(async (requests) => {
+    await f.access.list(`${root}/c`);
+    return requests.map((request) => ({
+      content: JSON.stringify({
+        identity: child(request.file_path.at(-1)!).identity,
+        entries: [],
+        truncated: false,
+        incomplete: true,
+      }),
+      is_error: false,
+    }));
+  });
+  await expect(f.access.preloadDirectories([`${root}/a`, `${root}/b`])).rejects.toThrow();
+  expect(f.access.hasExclusionsWithin()).toBe(false);
+  const directories = Object.getOwnPropertyDescriptor(f.access, 'directories')?.value as Map<
+    string,
+    unknown
+  >;
+  expect([...directories.keys()]).toEqual([root, `${root}/c`]);
+  expect(Object.getOwnPropertyDescriptor(f.access, 'totalEntries')?.value).toBe(8);
+});
