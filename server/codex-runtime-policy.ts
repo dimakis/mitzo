@@ -51,6 +51,9 @@ export function codexRuntimeOverrides(
     config['features.unified_exec'] = true;
     config['features.exec_permission_approvals'] = true;
     config['features.request_permissions_tool'] = true;
+    // The pinned zsh fork uses CODEX_HOME/arg0 helper symlinks, which cannot
+    // traverse the fixed private-home deny. Keep ordinary unified exec.
+    config['features.shell_zsh_fork'] = false;
   }
   // Code-mode-only models dispatch registered host tools through the JS wrapper.
   // This enables that dispatcher; native execution tools remain disabled above.

@@ -49,7 +49,7 @@ describe('native Mac execution permission profile', () => {
       rmSync(temporary, { recursive: true, force: true });
     }
   });
-  it('compiles real native profiles with immutable credential denies and dynamic workspace roots', () => {
+  it('compiles real native profiles with fixed credential deny globs and dynamic workspace roots', () => {
     const policy = codexNativeExecutionPolicy(input);
     expect(policy).toMatchObject({
       version: 'native-mac-permissions-v1',
@@ -72,6 +72,7 @@ describe('native Mac execution permission profile', () => {
             ':workspace_roots': 'read',
             '/operator/runtime': 'read',
             '/private/provider-auth': 'deny',
+            '/private/provider-auth{,/**}': 'deny',
           },
           network: { enabled: false },
         },
@@ -81,6 +82,7 @@ describe('native Mac execution permission profile', () => {
             ':workspace_roots': 'write',
             '/operator/runtime': 'read',
             '/private/provider-auth': 'deny',
+            '/private/provider-auth{,/**}': 'deny',
           },
           network: { enabled: false },
         },
@@ -91,9 +93,21 @@ describe('native Mac execution permission profile', () => {
       'features.unified_exec': true,
       'features.exec_permission_approvals': true,
       'features.request_permissions_tool': true,
+      'features.shell_zsh_fork': false,
       'features.apps': false,
       'features.multi_agent': false,
     });
+  });
+
+  it('escapes credential path metacharacters before compiling the fixed subtree deny glob', () => {
+    const path = '/credential[*]?{literal}\\name';
+    const profile = codexNativePermissionProfiles(
+      codexNativeExecutionPolicy({ ...input, deniedRoots: [path] }),
+    );
+    expect(profile.permissions['mitzo-native-agent'].filesystem).toHaveProperty(
+      '/credential\\[\\*\\]\\?\\{literal\\}\\\\name{,/**}',
+      'deny',
+    );
   });
 
   it('uses named permissions at both native boundaries without a stale sandbox policy', () => {

@@ -42,6 +42,9 @@ const roots = (paths: readonly string[]) =>
 const contains = (root: string, path: string) =>
   root === '/' || path === root || path.startsWith(root + '/');
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** Pinned macOS emits absolute deny globs as final kernel deny rules. Exact
+ * parent path entries alone can be overridden by a more-specific grant. */
+const subtreeDenyGlob = (path: string) => `${path.replace(/[\\*?\[\]{}]/g, '\\$&')}{,/**}`;
 
 export function codexNativeExecutionPolicy(input: {
   bindingRevision: string;
@@ -114,7 +117,10 @@ export function codexNativePermissionProfiles(policy: CodexNativeExecutionPolicy
       ...policy.readableRoots.map((root) => [root, 'read']),
       [':workspace_roots', workspaceAccess],
       ...policy.writeProtectedRoots.map((root) => [root, 'read']),
-      ...policy.deniedRoots.map((root) => [root, 'deny']),
+      ...policy.deniedRoots.flatMap((root) => [
+        ...(/[\\*?\[\]{}]/.test(root) ? [] : [[root, 'deny']]),
+        [subtreeDenyGlob(root), 'deny'],
+      ]),
     ]);
   return {
     default_permissions: policy.permissions,
