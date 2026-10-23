@@ -272,6 +272,7 @@ actual(
       'sandbox-authority.ts',
       'native-file-operation.ts',
       'native-tree-publication.ts',
+      'native-preparation-observation.ts',
       'private-repository-checkout.ts',
     ];
     const sources = names.map((name) => fileURLToPath(new URL('../' + name, import.meta.url)));
@@ -293,7 +294,7 @@ actual(
     await writeFile(join(artifacts, 'package.json'), JSON.stringify({ type: 'module' }));
     await symlink(await realpath('node_modules'), join(artifacts, 'node_modules'));
     await writeFile(
-      '/private/tmp/mitzo-file-batch-compiled-worker-evidence.json',
+      '/private/tmp/mitzo-base-observation-compiled-worker-evidence.json',
       JSON.stringify(
         {
           compiler: 'esbuild ' + compilerVersion,
@@ -361,7 +362,7 @@ actual(
     const preserved = await readFile(input.items[0].file_path);
     expect(preserved.length).toBe(partial.length);
     expect(digest(preserved)).toBe(digest(partial));
-    const evidencePath = '/private/tmp/mitzo-file-batch-compiled-worker-evidence.json';
+    const evidencePath = '/private/tmp/mitzo-base-observation-compiled-worker-evidence.json';
     const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
     await writeFile(
       evidencePath,

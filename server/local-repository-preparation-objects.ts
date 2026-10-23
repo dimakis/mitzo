@@ -83,6 +83,7 @@ export async function captureLocalRepositoryPreparationObjects(
   options: LocalRepositoryPreparationObjectOptions,
 ): Promise<Readonly<{ view: LocalRepositoryPreparationObjectView; dispose(): Promise<void> }>> {
   const access = options.readAccess;
+  if (access?.preparationObservationOnly) throw unavailable();
   const baseOid = options.baseOid;
   const signal = options.signal;
   const commonDirectory = metadata.commonDirectory;

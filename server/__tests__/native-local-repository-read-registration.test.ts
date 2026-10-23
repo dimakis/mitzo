@@ -71,6 +71,7 @@ it.skipIf(
     // These are fresh compiler inputs, not the earlier two-file read-only binary.
     const helperSources = [
       'native-file-operation.ts',
+      'native-preparation-observation.ts',
       'native-tree-publication.ts',
       'private-repository-checkout.ts',
     ].map((file) => fileURLToPath(new URL('../' + file, import.meta.url)));
@@ -92,6 +93,7 @@ it.skipIf(
         .sort(),
     ).toEqual([
       'native-file-operation.ts',
+      'native-preparation-observation.ts',
       'native-tree-publication.ts',
       'private-repository-checkout.ts',
       'sandbox-authority.ts',

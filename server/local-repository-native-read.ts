@@ -21,6 +21,14 @@ import {
   type NativeFileHelperTransport,
 } from './native-file-operation.js';
 
+import {
+  captureNativePreparationObservation,
+  verifyNativePreparationObservation,
+  freezeNativePreparationObservationPlan,
+  type NativePreparationObservationCapture,
+  type NativePreparationObservationPlan,
+  type NativePreparationObservationScratch,
+} from './native-preparation-observation.js';
 const unavailable = () => Error('Local repository native reads unavailable');
 const contains = (root: string, path: string) => {
   const child = relative(root, path);
@@ -162,6 +170,16 @@ async function captureReader(
         pending.delete(operation);
       }
     };
+  const scratchIdentity = custody.serialize().find((item) => item.path === directory)?.stat;
+  if (!scratchIdentity) throw unavailable();
+  let observationSequence = 0;
+  const observations = new WeakMap<
+    Readonly<NativePreparationObservationCapture>,
+    Readonly<{
+      plan: NativePreparationObservationPlan;
+      scratch: NativePreparationObservationScratch;
+    }>
+  >();
   const reader: LocalRepositoryReadAuthority & { dispose(): Promise<void> } = {
     deniedRoots,
     signal,
@@ -259,6 +277,60 @@ async function captureReader(
       } catch {
         throw unavailable();
       }
+    },
+    capturePreparationObservation: async (input) => {
+      current();
+      const projected = freezeNativePreparationObservationPlan(input);
+      const plan = freezeNativePreparationObservationPlan({
+        ...projected,
+        deniedRoots: freezeNativeReadExclusions([
+          ...new Set([...deniedRoots, ...projected.deniedRoots]),
+        ]),
+      });
+      for (const path of [
+        plan.sourceAnchor.rootPath,
+        plan.gitDirectory,
+        plan.commonAnchor.rootPath,
+      ])
+        await authorize(path);
+      if (observationSequence >= 1) throw unavailable();
+      const scratch = Object.freeze({
+        rootAnchor: Object.freeze({
+          rootPath: directory,
+          identity: Object.freeze({ dev: scratchIdentity.dev, ino: scratchIdentity.ino }),
+        }),
+        file_path: join(directory, `capture-${observationSequence++}.json`),
+      });
+      const captured = await captureNativePreparationObservation(
+        plan,
+        scratch,
+        signal,
+        Math.max(1, Math.min(30000, deadline - Date.now())),
+        transport(plan.deniedRoots),
+      );
+      current();
+      observations.set(captured, Object.freeze({ plan, scratch }));
+      return captured;
+    },
+    verifyPreparationObservation: async (captured) => {
+      current();
+      const held = observations.get(captured);
+      if (!held) throw unavailable();
+      for (const path of [
+        held.plan.sourceAnchor.rootPath,
+        held.plan.gitDirectory,
+        held.plan.commonAnchor.rootPath,
+      ])
+        await authorize(path);
+      await verifyNativePreparationObservation(
+        held.plan,
+        held.scratch,
+        captured.witness,
+        signal,
+        Math.max(1, Math.min(30000, deadline - Date.now())),
+        transport(held.plan.deniedRoots),
+      );
+      current();
     },
     dispose: () => {
       if (!closing) {

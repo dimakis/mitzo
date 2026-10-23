@@ -4,6 +4,15 @@ import {
   type NativeExclusiveTreeRequest,
 } from './native-tree-publication.js';
 
+import {
+  nativePreparationObservationPython,
+  projectNativePreparationObservationRequest,
+  nativePreparationObservationLimits,
+  type NativePreparationObservationPlan,
+  type NativePreparationObservationScratch,
+  type NativePreparationObservationWitness,
+} from './native-preparation-observation.js';
+
 // Python exposes openat via dir_fd on macOS/Linux. Node has no equivalent API.
 // Keep the helper embedded so tsc/deploy cannot omit a required runtime asset.
 // No user text is interpolated into source or argv: the request travels over stdin.
@@ -439,6 +448,8 @@ def publish_tree(request):
         if source_root is not None: os.close(source_root)
         if target_root is not None: os.close(target_root)
 
+${nativePreparationObservationPython}
+
 def anchored_read(request, deadline=None, budget=None):
     deadline = time.monotonic() + request['timeoutMs'] / 1000 if deadline is None else deadline
     output_limit = 6 * 1024 * 1024 if budget is None else budget['remaining']
@@ -600,6 +611,8 @@ def execute(request):
         if len(content.encode('utf-8')) > 16384:
             raise RuntimeError('Exclusive file batch unavailable')
         return content
+    if request['operation'] in ('CapturePreparationObservation', 'VerifyPreparationObservation'):
+        return preparation_observation(request)
     if request['operation'] == 'ListDirectoryBatch':
         items = request['items']
         if not isinstance(items, list) or not 1 <= len(items) <= 8 or len({item['file_path'] for item in items}) != len(items) or any(item['operation'] != 'ListDirectory' for item in items):
@@ -713,6 +726,8 @@ request = None
 try:
     request = json.load(sys.stdin)
     envelope = json.dumps({'content': execute(request), 'is_error': False})
+    if request['operation'] in ('CapturePreparationObservation', 'VerifyPreparationObservation') and len((envelope + '\n').encode('utf-8')) > 64 * 1024 * 1024:
+        raise RuntimeError('Preparation observation unavailable')
     if request['operation'] == 'ListDirectoryBatch' and len((envelope + '\n').encode('utf-8')) > 8 * 1024 * 1024:
         raise RuntimeError('Anchored directory batch unavailable')
     if request['operation'] in ('CreateFile', 'PublishTree') and len((envelope + '\n').encode('utf-8')) > 32768:
@@ -720,7 +735,7 @@ try:
     print(envelope)
 except Exception as error:
     # OS errors may contain filenames, but never file contents or request payloads.
-    content = 'Exclusive file unavailable' if isinstance(request, dict) and request.get('operation') in ('CreateFile', 'PublishTree') else ('Anchored directory batch unavailable' if isinstance(request, dict) and request.get('operation') == 'ListDirectoryBatch' else str(error))
+    content = 'Exclusive file unavailable' if isinstance(request, dict) and request.get('operation') in ('CreateFile', 'PublishTree') else ('Anchored directory batch unavailable' if isinstance(request, dict) and request.get('operation') == 'ListDirectoryBatch' else ('Preparation observation unavailable' if isinstance(request, dict) and request.get('operation') in ('CapturePreparationObservation', 'VerifyPreparationObservation') else str(error)))
     print(json.dumps({'content': content, 'is_error': True}))
 `;
 
@@ -840,6 +855,9 @@ export function privateNativeFileHelperCommand(requestJson: string) {
 export function executeNativeFileOperation(
   request: {
     operation: string;
+    observationPlan?: NativePreparationObservationPlan;
+    observationScratch?: NativePreparationObservationScratch;
+    observationWitness?: NativePreparationObservationWitness;
     identity: { dev: string; ino: string } | null;
     parentIdentity: { dev: string; ino: string };
     file_path: string;
@@ -863,6 +881,25 @@ export function executeNativeFileOperation(
   privateTransport?: NativeFileHelperTransport,
 ): Promise<{ content: string; is_error: boolean }> {
   signal.throwIfAborted();
+  const operationDescriptor =
+    request && typeof request === 'object'
+      ? Object.getOwnPropertyDescriptor(request, 'operation')
+      : undefined;
+  if (
+    !operationDescriptor ||
+    !('value' in operationDescriptor) ||
+    typeof operationDescriptor.value !== 'string'
+  )
+    return Promise.reject(Error('Invalid native file operation'));
+  if (
+    ['CapturePreparationObservation', 'VerifyPreparationObservation'].includes(request.operation)
+  ) {
+    try {
+      request = projectNativePreparationObservationRequest(request);
+    } catch {
+      return Promise.reject(Error('Preparation observation unavailable'));
+    }
+  }
   if (
     [
       'CreateDirectory',
@@ -870,23 +907,29 @@ export function executeNativeFileOperation(
       'CreateFileBatch',
       'PublishTree',
       'ListDirectoryBatch',
+      'CapturePreparationObservation',
+      'VerifyPreparationObservation',
     ].includes(request.operation) &&
     typeof privateTransport !== 'function'
   )
     return Promise.reject(Error('Private helper transport unavailable'));
-  const maxBuffer = [
-    'CaptureReadAnchor',
-    'CreateDirectory',
-    'CreateFile',
-    'CreateFileBatch',
-    'PublishTree',
-  ].includes(request.operation)
-    ? 32768
-    : ['ListDirectory', 'ListDirectoryBatch'].includes(request.operation)
-      ? 8 * 1024 * 1024
-      : request.operation === 'ReadBytes'
-        ? Math.ceil(request.limit / 3) * 4 + 1024
-        : Math.max(1024 * 1024, request.limit * 12 + 1024);
+  const maxBuffer = ['CapturePreparationObservation', 'VerifyPreparationObservation'].includes(
+    request.operation,
+  )
+    ? nativePreparationObservationLimits.responseBytes
+    : [
+          'CaptureReadAnchor',
+          'CreateDirectory',
+          'CreateFile',
+          'CreateFileBatch',
+          'PublishTree',
+        ].includes(request.operation)
+      ? 32768
+      : ['ListDirectory', 'ListDirectoryBatch'].includes(request.operation)
+        ? 8 * 1024 * 1024
+        : request.operation === 'ReadBytes'
+          ? Math.ceil(request.limit / 3) * 4 + 1024
+          : Math.max(1024 * 1024, request.limit * 12 + 1024);
   const decode = (stdout: string, canonical = false) => {
     const result: unknown = JSON.parse(stdout);
     if (

@@ -119,6 +119,8 @@ async function privateContext<T>(
   }) => Promise<T>,
   referenceView: 'all' | 'preparation' = 'all',
 ) {
+  if (options.readAccess.preparationObservationOnly && referenceView !== 'preparation')
+    throw failure('preparation-observation-only');
   if (
     referenceView !== 'preparation' &&
     (metadata.referenceCoverage || metadata.qualification === 'preparation')
@@ -328,6 +330,29 @@ function ownedPreparationReference(value: LocalRepositoryOwnedPreparationReferen
   });
 }
 
+/** Narrow physical base observation only. The existing private copy/parser
+ * still resolves Git's actual HEAD; no branch namespace coverage is returned. */
+export async function readLocalRepositoryPreparationBaseReferences(
+  metadata: LocalRepositoryGitMetadata,
+  options: LocalRepositorySnapshotOptions,
+) {
+  if (
+    !options.readAccess.preparationObservationOnly ||
+    metadata.baseObservationCoverage !== 'preparation-base-observation-v1'
+  )
+    throw failure('preparation-observation-required');
+  return privateContext(
+    metadata,
+    options,
+    async ({ git, reader }) =>
+      Object.freeze({
+        ...(await resolveHeadFacts(metadata, options, git, reader)),
+        referenceCoverage: 'preparation-base-observation-v1' as const,
+      }),
+    'preparation',
+  );
+}
+
 /** Explicit preparation-only coverage. Unrelated loose ref CONTENT is not
  * consumed; no arbitrary-ref OID/all-ref/object/status qualification is made. */
 export async function readLocalRepositoryPreparationReferences(
@@ -336,6 +361,7 @@ export async function readLocalRepositoryPreparationReferences(
   candidateReference?: string,
   expectedOwned?: LocalRepositoryOwnedPreparationReference,
 ) {
+  if (options.readAccess.preparationObservationOnly) throw failure('preparation-observation-only');
   const owned = expectedOwned === undefined ? undefined : ownedPreparationReference(expectedOwned);
   if (owned && candidateReference === undefined) throw failure('snapshot-reference-unsupported');
   if (
@@ -491,6 +517,7 @@ export async function readLocalRepositorySnapshotStatus(
   metadata: LocalRepositoryGitMetadata,
   options: LocalRepositorySnapshotOptions,
 ) {
+  if (options.readAccess.preparationObservationOnly) throw failure('preparation-observation-only');
   if (metadata.qualification) throw failure('reference-only-metadata');
   if (metadata.comparisonConfig.unsupported) throw failure('comparison-configuration-unsupported');
   return privateContext(metadata, options, async ({ scratch, gitDirectory, reader, git }) => {

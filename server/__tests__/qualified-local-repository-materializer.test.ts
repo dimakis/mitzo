@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, expect, it, vi } from 'vitest';
-import { lstat, readFile, writeFile } from 'node:fs/promises';
+import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as actor from '../qualified-local-repository-actor.js';
 import * as sandbox from '../sandboxed-command.js';
@@ -34,11 +36,25 @@ actual(
         throw Error('No model or network calls');
       }),
     );
+    const productionIdentity = async () => {
+      const directory = fileURLToPath(new URL('../', import.meta.url));
+      const files = (await readdir(directory, { recursive: true }))
+        .filter((file) => file.endsWith('.ts') && !file.includes('__tests__/'))
+        .sort();
+      const hashes: Record<string, string> = {};
+      for (const file of files)
+        hashes['server/' + file] = createHash('sha256')
+          .update(await readFile(join(directory, file)))
+          .digest('hex');
+      return hashes;
+    };
+    const atRunSources = profileOnly ? await productionIdentity() : undefined;
     let prepared = false;
     const phases: string[] = [];
     const mark = (name: string) => phases.push(`${name}:${Date.now()}`);
     const metrics = {
       admission: { calls: 0, ms: 0 },
+      operationCounts: {} as Record<string, number>,
       source: { calls: 0, ms: 0 },
       readTransports: { calls: 0, ms: 0 },
       effectTransports: { calls: 0, ms: 0 },
@@ -64,6 +80,8 @@ actual(
     vi.spyOn(sandbox, 'executeSandboxedCommand').mockImplementation(async (...args) => {
       const start = performance.now();
       metrics.readTransports.calls++;
+      const operation = /"operation":"([A-Za-z]+)"/.exec(args[0].command)?.[1] ?? 'Unclassified';
+      metrics.operationCounts[operation] = (metrics.operationCounts[operation] ?? 0) + 1;
       try {
         return await readTransport(...args);
       } finally {
@@ -104,6 +122,11 @@ actual(
             await args[0].assertCurrent();
             const fullGate = {
               elapsedMs: performance.now() - start,
+              operationCounts: Object.fromEntries(
+                Object.entries(metrics.operationCounts)
+                  .map(([name, count]) => [name, count - (before.operationCounts[name] ?? 0)])
+                  .filter(([, count]) => count !== 0),
+              ),
               admission: {
                 calls: metrics.admission.calls - before.admission.calls,
                 ms: metrics.admission.ms - before.admission.ms,
@@ -118,7 +141,7 @@ actual(
               },
             };
             await writeFile(
-              '/private/tmp/mitzo-qualified-preparation-original-owner-profile.json',
+              '/private/tmp/mitzo-qualified-preparation-consolidated-owner-profile.json',
               JSON.stringify(
                 {
                   fullGate,
@@ -128,11 +151,30 @@ actual(
                   measuredAt: Date.now(),
                   authority: 'actual original signed consumed operation',
                   effects: false,
+                  productionIdentity: {
+                    before: atRunSources,
+                    after: await productionIdentity(),
+                    workerEntry: 'server/sandboxed-command-worker.ts',
+                    workerRuntime:
+                      'existing sourceRuntime tsx/esm worker; no separately compiled worker binary',
+                  },
+                  plannedActor: {
+                    allocationDirectoryCount: args[0].facts.directories.length,
+                    directoryHelpers: args[0].facts.directories.length + 1,
+                    stagingHelpers: 1,
+                    treeHelpers: 1,
+                    metadataBatchHelpers: 1,
+                    effectHelperCount: args[0].facts.directories.length + 4,
+                    originalFullCallbacksOnSuccess: 3 * (args[0].facts.directories.length + 4) + 7,
+                    explanation:
+                      'Static success-path count from current actor: 3 original full callbacks per effect helper plus 7 actor/read/cleanup callbacks. Does not measure object/task read cost or establish whole-window viability.',
+                  },
                 },
                 null,
                 2,
               ),
             );
+            expect(await productionIdentity()).toEqual(atRunSources);
             throw Error(
               'Bounded original full-owner profile complete; actor deliberately not invoked',
             );
