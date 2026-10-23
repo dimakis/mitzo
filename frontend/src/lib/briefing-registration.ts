@@ -1,7 +1,10 @@
 import { OrdinaryRuntimeFirstCommandSchema } from '@mitzo/protocol';
 import { useMemo, useSyncExternalStore } from 'react';
 import { z } from 'zod';
-import { validateOwnedBriefingAssignment } from './launch-draft-delivery';
+import {
+  validateOwnedBriefingAssignment,
+  ownedBriefingAssignmentCommitted,
+} from './launch-draft-delivery';
 import { apiFetch, getApiBaseUrl, AUTH_LOST_EVENT } from './api-fetch';
 
 const identity = z.strictObject({
@@ -264,8 +267,10 @@ export function useBriefingRegistration(sessionId: string | null) {
   };
 }
 
-// Unassigned receipts contain only reviewed metadata; the full source stays in SendOutbox.
+// Source receipts retain reviewed metadata through durable owned outbox retirement.
+// A session records completed source assignment; the full source stays in SendOutbox.
 const commandSchema = identity.omit({ sessionId: true }).extend({
+  sessionId: identity.shape.sessionId.optional(),
   clientMsgId: z.string().regex(/^[\w.:-]{1,200}$/),
   reasoningEffort: z.string().max(100).nullable().optional(),
 });
@@ -372,6 +377,9 @@ export const briefingCommandHandoff = {
         reasoningEffort: command.selection.thinking,
       });
       if (!intent) {
+        // Confirmation can retire the public registration record before an outbox
+        // storage failure recovers. Exact accepted launch proof records completion.
+        if (ownedBriefingAssignmentCommitted(hint.draftId, hint.command, sessionId)) return;
         const assigned = read().records.find((entry) => entry.binding.sessionId === sessionId);
         if (
           assigned &&
@@ -400,6 +408,11 @@ export const briefingCommandHandoff = {
         throw new Error(
           'Reviewed briefing command receipt unavailable or changed. Keep this command for recovery.',
         );
+      if (retainedIntent.sessionId) {
+        if (retainedIntent.sessionId !== sessionId)
+          throw new Error('Briefing source assignment changed. Keep this command for recovery.');
+        return;
+      }
     }
     // A restored legacy outbox also has the original immutable command metadata.
     if (!intent && hint) intent = commandSchema.parse(hint);
@@ -416,6 +429,18 @@ export const briefingCommandHandoff = {
     void registerBriefing(binding, intent.reasoningEffort);
     if (!durableRegistration(binding))
       throw new Error('Assigned briefing identity could not be retained');
+    if (hint?.kind === 'briefing-owned')
+      localStorage.setItem(commandKey(clientMsgId), JSON.stringify({ ...intent, sessionId }));
+    else localStorage.removeItem(commandKey(clientMsgId));
+    notify();
+  },
+  finalize(clientMsgId: string) {
+    const raw = localStorage.getItem(commandKey(clientMsgId));
+    if (!raw) return;
+    const intent = commandSchema.parse(JSON.parse(raw));
+    // This private callback runs only after durable owned outbox removal. Never
+    // prune an unassigned or differently keyed source intent.
+    if (intent.clientMsgId !== clientMsgId || !intent.sessionId) return;
     localStorage.removeItem(commandKey(clientMsgId));
     notify();
   },

@@ -180,6 +180,27 @@ export function validateOwnedBriefingAssignment(
   }
 }
 
+/** Accepted assignment survives normal link confirmation until durable outbox retirement. */
+export function ownedBriefingAssignmentCommitted(
+  draftId: unknown,
+  command: unknown,
+  sessionId: string,
+): boolean {
+  try {
+    if (typeof draftId !== 'string' || !sessionId) return false;
+    const receipt = read(draftId);
+    const normalized = normalizeOwnedBriefingCommand(receipt?.submitted, command);
+    return (
+      receipt?.state === 'accepted' &&
+      receipt.sessionId === sessionId &&
+      !!normalized &&
+      receipt.clientMsgId === normalized.clientMsgId
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Durable command association is independent of a mounted composer or store instance. */
 export const launchDraftDelivery = {
   matches(draftId: string, command: Record<string, unknown>) {

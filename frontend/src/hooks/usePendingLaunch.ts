@@ -148,14 +148,14 @@ export function usePendingLaunch(requestedDraftId?: string | null, search = '') 
     command: OrdinaryRuntimeFirstCommand,
     opts?: SendMessageOptions & { draftId?: string },
   ): boolean {
-    if (
-      !launch?.briefing ||
-      !launch.draftId ||
-      launchSending ||
-      briefingLaunchReason ||
-      !briefingRegistrationCapacityAvailable()
-    )
+    if (!launch?.briefing || !launch.draftId || launchSending || briefingLaunchReason) return false;
+    if (!briefingRegistrationCapacityAvailable()) {
+      setCapacityError({
+        launch,
+        message: 'Save the existing briefing links before starting another minion conversation.',
+      });
       return false;
+    }
     const sent = sendOwned(command, { ...opts, draftId: launch.draftId });
     if (sent) dispatchMessages({ type: 'SET_SESSION_CONTEXT', context: launch.context });
     return sent;

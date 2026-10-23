@@ -244,6 +244,7 @@ export interface MitzoStoreOptions {
     prepare(command: Record<string, unknown>): boolean;
     assign(clientMsgId: string, sessionId: string, hint?: Record<string, unknown>): void;
     reject(clientMsgId: string): void;
+    finalize?(clientMsgId: string): void;
   };
 }
 
@@ -384,8 +385,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           headers: () => ({ 'X-Connection-ID': connection.getConnectionId() ?? '' }),
           notify(event) {
             if (event.type === '_local_command_retired') {
-              if (typeof event.clientMsgId === 'string')
+              if (typeof event.clientMsgId === 'string') {
+                options.sendHandoff?.finalize?.(event.clientMsgId);
                 options.launchDrafts?.finalize?.(event.clientMsgId);
+              }
               return;
             }
             if (event.type !== '_local_command_state') return;

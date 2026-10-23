@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createMitzoStore } from '@mitzo/client';
+import { MitzoStoreProvider } from '@mitzo/client/hooks';
+import { act, cleanup, renderHook } from '@testing-library/react';
+import { usePendingLaunch } from '../usePendingLaunch';
 import { OrdinaryRuntimeFirstCommandSchema } from '@mitzo/protocol';
 import {
   createChatDraft,
@@ -9,7 +12,12 @@ import {
   chatDraftStorageKey,
 } from '../../lib/chat-drafts';
 import { launchDraftDelivery } from '../../lib/launch-draft-delivery';
-import { briefingCommandHandoff, localBriefingConversation } from '../../lib/briefing-registration';
+import { agentBuilderCommandHandoff } from '../../lib/agent-builder-chat';
+import {
+  briefingCommandHandoff,
+  localBriefingConversation,
+  confirmBriefingRegistration,
+} from '../../lib/briefing-registration';
 import { createReviewedOutboxStorage } from '../../lib/reviewed-outbox-storage';
 import { apiFetch } from '../../lib/api-fetch';
 const channel = vi.hoisted(() => ({
@@ -131,6 +139,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 afterEach(() => {
+  cleanup();
   vi.useRealTimers();
   vi.restoreAllMocks();
   localStorage.clear();
@@ -746,3 +755,259 @@ it('does not adopt a live observer origin when the saved original draft is selec
   expect(store.getState().sessions.active).toBeNull();
   expect(store.getState().messages.sessionContext).toBeNull();
 });
+
+it('keeps the existing actionable capacity error for an owned briefing without dispatching either transport', () => {
+  const draft = draftFixture();
+  const original = localStorage.getItem(chatDraftStorageKey(draft.id));
+  for (let i = 0; i < 256; i++) {
+    const sessionId = `capacity-${i}`;
+    localStorage.setItem(
+      `mitzo-briefing-registrations:${window.location.origin}:${sessionId}`,
+      JSON.stringify({
+        binding: {
+          date: source.date,
+          revision: source.revision,
+          sessionId,
+          accountId: selection.accountId,
+          model: selection.model,
+        },
+        token: sessionId,
+        status: 'pending',
+        reasoningEffort: 'low',
+      }),
+    );
+  }
+  const store = cold();
+  store.getState().setPendingSession({ ...draft.settings.launch!, draftId: draft.id });
+  const owned = vi.spyOn(store.getState(), 'sendLocalFirstCommand');
+  const generic = vi.spyOn(store.getState(), 'sendPendingSession');
+  const hook = renderHook(() => usePendingLaunch(draft.id), {
+    wrapper: ({ children }) => <MitzoStoreProvider value={store}>{children}</MitzoStoreProvider>,
+  });
+  let sent: boolean | undefined;
+  act(() => {
+    sent = hook.result.current.sendBriefingCommand(command);
+  });
+  expect(sent).toBe(false);
+  expect(owned).not.toHaveBeenCalled();
+  expect(generic).not.toHaveBeenCalled();
+  expect(apiFetch).not.toHaveBeenCalled();
+  expect(localStorage.getItem(chatDraftStorageKey(draft.id))).toBe(original);
+  expect(hook.result.current.registrationError).toBe(
+    'Save the existing briefing links before starting another minion conversation.',
+  );
+});
+
+it.each(['exact', 'session', 'client', 'source', 'account', 'runtime'] as const)(
+  'recovers accepted source assignment after normal registration confirmation only for exact proof: %s',
+  async (drift) => {
+    const draft = draftFixture();
+    const binding = {
+      date: source.date,
+      revision: source.revision,
+      sessionId: 'confirmed-owner',
+      accountId: selection.accountId,
+      model: selection.model,
+    };
+    let dispatches = 0;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url) === '/api/chat/local-codex/send') {
+        dispatches++;
+        return Response.json(
+          {
+            ok: true,
+            clientMsgId: command.clientMsgId,
+            sessionId: binding.sessionId,
+            state: 'consumed',
+            dispatched: true,
+          },
+          { status: 202 },
+        );
+      }
+      if (String(url) === '/api/home/briefing-chats' && init?.method === 'POST')
+        return Response.json({ ...binding, createdAt: '2026-10-23T10:00:00Z' });
+      return Response.json([]);
+    });
+    const remove = Storage.prototype.removeItem;
+    const failure = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (
+      this: Storage,
+      key,
+    ) {
+      if (key.startsWith('mitzo-local-first-command-outbox:'))
+        throw Error('Outbox retirement write failed');
+      return remove.call(this, key);
+    });
+    const first = cold();
+    expect(first.getState().sendLocalFirstCommand(command, { draftId: draft.id })).toBe(true);
+    await vi.waitFor(() => expect(first.getState().localCommand?.state).toBe('uncertain'));
+    const registrationKey = Object.keys(localStorage).find(
+      (key) => key.includes('mitzo-briefing-registrations:') && key.endsWith(':confirmed-owner'),
+    )!;
+    await vi.waitFor(() =>
+      expect(JSON.parse(localStorage.getItem(registrationKey)!)).toMatchObject({
+        status: 'confirmed',
+      }),
+    );
+    failure.mockRestore();
+    // Retained baseline accepted receipts may predate completed source metadata.
+    for (const key of Object.keys(localStorage))
+      if (key.includes('-commands:')) localStorage.removeItem(key);
+    confirmBriefingRegistration({ ...binding, createdAt: '2026-10-23T10:00:00Z' });
+    expect(localStorage.getItem(registrationKey)).toBeNull();
+    const receiptKey = Object.keys(localStorage).find((key) =>
+      key.startsWith('mitzo-launch-delivery:'),
+    )!;
+    const receipt = JSON.parse(localStorage.getItem(receiptKey)!);
+    expect(receipt.state).toBe('accepted');
+    if (drift === 'session') receipt.sessionId = 'other-session';
+    if (drift === 'client') receipt.clientMsgId = 'other-command';
+    if (drift === 'source')
+      receipt.submitted.settings.launch.sourceSnapshots[0].revision = 'b'.repeat(64);
+    if (drift === 'account')
+      receipt.submitted.settings.runtimeSelection.accountReference.accountId = 'other-account';
+    if (drift === 'runtime')
+      receipt.submitted.settings.runtimeSelection.execution.targetId = 'other-target';
+    localStorage.setItem(receiptKey, JSON.stringify(receipt));
+    const calls = vi.mocked(apiFetch).mock.calls.length;
+    const restored = cold();
+    restored.getState().newSession();
+    restored.getState().selectLocalCommandDraft(draft.id);
+    expect(restored.getState().recoverLocalCommand()).toBe(true);
+    expect(restored.getState().localCommand?.state).toBe(
+      drift === 'exact' ? 'consumed' : 'uncertain',
+    );
+    expect(dispatches).toBe(1);
+    expect(apiFetch).toHaveBeenCalledTimes(calls);
+    expect(
+      Object.keys(localStorage).some((key) => key.startsWith('mitzo-local-first-command-outbox:')),
+    ).toBe(drift !== 'exact');
+    if (drift === 'exact')
+      expect(JSON.parse(localStorage.getItem(receiptKey)!)).not.toHaveProperty('submitted');
+  },
+);
+
+it.each(['exact', 'other-session', 'cleanup-failure'] as const)(
+  'retains completed source proof through failed pending launch assignment and normal confirmation: %s',
+  async (drift) => {
+    const draft = draftFixture();
+    const binding = {
+      date: source.date,
+      revision: source.revision,
+      sessionId: 'pending-confirmed-owner',
+      accountId: selection.accountId,
+      model: selection.model,
+    };
+    let dispatches = 0,
+      registrations = 0;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url) === '/api/chat/local-codex/send') {
+        dispatches++;
+        return Response.json(
+          {
+            ok: true,
+            clientMsgId: command.clientMsgId,
+            sessionId: binding.sessionId,
+            state: 'consumed',
+            dispatched: true,
+          },
+          { status: 202 },
+        );
+      }
+      if (String(url) === '/api/home/briefing-chats' && init?.method === 'POST') {
+        registrations++;
+        return Response.json({ ...binding, createdAt: '2026-10-23T10:00:00Z' });
+      }
+      return Response.json([]);
+    });
+    const set = Storage.prototype.setItem;
+    const failure = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key,
+      value,
+    ) {
+      if (key.startsWith('mitzo-launch-delivery:') && JSON.parse(value).sessionId)
+        throw Error('Launch assignment write failed');
+      return set.call(this, key, value);
+    });
+    const first = cold(agentBuilderCommandHandoff);
+    expect(first.getState().sendLocalFirstCommand(command, { draftId: draft.id })).toBe(true);
+    await vi.waitFor(() => expect(first.getState().localCommand?.state).toBe('uncertain'));
+    const receiptKey = Object.keys(localStorage).find((key) =>
+      key.startsWith('mitzo-launch-delivery:'),
+    )!;
+    expect(JSON.parse(localStorage.getItem(receiptKey)!)).toMatchObject({ state: 'pending' });
+    const registrationKey = Object.keys(localStorage).find(
+      (key) =>
+        key.includes('mitzo-briefing-registrations:') && key.endsWith(':pending-confirmed-owner'),
+    )!;
+    await vi.waitFor(() =>
+      expect(JSON.parse(localStorage.getItem(registrationKey)!)).toMatchObject({
+        status: 'confirmed',
+      }),
+    );
+    confirmBriefingRegistration({ ...binding, createdAt: '2026-10-23T10:00:00Z' });
+    expect(localStorage.getItem(registrationKey)).toBeNull();
+    failure.mockRestore();
+    const intentKey = Object.keys(localStorage).find((key) => key.includes('-commands:'));
+    if (drift === 'other-session' && intentKey) {
+      const intent = JSON.parse(localStorage.getItem(intentKey)!);
+      intent.sessionId = 'other-session';
+      localStorage.setItem(intentKey, JSON.stringify(intent));
+    }
+    const unrelatedKey = `mitzo-briefing-registrations:${window.location.origin}-commands:other-pending`;
+    const unrelated = JSON.stringify({
+      date: source.date,
+      revision: source.revision,
+      accountId: 'other',
+      model: 'other',
+      clientMsgId: 'other-pending',
+    });
+    localStorage.setItem(unrelatedKey, unrelated);
+    const remove = Storage.prototype.removeItem;
+    const cleanupFailure =
+      drift === 'cleanup-failure'
+        ? vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (
+            this: Storage,
+            key,
+          ) {
+            if (key === intentKey) throw Error('Source cleanup unavailable');
+            return remove.call(this, key);
+          })
+        : undefined;
+    const calls = vi.mocked(apiFetch).mock.calls.length;
+    const restored = cold(agentBuilderCommandHandoff);
+    restored.getState().newSession();
+    restored.getState().selectLocalCommandDraft(draft.id);
+    expect(restored.getState().recoverLocalCommand()).toBe(true);
+    expect(restored.getState().localCommand?.state).toBe(
+      drift === 'other-session' ? 'uncertain' : 'consumed',
+    );
+    expect(dispatches).toBe(1);
+    expect(registrations).toBe(1);
+    expect(apiFetch).toHaveBeenCalledTimes(calls);
+    expect(localStorage.getItem(unrelatedKey)).toBe(unrelated);
+    if (drift !== 'other-session') {
+      expect(intentKey).toBeDefined();
+      expect(localStorage.getItem(intentKey!)).toEqual(
+        drift === 'cleanup-failure' ? expect.any(String) : null,
+      );
+      expect(
+        Object.keys(localStorage).some((key) =>
+          key.startsWith('mitzo-local-first-command-outbox:'),
+        ),
+      ).toBe(false);
+      if (drift === 'cleanup-failure') {
+        expect(JSON.parse(localStorage.getItem(receiptKey)!)).toHaveProperty('submitted');
+        cleanupFailure!.mockRestore();
+        agentBuilderCommandHandoff.finalize(command.clientMsgId);
+        launchDraftDelivery.finalize(command.clientMsgId);
+      }
+      expect(JSON.parse(localStorage.getItem(receiptKey)!)).not.toHaveProperty('submitted');
+    } else
+      expect(
+        Object.keys(localStorage).some((key) =>
+          key.startsWith('mitzo-local-first-command-outbox:'),
+        ),
+      ).toBe(true);
+  },
+);
