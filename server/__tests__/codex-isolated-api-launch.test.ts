@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { FrozenHostCodexExecutable } from '../frozen-host-codex-executable.js';
-const processes = vi.hoisted(() => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
+const processes = vi.hoisted(() => ({
+  spawn: vi.fn(),
+  spawnSync: vi.fn(),
+  execFile: vi.fn(),
+  execFileSync: vi.fn(),
+}));
 vi.mock('node:child_process', () => processes);
 import { CodexAppServerClient, SUPPORTED_CODEX_CLI_VERSION } from '../codex-app-server-client.js';
 
@@ -388,3 +393,43 @@ it('isolates concurrent API accounts with distinct endpoints and credential refe
   expect(a.resolveKey).toHaveBeenCalledWith(a.binding, a.signal);
   expect(b.resolveKey).toHaveBeenCalledWith(b.binding, b.signal);
 });
+
+it.each(['///', '/////'])(
+  'uses one account endpoint through profile projection, fresh launch and cold resume with trailing %s',
+  async (suffix) => {
+    const { AccountProfiles } = await import('../account-profiles.js');
+    const profiles = new AccountProfiles([
+      {
+        id: 'slash-gateway',
+        label: 'Slash gateway',
+        provider: 'openai',
+        credentialRef: { provider: 'keychain', service: 'synthetic-slash-fixture', account: 'key' },
+        connection: { ...gateway, endpoint: `https://gateway.example.test/api${suffix}` },
+        models: [{ id: 'fixture-model', label: 'Fixture model' }],
+      },
+    ]);
+    const binding = profiles.resolve('slash-gateway', 'fixture-model');
+    const projection = profiles.harnessConnection(binding);
+    if (projection.authentication !== 'api-key') throw Error('API fixture required');
+    const connection = profiles.apiRoutingProfile(binding).connection!;
+    const selected = { ...options(), binding, connection };
+    const launched = await CodexAppServerClient.launchIsolatedApi(selected);
+    closes.push(() => launched.client.close());
+    const resumed = CodexAppServerClient.launchIsolatedApiResume(
+      selected.privateHome,
+      selected.base,
+      selected.lifecycle,
+      selected.executable,
+      connection,
+    );
+    closes.push(() => resumed.close());
+    const endpointArguments = processes.spawn.mock.calls.map((call) =>
+      call[1].find((argument: string) => argument.startsWith('openai_base_url=')),
+    );
+    expect(endpointArguments).toEqual([
+      `openai_base_url=${JSON.stringify(projection.endpoint)}`,
+      `openai_base_url=${JSON.stringify(projection.endpoint)}`,
+    ]);
+    expect(projection.endpoint).toBe('https://gateway.example.test/api');
+  },
+);
