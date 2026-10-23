@@ -1,3 +1,4 @@
+import type { PreparedRepositoryTransitionFacts } from './prepared-repository-transition.js';
 import {
   PendingHostTaskError,
   PendingHostTaskRequestSchema,
@@ -98,6 +99,10 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
   pendingHostTask?: PendingHostTaskReceipt;
   /** One bounded private phase record on this same allocation row; never a grant. */
   pendingHostTaskDecision?: PendingHostTaskDecision;
+  /** Historical conversationId remains immutable; only this disposition owns
+   * the UNIQUE live conversation pointer after an explicit custody transfer. */
+  primaryDisposition?: z.infer<typeof primaryDispositionSchema>;
+  preparedRepositoryTransitionAdoption?: z.infer<typeof transitionAdoptionSchema>;
   createdAt: number;
   /** Server-derived original preview intent; private correlation, never a grant. */
   previewIntentFingerprint?: string;
@@ -194,6 +199,81 @@ const hostTaskReservationMarkerSchema = z.strictObject({
   rootIdentity: rootIdentitySchema,
 });
 export type HostTaskReservationMarker = z.infer<typeof hostTaskReservationMarkerSchema>;
+
+const primaryDispositionSchema = z.strictObject({
+  version: z.literal(1),
+  revision: z.number().int().positive().safe(),
+  currentConversationId: reservationReference.nullable(),
+});
+const transitionFactsSchema = z
+  .strictObject({
+    version: z.literal('prepared-repository-transition-v1'),
+    request: PendingHostTaskRequestSchema,
+    oldWorkspace: z.strictObject({
+      kind: z.enum(['ordinary', 'repository']),
+      id: reservationReference,
+      directory: canonicalPath,
+    }),
+    newWorkspace: z.strictObject({
+      kind: z.literal('repository'),
+      id: reservationReference,
+      directory: canonicalPath,
+      featureBranch: reservationReference,
+      baseOid: z.string().regex(/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/),
+      taskIdentity: PendingHostTaskReceiptSchema.shape.taskIdentity.unwrap(),
+    }),
+    consumedScopeSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    materializedRecordSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    resultSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .refine(
+    (value) => Buffer.byteLength(JSON.stringify(value), 'utf8') <= 65536,
+    'Transition facts exceed custody bound',
+  );
+const transitionAdoptionSchema = z.strictObject({
+  version: z.literal(1),
+  childCommandId: reservationReference,
+  factsSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  materializedRecord: z
+    .string()
+    .min(1)
+    .refine((value) => Buffer.byteLength(value, 'utf8') <= 262144),
+  facts: transitionFactsSchema,
+});
+function transitionFacts(input: PreparedRepositoryTransitionFacts) {
+  let count = 0;
+  const inspect = (value: unknown, depth = 0): void => {
+    if (!value || typeof value !== 'object') return;
+    if (++count > 4096 || depth > 32 || !Object.isFrozen(value))
+      throw Error('Frozen original transition facts required');
+    for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(value))) {
+      if (!('value' in descriptor)) throw Error('Transition facts require immutable data');
+      inspect(descriptor.value, depth + 1);
+    }
+  };
+  inspect(input);
+  return transitionFactsSchema.parse(structuredClone(input));
+}
+function primaryConversation(record: RepositoryWorkspace): string | null {
+  if (!record.primaryDisposition) return record.conversationId ?? null;
+  const disposition = primaryDispositionSchema.parse(record.primaryDisposition);
+  if (
+    disposition.currentConversationId !== null &&
+    disposition.currentConversationId !== record.conversationId
+  )
+    throw Error('Repository primary disposition changed');
+  return disposition.currentConversationId;
+}
+function transitionChildId(facts: PreparedRepositoryTransitionFacts) {
+  const request = facts.request;
+  const source = {
+    ...request.nativeTarget,
+    callId: request.prepareCallId,
+    requestHash: request.requestHash,
+    resultSha256: facts.resultSha256,
+  };
+  return `prepared-repository-${pendingHostTaskDecisionHash([request.conversationId, request.id, source])}`;
+}
 const hostRepositoryReservationSchema = z.strictObject({
   id: z.string().uuid(),
   connectionId: reservationReference,
@@ -412,6 +492,12 @@ export class RepositoryWorkspaces {
     );
     this.db.exec(`CREATE TABLE IF NOT EXISTS ordinary_preparation_allocations (
       operation_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL UNIQUE, fingerprint TEXT NOT NULL);`);
+    try {
+      this.ordinaryWorkspaceProvider();
+    } catch (error) {
+      this.db.close();
+      throw error;
+    }
   }
   private ordinaryWorkspaceProvider() {
     this.assertAvailable();
@@ -758,20 +844,49 @@ export class RepositoryWorkspaces {
   close() {
     this.db.close();
   }
-  private save(record: RepositoryWorkspace) {
-    this.db
-      .prepare(
-        'INSERT INTO repository_workspaces (id,record,conversation_id) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET record=excluded.record,conversation_id=excluded.conversation_id',
+  private save(record: RepositoryWorkspace, expectedRecord?: string) {
+    if (expectedRecord === undefined) {
+      this.db
+        .prepare('INSERT INTO repository_workspaces(id,record,conversation_id) VALUES(?,?,?)')
+        .run(record.id, JSON.stringify(record), primaryConversation(record));
+      return;
+    }
+    const expected = JSON.parse(expectedRecord) as RepositoryWorkspace;
+    if (
+      record.id !== expected.id ||
+      record.conversationId !== expected.conversationId ||
+      !isDeepStrictEqual(record.primaryDisposition, expected.primaryDisposition) ||
+      !isDeepStrictEqual(
+        record.preparedRepositoryTransitionAdoption,
+        expected.preparedRepositoryTransitionAdoption,
       )
-      .run(record.id, JSON.stringify(record), record.conversationId ?? null);
+    )
+      throw Error('Repository custody metadata requires its exact transition owner');
+    const changed = this.db
+      .prepare(
+        'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id IS ?',
+      )
+      .run(JSON.stringify(record), record.id, expectedRecord, primaryConversation(expected));
+    if (changed.changes !== 1) throw Error('Repository persistence owner changed');
+  }
+  private assertNoOrdinaryPrimary(conversationId: string) {
+    if (
+      this.db
+        .prepare('SELECT id FROM ordinary_workspaces WHERE conversation_id=?')
+        .get(conversationId)
+    )
+      throw Error('Ambiguous local workspace primary custody');
   }
   getForConversation(conversationId: string) {
     this.assertAvailable();
     const row = this.db
-      .prepare('SELECT record FROM repository_workspaces WHERE conversation_id=?')
-      .get(conversationId) as { record: string } | undefined;
+      .prepare('SELECT id FROM repository_workspaces WHERE conversation_id=?')
+      .get(conversationId) as { id: string } | undefined;
     if (!row) return undefined;
-    const record = JSON.parse(row.record) as RepositoryWorkspace;
+    this.assertNoOrdinaryPrimary(conversationId);
+    const record = this.getHostRecord(row.id);
+    if (primaryConversation(record) !== conversationId)
+      throw Error('Current repository primary changed');
     if (record.state !== 'claimed')
       throw new Error(
         'Repository workspace preparation did not complete; preserve its original claim',
@@ -968,10 +1083,7 @@ export class RepositoryWorkspaces {
   }
   get(id: string): RepositoryWorkspace {
     this.assertAvailable();
-    const row = this.db.prepare('SELECT record FROM repository_workspaces WHERE id=?').get(id) as
-      { record: string } | undefined;
-    if (!row) throw new Error('Repository preparation unavailable');
-    return JSON.parse(row.record) as RepositoryWorkspace;
+    return this.getHostRecord(id);
   }
   private source(record: RepositoryWorkspace) {
     if (record.localSource) return record.localSource.path;
@@ -986,10 +1098,13 @@ export class RepositoryWorkspaces {
         !isDeepStrictEqual(record.binding, binding)
       )
         throw new Error('Repository source release requires its settled conversation claim');
+      if (this.getForConversation(conversationId)?.id !== id)
+        throw Error('Source release requires its current primary owner');
       if (record.sourceReleased) return;
+      const expectedRecord = JSON.stringify(record);
       await rm(join(this.directory, id), { recursive: true, force: true });
       record.sourceReleased = true;
-      this.save(record);
+      this.save(record, expectedRecord);
     });
   }
   async startupSeed(
@@ -1539,7 +1654,7 @@ export class RepositoryWorkspaces {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
       throw new Error('Host repository ledger record is invalid');
     const record = parsed as RepositoryWorkspace;
-    if (record.id !== id || row.conversation_id !== (record.conversationId ?? null))
+    if (record.id !== id || row.conversation_id !== primaryConversation(record))
       throw new Error('Host repository ledger identity changed');
     return record;
   }
@@ -1548,7 +1663,10 @@ export class RepositoryWorkspaces {
   ): HostRepositoryReservation {
     this.assertAvailable();
     const expected = this.snapshotHostInput(input);
+    this.assertNoOrdinaryPrimary(expected.conversationId);
     const record = this.getHostRecord(expected.id);
+    if (primaryConversation(record) !== expected.conversationId)
+      throw Error('Historical repository ownership is not current custody');
     const descriptor = this.reservationDescriptor(record);
     if (
       record.ordinaryFirstReservation &&
@@ -1654,6 +1772,271 @@ export class RepositoryWorkspaces {
       signal.throwIfAborted();
       this.assertUnchangedHostRecord(record);
       this.getHostReservation(reservation);
+    });
+  }
+  adoptPreparedRepositoryTransition(
+    input: PreparedRepositoryTransitionFacts,
+    childCommandId: string,
+    assertCurrentSync: () => void,
+  ): void {
+    this.assertAvailable();
+    const facts = transitionFacts(input),
+      request = facts.request;
+    if (
+      childCommandId !== transitionChildId(facts) ||
+      facts.newWorkspace.id !== request.id ||
+      facts.oldWorkspace.id === facts.newWorkspace.id ||
+      facts.oldWorkspace.directory === facts.newWorkspace.directory
+    )
+      throw Error('Prepared repository transition child changed');
+    this.db
+      .transaction(() => {
+        const record = this.pendingRecord(request),
+          receipt = record.pendingHostTask;
+        const raw = this.db
+          .prepare('SELECT record,conversation_id FROM repository_workspaces WHERE id=?')
+          .get(record.id) as { record: string; conversation_id: string | null };
+        const decision = PendingHostTaskDecisionSchema.parse(record.pendingHostTaskDecision);
+        const payload = pendingHostTaskDecisionPayload(request, decision.scope);
+        if (
+          pendingHostTaskDecisionHash(record) !== facts.materializedRecordSha256 ||
+          raw.conversation_id !== null ||
+          receipt?.state !== 'materialized' ||
+          !receipt.taskIdentity ||
+          !isDeepStrictEqual(receipt.request, request) ||
+          decision.state !== 'consumed' ||
+          !isDeepStrictEqual(decision.request, request) ||
+          !isDeepStrictEqual(decision.scope.oldWorkspace, facts.oldWorkspace) ||
+          decision.scopeSha256 !== pendingHostTaskDecisionHash(decision.scope) ||
+          decision.scopeSha256 !== facts.consumedScopeSha256 ||
+          decision.evidence.toolUseID !== request.prepareCallId ||
+          decision.evidence.sessionId !== request.conversationId ||
+          !isDeepStrictEqual(decision.evidence.input, payload) ||
+          decision.evidence.inputSha256 !== pendingHostTaskDecisionHash(payload) ||
+          facts.newWorkspace.directory !== receipt.directory ||
+          facts.newWorkspace.featureBranch !== record.featureBranch ||
+          facts.newWorkspace.baseOid !== record.baseOid ||
+          !isDeepStrictEqual(facts.newWorkspace.taskIdentity, receipt.taskIdentity)
+        )
+          throw Error('Original materialized repository proof changed');
+        const current = this.getForConversation(request.conversationId);
+        let oldRecord: RepositoryWorkspace | undefined, oldRaw: string | undefined;
+        let ordinaryRaw: string | undefined;
+        if (facts.oldWorkspace.kind === 'repository') {
+          if (
+            !current ||
+            current.id !== facts.oldWorkspace.id ||
+            current.directory !== facts.oldWorkspace.directory ||
+            current.state !== 'claimed' ||
+            current.sandbox ||
+            !isDeepStrictEqual(current.binding, request.binding)
+          )
+            throw Error('Original repository primary changed');
+          oldRecord = this.getHostRecord(current.id);
+          oldRaw = (
+            this.db
+              .prepare('SELECT record FROM repository_workspaces WHERE id=?')
+              .get(current.id) as { record: string }
+          ).record;
+        } else {
+          const old = this.getOrdinaryWorkspaceForConversation(request.conversationId);
+          if (
+            current ||
+            !old ||
+            old.id !== facts.oldWorkspace.id ||
+            old.directory !== facts.oldWorkspace.directory ||
+            old.state !== 'claimed' ||
+            !isDeepStrictEqual(old.binding, request.binding) ||
+            !isDeepStrictEqual(old.settings.binding, request.runtimeBinding)
+          )
+            throw Error('Original ordinary primary changed');
+          ordinaryRaw = (
+            this.db.prepare('SELECT record FROM ordinary_workspaces WHERE id=?').get(old.id) as {
+              record: string;
+            }
+          ).record;
+        }
+        const next: RepositoryWorkspace = {
+          ...record,
+          state: 'claimed',
+          conversationId: request.conversationId,
+          directory: receipt.directory,
+          sandbox: false,
+          taskIdentity: structuredClone(receipt.taskIdentity),
+          hostReservation: {
+            version: 1,
+            taskRoot: request.taskRoot,
+            rootIdentity: structuredClone(receipt.rootIdentity),
+          },
+          primaryDisposition: {
+            version: 1,
+            revision: (record.primaryDisposition?.revision ?? 0) + 1,
+            currentConversationId: request.conversationId,
+          },
+          preparedRepositoryTransitionAdoption: {
+            version: 1,
+            childCommandId,
+            factsSha256: pendingHostTaskDecisionHash(facts),
+            materializedRecord: raw.record,
+            facts,
+          },
+        };
+        primaryDispositionSchema.parse(next.primaryDisposition);
+        transitionAdoptionSchema.parse(next.preparedRepositoryTransitionAdoption);
+        const checked: unknown = assertCurrentSync();
+        if (checked !== undefined) {
+          void Promise.resolve(checked).catch(() => {});
+          throw Error('Synchronous fresh transition authority required');
+        }
+        // No awaits: guarded predicates remain authoritative even if the callback
+        // reenters this same database and changes a selected row or current pointer.
+        if (oldRecord) {
+          const retired: RepositoryWorkspace = {
+            ...oldRecord,
+            primaryDisposition: {
+              version: 1,
+              revision: (oldRecord.primaryDisposition?.revision ?? 0) + 1,
+              currentConversationId: null,
+            },
+          };
+          primaryDispositionSchema.parse(retired.primaryDisposition);
+          const changed = this.db
+            .prepare(
+              'UPDATE repository_workspaces SET record=?,conversation_id=NULL WHERE id=? AND record=? AND conversation_id=?',
+            )
+            .run(JSON.stringify(retired), oldRecord.id, oldRaw, request.conversationId);
+          if (changed.changes !== 1)
+            throw Error('Original primary custody changed before transfer');
+        } else {
+          const old = this.db
+            .prepare('SELECT record,conversation_id FROM ordinary_workspaces WHERE id=?')
+            .get(facts.oldWorkspace.id) as { record: string; conversation_id: string } | undefined;
+          if (!old || old.record !== ordinaryRaw || old.conversation_id !== request.conversationId)
+            throw Error('Original ordinary custody changed before transfer');
+          const historical = JSON.parse(old.record) as ReturnType<OrdinaryWorkspaceCustody['get']>;
+          const retired = {
+            ...historical,
+            primaryDisposition: {
+              version: 1,
+              revision: (historical.primaryDisposition?.revision ?? 0) + 1,
+              currentConversationId: null,
+            },
+          };
+          const changed = this.db
+            .prepare(
+              'UPDATE ordinary_workspaces SET record=?,conversation_id=NULL WHERE id=? AND record=? AND conversation_id=?',
+            )
+            .run(
+              JSON.stringify(retired),
+              facts.oldWorkspace.id,
+              ordinaryRaw,
+              request.conversationId,
+            );
+          if (changed.changes !== 1)
+            throw Error('Original ordinary custody changed before transfer');
+        }
+        const changed = this.db
+          .prepare(
+            `UPDATE repository_workspaces SET record=?,conversation_id=? WHERE id=? AND record=? AND conversation_id IS NULL
+        AND NOT EXISTS(SELECT 1 FROM repository_workspaces WHERE conversation_id=?)
+        AND NOT EXISTS(SELECT 1 FROM ordinary_workspaces WHERE conversation_id=?)`,
+          )
+          .run(
+            JSON.stringify(next),
+            request.conversationId,
+            record.id,
+            raw.record,
+            request.conversationId,
+            request.conversationId,
+          );
+        if (changed.changes !== 1) throw Error('Materialized custody changed before transfer');
+      })
+      .immediate();
+  }
+  /** Persisted custody assertion only. It never reads task files, supplies a
+   * filesystem grant, consumes native admission, or replays a partial effect. */
+  assertPreparedRepositoryTransitionAdopted(
+    input: PreparedRepositoryTransitionFacts,
+    childCommandId: string,
+  ): void {
+    this.assertAvailable();
+    const facts = transitionFacts(input),
+      request = facts.request;
+    if (childCommandId !== transitionChildId(facts))
+      throw Error('Prepared repository child changed');
+    const record = this.getHostRecord(facts.newWorkspace.id),
+      marker = transitionAdoptionSchema.parse(record.preparedRepositoryTransitionAdoption);
+    const receipt = PendingHostTaskReceiptSchema.parse(record.pendingHostTask),
+      decision = PendingHostTaskDecisionSchema.parse(record.pendingHostTaskDecision);
+    const original: unknown = JSON.parse(marker.materializedRecord);
+    const retainedOriginalFields = (value: object) =>
+      Object.fromEntries(
+        Object.entries(value).filter(
+          ([key]) =>
+            ![
+              'state',
+              'conversationId',
+              'directory',
+              'sandbox',
+              'taskIdentity',
+              'hostReservation',
+              'primaryDisposition',
+              'preparedRepositoryTransitionAdoption',
+              'sourceReleased',
+            ].includes(key),
+        ),
+      );
+    if (
+      !original ||
+      typeof original !== 'object' ||
+      Array.isArray(original) ||
+      pendingHostTaskDecisionHash(original) !== facts.materializedRecordSha256 ||
+      !isDeepStrictEqual(retainedOriginalFields(record), retainedOriginalFields(original)) ||
+      (record.sourceReleased !== undefined && typeof record.sourceReleased !== 'boolean')
+    )
+      throw Error('Original materialized custody record changed');
+    const payload = pendingHostTaskDecisionPayload(request, decision.scope);
+    if (
+      record.state !== 'claimed' ||
+      record.sandbox ||
+      primaryConversation(record) !== request.conversationId ||
+      this.getForConversation(request.conversationId)?.id !== record.id ||
+      record.conversationId !== request.conversationId ||
+      !isDeepStrictEqual(record.binding, request.binding) ||
+      !isDeepStrictEqual(record.ordinaryPreparation?.runtimeBinding, request.runtimeBinding) ||
+      !isDeepStrictEqual(marker, {
+        version: 1,
+        childCommandId,
+        factsSha256: pendingHostTaskDecisionHash(facts),
+        materializedRecord: marker.materializedRecord,
+        facts,
+      }) ||
+      receipt.state !== 'materialized' ||
+      !isDeepStrictEqual(receipt.request, request) ||
+      !isDeepStrictEqual(receipt.taskIdentity, facts.newWorkspace.taskIdentity) ||
+      record.directory !== facts.newWorkspace.directory ||
+      record.featureBranch !== facts.newWorkspace.featureBranch ||
+      record.baseOid !== facts.newWorkspace.baseOid ||
+      !isDeepStrictEqual(record.taskIdentity, facts.newWorkspace.taskIdentity) ||
+      decision.state !== 'consumed' ||
+      !isDeepStrictEqual(decision.request, request) ||
+      !isDeepStrictEqual(decision.scope.oldWorkspace, facts.oldWorkspace) ||
+      decision.scopeSha256 !== facts.consumedScopeSha256 ||
+      decision.scopeSha256 !== pendingHostTaskDecisionHash(decision.scope) ||
+      decision.evidence.toolUseID !== request.prepareCallId ||
+      decision.evidence.sessionId !== request.conversationId ||
+      !isDeepStrictEqual(decision.evidence.input, payload) ||
+      decision.evidence.inputSha256 !== pendingHostTaskDecisionHash(payload) ||
+      record.hostReservation?.taskRoot !== request.taskRoot ||
+      !isDeepStrictEqual(record.hostReservation.rootIdentity, receipt.rootIdentity)
+    )
+      throw Error('Adopted repository custody witness unavailable');
+    this.getHostReservation({
+      id: record.id,
+      binding: request.binding,
+      conversationId: request.conversationId,
+      taskRoot: request.taskRoot,
+      runtimeBinding: request.runtimeBinding,
     });
   }
   private snapshotPendingInput(input: PendingHostTaskRequest): PendingHostTaskRequest {
@@ -2486,6 +2869,8 @@ export class RepositoryWorkspaces {
       const signal = AbortSignal.timeout(30000);
       await this.authorize(record, binding, signal);
       if (record.state === 'claimed') {
+        if (primaryConversation(record) !== conversationId)
+          throw Error('Historical repository claim is not current custody');
         if (record.conversationId !== conversationId || record.sandbox !== sandbox)
           throw new Error('Repository preparation already belongs to another conversation');
         if (record.directory) await this.validateHostTask(conversationId, record.directory);
@@ -2517,6 +2902,7 @@ export class RepositoryWorkspaces {
             throw new Error('Repository preparation ownership changed before claim');
         })
         .immediate();
+      const claimingRecord = JSON.stringify(record);
       if (record.directory) {
         if ((await realpath(taskRoot)) !== taskRoot) throw new Error('Task workspace root changed');
         await mkdir(join(taskRoot, `repo-${record.id}`), { mode: 0o700 });
@@ -2530,7 +2916,7 @@ export class RepositoryWorkspaces {
       }
       await this.authorize(record, binding, signal);
       record.state = 'claimed';
-      this.save(record);
+      this.save(record, claimingRecord);
       return { ...record, seed: this.source(record) };
     });
   }

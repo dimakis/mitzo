@@ -229,7 +229,12 @@ export interface CodexConversationOptions {
   startupSignal?: AbortSignal;
   beforeReconnect?: () => Promise<void>;
   /** Completed-turn boundary, before claiming queued work. */
-  beforeRuntimeAdmission?: (closeOwnedTransport: () => Promise<void>) => Promise<boolean>;
+  beforeRuntimeAdmission?:
+    | ((closeOwnedTransport: () => Promise<void>) => Promise<boolean>)
+    | {
+        readonly kind: 'prepared-repository-primary';
+        admit(assertCurrentSync: () => void): Promise<void>;
+      };
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
   completionHookTimeoutMs?: number;
   runtimeCwd?: string;
@@ -1985,20 +1990,63 @@ export class CodexConversation {
   }
   private async beginNext() {
     if (this.opts.beforeRuntimeAdmission && this.binding && !this.active) {
+      const boundary = this.opts.beforeRuntimeAdmission;
+      const boundaryAdmit = typeof boundary === 'function' ? undefined : boundary.admit;
+      const client = this.client;
+      const generation = this.transportGeneration;
+      const threadId = this.threadId;
+      const binding = this.binding;
+      const startupSignal = this.opts.startupSignal;
       await this.verifyCurrentBinding(this.binding);
       try {
-        const admit = async () => {
-          const changed = await this.opts.beforeRuntimeAdmission!(async () => {
-            this.transportGeneration += 1;
-            this.ready = false;
-            this.client.close();
-          });
-          if (changed || !this.ready) await this.reconnectBound();
-        };
-        // Hold the current grant reservation across migration and reattachment;
-        // validating only afterward could already provision revoked connections.
-        if (this.opts.reconnectGuard) await this.opts.reconnectGuard(admit);
-        else await admit();
+        if (typeof boundary !== 'function') {
+          if (!boundary || boundary.kind !== 'prepared-repository-primary' || !this.ready)
+            throw Error('Retained primary admission requires the original transport');
+          const admit = boundaryAdmit!;
+          let boundaryOpen = true;
+          const assertBoundaryCurrentSync = () => {
+            startupSignal?.throwIfAborted();
+            if (
+              !boundaryOpen ||
+              this.opts.startupSignal !== startupSignal ||
+              this.closed ||
+              this.paused ||
+              this.active ||
+              !this.ready ||
+              this.client !== client ||
+              this.transportGeneration !== generation ||
+              this.threadId !== threadId ||
+              this.binding !== binding ||
+              this.opts.beforeRuntimeAdmission !== boundary ||
+              boundary.admit !== admit
+            )
+              throw Error('Original retained primary boundary unavailable');
+          };
+          try {
+            assertBoundaryCurrentSync();
+            const admitted: unknown = await admit.call(boundary, assertBoundaryCurrentSync);
+            if (admitted !== undefined)
+              throw Error('Retained primary admission must settle without a value');
+            assertBoundaryCurrentSync();
+            await this.verifyCurrentBinding(this.binding);
+            assertBoundaryCurrentSync();
+          } finally {
+            boundaryOpen = false;
+          }
+        } else {
+          const admit = async () => {
+            const changed = await boundary(async () => {
+              this.transportGeneration += 1;
+              this.ready = false;
+              this.client.close();
+            });
+            if (changed || !this.ready) await this.reconnectBound();
+          };
+          // Hold the current grant reservation across migration and reattachment;
+          // validating only afterward could already provision revoked connections.
+          if (this.opts.reconnectGuard) await this.opts.reconnectGuard(admit);
+          else await admit();
+        }
       } catch (error) {
         // Admission precedes claimNext: preserve queued FIFO and expose an
         // explicit recovery pause even when only our idle transport was closed.

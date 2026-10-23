@@ -4239,6 +4239,121 @@ it('keeps an undefined startup rejection fail-closed', async () => {
   await expect(c.initialize()).rejects.toThrow('permanently vetoed');
 });
 
+it('runs retained-primary admission only after completed cleanup and before claiming its automatic child', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'original-workspace', prompt: 'Original task' });
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const guard = vi.fn(async () => {
+    throw Error('Owned transport reconnect forbidden');
+  });
+  f.conversationOptions.reconnectGuard = guard;
+  const admit = vi.fn(async () => {
+    expect(f.c.queue()).toMatchObject([{ id: 'original-workspace', status: 'completed' }]);
+    await waiting;
+    f.c.enqueue({ id: 'owned-child', prompt: 'Continue original task' });
+  });
+  f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(admit).toHaveBeenCalledOnce());
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  release();
+  await vi.waitFor(() =>
+    expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2),
+  );
+  expect(guard).not.toHaveBeenCalled();
+  expect(f.rpc.close).not.toHaveBeenCalled();
+  expect(f.requests.filter((request) => request.method === 'thread/start')).toHaveLength(1);
+});
+
+it('pauses a failed retained-primary boundary before claiming queued old-workspace work', async () => {
+  const f = await setup();
+  f.conversationOptions.beforeRuntimeAdmission = {
+    kind: 'prepared-repository-primary',
+    admit: async () => {
+      throw Error('Transition requires reconciliation');
+    },
+  };
+  await expect(f.c.send({ id: 'queued-old', prompt: 'Original task' })).rejects.toThrow(
+    'reconciliation',
+  );
+  expect(f.c.queue()).toMatchObject([{ id: 'queued-old', status: 'queued' }]);
+  expect(f.c.isPaused()).toBe(true);
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+});
+
+it('invalidates the original retained boundary while admission awaits transport closure', async () => {
+  const f = await setup();
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let fence!: () => void;
+  const admit = vi.fn(async (assertCurrentSync: () => void) => {
+    fence = assertCurrentSync;
+    await waiting;
+  });
+  f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+  const sent = f.c
+    .send({ id: 'closed-before-claim', prompt: 'Original task' })
+    .catch((error: unknown) => error);
+  await vi.waitFor(() => expect(admit).toHaveBeenCalledOnce());
+  expect(typeof fence).toBe('function');
+  expect(() => fence()).not.toThrow();
+  f.c.close();
+  expect(() => fence()).toThrow();
+  release();
+  expect(await sent).toBeInstanceOf(Error);
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+});
+
+it.each(['initial verification', 'admission', 'final verification'] as const)(
+  'retains the original startup cancellation through %s, including signal replacement',
+  async (phase) => {
+    const f = await setup();
+    const controller = new AbortController();
+    f.conversationOptions.startupSignal = controller.signal;
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let atGate = false;
+    let verified = 0;
+    f.conversationOptions.verifyBinding = async () => {
+      verified++;
+      if (
+        (phase === 'initial verification' && verified === 1) ||
+        (phase === 'final verification' && verified === 2)
+      ) {
+        atGate = true;
+        await waiting;
+      }
+      return f.getBinding();
+    };
+    const admit = vi.fn(async () => {
+      if (phase === 'admission') {
+        atGate = true;
+        await waiting;
+      }
+    });
+    f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+    const sent = f.c
+      .send({ id: 'cancelled-at-boundary', prompt: 'Original task' })
+      .catch((error: unknown) => error);
+    await vi.waitFor(() => expect(atGate).toBe(true));
+    controller.abort(Error('Original startup revoked'));
+    f.conversationOptions.startupSignal = new AbortController().signal;
+    release();
+    expect(await sent).toBeInstanceOf(Error);
+    expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+  },
+);
+
 it('pauses admission failure before claim and resumes the preserved FIFO on explicit send', async () => {
   let blocked = true;
   const admission = vi.fn(async (close: () => Promise<void>) => {

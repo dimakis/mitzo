@@ -13,7 +13,7 @@ function fixture() {
     deniedRoots: ['/credentials'],
     writeProtectedRoots: [],
   });
-  const owners = {
+  const owners: Parameters<typeof withPreparedRepositoryBarrierReadScope>[2] = {
     signal: new AbortController().signal,
     selectedPolicy: () => policy,
     assertCurrentSync: vi.fn(() => {
@@ -72,6 +72,16 @@ it('checks old owner and selected policy across async revalidation', async () =>
   ).rejects.toThrow();
 });
 
+it('refuses a value returned by asynchronous current-owner validation', async () => {
+  const f = fixture();
+  f.owners.revalidate = (async () => false) as unknown as typeof f.owners.revalidate;
+  await expect(
+    withPreparedRepositoryBarrierReadScope(f.policy, 'original', f.owners, async (scope) =>
+      scope.revalidate(),
+    ),
+  ).rejects.toThrow();
+});
+
 it('rejects current-policy owner replacement and preserves method receiver', async () => {
   const f = fixture();
   f.owners.assertNativeExecutionCurrent = function (policy) {
@@ -89,8 +99,9 @@ it.each([() => 1, () => Promise.resolve(), () => Promise.reject(Error('Async den
   'rejects non-undefined synchronous proof %j',
   async (makeValue) => {
     const f = fixture();
-    f.owners.assertNativeExecutionCurrent =
-      makeValue as typeof f.owners.assertNativeExecutionCurrent;
+    f.owners.assertNativeExecutionCurrent = makeValue as NonNullable<
+      typeof f.owners.assertNativeExecutionCurrent
+    >;
     await expect(
       withPreparedRepositoryBarrierReadScope(f.policy, 'original', f.owners, vi.fn()),
     ).rejects.toThrow();

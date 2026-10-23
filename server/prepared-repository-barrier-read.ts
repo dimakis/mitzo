@@ -80,7 +80,8 @@ export async function withPreparedRepositoryBarrierReadScope<T>(
         assertCurrentSync,
         async revalidate() {
           assertCurrentSync();
-          await originalRevalidate.call(owners);
+          const checked: unknown = await originalRevalidate.call(owners);
+          if (checked !== undefined) unavailable();
           assertCurrentSync();
         },
       }),
