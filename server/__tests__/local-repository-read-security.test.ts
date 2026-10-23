@@ -472,3 +472,20 @@ it('retains a unique eligible discovery and reports restriction first observed d
   });
   expect(JSON.stringify(result)).not.toContain('.aws');
 });
+
+it.each(['AGENTS.md', 'CLAUDE.md'] as const)(
+  'records an existing dangling %s alias as omitted without disclosing its target',
+  async (name) => {
+    const alias = join(selected, name);
+    const target = 'fixture-missing-guidance.md';
+    await symlink(target, alias);
+    const result = await inspectLocalRepository({
+      path: selected,
+      accessScope: { kind: 'roots', roots: [root] },
+    });
+    expect(result.instructions.omitted).toContainEqual({ path: alias, reason: 'symlink' });
+    expect(result.instructions.files.some((file) => file.path === alias)).toBe(false);
+    expect(result.instructions.complete).toBe(false);
+    expect(JSON.stringify(result)).not.toContain(target);
+  },
+);

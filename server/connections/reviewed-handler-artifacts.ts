@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.566-ordinary-worktree-registry';
+  'v1.0.568-dangling-instruction-alias';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1362,7 +1362,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/telos-source-updates.ts':
     'd04a21a711eb8c7118491d94b1363f02b36b0f7457bbe711906f3d67bdbb6e8d',
   '../local-repository-discovery.ts':
-    '0a00f827993546ac7cc2543d5726cb588c8a89dd6e1d00d821e6f52f7650ce73',
+    'b2e3411e90202295d07ebd44fe4a550e70e0a1f9f4eaf60dfc6de9d3c33298f9',
   '../session-local-repository-tools.ts':
     '713ae50491f21c54ab1f15348e706f0423165ef1940fe7983296a5b7de926f57',
   '../__tests__/local-repository-read-scope.test.ts':
@@ -1378,7 +1378,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-anchored-read.test.ts':
     '7322ab8566b3649a90876e253f5d66a8cc631ac7148ee47602c71eaed5123628',
   '../__tests__/local-repository-read-security.test.ts':
-    '7fb8a1d82c3a2a8d4876e8e1fe88c265e0e27de9124b447034bf8575800dd3c9',
+    'afc7822c1db6bdad7a99941846d02161fbbb7afb7ed9c8b7bb876b3f4baf4570',
   '../__tests__/local-repository-discovery.test.ts':
     '7df2b3e253226d8115701e19d7e35865a18bfde199d273883b944e40f000dc0a',
   '../__tests__/local-repository-racy-status.test.ts':

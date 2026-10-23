@@ -651,7 +651,10 @@ export async function inspectLocalRepository(
           instructions.omitted.push({ path: file, reason: 'symlink' });
           continue;
         }
-        if (!entry) continue;
+        if (!entry) {
+          if (alias) instructions.omitted.push({ path: file, reason: 'symlink' });
+          continue;
+        }
         if (remaining <= 0) {
           instructions.omitted.push({ path: file, reason: 'byte-limit' });
           continue;
