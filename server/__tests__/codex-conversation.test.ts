@@ -1724,6 +1724,72 @@ it('replays the exact durable symposium tool result for a duplicate provider cal
   ).rejects.toThrow(/identity/);
 });
 
+it.each(['ordinary', 'symposium'] as const)(
+  'delivers durable image bytes and preserves %s duplicate policy',
+  async (kind) => {
+    const delivered = vi.fn();
+    const { c, callbacks, execute, store } = await setup(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      kind === 'symposium' ? { ownerKind: 'symposium', onToolResultDurable: delivered } : undefined,
+    );
+    await c.send({ id: 'image-command', prompt: 'inspect' });
+    const data =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+    const result = {
+      content: 'screen',
+      isError: false,
+      contentItems: [
+        { type: 'inputText' as const, text: 'screen' },
+        { type: 'inputImage' as const, imageUrl: `data:image/png;base64,${data}` },
+      ],
+    };
+    execute.mockResolvedValue(result);
+    const record = vi.spyOn(store, 'recordToolResult');
+    const call = {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'image-call',
+      namespace: null,
+      tool: 'Read',
+      arguments: {},
+    };
+    const first = await callbacks.onRequest('item/tool/call', call, new AbortController().signal);
+    expect(record).toHaveBeenCalledWith(
+      'app',
+      expect.anything(),
+      'image-command',
+      'image-call',
+      expect.anything(),
+      result,
+    );
+    expect(first).toEqual({ success: true, contentItems: result.contentItems });
+    const replay = await callbacks.onRequest('item/tool/call', call, new AbortController().signal);
+    if (kind === 'symposium') {
+      expect(replay).toEqual(first);
+      expect(delivered).toHaveBeenCalledTimes(2);
+    } else expect(replay).toMatchObject({ success: false });
+    expect(execute).toHaveBeenCalledOnce();
+  },
+);
+
 it.each(['functions', '', null, undefined])(
   'dispatches declared host tools with protocol namespace %s',
   async (namespace) => {
