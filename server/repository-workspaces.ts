@@ -2,11 +2,20 @@ import {
   PendingHostTaskError,
   PendingHostTaskRequestSchema,
   PendingHostTaskReceiptSchema,
+  PendingHostTaskDecisionScopeSchema,
+  PendingHostTaskDecisionEvidenceSchema,
+  PendingHostTaskDecisionSchema,
+  pendingHostTaskDecisionPayload,
+  pendingHostTaskDecisionHash,
   freezePendingHostTaskData,
   type PendingHostTaskRequest,
   type PendingHostTaskReceipt,
   type PendingHostTaskAccess,
   type PendingHostTaskEffectScope,
+  type PendingHostTaskDecisionScope,
+  type PendingHostTaskDecisionEvidence,
+  type PendingHostTaskDecision,
+  type PendingHostTaskDecisionOwner,
 } from './pending-host-task.js';
 import { contextDigest } from './agent-context-compiler.js';
 import { OrdinaryWorkspaceCustody } from './ordinary-workspace-custody.js';
@@ -87,6 +96,8 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
   hostReservation?: HostTaskReservationMarker;
   /** Private preparation custody only; never the conversation primary or an access grant. */
   pendingHostTask?: PendingHostTaskReceipt;
+  /** One bounded private phase record on this same allocation row; never a grant. */
+  pendingHostTaskDecision?: PendingHostTaskDecision;
   createdAt: number;
   /** Server-derived original preview intent; private correlation, never a grant. */
   previewIntentFingerprint?: string;
@@ -268,6 +279,37 @@ export async function repositorySourceDigest(directory: string): Promise<string>
   }
   await walk(directory, '');
   return hash.digest('hex');
+}
+
+class PendingHostTaskDecisionOperation {
+  #claimed = false;
+  constructor(
+    private readonly service: object,
+    readonly request: Readonly<PendingHostTaskRequest>,
+    readonly scope: Readonly<PendingHostTaskDecisionScope>,
+    private readonly currentSync: () => void,
+    private readonly currentAsync: () => Promise<void>,
+  ) {
+    Object.freeze(this);
+  }
+  assertFor(service: object, request: PendingHostTaskRequest) {
+    if (this.service !== service || !isDeepStrictEqual(this.request, request))
+      throw new PendingHostTaskError('pending_host_task_ownership_changed');
+    this.assertCurrentSync();
+  }
+  assertCurrentSync() {
+    this.currentSync();
+  }
+  async assertCurrent() {
+    this.assertCurrentSync();
+    await this.currentAsync();
+    this.assertCurrentSync();
+  }
+  claim() {
+    this.assertCurrentSync();
+    if (this.#claimed) throw new PendingHostTaskError('pending_host_task_uncertain');
+    this.#claimed = true;
+  }
 }
 
 interface Dependencies {
@@ -1655,6 +1697,233 @@ export class RepositoryWorkspaces {
         throw new PendingHostTaskError('pending_host_task_ownership_changed');
     }
     return record;
+  }
+  private assertDecisionOwner(
+    request: PendingHostTaskRequest,
+    owner: PendingHostTaskDecisionOwner,
+  ) {
+    const context = owner.context;
+    context.signal.throwIfAborted();
+    for (const assertion of [() => context.assertCurrentSync(), () => owner.assertCurrentSync()]) {
+      const returned: unknown = assertion();
+      if (returned !== undefined) {
+        void Promise.resolve(returned).catch(() => {});
+        throw new PendingHostTaskError('pending_host_task_authority_required');
+      }
+    }
+    const destination =
+      context.workspace.kind === 'ordinary'
+        ? this.getOrdinaryWorkspaceForConversation(context.conversationId)
+        : this.getForConversation(context.conversationId);
+    if (!destination?.hostReservation)
+      throw new PendingHostTaskError('pending_host_task_access_required');
+    if (
+      context.toolName !== 'PrepareLocalRepository' ||
+      context.conversationId !== request.conversationId ||
+      context.runtimeId !== request.runtimeId ||
+      context.callId !== request.prepareCallId ||
+      context.requestHash !== request.requestHash ||
+      !isDeepStrictEqual(context.nativeTarget, request.nativeTarget) ||
+      !isDeepStrictEqual(context.session.accountBinding, request.binding) ||
+      destination.id !== context.workspace.id ||
+      destination.directory !== context.workspace.directory ||
+      destination.hostReservation.taskRoot !== request.taskRoot ||
+      !isDeepStrictEqual(destination.binding, request.binding)
+    )
+      throw new PendingHostTaskError('pending_host_task_ownership_changed');
+    return destination.hostReservation;
+  }
+  private decisionScope(
+    record: RepositoryWorkspace,
+    request: PendingHostTaskRequest,
+    input: PendingHostTaskDecisionScope,
+    owner: PendingHostTaskDecisionOwner,
+  ) {
+    const scope = PendingHostTaskDecisionScopeSchema.parse(structuredClone(input));
+    const root = this.assertDecisionOwner(request, owner);
+    const expected = {
+      kind: 'local-repository-worktree',
+      workspaceId: record.id,
+      featureBranch: record.featureBranch,
+      baseOid: record.baseOid,
+      source: scope.create.source,
+      task: {
+        taskRoot: request.taskRoot,
+        directory: join(request.taskRoot, `repo-${record.id}`),
+        adminBasename: `repo-${record.id}`,
+      },
+    };
+    const common = record.localSource!.commonDirectory;
+    const branchRef = join(common, 'refs', 'heads', record.featureBranch);
+    if (
+      !isDeepStrictEqual(scope.create, { ...expected, intent: 'create' }) ||
+      !isDeepStrictEqual(scope.use, { ...expected, intent: 'use' }) ||
+      scope.create.source.path !== record.localSource!.path ||
+      scope.create.source.commonDirectory !== common ||
+      !isDeepStrictEqual(scope.sourceIdentity, record.localSource) ||
+      scope.sourceDigest !== record.sourceDigest ||
+      !isDeepStrictEqual(scope.taskRootIdentity, root.rootIdentity) ||
+      !isDeepStrictEqual(scope.sourceGitEffects, {
+        administrationDirectory: join(common, 'worktrees', `repo-${record.id}`),
+        branchReference: branchRef,
+        branchReferenceLock: branchRef + '.lock',
+        branchLog: join(common, 'logs', 'refs', 'heads', record.featureBranch),
+      })
+    )
+      throw new PendingHostTaskError('pending_host_task_ownership_changed');
+    return freezePendingHostTaskData(scope);
+  }
+  private decisionEvidence(
+    request: PendingHostTaskRequest,
+    scope: PendingHostTaskDecisionScope,
+    input: PendingHostTaskDecisionEvidence,
+  ) {
+    const evidence = PendingHostTaskDecisionEvidenceSchema.parse(structuredClone(input));
+    const payload = pendingHostTaskDecisionPayload(request, scope);
+    if (
+      evidence.toolUseID !== request.prepareCallId ||
+      evidence.sessionId !== request.conversationId ||
+      evidence.expiresAt <= Date.now() ||
+      !isDeepStrictEqual(evidence.input, payload) ||
+      evidence.inputSha256 !== pendingHostTaskDecisionHash(payload)
+    )
+      throw new PendingHostTaskError('pending_host_task_authority_required');
+    return freezePendingHostTaskData(evidence);
+  }
+  private updatePendingDecision(
+    record: RepositoryWorkspace,
+    decision: PendingHostTaskDecision,
+    receipt = record.pendingHostTask,
+  ) {
+    const next: RepositoryWorkspace = {
+      ...record,
+      pendingHostTaskDecision: PendingHostTaskDecisionSchema.parse(structuredClone(decision)),
+      ...(receipt
+        ? { pendingHostTask: PendingHostTaskReceiptSchema.parse(structuredClone(receipt)) }
+        : {}),
+    };
+    this.assertUnchangedHostRecord(record);
+    const changed = this.db
+      .prepare(
+        'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id IS NULL',
+      )
+      .run(JSON.stringify(next), record.id, JSON.stringify(record));
+    if (changed.changes !== 1)
+      throw new PendingHostTaskError('pending_host_task_ownership_changed');
+    return next;
+  }
+  /** Private metadata only. Observed evidence is historical and cannot authorize effects. */
+  retainPendingHostTaskDecisionObservation(
+    input: PendingHostTaskRequest,
+    scopeInput: PendingHostTaskDecisionScope,
+    evidenceInput: PendingHostTaskDecisionEvidence,
+    owner: PendingHostTaskDecisionOwner,
+  ): PendingHostTaskDecision {
+    this.assertAvailable();
+    const request = this.snapshotPendingInput(input);
+    this.assertDecisionOwner(request, owner);
+    const record = this.pendingRecord(request);
+    const scope = this.decisionScope(record, request, scopeInput, owner);
+    const evidence = this.decisionEvidence(request, scope, evidenceInput);
+    const decision = PendingHostTaskDecisionSchema.parse({
+      version: 1,
+      request,
+      scope,
+      scopeSha256: pendingHostTaskDecisionHash(scope),
+      evidence,
+      state: 'observed',
+    });
+    if (record.pendingHostTaskDecision) {
+      if (!isDeepStrictEqual(record.pendingHostTaskDecision, decision))
+        throw new PendingHostTaskError('pending_host_task_uncertain');
+      return freezePendingHostTaskData(structuredClone(decision));
+    }
+    this.assertDecisionOwner(request, owner);
+    this.updatePendingDecision(record, decision);
+    return freezePendingHostTaskData(structuredClone(decision));
+  }
+  /** Called only after actual handler allow plus asynchronous producer revalidation. */
+  finalizePendingHostTaskDecision(
+    input: PendingHostTaskRequest,
+    scopeInput: PendingHostTaskDecisionScope,
+    evidenceInput: PendingHostTaskDecisionEvidence,
+    owner: PendingHostTaskDecisionOwner,
+  ): PendingHostTaskDecision {
+    const request = this.snapshotPendingInput(input);
+    this.assertDecisionOwner(request, owner);
+    const record = this.pendingRecord(request);
+    const scope = this.decisionScope(record, request, scopeInput, owner);
+    const evidence = this.decisionEvidence(request, scope, evidenceInput);
+    const observed = PendingHostTaskDecisionSchema.parse({
+      version: 1,
+      request,
+      scope,
+      scopeSha256: pendingHostTaskDecisionHash(scope),
+      evidence,
+      state: 'observed',
+    });
+    if (!isDeepStrictEqual(record.pendingHostTaskDecision, observed))
+      throw new PendingHostTaskError('pending_host_task_uncertain');
+    const finalized = { ...observed, state: 'finalized' as const };
+    this.assertDecisionOwner(request, owner);
+    this.updatePendingDecision(record, finalized);
+    return freezePendingHostTaskData(structuredClone(finalized));
+  }
+  /** One metadata transaction; no intermediate consumed decision without durable intent. */
+  beginPendingHostTaskDecisionMaterialization(
+    input: PendingHostTaskRequest,
+    owner: PendingHostTaskDecisionOwner,
+  ) {
+    const request = this.snapshotPendingInput(input);
+    const consumed = this.db
+      .transaction(() => {
+        this.assertDecisionOwner(request, owner);
+        const record = this.pendingRecord(request);
+        const decision = PendingHostTaskDecisionSchema.parse(record.pendingHostTaskDecision);
+        this.decisionScope(record, request, decision.scope, owner);
+        this.decisionEvidence(request, decision.scope, decision.evidence);
+        if (
+          decision.state !== 'finalized' ||
+          !isDeepStrictEqual(decision.request, request) ||
+          (record.pendingHostTask && record.pendingHostTask.state !== 'reserved')
+        )
+          throw new PendingHostTaskError('pending_host_task_uncertain');
+        const receipt = PendingHostTaskReceiptSchema.parse({
+          version: 1,
+          request,
+          rootIdentity: decision.scope.taskRootIdentity,
+          directory: decision.scope.create.task.directory,
+          sourceDigest: decision.scope.sourceDigest,
+          state: 'materializing',
+        });
+        const next = { ...decision, state: 'consumed' as const };
+        this.assertDecisionOwner(request, owner);
+        this.updatePendingDecision(record, next, receipt);
+        return freezePendingHostTaskData(structuredClone(next));
+      })
+      .immediate();
+    const current = () => {
+      this.assertDecisionOwner(request, owner);
+      const record = this.pendingRecord(request);
+      this.decisionScope(record, request, consumed.scope, owner);
+      if (
+        !isDeepStrictEqual(record.pendingHostTaskDecision, consumed) ||
+        !record.pendingHostTask ||
+        !['materializing', 'materialized'].includes(record.pendingHostTask.state)
+      )
+        throw new PendingHostTaskError('pending_host_task_uncertain');
+    };
+    return new PendingHostTaskDecisionOperation(
+      this,
+      freezePendingHostTaskData(request),
+      consumed.scope,
+      current,
+      async () => {
+        current();
+        await owner.assertCurrent();
+        current();
+      },
+    );
   }
   private assertPendingCurrent(request: PendingHostTaskRequest, signal: AbortSignal) {
     signal.throwIfAborted();

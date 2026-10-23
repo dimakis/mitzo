@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import type { NativeHostToolContext } from './native-host-tool-context.js';
 import { AccountBindingSchema, SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
@@ -103,4 +105,77 @@ export function freezePendingHostTaskData<T>(value: T): T {
     Object.freeze(value);
   }
   return value;
+}
+
+const effectScope = z.strictObject({
+  kind: z.literal('local-repository-worktree'),
+  intent: z.enum(['create', 'use']),
+  workspaceId: z.uuid(),
+  featureBranch: reference,
+  baseOid: z.string().regex(/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/),
+  source: z.strictObject({ path, gitDirectory: path, commonDirectory: path }),
+  task: z.strictObject({ taskRoot: path, directory: path, adminBasename: reference }),
+});
+/** Exact descriptive effects, not a filesystem or native permission grant. */
+export const PendingHostTaskDecisionScopeSchema = z.strictObject({
+  version: z.literal(1),
+  create: effectScope.extend({ intent: z.literal('create') }),
+  use: effectScope.extend({ intent: z.literal('use') }),
+  sourceIdentity: localSource,
+  taskRootIdentity: identity,
+  sourceDigest: digest,
+  anchorsSha256: digest,
+  sourceGitEffects: z.strictObject({
+    administrationDirectory: path,
+    branchReference: path,
+    branchReferenceLock: path,
+    branchLog: path,
+  }),
+});
+export type PendingHostTaskDecisionScope = z.infer<typeof PendingHostTaskDecisionScopeSchema>;
+export const PendingHostTaskDecisionEvidenceSchema = z.strictObject({
+  permId: reference,
+  toolUseID: reference,
+  sessionId: reference,
+  toolName: z.literal('PrepareLocalRepository'),
+  input: z.record(z.string(), z.unknown()),
+  inputSha256: digest,
+  approvalScope: z.literal('request'),
+  decisionClassification: z.literal('user_temporary'),
+  expiresAt: z.number().int().nonnegative().safe(),
+});
+export type PendingHostTaskDecisionEvidence = z.infer<typeof PendingHostTaskDecisionEvidenceSchema>;
+export const PendingHostTaskDecisionSchema = z
+  .strictObject({
+    version: z.literal(1),
+    request: PendingHostTaskRequestSchema,
+    scope: PendingHostTaskDecisionScopeSchema,
+    scopeSha256: digest,
+    evidence: PendingHostTaskDecisionEvidenceSchema,
+    state: z.enum(['observed', 'finalized', 'consumed', 'uncertain']),
+  })
+  .refine((value) => JSON.stringify(value).length <= 32768, 'Pending decision exceeds its bound');
+export type PendingHostTaskDecision = z.infer<typeof PendingHostTaskDecisionSchema>;
+
+/** Original private producer; its assertions never authorize effects by themselves. */
+export interface PendingHostTaskDecisionOwner {
+  readonly context: NativeHostToolContext;
+  assertCurrentSync(): void;
+  assertCurrent(): Promise<void>;
+}
+export function pendingHostTaskDecisionPayload(
+  request: PendingHostTaskRequest,
+  scope: PendingHostTaskDecisionScope,
+) {
+  request = PendingHostTaskRequestSchema.parse(structuredClone(request));
+  scope = PendingHostTaskDecisionScopeSchema.parse(structuredClone(scope));
+  return freezePendingHostTaskData({
+    operation: 'prepare-local-repository' as const,
+    request,
+    scope,
+    scopeSha256: pendingHostTaskDecisionHash(scope),
+  });
+}
+export function pendingHostTaskDecisionHash(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
