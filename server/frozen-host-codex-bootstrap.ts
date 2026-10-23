@@ -1,4 +1,5 @@
 import type { ApiHarnessConnection } from './account-harness-connection.js';
+import { findNativeMacExecutionUnavailable } from './codex-native-artifact-qualification.js';
 import { z } from 'zod';
 import { observeLocalCodexPhase } from './local-codex-observation.js';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -486,8 +487,10 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         qualifyModels(this.selections(expected)),
       );
       return await operation(this.#lease);
-    } catch {
+    } catch (error) {
       loginLease?.close();
+      const capabilityError = findNativeMacExecutionUnavailable(error);
+      if (capabilityError) throw capabilityError;
       throw unavailable();
     }
   }

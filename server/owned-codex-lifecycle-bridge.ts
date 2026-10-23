@@ -1,4 +1,7 @@
-import type { CodexLifecycleTransport } from './codex-app-server-client.js';
+import {
+  CodexServerRequestResolvedError,
+  type CodexLifecycleTransport,
+} from './codex-app-server-client.js';
 import type { FrozenHostCodexBootstrapLease } from './frozen-host-codex-bootstrap.js';
 import { observeLocalCodexPhase } from './local-codex-observation.js';
 
@@ -55,16 +58,28 @@ export class OwnedCodexLifecycleBridge {
           throw unavailable();
         }
       },
-      onRequest: async (method, params, signal) => {
+      onRequest: async (method, params, signal, context) => {
+        let originalLease: FrozenHostCodexBootstrapLease | undefined;
+        const requestId = context?.requestId;
         try {
           if (!this.#owner) throw unavailable();
           signal.throwIfAborted();
           const lease = this.assertCurrentSync();
+          originalLease = lease;
+          context?.registerResponseFence?.(() => {
+            signal.throwIfAborted();
+            this.assertCurrentSync();
+          });
           await observeLocalCodexPhase('host_tool_admission', () => this.admit(lease, signal));
           signal.throwIfAborted();
           this.assertCurrentSync();
           const result = await observeLocalCodexPhase('host_tool_execution', () =>
-            this.#owner!.onRequest(method, params, AbortSignal.any([signal, this.#abort.signal])),
+            this.#owner!.onRequest(
+              method,
+              params,
+              AbortSignal.any([signal, this.#abort.signal]),
+              ...(context ? [context] : []),
+            ),
           );
           // The existing conversation/tool ledger owns any effects already
           // completed by the callback. Failure here never asserts no execution.
@@ -72,7 +87,21 @@ export class OwnedCodexLifecycleBridge {
           this.assertCurrentSync();
           return result;
         } catch {
-          this.close();
+          let requestAlreadyResolved = false;
+          if (
+            signal.aborted &&
+            signal.reason instanceof CodexServerRequestResolvedError &&
+            signal.reason.requestId === requestId &&
+            originalLease &&
+            !this.#abort.signal.aborted
+          ) {
+            try {
+              requestAlreadyResolved = this.assertCurrentSync() === originalLease;
+            } catch {
+              /* A revoked/replaced owner still closes the lease. */
+            }
+          }
+          if (!requestAlreadyResolved) this.close();
           throw unavailable();
         }
       },

@@ -52,6 +52,19 @@ import { recordOrdinaryReplySource } from './collaboration-ordinary-replies.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { OwnedOpenShellCodexChatAdmission } from './owned-openshell-codex-chat-admission.js';
 import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
+import {
+  composeOwnedLocalNativeExecutionPolicy,
+  NATIVE_MAC_EXECUTION_INSTRUCTIONS,
+} from './owned-local-codex-native-policy.js';
+import {
+  createCodexNativeApprovalHandler,
+  type ApprovePreparedWorkspaceGrant,
+} from './codex-native-approvals.js';
+import type { CodexNativeExecutionPolicy } from './codex-native-execution-policy.js';
+import {
+  assertQualifiedNativeMacExecutionArtifact,
+  NATIVE_MAC_ARTIFACT_UNAVAILABLE,
+} from './codex-native-artifact-qualification.js';
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import type { RepositoryChatWorkspace } from './repository-chat-startup.js';
 import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
@@ -315,6 +328,7 @@ function capabilityToolsForConversation(
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  if (error.message === NATIVE_MAC_ARTIFACT_UNAVAILABLE) return error.message;
   if (error instanceof SandboxAgentContextAdmissionError)
     return error.message + ' No provider turn was started.';
   if (error instanceof CodexStartupError) {
@@ -584,6 +598,15 @@ export function readCodexLifecycleQueue(conversationId: string, binding: Account
   return store().lifecycleQueue(conversationId, binding);
 }
 interface Options {
+  /** Trusted selected execution-target read ceiling, never caller JSON. */
+  nativeExecutionReadRoots?: readonly string[];
+  /** Safe-point workspace authority; roots do not retarget already queued commands. */
+  resolveNativeExecutionPolicy?: CodexConversationOptions['resolveNativeExecutionPolicy'];
+  assertNativeExecutionCurrent?: CodexConversationOptions['assertNativeExecutionCurrent'];
+  /** Existing operator/target/source/task-storage WRITE authorization and
+   * materialized reservation receipt are all required. A prompt, selected path
+   * or prepared row alone cannot authorize this callback. */
+  approvePreparedWorkspaceGrant?: ApprovePreparedWorkspaceGrant;
   /** Server-internal exact uncertain receipt and actual frozen client. */
   ownedLocal?: OwnedLocalCodexChatAdmission;
   /** Exact admitted ordinary OpenShell target; bypasses deployment route inference. */
@@ -732,6 +755,9 @@ export async function openCodexChat(options: Options) {
     images: options.images ? structuredClone(options.images) : undefined,
     mcpServers: structuredClone(options.mcpServers),
     env: { ...options.env },
+    nativeExecutionReadRoots: options.nativeExecutionReadRoots
+      ? Object.freeze([...options.nativeExecutionReadRoots])
+      : undefined,
     configuredSourceEnv: options.configuredSourceEnv
       ? { ...options.configuredSourceEnv }
       : undefined,
@@ -1645,10 +1671,17 @@ async function openCodexChatBound(
         assertHostCurrentSync,
       )
     : undefined;
+  const nativeExecutionEnabled =
+    !!options.ownedLocal &&
+    process.platform === 'darwin' &&
+    ['Bash', 'Read', 'Write', 'Edit'].every((name) => agentToolAllowed(options.session, name));
+  const localExecutionTools = nativeExecutionEnabled
+    ? nativeToolDefinitions.filter((tool) => !['Bash', 'Read', 'Write', 'Edit'].includes(tool.name))
+    : nativeToolDefinitions;
   const ownedToolNames = options.ownedLocal
     ? new Set(
         [
-          ...nativeToolDefinitions,
+          ...localExecutionTools,
           ...mcp.definitions,
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
@@ -1752,8 +1785,30 @@ async function openCodexChatBound(
         connectionRevision: managedCapabilityConnection.revision,
       });
   }
+  let nativeExecution: CodexNativeExecutionPolicy | undefined;
+  const selectedNativePolicy = () =>
+    composeOwnedLocalNativeExecutionPolicy({
+      session: options.session,
+      binding: options.binding,
+      readableRoots: options.nativeExecutionReadRoots,
+      assertCurrentSync: assertHostCurrentSync,
+    });
+  try {
+    if (nativeExecutionEnabled) {
+      assertQualifiedNativeMacExecutionArtifact(
+        options.ownedLocal!.nativeExecutionArtifactSha256(),
+      );
+      nativeExecution = selectedNativePolicy();
+    }
+  } catch (error) {
+    finish();
+    startupReservation?.();
+    throw error;
+  }
   const baseSystemPrompt = options.ownedLocal
-    ? options.systemPrompt + HOST_TOOL_INSTRUCTIONS + GITHUB_PUBLISHING_INSTRUCTIONS
+    ? options.systemPrompt +
+      (nativeExecution ? NATIVE_MAC_EXECUTION_INSTRUCTIONS : HOST_TOOL_INSTRUCTIONS) +
+      GITHUB_PUBLISHING_INSTRUCTIONS
     : options.systemPrompt +
       CONNECTION_TOOL_INSTRUCTIONS +
       WEB_ACCESS_INSTRUCTIONS +
@@ -1833,7 +1888,7 @@ async function openCodexChatBound(
     options.session,
     options.ownedLocal
       ? [
-          ...nativeToolDefinitions,
+          ...localExecutionTools,
           ...mcp.definitions,
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
@@ -1880,6 +1935,49 @@ async function openCodexChatBound(
         ? 'openshell-runtime-config-v1'
         : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
     getMode: () => options.session.mode,
+    ...(nativeExecution
+      ? {
+          nativeExecution,
+          resolveNativeExecutionPolicy:
+            options.resolveNativeExecutionPolicy ??
+            (async () => {
+              await assertHostCurrent();
+              // The default owner admits the original frozen workspace. A new
+              // workspace requires its command-bound transition callback; a
+              // mutable session field cannot retarget already queued work.
+              return nativeExecution!;
+            }),
+          assertNativeExecutionCurrent: (policy: CodexNativeExecutionPolicy, commandId: string) => {
+            assertHostCurrentSync();
+            if (selectedNativePolicy().policyRevision !== policy.policyRevision)
+              throw Error('Native execution policy changed during the active command');
+            const checked: unknown = options.assertNativeExecutionCurrent?.(policy, commandId);
+            if (checked !== undefined) {
+              void Promise.resolve(checked).catch(() => {});
+              throw Error('Native execution policy owner must be synchronous');
+            }
+          },
+          requestNativeApproval: (
+            method: string,
+            params: Record<string, unknown>,
+            signal: AbortSignal,
+            context: Parameters<ReturnType<typeof createCodexNativeApprovalHandler>>[3],
+          ) => {
+            const owner = options.registry.findBySessionId(options.conversationId);
+            if (!owner || owner.session !== options.session)
+              throw Error('Native approval session unavailable');
+            return createCodexNativeApprovalHandler({
+              clientId: owner.clientId,
+              registry: options.registry,
+              runtimeId: nativeHostRuntimeId,
+              environmentId: 'local',
+              deniedRoots: nativeExecution!.deniedRoots,
+              writeProtectedRoots: nativeExecution!.writeProtectedRoots,
+              approvePreparedWorkspaceGrant: options.approvePreparedWorkspaceGrant,
+            })(method, params, signal, context);
+          },
+        }
+      : {}),
     systemPrompt: persistentSystemPrompt,
     startupSignal: signal,
     prepareAgentContext: ownedHost

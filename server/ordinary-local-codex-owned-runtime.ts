@@ -1,3 +1,4 @@
+import { findNativeMacExecutionUnavailable } from './codex-native-artifact-qualification.js';
 import {
   OrdinaryLocalWorkspaceOwner,
   type LocalWorkspaceKind,
@@ -506,13 +507,15 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         },
       );
       return result;
-    } catch {
+    } catch (error) {
       // A rejected later retry must not dispose the original live conversation.
       // Nor may a losing concurrent call abort the shared operator lifetime.
       // Failed native attempts retain uncertainty and close only their own client;
       // explicit close, operator invalidation and task cancellation own this driver.
       const lease = bootstrap?.currentLease();
       if (lease && lease !== retainedLease) lease.close();
+      const capabilityError = findNativeMacExecutionUnavailable(error);
+      if (capabilityError) throw capabilityError;
       throw unavailable();
     }
   }
