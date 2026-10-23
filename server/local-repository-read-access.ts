@@ -215,6 +215,7 @@ export class LocalRepositoryReadAccess {
     return access;
   }
   private totalBytes = 0;
+  private inFlightBytes = 0;
   private totalEntries = 0;
   private directoryRevision = 0;
   private readonly ceiling?: Readonly<{
@@ -802,12 +803,14 @@ export class LocalRepositoryReadAccess {
     return this.readBytes(path, limit, true);
   }
   private async readBytes(path: string, limit: number, prefix: boolean) {
-    const entry = await this.stat(path);
-    if (!entry) throw Object.assign(Error('Repository file unavailable'), { code: 'ENOENT' });
+    const observed = await this.stat(path);
+    if (!observed) throw Object.assign(Error('Repository file unavailable'), { code: 'ENOENT' });
+    const entry = structuredClone(observed); // Retain the exact byte/state expectation across waits.
     if (entry.kind !== 'file' || entry.nlink !== 1) throw unavailable();
     if (
-      (!prefix && entry.size > Math.min(limit, 16 * 1024 * 1024)) ||
-      this.totalBytes + Math.min(entry.size, limit, 16 * 1024 * 1024) > 64 * 1024 * 1024
+      !Number.isSafeInteger(limit) ||
+      limit <= 0 ||
+      (!prefix && entry.size > Math.min(limit, 16 * 1024 * 1024))
     )
       throw new LocalRepositoryGitInspectionError('limit', 'snapshot-bytes');
     const cached = this.capturedBytes.get(path);
@@ -816,47 +819,58 @@ export class LocalRepositoryReadAccess {
       return Buffer.from(prefix ? cached.subarray(0, limit) : cached);
     }
     if (this.preparationCapture) throw unavailable();
-    const parent = await this.stat(dirname(path));
-    if (!parent) throw unavailable();
-    await this.authorize(path);
-    const result = await (
-      this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation
-    )(
-      {
-        operation: 'ReadBytes',
-        deniedRoots: this.deniedRoots,
-        ...(prefix ? { prefix: true } : {}),
-        file_path: path,
-        rootAnchor: this.anchor(path),
-        parentIdentity: parent.identity,
-        identity: entry.identity,
-        expectedState: { size: entry.size, mtimeNs: entry.mtimeNs, ctimeNs: entry.ctimeNs },
-        limit: Math.max(1, Math.min(limit, 16 * 1024 * 1024)),
-      },
-      this.authority.signal ?? new AbortController().signal,
-      Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
-    );
-    await this.authorize(path);
-    if (result.is_error && result.content === 'Anchored read limit exceeded')
+    // Reserve before the parent/current/transport awaits. Independently known
+    // reads may overlap, but their aggregate capture budget never does. Cached
+    // bytes above perform no new physical read and need no new reservation.
+    const reservation = Math.min(entry.size, limit, 16 * 1024 * 1024);
+    if (this.totalBytes + this.inFlightBytes + reservation > 64 * 1024 * 1024)
       throw new LocalRepositoryGitInspectionError('limit', 'snapshot-bytes');
-    if (
-      result.is_error ||
-      result.content.length > Math.ceil(Math.min(entry.size, limit) / 3) * 4 ||
-      !/^[A-Za-z0-9+/]*={0,2}$/.test(result.content) ||
-      result.content.length % 4 !== 0
-    )
-      throw unavailable();
-    const bytes = Buffer.from(result.content, 'base64');
-    if (
-      bytes.length !== Math.min(entry.size, prefix ? limit : entry.size) ||
-      bytes.toString('base64') !== result.content ||
-      (prefix && result.truncated !== bytes.length < entry.size)
-    )
-      throw unavailable();
-    this.totalBytes += bytes.length;
-    if (bytes.length === entry.size) this.capturedBytes.set(path, Buffer.from(bytes));
-    this.consumed.set(path, structuredClone(entry));
-    return bytes;
+    this.inFlightBytes += reservation;
+    try {
+      const parent = await this.stat(dirname(path));
+      if (!parent) throw unavailable();
+      await this.authorize(path);
+      const result = await (
+        this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation
+      )(
+        {
+          operation: 'ReadBytes',
+          deniedRoots: this.deniedRoots,
+          ...(prefix ? { prefix: true } : {}),
+          file_path: path,
+          rootAnchor: this.anchor(path),
+          parentIdentity: parent.identity,
+          identity: entry.identity,
+          expectedState: { size: entry.size, mtimeNs: entry.mtimeNs, ctimeNs: entry.ctimeNs },
+          limit: Math.max(1, reservation),
+        },
+        this.authority.signal ?? new AbortController().signal,
+        Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+      );
+      await this.authorize(path);
+      if (result.is_error && result.content === 'Anchored read limit exceeded')
+        throw new LocalRepositoryGitInspectionError('limit', 'snapshot-bytes');
+      if (
+        result.is_error ||
+        result.content.length > Math.ceil(Math.min(entry.size, limit) / 3) * 4 ||
+        !/^[A-Za-z0-9+/]*={0,2}$/.test(result.content) ||
+        result.content.length % 4 !== 0
+      )
+        throw unavailable();
+      const bytes = Buffer.from(result.content, 'base64');
+      if (
+        bytes.length !== Math.min(entry.size, prefix ? limit : entry.size) ||
+        bytes.toString('base64') !== result.content ||
+        (prefix && result.truncated !== bytes.length < entry.size)
+      )
+        throw unavailable();
+      this.totalBytes += bytes.length;
+      if (bytes.length === entry.size) this.capturedBytes.set(path, Buffer.from(bytes));
+      this.consumed.set(path, structuredClone(entry));
+      return bytes;
+    } finally {
+      this.inFlightBytes -= reservation;
+    }
   }
   async verify() {
     if (this.preparationCapture) {
