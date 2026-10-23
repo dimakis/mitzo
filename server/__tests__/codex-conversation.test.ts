@@ -92,7 +92,9 @@ it('rejects a changed native credential fence before provider dispatch', async (
     'Native execution policy changed',
   );
   expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
-  expect(f.c.queue()).toContainEqual(expect.objectContaining({ id: 'frozen-command', status: 'failed' }));
+  expect(f.c.queue()).toContainEqual(
+    expect.objectContaining({ id: 'frozen-command', status: 'failed' }),
+  );
 });
 
 it('fences native grants against the frozen active policy at the final transport write', async () => {
@@ -165,6 +167,69 @@ it('routes an exact native approval to its owner without executing a host tool o
   expect(f.execute).not.toHaveBeenCalled();
   expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
 });
+
+it('includes both source and move destination in the exact native file approval fence', async () => {
+  const f = await setup();
+  const approve = vi.fn(async () => ({ decision: 'decline' }));
+  f.conversationOptions.requestNativeApproval = approve;
+  await f.c.send({ id: 'native-move', prompt: 'Move file' });
+  f.callbacks.onNotification('item/started', {
+    threadId: f.getProviderThread(),
+    turnId: 'turn-1',
+    item: {
+      type: 'fileChange',
+      id: 'patch-1',
+      status: 'inProgress',
+      changes: [
+        {
+          path: '/workspace/allowed',
+          kind: { type: 'update', move_path: '/private/auth/secret' },
+          diff: '@@',
+        },
+      ],
+    },
+  });
+  const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+  await request(
+    'item/fileChange/requestApproval',
+    { threadId: f.getProviderThread(), turnId: 'turn-1', itemId: 'patch-1' },
+    new AbortController().signal,
+    { requestId: 21 },
+  );
+  expect(approve).toHaveBeenCalledWith(
+    'item/fileChange/requestApproval',
+    expect.any(Object),
+    expect.any(AbortSignal),
+    expect.objectContaining({ fileChangePaths: ['/workspace/allowed', '/private/auth/secret'] }),
+  );
+});
+
+it.each([{ type: 'unknown' }, { type: 'update', move_path: 7 }])(
+  'does not grant authoritative paths for malformed native file-change kind %j',
+  async (kind) => {
+    const f = await setup();
+    const approve = vi.fn(async () => ({ decision: 'decline' }));
+    f.conversationOptions.requestNativeApproval = approve;
+    await f.c.send({ id: 'native-move', prompt: 'Move file' });
+    f.callbacks.onNotification('item/started', {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      item: {
+        type: 'fileChange',
+        id: 'patch-1',
+        changes: [{ path: '/workspace/allowed', kind, diff: '@@' }],
+      },
+    });
+    const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+    await request(
+      'item/fileChange/requestApproval',
+      { threadId: f.getProviderThread(), turnId: 'turn-1', itemId: 'patch-1' },
+      new AbortController().signal,
+      { requestId: 22 },
+    );
+    expect(approve.mock.calls[0][3].fileChangePaths).toBeUndefined();
+  },
+);
 
 it.each(['thread', 'turn', 'request-id'])(
   'rejects a native approval with stale or missing %s identity',

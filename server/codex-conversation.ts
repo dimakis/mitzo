@@ -376,7 +376,7 @@ type ActiveCommand = {
   firstOutputSpan?: Span;
   traceContext: Context;
   nativeExecution?: CodexNativeExecutionPolicy;
-  nativeFileChanges?: Map<string, readonly string[]>;
+  nativeFileChanges?: Map<string, readonly string[] | null>;
 };
 const interruptTargetBrand = Symbol('native-interrupt-target');
 /** Identity only: host auth/admission remains required; serialized copies grant nothing. */
@@ -2393,20 +2393,45 @@ export class CodexConversation {
   private notification(method: string, params: ObjectValue) {
     if (this.closed || params.threadId !== this.threadId) return;
     if (method === 'item/started' && this.active && params.turnId === this.active.turnId) {
+      const identity = z
+        .object({ type: z.literal('fileChange'), id: z.string().min(1) })
+        .safeParse(params.item);
       const item = z
         .object({
           type: z.literal('fileChange'),
           id: z.string().min(1),
-          changes: z.array(z.object({ path: z.string().min(1) })),
+          changes: z.array(
+            z.object({
+              path: z.string().min(1),
+              kind: z.discriminatedUnion('type', [
+                z.object({ type: z.literal('add') }).strict(),
+                z.object({ type: z.literal('delete') }).strict(),
+                z
+                  .object({ type: z.literal('update'), move_path: z.string().min(1).nullable() })
+                  .strict(),
+              ]),
+              diff: z.string(),
+            }),
+          ),
         })
         .safeParse(params.item);
-      if (item.success) {
+      if (identity.success) {
         this.active.nativeFileChanges ??= new Map();
-        if (!this.active.nativeFileChanges.has(item.data.id))
-          this.active.nativeFileChanges.set(
-            item.data.id,
-            Object.freeze(item.data.changes.map((change) => change.path)),
-          );
+        const paths = item.success
+          ? Object.freeze(
+              item.data.changes.flatMap((change) => [
+                change.path,
+                ...(change.kind.type === 'update' && change.kind.move_path
+                  ? [change.kind.move_path]
+                  : []),
+              ]),
+            )
+          : null;
+        const previous = this.active.nativeFileChanges.get(identity.data.id);
+        this.active.nativeFileChanges.set(
+          identity.data.id,
+          previous === undefined || isDeepStrictEqual(previous, paths) ? paths : null,
+        );
       }
     }
     if (
@@ -2735,7 +2760,7 @@ export class CodexConversation {
         turnId: turnId!,
         assertCurrentSync,
         ...(method === 'item/fileChange/requestApproval' && typeof params.itemId === 'string'
-          ? { fileChangePaths: active?.nativeFileChanges?.get(params.itemId) }
+          ? { fileChangePaths: active?.nativeFileChanges?.get(params.itemId) ?? undefined }
           : {}),
       });
       assertCurrentSync();
