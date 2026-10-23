@@ -242,11 +242,24 @@ export function buildPermissionHandler(
     const originalControlPlane = opts.controlPlane;
     const originalSessionId = session.sessionId;
     let decisionInput: ReturnType<typeof snapshotDecisionInput> | undefined;
+    // Match the guard's checked map facts, including their original task custody.
+    // A serialized projection cannot follow later in-place map/entry mutations.
+    const workspacePolicySnapshot = () =>
+      JSON.stringify({
+        worktrees: [...session.worktreePaths.entries()]
+          .map(([name, worktree]) => [name, worktree.path, worktree.wtId])
+          .sort(([left], [right]) => left!.localeCompare(right!)),
+        wtId: session.wtId,
+        worktreePath: session.worktreePath,
+        cwd: session.cwd,
+      });
+    let decisionWorkspace: string | undefined;
     const observationOptionsCurrent = () =>
       opts.onDecision === onDecision &&
       opts.signal === originalSignal &&
       opts.toolUseID === originalToolUseID &&
       opts.controlPlane === originalControlPlane &&
+      opts.nativeSourceScope === undefined &&
       session.sessionId === originalSessionId &&
       opts.forcePrompt === true &&
       opts.allowSessionGrant === false &&
@@ -267,6 +280,7 @@ export function buildPermissionHandler(
       try {
         return (
           observationOptionsCurrent() &&
+          workspacePolicySnapshot() === decisionWorkspace &&
           snapshotDecisionInput(originalInput).serialized === decisionInput?.serialized
         );
       } catch {
@@ -280,6 +294,7 @@ export function buildPermissionHandler(
           message: 'Decision observation requires an explicit one-shot request',
         };
       try {
+        decisionWorkspace = workspacePolicySnapshot();
         decisionInput = snapshotDecisionInput(originalInput);
         _toolInput = decisionInput.input;
       } catch {

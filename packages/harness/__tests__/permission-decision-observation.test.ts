@@ -228,6 +228,138 @@ describe('private one-shot decision observation', () => {
     expect((await ordinary).behavior).toBe('deny');
   });
 
+  it.each(['before-await', 'before-approval', 'observer'] as const)(
+    'pins the checked Write boundary %s and prevents effects after path replacement',
+    async (stage) => {
+      const f = fixture();
+      const session = f.registry.get('client')!;
+      session.worktreePaths.set('repo', { path: '/fixture/allowed', wtId: 'original-custody' });
+      const replace = () =>
+        session.worktreePaths.set('repo', { path: '/fixture/replacement', wtId: 'new-custody' });
+      const effect = vi.fn();
+      const observer = vi.fn(() => {
+        if (stage === 'observer') replace();
+      });
+      const input = { file_path: '/fixture/allowed/target.txt', content: 'offline reviewed bytes' };
+      const pending = f.start(observer, input, {}, 'Write');
+      const outcome = pending.result.then((result) => {
+        if (result.behavior === 'allow') effect();
+        return result;
+      });
+      if (stage === 'before-await') replace();
+      await Promise.resolve();
+      if (stage === 'before-await') expect(f.sent).toEqual([]);
+      if (stage !== 'before-await') {
+        const card = f.card();
+        if (stage === 'before-approval') replace();
+        resolvePending(card.permId as string, 'once', undefined, 'original-session');
+      }
+      expect((await outcome).behavior).toBe('deny');
+      expect(effect).not.toHaveBeenCalled();
+      expect(observer).toHaveBeenCalledTimes(stage === 'observer' ? 1 : 0);
+      expect(getPendingRequestsBySession('original-session')).toEqual([]);
+    },
+  );
+
+  it.each(['before-approval', 'observer'] as const)(
+    'rejects every changed checked worktree/custody field %s',
+    async (stage) => {
+      for (const changed of [
+        'clear',
+        'add',
+        'name',
+        'wtId',
+        'in-place-path',
+        'session-wtId',
+        'cwd',
+        'primary-path',
+      ] as const) {
+        const f = fixture();
+        const session = f.registry.get('client')!;
+        session.worktreePaths.set('repo', { path: '/fixture/allowed', wtId: 'original-custody' });
+        session.wtId = 'original-custody';
+        session.cwd = '/fixture/allowed';
+        session.worktreePath = '/fixture/allowed';
+        const mutate = () => {
+          if (changed === 'clear') session.worktreePaths.clear();
+          if (changed === 'add')
+            session.worktreePaths.set('extra-repo', {
+              path: '/fixture/new-grant',
+              wtId: 'new-custody',
+            });
+          if (changed === 'name') {
+            const entry = session.worktreePaths.get('repo')!;
+            session.worktreePaths.delete('repo');
+            session.worktreePaths.set('renamed-repo', entry);
+          }
+          if (changed === 'wtId') session.worktreePaths.get('repo')!.wtId = 'replacement-custody';
+          if (changed === 'in-place-path')
+            session.worktreePaths.get('repo')!.path = '/fixture/replacement';
+          if (changed === 'session-wtId') session.wtId = 'replacement-custody';
+          if (changed === 'cwd') session.cwd = '/fixture/replacement';
+          if (changed === 'primary-path') session.worktreePath = '/fixture/replacement';
+        };
+        const effect = vi.fn();
+        let observed: Decision | undefined;
+        const observer = vi.fn((decision: Decision) => {
+          observed = decision;
+          if (stage === 'observer') mutate();
+        });
+        const input = {
+          file_path: '/fixture/allowed/target.txt',
+          content: 'offline reviewed bytes',
+        };
+        const pending = f.start(observer, input, {}, 'Write');
+        const outcome = pending.result.then((result) => {
+          if (result.behavior === 'allow') effect();
+          return result;
+        });
+        await Promise.resolve();
+        const card = f.card();
+        if (stage === 'before-approval') mutate();
+        resolvePending(card.permId as string, 'once', undefined, 'original-session');
+        expect((await outcome).behavior, changed).toBe('deny');
+        expect(effect, changed).not.toHaveBeenCalled();
+        expect(observer, changed).toHaveBeenCalledTimes(stage === 'observer' ? 1 : 0);
+        if (stage === 'observer') expect(observed).toMatchObject({ permId: card.permId, input });
+        expect(hasPending(card.permId as string)).toBe(false);
+      }
+    },
+  );
+
+  it.each(['before-await', 'before-approval', 'observer'] as const)(
+    'rejects unsupported native source scope added %s',
+    async (stage) => {
+      const f = fixture();
+      const effect = vi.fn();
+      const nativeAssertion = vi.fn();
+      const addScope = () => {
+        pending.options.nativeSourceScope = {
+          operatorId: 'replacement',
+          assertCurrentSync: nativeAssertion,
+        };
+      };
+      const observer = vi.fn(() => {
+        if (stage === 'observer') addScope();
+      });
+      const pending = f.start(observer);
+      const outcome = pending.result.then((result) => {
+        if (result.behavior === 'allow') effect();
+        return result;
+      });
+      if (stage === 'before-await') addScope();
+      await Promise.resolve();
+      if (stage === 'before-await') expect(f.sent).toEqual([]);
+      if (stage !== 'before-await') {
+        if (stage === 'before-approval') addScope();
+        resolvePending(f.card().permId as string, 'once', undefined, 'original-session');
+      }
+      expect((await outcome).behavior).toBe('deny');
+      expect(effect).not.toHaveBeenCalled();
+      expect(nativeAssertion).not.toHaveBeenCalled();
+    },
+  );
+
   it('captures input before the first worktree await and never prompts with mutated input', async () => {
     const f = fixture();
     const observed = vi.fn();

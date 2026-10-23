@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.558-permission-decision-revalidation';
+  'v1.0.559-permission-workspace-custody';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -687,7 +687,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/store.ts':
     '7a29a55e11501f86abc2e1eaca59b90fb24aacab8a40c95d2ea119787680174f',
   '../../packages/harness/src/permission-handler.ts':
-    'a21f77947a4fcc0541f178c4db34cd72f7736f1b01b0d7af4770c409c5b591bb',
+    '11a700cb6b52a434c355628c5d2c8f68f539c316c6fe91c79c38e08a43c5a170',
   '../../packages/harness/src/permissions.ts':
     '546e88401d53f36462c338ec4ac4b4fe86e257cdc39e4f9af44b04989fa05733',
   '../../packages/protocol/src/session-approval-scope.ts':
