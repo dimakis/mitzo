@@ -377,6 +377,7 @@ type ActiveCommand = {
   traceContext: Context;
   nativeExecution?: CodexNativeExecutionPolicy;
   nativeFileChanges?: Map<string, readonly string[] | null>;
+  nativeFileChangeRevisions?: Map<string, string | null>;
 };
 const interruptTargetBrand = Symbol('native-interrupt-target');
 /** Identity only: host auth/admission remains required; serialized copies grant nothing. */
@@ -1459,6 +1460,7 @@ export class CodexConversation {
   }
 
   private runtimeConfiguration(configuration: unknown): Record<string, unknown> {
+    this.assertNativeExecutionOwner();
     if (!this.opts.runtimeConfig) {
       const config = {
         ...codexRuntimeOverrides(
@@ -1483,6 +1485,16 @@ export class CodexConversation {
       ...this.opts.runtimeConfig,
       ...(this.disableWebSearch ? { web_search: 'disabled' } : {}),
     };
+  }
+
+  private assertNativeExecutionOwner() {
+    if (
+      this.opts.nativeExecution &&
+      (!this.opts.assertNativeExecutionCurrent ||
+        !this.opts.requestNativeApproval ||
+        this.opts.runtimeConfig)
+    )
+      throw Error('Native execution owner unavailable');
   }
 
   private threadOptions(
@@ -2017,6 +2029,7 @@ export class CodexConversation {
       await this.verifyCurrentBinding(this.binding);
       active.abort.signal.throwIfAborted();
       if (this.opts.nativeExecution) {
+        this.assertNativeExecutionOwner();
         const policy = this.opts.resolveNativeExecutionPolicy
           ? await this.opts.resolveNativeExecutionPolicy({
               commandId: command.id,
@@ -2417,6 +2430,12 @@ export class CodexConversation {
         .safeParse(params.item);
       if (identity.success) {
         this.active.nativeFileChanges ??= new Map();
+        this.active.nativeFileChangeRevisions ??= new Map();
+        const revision = item.success
+          ? createHash('sha256').update(JSON.stringify(item.data.changes)).digest('hex')
+          : null;
+        const previousRevision = this.active.nativeFileChangeRevisions.get(identity.data.id);
+        const consistent = previousRevision === undefined || previousRevision === revision;
         const paths = item.success
           ? Object.freeze(
               item.data.changes.flatMap((change) => [
@@ -2430,8 +2449,11 @@ export class CodexConversation {
         const previous = this.active.nativeFileChanges.get(identity.data.id);
         this.active.nativeFileChanges.set(
           identity.data.id,
-          previous === undefined || isDeepStrictEqual(previous, paths) ? paths : null,
+          consistent && (previous === undefined || isDeepStrictEqual(previous, paths))
+            ? paths
+            : null,
         );
+        this.active.nativeFileChangeRevisions.set(identity.data.id, consistent ? revision : null);
       }
     }
     if (
@@ -2730,6 +2752,14 @@ export class CodexConversation {
       const generation = this.transportGeneration;
       const threadId = this.threadId;
       const turnId = active?.turnId;
+      const fileItemId =
+        method === 'item/fileChange/requestApproval' && typeof params.itemId === 'string'
+          ? params.itemId
+          : undefined;
+      const fileChangePaths = fileItemId ? active?.nativeFileChanges?.get(fileItemId) : undefined;
+      const fileChangeRevision = fileItemId
+        ? active?.nativeFileChangeRevisions?.get(fileItemId)
+        : undefined;
       const approvalSignal = AbortSignal.any([signal, ...(active ? [active.abort.signal] : [])]);
       const assertCurrentSync = () => {
         approvalSignal.throwIfAborted();
@@ -2748,6 +2778,12 @@ export class CodexConversation {
           !['string', 'number'].includes(typeof requestContext.requestId)
         )
           throw new Error('Codex native approval identity mismatch');
+        if (
+          fileItemId &&
+          (!isDeepStrictEqual(active.nativeFileChanges?.get(fileItemId), fileChangePaths) ||
+            active.nativeFileChangeRevisions?.get(fileItemId) !== fileChangeRevision)
+        )
+          throw new Error('Codex native file approval changed');
         if (active.nativeExecution)
           this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
       };
@@ -2759,9 +2795,7 @@ export class CodexConversation {
         threadId: threadId!,
         turnId: turnId!,
         assertCurrentSync,
-        ...(method === 'item/fileChange/requestApproval' && typeof params.itemId === 'string'
-          ? { fileChangePaths: active?.nativeFileChanges?.get(params.itemId) ?? undefined }
-          : {}),
+        ...(fileItemId ? { fileChangePaths: fileChangePaths ?? undefined } : {}),
       });
       assertCurrentSync();
       return response;

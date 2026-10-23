@@ -39,6 +39,20 @@ const binding = {
   profileRevision: 'chatgpt:test@example.com:test',
 };
 
+it('refuses native startup from a configured DTO without the current owner and native approval adapter', async () => {
+  const nativeExecution = codexNativeExecutionPolicy({
+    bindingRevision: 'owner-v1',
+    mode: 'agent',
+    cwd: '/workspace',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace'],
+    deniedRoots: ['/private/auth'],
+  });
+  const f = startupFixture(() => {}, undefined, { nativeExecution });
+  await expect(f.c.initialize()).rejects.toThrow('Native execution owner unavailable');
+  expect(f.requests).not.toContain('thread/start');
+});
+
 it('refreshes native cwd and workspace policy for the exact command on the same thread', async () => {
   const f = await setup();
   const initial = codexNativeExecutionPolicy({
@@ -58,6 +72,8 @@ it('refreshes native cwd and workspace policy for the exact command on the same 
     deniedRoots: ['/private/auth'],
   });
   f.conversationOptions.nativeExecution = initial;
+  f.conversationOptions.assertNativeExecutionCurrent = () => {};
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
   const resolvePolicy = vi.fn(async () => next);
   f.conversationOptions.resolveNativeExecutionPolicy = resolvePolicy;
   await f.c.send({ id: 'frozen-command', prompt: 'Use the admitted workspace' });
@@ -87,6 +103,8 @@ it('rejects a changed native credential fence before provider dispatch', async (
       deniedRoots,
     });
   f.conversationOptions.nativeExecution = make(['/private/auth']);
+  f.conversationOptions.assertNativeExecutionCurrent = () => {};
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
   f.conversationOptions.resolveNativeExecutionPolicy = async () => make(['/private/new-auth']);
   await expect(f.c.send({ id: 'frozen-command', prompt: 'Use workspace' })).rejects.toThrow(
     'Native execution policy changed',
@@ -203,6 +221,49 @@ it('includes both source and move destination in the exact native file approval 
     expect.objectContaining({ fileChangePaths: ['/workspace/allowed', '/private/auth/secret'] }),
   );
 });
+
+it.each(['path', 'diff'] as const)(
+  'rejects a native file grant when the exact pending file list changes during review (%s)',
+  async (change) => {
+    const f = await setup();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reviewed = false;
+    f.conversationOptions.requestNativeApproval = async () => {
+      reviewed = true;
+      await held;
+      return { decision: 'accept' };
+    };
+    await f.c.send({ id: 'native-file', prompt: 'Edit file' });
+    const start = (path: string, diff = '+new') =>
+      f.callbacks.onNotification('item/started', {
+        threadId: f.getProviderThread(),
+        turnId: 'turn-1',
+        item: {
+          type: 'fileChange',
+          id: 'patch',
+          changes: [{ path, kind: { type: 'add' }, diff }],
+        },
+      });
+    start('/workspace/allowed');
+    const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+    const pending = request(
+      'item/fileChange/requestApproval',
+      { threadId: f.getProviderThread(), turnId: 'turn-1', itemId: 'patch' },
+      new AbortController().signal,
+      { requestId: 23 },
+    );
+    await vi.waitFor(() => expect(reviewed).toBe(true));
+    start(
+      change === 'path' ? '/private/auth/secret' : '/workspace/allowed',
+      change === 'diff' ? '+different' : '+new',
+    );
+    release();
+    await expect(pending).rejects.toThrow('Codex native file approval changed');
+  },
+);
 
 it.each([{ type: 'unknown' }, { type: 'update', move_path: 7 }])(
   'does not grant authoritative paths for malformed native file-change kind %j',
@@ -3565,6 +3626,7 @@ it('fails closed on a conflicting terminal while the completion hook is pending'
 function startupFixture(
   observeStartupConfig: (event: unknown, signal?: AbortSignal) => Promise<void> | void,
   startupSignal?: AbortSignal,
+  overrides?: Partial<CodexConversationOptions>,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-startup-observer-'));
   const store = new CodexConversationStore(join(dir, 'private.db'));
@@ -3605,6 +3667,7 @@ function startupFixture(
     },
     observeStartupConfig,
     startupSignal,
+    ...overrides,
   } as ConstructorParameters<typeof CodexConversation>[0]);
   cleanup.push(() => {
     c.close();
