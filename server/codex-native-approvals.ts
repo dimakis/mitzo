@@ -22,9 +22,11 @@ export interface PreparedWorkspaceGrantScope {
 export interface PreparedWorkspaceGrant {
   /** Existing preparation/authorization owner's receipt; never newly invented here. */
   readonly receiptId: string;
-  /** Reassert prior operator/target/task-storage WRITE authorization, the active
-   * command reservation, and exact canonical root identity. A prepared row,
-   * accepted prompt or model-selected path alone confers no such authority. */
+  /** Fresh current native request/active-command proof which revalidates the
+   * retained immutable completed Prepare proof for prior operator/target/storage
+   * WRITE authorization, reservation, and exact canonical root identity. Never
+   * call the expired Prepare invocation's live closure. A prepared row, accepted
+   * prompt or model-selected path alone confers no such authority. */
   assertCurrentSync(): void;
 }
 /** Existing authority only; this is neither automatic review nor a new model
@@ -256,7 +258,7 @@ export function createCodexNativeApprovalHandler(options: {
         ]),
         title: 'Approve native execution boundary',
         description:
-          'Approve this exact pending operation and the displayed native permission scope.',
+          'Automatic review is not yet qualified for this account and runtime. Human review is required for this exact pending operation and scope.',
         ...(request.method === 'item/permissions/requestApproval'
           ? {
               sessionGrantDescription:

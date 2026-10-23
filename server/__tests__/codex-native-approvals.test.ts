@@ -289,6 +289,10 @@ describe('native approval adapter with the existing pending owner', () => {
       f.context,
     );
     const id = await request(f);
+    expect(f.sent[0].description).toContain(
+      'Automatic review is not yet qualified for this account and runtime',
+    );
+    expect(f.sent[0].description).toContain('Human review');
     expect(JSON.parse(f.sent[0].toolInput as string).params).toEqual(params);
     resolvePending(id, 'always', undefined, 'session');
     expect(await result).toEqual({ decision: 'accept' });
