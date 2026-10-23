@@ -1,10 +1,12 @@
 import { z } from 'zod';
+import type { CodexNativeExecutionPolicy } from './codex-native-execution-policy.js';
 /** Constrained app-server configuration. Mitzo supplies executable tools dynamically.
  * Native skills readers remain available; restricted skill ceilings are rejected by the controller.
  */
 export function codexRuntimeOverrides(
   configuration: unknown,
   workspaceId?: string,
+  nativeExecution?: CodexNativeExecutionPolicy,
 ): Record<string, unknown> {
   const parsed = z
     .object({
@@ -44,6 +46,10 @@ export function codexRuntimeOverrides(
     'memories',
   ])
     config[`features.${feature}`] = false;
+  if (nativeExecution) {
+    config['features.shell_tool'] = true;
+    config['features.unified_exec'] = true;
+  }
   // Code-mode-only models dispatch registered host tools through the JS wrapper.
   // This enables that dispatcher; native execution tools remain disabled above.
   config['features.code_mode_host'] = true;

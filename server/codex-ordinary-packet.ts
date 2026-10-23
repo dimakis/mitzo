@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import type { ToolDefinition } from '@mitzo/harness';
 import type { WebSearchAccess } from './web-search-policy.js';
 import { codexResearchInstructions } from './research-instructions.js';
+import {
+  codexNativeExecutionParams,
+  type CodexNativeExecutionPolicy,
+} from './codex-native-execution-policy.js';
 
 /** These are the ordinary owner's resolved host RPC parameters, not the expanded
  * native model prompt. Native instructions, discovered project documents, native
@@ -18,6 +22,7 @@ export function codexThreadOptions(input: {
   webSearch: WebSearchAccess;
   disableProjectDocuments?: boolean;
   systemPrompt: string;
+  nativeExecution?: CodexNativeExecutionPolicy;
 }) {
   return {
     model: input.model,
@@ -29,8 +34,9 @@ export function codexThreadOptions(input: {
       web_search: input.webSearch,
       ...(input.disableProjectDocuments ? { project_doc_max_bytes: 0 } : {}),
     },
-    approvalPolicy: 'never',
-    sandbox: 'read-only',
+    ...(input.nativeExecution
+      ? codexNativeExecutionParams(input.nativeExecution)
+      : { approvalPolicy: 'never', sandbox: 'read-only' }),
     developerInstructions: input.systemPrompt + codexResearchInstructions(input.webSearch),
   };
 }
@@ -105,6 +111,7 @@ export function codexTurnStartParams(input: {
   reasoningEffort?: string | null;
   sandboxPolicy?: Record<string, unknown>;
   additionalContext: CodexAdditionalContext;
+  nativeExecution?: CodexNativeExecutionPolicy;
 }) {
   return {
     threadId: input.threadId,
@@ -121,8 +128,9 @@ export function codexTurnStartParams(input: {
             url: `data:${image.mediaType};base64,${image.data}`,
           })),
         ],
-    approvalPolicy: 'never',
-    sandboxPolicy: input.sandboxPolicy ?? { type: 'readOnly' },
+    ...(input.nativeExecution
+      ? codexNativeExecutionParams(input.nativeExecution)
+      : { approvalPolicy: 'never', sandboxPolicy: input.sandboxPolicy ?? { type: 'readOnly' } }),
     ...(input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
     ...(Object.keys(input.additionalContext).length
       ? { additionalContext: input.additionalContext }
