@@ -4,6 +4,10 @@ import {
   type OrdinarySessionPreparationReceipt,
 } from './ordinary-prepared-session.js';
 import { OrdinaryWorkspaceSessionStore } from './ordinary-workspace-session-store.js';
+import {
+  PreparedRepositoryTransitionSchema,
+  type PreparedRepositoryTransition,
+} from './prepared-repository-transition.js';
 import type { CollaborationSettings } from './collaboration-conversation.js';
 import {
   OrdinaryLocalVertexCustodySchema,
@@ -931,6 +935,171 @@ export class EventStore {
     input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
   ) {
     return this.admitOrdinaryContinuation(meta, binding, input, 'openshell');
+  }
+
+  /** Private operation-specific continuation. The native boundary independently
+   * proves completed ACK/result and no queued work; the repository owner proves
+   * actual materialization and current authority. Reserve uncertainty before its
+   * cross-store CAS. A duplicate is observation only and MUST NOT repeat effects. */
+  reservePreparedRepositoryContinuation(sessionId: string, raw: PreparedRepositoryTransition) {
+    const transition = PreparedRepositoryTransitionSchema.parse(raw);
+    const childCommandId = `prepared-repository-${createHash('sha256')
+      .update(JSON.stringify([sessionId, transition.preparationId, transition.source]))
+      .digest('hex')}`;
+    return this.db!.transaction(() => {
+      const session = this.getSession(sessionId);
+      const source = this.getOrdinaryLocalCommandAdmission(transition.source.commandId);
+      const send = this.getSendCommand(transition.source.commandId);
+      const old = transition.oldWorkspace;
+      if (
+        !session ||
+        !source ||
+        source.state !== 'consumed' ||
+        !send ||
+        send.error ||
+        send.sessionId !== sessionId ||
+        source.workspace.workspaceId !== old.id ||
+        source.workspace.cwd !== old.directory ||
+        session.cwd !== old.directory ||
+        (old.kind === 'ordinary'
+          ? session.ordinaryWorkspaceId !== old.id || session.repositoryWorkspaceId != null
+          : session.repositoryWorkspaceId !== old.id || session.ordinaryWorkspaceId != null) ||
+        old.id === transition.newWorkspace.id ||
+        old.directory === transition.newWorkspace.directory
+      )
+        throw Error('Prepared repository transition source unavailable');
+      const payloadSource = z
+        .object({
+          text: z.string().min(1),
+          systemPrompt: z.string(),
+          intent: z.string().optional(),
+        })
+        .parse(send.payload);
+      const payload = {
+        text: "Continue only the unfinished original user-authorized task after the prepared repository became this conversation's primary workspace. Inspect retained results first. Do not repeat completed actions or retry uncertain effects. Keep the original account, task scope, permission, skill and mode limits.",
+        systemPrompt: payloadSource.systemPrompt,
+        intent: payloadSource.intent ?? payloadSource.text,
+      };
+      const requestFingerprint = `prepared-repository-v1:${createHash('sha256')
+        .update(JSON.stringify([source.binding, transition, payload]))
+        .digest('hex')}`;
+      const admission = OrdinaryLocalCommandAdmissionSchema.parse({
+        version: 1,
+        binding: source.binding,
+        selection: source.selection,
+        workspace: {
+          workspaceId: transition.newWorkspace.id,
+          cwd: transition.newWorkspace.directory,
+        },
+        requestFingerprint,
+        state: 'uncertain',
+        preparedRepositoryTransition: transition,
+      });
+      const existing = this.getSendCommand(childCommandId);
+      if (existing) {
+        const previous = this.readPreparedRepositoryTransition(childCommandId);
+        if (
+          existing.sessionId !== sessionId ||
+          !isDeepStrictEqual(previous, admission) ||
+          !isDeepStrictEqual(existing.payload, payload)
+        )
+          throw Error('Prepared repository continuation identity changed');
+        return { fresh: false, childCommandId, admission: previous, payload };
+      }
+      if (this.hasUncertainOrdinaryCommand(sessionId))
+        throw Error('Prepared repository continuation requires reconciliation');
+      this.claimClientCommand(childCommandId, requestFingerprint);
+      this.insertSendCommand(childCommandId, sessionId, payload);
+      this.db!.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
+        JSON.stringify(admission),
+        childCommandId,
+      );
+      return { fresh: true, childCommandId, admission, payload };
+    }).immediate();
+  }
+
+  private readPreparedRepositoryTransition(commandId: string): OrdinaryLocalCommandAdmission {
+    const row = this.db!.prepare(
+      'SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?',
+    ).get(commandId) as { ordinary_admission: string | null } | undefined;
+    const admission = OrdinaryLocalCommandAdmissionSchema.parse(
+      row?.ordinary_admission ? JSON.parse(row.ordinary_admission) : undefined,
+    );
+    if (
+      !admission.preparedRepositoryTransition ||
+      admission.workspace.workspaceId !== admission.preparedRepositoryTransition.newWorkspace.id ||
+      admission.workspace.cwd !== admission.preparedRepositoryTransition.newWorkspace.directory
+    )
+      throw Error('Prepared repository transition receipt unavailable');
+    return admission;
+  }
+
+  /** Repository custody CAS has already succeeded. Commit metadata plus native
+   * child admission together. Failure retains uncertainty and forbids replay. */
+  commitPreparedRepositoryContinuation(
+    sessionId: string,
+    childCommandId: string,
+    raw: PreparedRepositoryTransition,
+  ): void {
+    const transition = PreparedRepositoryTransitionSchema.parse(raw);
+    this.db!.transaction(() => {
+      const admission = this.readPreparedRepositoryTransition(childCommandId);
+      const send = this.getSendCommand(childCommandId);
+      const source = this.getOrdinaryLocalCommandAdmission(transition.source.commandId);
+      if (
+        !send ||
+        send.sessionId !== sessionId ||
+        send.error ||
+        admission.state !== 'uncertain' ||
+        !source ||
+        source.state !== 'consumed' ||
+        !isDeepStrictEqual(admission.binding, source.binding) ||
+        !isDeepStrictEqual(admission.selection, source.selection) ||
+        !isDeepStrictEqual(admission.preparedRepositoryTransition, transition)
+      )
+        throw Error('Prepared repository continuation requires reconciliation');
+      const old = transition.oldWorkspace;
+      const changed = this.db!.prepare(
+        `UPDATE sessions SET cwd=?,repository_workspace_id=?,ordinary_workspace_id=NULL
+        WHERE session_id=? AND cwd=? AND COALESCE(repository_workspace_id,'')=? AND COALESCE(ordinary_workspace_id,'')=?`,
+      ).run(
+        transition.newWorkspace.directory,
+        transition.newWorkspace.id,
+        sessionId,
+        old.directory,
+        old.kind === 'repository' ? old.id : '',
+        old.kind === 'ordinary' ? old.id : '',
+      );
+      if (changed.changes !== 1) throw Error('Prepared repository primary owner changed');
+      this.db!.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
+        JSON.stringify({ ...admission, state: 'consumed' }),
+        childCommandId,
+      );
+    }).immediate();
+  }
+
+  /** Historical observation through an exact committed operation. Old receipts
+   * remain immutable; generic admission/current-owner checks remain strict. */
+  getPreparedRepositorySourceAdmission(childCommandId: string): OrdinaryLocalCommandAdmission {
+    const child = this.getOrdinaryLocalCommandAdmission(childCommandId);
+    const transition = child?.preparedRepositoryTransition;
+    if (!transition || child.state !== 'consumed')
+      throw Error('Committed prepared repository transition required');
+    const row = this.db!.prepare(
+      'SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?',
+    ).get(transition.source.commandId) as { ordinary_admission: string | null } | undefined;
+    const source = OrdinaryLocalCommandAdmissionSchema.parse(
+      row?.ordinary_admission ? JSON.parse(row.ordinary_admission) : undefined,
+    );
+    if (
+      source.state !== 'consumed' ||
+      !isDeepStrictEqual(source.binding, child.binding) ||
+      source.workspace.workspaceId !== transition.oldWorkspace.id ||
+      source.workspace.cwd !== transition.oldWorkspace.directory ||
+      !isDeepStrictEqual(source.selection, child.selection)
+    )
+      throw Error('Original prepared repository source changed');
+    return source;
   }
 
   private admitOrdinaryContinuation(

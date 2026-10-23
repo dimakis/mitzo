@@ -72,6 +72,16 @@ it('checks old owner and selected policy across async revalidation', async () =>
   ).rejects.toThrow();
 });
 
+it('refuses a value returned by asynchronous current-owner validation', async () => {
+  const f = fixture();
+  f.owners.revalidate = (async () => false) as unknown as typeof f.owners.revalidate;
+  await expect(
+    withPreparedRepositoryBarrierReadScope(f.policy, 'original', f.owners, async (scope) =>
+      scope.revalidate(),
+    ),
+  ).rejects.toThrow();
+});
+
 it('rejects current-policy owner replacement and preserves method receiver', async () => {
   const f = fixture();
   f.owners.assertNativeExecutionCurrent = function (policy) {

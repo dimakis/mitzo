@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { MitzoMode } from './types.js';
 import { AgentProfileSelectionSchema } from './agent-library.js';
 import { SessionRuntimeBindingV2Schema } from './session-runtime-binding.js';
+import { PreparedRepositoryTransitionSchema } from './prepared-repository-transition.js';
 const reference = z.string().min(1).max(200).regex(/^\S+$/);
 /** Frozen per-command choice; no authentication, workspace ownership or readiness assertion. */
 export const OrdinaryLocalCommandSelectionSchema = z.strictObject({
@@ -36,6 +37,7 @@ export const OrdinaryLocalCommandAdmissionSchema = z.strictObject({
   selection: OrdinaryLocalCommandSelectionSchema,
   requestFingerprint: z.string().min(1),
   state: z.enum(['reserved', 'uncertain', 'consumed']),
+  preparedRepositoryTransition: PreparedRepositoryTransitionSchema.optional(),
 });
 export type OrdinaryLocalCommandSelection = z.infer<typeof OrdinaryLocalCommandSelectionSchema>;
 export type OrdinaryLocalCommandAdmission = z.infer<typeof OrdinaryLocalCommandAdmissionSchema>;
@@ -50,7 +52,7 @@ export function createOrdinaryFreshPermission(mode: MitzoMode) {
 
 /** Local API adapter reuses the existing ordinary command ledger. */
 export const OrdinaryLocalResponsesCommandAdmissionSchema =
-  OrdinaryLocalCommandAdmissionSchema.extend({
+  OrdinaryLocalCommandAdmissionSchema.omit({ preparedRepositoryTransition: true }).extend({
     binding: SessionRuntimeBindingV2Schema.refine(
       (b) =>
         ((b.account.provider === 'openai' && b.harness.implementation === 'responses') ||
