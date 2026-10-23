@@ -7,6 +7,7 @@ import type { RepositoryTaskCheckout } from './repository-task-checkout.js';
 import { inspectLocalRepositoryGitMetadata } from './local-repository-git-inspection.js';
 import { readLocalRepositoryPreparationReferences } from './local-repository-git-snapshot.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
+import { preparationReadStageMs } from './local-repository-preparation-read-policy.js';
 
 export interface QualifiedLocalRepositoryPublication {
   readonly version: 1;
@@ -182,7 +183,7 @@ export async function captureQualifiedLocalRepositoryTask(
       mode: 'preparation',
       readAccess: access,
       assertReadable: (target) => access.assertPath(target),
-      timeoutMs: 30000,
+      timeoutMs: preparationReadStageMs,
     });
     if (
       metadata.gitDirectory !== facts.source.gitDirectory ||
@@ -193,7 +194,7 @@ export async function captureQualifiedLocalRepositoryTask(
     const ref = files.get(reference)!;
     const base = await readLocalRepositoryPreparationReferences(
       metadata,
-      { readAccess: access, timeoutMs: 30000 },
+      { readAccess: access, timeoutMs: preparationReadStageMs },
       `refs/heads/${facts.featureBranch}`,
       { identity: ref.identity, oid: facts.baseOid },
     );

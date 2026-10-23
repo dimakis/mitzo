@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { promisify } from 'node:util';
 import type { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import type { NativeReadIdentity } from './native-file-operation.js';
+import { preparationReadStageMs } from './local-repository-preparation-read-policy.js';
 import {
   isLocalRepositoryCredentialPath,
   LocalRepositoryGitInspectionError,
@@ -30,8 +31,10 @@ export interface LocalRepositorySnapshotOptions {
 }
 const failure = (reason: string) => new LocalRepositoryGitInspectionError('unsafe', reason);
 const code = (error: unknown) => (error as NodeJS.ErrnoException)?.code;
-function sourceReader(options: LocalRepositorySnapshotOptions) {
-  const deadline = Date.now() + Math.max(1, Math.min(options.timeoutMs, 30000));
+function sourceReader(options: LocalRepositorySnapshotOptions, preparation = false) {
+  const deadline =
+    Date.now() +
+    Math.max(1, Math.min(options.timeoutMs, preparation ? preparationReadStageMs : 30000));
   const access = options.readAccess;
   if (!access) throw failure('read-anchor-required');
   const check = () => {
@@ -131,7 +134,7 @@ async function privateContext<T>(
     !['references', 'preparation'].includes(metadata.qualification ?? '')
   )
     throw failure('preparation-reference-view-required');
-  const reader = sourceReader(options);
+  const reader = sourceReader(options, referenceView === 'preparation');
   let scratch: string | undefined;
   try {
     await reader.authorize(metadata.path);
@@ -150,7 +153,7 @@ async function privateContext<T>(
           },
           encoding: 'utf8',
           signal: options.signal,
-          timeout: Math.max(1, reader.deadline - Date.now()),
+          timeout: Math.max(1, Math.min(30000, reader.deadline - Date.now())),
           maxBuffer: 262144,
         });
         await reader.authorize(metadata.path);

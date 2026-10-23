@@ -1,9 +1,11 @@
+import * as authorizationModule from '../local-repository-preparation-authorization.js';
+import { executeLocalRepositoryPreparation } from '../local-repository-preparation-operation.js';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, expect, it, vi } from 'vitest';
-import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
+import { lstat, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as actor from '../qualified-local-repository-actor.js';
 import * as sandbox from '../sandboxed-command.js';
@@ -50,6 +52,50 @@ actual(
           .digest('hex');
       return hashes;
     };
+    const repositoryIdentity = async () => {
+      const directory = fileURLToPath(new URL('../../', import.meta.url));
+      const git = (...args: string[]) =>
+        execFileSync('/usr/bin/git', ['-C', directory, ...args], { encoding: 'utf8' });
+      const rows = git(
+        'ls-files',
+        '--stage',
+        '-z',
+        '--',
+        'server/__tests__',
+        'package.json',
+        'package-lock.json',
+        'vitest.config.*',
+        'tsconfig*.json',
+        'packages/*/package*.json',
+      )
+        .split('\0')
+        .filter(Boolean);
+      const files: Record<string, { mode: string; gitBlob: string; sha256: string }> = {};
+      for (const row of rows) {
+        const match = /^(100644|100755|120000) ([a-f0-9]+) 0\t(.+)$/.exec(row);
+        if (!match) throw Error('Committed fixture identity unavailable');
+        const bytes =
+          match[1] === '120000'
+            ? Buffer.from(await readlink(join(directory, match[3])))
+            : await readFile(join(directory, match[3]));
+        files[match[3]] = {
+          mode: match[1],
+          gitBlob: match[2],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        };
+      }
+      return {
+        head: git('rev-parse', 'HEAD').trim(),
+        tree: git('rev-parse', 'HEAD^{tree}').trim(),
+        trackedStatus: git('status', '--porcelain=v1', '--untracked-files=no'),
+        files,
+      };
+    };
+    const atRunRepository = await repositoryIdentity();
+    expect(
+      atRunRepository.trackedStatus,
+      'Actual attempt requires exact committed clean fixture/config/lock inputs',
+    ).toBe('');
     const atRunSources = await productionIdentity();
     const inputIdentity = createHash('sha256').update(JSON.stringify(atRunSources)).digest('hex');
     const require = createRequire(import.meta.url),
@@ -70,6 +116,18 @@ actual(
     };
     const actorEvidencePath = `/private/tmp/mitzo-qualified-preparation-actor-${inputIdentity.slice(0, 16)}.json`;
     let prepared = false;
+    let authorization:
+      Awaited<ReturnType<typeof captureLocalRepositoryPreparationAuthorization>> | undefined;
+    const originalCapture = captureLocalRepositoryPreparationAuthorization;
+    vi.spyOn(
+      authorizationModule,
+      'captureLocalRepositoryPreparationAuthorization',
+    ).mockImplementation(async (...args) => {
+      const held = await originalCapture(...args);
+      authorization = held;
+      mark('authorization');
+      return held;
+    });
     const phases: string[] = [];
     const mark = (name: string) => phases.push(`${name}:${Date.now()}`);
     const metrics = {
@@ -171,6 +229,10 @@ actual(
                   measuredAt: Date.now(),
                   authority: 'actual original signed consumed operation',
                   effects: false,
+                  repositoryIdentity: {
+                    before: atRunRepository,
+                    after: await repositoryIdentity(),
+                  },
                   productionIdentity: {
                     before: atRunSources,
                     after: await productionIdentity(),
@@ -209,8 +271,9 @@ actual(
     );
     const f = await localPreparationNativeFixture(
       cleanups,
-      async (context, input) => {
+      async (context, input, envelope) => {
         mark('callback');
+        expect(envelope).toBeDefined();
         const source = input.path as string;
         await writeFile(join(source, 'task.txt'), 'DIRTY SOURCE\n');
         await writeFile(join(source, 'untracked'), 'KEEP\n');
@@ -235,49 +298,49 @@ actual(
         expect(git('rev-parse', ':context.md')).toBe(git('rev-parse', 'HEAD:task.txt'));
         const index = await readFile(join(source, '.git', 'index'));
         const head = await readFile(join(source, '.git', 'HEAD'));
-        const authorization = await captureLocalRepositoryPreparationAuthorization(
-          {
-            context,
-            registry: f.registry,
-            events: f.f.events,
-            workspaces: f.f.workspace,
-            qualifySource: async (_path, original, intent) => {
-              mark('qualify-start');
-              const result = await captureNativeLocalRepositoryPreparationSource(original, intent);
-              mark('qualify-end');
-              return Object.freeze({
-                ...result,
-                async assertCurrent() {
-                  const start = performance.now();
-                  metrics.source.calls++;
-                  try {
-                    await result.assertCurrent();
-                  } finally {
-                    metrics.source.ms += performance.now() - start;
-                  }
-                },
-              });
+        const run = () =>
+          executeLocalRepositoryPreparation(
+            {
+              context,
+              registry: f.registry,
+              events: f.f.events,
+              workspaces: f.f.workspace,
+              qualifySource: async (_path, original, intent, options) => {
+                mark('qualify-start');
+                const result = await captureNativeLocalRepositoryPreparationSource(
+                  original,
+                  intent,
+                  options,
+                );
+                mark('qualify-end');
+                return Object.freeze({
+                  ...result,
+                  async assertCurrent(options?: Readonly<{ deadline: number }>) {
+                    const start = performance.now();
+                    metrics.source.calls++;
+                    try {
+                      await result.assertCurrent(options);
+                    } finally {
+                      metrics.source.ms += performance.now() - start;
+                    }
+                  },
+                });
+              },
             },
-          },
-          input,
-        );
-        mark('authorization');
-        await authorization.approve();
-        mark('approved');
-        metrics.approvalRemainingMs =
-          (f.f.workspace.get(authorization.request.id).pendingHostTaskDecision?.evidence
-            .expiresAt ?? Date.now()) - Date.now();
+            input,
+            envelope!,
+          );
         if (profileOnly) {
-          await expect(authorization.materialize()).rejects.toMatchObject({
+          await expect(run()).rejects.toMatchObject({
             code: 'pending_host_task_uncertain',
           });
-          expect(f.f.workspace.get(authorization.request.id).pendingHostTaskDecision?.state).toBe(
+          expect(f.f.workspace.get(authorization!.request.id).pendingHostTaskDecision?.state).toBe(
             'consumed',
           );
           for (const path of [
-            authorization.scope.create.task.directory,
-            authorization.scope.sourceGitEffects.administrationDirectory,
-            authorization.scope.sourceGitEffects.branchReference,
+            authorization!.scope.create.task.directory,
+            authorization!.scope.sourceGitEffects.administrationDirectory,
+            authorization!.scope.sourceGitEffects.branchReference,
           ])
             await expect(lstat(path)).rejects.toMatchObject({ code: 'ENOENT' });
           expect(await readFile(join(source, '.git', 'index'))).toEqual(index);
@@ -286,9 +349,9 @@ actual(
           expect(await readFile(join(source, 'untracked'), 'utf8')).toBe('KEEP\n');
           return { profiled: true };
         }
-        let receipt: Awaited<ReturnType<typeof authorization.materialize>>;
+        let receipt: Awaited<ReturnType<typeof executeLocalRepositoryPreparation>>;
         try {
-          receipt = await authorization.materialize();
+          receipt = await run();
         } finally {
           expect(await readFile(join(source, '.git', 'index'))).toEqual(index);
           expect(await readFile(join(source, '.git', 'HEAD'))).toEqual(head);
@@ -298,7 +361,7 @@ actual(
         }
         expect(receipt.state).toBe('materialized');
         expect(receipt.taskIdentity?.linkedGit?.directory).toBe(
-          authorization.scope.sourceGitEffects.administrationDirectory,
+          authorization!.scope.sourceGitEffects.administrationDirectory,
         );
         expect(await readFile(join(source, '.git', 'index'))).toEqual(index);
         expect(await readFile(join(source, '.git', 'HEAD'))).toEqual(head);
@@ -309,13 +372,20 @@ actual(
         );
         expect(f.f.workspace.getForConversation(context.conversationId)).toBeUndefined();
         expect(await readFile(join(receipt.directory, '.git'), 'utf8')).toBe(
-          `gitdir: ${authorization.scope.sourceGitEffects.administrationDirectory}\n`,
+          `gitdir: ${authorization!.scope.sourceGitEffects.administrationDirectory}\n`,
         );
         prepared = true;
         return { prepared: true };
       },
-      { nativeBaseReads: true },
+      { nativeBaseReads: true, preparationEnvelope: true },
     );
+    const finalize = f.f.workspace.finalizePendingHostTaskDecision;
+    vi.spyOn(f.f.workspace, 'finalizePendingHostTaskDecision').mockImplementation((...args) => {
+      const result = Reflect.apply(finalize, f.f.workspace, args);
+      mark('approved');
+      metrics.approvalRemainingMs = result.evidence.expiresAt - Date.now();
+      return result;
+    });
     let result: Awaited<ReturnType<typeof f.a.call>>;
     try {
       result = await f.a.call({ path: join(f.f.root, 'source') });
@@ -327,6 +397,7 @@ actual(
           {
             inputIdentity,
             productionIdentity: { before: atRunSources, after },
+            repositoryIdentity: { before: atRunRepository, after: await repositoryIdentity() },
             runtimeInputs,
             phases,
             metrics,
@@ -341,6 +412,7 @@ actual(
       );
     }
     expect(await productionIdentity()).toEqual(atRunSources);
+    expect(await repositoryIdentity()).toEqual(atRunRepository);
     expect(
       result.response.success,
       JSON.stringify({ value: result.value, phases, metrics, permissions: f.permissions.length }),

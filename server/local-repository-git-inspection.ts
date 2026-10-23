@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import { readLocalRepositorySnapshotStatus } from './local-repository-git-snapshot.js';
+import { preparationReadStageMs } from './local-repository-preparation-read-policy.js';
 
 const execute = promisify(execFile);
 const env = {
@@ -149,7 +150,9 @@ export async function inspectLocalRepositoryGitMetadata(
   const referencesOnly = request.mode === 'references' || preparation;
   if (referencesOnly && !request.readAccess)
     throw new LocalRepositoryGitInspectionError('access', 'read-anchor-required');
-  const deadline = Date.now() + Math.max(1, Math.min(request.timeoutMs ?? 5000, 30000));
+  const deadline =
+    Date.now() +
+    Math.max(1, Math.min(request.timeoutMs ?? 5000, preparation ? preparationReadStageMs : 30000));
   const check = () => {
     request.signal?.throwIfAborted();
     if (Date.now() >= deadline) throw new LocalRepositoryGitInspectionError('limit', 'timeout');
@@ -335,7 +338,7 @@ export async function inspectLocalRepositoryGitMetadata(
             env,
             encoding: 'utf8',
             signal: request.signal,
-            timeout: Math.max(1, deadline - Date.now()),
+            timeout: Math.max(1, Math.min(30000, deadline - Date.now())),
             maxBuffer: 131072,
           },
         );

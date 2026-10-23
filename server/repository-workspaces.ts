@@ -1,3 +1,4 @@
+import type { LocalRepositoryPreparationObjectData } from './local-repository-preparation-object-data.js';
 import { capturePreparedRepositoryTransition } from './prepared-repository-transition-capture.js';
 import { materializeQualifiedLocalRepositoryTask } from './qualified-local-repository-actor.js';
 import type { QualifiedLocalRepositoryPublication } from './qualified-local-repository-task.js';
@@ -2879,6 +2880,7 @@ export class RepositoryWorkspaces {
   async materializeQualifiedPendingHostTask(
     input: PendingHostTaskRequest,
     operation: unknown,
+    objects?: LocalRepositoryPreparationObjectData,
   ): Promise<PendingHostTaskReceipt> {
     if (!(operation instanceof PendingHostTaskDecisionOperation))
       throw new PendingHostTaskError('pending_host_task_authority_required');
@@ -2906,6 +2908,7 @@ export class RepositoryWorkspaces {
     try {
       const result = await materializeQualifiedLocalRepositoryTask({
         context,
+        objects,
         facts: freezePendingHostTaskData(structuredClone(qualified.allocationFacts)),
         factsSha256: qualified.allocationFactsSha256,
         requestSha256: pendingHostTaskDecisionHash(request),

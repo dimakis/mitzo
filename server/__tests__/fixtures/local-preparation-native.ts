@@ -1,3 +1,7 @@
+import {
+  withLocalRepositoryPreparationEnvelope,
+  type LocalRepositoryPreparationEnvelope,
+} from '../../local-repository-preparation-operation.js';
 import { expect, vi } from 'vitest';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -26,8 +30,12 @@ import { createCodexNativeApprovalHandler } from '../../codex-native-approvals.j
 // External process/RPC/model effects are synthetic; no production tool is registered.
 export async function localPreparationNativeFixture(
   cleanups: Array<() => void | Promise<void>>,
-  execute: (context: NativeHostToolContext, input: Record<string, unknown>) => Promise<unknown>,
-  options: { nativeBaseReads?: boolean } = {},
+  execute: (
+    context: NativeHostToolContext,
+    input: Record<string, unknown>,
+    envelope?: Readonly<LocalRepositoryPreparationEnvelope>,
+  ) => Promise<unknown>,
+  options: { nativeBaseReads?: boolean; preparationEnvelope?: boolean } = {},
 ) {
   const f = await ownedRuntimeFixture(cleanups, {
     // Legacy default selection permits this private fixture-only dynamic tool.
@@ -192,38 +200,51 @@ export async function localPreparationNativeFixture(
               turnId,
             ),
           executeTool: async (name, input, signal, call) => {
-            const meta = f.events.getSession(sessionId)!;
-            const scope = captureNativeHostToolContext({
-              events: f.events,
-              native,
-              registry,
-              session,
-              conversationId: sessionId,
-              binding: dispatch.lease.binding,
-              runtime: conversation,
-              runtimeId,
-              currentRuntime: () => conversation,
-              admission: dispatch.admission,
-              assertAgentContextAuthorization: () => {
-                contextAuthority.assertCurrent();
-              },
-              profile: dispatch.expected.agentProfile,
-              agentContext: dispatch.expected.agentContext,
-              workspace: {
-                kind: meta.ordinaryWorkspaceId ? 'ordinary' : 'repository',
-                id: dispatch.workspace.id,
-                directory: dispatch.workspace.directory!,
-              },
-              toolName: name,
-              input,
-              call,
-              signal,
-            });
-            try {
-              return { content: JSON.stringify(await execute(scope, input)), isError: false };
-            } finally {
-              scope.dispose();
-            }
+            const run = async (
+              ownedSignal: AbortSignal,
+              envelope?: Readonly<LocalRepositoryPreparationEnvelope>,
+            ) => {
+              const meta = f.events.getSession(sessionId)!;
+              const scope = captureNativeHostToolContext({
+                events: f.events,
+                native,
+                registry,
+                session,
+                conversationId: sessionId,
+                binding: dispatch.lease.binding,
+                runtime: conversation,
+                runtimeId,
+                currentRuntime: () => conversation,
+                admission: dispatch.admission,
+                assertAgentContextAuthorization: () => {
+                  contextAuthority.assertCurrent();
+                },
+                profile: dispatch.expected.agentProfile,
+                agentContext: dispatch.expected.agentContext,
+                workspace: {
+                  kind: meta.ordinaryWorkspaceId ? 'ordinary' : 'repository',
+                  id: dispatch.workspace.id,
+                  directory: dispatch.workspace.directory!,
+                },
+                toolName: name,
+                input,
+                call,
+                signal: ownedSignal,
+              });
+              try {
+                return {
+                  content: JSON.stringify(await execute(scope, input, envelope)),
+                  isError: false,
+                };
+              } finally {
+                scope.dispose();
+              }
+            };
+            return options.preparationEnvelope
+              ? withLocalRepositoryPreparationEnvelope(signal, (envelope) =>
+                  run(envelope.signal, envelope),
+                )
+              : run(signal);
           },
         });
         cleanups.push(() => conversation.close());

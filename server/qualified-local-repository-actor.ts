@@ -12,7 +12,11 @@ import {
   type LocalRepositoryAllocationFacts,
 } from './local-repository-allocation-facts.js';
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
-import { captureLocalRepositoryPreparationObjects } from './local-repository-preparation-objects.js';
+import { preparationReadDeadline } from './local-repository-preparation-read-policy.js';
+import {
+  verifyLocalRepositoryPreparationObjectData,
+  type LocalRepositoryPreparationObjectData,
+} from './local-repository-preparation-object-data.js';
 import {
   executePrivateNativeFileHelper,
   executePrivateRepositoryStagingCheckout,
@@ -20,7 +24,6 @@ import {
 import {
   freezeNativeReadExclusions,
   type NativeFileHelperTransport,
-  type NativeReadIdentity,
 } from './native-file-operation.js';
 import {
   publishNativePreparedRepository,
@@ -40,7 +43,6 @@ const identity = async (path: string) => {
   const info = await lstat(path, { bigint: true });
   return Object.freeze({ dev: String(info.dev), ino: String(info.ino) });
 };
-const same = (a: NativeReadIdentity, b: NativeReadIdentity) => a.dev === b.dev && a.ino === b.ino;
 /** PRIVATE consumed-operation actor. Actual service checks its unforgeable
  * original operation before calling. Data facts never independently grant this
  * function authority; every effect keeps the SAME original native owner. */
@@ -51,6 +53,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
   readonly requestSha256: string;
   readonly scopeSha256: string;
   readonly expiresAt: number;
+  readonly objects?: LocalRepositoryPreparationObjectData;
   assertCurrentSync(): void;
   assertCurrent(): Promise<void>;
 }) {
@@ -59,9 +62,10 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
   const owner = captureNativeHostReadOwner(context);
   if (!owner || !facts.existingDirectories || facts.existingDirectories.length > 10)
     throw unavailable();
+  let deadline = expiresAt;
   const current = () => {
     context.signal.throwIfAborted();
-    if (Date.now() >= expiresAt) throw unavailable();
+    if (Date.now() >= deadline) throw unavailable();
     operation.assertCurrentSync();
     owner.assertCurrentSync();
   };
@@ -82,7 +86,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
   ) => {
     current();
     const reader = await captureNativeLocalRepositoryReader(context, {
-      deadline: Date.now() + 30000,
+      deadline: preparationReadDeadline(deadline, context.signal),
     });
     try {
       return await action(new LocalRepositoryReadAccess(reader), reader);
@@ -95,40 +99,65 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
     }
   };
   await full();
-  // The original immutable facts are genuinely recaptured AFTER approval, before
-  // effects. No pre-approval reader lifetime or absence cache is extended.
+  const artifact = operation.objects;
+  const end = artifact && Object.getOwnPropertyDescriptor(artifact, 'deadline');
+  const dispose = artifact && Object.getOwnPropertyDescriptor(artifact, 'dispose');
+  if (
+    !artifact ||
+    !end ||
+    !('value' in end) ||
+    !Number.isSafeInteger(end.value) ||
+    !dispose ||
+    !('value' in dispose) ||
+    typeof dispose.value !== 'function'
+  )
+    throw unavailable();
+  deadline = Math.min(expiresAt, end.value);
+  current();
+  const disposeArtifact = async () => {
+    const closed: unknown = Reflect.apply(dispose.value, artifact, []);
+    if (!(closed instanceof Promise) || (await closed) !== undefined) throw unavailable();
+  };
   let packedRefs: NativePreparationPublicationPlan['packedRefs'] | undefined;
-  await read(async (access, reader) => {
-    const fresh = await captureLocalRepositoryAllocationFacts(reader, {
-      workspaceId: facts.workspaceId,
-      sourcePath: facts.source.path,
-      taskRoot: facts.taskRoot.rootPath,
-    });
-    if (fresh.factsSha256 !== factsSha256) throw unavailable();
-    packedRefs = fresh.publicationPackedRefs; // Exact parser-consumed bytes/absence, already verified by its original access.
-  });
-  let artifact: Awaited<ReturnType<typeof captureLocalRepositoryPreparationObjects>> | undefined;
   const task = join(facts.taskRoot.rootPath, `repo-${facts.workspaceId}`),
     common = facts.source.commonDirectory;
   const admin = join(common, 'worktrees', `repo-${facts.workspaceId}`);
   const denied = freezeNativeReadExclusions(owner.scope.deniedRoots);
   let publication: Readonly<QualifiedLocalRepositoryPublication> | undefined;
   try {
-    await read(async (access, reader) => {
-      const anchor = await access.pinRoot(common);
-      if (!same(anchor.identity, facts.source.commonAnchor.identity)) throw unavailable();
-      artifact = await captureLocalRepositoryPreparationObjects(facts.source, {
-        readAccess: access,
-        baseOid: facts.baseOid,
-        signal: reader.signal,
-        timeoutMs: Math.max(1, Math.min(30000, reader.deadline - Date.now())),
+    // Original namespace/source/common/base absence facts are freshly recaptured
+    // AFTER approval. No pre-approval reader or cached permission is reused.
+    await read(async (_access, reader) => {
+      const fresh = await captureLocalRepositoryAllocationFacts(reader, {
+        workspaceId: facts.workspaceId,
+        sourcePath: facts.source.path,
+        taskRoot: facts.taskRoot.rootPath,
       });
+      if (fresh.factsSha256 !== factsSha256) throw unavailable();
+      packedRefs = fresh.publicationPackedRefs;
     });
-    if (!artifact) throw unavailable();
-    const view = artifact.view,
-      scratch = view.scratch;
-    const scratchAnchor = Object.freeze({ rootPath: scratch, identity: await identity(scratch) });
+    const view = await verifyLocalRepositoryPreparationObjectData(
+      artifact,
+      context,
+      operation.requestSha256,
+      facts,
+      factsSha256,
+    );
+    // Preserve the genuine consumed object-stage fence even though its READ
+    // capture/disposal already completed before human source-effect approval.
     await full();
+    const scratch = view.scratch;
+    const scratchAnchor = Object.freeze({ rootPath: scratch, identity: view.scratchIdentity });
+    await full();
+    // The last full callback is an await too. Recheck actual private custody/
+    // config/copied bytes after it, before staging setup; worker fences remain.
+    await verifyLocalRepositoryPreparationObjectData(
+      artifact,
+      context,
+      operation.requestSha256,
+      facts,
+      factsSha256,
+    );
     await mkdir(join(scratch, 'checkout'), { mode: 0o700 });
     current();
     const staging = join(scratch, 'checkout');
@@ -142,7 +171,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       deniedRoots: denied,
       signal: context.signal,
       timeoutMs: 30000,
-      deadline: expiresAt,
+      deadline,
       assertCurrentSync: current,
       revalidate: full,
     });
@@ -244,7 +273,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
         deniedRoots: denied,
         signal: context.signal,
         timeoutMs: invocation.timeoutMs,
-        deadline: expiresAt,
+        deadline,
         maxOutputBytes: invocation.maxOutputBytes,
         assertCurrentSync: current,
         revalidate: full,
@@ -257,7 +286,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
     );
   } finally {
     try {
-      if (artifact) await artifact.dispose();
+      await disposeArtifact();
     } finally {
       await full();
     }

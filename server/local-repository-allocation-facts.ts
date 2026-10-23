@@ -80,7 +80,7 @@ export async function captureLocalRepositoryAllocationFacts(
         readAccess: access,
         assertReadable: (path) => access.assertPath(path),
         signal: authority.signal,
-        timeoutMs: Math.max(1, Math.min(30000, authority.deadline - Date.now())),
+        timeoutMs: Math.max(1, authority.deadline - Date.now()),
       }),
       access.assertAbsent(destination),
     ]);

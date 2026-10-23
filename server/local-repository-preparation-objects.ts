@@ -12,6 +12,10 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { LocalRepositoryGitMetadata } from './local-repository-git-inspection.js';
 import type { LocalRepositoryReadAccess } from './local-repository-read-access.js';
+import {
+  preparationReadStageMs,
+  preparationCommandTimeout,
+} from './local-repository-preparation-read-policy.js';
 
 const execute = promisify(execFile);
 const unavailable = () => Error('Preparation objects unavailable');
@@ -62,6 +66,8 @@ export interface LocalRepositoryPreparationObjectOptions {
 export interface LocalRepositoryPreparationObjectView {
   readonly coverage: 'preparation-required-objects-v1';
   readonly scratch: string;
+  readonly scratchIdentity: Readonly<{ dev: string; ino: string }>;
+  readonly scratchParentIdentity: Readonly<{ dev: string; ino: string }>;
   readonly gitDirectory: string;
   readonly baseOid: string;
   readonly treeOid: string;
@@ -95,7 +101,7 @@ export async function captureLocalRepositoryPreparationObjects(
     !new RegExp(`^[a-f0-9]{${oidLength}}$`).test(baseOid) ||
     !Number.isSafeInteger(options.timeoutMs) ||
     options.timeoutMs <= 0 ||
-    options.timeoutMs > 30000
+    options.timeoutMs > preparationReadStageMs
   )
     throw unavailable();
   const deadline = Date.now() + options.timeoutMs;
@@ -127,7 +133,7 @@ export async function captureLocalRepositoryPreparationObjects(
         cwd: scratch,
         env: environment,
         signal: signal,
-        timeout: Math.max(1, deadline - Date.now()),
+        timeout: preparationCommandTimeout(deadline, signal),
         maxBuffer: 16 * 1024 * 1024,
         encoding: 'buffer',
       });
@@ -336,6 +342,8 @@ export async function captureLocalRepositoryPreparationObjects(
     view = Object.freeze({
       coverage: 'preparation-required-objects-v1',
       scratch,
+      scratchIdentity: Object.freeze({ dev: String(owned.dev), ino: String(owned.ino) }),
+      scratchParentIdentity: Object.freeze({ dev: String(parent.dev), ino: String(parent.ino) }),
       gitDirectory,
       baseOid,
       treeOid,

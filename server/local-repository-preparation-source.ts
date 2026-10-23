@@ -11,6 +11,7 @@ import {
   type LocalRepositoryAllocationFacts as AllocationFacts,
 } from './local-repository-allocation-facts.js';
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
+import { preparationReadDeadline } from './local-repository-preparation-read-policy.js';
 import { inspectLocalRepositoryGitMetadata } from './local-repository-git-inspection.js';
 import { readLocalRepositoryPreparationBaseReferences } from './local-repository-git-snapshot.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
@@ -61,11 +62,14 @@ export function localRepositoryPreparationSourceFacts(facts: AllocationFacts) {
  * metadata/ref bytes, not a clean worktree, complete object tree or effect
  * permission. No selection/allocation/tool registration or ambient Git fallback.
  * Every read attempt has a fresh bounded reader which is disposed in finally;
- * human approval cannot extend the initial reader's 30-second lifetime. */
+ * human approval cannot extend an earlier read phase's bounded lifetime. */
 export async function captureNativeLocalRepositoryPreparationSource(
   context: NativeHostToolContext,
   input: { workspaceId: string; sourcePath: string; taskRoot: string },
+  options?: Readonly<{ deadline: number }>,
 ): Promise<NativeQualifiedLocalRepositoryPreparationSource> {
+  const deadline = options?.deadline ?? Number.POSITIVE_INFINITY;
+  if (options && (!Number.isSafeInteger(deadline) || deadline <= Date.now())) throw unavailable();
   const owner = captureNativeHostReadOwner(context);
   const scope = owner?.scope ?? context.nativeBaseReadScope;
   const revalidate = () => (owner ? owner.assertCurrent() : context.assertCurrent());
@@ -76,16 +80,18 @@ export async function captureNativeLocalRepositoryPreparationSource(
   });
   const current = () => {
     context.signal.throwIfAborted();
+    if (Date.now() >= deadline) throw unavailable();
     if (!scope || context.nativeBaseReadScope !== scope) throw unavailable();
     if (owner) owner.assertCurrentSync();
     else assertNativeHostReadCurrentSync(context, scope);
   };
   const read = async <T>(
     action: (reader: Awaited<ReturnType<typeof captureNativeLocalRepositoryReader>>) => Promise<T>,
+    earlierDeadline = deadline,
   ) => {
     current();
     const reader = await captureNativeLocalRepositoryReader(context, {
-      deadline: Date.now() + 30000,
+      deadline: preparationReadDeadline(Math.min(deadline, earlierDeadline), context.signal),
     });
     try {
       const result = await action(reader);
@@ -115,7 +121,7 @@ export async function captureNativeLocalRepositoryPreparationSource(
     baseBranch: original.baseBranch,
     baseOid: original.baseOid,
   });
-  const baseCurrent = () =>
+  const baseCurrent = (earlierDeadline: number) =>
     read(async (reader) => {
       const access = await LocalRepositoryReadAccess.capturePreparationBase(reader, {
         version: 'preparation-base-observation-v1',
@@ -131,7 +137,7 @@ export async function captureNativeLocalRepositoryPreparationSource(
         readAccess: access,
         assertReadable: (path) => access.assertPath(path),
         signal: reader.signal,
-        timeoutMs: Math.max(1, Math.min(30000, reader.deadline - Date.now())),
+        timeoutMs: Math.max(1, reader.deadline - Date.now()),
       });
       const commonAnchor = await access.pinRoot(metadata.commonDirectory);
       const { branch, head } = await readLocalRepositoryPreparationBaseReferences(metadata, {
@@ -155,18 +161,21 @@ export async function captureNativeLocalRepositoryPreparationSource(
         baseOid: head,
       };
       if (hash(actual) !== originalBaseHash) throw unavailable();
-    });
+    }, earlierDeadline);
   return Object.freeze({
     ...original,
     allocationFacts: initial.facts,
     allocationFactsSha256: initial.factsSha256,
     assertCurrentSync: current,
-    async assertCurrent() {
+    async assertCurrent(options?: Readonly<{ deadline: number }>) {
       current();
+      const earlierDeadline = options?.deadline ?? deadline;
+      preparationReadDeadline(Math.min(deadline, earlierDeadline), context.signal);
       await revalidate();
       current();
-      await baseCurrent();
+      await baseCurrent(earlierDeadline);
       current();
+      preparationReadDeadline(Math.min(deadline, earlierDeadline), context.signal);
     },
     async revalidateAllocationFacts() {
       const actual = await captureAllocation();

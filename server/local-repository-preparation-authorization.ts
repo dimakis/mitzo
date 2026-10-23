@@ -1,3 +1,4 @@
+import type { LocalRepositoryPreparationObjectData } from './local-repository-preparation-object-data.js';
 import { buildPermissionHandler, type SessionRegistry } from '@mitzo/harness';
 import { AccountBindingSchema, SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -45,7 +46,7 @@ export interface QualifiedLocalRepositoryPreparationSource {
   readonly anchorsSha256: string;
   readonly referenceCoverage?: 'preparation-head-and-namespace-v1';
   assertCurrentSync(): void;
-  assertCurrent(): Promise<void>;
+  assertCurrent(options?: Readonly<{ deadline: number }>): Promise<void>;
 }
 interface Owners {
   readonly context: NativeHostToolContext;
@@ -56,6 +57,7 @@ interface Owners {
     path: string,
     context: NativeHostToolContext,
     intent: Readonly<{ workspaceId: string; sourcePath: string; taskRoot: string }>,
+    options?: Readonly<{ deadline: number }>,
   ) => Promise<NativeQualifiedLocalRepositoryPreparationSource>;
 }
 const accountScope = (account: {
@@ -297,6 +299,7 @@ export async function captureLocalRepositoryPreparationAuthorization(
   );
   const payload = pendingHostTaskDecisionPayload(request, scope);
   const payloadHash = pendingHostTaskDecisionHash(payload);
+  let observedReadDeadline: number | undefined;
   const assertCurrentSync = () => {
     assertSourceLabels();
     const record = owners.workspaces.get(id);
@@ -324,7 +327,11 @@ export async function captureLocalRepositoryPreparationAuthorization(
       assertCurrentSync();
       await context.assertCurrent();
       assertCurrentSync();
-      await qualified.assertCurrent();
+      await qualified.assertCurrent(
+        observedReadDeadline === undefined
+          ? undefined
+          : Object.freeze({ deadline: observedReadDeadline }),
+      );
       assertCurrentSync();
       synchronous(() => qualified.assertCurrentSync());
       // The ORIGINAL context's full async admission/physical-owner fence and
@@ -340,13 +347,15 @@ export async function captureLocalRepositoryPreparationAuthorization(
     scope,
     payload,
     owner,
-    async materialize() {
+    allocationFacts,
+    allocationFactsSha256,
+    async materialize(objects?: LocalRepositoryPreparationObjectData) {
       owner.assertCurrentSync();
       const operation = owners.workspaces.beginPendingHostTaskDecisionMaterialization(
         request,
         owner,
       );
-      return owners.workspaces.materializeQualifiedPendingHostTask(request, operation);
+      return owners.workspaces.materializeQualifiedPendingHostTask(request, operation, objects);
     },
     async approve(): Promise<PendingHostTaskDecision> {
       owner.assertCurrentSync();
@@ -366,10 +375,15 @@ export async function captureLocalRepositoryPreparationAuthorization(
           approvalScope: 'request',
           onDecision(evidence) {
             owner.assertCurrentSync();
+            const originalEvidence = PendingHostTaskDecisionEvidenceSchema.parse(evidence);
+            observedReadDeadline = Math.min(
+              observedReadDeadline ?? Number.POSITIVE_INFINITY,
+              originalEvidence.expiresAt,
+            );
             const retained: unknown = owners.workspaces.retainPendingHostTaskDecisionObservation(
               request,
               scope,
-              PendingHostTaskDecisionEvidenceSchema.parse(evidence),
+              originalEvidence,
               owner,
             );
             if (retained && typeof retained === 'object' && 'then' in retained) {
