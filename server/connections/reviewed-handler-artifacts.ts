@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.584-private-native-repository-integration';
+  'v1.0.585-frozen-primary-delegation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -94,7 +94,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/prepared-repository-transition.ts':
     '1cc4b60a2c6c6f83aa294d83851b93394b85e0ffc845da67e61ba0cd510ae2c9',
   '../../packages/protocol/__tests__/prepared-repository-admission.test.ts':
-    '5abbff4bc00d17ba7a979839d29c5c44a512bd298a4cf7829278a46932307022',
+    'c999ac18869fc7560816dd47ace8077d86eb5f5797fdb13ce34816cf8f345f8a',
   '../prepared-repository-transition.ts':
     'c301c1915b0ecca42983365e71364589cb20799caba6b4dfa69a05f16ddfe06d',
   '../prepared-repository-barrier-read.ts':
@@ -135,7 +135,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/codex-native-permission-protocol-0.160.0.json':
     '3a0d0fdc4c5e61afaa315c0a6d5eaf9f6cc875a34240ceddcef35f1788cc8a4b',
   '../__tests__/owned-local-codex-chat-admission.test.ts':
-    'a3e0bdbf575ad3d2971a8c5049c1851c0a0d5480eec327d65798715b1978cf69',
+    '37128fef467dbdf0765d66ad61da22867c11e5ac4aec4e81faedf211cd03d16d',
   '../__tests__/owned-local-codex-native-execution.test.ts':
     'c8fa08801d2dd073375d9ea9f584e2bb264a27e71cc9e3f66acc11e0e43d2d12',
   '../__tests__/owned-local-codex-native-policy.test.ts':
@@ -789,7 +789,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-codex-host-runtime.ts':
     'bd5c43d070f2acc3783914677270a4bf38aa0d90e02635276fe79c0e8906decb',
   '../ordinary-local-codex-selection-owner.ts':
-    'fff60dd4fbc93542e5b26637e951ddecaf35bb6d422dea87e1fd539a72a6f2fe',
+    'ca1259e73f81780d95f33fa9a4d4c3fef8e2264927b657124d9bbdbb43423872',
   '../ordinary-local-codex-owned-runtime.ts':
     'd9ff6dee98547629f300ac3f5523c1420fb3dde935b616c3f9676f764657acaa',
   '../frozen-host-codex-api-login.ts':
@@ -1054,7 +1054,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '019598b360106c0dd8babc08e9366e40c95c1dd4dca9ea649c37bc7d096b8358',
   '../../packages/protocol/src/event-store.ts':
-    'd553ed7c65da79a5244a23563dca791f5d960a5fb2c01220fff7be3d9f4b879c',
+    '2d720ec71ec0ac0c825a29096240d4cd5e48b8c219edbfec8bb99e8be2b51a98',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
