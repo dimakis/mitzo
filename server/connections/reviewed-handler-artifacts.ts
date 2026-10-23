@@ -1100,7 +1100,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-repository-preparation.ts':
     'c9d0113da17201ee421c4bdadb9108ae6817460ffab82cdb6eb4de888ecb0d9e',
   '../ordinary-repository-preparation-authority.ts':
-    '3a525d52334b78df762b198f0f78811d2b1bc7e89b81d8a71a2d3fd3433c7c89',
+    'c99e7af3ce17cc3da647035387f62ef8ab992bb797117b252d21ec27640a81b2',
   '../../frontend/src/components/RepositoryChatPicker.tsx':
     '1b67d8ac02bfe47ed49b404e8733b7a28b0a81be71cc2a6ef85a640863d794f1',
   '../../frontend/src/hooks/useRepositoryChatPreparation.ts':

@@ -75,7 +75,12 @@ async function credentialDigest(
     // It is still independently checked on every qualification.
     await new OrdinaryLocalCodexHostRuntime().observe();
   } else if (binding.provider === 'openai' && selection.runOn === 'local') {
-    const manager = openAIAccountKeyAuthority(binding, profiles, { consumer: 'host' });
+    const connection = profiles.harnessConnection(binding);
+    if (connection.authentication !== 'api-key') throw unavailable();
+    const manager = openAIAccountKeyAuthority(binding, profiles, {
+      consumer: 'host',
+      endpoint: connection.endpoint,
+    });
     await manager.assertReady(signal);
     credential = digest(await manager.resolveKey(binding.accountId, signal));
     await manager.assertReady(signal);
