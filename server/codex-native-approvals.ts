@@ -47,7 +47,16 @@ export function createCodexNativeApprovalHandler(options: {
     const deny = (cancel = false): Record<string, unknown> =>
       method === 'item/permissions/requestApproval'
         ? { permissions: {}, scope: 'turn' }
-        : { decision: cancel ? 'cancel' : 'decline' };
+        : {
+            decision:
+              cancel ||
+              (method === 'item/commandExecution/requestApproval' &&
+                Array.isArray(params.availableDecisions) &&
+                !params.availableDecisions.includes('decline') &&
+                params.availableDecisions.includes('cancel'))
+                ? 'cancel'
+                : 'decline',
+          };
     const parsed = NativeApprovalRequestSchema.safeParse({ method, id: context.requestId, params });
     if (!parsed.success) return deny();
     const request = parsed.data;
@@ -97,7 +106,9 @@ export function createCodexNativeApprovalHandler(options: {
         return deny();
       if (
         request.method === 'item/commandExecution/requestApproval' &&
-        (!request.params.command?.trim() ||
+        ((!request.params.command?.trim() && !request.params.networkApprovalContext?.host.trim()) ||
+          (request.params.kind === 'writeStdin' &&
+            (!request.params.command?.trim() || !request.params.approvalId?.trim())) ||
           (request.params.availableDecisions &&
             !request.params.availableDecisions.includes('accept')))
       )

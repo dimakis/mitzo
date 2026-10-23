@@ -187,6 +187,62 @@ describe('native approval adapter with the existing pending owner', () => {
     },
   );
 
+  it('reviews source-faithful managed network context even when no command is sent', async () => {
+    const f = setup();
+    const params = {
+      threadId: 'thread',
+      turnId: 'turn',
+      itemId: 'network',
+      startedAtMs: Date.now(),
+      kind: 'command',
+      environmentId: 'local',
+      command: null,
+      cwd: null,
+      commandActions: null,
+      networkApprovalContext: { host: 'example.test', protocol: 'https' },
+      availableDecisions: ['accept', 'acceptForSession', 'cancel'],
+    };
+    const result = f.handler(
+      'item/commandExecution/requestApproval',
+      params,
+      f.controller.signal,
+      f.context,
+    );
+    resolvePending(await request(f), 'once', undefined, 'session');
+    expect(await result).toEqual({ decision: 'accept' });
+    expect(JSON.parse(f.sent[0].toolInput as string).params).toEqual(params);
+  });
+
+  it('does not convert a network amendment-only offer into an ordinary command accept', async () => {
+    const f = setup();
+    const params = {
+      threadId: 'thread',
+      turnId: 'turn',
+      itemId: 'network',
+      startedAtMs: Date.now(),
+      kind: 'command',
+      environmentId: 'local',
+      networkApprovalContext: { host: 'example.test', protocol: 'https' },
+      availableDecisions: [
+        {
+          applyNetworkPolicyAmendment: {
+            network_policy_amendment: { host: 'example.test', action: 'allow' },
+          },
+        },
+        'cancel',
+      ],
+    };
+    expect(
+      await f.handler(
+        'item/commandExecution/requestApproval',
+        params,
+        f.controller.signal,
+        f.context,
+      ),
+    ).toEqual({ decision: 'cancel' });
+    expect(f.sent).toEqual([]);
+  });
+
   it('keeps distinct stdin callback approvals on the same native item separate', async () => {
     const f = setup();
     const params = {
@@ -196,7 +252,8 @@ describe('native approval adapter with the existing pending owner', () => {
       startedAtMs: Date.now(),
       kind: 'writeStdin',
       environmentId: 'local',
-      command: 'answer',
+      command: "write_stdin --session-id 1000 'answer\n'",
+      availableDecisions: ['accept', 'cancel'],
     };
     const first = f.handler(
       'item/commandExecution/requestApproval',
@@ -221,7 +278,7 @@ describe('native approval adapter with the existing pending owner', () => {
     resolvePending(cards[0].permId as string, 'once', undefined, 'session');
     resolvePending(cards[1].permId as string, 'deny', undefined, 'session');
     expect(await first).toEqual({ decision: 'accept' });
-    expect(await second).toEqual({ decision: 'decline' });
+    expect(await second).toEqual({ decision: 'cancel' });
   });
 
   it.each(['deny', 'cancel', 'expired', 'stale'] as const)(
