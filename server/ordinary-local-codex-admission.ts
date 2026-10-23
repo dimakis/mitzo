@@ -1,3 +1,4 @@
+import { findNativeMacExecutionUnavailable } from './codex-native-artifact-qualification.js';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
@@ -510,7 +511,9 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
           await lease.assertCurrent();
           await dispatch(structuredClone(snapshot), request.clientMsgId);
           d.store.completeOrdinaryLocalCommand(request.clientMsgId);
-        } catch {
+        } catch (error) {
+          const capabilityError = findNativeMacExecutionUnavailable(error);
+          if (capabilityError) throw capabilityError;
           fail('dispatch_uncertain');
         }
         return { dispatched: true };
@@ -524,6 +527,8 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       if (!result) fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable');
       return result;
     } catch (error) {
+      const capabilityError = findNativeMacExecutionUnavailable(error);
+      if (capabilityError) throw capabilityError;
       if (error instanceof OrdinaryLocalCodexAdmissionError) throw error;
       fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable');
     }

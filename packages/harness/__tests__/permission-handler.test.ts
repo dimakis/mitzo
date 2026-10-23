@@ -22,6 +22,130 @@ function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] }
 }
 
 describe('buildPermissionHandler', () => {
+  it.each(['ask', 'auto'] as const)(
+    'requires an exact native approval in %s without retaining a tool grant',
+    async (mode) => {
+      const registry = new SessionRegistry();
+      const transport = fakeTransport();
+      registry.register('native-client', {
+        transport,
+        abortController: new AbortController(),
+        mode,
+        sessionId: 'native-session',
+        sessionAllowList: new Set(['NativeCommandApproval']),
+      });
+      const pending = buildPermissionHandler('native-client', registry)(
+        'NativeCommandApproval',
+        { command: 'touch /extra/file', additionalPermissions: { write: ['/extra'] } },
+        {
+          signal: new AbortController().signal,
+          toolUseID: 'native-rpc',
+          nativeApproval: { assertCurrentSync() {} },
+        },
+      );
+      await vi.waitFor(() =>
+        expect(transport.sent[0]).toMatchObject({
+          type: 'permission_request',
+          approvalScope: 'request',
+          allowSessionGrant: false,
+        }),
+      );
+      expect(
+        resolvePending(transport.sent[0].permId as string, 'always', undefined, 'native-session'),
+      ).toBe(true);
+      expect(await pending).toMatchObject({ behavior: 'allow' });
+      expect(registry.get('native-client')!.sessionAllowList).toEqual(
+        new Set(['NativeCommandApproval']),
+      );
+      registry.dispose();
+    },
+  );
+
+  it('offers native session scope explicitly without using or adding a generic tool grant', async () => {
+    const registry = new SessionRegistry();
+    const transport = fakeTransport();
+    registry.register('native-client', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'ask',
+      sessionId: 'native-session',
+      sessionAllowList: new Set(['NativePermissionsApproval']),
+    });
+    try {
+      const result = buildPermissionHandler('native-client', registry)(
+        'NativePermissionsApproval',
+        { permissions: { fileSystem: { read: ['/approved'] } } },
+        {
+          signal: new AbortController().signal,
+          toolUseID: 'scope-rpc',
+          nativeApproval: { assertCurrentSync() {}, allowSessionScope: true },
+          sessionGrantDescription: 'Only this exact native permission profile',
+        },
+      );
+      await vi.waitFor(() =>
+        expect(transport.sent[0]).toMatchObject({
+          type: 'permission_request',
+          approvalScope: 'session',
+        }),
+      );
+      expect(transport.sent[0].allowSessionGrant).not.toBe(false);
+      expect(
+        resolvePending(transport.sent[0].permId as string, 'always', undefined, 'native-session'),
+      ).toBe(true);
+      expect(await result).toMatchObject({
+        behavior: 'allow',
+        decisionClassification: 'user_permanent',
+      });
+      expect(registry.get('native-client')!.sessionAllowList).toEqual(
+        new Set(['NativePermissionsApproval']),
+      );
+    } finally {
+      registry.dispose();
+    }
+  });
+
+  it('records denial if native authority expires before the exact approval response', async () => {
+    const registry = new SessionRegistry();
+    const transport = fakeTransport();
+    registry.register('native-client', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId: 'native-session',
+      sessionAllowList: new Set(),
+    });
+    let current = true;
+    const lifecycle = vi.fn();
+    const unsubscribe = onPermissionLifecycle(lifecycle);
+    try {
+      const pending = buildPermissionHandler('native-client', registry)(
+        'NativeFileApproval',
+        { itemId: 'file' },
+        {
+          signal: new AbortController().signal,
+          toolUseID: 'native-rpc',
+          nativeApproval: {
+            assertCurrentSync() {
+              if (!current) throw Error('revoked');
+            },
+          },
+        },
+      );
+      await vi.waitFor(() => expect(transport.sent[0]?.permId).toBeDefined());
+      current = false;
+      resolvePending(transport.sent[0].permId as string, 'once', undefined, 'native-session');
+      expect(await pending).toMatchObject({ behavior: 'deny' });
+      expect(lifecycle).toHaveBeenLastCalledWith({
+        type: 'resolved',
+        permId: transport.sent[0].permId,
+        resolution: 'denied',
+      });
+    } finally {
+      unsubscribe();
+      registry.dispose();
+    }
+  });
+
   it('returns a session decision without adding a broad tool grant when the caller owns consent', async () => {
     const registry = new SessionRegistry();
     const transport = fakeTransport();

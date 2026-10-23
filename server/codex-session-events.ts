@@ -25,6 +25,8 @@ export class CodexSessionEvents {
   private lastAnonymousCompaction?: string;
   private lastCompactionId?: string;
   private commandTools = new Map<string, string>();
+  private fileTools = new Map<string, string>();
+  private finishedFiles = new Set<string>();
   private runtimeTools = new Map<string, string>();
   private replayingReasoning = false;
   private reasoningReplayOffsets = new Map<string, number>();
@@ -209,6 +211,35 @@ export class CodexSessionEvents {
     // the terminal result for a turn; the next turn/started reopens the mapper.
     if (this.turnFinished && method.startsWith('item/')) return;
     const commandItem = object(params.item);
+    if (
+      (method === 'item/started' || method === 'item/completed') &&
+      commandItem.type === 'fileChange' &&
+      typeof commandItem.id === 'string' &&
+      Array.isArray(commandItem.changes)
+    ) {
+      if (this.finishedFiles.has(commandItem.id)) return;
+      let toolId = this.fileTools.get(commandItem.id);
+      if (!toolId) {
+        toolId = this.toolStart(commandItem.id, 'ApplyPatch', { changes: commandItem.changes });
+        this.fileTools.set(commandItem.id, toolId);
+      }
+      if (
+        method === 'item/completed' &&
+        ['completed', 'failed', 'declined'].includes(String(commandItem.status))
+      ) {
+        this.fileTools.delete(commandItem.id);
+        this.finishedFiles.add(commandItem.id);
+        const completed = commandItem.status === 'completed';
+        this.toolResult(
+          toolId,
+          completed
+            ? `Applied ${commandItem.changes.length} file change(s).`
+            : `File changes ${String(commandItem.status)}.`,
+          !completed,
+        );
+      }
+      return;
+    }
     if (method === 'thread/compacted' || method === 'contextCompaction') {
       this.compaction(method, params);
       return;
@@ -420,6 +451,11 @@ export class CodexSessionEvents {
       this.replayingReasoning = false;
       this.reasoningReplayOffsets.clear();
       this.flush();
+      for (const [id, toolId] of this.fileTools) {
+        this.finishedFiles.add(id);
+        this.toolResult(toolId, 'File change interrupted before completion.', true);
+      }
+      this.fileTools.clear();
       this.emit({
         type: 'result',
         session_id: this.conversationId,

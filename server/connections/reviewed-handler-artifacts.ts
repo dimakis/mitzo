@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.562-account-routing-bundle';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.563-account-native-rehearsal';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,52 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/harness/__tests__/permission-decision-observation.test.ts':
+    '39d21cd288fcea4100fc8d748cea8344a8310b6c0691653889711226bc234023',
+  '../../implementation-evidence/codex-native-macos-permission-kernel-0.160.0.json':
+    '50fb0a69a01006e85558cc1cc260338c0a7e8257fab2162191337c66bb11c5b7',
+  '../../scripts/qualify-codex-native-permissions.mjs':
+    'ca56ac179cfc28efc71e68a4c88d99b323d9f44aa515f11b26109523d515aba8',
+  '../__tests__/codex-chat-session.test.ts':
+    '021a48bef40005ce7b14f17f26024b025faef4de5a417701ad656aa7568e0bd7',
+  '../__tests__/codex-conversation.test.ts':
+    'a7c3eb990ec0a7de78116ff4790ba65878b0c8d3b6e9244b5ad694ec20bb3d48',
+  '../__tests__/codex-native-approvals.test.ts':
+    'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
+  '../__tests__/codex-native-artifact-qualification.test.ts':
+    'bf39b31337d0714faac6d73f3b96aa99e8e960f39a54e81f1429699890d7cd05',
+  '../__tests__/codex-native-execution-policy.test.ts':
+    '76cce3c3049dc96daf70a5f257046202c5041132bbd945050d5f6418f94bc2df',
+  '../__tests__/codex-native-execution-receipts.test.ts':
+    'e68af02f906ce04a6003719e35a46a471191eeb4e90e155db604dececc1e4df4',
+  '../__tests__/codex-native-permission-protocol.test.ts':
+    '8e2395429506a4208ff1f59c1ee4bba3e6905ae3a5364961d9aa30aa2b7d1cae',
+  '../__tests__/codex-runtime-policy.test.ts':
+    'ec742eff2f9d389d2faf43a75457d4797ce1f3e8ff1e068a7db15d2036c0cd16',
+  '../__tests__/codex-session-events.test.ts':
+    'ba49cbd3ddc9dc6715562d72077115e1d5a37a827ef0fa3f263a68d9cc9f61ab',
+  '../__tests__/fixtures/codex-native-permission-protocol-0.160.0.json':
+    '3a0d0fdc4c5e61afaa315c0a6d5eaf9f6cc875a34240ceddcef35f1788cc8a4b',
+  '../__tests__/owned-local-codex-chat-admission.test.ts':
+    'd3ce0c5f730a124de80063e142582260e4ef36b5cb6c4cd0e8a0af1c4461c974',
+  '../__tests__/owned-local-codex-native-execution.test.ts':
+    'c8fa08801d2dd073375d9ea9f584e2bb264a27e71cc9e3f66acc11e0e43d2d12',
+  '../__tests__/owned-local-codex-native-policy.test.ts':
+    '92e3f3bdc9f0d180d493bdd981b82f9e86b814fa65bfc35f9ba0932cb05ea179',
+  '../__tests__/owned-local-codex-native-unqualified.test.ts':
+    'dfbfd342c315a33019ec1fb560d5d9b76272fc91f0741b82e5e98210d94d7e2a',
+  '../codex-native-approvals.ts':
+    'a31a328ed22bffdba3901a3186b03abbeb798f5d4683412df2889cef299b98b1',
+  '../codex-native-artifact-qualification.ts':
+    'cd4f2f9c4913c2e7002a31f8035b0b8c102831d9d380971582344ba46bf86679',
+  '../codex-native-execution-policy.ts':
+    '6924ba90a2c99f2182f6734820ee3f7f95086b2864ed1b30cfe333c9a74eebcf',
+  '../codex-native-grant-fence.ts':
+    '2fe5cc62858934be6606446102a151d57cda6ed92dbf24c0b3b3e1dbea99d05b',
+  '../codex-native-permission-protocol.ts':
+    '9f0090fa908f306c95110e928dc64fd5a7324a7aa3cfed3c1572c8d23bedbf48',
+  '../owned-local-codex-native-policy.ts':
+    'f05b8372ab2c9c81bc3a99b0d3ba95a6a17515b57a5d6cdca5617e1cb3c0c88b',
   '../__tests__/session-create-runtime-selection.test.ts':
     'c5de4a6560ec62a86487d599dc7fbf981daa0455407933d2bcf3a7ece9250332',
   '../account-harness-connection.ts':
@@ -368,7 +414,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '299edbeb86bab57c9f910b27cab5d6753ff026106916d58f4a9a2dd5deedafa8',
   '../collaboration-ordinary-replies.ts':
     '599f1574e4fb2deace9d5b0aa19e639d6bd7aed727837d404f44ff916eba8a5f',
-  '../codex-session-events.ts': '363c28f16fe908c941667311b4de133e114dd4f1972aa37dd2377c205d750ac3',
+  '../codex-session-events.ts': '2041300a52826ad91aa9fb04156a6fe94079143120698dec98e58809f3b75036',
   '../collaboration-context-source.ts':
     '4315a579a1741c55d7c62b9b43fdde35967ad1b6e630eb1d1b5389221cac0995',
   '../../packages/protocol/src/collaboration-visible-source.ts':
@@ -658,7 +704,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'bb9bb50843b4339af56d95ec8f567848623898b2de1eeca3b3827981525eb766',
   '../send-command.ts': '34845f9e699ef77c245bef3eda73213766c0de962ff75239ee9fccc67f095c22',
   '../ordinary-local-codex-admission.ts':
-    '5661042f967625c910f0378c12e5e8100f2c912fb10f6a39910f7cfad81b51b7',
+    '90a63003e3645523ecf5695baa6e2bf73a36fa4c58ca5a2064f1f46e0b330439',
   '../ordinary-local-codex-capabilities.ts':
     '6aa1d7edd2466719bd8766209dd6a6786b37436fc381c672ad4b42e260ad0d03',
   '../ordinary-local-codex-host-runtime.ts':
@@ -666,7 +712,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-codex-selection-owner.ts':
     'fff60dd4fbc93542e5b26637e951ddecaf35bb6d422dea87e1fd539a72a6f2fe',
   '../ordinary-local-codex-owned-runtime.ts':
-    'cbe55e3a3a997da1b749d9540400e137a7fe5cbac487bd880a02bdb97ee59742',
+    'ca2aec1808f93d30aa360f0a80bbc357b612b5de5aaef17172436cfc7779d533',
   '../frozen-host-codex-api-login.ts':
     '4718d3bad3c05ab9106f24329ec012dbaa59ea0d49a66ea6b5ae357ccee5f19c',
   '../frozen-host-codex-login.ts':
@@ -674,13 +720,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../frozen-host-codex-executable.ts':
     '01813a1d0b10ed3f2a8ca87eb5f13d3cbed01dd721549a930eafd2dcc8d02dfe',
   '../frozen-host-codex-bootstrap.ts':
-    '1387b5c4631885c7f5ff759cba26c96f6502061ec11dc8c47146083d9ae0713f',
+    '3701dbcf74c2975642ca44fbbdfd35ca134d8e5593a33b36d63b85a18baeff18',
   '../owned-codex-lifecycle-bridge.ts':
-    'dc90b6aaa951a9b778c17964b70513cff49749d02c263262b4845219de26d283',
+    'b76d973b736e98d2b140b87e0bcd767449539a1bf8fa5f6d41d95e3839408a96',
   '../owned-local-codex-chat-admission.ts':
-    '3c0b4696deedd8b462af506a8191ef433839dda0be43df86751b117cce1490aa',
+    '864c959b6b563c7a1d83ade9a6acb5619724f260b92086484a71de21e3ffb334',
   '../codex-account.ts': 'dc2ac5efec915495b6af3c7a3001ea4856427ca2d185648a864d2ceeb6593e71',
-  '../codex-runtime-policy.ts': '478f9dc62e9100f01a0fdfbef207cdd02453a4a9a596039e84d70dd94ea85b2b',
+  '../codex-runtime-policy.ts': 'd11ab33ef4c5c69a5b5d8754ce474afd8a1a712df4b45e93f0690b97636859ab',
   '../model-catalog.ts': 'e6922550fed2f7d6d3330299dfe83726d97d126e79c4a3abdb5e3334020ce90a',
   '../bounded-file-read.ts': '8332b3e5908ebe1464eeb7c99a8963bc402ae1f2d89a979a7495f53d54914070',
   '../session-permission-revision.ts':
@@ -693,13 +739,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/store.ts':
     'eacadd5895597041af784757d16d380a21b6ea75ff90ec2b5c390551fdef6de3',
   '../../packages/harness/src/permission-handler.ts':
-    '78c076abbede0240b4695b4dc93a4fd14c02b8ee65fa8788fecd42d74f27dbc4',
+    'ded77a1bb6dc8c81ec80ee8a0cafb2691cc90a6b088b12c3559b06a0c7b4b05a',
   '../../packages/harness/src/permissions.ts':
     '546e88401d53f36462c338ec4ac4b4fe86e257cdc39e4f9af44b04989fa05733',
   '../../packages/protocol/src/session-approval-scope.ts':
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
-    '3e6fcdd37360da1e133111b7b585abca56583991233d3cfd953c5d9ac1ba878f',
+    'dd26a8cdc3d72e2be6d577165b137cb2004c79f49309e42d5d8c474bf1166586',
   '../codex-mcp-tools.ts': 'a4501b1eee7518f7928e905d9b2d8c97a35802d0f0a8be0d5e494effa9c3c00c',
   '../codex-runtime-diagnostics.ts':
     '00b48e32557feff7923a5d548f085d2107383491689ec43f75f465287552f4c9',
@@ -752,7 +798,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': 'b2b8949ccdac09dc89f0aaee32153d20fcbec646cb4484ede59546caefb37251',
+  '../chat.ts': '79619e63b3680a8088f4fded6fe9881e180812be582c8ef8f5efb5a5089a5907',
   '../../packages/harness/src/session-registry.ts':
     'af896f917aca74debf5f02bdbf87904a0037fda31a259d62a047c7b15f3586c8',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -789,9 +835,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '6ec698aa0180302b7740bb00b3ed017875e3a4af175956f0536c2474fabfdf76',
+  '../codex-conversation.ts': 'ab22684118104d9a4d8fafc8fa0a58e2d8d1ff74a3c000a71db117e7e5053f98',
   '../codex-conversation-store.ts':
-    'f5542a888fecf0c3706c5c701a35b0ef700a485173f6201215506813d45649e2',
+    'ca726a74f1253e7d61b3034b17239a81e59596a9f1835a6ff0ff4e2fdff3bc37',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':
@@ -957,7 +1003,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '3e9734030dea1237f60f274bca7c2a3e68f31ded5d60cca3419df7c84617145f',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '93f311b4f79119ec1613642c333c85dfcb3514f1f6884e2ea0707f0d49e3df65',
+  '../codex-chat-session.ts': '8bff5c3ecdc084bc08cdfdae8c9acb7448267eaa91eb43de7c9404067b060af8',
   '../connections-runtime.ts': '0793e87975e59fc74dc4306802f2633d7d8cd7bca4a42af5bc1a5a2a04c22424',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
@@ -1182,7 +1228,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'a0f869d7883f0bed0b8882b14d7569ee34b9e4316268813f3c6767721e86a7e7',
   '../../packages/protocol/src/ordinary-prepared-session.ts':
     'fc4d953515c7df9cf7594b4fc502c39d891cdf53c667a3db6839c390effa20e3',
-  '../codex-ordinary-packet.ts': '30dab46fda1ff4daddccf2503bae33bacc3ab1f438c113a102c08854d9d0532a',
+  '../codex-ordinary-packet.ts': 'cadc43f0f96797e4554d30300cddd8f49531c8f3d9c4e60946bade3a598a0f62',
   '../collaboration-ordinary-delivery.ts':
     'bd5f853078019770871a660083177cd54e7dae8c7718f230fdd203ca39a942e7',
   '../collaboration-review-owner.ts':
