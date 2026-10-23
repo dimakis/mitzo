@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { discoverLocalRepository, inspectLocalRepository } from '../local-repository-discovery.js';
@@ -38,6 +47,21 @@ afterEach(async () => {
 });
 
 describe('bounded repository discovery', () => {
+  it('reports unsupported symbolic Git metadata as inspection unavailable instead of an absent repository', async () => {
+    const selected = await repo(join(root, 'linked-storage'));
+    const storage = join(root, 'storage');
+    await rename(join(selected, '.git'), storage);
+    await symlink(storage, join(selected, '.git'));
+    expect(git(selected, 'rev-parse', '--show-toplevel')).toBe(selected);
+    expect(
+      await discoverLocalRepository({ query: 'linked-storage', accessScope: scope() }),
+    ).toMatchObject({
+      state: 'ambiguous',
+      candidates: [],
+      needed: [],
+      diagnostics: [{ path: selected, reason: 'inspection-unavailable' }],
+    });
+  });
   it('finds two unrelated existing repositories without registry enrollment', async () => {
     const alpha = await repo(join(root, 'projects', 'alpha'));
     const beta = await repo(join(root, 'other', 'beta'));
