@@ -12,6 +12,11 @@ import {
 } from 'node:fs/promises';
 import { mkdirSync, renameSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
+import {
+  inspectLocalRepositoryGitMetadata,
+  readIsolatedLocalRepositoryStatus,
+} from '../local-repository-git-inspection.js';
 import { join } from 'node:path';
 import {
   inspectLocalRepository as inspectRepository,
@@ -161,20 +166,33 @@ it('never lets Git follow source config includes introduced after metadata quali
 });
 
 for (const relativePath of ['.git/index', '.git/refs/heads/fixture-private-branch', 'source.txt']) {
-  it(`checks current owner authority for consumed regular ${relativePath}`, async () => {
+  it(`checks current owner authority for isolated-comparison regular ${relativePath}`, async () => {
     const denied = join(selected, relativePath);
     let checked = false;
     let outcome: unknown;
     try {
-      outcome = await inspectLocalRepository({
+      const assertReadable = async (path: string) => {
+        if (path === denied) {
+          checked = true;
+          throw Error('fixture current read denied');
+        }
+      };
+      const access = new LocalRepositoryReadAccess({
+        deniedRoots: Object.freeze([]),
+        assertReadable,
+        captureReadAnchor: fixtureReadAnchor,
+        deadline: Date.now() + 30000,
+      });
+      await access.pinRoot(selected);
+      const metadata = await inspectLocalRepositoryGitMetadata({
         path: selected,
-        accessScope: { kind: 'roots', roots: [root] },
-        assertReadAccess: async (path) => {
-          if (path === denied) {
-            checked = true;
-            throw Error('fixture current read denied');
-          }
-        },
+        assertReadable,
+        readAccess: access,
+        timeoutMs: 30000,
+      });
+      outcome = await readIsolatedLocalRepositoryStatus(metadata, {
+        readAccess: access,
+        timeoutMs: 30000,
       });
     } catch (error) {
       outcome = error;
@@ -368,7 +386,7 @@ it.each([false, true])(
     });
     expect(result.branch).toBe('feature/β');
     expect(result.head).toMatch(/^[a-f0-9]{40}$/);
-    expect(result.dirty).toEqual({ state: 'clean', entries: [] });
+    expect(result.dirty).toEqual({ state: 'unknown', entries: [] });
   },
 );
 it('reports unknown when separately anchored external Git metadata has omitted denied children', async () => {
@@ -399,10 +417,7 @@ it('keeps applicable instruction files complete when an unrelated denied sibling
     accessScope: { kind: 'roots', roots: [root] },
     captureReadExclusions: async () => Object.freeze([denied]),
   });
-  expect(result.dirty).toEqual({
-    state: 'dirty',
-    entries: [{ path: 'CLAUDE.md', index: '?', worktree: '?' }],
-  });
+  expect(result.dirty).toEqual({ state: 'unknown', entries: [] });
   expect(result.instructions.files.map((value) => value.content)).toEqual([
     'parent fixture instructions',
     'repository fixture instructions',

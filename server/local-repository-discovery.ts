@@ -98,6 +98,8 @@ export interface LocalRepositoryInspection {
     locked?: boolean;
     prunable?: boolean;
   }>;
+  /** Source-effective facts only. Unqualified omitted host comparison settings
+   * remain unknown; isolated private equality is not source cleanliness. */
   dirty: {
     state: 'clean' | 'dirty' | 'unknown';
     entries: Array<{ path: string; index: string; worktree: string; originalPath?: string }>;
@@ -546,8 +548,8 @@ export async function inspectLocalRepository(
   const diagnostics = ctx.diagnostics;
   const dirty: LocalRepositoryInspection['dirty'] = { state: 'unknown', entries: [] };
   try {
-    // A bounded authorized private snapshot is the only status input. Reserve
-    // time for instructions and current-source verification after heavy copies.
+    // The product status owner must qualify the effective source comparison
+    // context. The isolated snapshot alone cannot establish that qualification.
     if (ctx.deniedContent(path)) throw Error('Dirty inspection contains denied paths');
     await ctx.authorize(path);
     const entries = (

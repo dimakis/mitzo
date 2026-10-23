@@ -143,7 +143,7 @@ describe('private Local Mac repository read tools', () => {
     const inspected = value(
       await tools.execute('InspectLocalRepository', { path: second }, signal()),
     );
-    expect(inspected).toMatchObject({ path: second, dirty: { state: 'dirty' } });
+    expect(inspected).toMatchObject({ path: second, dirty: { state: 'unknown', entries: [] } });
     expect(
       inspected.instructions.files.some((file: { content: string }) =>
         file.content.includes('Repository instructions'),

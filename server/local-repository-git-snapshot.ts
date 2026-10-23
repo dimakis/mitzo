@@ -345,6 +345,10 @@ export async function readLocalRepositorySnapshotStatus(
     }
     const copyWorktree = async (source: string, destination: string) => {
       for (const name of await reader.list(source)) {
+        // Even a tracked attribute file can refer to a filter provided only by
+        // deliberately omitted global config. No local filter key proves its
+        // absence. Refuse comparison rather than execute or parse attributes.
+        if (name === '.gitattributes') throw failure('comparison-attributes-unsupported');
         if (name === '.git' && source === metadata.path) continue;
         if (name === '.git') throw failure('snapshot-nested-repository-unavailable');
         const path = join(source, name);

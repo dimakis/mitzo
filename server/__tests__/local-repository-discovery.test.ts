@@ -262,14 +262,14 @@ describe('read-only repository inspection', () => {
       path: selected,
       cwd: join(selected, 'src'),
       branch: 'main',
-      dirty: { state: 'dirty' },
+      dirty: { state: 'unknown', entries: [] },
     });
-    expect(result.dirty.entries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ path: 'source.txt', index: 'M', worktree: 'M' }),
-        expect.objectContaining({ path: 'untracked.txt', index: '?', worktree: '?' }),
-      ]),
-    );
+    expect(status).toContain('MM source.txt');
+    expect(status).toContain('?? untracked.txt');
+    expect(result.diagnostics).toContainEqual({
+      path: selected,
+      reason: 'comparison-context-unqualified',
+    });
     expect(result.instructions.files.map((file) => file.content)).toEqual([
       'parent instruction',
       'repository instruction',
@@ -383,10 +383,8 @@ describe('read-only repository inspection', () => {
     await writeFile(join(selected, 'source.txt'), 'modified\n');
     const result = await inspectLocalRepository({ path: selected, accessScope: scope() });
     expect(await readFile(marker, 'utf8').catch(() => null)).toBeNull();
-    expect(result.dirty).toMatchObject({
-      state: 'dirty',
-      entries: expect.arrayContaining([expect.objectContaining({ path: 'source.txt' })]),
-    });
+    expect(result.dirty).toEqual({ state: 'unknown', entries: [] });
+    expect(await readFile(join(selected, 'source.txt'), 'utf8')).toBe('modified\n');
   });
 
   it('rejects include configuration before Git can read its target', async () => {

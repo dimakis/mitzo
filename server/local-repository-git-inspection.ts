@@ -98,6 +98,7 @@ function comparisonBoolean(value: string | undefined): boolean {
 function comparisonConfig(
   common: readonly { key: string; value: string | undefined }[],
   worktree: readonly { key: string; value: string | undefined }[],
+  omittedAttributes: boolean,
 ): Readonly<LocalRepositoryComparisonConfig> {
   const result: { coreAutocrlf?: boolean | 'input'; coreFileMode?: boolean; unsupported?: true } =
     {};
@@ -117,10 +118,16 @@ function comparisonConfig(
     }
     if (effective.has('core.filemode'))
       result.coreFileMode = comparisonBoolean(effective.get('core.filemode'));
-    // External ignore data and regular-file representations of index symlinks
+    // Omitted attributes and executable conversions are not neutral: a clean
+    // filter may be non-idempotent. Never execute it or certify private-copy
+    // equality under different conversion rules. External ignore data and
+    // regular-file representations of index symlinks
     // cannot be silently dropped. Leave status unknown rather than read an
     // unapproved path or invent a broader comparison/configuration engine.
     if (
+      omittedAttributes ||
+      effective.has('core.attributesfile') ||
+      [...effective.keys()].some((key) => key.startsWith('filter.')) ||
       effective.has('core.excludesfile') ||
       (effective.has('core.symlinks') && !comparisonBoolean(effective.get('core.symlinks')))
     )
@@ -240,6 +247,7 @@ export async function inspectLocalRepositoryGitMetadata(
   const pending = [...new Set([gitDirectory, commonDirectory])];
   const visited = new Set<string>();
   let entries = 0;
+  let omittedAttributes = false;
   while (pending.length) {
     check();
     const directory = pending.pop()!;
@@ -259,6 +267,11 @@ export async function inspectLocalRepositoryGitMetadata(
         throw new LocalRepositoryGitInspectionError('limit', 'entries');
       if (entry.isSymbolicLink())
         throw new LocalRepositoryGitInspectionError('unsafe', 'symlinks-unavailable');
+      if (
+        entry.name === 'attributes' &&
+        [gitDirectory, commonDirectory].some((root) => directory === join(root, 'info'))
+      )
+        omittedAttributes = true;
       // These are never consumed by our read-only Git commands; submodules are ignored.
       if (entry.isDirectory() && !['hooks', 'logs', 'modules'].includes(entry.name))
         pending.push(join(directory, entry.name));
@@ -362,12 +375,27 @@ export async function inspectLocalRepositoryGitMetadata(
     comparisonConfig: comparisonConfig(
       parsedConfigs.get(join(commonDirectory, 'config')) ?? [],
       parsedConfigs.get(join(gitDirectory, 'config.worktree')) ?? [],
+      omittedAttributes,
     ),
   };
 }
 
-/** Product read-tools never give Git an original source path. */
+/** Omitted host/global config, attributes and environment are not qualified by
+ * repository-local metadata. Private equality cannot certify effective source
+ * cleanliness. Keep product inspection conservative until an existing actual
+ * owner can establish the complete comparison context. No caller flag grants it. */
 export async function readLocalRepositoryStatus(
+  metadata: LocalRepositoryGitMetadata,
+  options: { signal?: AbortSignal; timeoutMs: number; readAccess: LocalRepositoryReadAccess },
+): Promise<string> {
+  options.signal?.throwIfAborted();
+  await options.readAccess.assertPath(metadata.path);
+  throw new LocalRepositoryGitInspectionError('unsafe', 'comparison-context-unqualified');
+}
+
+/** Internal isolated comparison only. This does not report source-effective
+ * dirty/clean facts and is never exposed as a product tool or a grant. */
+export async function readIsolatedLocalRepositoryStatus(
   metadata: LocalRepositoryGitMetadata,
   options: { signal?: AbortSignal; timeoutMs: number; readAccess: LocalRepositoryReadAccess },
 ): Promise<string> {

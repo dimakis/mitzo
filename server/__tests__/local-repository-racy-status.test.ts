@@ -4,6 +4,11 @@ import { mkdtemp, readFile, realpath, rm, utimes, writeFile } from 'node:fs/prom
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspectLocalRepository as inspectRepository } from '../local-repository-discovery.js';
+import {
+  inspectLocalRepositoryGitMetadata,
+  readIsolatedLocalRepositoryStatus,
+} from '../local-repository-git-inspection.js';
+import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
 
 // Emulate Git builds/filesystems with coarse stat precision. The real Git process
 // still reads and hashes the fixture; no status output or index bytes are mocked.
@@ -70,21 +75,35 @@ it('detects same-size same-stat edits without changing source index or running f
   git('add', 'staged.txt');
   const indexBefore = await readFile(join(root, '.git', 'index'));
   const marker = join(root, 'filter-executed');
-  git('config', 'filter.danger.clean', `touch '${marker}'; cat`);
-  await writeFile(join(root, '.gitattributes'), 'source.txt filter=danger\n');
   await writeFile(source, 'modified\n');
   await utimes(source, timestamp, timestamp);
+  const access = new LocalRepositoryReadAccess({
+    deniedRoots: Object.freeze([]),
+    assertReadable: async () => {},
+    captureReadAnchor: fixtureReadAnchor,
+    deadline: Date.now() + 30000,
+  });
+  await access.pinRoot(root);
+  const metadata = await inspectLocalRepositoryGitMetadata({
+    path: root,
+    assertReadable: async () => {},
+    readAccess: access,
+    timeoutMs: 30000,
+  });
+  const comparison = await readIsolatedLocalRepositoryStatus(metadata, {
+    readAccess: access,
+    timeoutMs: 30000,
+  });
+  expect(comparison).toContain(' M source.txt\0');
+  expect(comparison).toContain('A  staged.txt\0');
+  // Product status stays unknown and must never run this source filter.
+  git('config', 'filter.danger.clean', `touch '${marker}'; cat`);
+  await writeFile(join(root, '.gitattributes'), 'source.txt filter=danger\n');
   const result = await inspectLocalRepository({
     path: root,
     accessScope: { kind: 'roots', roots: [root] },
   });
-  expect(result.dirty).toMatchObject({
-    state: 'dirty',
-    entries: expect.arrayContaining([
-      expect.objectContaining({ path: 'source.txt', worktree: 'M' }),
-      expect.objectContaining({ path: 'staged.txt', index: 'A' }),
-    ]),
-  });
+  expect(result.dirty).toEqual({ state: 'unknown', entries: [] });
   expect(await readFile(join(root, '.git', 'index'))).toEqual(indexBefore);
   expect(await readFile(source, 'utf8')).toBe('modified\n');
   expect(await readFile(marker, 'utf8').catch(() => null)).toBeNull();
