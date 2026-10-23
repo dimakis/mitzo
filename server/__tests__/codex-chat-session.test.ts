@@ -59,7 +59,8 @@ vi.mock('../local-server-url.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../local-server-url.js')>()),
   localServerUsesTls: () => mocks.useTls,
 }));
-vi.mock('../codex-conversation-store.js', () => ({
+vi.mock('../codex-conversation-store.js', async (original) => ({
+  ...(await original<typeof import('../codex-conversation-store.js')>()),
   CodexConversationStore: class {
     constructor() {
       mocks.store();
@@ -5208,3 +5209,57 @@ it('composes explicitly selected native artifacts and task MCP on the same owned
   }
   expect(taskClose).toHaveBeenCalledOnce();
 });
+
+it.runIf(process.platform === 'darwin').each([
+  { selected: true, authorized: true },
+  { selected: false, authorized: true },
+  { selected: true, authorized: false },
+  { selected: true, authorized: true, narrow: true },
+])(
+  'registers local repository reads only on the selected authorized owned native surface: %j',
+  async ({ selected, authorized, narrow }) => {
+    vi.clearAllMocks();
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
+    });
+    const names = ['DiscoverLocalRepository', 'InspectLocalRepository'];
+    const definition = {
+      name: 'Read tools fixture',
+      role: 'agent',
+      instructions: 'Only selected reads',
+      expectedOutput: 'Facts',
+      acceptanceCriteria: ['Current signed scope'],
+      modelPolicyRole: 'agent',
+      tools: [...['Bash', 'Read', 'Write', 'Edit'], ...(selected ? names : [])].map((name) => ({
+        id: `mitzo:${name}`,
+        version: 1,
+      })),
+    };
+    const profile = {
+      profileId: 'owned-agent',
+      revision: 1,
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+    };
+    const f = ownedLocalOptions('/tmp', profile);
+    if (authorized) f.opts.assertAgentContextAuthorization = vi.fn();
+    let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      chat = await openCodexChat({
+        ...f.opts,
+        ...(narrow ? { nativeExecutionReadRoots: ['/tmp'] } : {}),
+      });
+      const tools = mocks.conversationOptions!.tools as Array<{ name: string }>;
+      for (const name of names)
+        expect(tools.some((tool) => tool.name === name)).toBe(selected && authorized && !narrow);
+      expect(tools.some((tool) => tool.name === 'PrepareLocalRepository')).toBe(false);
+    } finally {
+      chat?.close();
+      f.eventStore.close();
+    }
+  },
+);

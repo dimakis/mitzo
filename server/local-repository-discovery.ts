@@ -35,6 +35,10 @@ export interface LocalRepositoryLimits {
   maxInstructionDirectories?: number;
 }
 interface ReadRequest {
+  /** Exact private original factory authority, retained without spread/serialization. */
+  nativeReader?: LocalRepositoryReadAuthority;
+  /** Genuine original outward owner; independent of the private reader lifetime. */
+  revalidateReadAccess?(): Promise<void>;
   /** Original qualified owner's transport, never a model field. Native owners
    * route every source operation through their existing enforced boundary. */
   executeReadOperation?: LocalRepositoryReadAuthority['executeReadOperation'];
@@ -191,9 +195,28 @@ async function context(request: ReadRequest) {
     maxTotalInstructionBytes: integer(request.limits?.maxTotalInstructionBytes, 262144, 1048576),
     maxInstructionDirectories: integer(request.limits?.maxInstructionDirectories, 32, 128),
   };
-  const deadline = Date.now() + limits.timeoutMs;
+  const readerDescriptor = Object.getOwnPropertyDescriptor(request, 'nativeReader');
+  if (
+    'nativeReader' in request &&
+    (!readerDescriptor || !('value' in readerDescriptor) || readerDescriptor.enumerable)
+  )
+    throw new LocalRepositoryGitInspectionError('access', 'original-native-reader-required');
+  const nativeReader: LocalRepositoryReadAuthority | undefined = readerDescriptor?.value;
+  const revalidateReadAccess = request.revalidateReadAccess;
+  if (
+    readerDescriptor &&
+    (!nativeReader ||
+      !Object.isFrozen(nativeReader) ||
+      typeof nativeReader.executeReadOperation !== 'function' ||
+      typeof nativeReader.executeDirectoryVerification !== 'function' ||
+      typeof nativeReader.revalidate !== 'function' ||
+      typeof revalidateReadAccess !== 'function')
+  )
+    throw new LocalRepositoryGitInspectionError('access', 'original-native-reader-required');
+  const deadline = Math.min(Date.now() + limits.timeoutMs, nativeReader?.deadline ?? Infinity);
   const check = () => {
     request.signal?.throwIfAborted();
+    nativeReader?.signal?.throwIfAborted();
     if (Date.now() >= deadline) throw new LocalRepositoryGitInspectionError('limit', 'timeout');
   };
   const assertReadAccess = request.assertReadAccess;
@@ -202,7 +225,9 @@ async function context(request: ReadRequest) {
   const authorize = async (path: string) => {
     check();
     try {
-      await assertReadAccess?.(path, request.signal);
+      const allowed: unknown = await assertReadAccess?.(path, request.signal);
+      if (allowed !== undefined)
+        throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
     } catch (error) {
       request.signal?.throwIfAborted();
       if (error instanceof LocalRepositoryGitInspectionError) throw error;
@@ -266,23 +291,40 @@ async function context(request: ReadRequest) {
     // owner captures/revalidates physical roots before any metadata or bytes.
     return path;
   };
-  const readAccess = new LocalRepositoryReadAccess({
-    deniedRoots: suppliedDenials,
-    assertReadable: async (path) => {
-      if (!isAbsolute(path) || !allowed(path))
-        throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
-      await authorize(path);
-    },
-    captureReadAnchor: async (path) => {
+  const ceiling = Object.freeze({
+    assertReadable: async (path: string) => {
       await canonical(path);
-      const anchor = await captureReadAnchor(path, request.signal);
-      await canonical(path);
-      return anchor;
+      check();
     },
-    executeReadOperation: request.executeReadOperation,
-    signal: request.signal,
-    deadline,
+    revalidate: async () => {
+      check();
+      if (request.revalidateReadAccess !== revalidateReadAccess)
+        throw new LocalRepositoryGitInspectionError('access', 'original-owner-required');
+      const checked: unknown = await revalidateReadAccess?.call(request);
+      if (checked !== undefined || request.revalidateReadAccess !== revalidateReadAccess)
+        throw new LocalRepositoryGitInspectionError('access', 'original-owner-required');
+      check();
+    },
   });
+  const readAccess = nativeReader
+    ? new LocalRepositoryReadAccess(nativeReader, ceiling)
+    : new LocalRepositoryReadAccess({
+        deniedRoots: suppliedDenials,
+        assertReadable: async (path) => {
+          if (!isAbsolute(path) || !allowed(path))
+            throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+          await authorize(path);
+        },
+        captureReadAnchor: async (path) => {
+          await canonical(path);
+          const anchor = await captureReadAnchor(path, request.signal);
+          await canonical(path);
+          return anchor;
+        },
+        executeReadOperation: request.executeReadOperation,
+        signal: request.signal,
+        deadline,
+      });
   for (const root of [...roots]) {
     try {
       await readAccess.pinRoot(root);
