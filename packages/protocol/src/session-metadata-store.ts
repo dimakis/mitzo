@@ -468,14 +468,12 @@ export class SessionMetadataStore {
       updated_at: number;
     }>;
     return {
-      sessions: rows
-        .slice(0, limit)
-        .map((row) => ({
-          sessionId: row.session_id,
-          summary: row.summary,
-          summaryTruncated: row.summary_truncated === 1,
-          updatedAt: row.updated_at,
-        })),
+      sessions: rows.slice(0, limit).map((row) => ({
+        sessionId: row.session_id,
+        summary: row.summary,
+        summaryTruncated: row.summary_truncated === 1,
+        updatedAt: row.updated_at,
+      })),
       hasMore: rows.length > limit,
     };
   }
