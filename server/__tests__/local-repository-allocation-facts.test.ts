@@ -3,10 +3,11 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { captureLocalRepositoryAllocationFacts } from '../local-repository-allocation-facts.js';
 import { fixtureReadAnchor } from './fixtures/local-repository-read-owner.js';
 import type { LocalRepositoryReadAuthority } from '../local-repository-read-access.js';
+import { executeNativeAnchoredReadOperation } from '../native-file-operation.js';
 
 vi.setConfig({ testTimeout: 30000 });
 let root: string, source: string, taskRoot: string, id: string;
@@ -63,6 +64,103 @@ function owner(deniedRoots: readonly string[] = []) {
 }
 const input = () => ({ workspaceId: id, sourcePath: source, taskRoot });
 const task = () => join(taskRoot, `repo-${id}`);
+it('captures initial listings only for the two already-pinned roots through the current batch port', async () => {
+  const authority: LocalRepositoryReadAuthority = owner();
+  const batches: string[][] = [];
+  authority.executeDirectoryVerification = async (requests, signal, timeout) => {
+    batches.push(requests.map((request) => request.file_path));
+    return Promise.all(
+      requests.map((request) => executeNativeAnchoredReadOperation(request, signal, timeout)),
+    );
+  };
+  await captureLocalRepositoryAllocationFacts(authority, input());
+  expect(batches[0]).toEqual([source, taskRoot]);
+});
+it('qualifies independent destination absence while original source metadata is inspected', async () => {
+  const authority: LocalRepositoryReadAuthority = owner();
+  const order: string[] = [];
+  authority.captureReadAnchor = async (path) => {
+    if (path === task()) order.push('task');
+    return fixtureReadAnchor(path);
+  };
+  authority.executeReadOperation = async (...args) => {
+    if (args[0].operation === 'ReadBytes' && args[0].file_path === join(source, '.git', 'config'))
+      order.push('config');
+    return executeNativeAnchoredReadOperation(...args);
+  };
+  await captureLocalRepositoryAllocationFacts(authority, input());
+  expect(order).toContain('task');
+  expect(order).toContain('config');
+  expect(order.indexOf('task')).toBeLessThan(order.indexOf('config'));
+});
+it.each([false, true])(
+  'joins bounded independent first-missing allocation probes (failure=%s)',
+  async (failure) => {
+    const authority = owner();
+    const original = authority.captureReadAnchor.getMockImplementation()!;
+    let active = 0,
+      maximum = 0;
+    const finished: string[] = [];
+    const probes = new Set([
+      task(),
+      join(source, '.git', 'worktrees'),
+      join(source, '.git', 'logs', 'refs', 'heads', 'mitzo'),
+    ]);
+    authority.captureReadAnchor.mockImplementation(async (path) => {
+      if (!probes.has(path)) return original(path);
+      maximum = Math.max(maximum, ++active);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        if (failure && path === join(source, '.git', 'worktrees'))
+          throw Error('Fixture missing-probe owner revoked');
+        return await original(path);
+      } finally {
+        active--;
+        finished.push(path);
+      }
+    });
+    if (failure)
+      await expect(captureLocalRepositoryAllocationFacts(authority, input())).rejects.toThrow();
+    else await captureLocalRepositoryAllocationFacts(authority, input());
+    expect(maximum).toBe(2);
+    expect(active).toBe(0);
+    expect(finished).toEqual(expect.arrayContaining([...probes]));
+  },
+);
+it.for(['task', 'admin-parent', 'admin-target', 'ref-lock', 'log-lock'] as const)(
+  'refuses physically equivalent allocation absence for %s',
+  async (kind, context) => {
+    const path =
+      kind === 'task'
+        ? task()
+        : kind === 'admin-parent'
+          ? join(source, '.git', 'worktrees')
+          : kind === 'admin-target'
+            ? join(source, '.git', 'worktrees', `repo-${id}`)
+            : join(
+                source,
+                '.git',
+                ...(kind === 'log-lock' ? ['logs'] : []),
+                'refs',
+                'heads',
+                'mitzo',
+                `repo-${id}.lock`,
+              );
+    const foreign = join(dirname(path), path.slice(dirname(path).length + 1).toUpperCase());
+    await mkdir(dirname(foreign), { recursive: true });
+    if (kind === 'ref-lock' || kind === 'log-lock') await writeFile(foreign, 'FOREIGN BYTES');
+    else await mkdir(foreign);
+    const before = await lstat(foreign);
+    const alias = await lstat(path).catch(() => undefined);
+    if (!alias || alias.ino !== before.ino || alias.dev !== before.dev) {
+      context.skip();
+      return;
+    }
+    await expect(captureLocalRepositoryAllocationFacts(owner(), input())).rejects.toThrow();
+    expect((await lstat(foreign)).ino).toBe(before.ino);
+    if (before.isFile()) expect(await readFile(foreign, 'utf8')).toBe('FOREIGN BYTES');
+  },
+);
 it.each([false, true])(
   'captures two independent original anchors concurrently and joins them on refusal (failure=%s)',
   async (failure) => {

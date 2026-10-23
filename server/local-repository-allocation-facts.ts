@@ -66,14 +66,25 @@ export async function captureLocalRepositoryAllocationFacts(
       if (result.status !== 'fulfilled') throw unavailable();
       return result.value;
     });
-    const metadata = await inspectLocalRepositoryGitMetadata({
-      path: sourcePath,
-      mode: 'references',
-      readAccess: access,
-      assertReadable: (path) => access.assertPath(path),
-      signal: authority.signal,
-      timeoutMs: Math.max(1, Math.min(30000, authority.deadline - Date.now())),
-    });
+    await access.listPinnedRoots([sourcePath, taskRoot]);
+    const destination = join(taskRoot, `repo-${workspaceId}`);
+    // These disjoint source/task operations share the same original owner and
+    // deadline. Join both on refusal; neither can publish facts independently.
+    const initial = await Promise.allSettled([
+      inspectLocalRepositoryGitMetadata({
+        path: sourcePath,
+        mode: 'preparation',
+        readAccess: access,
+        assertReadable: (path) => access.assertPath(path),
+        signal: authority.signal,
+        timeoutMs: Math.max(1, Math.min(30000, authority.deadline - Date.now())),
+      }),
+      access.assertAbsent(destination),
+    ]);
+    for (const result of initial) if (result.status === 'rejected') throw result.reason;
+    const inspected = initial[0];
+    if (inspected.status !== 'fulfilled') throw unavailable();
+    const metadata = inspected.value;
     // Separate administrative roots may live outside the selected worktree.
     // A new task must not be nested inside any original source storage.
     if (contains(metadata.commonDirectory, taskRoot) || contains(metadata.gitDirectory, taskRoot))
@@ -97,6 +108,7 @@ export async function captureLocalRepositoryAllocationFacts(
       [metadata.commonDirectory, commonAnchor.identity],
     ]);
     const created = new Set<string>();
+    const physicalAbsences = new Set<string>();
     const directory = async (
       path: string,
       rootAnchor: LocalRepositoryReadAnchor,
@@ -111,6 +123,7 @@ export async function captureLocalRepositoryAllocationFacts(
         if (mustBeAbsent || existing.kind !== 'directory') throw unavailable();
         known.set(path, existing.identity);
       } else {
+        physicalAbsences.add(path);
         if (directories.length >= 9) throw unavailable();
         directories.push({
           directory: path,
@@ -122,7 +135,6 @@ export async function captureLocalRepositoryAllocationFacts(
         created.add(path);
       }
     };
-    const destination = join(taskRoot, `repo-${workspaceId}`);
     await directory(destination, taskAnchor, true);
     const common = metadata.commonDirectory;
     for (const parts of [
@@ -146,9 +158,29 @@ export async function captureLocalRepositoryAllocationFacts(
     ];
     for (const path of absentPaths) {
       await access.assertPath(path);
-      if (path === destination) continue;
-      if (!created.has(dirname(path)) && (await access.stat(path))) throw unavailable();
+      physicalAbsences.add(path);
     }
+    // Only the first missing parent needs a physical lookup. Its descendants
+    // are separately authorized above and remain bound to that retained parent
+    // listing. Independent probes use bounded pairs and join on every failure.
+    const missing = [...physicalAbsences].filter(
+      (path) => ![...physicalAbsences].some((parent) => parent !== path && contains(parent, path)),
+    );
+    let next = 0;
+    let refused = false;
+    const probe = async () => {
+      while (!refused && next < missing.length) {
+        const path = missing[next++];
+        try {
+          await access.assertAbsent(path);
+        } catch (error) {
+          refused = true;
+          throw error;
+        }
+      }
+    };
+    const probes = await Promise.allSettled([probe(), probe()]);
+    for (const result of probes) if (result.status === 'rejected') throw result.reason;
     const facts = freezePendingHostTaskData({
       version: 1 as const,
       workspaceId,

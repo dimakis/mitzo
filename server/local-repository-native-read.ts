@@ -2,7 +2,11 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { NativeBaseReadScope } from './codex-conversation.js';
-import type { NativeHostToolContext } from './native-host-tool-context.js';
+import {
+  captureNativeHostReadOwner,
+  assertNativeHostReadCurrentSync,
+  type NativeHostToolContext,
+} from './native-host-tool-context.js';
 import type { PreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
 import type { LocalRepositoryReadAuthority } from './local-repository-read-access.js';
 import { AuthoritySnapshot } from './sandbox-authority.js';
@@ -37,16 +41,16 @@ export async function captureNativeLocalRepositoryReader(
   context: NativeHostToolContext,
   options: { deadline: number },
 ): Promise<LocalRepositoryReadAuthority & { dispose(): Promise<void> }> {
-  const scope: NativeBaseReadScope | undefined = context.nativeBaseReadScope;
+  const owner = captureNativeHostReadOwner(context);
+  const scope: NativeBaseReadScope | undefined = owner?.scope ?? context.nativeBaseReadScope;
   return captureReader(
     scope,
-    context.signal,
+    owner?.signal ?? context.signal,
     () => {
-      context.assertCurrentSync();
-      if (!scope) throw unavailable();
-      scope.assertCurrentSync();
+      if (owner) owner.assertCurrentSync();
+      else assertNativeHostReadCurrentSync(context, scope);
     },
-    () => context.assertCurrent(),
+    () => (owner ? owner.assertCurrent() : context.assertCurrent()),
     options,
   );
 }

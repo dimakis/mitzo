@@ -78,6 +78,79 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
+it('retains the original combined read owner and refuses borrowed context or scope', async () => {
+  let checked = false;
+  let failure: unknown;
+  const execute = vi.spyOn(sandboxedCommand, 'executeSandboxedCommand');
+  const f = await fixture({
+    nativeBaseReads: true,
+    hostWideNativeReads: true,
+    observe: async (context) => {
+      try {
+        const descriptor = Object.getOwnPropertyDescriptor(context, 'captureNativeReadOwner');
+        expect(descriptor).toMatchObject({
+          enumerable: false,
+          writable: false,
+          configurable: false,
+        });
+        expect(typeof descriptor?.value).toBe('function');
+        const capture = descriptor!.value;
+        expect(Object.isFrozen(capture)).toBe(true);
+        const scope = context.nativeBaseReadScope!;
+        const owner = Reflect.apply(capture, context, [scope]);
+        if (
+          !owner ||
+          typeof owner !== 'object' ||
+          !('context' in owner) ||
+          !('scope' in owner) ||
+          !('signal' in owner) ||
+          !('assertCurrentSync' in owner) ||
+          typeof owner.assertCurrentSync !== 'function' ||
+          !('assertCurrent' in owner) ||
+          typeof owner.assertCurrent !== 'function'
+        )
+          throw Error('Fixture combined owner unavailable');
+        expect(Object.isFrozen(owner)).toBe(true);
+        expect(JSON.stringify(owner)).toBe('{}');
+        expect(owner.context).toBe(context);
+        expect(owner.scope).toBe(scope);
+        expect(owner.signal).toBe(context.signal);
+        expect(Object.isFrozen(owner.assertCurrentSync)).toBe(true);
+        expect(Object.isFrozen(owner.assertCurrent)).toBe(true);
+        owner.assertCurrentSync();
+        await owner.assertCurrent();
+        const originalDirectory = context.session.cwd;
+        try {
+          context.session.cwd = originalDirectory + '-drift';
+          expect(owner.assertCurrentSync.bind(owner)).toThrow();
+          await expect(owner.assertCurrent()).rejects.toThrow();
+        } finally {
+          context.session.cwd = originalDirectory;
+        }
+        expect(() => Reflect.apply(capture, context, [{ ...scope }])).toThrow();
+        expect(() => Reflect.apply(capture, { ...context }, [scope])).toThrow();
+        const descriptors = Object.getOwnPropertyDescriptors(context);
+        descriptors.captureNativeReadOwner = {
+          ...descriptor,
+          value: Object.freeze(capture.bind(context)),
+        };
+        const borrowed = Object.freeze(Object.create(Object.getPrototypeOf(context), descriptors));
+        await expect(
+          captureNativeLocalRepositoryReader(borrowed, { deadline: Date.now() + 30000 }),
+        ).rejects.toThrow();
+        expect(execute).not.toHaveBeenCalled();
+        checked = true;
+      } catch (error) {
+        failure = error;
+      }
+    },
+  });
+  const result = await f.a.call({ operation: 'list' });
+  if (failure) throw failure;
+  expect(result.response.success).toBe(true);
+  expect(checked).toBe(true);
+});
+
 it.runIf(process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION === '1')(
   'qualifies two unrelated unenrolled preparation sources through the actual original native reader with fresh revalidation',
   async () => {

@@ -7,6 +7,7 @@ import {
   readFile,
   readdir,
   realpath,
+  rename,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -56,9 +57,12 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
-async function fixture(deniedRoots: readonly string[] = []) {
+async function fixture(
+  deniedRoots: readonly string[] = [],
+  mode: 'references' | 'preparation' = 'references',
+) {
   const bytes: string[] = [];
-  const assertReadable = vi.fn(async () => {});
+  const assertReadable = vi.fn<(path: string) => Promise<void>>(async () => {});
   const access = new LocalRepositoryReadAccess({
     deniedRoots,
     assertReadable,
@@ -72,7 +76,7 @@ async function fixture(deniedRoots: readonly string[] = []) {
   await access.pinRoot(source);
   const metadata = await inspectLocalRepositoryGitMetadata({
     path: source,
-    mode: 'references',
+    mode,
     readAccess: access,
     assertReadable: (path) => access.assertPath(path),
     timeoutMs: 30000,
@@ -80,6 +84,64 @@ async function fixture(deniedRoots: readonly string[] = []) {
   const options = { readAccess: access, timeoutMs: 30000 };
   return { access, metadata, options, bytes, assertReadable };
 }
+it('marks preparation inspection without visiting unrelated loose-ref subtrees', async () => {
+  git('branch', 'unrelated/topic');
+  const unrelated = join(source, '.git', 'refs', 'heads', 'unrelated');
+  const f = await fixture([unrelated], 'preparation');
+  expect(f.metadata.referenceCoverage).toBe('preparation-head-and-namespace-v1');
+  const facts = await readLocalRepositoryPreparationReferences(
+    f.metadata,
+    f.options,
+    'refs/heads/mitzo/task',
+  );
+  await f.access.verify();
+  expect(facts.head).toBe(git('rev-parse', 'HEAD'));
+  expect(facts.conflict).toBe(false);
+  expect(f.assertReadable.mock.calls.some(([path]) => path.startsWith(unrelated))).toBe(false);
+  f.assertReadable.mockClear();
+  await expect(readLocalRepositoryGitFacts(f.metadata, f.options)).rejects.toThrow();
+  expect(f.assertReadable).not.toHaveBeenCalled();
+});
+it('rechecks current target authority for cached physical absence and verifies its original parent', async () => {
+  const f = await fixture([], 'preparation');
+  const missing = join(source, '.git', 'refs', 'heads', 'missing');
+  await f.access.assertAbsent(missing);
+  f.assertReadable.mockImplementation(async (path) => {
+    if (path === join(missing, 'child')) throw Error('Fixture target revoked');
+  });
+  await expect(f.access.assertAbsent(join(missing, 'child'))).rejects.toThrow();
+  f.assertReadable.mockImplementation(async () => {});
+  await mkdir(missing);
+  await expect(f.access.verify()).rejects.toThrow();
+});
+it('refuses lexical packed-ref absence when a physical case alias exists', async (context) => {
+  const actual = join(source, '.git', 'PACKED-REFS');
+  await writeFile(actual, `${git('rev-parse', 'HEAD')} refs/heads/mitzo/task\n`);
+  const equivalent = await lstat(join(source, '.git', 'packed-refs')).catch(() => undefined);
+  if (!equivalent || equivalent.ino !== (await lstat(actual)).ino) {
+    context.skip();
+    return;
+  }
+  const f = await fixture();
+  await expect(
+    readLocalRepositoryPreparationReferences(f.metadata, f.options, 'refs/heads/mitzo/task'),
+  ).rejects.toThrow();
+});
+it.for(['commondir', 'config', 'config.worktree'] as const)(
+  'refuses lexical optional metadata absence for physical %s alias',
+  async (name, context) => {
+    const actual = join(source, '.git', name.toUpperCase());
+    if (name === 'config') await rename(join(source, '.git', name), actual);
+    else
+      await writeFile(actual, name === 'commondir' ? 'missing-storage\n' : '[core]\n bare=true\n');
+    const equivalent = await lstat(join(source, '.git', name)).catch(() => undefined);
+    if (!equivalent || equivalent.ino !== (await lstat(actual)).ino) {
+      context.skip();
+      return;
+    }
+    await expect(fixture([], 'preparation')).rejects.toThrow();
+  },
+);
 it('resolves actual nondefault symbolic HEAD through a packed target without reading 25 unrelated loose OIDs', async () => {
   git('branch', 'origin/β');
   git('pack-refs', '--all', '--prune');
@@ -230,6 +292,22 @@ it('rejects the explicit partial view before every arbitrary-ref/object/status c
     ...f.metadata,
     referenceCoverage: 'preparation-head-and-namespace-v1' as const,
   };
+  f.assertReadable.mockClear();
+  for (const action of [
+    () => readLocalRepositoryGitFacts(partial, f.options),
+    () => hasLocalRepositoryReferenceConflict(partial, f.options, 'refs/heads/mitzo/task'),
+    () => readLocalRepositoryWorktrees(partial, f.options),
+    () => readLocalRepositorySnapshotStatus(partial, f.options),
+    () => readLocalRepositoryStatus(partial, f.options),
+  ])
+    await expect(action()).rejects.toThrow();
+  expect(f.assertReadable).not.toHaveBeenCalled();
+});
+it('refuses preparation qualification without its optional marker before generic ALL lookup', async () => {
+  const f = await fixture([], 'preparation');
+  const partial = { ...f.metadata };
+  delete partial.referenceCoverage;
+  expect(partial.qualification).toBe('preparation');
   f.assertReadable.mockClear();
   for (const action of [
     () => readLocalRepositoryGitFacts(partial, f.options),

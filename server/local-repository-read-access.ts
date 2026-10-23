@@ -40,8 +40,8 @@ export interface LocalRepositoryReadAuthority {
     signal: AbortSignal,
     timeoutMs: number,
   ): ReturnType<typeof executeNativeAnchoredReadOperation>;
-  /** Actual native owner supplies the SAME enforced helper for complete
-   * directory-only verification. Explicit fixture owners retain bounded pairs. */
+  /** Actual native owner supplies the SAME enforced directory-only helper for
+   * original pinned-root listings and verification. Fixtures retain bounded pairs. */
   executeDirectoryVerification?(
     requests: readonly NativeAnchoredReadRequest[],
     signal: AbortSignal,
@@ -49,6 +49,12 @@ export interface LocalRepositoryReadAuthority {
   ): Promise<readonly { content: string; is_error: boolean }[]>;
   signal?: AbortSignal;
   deadline: number;
+}
+/** Additional operation-specific restriction. This never replaces the actual
+ * owner's authority, transport or final physical-owner revalidation. */
+export interface LocalRepositoryReadCeiling {
+  assertReadable(path: string): Promise<void>;
+  revalidate(): Promise<void>;
 }
 const contains = (path: string, root: string) => {
   const value = relative(root, path);
@@ -84,6 +90,7 @@ export class LocalRepositoryReadAccess {
   private readonly entries = new Map<string, LocalRepositoryReadEntry>();
   private readonly consumed = new Map<string, LocalRepositoryReadEntry>();
   private readonly capturedBytes = new Map<string, Buffer>();
+  private readonly absentPaths = new Set<string>();
   private readonly deniedRoots: readonly string[];
   private readonly excludedDirectories = new Set<string>();
   hasExclusionsWithin(path?: string) {
@@ -91,7 +98,34 @@ export class LocalRepositoryReadAccess {
   }
   private totalBytes = 0;
   private totalEntries = 0;
-  constructor(private readonly authority: LocalRepositoryReadAuthority) {
+  private readonly ceiling?: Readonly<{
+    owner: LocalRepositoryReadCeiling;
+    assertReadable: LocalRepositoryReadCeiling['assertReadable'];
+    revalidate: LocalRepositoryReadCeiling['revalidate'];
+  }>;
+  constructor(
+    private readonly authority: LocalRepositoryReadAuthority,
+    ceiling?: LocalRepositoryReadCeiling,
+  ) {
+    if (ceiling !== undefined) {
+      if (!ceiling || typeof ceiling !== 'object' || Array.isArray(ceiling)) throw unavailable();
+      const readable = Object.getOwnPropertyDescriptor(ceiling, 'assertReadable');
+      const revalidate = Object.getOwnPropertyDescriptor(ceiling, 'revalidate');
+      if (
+        !readable ||
+        !('value' in readable) ||
+        typeof readable.value !== 'function' ||
+        !revalidate ||
+        !('value' in revalidate) ||
+        typeof revalidate.value !== 'function'
+      )
+        throw unavailable();
+      this.ceiling = Object.freeze({
+        owner: ceiling,
+        assertReadable: readable.value,
+        revalidate: revalidate.value,
+      });
+    }
     this.deniedRoots = freezeNativeReadExclusions(authority.deniedRoots);
   }
   private check() {
@@ -107,12 +141,23 @@ export class LocalRepositoryReadAccess {
     if (this.deniedRoots.some((root) => contains(path, root)))
       throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
     try {
+      await this.assertCeiling(path);
       await this.authority.assertReadable(path);
+      this.check();
+      await this.assertCeiling(path);
     } catch (error) {
       this.authority.signal?.throwIfAborted();
       if (error instanceof LocalRepositoryGitInspectionError) throw error;
       throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
     }
+    this.check();
+  }
+  private async assertCeiling(path: string) {
+    if (
+      this.ceiling &&
+      (await this.ceiling.assertReadable.call(this.ceiling.owner, path)) !== undefined
+    )
+      throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
     this.check();
   }
   private anchor(path: string) {
@@ -186,6 +231,59 @@ export class LocalRepositoryReadAccess {
     if (parent !== anchor.rootPath && !(await this.stat(parent))) return undefined;
     const values = await this.list(parent);
     return values.find((entry) => join(parent, entry.name) === path);
+  }
+  /** Original physical absence only, never a grant or freshness claim. A
+   * directory listing's lexical omission is insufficient on aliasing volumes.
+   * Descendants of one physically missing parent need no additional lookup;
+   * final verify still reconciles the retained parent listing before exposure. */
+  async assertAbsent(path: string): Promise<void> {
+    await this.authorize(path);
+    this.anchor(path);
+    if ([...this.absentPaths].some((parent) => contains(path, parent))) return;
+    if (await this.stat(path)) throw unavailable();
+    if (!(await this.stat(dirname(path)))) {
+      await this.assertAbsent(dirname(path));
+      return;
+    }
+    if (this.absentPaths.size >= 256)
+      throw new LocalRepositoryGitInspectionError('limit', 'read-absences');
+    try {
+      await this.pinRoot(path);
+    } catch (error) {
+      if (!(error instanceof NativeReadAnchorMissingError)) throw unavailable();
+      this.absentPaths.add(path);
+      return;
+    }
+    throw unavailable();
+  }
+  /** Initial metadata for exactly two already-pinned roots. The native owner
+   * supplies the SAME directory-only transport; no new root is inferred here.
+   * Retain original maps for final verification and never overwrite a witness. */
+  async listPinnedRoots(paths: readonly string[]): Promise<void> {
+    if (!Array.isArray(paths) || paths.length !== 2) throw unavailable();
+    const roots = Object.freeze([paths[0], paths[1]]);
+    if (
+      new Set(roots).size !== 2 ||
+      roots.some((path) => !this.anchors.has(path) || this.directories.has(path))
+    )
+      throw unavailable();
+    const batch = this.authority.executeDirectoryVerification;
+    if (!batch) {
+      const results = await Promise.allSettled(roots.map((path) => this.list(path)));
+      for (const result of results) if (result.status === 'rejected') throw result.reason;
+      return;
+    }
+    const requests: NativeAnchoredReadRequest[] = [];
+    for (const path of roots) requests.push(await this.directoryRequest(path));
+    const results = await batch.call(
+      this.authority,
+      requests,
+      this.authority.signal ?? new AbortController().signal,
+      Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+    );
+    if (!Array.isArray(results) || results.length !== requests.length) throw unavailable();
+    for (let index = 0; index < requests.length; index++)
+      await this.directoryEntries(roots[index], requests[index].identity, results[index], false);
   }
   private async directoryRequest(path: string): Promise<NativeAnchoredReadRequest> {
     await this.authorize(path);
@@ -471,5 +569,15 @@ export class LocalRepositoryReadAccess {
     }
     await this.authority.revalidate?.();
     this.check();
+    if (this.ceiling) {
+      try {
+        if ((await this.ceiling.revalidate.call(this.ceiling.owner)) !== undefined)
+          throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+      } catch {
+        this.authority.signal?.throwIfAborted();
+        throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+      }
+      this.check();
+    }
   }
 }

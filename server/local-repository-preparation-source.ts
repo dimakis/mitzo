@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
-import type { NativeHostToolContext } from './native-host-tool-context.js';
+import {
+  captureNativeHostReadOwner,
+  assertNativeHostReadCurrentSync,
+  type NativeHostToolContext,
+} from './native-host-tool-context.js';
 import type { QualifiedLocalRepositoryPreparationSource } from './local-repository-preparation-authorization.js';
 import { captureNativeLocalRepositoryReader } from './local-repository-native-read.js';
 import { captureLocalRepositoryAllocationFacts } from './local-repository-allocation-facts.js';
@@ -59,7 +63,9 @@ export async function captureNativeLocalRepositoryPreparationSource(
   context: NativeHostToolContext,
   input: { workspaceId: string; sourcePath: string; taskRoot: string },
 ): Promise<NativeQualifiedLocalRepositoryPreparationSource> {
-  const scope = context.nativeBaseReadScope;
+  const owner = captureNativeHostReadOwner(context);
+  const scope = owner?.scope ?? context.nativeBaseReadScope;
+  const revalidate = () => (owner ? owner.assertCurrent() : context.assertCurrent());
   const intent = Object.freeze({
     workspaceId: input.workspaceId,
     sourcePath: input.sourcePath,
@@ -67,9 +73,9 @@ export async function captureNativeLocalRepositoryPreparationSource(
   });
   const current = () => {
     context.signal.throwIfAborted();
-    context.assertCurrentSync();
     if (!scope || context.nativeBaseReadScope !== scope) throw unavailable();
-    scope.assertCurrentSync();
+    if (owner) owner.assertCurrentSync();
+    else assertNativeHostReadCurrentSync(context, scope);
   };
   const read = async <T>(
     action: (reader: Awaited<ReturnType<typeof captureNativeLocalRepositoryReader>>) => Promise<T>,
@@ -89,7 +95,7 @@ export async function captureNativeLocalRepositoryPreparationSource(
       await reader.dispose();
       // Cleanup is an await too: only the still-current original owner may
       // receive facts, independently of the now-disposed read operation.
-      await context.assertCurrent();
+      await revalidate();
       current();
     }
   };
@@ -108,7 +114,7 @@ export async function captureNativeLocalRepositoryPreparationSource(
       const sourceAnchor = await access.pinRoot(intent.sourcePath);
       const metadata = await inspectLocalRepositoryGitMetadata({
         path: intent.sourcePath,
-        mode: 'references',
+        mode: 'preparation',
         readAccess: access,
         assertReadable: (path) => access.assertPath(path),
         signal: reader.signal,
@@ -146,7 +152,7 @@ export async function captureNativeLocalRepositoryPreparationSource(
     assertCurrentSync: current,
     async assertCurrent() {
       current();
-      await context.assertCurrent();
+      await revalidate();
       current();
       await baseCurrent();
       current();
