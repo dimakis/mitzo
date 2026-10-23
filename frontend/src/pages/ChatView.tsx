@@ -1803,7 +1803,7 @@ export function ChatView() {
                             }).reason
                         : undefined
                 }
-                savedChatDraft={launch ? undefined : savedChatDraft}
+                savedChatDraft={launch || savedLaunch ? undefined : savedChatDraft}
                 composerGeneration={chatDraftRevision}
                 key={
                   repositoryHandoff.present
