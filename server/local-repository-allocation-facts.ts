@@ -5,10 +5,7 @@ import {
   inspectLocalRepositoryGitMetadata,
   isLocalRepositoryCredentialPath,
 } from './local-repository-git-inspection.js';
-import {
-  hasLocalRepositoryReferenceConflict,
-  readLocalRepositoryGitFacts,
-} from './local-repository-git-snapshot.js';
+import { readLocalRepositoryPreparationReferences } from './local-repository-git-snapshot.js';
 import {
   LocalRepositoryReadAccess,
   type LocalRepositoryReadAnchor,
@@ -57,13 +54,25 @@ export async function captureLocalRepositoryAllocationFacts(
     if (!validPath(sourcePath) || !validPath(taskRoot) || contains(sourcePath, taskRoot))
       throw unavailable();
     const access = new LocalRepositoryReadAccess(authority); // Retain, never spread the owner.
-    const sourceAnchor = await access.pinRoot(sourcePath);
-    const taskAnchor = await access.pinRoot(taskRoot);
+    // Independent original roots use the same current owner and existing
+    // transport. Join BOTH operations on refusal before disposal/publication.
+    const anchors = await Promise.allSettled([
+      access.pinRoot(sourcePath),
+      access.pinRoot(taskRoot),
+    ]);
+    const rejected = anchors.find((result) => result.status === 'rejected');
+    if (rejected?.status === 'rejected') throw rejected.reason;
+    const [sourceAnchor, taskAnchor] = anchors.map((result) => {
+      if (result.status !== 'fulfilled') throw unavailable();
+      return result.value;
+    });
     const metadata = await inspectLocalRepositoryGitMetadata({
       path: sourcePath,
+      mode: 'references',
       readAccess: access,
       assertReadable: (path) => access.assertPath(path),
       signal: authority.signal,
+      timeoutMs: Math.max(1, Math.min(30000, authority.deadline - Date.now())),
     });
     // Separate administrative roots may live outside the selected worktree.
     // A new task must not be nested inside any original source storage.
@@ -75,13 +84,13 @@ export async function captureLocalRepositoryAllocationFacts(
       signal: authority.signal,
       timeoutMs: Math.max(1, authority.deadline - Date.now()),
     };
-    const { branch, head } = await readLocalRepositoryGitFacts(metadata, options);
-    if (!head) throw unavailable();
     const featureBranch = `mitzo/repo-${workspaceId}`;
     const reference = `refs/heads/${featureBranch}`;
+    const { branch, head, conflict, referenceCoverage } =
+      await readLocalRepositoryPreparationReferences(metadata, options, reference);
+    if (!head) throw unavailable();
     await access.assertPath(join(metadata.commonDirectory, reference));
-    if (await hasLocalRepositoryReferenceConflict(metadata, options, reference))
-      throw unavailable();
+    if (conflict) throw unavailable();
     const directories: DirectoryStep[] = [];
     const known = new Map<string, NativeReadIdentity>([
       [taskRoot, taskAnchor.identity],
@@ -146,7 +155,7 @@ export async function captureLocalRepositoryAllocationFacts(
       baseOid: head,
       baseBranch: branch ?? head,
       featureBranch,
-      source: { ...metadata, sourceAnchor, commonAnchor },
+      source: { ...metadata, referenceCoverage, sourceAnchor, commonAnchor },
       taskRoot: taskAnchor,
       directories,
       absentPaths,

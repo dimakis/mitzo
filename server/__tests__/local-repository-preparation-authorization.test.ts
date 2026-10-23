@@ -104,6 +104,7 @@ it('retains actual permission evidence before outward allow and finalizes only t
               commonRoot: identity(join(source, '.git')),
             },
             anchorsSha256: originalWitness,
+            referenceCoverage: 'preparation-head-and-namespace-v1',
             assertCurrentSync() {
               expect(witness()).toBe(originalWitness);
             },
@@ -117,6 +118,11 @@ it('retains actual permission evidence before outward allow and finalizes only t
     );
     originalWorkspaceInScope = { actual: held.scope.oldWorkspace, expected: context.workspace };
     expect(held.scope.oldWorkspace).toEqual(context.workspace);
+    const { referenceCoverage, ...historicalScope } = held.scope;
+    expect(referenceCoverage).toBe('preparation-head-and-namespace-v1');
+    expect(pendingHostTaskDecisionHash(historicalScope)).not.toBe(
+      pendingHostTaskDecisionHash(held.scope),
+    );
     const sourceFiles = ['.git/HEAD', '.git/index', 'task.txt'].map((name) => join(source, name));
     const sourceBytes = sourceFiles.map((path) => readFileSync(path));
     const allocationPaths = [
@@ -139,6 +145,9 @@ it('retains actual permission evidence before outward allow and finalizes only t
     expect(saved.pendingHostTaskDecision.evidence.permId).toBe(f.permissions[0].permId);
     expect(saved.pendingHostTaskDecision.request.nativeTarget).toEqual(context.nativeTarget);
     expect(saved.pendingHostTaskDecision.scope.oldWorkspace).toEqual(context.workspace);
+    expect(saved.pendingHostTaskDecision.scope.referenceCoverage).toBe(
+      held.scope.referenceCoverage,
+    );
     assertEffectsUnchanged();
     return { id: observedId, state: finalized.state };
   });
@@ -186,10 +195,12 @@ async function preparationCase(
   execute: (
     prepared: Awaited<ReturnType<typeof captureLocalRepositoryPreparationAuthorization>>,
   ) => Promise<unknown>,
+  referenceCoverage?: 'preparation-head-and-namespace-v1',
 ) {
   noLiveCalls();
   let current = true;
   let selectedId: string | undefined;
+  let qualifiedLabels: { referenceCoverage?: 'preparation-head-and-namespace-v1' } | undefined;
   const f = await localPreparationNativeFixture(cleanups, async (context, input) => {
     const source = join(f.f.root, 'source');
     const identity = (path: string) => {
@@ -202,20 +213,25 @@ async function preparationCase(
         registry: f.registry,
         events: f.f.events,
         workspaces: service,
-        qualifySource: async () => ({
-          source: {
-            path: source,
-            gitDirectory: join(source, '.git'),
-            commonDirectory: join(source, '.git'),
-            root: identity(source),
-            commonRoot: identity(join(source, '.git')),
-          },
-          anchorsSha256: 'b'.repeat(64),
-          assertCurrentSync() {
-            if (!current) throw Error('Qualified fixture source revoked');
-          },
-          async assertCurrent() {},
-        }),
+        qualifySource: async () => {
+          const owner = {
+            source: {
+              path: source,
+              gitDirectory: join(source, '.git'),
+              commonDirectory: join(source, '.git'),
+              root: identity(source),
+              commonRoot: identity(join(source, '.git')),
+            },
+            anchorsSha256: 'b'.repeat(64),
+            ...(referenceCoverage ? { referenceCoverage } : {}),
+            assertCurrentSync() {
+              if (!current) throw Error('Qualified fixture source revoked');
+            },
+            async assertCurrent() {},
+          };
+          qualifiedLabels = owner;
+          return owner;
+        },
       },
       input,
     );
@@ -250,6 +266,9 @@ async function preparationCase(
     revokeSource() {
       current = false;
     },
+    clearCoverage() {
+      if (qualifiedLabels) delete qualifiedLabels.referenceCoverage;
+    },
     saved() {
       return row(f.f.root, selectedId!);
     },
@@ -268,6 +287,19 @@ it('checks the original qualified source fence before permission-observer metada
   expect((await f.call()).response.success).toBe(false);
   expect(f.saved().pendingHostTaskDecision).toBeUndefined();
   expect(f.saved().pendingHostTask).toBeUndefined();
+});
+
+it('refuses changed preparation reference coverage before retaining permission observation', async () => {
+  const f = await preparationCase(
+    async (prepared) => prepared.approve(),
+    'preparation-head-and-namespace-v1',
+  );
+  f.setPermissionAction((event) => {
+    f.clearCoverage();
+    resolvePending(event.permId as string, 'once', undefined, event.sessionId as string);
+  });
+  expect((await f.call()).response.success).toBe(false);
+  expect(f.saved().pendingHostTaskDecision).toBeUndefined();
 });
 
 it('refuses a changed original workspace even if directory and native correlation remain the same', async () => {

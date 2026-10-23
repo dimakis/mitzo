@@ -63,6 +63,35 @@ function owner(deniedRoots: readonly string[] = []) {
 }
 const input = () => ({ workspaceId: id, sourcePath: source, taskRoot });
 const task = () => join(taskRoot, `repo-${id}`);
+it.each([false, true])(
+  'captures two independent original anchors concurrently and joins them on refusal (failure=%s)',
+  async (failure) => {
+    const authority = owner();
+    let active = 0,
+      maximum = 0;
+    const finished: string[] = [];
+    authority.captureReadAnchor.mockImplementation(async (path) => {
+      active++;
+      maximum = Math.max(maximum, active);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, path === taskRoot ? 100 : 50));
+        if (failure && path === source) throw Error('Fixture source unavailable');
+        return await fixtureReadAnchor(path);
+      } finally {
+        active--;
+        finished.push(path);
+      }
+    });
+    if (failure)
+      await expect(captureLocalRepositoryAllocationFacts(authority, input())).rejects.toThrow(
+        'Local repository allocation facts unavailable',
+      );
+    else await captureLocalRepositoryAllocationFacts(authority, input());
+    expect(maximum).toBe(2);
+    expect(active).toBe(0);
+    expect(finished).toEqual(expect.arrayContaining([source, taskRoot]));
+  },
+);
 // Explicit standalone descriptor owner fixtures only. The facts are custody
 // evidence, never signed-native authority or a registered Prepare implementation.
 it('captures finite original root/parent/absence facts without creating any source or destination entry', async () => {

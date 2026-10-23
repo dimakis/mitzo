@@ -10,6 +10,8 @@ import { executeSandboxedCommand } from './sandboxed-command.js';
 import {
   captureNativeReadAnchor,
   executeNativeAnchoredReadOperation,
+  executeNativeDirectoryVerificationBatch,
+  freezeNativeDirectoryVerificationInputs,
   freezeNativeReadExclusions,
   NativeReadAnchorMissingError,
   type NativeFileHelperTransport,
@@ -91,8 +93,9 @@ async function captureReader(
     current();
     if (!canonicalPath(path) || deniedRoots.some((root) => contains(root, path)))
       throw unavailable();
-    await revalidate();
-    current();
+    // Logical/cached observations require the current exact policy and owner,
+    // not another physical-owner wait. Every real helper independently awaits
+    // revalidation before spawn and after its result, under the same deadline.
   };
   // This is the existing private operation-scratch pattern. No source, parent or
   // Git metadata is a writeroot; policy and environment validators stay intact.
@@ -160,6 +163,11 @@ async function captureReader(
     signal,
     deadline,
     assertReadable: authorize,
+    revalidate: async () => {
+      current();
+      await revalidate();
+      current();
+    },
     captureReadAnchor: async (path: string) => {
       try {
         await authorize(path);
@@ -173,6 +181,7 @@ async function captureReader(
         return anchor;
       } catch (error) {
         try {
+          await revalidate();
           await authorize(path);
         } catch {
           throw unavailable();
@@ -197,6 +206,50 @@ async function captureReader(
         );
         operationSignal.throwIfAborted();
         await authorize(request.file_path);
+        return result;
+      } catch {
+        throw unavailable();
+      }
+    },
+    executeDirectoryVerification: async (requests, operationSignal, timeoutMs) => {
+      try {
+        current();
+        operationSignal.throwIfAborted();
+        const captured = freezeNativeDirectoryVerificationInputs(requests);
+        const exclusions = freezeNativeReadExclusions([
+          ...new Set([
+            ...deniedRoots,
+            ...captured.flatMap((request) => [...freezeNativeReadExclusions(request.deniedRoots)]),
+          ]),
+        ]);
+        const items = [];
+        for (const request of captured) {
+          if (
+            request.operation !== 'ListDirectory' ||
+            request.prefix !== undefined ||
+            request.expectedState !== undefined
+          )
+            throw unavailable();
+          await authorize(request.file_path);
+          items.push({
+            operation: 'ListDirectory' as const,
+            file_path: request.file_path,
+            rootAnchor: request.rootAnchor,
+            parentIdentity: request.parentIdentity,
+            identity: request.identity,
+            limit: request.limit,
+            maxEntries: request.maxEntries,
+            maxNameBytes: request.maxNameBytes,
+          });
+        }
+        const result = await executeNativeDirectoryVerificationBatch(
+          { operation: 'ListDirectoryBatch', deniedRoots: exclusions, items },
+          AbortSignal.any([signal, operationSignal]),
+          Math.max(1, Math.min(timeoutMs, deadline - Date.now())),
+          transport(exclusions),
+        );
+        operationSignal.throwIfAborted();
+        for (const request of captured) await authorize(request.file_path);
         return result;
       } catch {
         throw unavailable();

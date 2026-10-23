@@ -78,8 +78,9 @@ def create_directory(request):
             os.close(child)
         os.close(directory)
 
-def anchored_read(request):
-    deadline = time.monotonic() + request['timeoutMs'] / 1000
+def anchored_read(request, deadline=None, budget=None):
+    deadline = time.monotonic() + request['timeoutMs'] / 1000 if deadline is None else deadline
+    output_limit = 6 * 1024 * 1024 if budget is None else budget['remaining']
     def check():
         if time.monotonic() >= deadline:
             raise RuntimeError('Anchored read deadline exceeded')
@@ -170,7 +171,12 @@ def anchored_read(request):
                     check()
                     name_bytes += len(entry.name.encode('utf-8', errors='strict'))
                     scanned += 1
-                    if scanned > request['maxEntries'] or name_bytes > request['maxNameBytes'] or (len(entries) + 1) * 512 + name_bytes * 6 > 6 * 1024 * 1024:
+                    if budget is not None:
+                        budget['entries'] += 1
+                        budget['names'] += len(entry.name.encode('utf-8', errors='strict'))
+                        if budget['entries'] > 10000 or budget['names'] > 1024 * 1024:
+                            raise RuntimeError('Anchored directory batch unavailable')
+                    if scanned > request['maxEntries'] or name_bytes > request['maxNameBytes'] or (len(entries) + 1) * 512 + name_bytes * 6 > output_limit:
                         raise RuntimeError('Anchored directory limit exceeded')
                     if excluded(os.path.join(request['file_path'], entry.name)):
                         incomplete = True
@@ -182,7 +188,7 @@ def anchored_read(request):
             if target_stat.st_mtime_ns != after.st_mtime_ns or target_stat.st_ctime_ns != after.st_ctime_ns:
                 raise RuntimeError('Anchored directory changed')
             content = json.dumps({'identity': request['identity'], 'entries': entries, 'truncated': False, 'incomplete': incomplete}, ensure_ascii=True)
-            if len(content.encode('utf-8')) > 6 * 1024 * 1024:
+            if len(content.encode('utf-8')) > output_limit:
                 raise RuntimeError('Anchored directory output limit exceeded')
             return content
         if not stat.S_ISREG(target_stat.st_mode) or target_stat.st_nlink != 1:
@@ -212,6 +218,26 @@ def anchored_read(request):
         os.close(directory)
 
 def execute(request):
+    if request['operation'] == 'ListDirectoryBatch':
+        items = request['items']
+        if not isinstance(items, list) or not 1 <= len(items) <= 8 or len({item['file_path'] for item in items}) != len(items) or any(item['operation'] != 'ListDirectory' for item in items):
+            raise RuntimeError('Anchored directory batch unavailable')
+        deadline = time.monotonic() + request['timeoutMs'] / 1000
+        # Two levels of JSON string escaping remain below the SAME 8MiB
+        # encoded envelope cap. Bound allocation before each directory entry.
+        budget = {'remaining': 2 * 1024 * 1024 - 1024, 'entries': 0, 'names': 0}
+        results = []
+        for item in items:
+            if time.monotonic() >= deadline:
+                raise RuntimeError('Anchored directory batch unavailable')
+            content = anchored_read(dict(item, deniedRoots=request['deniedRoots']), deadline, budget)
+            budget['remaining'] -= len(content.encode('utf-8'))
+            if budget['remaining'] < 0:
+                raise RuntimeError('Anchored directory batch unavailable')
+            results.append(content)
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Anchored directory batch unavailable')
+        return json.dumps(results, ensure_ascii=True)
     if request['operation'] == 'CreateDirectory':
         return create_directory(request)
     if request['operation'] == 'CaptureReadAnchor':
@@ -297,11 +323,17 @@ def execute(request):
             os.close(file)
         os.close(directory)
 
+request = None
 try:
-    print(json.dumps({'content': execute(json.load(sys.stdin)), 'is_error': False}))
+    request = json.load(sys.stdin)
+    envelope = json.dumps({'content': execute(request), 'is_error': False})
+    if request['operation'] == 'ListDirectoryBatch' and len((envelope + '\n').encode('utf-8')) > 8 * 1024 * 1024:
+        raise RuntimeError('Anchored directory batch unavailable')
+    print(envelope)
 except Exception as error:
     # OS errors may contain filenames, but never file contents or request payloads.
-    print(json.dumps({'content': str(error), 'is_error': True}))
+    content = 'Anchored directory batch unavailable' if isinstance(request, dict) and request.get('operation') == 'ListDirectoryBatch' else str(error)
+    print(json.dumps({'content': content, 'is_error': True}))
 `;
 
 /** Private transport of the SAME fixed helper through an existing enforced
@@ -328,17 +360,21 @@ export function executeNativeFileOperation(
     timeoutMs?: number;
     rootAnchor?: NativeReadAnchor;
     expectedAbsent?: true;
+    items?: readonly NativeDirectoryVerificationItem[];
   },
   signal: AbortSignal,
   timeoutMs = 30_000,
   privateTransport?: NativeFileHelperTransport,
 ): Promise<{ content: string; is_error: boolean }> {
   signal.throwIfAborted();
-  if (request.operation === 'CreateDirectory' && typeof privateTransport !== 'function')
+  if (
+    ['CreateDirectory', 'ListDirectoryBatch'].includes(request.operation) &&
+    typeof privateTransport !== 'function'
+  )
     return Promise.reject(Error('Private helper transport unavailable'));
   const maxBuffer = ['CaptureReadAnchor', 'CreateDirectory'].includes(request.operation)
     ? 32768
-    : request.operation === 'ListDirectory'
+    : ['ListDirectory', 'ListDirectoryBatch'].includes(request.operation)
       ? 8 * 1024 * 1024
       : request.operation === 'ReadBytes'
         ? Math.ceil(request.limit / 3) * 4 + 1024
@@ -449,6 +485,207 @@ export interface NativeAnchoredReadRequest {
   expectedState?: { size: number; mtimeNs: string; ctimeNs: string };
   /** Trusted instruction projection only; callers must expose explicit truncation. */
   prefix?: boolean;
+}
+
+export type NativeDirectoryVerificationItem = Omit<
+  NativeAnchoredReadRequest,
+  'operation' | 'deniedRoots' | 'prefix' | 'expectedState'
+> & { readonly operation: 'ListDirectory' };
+export interface NativeDirectoryVerificationRequest {
+  readonly operation: 'ListDirectoryBatch';
+  readonly deniedRoots: readonly string[];
+  readonly items: readonly NativeDirectoryVerificationItem[];
+}
+
+/** Copy bounded plain data descriptors before any await/lookup. No getters or
+ * caller-owned mutable authority can survive into a batch operation. */
+function directoryBatchData(value: unknown, depth = 0, count = { value: 0, bytes: 0 }): unknown {
+  if (depth > 8 || ++count.value > 4096) throw Error('Invalid directory batch data');
+  if (typeof value === 'string' && (count.bytes += Buffer.byteLength(value)) > 128 * 1024)
+    throw Error('Invalid directory batch data');
+  if (value === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof value))
+    return value;
+  if (typeof value !== 'object' || Object.getOwnPropertySymbols(value).length)
+    throw Error('Invalid directory batch data');
+  const array = Array.isArray(value);
+  if (array && value.length > 256) throw Error('Invalid directory batch data');
+  if (!array && ![Object.prototype, null].includes(Object.getPrototypeOf(value)))
+    throw Error('Invalid directory batch data');
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const result: Record<string, unknown> | unknown[] = array ? [] : Object.create(null);
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (array && key === 'length') continue;
+    if (!('value' in descriptor) || !descriptor.enumerable)
+      throw Error('Invalid directory batch data');
+    if (array && (!/^\d+$/.test(key) || Number(key) >= 4096))
+      throw Error('Invalid directory batch data');
+    Object.defineProperty(result, key, {
+      value: directoryBatchData(descriptor.value, depth + 1, count),
+      enumerable: true,
+    });
+  }
+  if (array && Object.keys(result).length !== (value as unknown[]).length)
+    throw Error('Invalid directory batch data');
+  return Object.freeze(result);
+}
+
+/** Private factory copies original request DATA before per-target owner checks;
+ * never invoke a getter or retain caller mutations across those awaits. */
+export function freezeNativeDirectoryVerificationInputs(
+  value: readonly NativeAnchoredReadRequest[],
+): readonly NativeAnchoredReadRequest[] {
+  const captured = directoryBatchData(value) as readonly NativeAnchoredReadRequest[];
+  if (
+    !Array.isArray(captured) ||
+    captured.length < 1 ||
+    captured.length > 8 ||
+    captured.some(
+      (item) =>
+        !item ||
+        item.operation !== 'ListDirectory' ||
+        Object.keys(item).some(
+          (key) =>
+            ![
+              'operation',
+              'deniedRoots',
+              'file_path',
+              'rootAnchor',
+              'parentIdentity',
+              'identity',
+              'limit',
+              'maxEntries',
+              'maxNameBytes',
+            ].includes(key),
+        ),
+    )
+  )
+    throw Error('Anchored directory batch unavailable');
+  return captured;
+}
+
+/** Private verification only: no host fallback, mixed operations or partial
+ * result. The caller supplies current authority and the existing SRT transport. */
+export async function executeNativeDirectoryVerificationBatch(
+  request: NativeDirectoryVerificationRequest,
+  signal: AbortSignal,
+  timeoutMs = 30000,
+  privateTransport?: NativeFileHelperTransport,
+): Promise<readonly { content: string; is_error: false }[]> {
+  const unavailable = () => Error('Anchored directory batch unavailable');
+  signal.throwIfAborted();
+  try {
+    if (
+      typeof privateTransport !== 'function' ||
+      !Number.isSafeInteger(timeoutMs) ||
+      timeoutMs <= 0 ||
+      timeoutMs > 30000
+    )
+      throw unavailable();
+    const captured = directoryBatchData(request) as NativeDirectoryVerificationRequest;
+    const keys = (value: object, allowed: readonly string[]) =>
+      Object.keys(value).every((key) => allowed.includes(key));
+    if (
+      !keys(captured, ['operation', 'deniedRoots', 'items']) ||
+      captured.operation !== 'ListDirectoryBatch' ||
+      !Array.isArray(captured.items) ||
+      captured.items.length < 1 ||
+      captured.items.length > 8
+    )
+      throw unavailable();
+    const deniedRoots = freezeNativeReadExclusions(captured.deniedRoots);
+    const paths = new Set<string>();
+    const id = (value: NativeReadIdentity) =>
+      value &&
+      keys(value, ['dev', 'ino']) &&
+      typeof value.dev === 'string' &&
+      typeof value.ino === 'string' &&
+      /^\d{1,32}$/.test(value.dev) &&
+      /^\d{1,32}$/.test(value.ino);
+    const bounded = (value: number | undefined, max: number) =>
+      typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= max;
+    for (const item of captured.items) {
+      if (
+        !item ||
+        !keys(item, [
+          'operation',
+          'file_path',
+          'rootAnchor',
+          'parentIdentity',
+          'identity',
+          'limit',
+          'maxEntries',
+          'maxNameBytes',
+        ]) ||
+        item.operation !== 'ListDirectory' ||
+        !validNativeReadPath(item.file_path) ||
+        !item.rootAnchor ||
+        !keys(item.rootAnchor, ['rootPath', 'identity']) ||
+        !validNativeReadPath(item.rootAnchor.rootPath) ||
+        !id(item.rootAnchor.identity) ||
+        !id(item.parentIdentity) ||
+        !id(item.identity) ||
+        item.limit !== 1 ||
+        !bounded(item.maxEntries, 10000) ||
+        !bounded(item.maxNameBytes, 1024 * 1024) ||
+        paths.has(item.file_path) ||
+        !(
+          item.file_path === item.rootAnchor.rootPath ||
+          item.file_path.startsWith(
+            item.rootAnchor.rootPath === '/' ? '/' : item.rootAnchor.rootPath + '/',
+          )
+        ) ||
+        deniedRoots.some(
+          (root) =>
+            item.file_path === root || item.file_path.startsWith(root === '/' ? '/' : root + '/'),
+        )
+      )
+        throw unavailable();
+      paths.add(item.file_path);
+    }
+    const payload = {
+      operation: 'ListDirectoryBatch',
+      deniedRoots,
+      items: captured.items,
+      timeoutMs,
+      file_path: '/',
+      identity: null,
+      parentIdentity: { dev: '0', ino: '0' },
+      limit: 1,
+    };
+    if (Buffer.byteLength(JSON.stringify(payload)) > 128 * 1024) throw unavailable();
+    const result = await executeNativeFileOperation(payload, signal, timeoutMs, privateTransport);
+    signal.throwIfAborted();
+    if (result.is_error || Buffer.byteLength(result.content) > 4 * 1024 * 1024) throw unavailable();
+    const values: unknown = JSON.parse(result.content);
+    if (
+      !Array.isArray(values) ||
+      values.length !== captured.items.length ||
+      values.some((value) => typeof value !== 'string') ||
+      values.reduce((sum, value) => sum + Buffer.byteLength(value), 0) > 2 * 1024 * 1024 - 1024
+    )
+      throw unavailable();
+    return Object.freeze(
+      values.map((content, index) => {
+        const value = JSON.parse(content);
+        if (
+          !value ||
+          !keys(value, ['identity', 'entries', 'truncated', 'incomplete']) ||
+          !id(value.identity) ||
+          value.identity.dev !== captured.items[index].identity.dev ||
+          value.identity.ino !== captured.items[index].identity.ino ||
+          !Array.isArray(value.entries) ||
+          value.entries.length > captured.items[index].maxEntries! ||
+          value.truncated !== false ||
+          typeof value.incomplete !== 'boolean'
+        )
+          throw unavailable();
+        return Object.freeze({ content, is_error: false as const });
+      }),
+    );
+  } catch {
+    signal.throwIfAborted();
+    throw unavailable();
+  }
 }
 
 const validNativeReadPath = (path: unknown): path is string =>

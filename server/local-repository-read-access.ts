@@ -27,6 +27,9 @@ export interface LocalRepositoryReadAuthority {
   /** Complete current actual-owner exclusions, not inferred from scope roots. */
   deniedRoots: readonly string[];
   assertReadable(path: string): Promise<void>;
+  /** Actual native owners perform full async owner validation before final
+   * outward verification, including a verification containing cached facts only. */
+  revalidate?(): Promise<void>;
   /** Current owner captures immutable actual object identity. Never model JSON,
    * repository configuration, or a fallback inferred from projected paths. */
   captureReadAnchor(path: string): Promise<LocalRepositoryReadAnchor>;
@@ -37,6 +40,13 @@ export interface LocalRepositoryReadAuthority {
     signal: AbortSignal,
     timeoutMs: number,
   ): ReturnType<typeof executeNativeAnchoredReadOperation>;
+  /** Actual native owner supplies the SAME enforced helper for complete
+   * directory-only verification. Explicit fixture owners retain bounded pairs. */
+  executeDirectoryVerification?(
+    requests: readonly NativeAnchoredReadRequest[],
+    signal: AbortSignal,
+    timeoutMs: number,
+  ): Promise<readonly { content: string; is_error: boolean }[]>;
   signal?: AbortSignal;
   deadline: number;
 }
@@ -166,40 +176,58 @@ export class LocalRepositoryReadAccess {
   async stat(path: string): Promise<LocalRepositoryReadEntry | undefined> {
     await this.authorize(path);
     const anchor = this.anchor(path);
+    // Entries are original observed snapshots, never a freshness claim. The
+    // target is still currently authorized; real bytes/listing recheck anchored
+    // identity, and verify() reconciles every retained witness before exposure.
+    const observed = this.entries.get(path);
+    if (observed) return observed;
     if (path === anchor.rootPath) return this.entries.get(path)!;
     const parent = dirname(path);
     if (parent !== anchor.rootPath && !(await this.stat(parent))) return undefined;
     const values = await this.list(parent);
     return values.find((entry) => join(parent, entry.name) === path);
   }
-  async list(path: string, fresh = false): Promise<LocalRepositoryReadEntry[]> {
+  private async directoryRequest(path: string): Promise<NativeAnchoredReadRequest> {
     await this.authorize(path);
-    if (!fresh && this.directories.has(path)) return [...this.directories.get(path)!.values()];
     const anchor = this.anchor(path);
     const target = path === anchor.rootPath ? this.entries.get(path)! : await this.stat(path);
     if (!target || target.kind !== 'directory') throw unavailable();
     const parent = path === anchor.rootPath ? target : await this.stat(dirname(path));
     if (!parent) throw unavailable();
     await this.authorize(path);
+    return {
+      operation: 'ListDirectory',
+      deniedRoots: freezeNativeReadExclusions([
+        ...new Set([...this.deniedRoots, ...localRepositoryReadDirectoryExclusions(path)]),
+      ]),
+      file_path: path,
+      rootAnchor: anchor,
+      parentIdentity: parent.identity,
+      identity: target.identity,
+      limit: 1,
+      maxEntries: 10000,
+      maxNameBytes: 1024 * 1024,
+    };
+  }
+  async list(path: string, fresh = false): Promise<LocalRepositoryReadEntry[]> {
+    await this.authorize(path);
+    if (!fresh && this.directories.has(path)) return [...this.directories.get(path)!.values()];
+    const request = await this.directoryRequest(path);
     const result = await (
       this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation
     )(
-      {
-        operation: 'ListDirectory',
-        deniedRoots: freezeNativeReadExclusions([
-          ...new Set([...this.deniedRoots, ...localRepositoryReadDirectoryExclusions(path)]),
-        ]),
-        file_path: path,
-        rootAnchor: anchor,
-        parentIdentity: parent.identity,
-        identity: target.identity,
-        limit: 1,
-        maxEntries: 10000,
-        maxNameBytes: 1024 * 1024,
-      },
+      request,
       this.authority.signal ?? new AbortController().signal,
       Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
     );
+    return this.directoryEntries(path, request.identity, result, fresh);
+  }
+  private async directoryEntries(
+    path: string,
+    identity: NativeReadIdentity,
+    result: { content: string; is_error: boolean },
+    fresh: boolean,
+  ): Promise<LocalRepositoryReadEntry[]> {
     await this.authorize(path);
     if (result.is_error && result.content === 'Anchored read limit exceeded')
       throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
@@ -215,7 +243,7 @@ export class LocalRepositoryReadAccess {
       typeof value !== 'object' ||
       !('identity' in value) ||
       !numericIdentity(value.identity) ||
-      !equalIdentity(value.identity, target.identity) ||
+      !equalIdentity(value.identity, identity) ||
       !('entries' in value) ||
       !Array.isArray(value.entries) ||
       value.entries.length > 10000 ||
@@ -374,8 +402,13 @@ export class LocalRepositoryReadAccess {
   }
   async verify() {
     const parents = new Map<string, Map<string, LocalRepositoryReadEntry>>();
-    for (const [path, original] of this.directories) {
-      const current = new Map((await this.list(path, true)).map((entry) => [entry.name, entry]));
+    const snapshots = [...this.directories];
+    const compare = (
+      path: string,
+      original: Map<string, LocalRepositoryReadEntry>,
+      entries: LocalRepositoryReadEntry[],
+    ) => {
+      const current = new Map(entries.map((entry) => [entry.name, entry]));
       if (
         original.size !== current.size ||
         [...original].some(([name, before]) => {
@@ -384,7 +417,46 @@ export class LocalRepositoryReadAccess {
         })
       )
         throw unavailable();
-      parents.set(path, current);
+      return [path, current] as const;
+    };
+    const batch = this.authority.executeDirectoryVerification;
+    if (batch) {
+      for (let offset = 0; offset < snapshots.length; offset += 8) {
+        const originals = snapshots.slice(offset, offset + 8);
+        const requests: NativeAnchoredReadRequest[] = [];
+        for (const [path] of originals) requests.push(await this.directoryRequest(path));
+        const results = await batch.call(
+          this.authority,
+          requests,
+          this.authority.signal ?? new AbortController().signal,
+          Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+        );
+        if (!Array.isArray(results) || results.length !== originals.length) throw unavailable();
+        for (let index = 0; index < originals.length; index++) {
+          const [path, original] = originals[index];
+          const entries = await this.directoryEntries(
+            path,
+            requests[index].identity,
+            results[index],
+            true,
+          );
+          parents.set(...compare(path, original, entries));
+        }
+      }
+    } else {
+      // Each transport keeps its own current/identity/deny checks. Join bounded
+      // pairs even on refusal so no helper outlives failed verification/disposal.
+      for (let offset = 0; offset < snapshots.length; offset += 2) {
+        const results = await Promise.allSettled(
+          snapshots.slice(offset, offset + 2).map(async ([path, original]) => {
+            return compare(path, original, await this.list(path, true));
+          }),
+        );
+        for (const result of results) {
+          if (result.status === 'rejected') throw result.reason;
+          parents.set(...result.value);
+        }
+      }
     }
     for (const [path, before] of this.consumed) {
       const parent = dirname(path);
@@ -397,5 +469,7 @@ export class LocalRepositoryReadAccess {
       if (!after || !sameEntry(before, after)) throw unavailable();
       await this.authorize(path);
     }
+    await this.authority.revalidate?.();
+    this.check();
   }
 }

@@ -130,6 +130,8 @@ export const PendingHostTaskDecisionScopeSchema = z.strictObject({
   taskRootIdentity: identity,
   sourceDigest: digest,
   anchorsSha256: digest,
+  /** Historical absence never qualifies a new preparation-only reference view. */
+  referenceCoverage: z.literal('preparation-head-and-namespace-v1').optional(),
   sourceGitEffects: z.strictObject({
     administrationDirectory: path,
     branchReference: path,
