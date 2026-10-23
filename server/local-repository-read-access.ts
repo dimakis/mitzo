@@ -121,7 +121,8 @@ export class LocalRepositoryReadAccess {
   }
   async pinRoot(path: string) {
     await this.authorize(path);
-    if (this.anchors.has(path)) return;
+    const retained = this.anchors.get(path);
+    if (retained) return retained;
     if (this.anchors.size >= 256)
       throw new LocalRepositoryGitInspectionError('limit', 'read-anchors');
     // Reconcile any already-observed child identity; never recapture an existing
@@ -160,6 +161,7 @@ export class LocalRepositoryReadAccess {
         mtimeNs: '0',
         ctimeNs: '0',
       });
+    return anchor;
   }
   async stat(path: string): Promise<LocalRepositoryReadEntry | undefined> {
     await this.authorize(path);

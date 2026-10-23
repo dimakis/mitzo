@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.578-explicit-native-once-evidence';
+  'v1.0.579-allocation-original-facts';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../local-repository-allocation-facts.ts':
+    '37323b5690d1566ba85c862ce6bf9bcfa7c714aa355ea8b106991460157ca29f',
+  '../__tests__/local-repository-allocation-facts.test.ts':
+    '17f814f88aa3dad0ef4e3f4feb829bbec81746fda374df03b623b1dc1e37d68c',
+  '../prepared-repository-transition.ts':
+    'f0e3f74c3fedbde24342d38994ae65d131da9fd3114cd42b5c642c5cc47ada58',
   '../__tests__/native-exclusive-directory.test.ts':
     '9658de84032b1561f32dedc4c819b34a5d2a850b79f92151bc0db440885c13ab',
   '../__tests__/local-repository-domain-read.test.ts':
@@ -1433,9 +1439,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-read-artifacts.test.ts':
     'e7bced77b25b7f482ee0c6f8cf7373134cf9dde5543dfab7a2ee6c9756db268a',
   '../local-repository-git-snapshot.ts':
-    '4b59bad41191bd769c5834c84346260fe0e806daa057389cb4e2e0c1066be7d9',
+    '90b28b8098bccea968a80feb7bfa2287324e1044ff055467ba3591582fe576bf',
   '../local-repository-read-access.ts':
-    'fcd798b624c7a5f36c571c172ea67f8fa0aa98f08d581088c07bb1906116cc90',
+    '47711bc9dd4a52993dd84d1cc99ae4e33c0cb1382ce2a548844c7de552790379',
   '../__tests__/native-anchored-read.test.ts':
     '7322ab8566b3649a90876e253f5d66a8cc631ac7148ee47602c71eaed5123628',
   '../__tests__/local-repository-read-security.test.ts':
@@ -1453,7 +1459,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-authorization.test.ts':
     '13f24258131a03ae7eaae07e67da46b760c81cfb3fea4b43d857c891a9e4761c',
   '../__tests__/local-repository-preparation-artifacts.test.ts':
-    'bf83f89df7656b8b0572b1ee7f046e85e6a53149f9c963196650c1260f13c863',
+    '8e38b04960fbfe954931314b0c5412fff16ee72d91e38dc0eb07891f171657ac',
   '../pending-host-task.ts': '5ec53a29d5e5a32167efd9f901c6bef27f5e1f07b4c0a1c4f26ada699a621542',
   '../__tests__/pending-host-task.test.ts':
     '286badb71f54d57b77e7b57116a566d1772d6c27b520131262ef58551f2ce01d',

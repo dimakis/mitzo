@@ -232,6 +232,26 @@ export async function readLocalRepositoryGitFacts(
   });
 }
 
+/** Private copied-ref qualification only. The source paths/config never enter Git. */
+export async function hasLocalRepositoryReferenceConflict(
+  metadata: LocalRepositoryGitMetadata,
+  options: LocalRepositorySnapshotOptions,
+  reference: string,
+) {
+  if (headValue(Buffer.from(`ref: ${reference}`)).ref !== reference)
+    throw failure('snapshot-reference-unsupported');
+  return privateContext(metadata, options, async ({ git }) => {
+    const names = (await git('for-each-ref', '--format=%(refname)', 'refs/heads'))
+      .split('\n')
+      .filter(Boolean);
+    for (const name of names) headValue(Buffer.from(`ref: ${name}`));
+    return names.some(
+      (name) =>
+        name === reference || name.startsWith(reference + '/') || reference.startsWith(name + '/'),
+    );
+  });
+}
+
 /** Registry pointer strings are facts only. Git never receives those source
  * paths or probes another worktree through them. No ownership claim is made. */
 export async function readLocalRepositoryWorktrees(
