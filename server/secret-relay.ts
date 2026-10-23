@@ -144,11 +144,9 @@ export class SecretRelays {
   private checkedTarget(target: RelayTarget) {
     if ('adapter' in target && target.adapter === 'browser') {
       if (!this.adapters.browser) throw new Error('Private browser adapter disabled');
-      const {
-        endpoint: _endpoint,
-        label: _label,
-        ...input
-      } = target as typeof target & { endpoint?: string; label?: string };
+      const input = { ...target } as typeof target & { endpoint?: string; label?: string };
+      delete input.endpoint;
+      delete input.label;
       const t = BrowserRelayTargetSchema.parse(input);
       return { endpoint: t.origin, label: new URL(t.origin).hostname };
     }

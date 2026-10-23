@@ -55,7 +55,12 @@ it('sends private CONNECT and one QoS1 PUBLISH, then requires matching PUBACK', 
 });
 it('verifies authentication without publishing for connect operations', async () => {
   const f = fixture([Buffer.from([0x20, 2, 0, 0])]);
-  const { topic: _topic, payload: _payload, retain: _retain, ...base } = target;
+  const base = {
+    adapter: target.adapter,
+    broker: target.broker,
+    username: target.username,
+    allowPrivateNetwork: target.allowPrivateNetwork,
+  };
   expect(
     await sendMqttRelayTarget(
       { ...base, operation: 'connect' },

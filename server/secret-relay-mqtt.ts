@@ -11,7 +11,18 @@ const text = z
   .string()
   .min(1)
   .max(1024)
-  .refine((s) => !/[\u0000-\u001f\u007f-\u009f\ud800-\udfff\ufffe\uffff]/u.test(s));
+  .refine((s) =>
+    [...s].every((char) => {
+      const n = char.codePointAt(0)!;
+      return (
+        n > 0x1f &&
+        !(n >= 0x7f && n <= 0x9f) &&
+        !(n >= 0xd800 && n <= 0xdfff) &&
+        n !== 0xfffe &&
+        n !== 0xffff
+      );
+    }),
+  );
 const base = z.object({
   adapter: z.literal('mqtt'),
   broker: z.string().min(1).max(512),
@@ -31,11 +42,9 @@ export const MqttRelayTargetSchema = z.discriminatedUnion('operation', [
 ]);
 export type MqttRelayTarget = z.infer<typeof MqttRelayTargetSchema>;
 export function validateMqttRelayTarget(target: MqttRelayTarget, allowLan: boolean) {
-  const {
-    endpoint: _endpoint,
-    label: _label,
-    ...input
-  } = target as MqttRelayTarget & { endpoint?: string; label?: string };
+  const input = { ...target } as MqttRelayTarget & { endpoint?: string; label?: string };
+  delete input.endpoint;
+  delete input.label;
   MqttRelayTargetSchema.parse(input);
   const url = new URL(target.broker);
   const host = url.hostname.replace(/^\[|\]$/g, '');
@@ -157,6 +166,7 @@ export async function sendMqttRelayTarget(
       const fail = () => {
         if (!settled) {
           settled = true;
+          signal.removeEventListener('abort', abort);
           reject(new Error('MQTT operation unconfirmed'));
         }
       };

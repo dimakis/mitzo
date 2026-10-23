@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../secret-relay-browser-driver.ts':
     'e73918f0e3f51dd9f18f14056f6249bf676acb3ce4220668ceae06be2363300a',
   '../secret-relay-browser.ts': '3da18091f444a4b87ceeb4097c09708f95988ff0192f9be743019d597afc1f2e',
-  '../secret-relay-mqtt.ts': '42538b8d4072ba8bdb59d7342de416d31a49c20d5b25fcf10a145335892efd32',
+  '../secret-relay-mqtt.ts': '0364c29a9f84f7c8709850e64315472be39a1ca781ecf55d3afc88dacf4b4660',
   '../../packages/protocol/src/agent-communication-store.ts':
     '7a611a0953117b064f89e966c5520dc70598e6856e707ce735e8419acfbb4753',
   '../../packages/protocol/src/agent-communication.ts':
@@ -1303,7 +1303,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '87d6517e779b9b29f2e636a1919ea844beb0fc034f01fbfdf1c740fa5117ab52',
   '../../frontend/src/lib/telos-source-updates.ts':
     'd04a21a711eb8c7118491d94b1363f02b36b0f7457bbe711906f3d67bdbb6e8d',
-  '../secret-relay.ts': '520c4d096a13b5f24a0a57d083aa57a3da7fc87c156abf791245f79fbc17cba4',
+  '../secret-relay.ts': 'f3a2c9768e41bb3efd3d1812168a1aee85371940ec7d3b5d41b26d21133e70d0',
   '../secret-relay-lan.ts': '03442b04b8a16ddc3146813f43ed45d9b4ae8fa0a64971a100de48d9a791a812',
   '../secret-relay-runtime.ts': '3e9985e05b5e5128565bd8d88810cb8585ea5a95c921740925c725986ff65450',
   '../openshell-secret-vault.ts':
