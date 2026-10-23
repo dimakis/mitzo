@@ -207,6 +207,7 @@ function configureConnectionsRuntime(): void {
       gatewayInsecure: openShell.gatewayInsecure,
       legacyProviders: [...openShell.serviceProviders, ...openShell.grantableServiceProviders],
       openAIKeyAccounts: () => loadAccountProfiles().openAIKeyManagementAccounts(),
+      openAIKeyResourceAccounts: () => loadAccountProfiles().openAIKeyResourceAccounts(),
       configuredAccountIds: () => loadAccountProfiles().configuredAccountIds(),
       ...(process.env.MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB
         ? { openAIEnrollmentDatabase: process.env.MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB }

@@ -162,7 +162,13 @@ it('runs legacy readiness and credential lookup inside the same mutation gate', 
   await expect(openAIAccountKeyAuthority(binding).resolveKey('work', signal())).resolves.toBe(
     'existing-key',
   );
-  expect(ready).toHaveBeenCalledWith('work', expect.any(AbortSignal));
+  expect(ready).toHaveBeenCalledWith('work', expect.any(AbortSignal), {
+    id: 'work',
+    profileRevision: binding.profileRevision,
+    credentialRef: { provider: 'keychain', service: 'existing', account: 'work' },
+    providerName: undefined,
+    providerId: undefined,
+  });
 });
 it('does not downgrade an enrolled account when its controller is absent', () => {
   state.enrolled = true;
@@ -202,6 +208,26 @@ it('rejects profile drift while the credential lookup is pending', async () => {
     'profile changed',
   );
 });
+it.each(['host', 'gateway'] as const)(
+  'rejects source drift during %s readiness before reading the selected credential',
+  async (consumer) => {
+    state.runtime = {
+      assertOpenAIKeyReady: vi.fn(async () => {
+        state.validate.mockImplementation(() => {
+          throw Error('profile changed');
+        });
+      }),
+      service: { withCredentialRead: (work: () => Promise<string>) => work() },
+    };
+    const authority = openAIAccountKeyAuthority(
+      binding,
+      undefined,
+      consumer === 'host' ? { consumer: 'host' } : undefined,
+    );
+    await expect(authority.resolveKey('work', signal())).rejects.toThrow('profile changed');
+    expect(state.key).not.toHaveBeenCalled();
+  },
+);
 it('rejects controller replacement and cancellation before returning a key', async () => {
   state.key.mockImplementation(async () => {
     state.runtime = {};

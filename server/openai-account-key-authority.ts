@@ -16,7 +16,15 @@ export function openAIAccountKeyAuthority(
   profiles = loadAccountProfiles(),
   options?: { consumer: 'host'; endpoint?: string },
 ) {
+  binding = Object.freeze(structuredClone(binding));
   const profile = profiles.apiRoutingProfile(binding);
+  const selectedResource = Object.freeze({
+    id: binding.accountId,
+    profileRevision: binding.profileRevision,
+    credentialRef: Object.freeze(structuredClone(profile.credentialRef)),
+    providerName: profile.sandboxProvider,
+    providerId: profile.sandboxProviderId,
+  });
   function assertConnection(current: typeof profile) {
     if (!current.connection) return;
     const selected = apiHarnessConnection(current.connection);
@@ -60,8 +68,9 @@ export function openAIAccountKeyAuthority(
         ? await runtime.service.withCredentialRead(async () => {
             signal.throwIfAborted();
             assertCurrent();
-            await runtime.assertOpenAIKeyReady!(binding.accountId, signal);
-            return credentials.resolve(profile.credentialRef);
+            await runtime.assertOpenAIKeyReady!(binding.accountId, signal, selectedResource);
+            assertCurrent();
+            return credentials.resolve(selectedResource.credentialRef);
           }, signal)
         : await credentials.resolve(profile.credentialRef);
     signal.throwIfAborted();
@@ -97,8 +106,9 @@ export function openAIAccountKeyAuthority(
           ? await runtime.service.withCredentialRead(async () => {
               signal.throwIfAborted();
               assertCurrent();
-              await runtime.assertOpenAIKeyReady!(accountId, signal);
-              return credentials.resolve(profile.credentialRef);
+              await runtime.assertOpenAIKeyReady!(accountId, signal, selectedResource);
+              assertCurrent();
+              return credentials.resolve(selectedResource.credentialRef);
             }, signal)
           : await credentials.resolve(profile.credentialRef);
       signal.throwIfAborted();

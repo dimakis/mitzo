@@ -1113,6 +1113,25 @@ export class AccountProfiles {
     return this.profiles.map((profile) => profile.id);
   }
 
+  /** All API resource custody, independent of endpoint or key-rotation eligibility. */
+  openAIKeyResourceAccounts(): readonly import('./openai-key-management.js').OpenAIKeyResourceAccount[] {
+    return Object.freeze(
+      this.profiles.flatMap((profile) =>
+        profile.provider === 'openai'
+          ? [
+              Object.freeze({
+                id: profile.id,
+                profileRevision: routingRevision(profile),
+                credentialRef: Object.freeze(structuredClone(profile.credentialRef)),
+                providerName: profile.sandboxProvider,
+                providerId: profile.sandboxProviderId,
+              }),
+            ]
+          : [],
+      ),
+    );
+  }
+
   /** Legacy rotation only; fresh enrolled custody has its own immutable readiness authority. */
   openAIKeyManagementAccounts(): import('./openai-key-management.js').ManagedOpenAIAccount[] {
     return this.profiles.flatMap((profile) =>
