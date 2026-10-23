@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.557-slice2-repository-preparation';
+  'v1.0.562-slice2-repository-preparation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/local-repository-racy-status.test.ts':
+    '2a206f19593c6ae3838bc982941fe94eea4b9786c34b12a616592b3d91ec3793',
   '../__tests__/chat-provider-startup-admission.test.ts':
     '2d56b8f9bf1a510324983852152d5d38fd596879ee78dd2b9f9af011139cec4b',
   '../__tests__/connections-credential-readiness.test.ts':
@@ -58,7 +60,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '8a6b88fbca7d480a01a99880b375abf181d0bac4360c25c4753b586694348c29',
   '../../frontend/src/lib/todo-lifecycle-events.ts':
     '7ab6ec51e8b4653f58f21f05c50018fc6e0b9bead8285f5931cb20addad24999',
-
   '../telos-work-lifecycle.ts': 'd43e09df35bc7966aed2645a0d496d38531150ce5606412b651069bed927cbb0',
   '../telos-lifecycle-tree.ts': '4ab02f364793bdfe4dfb64ac66c152d390584c1ce6cd7630cab3af76ed4f6215',
   '../telos-lifecycle-list.ts': 'f2386f34c0c71ae5190458416c8fe056044eb941ab9b2a5a66a43c1407901835',
@@ -905,7 +906,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-repository-worktree.ts':
     '50cf4cf31ca4a767bc4d3ebe64b1d5598f5436b98644a864768ba1750c6660c7',
   '../local-repository-git-inspection.ts':
-    '1959d45685b5b84bbfc061ae37c148721a603be08f4a3921f80320294a2e7963',
+    'd536c1480ea25a3cda619f43f5ed706ab920cbc2f83613b6275dff76034a870d',
   '../__tests__/existing-local-repository-workspaces.test.ts':
     '5f33af94efe047dbac10317ba60e9461e0e7e7d598fabaab5d11eac476669e46',
   '../repository-task-checkout.ts':
