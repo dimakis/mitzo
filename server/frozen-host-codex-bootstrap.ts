@@ -260,9 +260,11 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       const connection = api
         ? this.owners.loadProfiles().apiRoutingProfile(authBinding).connection
         : undefined;
-      const endpoint = api
-        ? this.owners.loadProfiles().harnessConnection(authBinding).endpoint
+      const selectedConnection = api
+        ? this.owners.loadProfiles().harnessConnection(authBinding)
         : undefined;
+      const endpoint =
+        selectedConnection?.authentication === 'api-key' ? selectedConnection.endpoint : undefined;
       const keyAuthority = api
         ? openAIAccountKeyAuthority(authBinding, this.owners.loadProfiles(), {
             consumer: 'host',
