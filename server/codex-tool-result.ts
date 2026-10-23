@@ -14,11 +14,16 @@ const MAX_TEXT_BYTES = 64 * 1024;
 const MAX_ITEMS = 32;
 const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 const invalid = () => new Error('Invalid or unsupported tool image output');
+export class CodexToolResultBoundError extends Error {
+  constructor() {
+    super('Tool output exceeds the supported result bound');
+  }
+}
 
 function imageDataUrl(data: unknown, mimeType: unknown): string {
   if (typeof mimeType !== 'string' || !imageTypes.has(mimeType) || typeof data !== 'string')
     throw invalid();
-  if (data.length > MAX_CODEX_RICH_RESULT_BYTES) throw Error('Tool image exceeds result bound');
+  if (data.length > MAX_CODEX_RICH_RESULT_BYTES) throw new CodexToolResultBoundError();
   if (!data.length || data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data))
     throw invalid();
   const bytes = Buffer.from(data, 'base64');
@@ -52,15 +57,14 @@ export function normalizeCodexToolResult(result: CodexToolResult): CodexToolResu
   // those in memory; the store and native serializers select only public fields.
   if (result.contentItems === undefined) return Object.freeze({ ...result });
   if (!Array.isArray(result.contentItems) || result.contentItems.length > MAX_ITEMS)
-    throw Error('Tool content exceeds item bound');
-  if (Buffer.byteLength(result.content) > MAX_TEXT_BYTES)
-    throw Error('Tool text exceeds result bound');
+    throw new CodexToolResultBoundError();
+  if (Buffer.byteLength(result.content) > MAX_TEXT_BYTES) throw new CodexToolResultBoundError();
   let textBytes = 0;
   const contentItems = result.contentItems.map((item): CodexToolContentItem => {
     if (!item || typeof item !== 'object') throw invalid();
     if (item.type === 'inputText' && typeof item.text === 'string') {
       textBytes += Buffer.byteLength(item.text);
-      if (textBytes > MAX_TEXT_BYTES) throw Error('Tool text exceeds result bound');
+      if (textBytes > MAX_TEXT_BYTES) throw new CodexToolResultBoundError();
       return { type: 'inputText', text: item.text };
     }
     if (item.type === 'inputImage')
@@ -74,7 +78,7 @@ export function normalizeCodexToolResult(result: CodexToolResult): CodexToolResu
   if (projection !== result.content) throw Error('Tool text projection changed');
   const copy = { content: result.content, isError: result.isError, contentItems };
   if (Buffer.byteLength(JSON.stringify(copy)) > MAX_CODEX_RICH_RESULT_BYTES)
-    throw Error('Tool output exceeds serialized result bound');
+    throw new CodexToolResultBoundError();
   contentItems.forEach(Object.freeze);
   Object.freeze(contentItems);
   return Object.freeze({ ...result, ...copy });
@@ -120,7 +124,7 @@ export function normalizeMcpToolResult(content: unknown, isError: boolean): Code
         isError,
       };
     }
-    if (content.length > MAX_ITEMS) throw Error('Tool content exceeds item bound');
+    if (content.length > MAX_ITEMS) throw new CodexToolResultBoundError();
     let remaining =
       MAX_TEXT_BYTES - Math.max(0, content.filter((block) => block?.type === 'text').length - 1);
     const contentItems: CodexToolContentItem[] = content.map((block) => {
@@ -145,7 +149,7 @@ export function normalizeMcpToolResult(content: unknown, isError: boolean): Code
   } catch (error) {
     return {
       content:
-        error instanceof Error && /bound/.test(error.message)
+        error instanceof CodexToolResultBoundError
           ? 'Tool output exceeds the supported result bound. Request a smaller result.'
           : 'Tool returned invalid or unsupported image/content output. Request text or supported inline images.',
       isError: true,

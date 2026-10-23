@@ -543,6 +543,9 @@ it('claims host tools after reopening a ledger with additional nullable tool col
   s.claimNext('c', binding);
   s.close();
   const db = new Database(path);
+  // Reproduce a real pre-image-result database rather than merely creating a
+  // fresh table that already has the new column.
+  db.exec('ALTER TABLE codex_tools DROP COLUMN result_content_items');
   for (const column of [
     'turn_id TEXT',
     'tool_name TEXT',

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { createWorkspaceRuntimeCommandRunner } from './protected-sdk-command.js';
 import {
   appendCodexToolFeedback,
+  CodexToolResultBoundError,
   normalizeCodexToolResult,
   type CodexToolResult,
 } from './codex-tool-result.js';
@@ -107,7 +108,9 @@ export class NativeHooks {
     } catch (error) {
       return {
         content: executed
-          ? 'Tool ran, but its post-tool hook failed or was interrupted. Inspect current state before retrying.'
+          ? error instanceof CodexToolResultBoundError
+            ? 'Tool ran, but its result exceeded the supported bound after hook feedback. Inspect current state and request a smaller result before retrying.'
+            : 'Tool ran, but its post-tool hook failed or was interrupted. Inspect current state before retrying.'
           : error instanceof Error
             ? error.message
             : 'Project hook blocked the tool.',
