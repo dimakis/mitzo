@@ -237,8 +237,11 @@ it('retains readable real task review and the exact attempt-associated worker ch
       state: 'consumed',
       dispatched: true,
     });
-    await vi.waitFor(async () =>
-      expect((await h.effects()).filter((e) => e.kind === 'turn/start')).toHaveLength(1),
+    // Admission precedes the provider ACK; observe the real turn before continuing.
+    await vi.waitFor(
+      async () =>
+        expect((await h.effects()).filter((e) => e.kind === 'turn/start')).toHaveLength(1),
+      { timeout: 10_000 },
     );
     await composer.fill(workerDraft);
     const allocated = await h.snapshot(workerId, command.clientMsgId),

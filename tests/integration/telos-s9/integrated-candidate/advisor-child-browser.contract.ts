@@ -129,8 +129,11 @@ it('saves a child through a normal advisor planning exchange and actual proposal
       state: 'consumed',
       dispatched: true,
     });
-    await vi.waitFor(async () =>
-      expect((await h.effects()).filter((e) => e.kind === 'turn/start')).toHaveLength(1),
+    // Admission precedes the provider ACK; observe the real turn before continuing.
+    await vi.waitFor(
+      async () =>
+        expect((await h.effects()).filter((e) => e.kind === 'turn/start')).toHaveLength(1),
+      { timeout: 10_000 },
     );
     const providerInputs = await h.providerReply(assistantText);
     await browserExpect(page.getByText('Agreed draft:', { exact: false }).first()).toBeVisible();

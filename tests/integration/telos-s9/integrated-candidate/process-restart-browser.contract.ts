@@ -140,8 +140,11 @@ it('preserves an actual admitted command and honest lost-result state through ab
       state: 'consumed',
       dispatched: true,
     });
-    await vi.waitFor(async () =>
-      expect((await h.effects()).filter((e) => e.kind === 'turn/start')).toHaveLength(1),
+    // Admission precedes the provider ACK; observe the real turn before continuing.
+    await vi.waitFor(
+      async () =>
+        expect((await h.effects()).filter((e) => e.kind === 'turn/start')).toHaveLength(1),
+      { timeout: 10_000 },
     );
     const outbox = () =>
       page.evaluate(() =>
