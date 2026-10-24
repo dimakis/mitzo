@@ -198,9 +198,33 @@ it('keeps newer dictated words after acceptance of the older submitted draft rev
   });
   act(() => accept?.());
   expect(send.mock.calls[0][0]).toBe('Submitted words');
-  expect(getChatDraft(draft.id)?.text).toBe('Submitted words New dictated words');
-  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty(
-    'value',
-    'Submitted words New dictated words',
-  );
+  expect(getChatDraft(draft.id)?.text).toBe('New dictated words');
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'New dictated words');
 });
+
+it.each(['before', 'after'] as const)(
+  'dictates into an empty next draft %s acceptance after context changes during a pending send',
+  async (timing) => {
+    const draft = saved('Submitted words');
+    const voice = makeVoice({ stopRecording: vi.fn(async () => 'Next dictated words') });
+    let accept!: () => void;
+    const send = vi.fn((_text, _images, _context, receipt) => {
+      accept = () => receipt?.('accepted');
+      return true;
+    });
+    const props = { ...base, onSend: send, savedChatDraft: draft, voice };
+    const view = render(<ChatInput {...props} externalContextBlocks={[]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    view.rerender(<ChatInput {...props} externalContextBlocks={['New context']} />);
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+    if (timing === 'after') act(() => accept());
+    await act(async () => {
+      await microphone.current!.onRecordStop();
+    });
+    if (timing === 'before') act(() => accept());
+    expect(send.mock.calls[0][0]).toBe('Submitted words');
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Next dictated words');
+    expect(getChatDraft(draft.id)?.text).toBe('Next dictated words');
+    expect(getChatDraft(draft.id)?.contextBlocks).toEqual(['New context']);
+  },
+);

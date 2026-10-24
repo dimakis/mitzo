@@ -1187,13 +1187,15 @@ export class OpenShellRuntimeManager {
       connectionContracts.some((contract) => !expected.has(contract.name))
     )
       throw new Error('Runtime managed connection authority differs');
-    const inventory = await this.accountProviderInventory(signal);
     // CLI provider inventory omits profile_workspace. Its scoped catalog lists
     // both workspace definitions and platform fallbacks: attest every possible
     // selector result instead of guessing which credential schema is active.
-    const readCatalog = async () => {
+    const readProfiles = async (readSignal: AbortSignal) => {
       const catalog: unknown = JSON.parse(
-        await this.run(['provider', ...this.base(), 'list-profiles', '--output', 'json'], signal),
+        await this.run(
+          ['provider', ...this.base(), 'list-profiles', '--output', 'json'],
+          readSignal,
+        ),
       );
       if (
         !Array.isArray(catalog) ||
@@ -1201,11 +1203,29 @@ export class OpenShellRuntimeManager {
         catalog.some((p) => !p || typeof p !== 'object' || typeof p.id !== 'string')
       )
         throw new Error('Runtime profile catalog is incomplete or unsupported');
-      return catalog.filter((p) =>
+      return catalog;
+    };
+    // These initial control-plane reads are independent. Keep their later
+    // re-observations on the far side of attestation and bind the joined results
+    // to the same physical/account/attachment snapshot below.
+    const observation = new AbortController();
+    const observationSignal = AbortSignal.any([signal, observation.signal]);
+    const reads = [
+      this.accountProviderInventory(observationSignal),
+      readProfiles(observationSignal),
+    ] as const;
+    const [inventory, initialProfiles] = await Promise.all(reads).catch(async (error: unknown) => {
+      observation.abort(error);
+      await Promise.allSettled(reads);
+      throw error;
+    });
+    signal.throwIfAborted();
+    const selectProfiles = (catalog: Awaited<ReturnType<typeof readProfiles>>) =>
+      catalog.filter((p) =>
         inventory.some((provider) => expected.has(provider.name) && provider.type === p.id),
       );
-    };
-    const catalog = await readCatalog();
+    const readCatalog = async () => selectProfiles(await readProfiles(signal));
+    const catalog = selectProfiles(initialProfiles);
     const providers = await Promise.all(
       [...expected].sort().map(async (name) => {
         const matches = inventory.filter((p) => p.name === name);

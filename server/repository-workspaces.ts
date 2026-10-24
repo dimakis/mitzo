@@ -1754,10 +1754,25 @@ export class RepositoryWorkspaces {
       }
       signal.throwIfAborted();
       if (existingPath) await this.assertExistingLocalRepositoryAccess(path, binding, signal);
-      const source = await captureLocalRepository(repositoryId, path, signal, startPoint);
-      const proof = OrdinaryRepositoryPreparationSchema.parse(
-        await this.deps.ordinaryPreparation?.capture(binding, selection, signal),
-      );
+      // Source refresh and runtime qualification have independent inputs. Join
+      // them before constructing the record; the fresh authorization below
+      // still rechecks both authorities before anything is published.
+      const preparation = new AbortController();
+      const captureSignal = AbortSignal.any([signal, preparation.signal]);
+      const captures = [
+        captureLocalRepository(repositoryId, path, captureSignal, startPoint),
+        Promise.resolve().then(async () => {
+          captureSignal.throwIfAborted();
+          return OrdinaryRepositoryPreparationSchema.parse(
+            await this.deps.ordinaryPreparation?.capture(binding, selection, captureSignal),
+          );
+        }),
+      ] as const;
+      const [source, proof] = await Promise.all(captures).catch(async (error: unknown) => {
+        preparation.abort(error);
+        await Promise.allSettled(captures);
+        throw error;
+      });
       if (
         !isDeepStrictEqual(proof.originalBinding, binding) ||
         proof.runtimeBinding.execution.location !== 'local' ||

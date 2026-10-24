@@ -315,6 +315,116 @@ it('keeps two API accounts in separate processes and private homes without modif
   expect(a.binding).toEqual(binding);
 });
 
+it('shares only code between two API accounts and a subscription, retaining version checks and independent process lifetime', async () => {
+  const a = options('a'),
+    b = options('b'),
+    subscription = options('subscription');
+  b.binding.accountId = 'other-api';
+  b.resolveKey.mockResolvedValue('SYNTHETIC_OTHER_KEY');
+  const source = a.executable.custodySnapshot().source;
+  a.executable = FrozenHostCodexExecutable.captureReusable(source, root);
+  b.executable = FrozenHostCodexExecutable.captureReusable(source, root);
+  subscription.executable = FrozenHostCodexExecutable.captureReusable(source, root);
+  const [first, second] = await Promise.all([
+    CodexAppServerClient.launchIsolatedApi(a),
+    CodexAppServerClient.launchIsolatedApi(b),
+  ]);
+  const third = CodexAppServerClient.launchIsolated(
+    subscription.privateHome,
+    subscription.base,
+    subscription.lifecycle,
+    subscription.executable,
+  );
+  closes.push(
+    () => second.client.close(),
+    () => third.close(),
+  );
+  await third.initialize();
+  expect(processes.spawn.mock.calls.map((call) => call[0])).toEqual(
+    Array(3).fill(a.executable.path),
+  );
+  expect(processes.spawn.mock.calls.map((call) => call[2].env.CODEX_HOME)).toEqual([
+    a.privateHome,
+    b.privateHome,
+    subscription.privateHome,
+  ]);
+  expect(processes.spawnSync).toHaveBeenCalledTimes(3);
+  expect(
+    children
+      .slice(0, 2)
+      .map((c) => c.sent.find((r) => r.method === 'account/login/start')!.params!.apiKey),
+  ).toEqual(['SYNTHETIC_SELECTED_KEY', 'SYNTHETIC_OTHER_KEY']);
+  expect(children[2].sent.map((r) => r.method)).toEqual(['initialize', 'initialized']);
+  first.client.close();
+  expect(children[0].p.kill).toHaveBeenCalledOnce();
+  expect(children[1].p.kill).not.toHaveBeenCalled();
+  b.executable.assertLaunchCurrent();
+  const resumed = CodexAppServerClient.launchIsolatedApiResume(
+    b.privateHome,
+    b.base,
+    b.lifecycle,
+    FrozenHostCodexExecutable.reopen(b.executable.custodySnapshot()),
+  );
+  closes.push(() => resumed.close());
+  await resumed.initialize();
+  expect(processes.spawn.mock.calls[3][0]).toBe(a.executable.path);
+  expect(processes.spawn.mock.calls[3][2].env.CODEX_HOME).toBe(b.privateHome);
+  expect(processes.spawnSync).toHaveBeenCalledTimes(4);
+});
+
+it('rejects shared code from a different private root before credentials or process effects', async () => {
+  const selected = options();
+  const otherRoot = join(root, 'other-root');
+  mkdirSync(otherRoot, { mode: 0o700 });
+  selected.executable = FrozenHostCodexExecutable.captureReusable(
+    selected.executable.custodySnapshot().source,
+    otherRoot,
+  );
+  await expect(CodexAppServerClient.launchIsolatedApi(selected)).rejects.toThrow(
+    'API Codex authentication unavailable',
+  );
+  expect(selected.resolveKey).not.toHaveBeenCalled();
+  expect(processes.spawn).not.toHaveBeenCalled();
+  expect(() =>
+    CodexAppServerClient.launchIsolatedApiResume(
+      selected.privateHome,
+      selected.base,
+      selected.lifecycle,
+      selected.executable,
+    ),
+  ).toThrow('runtime unavailable');
+  expect(() =>
+    CodexAppServerClient.launchIsolated(
+      selected.privateHome,
+      selected.base,
+      selected.lifecycle,
+      selected.executable,
+    ),
+  ).toThrow('runtime unavailable');
+});
+
+it('does not discard shared code when one account authentication fails', async () => {
+  const failed = options('failed'),
+    peer = options('peer');
+  const source = failed.executable.custodySnapshot().source;
+  failed.executable = FrozenHostCodexExecutable.captureReusable(source, root);
+  peer.executable = FrozenHostCodexExecutable.captureReusable(source, root);
+  processes.spawn.mockImplementationOnce(() => {
+    const c = child();
+    c.failLogin();
+    children.push(c);
+    return c.p;
+  });
+  await expect(CodexAppServerClient.launchIsolatedApi(failed)).rejects.toThrow(
+    'authentication unavailable',
+  );
+  expect(children[0].p.kill).toHaveBeenCalledOnce();
+  const result = await CodexAppServerClient.launchIsolatedApi(peer);
+  closes.push(() => result.client.close());
+  expect(processes.spawn.mock.calls[1][0]).toBe(failed.executable.path);
+  peer.executable.assertLaunchCurrent();
+});
+
 it('requires the captured executable belonging to the selected private home', async () => {
   const a = options('a'),
     b = options('b');

@@ -4239,7 +4239,11 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
   await expect(page.getByAltText('Attachment 1')).toBeVisible();
   await draft.press('Enter');
   await expect.poll(() => sent.length).toBe(1);
-  await expect(draft).toHaveValue('Exact refused ordinary input');
+  await expect(draft).toHaveValue('');
+  await expect(page.getByText('Exact refused ordinary input', { exact: true })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('mitzo-draft-idle-owned-child')))
+    .toBe('Exact refused ordinary input');
   await draft.fill('Newer untouched ordinary draft');
   emit({
     type: 'session_control_rejected',

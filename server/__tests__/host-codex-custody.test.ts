@@ -76,6 +76,43 @@ it('retains original operator and physical custody across reopened competing nat
     reopened.close();
   }
 });
+it('persists shared code custody across restart without allowing retained conversations to rebind it', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-shared-custody-store-'));
+  roots.push(root);
+  const path = join(root, 'native.db');
+  const original = snapshot();
+  original.login.privateHome = '/private/runtime/host-login-original';
+  original.executable.path = '/private/runtime/host-runtime-ABC123/codex-runtime';
+  original.executable.sharedPlacement = {
+    kind: 'shared-runtime-v1',
+    privateRoot: '/private/runtime',
+    rootIdentity: { dev: '1', ino: '3', uid: '1', mode: '448' },
+  };
+  const first = new CodexConversationStore(path);
+  first.create('session', binding, '/task');
+  first.setHostCustody('session', binding, original);
+  first.bindThread('session', binding, 'same-thread');
+  first.close();
+  const reopened = new CodexConversationStore(path);
+  try {
+    expect(reopened.readHostCustody('session', binding)).toEqual(original);
+    expect(() => reopened.setHostCustody('session', binding, original)).not.toThrow();
+    const replacement = structuredClone(original);
+    replacement.executable.path = '/private/runtime/host-runtime-DEF456/codex-runtime';
+    expect(() => reopened.setHostCustody('session', binding, replacement)).toThrow(
+      'cannot be replaced',
+    );
+    const relabelled = structuredClone(original);
+    delete relabelled.executable.sharedPlacement;
+    expect(() => reopened.setHostCustody('session', binding, relabelled)).toThrow(
+      'cannot be replaced',
+    );
+    expect(reopened.readHostCustody('session', binding)).toEqual(original);
+    expect(reopened.read('session', binding).threadId).toBe('same-thread');
+  } finally {
+    reopened.close();
+  }
+});
 it('refuses unjournaled companion custody and preserves existing conversation custody', () => {
   const store = new CodexConversationStore(':memory:');
   try {
