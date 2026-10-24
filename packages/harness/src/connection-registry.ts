@@ -56,6 +56,9 @@ export class ConnectionRegistry {
   private connections = new Map<string, Connection>();
   // Per-connection per-session cursors: last successfully delivered seq
   private cursors = new Map<string, Map<string, number>>();
+  // A successful write is not an application ACK. Track it separately only
+  // to avoid rereading already-forwarded predecessors on every live delta.
+  private forwarded = new Map<string, Map<string, number>>();
   private retryBoundaries = new Map<string, Map<string, number>>();
   private appliedSessions = new Map<string, Set<string>>();
   private snapshotOffers = new Map<string, Map<string, { cursor: number; offerId: string }>>();
@@ -80,6 +83,7 @@ export class ConnectionRegistry {
     });
     // Initialize cursor map for this connection
     this.cursors.set(connectionId, new Map());
+    this.forwarded.set(connectionId, new Map());
     this.retryBoundaries.set(connectionId, new Map());
     this.appliedSessions.set(connectionId, new Set());
     this.snapshotOffers.set(connectionId, new Map());
@@ -94,6 +98,7 @@ export class ConnectionRegistry {
     this.connections.delete(connectionId);
     // Clean up cursors for this connection
     this.cursors.delete(connectionId);
+    this.forwarded.delete(connectionId);
     this.retryBoundaries.delete(connectionId);
     this.appliedSessions.delete(connectionId);
     this.snapshotOffers.delete(connectionId);
@@ -119,6 +124,7 @@ export class ConnectionRegistry {
     const conn = this.connections.get(connectionId);
     if (!conn) return;
     conn.watchedSessions.delete(sessionId);
+    this.forwarded.get(connectionId)?.delete(sessionId);
     this.retryBoundaries.get(connectionId)?.delete(sessionId);
     this.appliedSessions.get(connectionId)?.delete(sessionId);
     this.snapshotOffers.get(connectionId)?.delete(sessionId);
@@ -179,8 +185,25 @@ export class ConnectionRegistry {
       // The snapshot replaces this backlog. Resume durable delivery from its
       // confirmed cursor once the client has applied it.
       if (seq !== undefined && this.snapshotOffers.get(connectionId)?.has(sessionId)) continue;
+      const pendingBoundary = this.retryBoundaries.get(connectionId)?.get(sessionId);
+      if (seq !== undefined && pendingBoundary !== undefined && seq > pendingBoundary) continue;
+      const previous = outgoing.prevSessionSeq;
+      const forwarded = this.forwarded.get(connectionId)?.get(sessionId) ?? 0;
+      if (
+        this.appliedSessions.get(connectionId)?.has(sessionId) &&
+        typeof previous === 'number' &&
+        previous > forwarded
+      ) {
+        // Internal durable events need not have their own live broadcast.
+        // Forward their redacted prefix now, rather than making the client
+        // buffer the first response until the five-second retry interval.
+        this.retryDelivery(connectionId, sessionId, forwarded);
+        continue;
+      }
       try {
         transport.send(outgoing);
+        if (seq !== undefined)
+          this.forwarded.get(connectionId)?.set(sessionId, Math.max(forwarded, seq));
         // Update cursor on successful delivery (if event has seq)
         if (seq !== undefined && !this.appliedSessions.get(connectionId)?.has(sessionId)) {
           const connCursors = this.cursors.get(connectionId);
@@ -226,6 +249,7 @@ export class ConnectionRegistry {
     if (!connCursors) return;
     this.retryBoundaries.get(connectionId)?.delete(sessionId);
     connCursors.set(sessionId, clientLastSeq);
+    this.forwarded.get(connectionId)?.set(sessionId, clientLastSeq);
     log.info('cursor reset on reconnect', { connectionId, sessionId, cursor: clientLastSeq });
   }
 
@@ -269,6 +293,7 @@ export class ConnectionRegistry {
     const offer = this.snapshotOffers.get(connectionId)?.get(sessionId);
     if (!offer || offer.cursor !== cursor || offer.offerId !== offerId) return false;
     this.cursors.get(connectionId)?.set(sessionId, cursor);
+    this.forwarded.get(connectionId)?.set(sessionId, cursor);
     this.snapshotOffers.get(connectionId)?.delete(sessionId);
     this.retryDelivery(connectionId, sessionId);
     return true;
@@ -348,7 +373,7 @@ export class ConnectionRegistry {
   }
 
   /** Retry a bounded suffix, including events withheld during transcript restore. */
-  private retryDelivery(connectionId: string, sessionId: string): void {
+  private retryDelivery(connectionId: string, sessionId: string, afterSeq?: number): void {
     const conn = this.connections.get(connectionId);
     const connCursors = this.cursors.get(connectionId);
     if (!this.eventStore || !conn || !conn.transport.isOpen() || !connCursors) return;
@@ -359,7 +384,7 @@ export class ConnectionRegistry {
       !this.appliedSessions.get(connectionId)?.has(sessionId)
     )
       return;
-    const cursor = connCursors.get(sessionId) ?? 0;
+    const cursor = afterSeq ?? connCursors.get(sessionId) ?? 0;
     let missedEvents: ReturnType<EventStoreAdapter['getEventsAfter']>;
     try {
       missedEvents = this.eventStore.getEventsAfter(sessionId, cursor, SYNC_BATCH_LIMIT);
@@ -400,6 +425,8 @@ export class ConnectionRegistry {
               : {}),
           }),
         );
+        const forwarded = this.forwarded.get(connectionId);
+        forwarded?.set(sessionId, Math.max(forwarded.get(sessionId) ?? 0, evt.seq));
         const current = connCursors.get(sessionId) ?? 0;
         if (evt.seq > current && !this.appliedSessions.get(connectionId)?.has(sessionId))
           connCursors.set(sessionId, evt.seq);
@@ -434,6 +461,7 @@ export class ConnectionRegistry {
     this.notifyWatchChange();
     this.watchListeners.clear();
     this.cursors.clear();
+    this.forwarded.clear();
     this.retryBoundaries.clear();
     this.appliedSessions.clear();
     this.snapshotOffers.clear();
