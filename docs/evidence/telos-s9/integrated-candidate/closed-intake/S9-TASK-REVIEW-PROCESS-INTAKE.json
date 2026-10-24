@@ -1,0 +1,434 @@
+{
+  "scope": "Independent complete four-file task-tool/pending_review/processrestart/explicit-taskapproval source and evidence intake; no new execution",
+  "outcome": "PASS",
+  "execution": "8b3c22b4897a8bb7f19646fdb433ab2abb865955",
+  "tree": "19bffd4b8451ba56a78220e1f086b77c41c68b7b",
+  "baseline": "4f8dbf4406aadae8dbd3b645668954e74b0f1d20",
+  "checks": {
+    "only_four_new_dedicated_test_paths": true,
+    "exact_tree": true,
+    "nested_standalone_source_proof_equal": true,
+    "all_four_new_source_hashes": true,
+    "all_prior_76_integration_files_exact": true,
+    "workflow_and_manifest_unchanged": true,
+    "all_667_actual_pins": true,
+    "all_13_protected_hashes": true,
+    "raw_http_teardown_seven_capture_two_archive_hashes_sizes": true,
+    "first_run_one_PASS_zero_FAIL_SKIP_TODO": true,
+    "observations_lifecycle_deep_equal_report": true,
+    "killed_reaped_distinct_App_same_paths_signed_auth": true,
+    "selected_exact_native_and_five_request_result_effect_counts": true,
+    "five_actual_successful_results_three_AllowOnce_two_readonly": true,
+    "working_file_actual_Write_and_Files_readback_exact_bytes_hash": true,
+    "attributed_evidence_task_session_and_actual_artifact_input_match": true,
+    "TaskComplete_summary_pendingreview_survives_restart": true,
+    "only_explicit_approval_taskdone_preserves_summary_evidence": true,
+    "canonical_outcomes_still_active_and_work_unrelated_DTOs_unchanged": true,
+    "five_durable_nonerror_tool_results_exact_after_restart": true,
+    "native_local_recovery_no_terminal_completion_replacement": true,
+    "workspace_preparation_and_binding_original": true,
+    "actual202_consumed_initial_dispatch": true,
+    "no_pageerrors": true,
+    "no_invented_TelosSaveArtifact_tool": true,
+    "post_teardown_exact_source_MCP_scan_empty": true,
+    "all_257_source_archive_tracked_members_exact_execution": true,
+    "all_three_custody_members_exact": true,
+    "all_eighteen_diagnostic_archive_members_exact": true
+  },
+  "newSourceInventory": [
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/task-review-process-fixture.ts",
+      "sha256": "0228a5c65fa9075703c4bca38b8441c618f3cc03949001c9e7f7cff8880fd6a2"
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/task-review-child-app.mjs",
+      "sha256": "4eb7d7ad4b1f4c27fb2f4058a4ee69209cafb891fd0ac748fb33324cb1a048d5"
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/task-review-process-browser.contract.ts",
+      "sha256": "aa90e52113481959d37885b5f25b43c4bcc906b7fb27d6de551e9bf343a691e8"
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/vitest.task-review-process.config.ts",
+      "sha256": "4b34b13383f2375e5cf61cb46e9f8ac52192a3852ac5496f5664e0021e16e695"
+    }
+  ],
+  "pinCount": 667,
+  "pinMismatches": [],
+  "protectedCount": 13,
+  "evidence": [
+    {
+      "kind": "rawResult",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/run.json",
+      "sha256": "6596d009538e5f0e7a046605677719057175a4f2d61908875638064f20bcf65a",
+      "bytes": 1173,
+      "match": true
+    },
+    {
+      "kind": "rawHttp",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/actual-http-observations.json",
+      "sha256": "dceedb6139922bd52fbc0931571c3ca979494f454dfcf5914d6e3aadb5fc3497",
+      "bytes": 44111,
+      "match": true
+    },
+    {
+      "kind": "teardown",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-MCP-TEARDOWN-CHECK.json",
+      "sha256": "ca3506666e50ac7f9494464e5104a4cbfd503e821528de8119e2f2f555e7f651",
+      "bytes": 348,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/actual-worker-file-evidence-after-restart.png",
+      "sha256": "2a80d726fe61f3a088dbb2c2e0c72a93c523cf35c6bad92d808b1c073cf0d825",
+      "bytes": 27542,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/explicit-task-done-outcome-still-unverified.png",
+      "sha256": "022a9f1f1e3c4f6c445fa4087f95b26aa0833884f8636e7160488aa73c844450",
+      "bytes": 62326,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/native-permission-Write.png",
+      "sha256": "2a68b1698a67c5b6fac4da9267afe02496f1cdf5b45a6d57e026abe01df11df2",
+      "bytes": 73382,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/native-permission-mcp--task-board--TaskArtifact.png",
+      "sha256": "21596c929464c08d711fe52721e9c2b729b8ed24e69beba65dd0f28ecf29b7f7",
+      "bytes": 86439,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/native-permission-mcp--task-board--TaskComplete.png",
+      "sha256": "bc01dbc6f3053fec9389a985ab631705fa3aec3635009a146d5531af914da64d",
+      "bytes": 73467,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/pending-review-retained-after-real-process-restart.png",
+      "sha256": "af94e933c5ff6dc9537bf268f399ce9d8b9de1bde3cd6676d246516d93b22336",
+      "bytes": 60056,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/real-pending-review-before-process-crash.png",
+      "sha256": "af94e933c5ff6dc9537bf268f399ce9d8b9de1bde3cd6676d246516d93b22336",
+      "bytes": 60056,
+      "match": true
+    },
+    {
+      "kind": "archive",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-SOURCE.zip",
+      "sha256": "490a7505196100de5d2ead3c8923c2a01f4a8970f49d0e12b55e47364f324230",
+      "bytes": 3005391,
+      "match": true
+    },
+    {
+      "kind": "archive",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS.zip",
+      "sha256": "82332ca4d5643c32d2c500cf4f498d7643bbc0d0f8955cf0e39a6482ecc50e04",
+      "bytes": 484555,
+      "match": true
+    }
+  ],
+  "additionalEvidenceHashes": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/task-review-process-observations.json",
+      "sha256": "2e3f94dcd421f23f10455c0442dbe8cd80b016700cd28aa3985d90f009bc551c",
+      "bytes": 298147
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/child-lifecycle.json",
+      "sha256": "dd43151e910ae27262e6b8ebcda25d46155c6fcea889ead6d0270aa3b97024f7",
+      "bytes": 2930
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/external-native-effects.jsonl",
+      "sha256": "ae2ee96c83d5f2126b334faff6db70e097bd35d36558f7f06eae11c1e65b4e10",
+      "bytes": 10328
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/canonical-cli-1.json",
+      "sha256": "d9d1456d30fc4bf8323aa6f7a0d64b26010c844130a792005af57005fb5e8e5b",
+      "bytes": 61
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/canonical-cli-2.json",
+      "sha256": "d9d1456d30fc4bf8323aa6f7a0d64b26010c844130a792005af57005fb5e8e5b",
+      "bytes": 61
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-DIAGNOSTICS/initial/mgmt-cli-pins.json",
+      "sha256": "cf0fa546b4cb1c97ec5835623f99f6411d09d20d34e198cadf51ec58efbc1473",
+      "bytes": 4998
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-RESULT.json",
+      "sha256": "ca95788eb19c55b45de1df09fe22439ddd20c5abf7b23dbb72011ea1f0f6eaac",
+      "bytes": 329492
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-REVIEW-PROCESS-SOURCE-PROOF.json",
+      "sha256": "c1f46e480d9634814687b41c5a9aec89e395e8cfb38be698c9ca7cff1a882093",
+      "bytes": 5329
+    }
+  ],
+  "selectedResult": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 21634.05322265625
+  },
+  "effects": {
+    "preflight.close": 2,
+    "native.launch": 1,
+    "thread/start": 1,
+    "turn/start": 1,
+    "provider.tool.request": 5,
+    "provider.tool.result": 5
+  },
+  "actualToolResults": [
+    {
+      "name": "mcp__task-board__TaskStatus",
+      "approvalShown": false,
+      "callId": "38001d47-b196-45d7-80a9-27dab3fdfa9d",
+      "success": true
+    },
+    {
+      "name": "Write",
+      "approvalShown": true,
+      "callId": "74fcb39b-1394-4059-b101-d28ab6a88961",
+      "success": true
+    },
+    {
+      "name": "mcp__task-board__TaskArtifact",
+      "approvalShown": true,
+      "callId": "7797e7f6-b936-4326-874e-3564febe3a50",
+      "success": true
+    },
+    {
+      "name": "mcp__task-board__TaskComplete",
+      "approvalShown": true,
+      "callId": "12ef01c0-b927-401c-a76b-7b79423ff0a5",
+      "success": true
+    },
+    {
+      "name": "mcp__task-board__TaskStatus",
+      "approvalShown": false,
+      "callId": "3a413d80-57df-4fe6-aaf4-d79b71b821d8",
+      "success": true
+    }
+  ],
+  "lifecycle": [
+    {
+      "event": "ready",
+      "type": "ready",
+      "pid": 93658,
+      "generation": 1,
+      "port": 57995,
+      "authId": "00f4b8f6-7d58-4ca6-bd4d-a7637a9e0b0b",
+      "statePaths": {
+        "repo": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-5Ei8um/controller-workspace",
+        "canonicalDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-task-review-canonical-PLmuDn/canonical-retained.db",
+        "nativeCustody": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-5Ei8um/native-custody",
+        "accountProfiles": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-5Ei8um/profiles.json",
+        "taskDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-5Ei8um/controller-workspace/.mitzo/tasks.db"
+      },
+      "startupRecovery": {
+        "stale": 0,
+        "orphaned": 0
+      },
+      "owners": [
+        "App/REST",
+        "EventStore",
+        "TaskStore/WorkloadStore",
+        "SessionRegistry",
+        "ConnectionRegistry",
+        "SSE",
+        "auth revocations",
+        "ordinary workspace custody",
+        "native conversation/command ledger",
+        "native driver (lazy on explicit command)"
+      ],
+      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+    },
+    {
+      "event": "exit",
+      "pid": 93658,
+      "generation": 1,
+      "code": null,
+      "signal": "SIGKILL"
+    },
+    {
+      "event": "ready",
+      "type": "ready",
+      "pid": 93790,
+      "generation": 2,
+      "port": 58163,
+      "authId": "00f4b8f6-7d58-4ca6-bd4d-a7637a9e0b0b",
+      "statePaths": {
+        "repo": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-5Ei8um/controller-workspace",
+        "canonicalDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-task-review-canonical-PLmuDn/canonical-retained.db",
+        "nativeCustody": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-5Ei8um/native-custody",
+        "accountProfiles": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-5Ei8um/profiles.json",
+        "taskDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-5Ei8um/controller-workspace/.mitzo/tasks.db"
+      },
+      "startupRecovery": {
+        "stale": 1,
+        "orphaned": 0
+      },
+      "owners": [
+        "App/REST",
+        "EventStore",
+        "TaskStore/WorkloadStore",
+        "SessionRegistry",
+        "ConnectionRegistry",
+        "SSE",
+        "auth revocations",
+        "ordinary workspace custody",
+        "native conversation/command ledger",
+        "native driver (lazy on explicit command)"
+      ],
+      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+    },
+    {
+      "event": "exit",
+      "pid": 93790,
+      "generation": 2,
+      "code": null,
+      "signal": "SIGKILL"
+    }
+  ],
+  "taskId": "26c80140-7947-4a9b-beef-0bea07c755d1",
+  "workerConversationId": "05d53de8-4f5f-887f-9af4-46fceec8816d",
+  "workingFileHash": "c441b505b586215cea00efb1ba5904d02229283d3c954ad65874a8077c7df287",
+  "taskEvidence": {
+    "kind": "worker-working-file",
+    "path": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-5Ei8um/tasks/ordinary-b59f0cb9-245b-45bd-b766-c2010a341476/recording-review-report.md",
+    "sha256": "c441b505b586215cea00efb1ba5904d02229283d3c954ad65874a8077c7df287",
+    "sessionId": "05d53de8-4f5f-887f-9af4-46fceec8816d",
+    "taskId": "26c80140-7947-4a9b-beef-0bea07c755d1"
+  },
+  "pendingTask": {
+    "id": "26c80140-7947-4a9b-beef-0bea07c755d1",
+    "parentId": null,
+    "title": "Record one acoustic sample",
+    "description": "{\"summary\":\"Record one acoustic sample\",\"intent\":\"Retain one reviewed sample\",\"rationale\":\"Exact smallest child only\",\"acceptanceCriteria\":[\"Retain sample evidence\"],\"taskHint\":\"\"}",
+    "status": "pending_review",
+    "sessionId": null,
+    "sessionPolicy": "reuse",
+    "priority": 0,
+    "depth": 0,
+    "annotations": [],
+    "summary": "Synthetic recording report submitted with attributed working-file evidence; task review remains explicit and the outcome is unverified.",
+    "requiresApproval": true,
+    "tokenUsage": 0,
+    "claimedBy": null,
+    "claimedAt": null,
+    "createdAt": 1792473384355,
+    "updatedAt": 1792473390172,
+    "completedAt": null,
+    "stageType": null,
+    "gateConfig": null,
+    "artifacts": {
+      "report": "{\"kind\":\"worker-working-file\",\"path\":\"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-5Ei8um/tasks/ordinary-b59f0cb9-245b-45bd-b766-c2010a341476/recording-review-report.md\",\"sha256\":\"c441b505b586215cea00efb1ba5904d02229283d3c954ad65874a8077c7df287\",\"sessionId\":\"05d53de8-4f5f-887f-9af4-46fceec8816d\",\"taskId\":\"26c80140-7947-4a9b-beef-0bea07c755d1\"}"
+    },
+    "retryCount": 0,
+    "maxRetries": 0,
+    "templateId": null,
+    "children": []
+  },
+  "approvedTask": {
+    "id": "26c80140-7947-4a9b-beef-0bea07c755d1",
+    "parentId": null,
+    "title": "Record one acoustic sample",
+    "description": "{\"summary\":\"Record one acoustic sample\",\"intent\":\"Retain one reviewed sample\",\"rationale\":\"Exact smallest child only\",\"acceptanceCriteria\":[\"Retain sample evidence\"],\"taskHint\":\"\"}",
+    "status": "done",
+    "sessionId": null,
+    "sessionPolicy": "reuse",
+    "priority": 0,
+    "depth": 0,
+    "annotations": [],
+    "summary": "Synthetic recording report submitted with attributed working-file evidence; task review remains explicit and the outcome is unverified.",
+    "requiresApproval": true,
+    "tokenUsage": 0,
+    "claimedBy": null,
+    "claimedAt": null,
+    "createdAt": 1792473384355,
+    "updatedAt": 1792473396936,
+    "completedAt": 1792473396936,
+    "stageType": null,
+    "gateConfig": null,
+    "artifacts": {
+      "report": "{\"kind\":\"worker-working-file\",\"path\":\"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-5Ei8um/tasks/ordinary-b59f0cb9-245b-45bd-b766-c2010a341476/recording-review-report.md\",\"sha256\":\"c441b505b586215cea00efb1ba5904d02229283d3c954ad65874a8077c7df287\",\"sessionId\":\"05d53de8-4f5f-887f-9af4-46fceec8816d\",\"taskId\":\"26c80140-7947-4a9b-beef-0bea07c755d1\"}"
+    },
+    "retryCount": 0,
+    "maxRetries": 0,
+    "templateId": null,
+    "children": []
+  },
+  "archiveTrackedMembers": 257,
+  "sourceArchiveMismatches": [],
+  "custody": [
+    {
+      "path": "custody/S9-TASK-REVIEW-PROCESS-SOURCE-PROOF.json",
+      "sha256": "c1f46e480d9634814687b41c5a9aec89e395e8cfb38be698c9ca7cff1a882093",
+      "match": true
+    },
+    {
+      "path": "custody/S9-TASK-REVIEW-PROCESS-PREPARATION.json",
+      "sha256": "1a5acb02b8880dbd393f3031cf11654eeabbfc118f60beee8aeebb103f4d39da",
+      "match": true
+    },
+    {
+      "path": "custody/S9-TASK-REVIEW-MCP-TEARDOWN-CHECK.json",
+      "sha256": "ca3506666e50ac7f9494464e5104a4cbfd503e821528de8119e2f2f555e7f651",
+      "match": true
+    }
+  ],
+  "diagnosticArchiveMembers": 18,
+  "diagnosticArchiveMismatches": [],
+  "rawHttpScope": "h.http observed requests only; browser approval POST200 is asserted in committed test, not separately present in this HTTP array.",
+  "limits": [
+    "Independent bounded source/authority/result review of this frozen four-file test increment.",
+    "Actual accepted-main repeat, owner PR1048 adoption/workflow/CI and exact-head Centaur App gate remain separate. No private candidate PR/push/merge.",
+    "This output is a worker working-file plus TaskArtifact path/hash attribution, not a canonical retained-artifact ID/revision. Canonical retained-artifact write from this local native tool surface remains unavailable/pending; no guessed tool was supplied.",
+    "Explicit taskdone is not canonical outcome verification or providerturn completion. Full returned-result/canonical verification and crash windows before/during tool effects remain pending.",
+    "TaskBoard title ellipsis and long JSON path wrapping limit the actual390px captures; no fullUX24/design/readability acceptance. Device/WebKit/theme/motion/access matrix remains pending.",
+    "Running unrelated native peer, account/revocation/repository-loss/backup/recovery variants, fullTelos/Symposiumcoexistence and separately authorized CT19 runtime/window remain pending.",
+    "No real native/provider binary/model, indexhost lifecycle, productionbundle, live/staging/production fallback or deployment was run; S9 and parent remainACTIVE."
+  ],
+  "acceptedMainReferenceOnly": {
+    "commit": "e1f31608e02f9f6cd4f1dc148df6ff5dab58dccb",
+    "tree": "d1e403e0a8544039ba3e0d4ea40894f56c6c0abd",
+    "receiptPath": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/PR1042-ACCEPTED-RECEIPT.json",
+    "receiptSha256": "d3b7e3ca779fbe464a4b393c0d97ef1116bafb64f0b504f38b38e6c910f93b4e",
+    "qualification": "Accepted1042 reference only. Test ran on private72c+f47e candidate, not this accepted source."
+  },
+  "reviewerNewExecutions": 0,
+  "sourceReview": {
+    "allFourNewFilesReadCompletely": true,
+    "fakeBoundary": "External native RPC replies and provider-origin item/tool/call inputs only; callback response copied unchanged. No simulated provider terminal. Reused source loader external-effect exclusions preserved.",
+    "nativeAuthority": "Actual transport-generation guard, ToolCall schema/thread/active-turn/tool-inventory check, claimTool, selected-tool/current-owner hooks and executeTool callback run.",
+    "permissions": "Actual UI Allow Once for Write(require_approval:true), TaskArtifact and TaskComplete; both TaskStatus calls auto-read through real policy.",
+    "writeOwner": "Actual native file executor checks canonical/private/authority path, exact approved input, session/skill/currentness and file identity before real write.",
+    "mcpOwner": "Unchanged real stdio discovery/execution, currentness, permission handler and task-mcp-server HTTP callback with internal token/client/session/task; receiver resolves current registry and canonical execution binding. No direct fixture mutation callback.",
+    "taskOwners": "TaskArtifact stores supplied path/hash metadata. Actual TaskComplete -> pending_review via requiresApproval/Telos binding; actual Tasks UI -> client approveTask -> owner HTTP -> TaskOrchestrator.approveTask -> done. Canonical outcome not completed.",
+    "artifactQualification": "Working file hash checked by this case against real Files readback; TaskArtifact does not create a canonical retained-artifact ID/revision or independently verify arbitrary supplied path/hash.",
+    "restart": "Once-only synthetic seed/backup closed before children; SIGKILL+reap, fresh source App over retained roots/auth; native startup recovery remains interrupted/recovery1, lastCompletedTurnId null.",
+    "rawHttpQualification": "h.http observed requests only; browser approval POST200 is asserted in committed test, not separately present in this HTTP array.",
+    "visualInspection": "Read retained explicit-task-done-outcome-still-unverified.png locally; abbreviated task text and raw JSON evidence wrapping/clipping remain visible limitations, no UX24/design claim."
+  }
+}

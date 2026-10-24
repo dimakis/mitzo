@@ -1,0 +1,170 @@
+[
+  {
+    "path": "frontend/src/components/TaskNode.tsx",
+    "currentSha256": "bec3abe3eb58093e4800887d3ac43209766ca319f94f2a3e4669ee79af3fd8c3",
+    "donorSha256": "bec3abe3eb58093e4800887d3ac43209766ca319f94f2a3e4669ee79af3fd8c3",
+    "exact": true
+  },
+  {
+    "path": "frontend/src/components/TelosChatWorkTree.tsx",
+    "currentSha256": "6c74e4d9be0234eb7bcd7c1cc499932aa5bf520abe4e8e2fe3a1be2b178fad1e",
+    "donorSha256": "8485c404a7bcf05d674a31b491eb05316490182d5804c1e25a1cb731c2fbaa48",
+    "exact": false
+  },
+  {
+    "path": "server/account-profiles.ts",
+    "currentSha256": "e8b8e659ba11b9d3d28abbb47542929d103dde5c1f2f347d1b6361c547cec759",
+    "donorSha256": "e8b8e659ba11b9d3d28abbb47542929d103dde5c1f2f347d1b6361c547cec759",
+    "exact": true
+  },
+  {
+    "path": "server/agent-library-store.ts",
+    "currentSha256": "fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7",
+    "donorSha256": "fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7",
+    "exact": true
+  },
+  {
+    "path": "server/agent-library-transport.ts",
+    "currentSha256": "f532d75cf524bbe6f2e499ccdb045c2e84dca83ed44c6606b8a70fe4d3c7f3a3",
+    "donorSha256": "f532d75cf524bbe6f2e499ccdb045c2e84dca83ed44c6606b8a70fe4d3c7f3a3",
+    "exact": true
+  },
+  {
+    "path": "server/app.ts",
+    "currentSha256": "b694cc3dd54988ce665bd4a5ef7cd5663770a4ccc32c27288329e8bf57f91042",
+    "donorSha256": "6c03db0e00aa800acc01b65f6ef1c6434134d95aac260a34961585fe40abb4de",
+    "exact": false
+  },
+  {
+    "path": "server/auth.ts",
+    "currentSha256": "87920c89768d613ce00f84bf20ab405d95e139d96a168595e7a8c6431d80e963",
+    "donorSha256": "87920c89768d613ce00f84bf20ab405d95e139d96a168595e7a8c6431d80e963",
+    "exact": true
+  },
+  {
+    "path": "server/chat-rest-handler.ts",
+    "currentSha256": "eb68cca698b3621d1aedf2108ae5ad99234ce9ad2256377e356c41370bc6626d",
+    "donorSha256": "eb68cca698b3621d1aedf2108ae5ad99234ce9ad2256377e356c41370bc6626d",
+    "exact": true
+  },
+  {
+    "path": "server/chat.ts",
+    "currentSha256": "23c01ecd59766bcffa208fc2dba866412d25f7b16443731bc1d54cee64df094c",
+    "donorSha256": "23c01ecd59766bcffa208fc2dba866412d25f7b16443731bc1d54cee64df094c",
+    "exact": true
+  },
+  {
+    "path": "server/codex-conversation-store.ts",
+    "currentSha256": "95a04cadca100de9b781b80dfdd2e73ba442d6a1805015bba51d647aa8c03779",
+    "donorSha256": "95a04cadca100de9b781b80dfdd2e73ba442d6a1805015bba51d647aa8c03779",
+    "exact": true
+  },
+  {
+    "path": "server/event-store.ts",
+    "currentSha256": "1df87f0cead75f33568aaf6deefb61abc473c26c01575725f03e98f0570759ac",
+    "donorSha256": "1df87f0cead75f33568aaf6deefb61abc473c26c01575725f03e98f0570759ac",
+    "exact": true
+  },
+  {
+    "path": "server/native-commands.ts",
+    "currentSha256": "e4386b5195650cfd6f34689ff615a6bf2b7691b53e7ebcd47ce2c5aa6477f75c",
+    "donorSha256": "e4386b5195650cfd6f34689ff615a6bf2b7691b53e7ebcd47ce2c5aa6477f75c",
+    "exact": true
+  },
+  {
+    "path": "server/ordinary-local-codex-capabilities.ts",
+    "currentSha256": "bea6fe896ae2956aca4d8b7ec62077ef2d35d0753a94ca78e888a721a26815ea",
+    "donorSha256": "bea6fe896ae2956aca4d8b7ec62077ef2d35d0753a94ca78e888a721a26815ea",
+    "exact": true
+  },
+  {
+    "path": "server/ordinary-local-codex-entry.ts",
+    "currentSha256": "c7accc3efc53e64874c79c03217ba8bf356834d4477b6c98a38d85923a95e411",
+    "donorSha256": "c7accc3efc53e64874c79c03217ba8bf356834d4477b6c98a38d85923a95e411",
+    "exact": true
+  },
+  {
+    "path": "server/ordinary-local-codex-host-runtime.ts",
+    "currentSha256": "5b152f654f029ad43dc1ded3808ea9fe2765b02c753b3a4a414867cbb37e078a",
+    "donorSha256": "5b152f654f029ad43dc1ded3808ea9fe2765b02c753b3a4a414867cbb37e078a",
+    "exact": true
+  },
+  {
+    "path": "server/ordinary-local-codex-owned-runtime.ts",
+    "currentSha256": "56935fc386d88f4871431423e073a2100175b648aa0badc44dfb69ea234be709",
+    "donorSha256": "56935fc386d88f4871431423e073a2100175b648aa0badc44dfb69ea234be709",
+    "exact": true
+  },
+  {
+    "path": "server/ordinary-repository-preparation-authority.ts",
+    "currentSha256": "54b65da2a861e974bd8846a12549460293ee6a4d7c585f1c7560976fb3d178fc",
+    "donorSha256": "54b65da2a861e974bd8846a12549460293ee6a4d7c585f1c7560976fb3d178fc",
+    "exact": true
+  },
+  {
+    "path": "server/owned-local-codex-chat-admission.ts",
+    "currentSha256": "8f610e04aed917d7d41f550344bb2837e7c77959a0e973fb01858a00297e06e4",
+    "donorSha256": "8f610e04aed917d7d41f550344bb2837e7c77959a0e973fb01858a00297e06e4",
+    "exact": true
+  },
+  {
+    "path": "server/repository-workspaces.ts",
+    "currentSha256": "ea8cef52fd53d54e5475ccc66ff62560fed68b24a6281796062b3e54fd697d3c",
+    "donorSha256": "ea8cef52fd53d54e5475ccc66ff62560fed68b24a6281796062b3e54fd697d3c",
+    "exact": true
+  },
+  {
+    "path": "server/session-sse-registry.ts",
+    "currentSha256": "27709aba5866e805640f1d59f230b2c2ff4889c54acdb4688ec63c12969ad0b4",
+    "donorSha256": "27709aba5866e805640f1d59f230b2c2ff4889c54acdb4688ec63c12969ad0b4",
+    "exact": true
+  },
+  {
+    "path": "server/sse-transport.ts",
+    "currentSha256": "0a459af20dfe8e08f7cf217834c7a154e176d48accc3f82a1114e0088364f9de",
+    "donorSha256": "0a459af20dfe8e08f7cf217834c7a154e176d48accc3f82a1114e0088364f9de",
+    "exact": true
+  },
+  {
+    "path": "server/task-store.ts",
+    "currentSha256": "d8db46138a28be13c612601c1e1435352c1e05b1d6c47deb785804ab397cbbc0",
+    "donorSha256": "d8db46138a28be13c612601c1e1435352c1e05b1d6c47deb785804ab397cbbc0",
+    "exact": true
+  },
+  {
+    "path": "server/telos-artifact-store.ts",
+    "currentSha256": "df5f1bc68bf16822e3e4c6a0d998c1bc32dd460e19ad9e995bf71c94905a1865",
+    "donorSha256": "df5f1bc68bf16822e3e4c6a0d998c1bc32dd460e19ad9e995bf71c94905a1865",
+    "exact": true
+  },
+  {
+    "path": "server/telos-work-advisor-draft.ts",
+    "currentSha256": "a572995682705f98c47fffbdb11aff5eb0621f08d826e8584db542f8d89a28bb",
+    "donorSha256": "a572995682705f98c47fffbdb11aff5eb0621f08d826e8584db542f8d89a28bb",
+    "exact": true
+  },
+  {
+    "path": "server/telos-work-role-context.ts",
+    "currentSha256": "d21fb6e7b3ae8e46f7c4fc2022a6278d7262acf949272893f91271f6590dfdbd",
+    "donorSha256": "d21fb6e7b3ae8e46f7c4fc2022a6278d7262acf949272893f91271f6590dfdbd",
+    "exact": true
+  },
+  {
+    "path": "server/telos-work-role-review.ts",
+    "currentSha256": "badfdb971c6f67d4dc0f6d7fa6fe2b2dfced3e70590c9cf1f4fa3d8bfe62cacd",
+    "donorSha256": "badfdb971c6f67d4dc0f6d7fa6fe2b2dfced3e70590c9cf1f4fa3d8bfe62cacd",
+    "exact": true
+  },
+  {
+    "path": "server/telos-work-store.ts",
+    "currentSha256": "0aa5ff7956c122b3b898d0366e9eabb662f31c9aefdce9b140b1e1137264f408",
+    "donorSha256": "0aa5ff7956c122b3b898d0366e9eabb662f31c9aefdce9b140b1e1137264f408",
+    "exact": true
+  },
+  {
+    "path": "server/transport-auth-ownership.ts",
+    "currentSha256": "945d7eb8ffc97d53d16dc280698ad4dfacae8cb063cc974c269235058b5f7d14",
+    "donorSha256": "945d7eb8ffc97d53d16dc280698ad4dfacae8cb063cc974c269235058b5f7d14",
+    "exact": true
+  }
+]

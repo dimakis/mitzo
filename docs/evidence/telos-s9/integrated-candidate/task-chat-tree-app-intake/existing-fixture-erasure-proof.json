@@ -1,0 +1,9 @@
+{
+  "typescript": "5.9.3",
+  "originalType": "Array<() => unknown | Promise<unknown>>",
+  "currentType": "Array<() => void | Promise<void>>",
+  "existingQualifiedErasureOnly": true,
+  "fixtureEdited": false,
+  "identicalJavaScript": true,
+  "emittedSha256": "47b1e91302ea9434c429ecd9b58b90754fe631dd78701afadf34626f0ee352df"
+}

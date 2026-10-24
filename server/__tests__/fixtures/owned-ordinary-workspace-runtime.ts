@@ -1,4 +1,5 @@
 import { expect, vi } from 'vitest';
+import type { AgentToolReference } from '@mitzo/protocol';
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdtemp, realpath, mkdir, writeFile, rm } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
@@ -34,6 +35,7 @@ import {
 export async function ownedOrdinaryRuntimeFixture(
   cleanups: Array<() => void | Promise<void>>,
   options: {
+    tools?: AgentToolReference[];
     chatRoute?: boolean;
     separateConfiguredWorkspace?: boolean;
     delegationAttemptId?: string;
@@ -150,6 +152,7 @@ export async function ownedOrdinaryRuntimeFixture(
       expectedOutput: 'A retained report',
       acceptanceCriteria: ['Evidence'],
       modelPolicyRole: 'agent',
+      ...(options.tools ? { tools: options.tools } : {}),
     },
   });
   const agentProfile = library.publish('user', {
@@ -258,23 +261,30 @@ export async function ownedOrdinaryRuntimeFixture(
     };
     const rpc = {
       initialize: vi.fn(async () => {}),
-      request: vi.fn(async (method: string) => {
-        if (method === 'account/read')
-          return { account: { type: 'chatgpt', email: 'fixture@example.test', planType: 'plus' } };
-        if (method === 'config/read') return { config: {} };
-        if (method === 'model/list')
-          return {
-            data: [
-              {
-                model: 'fixture-model',
-                displayName: 'Offline fixture',
-                supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
-              },
-            ],
-            nextCursor: null,
-          };
-        throw Error('Unexpected native provider effect');
-      }),
+      request: vi.fn(
+        async (
+          method: string,
+          _params?: Record<string, unknown>,
+        ): Promise<Record<string, unknown>> => {
+          if (method === 'account/read')
+            return {
+              account: { type: 'chatgpt', email: 'fixture@example.test', planType: 'plus' },
+            };
+          if (method === 'config/read') return { config: {} };
+          if (method === 'model/list')
+            return {
+              data: [
+                {
+                  model: 'fixture-model',
+                  displayName: 'Offline fixture',
+                  supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+                },
+              ],
+              nextCursor: null,
+            };
+          throw Error('Unexpected native provider effect');
+        },
+      ),
       close: vi.fn(),
     };
     const launch = vi.fn(() => {
@@ -364,6 +374,7 @@ export async function ownedOrdinaryRuntimeFixture(
       return driver;
     };
     return {
+      dependencies,
       receipt,
       reserved,
       reservation,
@@ -390,6 +401,7 @@ export async function ownedOrdinaryRuntimeFixture(
       return workspaces;
     },
     binding,
+    agentProfile,
     prepared,
     forbidden,
     get legacyLookup() {

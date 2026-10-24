@@ -1,0 +1,197 @@
+{
+  "disposition": "BOUNDED_ADD_CHILD_UX07_08_SUBSET_PASS",
+  "head": "3df776dd16f7f7f2f56955696a53b8838a63f5b9",
+  "tree": "6203d3b2c34e86ed0557296e05b3d360ca661a9c",
+  "parents": ["8a5faa32cc1208fc1950b92d64315c06a2aea63f"],
+  "baseline": "15291f6f40119a9fae72f6d3463ea9fb1a27880e",
+  "changedPaths": [
+    "A\ttests/integration/telos-s9/integrated-candidate/advisor-child-browser.contract.ts",
+    "A\ttests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+    "A\ttests/integration/telos-s9/integrated-candidate/advisor-child-process-fixture.ts",
+    "A\ttests/integration/telos-s9/integrated-candidate/vitest.advisor-child.config.ts"
+  ],
+  "priorIntegrationFilesExact": 89,
+  "actualSourcePinsVerified": 667,
+  "protectedReferencesVerified": 13,
+  "claimedHashSizeEntriesVerified": 27,
+  "archives": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-SOURCE.zip",
+      "sha256": "3e878748c798de2fa28561061153fcbec3226c7f81e5bb16e53c28e88a5dbc7b",
+      "size": 3155411,
+      "fileMembers": 281,
+      "trackedMembers": 277,
+      "custody": [
+        {
+          "path": "custody/S9-ADVISOR-CHILD-PREPARATION.json",
+          "sha256": "0b19db4b359e0595f59261330ad2e89af28706b34471af869c8d53dc968d8e6a",
+          "exactOriginal": true
+        },
+        {
+          "path": "custody/S9-ADVISOR-CHILD-SOURCE-PROOF.json",
+          "sha256": "33e4c77f4527ab8fdb6e1527dcffe45fff233851ba47821c15474b9b3cac307b",
+          "exactOriginal": true
+        },
+        {
+          "path": "custody/S9-ADVISOR-CHILD-MCP-TEARDOWN-CHECK.json",
+          "sha256": "15564c04ebf37ba3c8345e453f69dbbe776743ccceeb8a20b4813c3a2e50a061",
+          "exactOriginal": true
+        },
+        {
+          "path": "custody/8a5-to-3df-idle-lifecycle-assertion.patch",
+          "sha256": "ea62c4d384ecb61ee74657fb94558b70668f67d4aaeccbe8b8c290ad4fd8f35a",
+          "exactGitDiff": true
+        }
+      ],
+      "memberMismatches": []
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-DIAGNOSTICS.zip",
+      "sha256": "322dafa1aa399a3af35a5fecf21f66237692bd85c42f5d5ae5e5c79d5e8025e9",
+      "size": 646373,
+      "fileMembers": 35,
+      "trackedMembers": 0,
+      "custody": [],
+      "memberMismatches": []
+    }
+  ],
+  "rawResult": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-DIAGNOSTICS/idle-lifecycle/run.json",
+    "sha256": "1374afeafb6abfaf49100ac483cbd0a5d049fb68fc0b4d2c1ced887c61069fca",
+    "size": 1167
+  },
+  "rawHttp": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-DIAGNOSTICS/idle-lifecycle/actual-http-observations.json",
+    "sha256": "ed9c78788567ddbb6847f0db47fc0ad9bdcc6969676a194acc7d8f36177c5210",
+    "size": 23176
+  },
+  "selectedResult": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 15378.8037109375
+  },
+  "observationsExactProducerReport": true,
+  "runtimeAndFullProfileActualOwnerBeforeAfterEqual": true,
+  "actualPreviewSaveBoundaryEqualsLastCompletedMessage": true,
+  "previewHashEqualsSaveRequest": true,
+  "childNoLeadWorkerAssignmentsOrAttempts": true,
+  "exactSourceConversationAndPacketSelection": true,
+  "selectedArtifactRefsAndPacketPinsEmpty": true,
+  "oldEventsExactPrefix": true,
+  "appendedLifecycleCount": 1,
+  "appendedLifecycle": [
+    {
+      "seq": 17,
+      "sessionId": "69b447fd-bbd0-8af5-9b5a-8a46be5d8044",
+      "type": "session_state_changed",
+      "payload": {
+        "sessionId": "69b447fd-bbd0-8af5-9b5a-8a46be5d8044",
+        "state": "idle",
+        "internalState": "ENDED",
+        "timestamp": 1792478141967
+      },
+      "createdAt": 1792478141967
+    }
+  ],
+  "sameAuthRootsDistinctAppPids": true,
+  "lifecycle": [
+    {
+      "stage": "initial",
+      "readyPids": [57802, 57921],
+      "exitPids": [57802, 57921]
+    },
+    {
+      "stage": "idle-lifecycle",
+      "readyPids": [60768, 60883],
+      "exitPids": [60768, 60883]
+    }
+  ],
+  "effects": {
+    "initial": {
+      "preflight.close": 2,
+      "native.launch": 1,
+      "thread/start": 1,
+      "turn/start": 1,
+      "provider.notification.input": 3
+    },
+    "idle-lifecycle": {
+      "preflight.close": 2,
+      "native.launch": 1,
+      "thread/start": 1,
+      "turn/start": 1,
+      "provider.notification.input": 3
+    }
+  },
+  "mcpPostTeardownRecordedCheck": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-MCP-TEARDOWN-CHECK.json",
+    "sha256": "15564c04ebf37ba3c8345e453f69dbbe776743ccceeb8a20b4813c3a2e50a061",
+    "size": 352
+  },
+  "capturesVerified": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-DIAGNOSTICS/idle-lifecycle/actual-existing-material-inspection-before-advisor.png",
+      "sha256": "47732a47fdc909e8ec9b8ea735529423b360885e024ea38ce9d4b29305b0b593",
+      "size": 20414
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-DIAGNOSTICS/idle-lifecycle/actual-normal-advisor-completed-planning-exchange.png",
+      "sha256": "0c56f9e55955d09ed5fafe022d06c7d66b52653c39d4968707624024f46fc63f",
+      "size": 61335
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-DIAGNOSTICS/idle-lifecycle/actual-normal-child-advisor-reviewed-setup.png",
+      "sha256": "16f6bfce9d13bdb3111f4a3776d7388e173a758df9f2bf488de5f332db0291c0",
+      "size": 45860
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-DIAGNOSTICS/idle-lifecycle/actual-operator-reviewed-child-proposal-card.png",
+      "sha256": "eacb047f4913a5a2655882861e7476f88ecdc7d637aec85e255ff2adb278e034",
+      "size": 63060
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-DIAGNOSTICS/idle-lifecycle/actual-originating-advisor-exchange-and-child-backlink.png",
+      "sha256": "7bd0f1ce4684027801dd4446982beb00b25b23d44c9eca50eb207e2ab94d2d78",
+      "size": 47099
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-DIAGNOSTICS/idle-lifecycle/created-child-retains-actual-advisor-source.png",
+      "sha256": "a5cf2f6709dc5882547b0ced94d0ed8a15a23921156ae6237bad6f8cb85a7dfe",
+      "size": 50033
+    }
+  ],
+  "capturesInspected": [
+    "actual-originating-advisor-exchange-and-child-backlink.png",
+    "actual-operator-reviewed-child-proposal-card.png",
+    "created-child-retains-actual-advisor-source.png"
+  ],
+  "sourceProof": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-SOURCE-PROOF.json",
+    "sha256": "33e4c77f4527ab8fdb6e1527dcffe45fff233851ba47821c15474b9b3cac307b",
+    "size": 7700
+  },
+  "producerReport": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-RESULT.json",
+    "sha256": "21ad228bcf10a93f19406050e070c3a74aa423dc81967cc20e0c57c8c4e8a4f0",
+    "size": 238834
+  },
+  "findings": [],
+  "limits": [
+    "One Add-child subset only: separate Refine and full UX07/08/24/theme/device/readability remain open.",
+    "Inspected material is not role inheritance/material-pin evidence; selected artifacts and packet pins are empty.",
+    "External notification inputs include simulated turn completion; real owner projection of that simulated terminal is proven, not actual provider/model/native binary terminal behavior.",
+    "No native ledger snapshot/owned native canonical output grant/task or outcome completion.",
+    "Proposal capture is cropped within chat scroller; source-return filename is overwritten and retained image is final postrestart state.",
+    "One initial event-equality failure retained; final change requires exact prefix and only ENDED/idle state appends.",
+    "Actual accepted-main/current CI/trusted review/supplemental1048 adoption remain separate."
+  ],
+  "reviewExecution": "Read-only source/hash/ZIP/retained image inspection; no tests/compiler/browser/services/network/models, producer/index edits or outgoing messages.",
+  "taskBoardEmptyBeforeAfter": true,
+  "approvedReference": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-2/references/acceptance-contract.md",
+    "sha256": "dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255",
+    "rows": ["UX07", "UX08"],
+    "scenario": 5
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "verifiedAt": "2026-10-20T08:26:12.315337+00:00",
+  "head": "472d5c538c86b506972fbd9b7a7356b46d7277ff",
+  "tree": "a83fc19a7271254ef68205bbace4d89004941e53",
+  "baseline": "5b3e98569f8e25e9dfdeadd19e6dacfa87e83bf2",
+  "changedPaths": [
+    "A\ttests/integration/telos-s9/integrated-candidate/advisor-material-browser.contract.ts",
+    "A\ttests/integration/telos-s9/integrated-candidate/advisor-material-process-fixture.ts",
+    "A\ttests/integration/telos-s9/integrated-candidate/vitest.advisor-material.config.ts"
+  ],
+  "priorIntegrationFilesByteExact": 95,
+  "sourcePins": 667,
+  "protectedReferences": 13,
+  "claimedHashSizeEntriesVerified": 38,
+  "archives": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-SOURCE.zip",
+      "sha256": "9449b1b42be36226486f8e49f6746e4403dca5ed34ff598858d2a920a0f03567",
+      "members": 293,
+      "trackedMembers": 286
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-DIAGNOSTICS.zip",
+      "sha256": "ba8a356385b587dce2a2de417959e61b3d1b2cb302299d1bc5764d3715739e7e",
+      "members": 24,
+      "trackedMembers": 0
+    }
+  ],
+  "rawResult": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-DIAGNOSTICS/source-record-pin/run.json",
+    "sha256": "84d9119fa7de05fe5ca932075da2138902516e20b5aa618c07e4cb3df22e7fb1",
+    "size": 1225
+  },
+  "actualRawObservationsExactReport": true,
+  "selectedResult": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 20147.31103515625
+  },
+  "actualUiR1Download": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-DIAGNOSTICS/source-record-pin/actual-ui-reviewed-r1-download.md",
+    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+    "size": 26
+  },
+  "retainedPriorChildRefineBytesVerified": true,
+  "initialHarnessFailurePreserved": {
+    "stage": "initial",
+    "source": "e9003015",
+    "raw": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-DIAGNOSTICS/initial/run.json",
+      "sha256": "97a2115c85dbdf4c6c890e7a2351b1ce94062833d1119948ee95aff8cb507da1",
+      "size": 1961
+    },
+    "disposition": "Seed-only harness expectation failed before Appstartup: actualSourceCapture snapshot correctly includes selectedmaterial plus its own source-recordartifact, while initialassert expected onepin. No App/native/provider started and no browserjourney executed. Full firstbaseline notretained; rawexpected/actual pins and originalsource/diff retained. Not productRED. Initialseedfailure lacked earlycleanup; processended and corrected fixture adds actualparentseed cleanup before next execution."
+  },
+  "realModelCalls": 0,
+  "noTestsBrowserCompilerOrRuntimeExecutedByVerifier": true,
+  "disposition": "Evidence integrity PASS only. Synthetic preexisting source plus actual UI r1 download/pin preservation/new-source packet bytes and App restart are bounded proof. Actual native source/material byte access and full UI adoption/main/full UX remain open."
+}

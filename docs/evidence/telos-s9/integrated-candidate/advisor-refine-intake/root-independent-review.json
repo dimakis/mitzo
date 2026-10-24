@@ -1,0 +1,271 @@
+{
+  "disposition": "BOUNDED_EXISTING_ITEM_REFINE_UX07_08_SUBSET_PASS",
+  "head": "72d6d6b8cb6456835543c96e24e3e17702b66c82",
+  "tree": "99f4c1ddd2292784a03ecdf15d4c7e2e48ffdabc",
+  "parents": ["757feb62145c6bff933d98e16fddd5e783539346"],
+  "baseline": "757feb62145c6bff933d98e16fddd5e783539346",
+  "changedPaths": [
+    "A\ttests/integration/telos-s9/integrated-candidate/advisor-refine-browser.contract.ts",
+    "A\ttests/integration/telos-s9/integrated-candidate/vitest.advisor-refine.config.ts"
+  ],
+  "priorIntegrationFilesExact": 93,
+  "actualSourcePinsVerified": 667,
+  "protectedReferencesVerified": 13,
+  "claimedHashSizeEntriesVerified": 31,
+  "archives": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-SOURCE.zip",
+      "sha256": "7dc0327413e82e5603a8a2d5ceda0f8413da9f60d2c5cb3e3a6567575312ec3f",
+      "size": 3191586,
+      "fileMembers": 284,
+      "trackedMembers": 281,
+      "custody": [
+        {
+          "path": "custody/S9-ADVISOR-REFINE-PREPARATION.json",
+          "sha256": "a69a97415a7d53a433dc629602e824ea1eb19e5d5d91aee0aeef9ff2822b5e80",
+          "exactOriginal": true
+        },
+        {
+          "path": "custody/S9-ADVISOR-REFINE-SOURCE-PROOF.json",
+          "sha256": "40a4a53ae107fce05cc18151697d793bfd42c0dc4ee95b5a3e0a254cc64952cc",
+          "exactOriginal": true
+        },
+        {
+          "path": "custody/S9-ADVISOR-REFINE-MCP-TEARDOWN-CHECK.json",
+          "sha256": "b0f955e547718c06235bffe7d43e701174b8c97a9ccd5ea9115562eefe012d27",
+          "exactOriginal": true
+        }
+      ],
+      "memberMismatches": []
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-DIAGNOSTICS.zip",
+      "sha256": "5f15bbd13e0a3c022d23cb59daaf529f26563e37e2cb8aa08db17ed6038cbfd9",
+      "size": 485253,
+      "fileMembers": 19,
+      "trackedMembers": 0,
+      "custody": [],
+      "memberMismatches": []
+    }
+  ],
+  "rawResult": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-DIAGNOSTICS/initial/run.json",
+    "sha256": "a484c78c7bf8970ac1c22fccebf58929659263bec2d72c1f02cd1f5629054b7d",
+    "size": 1190
+  },
+  "rawHttp": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-DIAGNOSTICS/initial/actual-http-observations.json",
+    "sha256": "63add5fa28e1ea273e1d9b90d216f385fc6898357fbd1587ba097a1ccff79104",
+    "size": 37734
+  },
+  "selectedResult": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 19386.5751953125
+  },
+  "observationsExactProducerReport": true,
+  "closedAddChildFixtureAppByteExact": true,
+  "closedAddChildArchivesPreserved": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-SOURCE.zip",
+      "sha256": "3e878748c798de2fa28561061153fcbec3226c7f81e5bb16e53c28e88a5dbc7b",
+      "size": 3155411
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-DIAGNOSTICS.zip",
+      "sha256": "322dafa1aa399a3af35a5fecf21f66237692bd85c42f5d5ae5e5c79d5e8025e9",
+      "size": 646373
+    }
+  ],
+  "closedAddChildRawMembersPreserved": 35,
+  "sameItemIdentityAndUntouchedLegacyFieldsVerified": true,
+  "actualItemParentBriefCriteriaGoalContextVerified": true,
+  "runtimeAndFullProfileActualOwnerBeforeAfterEqual": true,
+  "previewSaveBoundaryEqualsLastCompletedMessage": true,
+  "previewHashEqualsSaveRequest": true,
+  "taskBoardEmptyBeforeAfter": true,
+  "noLeadWorkerAssignmentsOrAttempts": true,
+  "sourceSelectionPacketExact": true,
+  "roleSourcesAndArtifactPinsEmpty": true,
+  "oldEventsExactPrefix": true,
+  "appendedLifecycle": [
+    {
+      "seq": 17,
+      "sessionId": "ba83cef9-2a14-850d-8b4c-145f45b37978",
+      "type": "session_state_changed",
+      "payload": {
+        "sessionId": "ba83cef9-2a14-850d-8b4c-145f45b37978",
+        "state": "idle",
+        "internalState": "ENDED",
+        "timestamp": 1792482311565
+      },
+      "createdAt": 1792482311566
+    }
+  ],
+  "sameAuthRootsDistinctAppPids": true,
+  "lifecycle": [
+    {
+      "event": "ready",
+      "type": "ready",
+      "pid": 94530,
+      "generation": 1,
+      "port": 57496,
+      "authId": "04970421-4ce1-4844-a4db-f52c73a4c24e",
+      "statePaths": {
+        "repo": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-NXv4XT/controller-workspace",
+        "canonicalDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-advisor-child-canonical-jRnoI2/canonical-retained.db",
+        "nativeCustody": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-NXv4XT/native-custody",
+        "accountProfiles": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-NXv4XT/profiles.json",
+        "taskDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-NXv4XT/controller-workspace/.mitzo/tasks.db"
+      },
+      "startupRecovery": {
+        "stale": 0,
+        "orphaned": 0
+      },
+      "owners": [
+        "App/REST",
+        "EventStore",
+        "TaskStore/WorkloadStore",
+        "SessionRegistry",
+        "ConnectionRegistry",
+        "SSE",
+        "auth revocations",
+        "ordinary workspace custody",
+        "native conversation/command ledger",
+        "native driver (lazy on explicit command)"
+      ],
+      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+    },
+    {
+      "event": "exit",
+      "pid": 94530,
+      "generation": 1,
+      "code": null,
+      "signal": "SIGKILL"
+    },
+    {
+      "event": "ready",
+      "type": "ready",
+      "pid": 94740,
+      "generation": 2,
+      "port": 57646,
+      "authId": "04970421-4ce1-4844-a4db-f52c73a4c24e",
+      "statePaths": {
+        "repo": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-NXv4XT/controller-workspace",
+        "canonicalDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-advisor-child-canonical-jRnoI2/canonical-retained.db",
+        "nativeCustody": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-NXv4XT/native-custody",
+        "accountProfiles": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-NXv4XT/profiles.json",
+        "taskDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-NXv4XT/controller-workspace/.mitzo/tasks.db"
+      },
+      "startupRecovery": {
+        "stale": 1,
+        "orphaned": 0
+      },
+      "owners": [
+        "App/REST",
+        "EventStore",
+        "TaskStore/WorkloadStore",
+        "SessionRegistry",
+        "ConnectionRegistry",
+        "SSE",
+        "auth revocations",
+        "ordinary workspace custody",
+        "native conversation/command ledger",
+        "native driver (lazy on explicit command)"
+      ],
+      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+    },
+    {
+      "event": "exit",
+      "pid": 94740,
+      "generation": 2,
+      "code": null,
+      "signal": "SIGKILL"
+    }
+  ],
+  "effects": {
+    "preflight.close": 2,
+    "native.launch": 1,
+    "thread/start": 1,
+    "turn/start": 1,
+    "provider.notification.input": 3
+  },
+  "mcpPostTeardownRecordedCheck": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-MCP-TEARDOWN-CHECK.json",
+    "sha256": "b0f955e547718c06235bffe7d43e701174b8c97a9ccd5ea9115562eefe012d27",
+    "size": 352
+  },
+  "capturesVerified": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-DIAGNOSTICS/initial/actual-existing-material-inspection-before-advisor.png",
+      "sha256": "47732a47fdc909e8ec9b8ea735529423b360885e024ea38ce9d4b29305b0b593",
+      "size": 20414
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-DIAGNOSTICS/initial/actual-operator-reviewed-refinement-proposal-card.png",
+      "sha256": "35d8b0776a669d63e3e3cd05003f482f433c0e76a7cb4c2e6eaa8894751b25ca",
+      "size": 72829
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-DIAGNOSTICS/initial/actual-refine-normal-advisor-completed-exchange.png",
+      "sha256": "1f731e7dc97d4e65479afa360182175ca48caa9867cb2c9c7ec1e4914e0af1e5",
+      "size": 70003
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-DIAGNOSTICS/initial/actual-refine-normal-chat-reviewed-linked-brief.png",
+      "sha256": "3251cb2ef0c817ee7a1bfc92a076336613c8378e46b666463767dfd59bcdfcc6",
+      "size": 63043
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-DIAGNOSTICS/initial/actual-refine-originating-advisor-exchange-and-item-backlink-after-restart.png",
+      "sha256": "abffbf14e806c03a3c48cef3fe5b6f0e080a21b7a99c7799be6dee708a51e4ed",
+      "size": 54828
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-DIAGNOSTICS/initial/actual-refine-originating-advisor-exchange-and-item-backlink-before-restart.png",
+      "sha256": "e0bb053b79419f4d0b021fd31784b0c8193f2ccaaacaa146e17c0b8e7c79f097",
+      "size": 57302
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-DIAGNOSTICS/initial/actual-refine-reviewed-item-parent-goal-setup.png",
+      "sha256": "d5e6c805a6b426a0c8456b980431b2e731dd6a8fee72463b0e7e09d865425fb9",
+      "size": 72137
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-DIAGNOSTICS/initial/refined-item-retains-exact-advisor-source.png",
+      "sha256": "032262be2fd95f0b222f792c356fb0e30bfa521eae0bb77dbda487a4130f4ce3",
+      "size": 51809
+    }
+  ],
+  "capturesInspected": [
+    "actual-refine-reviewed-item-parent-goal-setup.png",
+    "actual-operator-reviewed-refinement-proposal-card.png",
+    "actual-refine-originating-advisor-exchange-and-item-backlink-after-restart.png"
+  ],
+  "sourceProof": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-SOURCE-PROOF.json",
+    "sha256": "40a4a53ae107fce05cc18151697d793bfd42c0dc4ee95b5a3e0a254cc64952cc",
+    "size": 9036
+  },
+  "producerReport": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-RESULT.json",
+    "sha256": "bcb71ea3d343c5def49072993b201c53ca695b1e138be9d39a33789e0382500f",
+    "size": 283073
+  },
+  "approvedReference": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-2/references/acceptance-contract.md",
+    "sha256": "dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255",
+    "size": 8596
+  },
+  "findings": [],
+  "limits": [
+    "Nonempty source/material selection/adoption/materialinheritance: role setup has no picker and this baseline selectedrefs are EMPTY. Parentmaterial was inspected through Files only.",
+    "Negative/stale/revoked/account/retry/deeperancestor/coexistence matrix; no additionaljourney opened.",
+    "Provider completion is simulated. Realprovider/nativebinary/live single-runtime qualification and canonical nativeoutput port remain pending.",
+    "Cropped proposal form, fullUX07/08/24/device/keyboard/theme/readability/accessibility and actualApp/main TaskBoard retake remain separate.",
+    "S5b-owned selective1048 finalintake, acceptedmain/hostedCI/trustedexactheadApp/merge and livewindow remain root/owner work. S9 andparentACTIVE; no PR/push/merge/retarget/statuspoll/productedit."
+  ],
+  "reviewExecution": "Static source/hash/ZIP/retained-image review only; no tests/compiler/browser/services/network/models, producer/index edits or messages. Raw evidence unchanged."
+}

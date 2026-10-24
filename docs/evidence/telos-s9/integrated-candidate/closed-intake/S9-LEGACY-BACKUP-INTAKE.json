@@ -1,0 +1,193 @@
+{
+  "disposition": "BOUNDED_PASS",
+  "findings": [],
+  "scope": "Static source/evidence intake only; no test or App execution. Partial UX20/scenario7 snapshot-byte restore/readback, not historical migration/Restic/full recovery/main qualification.",
+  "head": "8720788c31980575a3da990d43768c9e8eac0947",
+  "tree": "e4f7f73b6f02865b3c0d5462944aac359b9261ea",
+  "parents": ["1fb484ca0819375e3c27d66245dda884e0b3b477"],
+  "baseline": "3be2a0cfa458b9990a45b8e96da8c43804f5b8cc",
+  "changedPaths": [
+    "A\ttests/integration/telos-s9/integrated-candidate/legacy-backup-child-app.mjs",
+    "A\ttests/integration/telos-s9/integrated-candidate/legacy-backup-process-browser.contract.ts",
+    "A\ttests/integration/telos-s9/integrated-candidate/legacy-backup-process-fixture.ts",
+    "A\ttests/integration/telos-s9/integrated-candidate/legacy-backup-seed.ts",
+    "A\ttests/integration/telos-s9/integrated-candidate/vitest.legacy-backup-process.config.ts"
+  ],
+  "priorIntegrationFilesUnchanged": 80,
+  "actualPinsVerified": 667,
+  "protectedReferencesVerified": 13,
+  "claimedHashSizeEntriesVerified": 37,
+  "archives": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-LEGACY-BACKUP-SOURCE.zip",
+      "sha256": "1c620c59212f65189bbefd4fec5c3bb2901c26d6925f8d70c9fdd0bad2fada4f",
+      "size": 3068589,
+      "fileMembers": 268,
+      "trackedMembers": 264,
+      "custody": [
+        {
+          "path": "custody/S9-LEGACY-BACKUP-SOURCE-PROOF.json",
+          "sha256": "4bf5b0259058e3d70701697f14f34da403aa02e5f4c081c9fb00b05f9005e96f",
+          "size": 8235,
+          "matchesOriginal": true
+        },
+        {
+          "path": "custody/S9-LEGACY-BACKUP-PREPARATION.json",
+          "sha256": "4acacca955f93b64691fc81853a49bc1ceab0646927fbb2da7f416c553d6ae8d",
+          "size": 1865,
+          "matchesOriginal": true
+        },
+        {
+          "path": "custody/initial-ed2-to-1fb-timeout-selector.patch",
+          "sha256": "a1e286d53ae0330d727ad50d4ceda393beb1d6daf795523008192ddfd8260259",
+          "size": 2638,
+          "matchesGitDiff": true
+        },
+        {
+          "path": "custody/1fb-to-872-metadata-accounting-and-snapshot-retention.patch",
+          "sha256": "7329e45567d85b241d20b86f98557c2a53d9839cad82b519b6683a9628d64505",
+          "size": 3154,
+          "matchesGitDiff": true
+        }
+      ],
+      "memberMismatches": []
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-LEGACY-BACKUP-DIAGNOSTICS.zip",
+      "sha256": "2cc9de7d494468e953669f5ac9b63c2536e31a4e1bcc3e1fb200c5e46c1607dc",
+      "size": 477171,
+      "fileMembers": 51,
+      "trackedMembers": 0,
+      "custody": [],
+      "memberMismatches": []
+    }
+  ],
+  "sourceProof": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-LEGACY-BACKUP-SOURCE-PROOF.json",
+    "sha256": "4bf5b0259058e3d70701697f14f34da403aa02e5f4c081c9fb00b05f9005e96f",
+    "size": 8235
+  },
+  "producerResult": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-LEGACY-BACKUP-RESULT.json",
+    "sha256": "1ae0ea024558c9ff14a5b5b9712aed8df89399c60eead26aa59ac5bb2dd626aa",
+    "size": 227975
+  },
+  "rawResult": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-LEGACY-BACKUP-DIAGNOSTICS/captured-group/run.json",
+    "sha256": "6e30b5fdb6055beedbd7b18c9e6eb0baebc2a380eb5d8128c4236386a7724c6e",
+    "size": 1177
+  },
+  "rawHttp": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-LEGACY-BACKUP-DIAGNOSTICS/captured-group/actual-http-observations.json",
+    "sha256": "c9e87cd978cd138e32d55bf81af347741d9efe0135ece514c799a5bb31e66d5e",
+    "size": 38353,
+    "entries": 22,
+    "allGET": true,
+    "scope": "h.http requests/readback only; actual browser view/assertions are in committed test and captures."
+  },
+  "capturedFiles": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-LEGACY-BACKUP-DIAGNOSTICS/captured-group/captured-core-group/coverage.json",
+      "relative": "coverage.json",
+      "sha256": "69c198bdf165c97c3fbfc054d7af447d6fbaf5996282bef5616882e65550d713",
+      "size": 409
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-LEGACY-BACKUP-DIAGNOSTICS/captured-group/captured-core-group/mitzo-events/store.db",
+      "relative": "mitzo-events/store.db",
+      "sha256": "3c29b715621137cadf569e20eb77ddce6b55f108510bbef5cccd1d503c478dc2",
+      "size": 663552
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-LEGACY-BACKUP-DIAGNOSTICS/captured-group/captured-core-group/mitzo-tasks/store.db",
+      "relative": "mitzo-tasks/store.db",
+      "sha256": "a3bfedcf2d4f26a175d6ad0cd5177d6f5ff67eccd2ea92fd8c0f893b1c992548",
+      "size": 98304
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-LEGACY-BACKUP-DIAGNOSTICS/captured-group/captured-core-group/telos/store.db",
+      "relative": "telos/store.db",
+      "sha256": "ca4f53932e1880c4862818515808111ba993184aa16e76afb99e179342d051bd",
+      "size": 278528
+    }
+  ],
+  "captureCoverage": {
+    "version": 1,
+    "capturedAt": "2026-10-20T05:41:54.709Z",
+    "required": ["mitzo-events", "mitzo-tasks", "telos"],
+    "stores": [
+      {
+        "id": "mitzo-events",
+        "watermark": "2c659d64ca3f3dc3abb6dae8fe5baf54ac05a8249da8f1895f0ffe9ec9485d16"
+      },
+      {
+        "id": "mitzo-tasks",
+        "watermark": "852649d06656318990e0f653880ecd5dfd326ccb70b7386ec6ae5cd15c0a8671"
+      },
+      {
+        "id": "telos",
+        "watermark": "6743ff429e37c7eee7e5302ee3e96fba159c35c059b76b540e58ba95ffb22110"
+      }
+    ]
+  },
+  "restoreHashSizeMatchesAllThreeCapturedSnapshots": true,
+  "observationsExactProducerReport": true,
+  "canonicalAndTypedBeforeAfterIdentical": true,
+  "artifactR1R2BeforeAfterIdentical": true,
+  "samePrivatePathsAndAuthDistinctAppPid": true,
+  "lifecycle": [
+    {
+      "stage": "initial",
+      "readyPids": [16594],
+      "exitPids": [16594],
+      "allRecordedReaped": true
+    },
+    {
+      "stage": "process-budget",
+      "readyPids": [17191, 17267],
+      "exitPids": [17191, 17267],
+      "allRecordedReaped": true
+    },
+    {
+      "stage": "captured-group",
+      "readyPids": [17728, 17853],
+      "exitPids": [17728, 17853],
+      "allRecordedReaped": true
+    }
+  ],
+  "effectsMetadataCloseCounts": {
+    "initial": 1,
+    "process-budget": 2,
+    "captured-group": 2
+  },
+  "selected": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 13161.17431640625
+  },
+  "visualInspection": [
+    "restored-explicit-original-revision-through-actual-files.png",
+    "restored-unknown-provenance-still-unassigned.png"
+  ],
+  "diagnosticSidecars": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-LEGACY-BACKUP-DIAGNOSTICS/captured-group/captured-core-group/telos/store.db-wal",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-LEGACY-BACKUP-DIAGNOSTICS/captured-group/captured-core-group/telos/store.db-shm",
+      "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+      "size": 32768
+    }
+  ],
+  "errors": [],
+  "pending": [
+    "Full historical MGMT Python migration execution (fresh/pre-change variants), live schemas, Restic/encrypted-cloud/service restore policy and wholeecosystem/host custody are not qualified by direct test-orchestrated copying of this actual consistency-group snapshot.",
+    "Existing assigned-role/attempt/queuedcommand receipts or approvedadopted-source packets are not in these legacyfixtures; retention of those remains separately scoped to prior contracts, not newly proven here.",
+    "Exact per-field unknown-author/date UI formatting is not independently asserted by the broad Unknown-label check; backend raw/projected values are exact. Additional backup corruption/write-race/loss/account/revocation/device/theme/access/recovery variants and fullUX20/UX24 comparison remainpending. Long originalsnippet rendering is functional evidence, not full readability acceptance.",
+    "Owner1048 selective test/CI adoption, exact finalacceptedmain repeat, CI/trustedCentaurApp gate, fullTelos/Symposiumcoexistence and separately authorized CT19 single-runtime/window remainpending. S9/parentACTIVE; no newPR/push/merge/outgoingmessage/live/model/productionedit."
+  ]
+}

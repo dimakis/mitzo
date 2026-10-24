@@ -1,0 +1,36 @@
+{
+  "verifiedAt": "2026-10-20T10:10:49.562680+00:00",
+  "disposition": "BOUNDED_SOURCE_CLOSED_PASS",
+  "head": "2634d47bfccf4049c95e6e03b6aa64c5a2f173d2",
+  "tree": "b866b4a5229b0e02f45d15741a4a6d66d6b21dca",
+  "actualDirectParent": "f507f944a73fac7be662dc83cf347f60e0df5ca5",
+  "wholeOtherTreeExactActualRedParent": true,
+  "changedPaths": [
+    "frontend/src/components/TelosChatWorkTree.tsx",
+    "frontend/src/components/__tests__/TelosChatWorkTree.task-association.test.tsx"
+  ],
+  "componentSourceSha256": "8485c404a7bcf05d674a31b491eb05316490182d5804c1e25a1cb731c2fbaa48",
+  "newUnitSourceSha256": "72f5d69ea771b15a1d771f0bf71d29a96bdf2d5f79b66376a237c3a89c9a8f98",
+  "rootReview": "Read complete source delta and225line8-case unit source. Exact child/worker attempt/executionTaskId-toTask.id join remains; allow explicitNULL or exactlegacy only. Missing/foreign/conflicting/malformed remain excluded. Read-only historical attribution, no command/claim/DTO/UI/CSS/permission/store/runtime change.",
+  "unitRed": {
+    "failed": 3,
+    "passed": 5
+  },
+  "focusedGreen": {
+    "passed": 125,
+    "existingSkipped": 1,
+    "files": 10
+  },
+  "sourceInventoryEntriesIndependentlyChecked": 19,
+  "signedCommitIndependentlyVerified": true,
+  "actualSourcePins": 667,
+  "existingChangedSourcePin": false,
+  "registryRuntimeAnd13ProtectedReferencesUnchanged": true,
+  "allInheritedS9FilesUnchanged": true,
+  "archiveSha256": "5fe37e04953b55460536160b56ba0be9fe9f827b98970d74eb9fe44e435275e0",
+  "originalS9Red": "f507f944a73fac7be662dc83cf347f60e0df5ca5 ONEcase1FAILthree observations",
+  "releasedNextAction": "S9 independently reruns EXACTsamef507case/helper/config unchanged on exact2634source, preservingoriginalRED and separatepartialclaims.",
+  "sourceIntake": "S5b laterselective1057TWOpathpatchonly, notdonorancestry",
+  "fullUXOrMainAcceptance": false,
+  "runtimeTestsRerunByRoot": false
+}

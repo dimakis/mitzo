@@ -1,0 +1,273 @@
+{
+  "executionHead": "ab2c1f6617053f81364025cafe6d6116d6d16cce",
+  "executionTree": "1ed4db82b7e1613a8f5d70ae4290dbc7279ba151",
+  "sourceIntake": {
+    "recordedAt": "2026-10-20T11:35:38.095213+00:00",
+    "baseline": "ab93e70571223d2f578fbe6e5cff95a472a90178",
+    "preImportHead": "ed5e58ac948f6296c219225f3613e64fd5afafcb",
+    "donorHead": "2a6331969d46c8bda3dd69fa27c0b10c7f1b38ec",
+    "donorTree": "83cf1cdd38770e30ab5603a0f421ce9065db9012",
+    "exactImportedPaths": [
+      {
+        "path": "frontend/src/components/HomePins.tsx",
+        "sha256": "3f5b330a9fbb61cab54beaa4d573cbb62d8eae7b4ee5445ab502876e39db880e"
+      },
+      {
+        "path": "frontend/src/lib/telos-item-navigation.ts",
+        "sha256": "81d57f3656371909d0ab85cc9c6d1546b4af4bbc8719d06f1ccd0cce9dd2a36c"
+      },
+      {
+        "path": "frontend/src/lib/__tests__/telos-item-navigation.test.ts",
+        "sha256": "3c3291311f28dd00b96ec965db59b368e894840e03638101e9117e9764a3992a"
+      },
+      {
+        "path": "frontend/src/pages/TodoDetailView.tsx",
+        "sha256": "03fd23eebdc7fc716ae76bdc802546b421346634fa3ece8fce8af95cd1bba60e"
+      },
+      {
+        "path": "frontend/src/pages/__tests__/TelosWorkspace.home-return.test.tsx",
+        "sha256": "2f48668385e2846148f1456e7ea9e2d8de3cd0395efa2d2bcaa6087bdeefea6a"
+      },
+      {
+        "path": "server/connections/reviewed-handler-artifacts.ts",
+        "sha256": "62d2838ef318bf76969f0ef91767bada766d2c67562e09ddd4a45c48929ebf04"
+      }
+    ],
+    "allOtherDonorEntriesExactBaseline": 4610,
+    "all109IntegrationFilesExact": true,
+    "existing667PinsVerified": true,
+    "protected13ReferencesExact": true,
+    "runtime": "v1.0.401-telos-control-publication-copy-artifact-added-date-s7-task-readability.1-s7-home-return.2",
+    "retainedOriginalEvidence": [
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-RESULT.json",
+        "sha256": "10e5c2a5b2880d966c6f3a279f3fab8eab7be55412d1f9a5d4b00e981803faeb",
+        "size": 123397
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-SOURCE.zip",
+        "sha256": "a4e043cdab40831a6afe371bd76550c450becc2f904d3ba1d4254d5d71f2d092",
+        "size": 3593609
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-DIAGNOSTICS.zip",
+        "sha256": "1960a609a0206944b6952536eef520e04ba6fe56e368c3a1cf1ecff069d4b903",
+        "size": 693674
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-SOURCE-PROOF.json",
+        "sha256": "bf62de9491fcd27562e4174c3c46d1fa3a337306b44efb1d97629802d6b344eb",
+        "size": 11259
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-INITIAL-DIAGNOSTIC.json",
+        "sha256": "1aaa8fd4eef92f18d1f7ca345efa09addf3aeff30baa2d0995212cea9417deb7",
+        "size": 5975
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-INITIAL-DIAGNOSTIC-SOURCE.zip",
+        "sha256": "f22ed75fd38e48f0e5ec9e268ff6746c444abee43c6bfe327e09c83bbb73563e",
+        "size": 19507
+      }
+    ],
+    "productionImportScope": "Root-authorized exact six-path source/test/registry correction only; donor ancestry not imported",
+    "testsRun": 0
+  },
+  "all109IntegrationFilesExactOriginalAb93": true,
+  "unchangedCaseFixtureConfigAndSharedHelpers": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/source-only-outcome-browser.contract.ts",
+      "sha256": "36b235a0fcf5e151f6b80a25c7153dabbb787abdf98954f3aa7756689d565e48",
+      "size": 15400
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "sha256": "cb134d2c028b229a0f2c63f194508da486946c34b44e5d753a7cc24812141666",
+      "size": 22523
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/vitest.source-only-outcome.config.ts",
+      "sha256": "fd057f545f04ce4e584e5db0d8f74c3ab6df0ab72309ed9305d5998581d855d5",
+      "size": 311
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "sha256": "560d8c85d98b85db77415ae1f0bfa4e7918c764031890a5711f8209e3eb1c9be",
+      "size": 13260
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/advisor-material-process-fixture.ts",
+      "sha256": "1cc619f6204c55579d790100b4ed09bd09926ad2c3e930192ea94d3b6f79af7b",
+      "size": 21734
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/task-chat-tree-geometry.ts",
+      "sha256": "bd72de1b8ba7afe8565118f111b142fdc049d65062b9efd85bbaaeed467dad18",
+      "size": 6824
+    }
+  ],
+  "actualBoundarySourceFiles": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/pages/Today.tsx",
+      "sha256": "0bff44011ab3e36013d05a03abea6d96a233c538351804e49090787102597255",
+      "size": 8179
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/HomePins.tsx",
+      "sha256": "3f5b330a9fbb61cab54beaa4d573cbb62d8eae7b4ee5445ab502876e39db880e",
+      "size": 11198
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/pages/TodoDetailView.tsx",
+      "sha256": "03fd23eebdc7fc716ae76bdc802546b421346634fa3ece8fce8af95cd1bba60e",
+      "size": 19628
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosItemWorkspace.tsx",
+      "sha256": "d2f3d3e96a0d74a044dd01aad1df4fe99d2fb76a8af563fe2880ee5a730674c8",
+      "size": 11019
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosItemChatTab.tsx",
+      "sha256": "4e87ead8c43f572769ad946ca8bfb449941f10e98d0a0ac7930f037bea0d045c",
+      "size": 1971
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosChatList.tsx",
+      "sha256": "488b027baa3f9fe8dd8ca6126966004ff2a560b1a8a06a570b685e476e93defe",
+      "size": 6897
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosItemRoleEntries.tsx",
+      "sha256": "d19a53f26f66a44a47520475e2c9f3ff69c1ae8801253767f0ad88045bb7a819",
+      "size": 4804
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/hooks/useTelosChatOpen.ts",
+      "sha256": "05d18874cd25d27e0c31eee96697a2853b36c74347fefa4450d32f2884003d12",
+      "size": 2260
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/hooks/useTelosChatRoute.ts",
+      "sha256": "4152199fe96c045b8bec217ead5c913b7d708fffc8dd6281721a4b0d2b16e6a8",
+      "size": 6894
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/lib/telos-chat-rows.ts",
+      "sha256": "c7a31faa96b46c2992baadb43e06f968cdac9e54e19957ceb7372b9afca9ebe8",
+      "size": 3400
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/lib/telos-chat-return.ts",
+      "sha256": "82a93d73cc17247366037d16e0909473fbbb8f64b73a1730f1456bbadf701077",
+      "size": 1534
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/lib/telos-item-navigation.ts",
+      "sha256": "81d57f3656371909d0ab85cc9c6d1546b4af4bbc8719d06f1ccd0cce9dd2a36c",
+      "size": 1878
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/home-store.ts",
+      "sha256": "007b897df7db541f253e2f530851f8f56528fb99f1ceba67510056993828b12b",
+      "size": 8965
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/home-router.ts",
+      "sha256": "744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982",
+      "size": 5221
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-source-capture.ts",
+      "sha256": "9b42d3f627e7923a29b0b22fb44e6b46eea5e9b2466a5faa95ae835f9b91b641",
+      "size": 24269
+    }
+  ],
+  "approvedReferences": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/i-want-you-to-have-a-2/review-evidence/approved/acceptance-contract.md",
+      "sha256": "dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255",
+      "size": 8596
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/i-want-you-to-have-a-2/review-evidence/approved/implementation-plan.md",
+      "sha256": "28d94dd9c633e9bf2f0753d63a905f0abaaf923b3ef810d853d399f30a0fa8d5",
+      "size": 32292
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/i-want-you-to-have-a-2/review-evidence/approved/approved-mock.html",
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab",
+      "size": 81084
+    }
+  ],
+  "sourceProducerIndependentReviews": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-RETAINED-2A-S7-HOME-RETURN-FALLBACK-CORRECTION-REVIEW.md",
+      "sha256": "1dc1204952eeca735ff0dd2d044c78a263d0fd72a3cbc2eaebe84af493b0f03c",
+      "size": 4010
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-RETAINED-2A-S7-HOME-RETURN-FALLBACK-CORRECTION-REVIEW.json",
+      "sha256": "c2db48a965604825f30117274331640e231491d949811d1b536cc3fb26d196b9",
+      "size": 17511
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-RETAINED-2A-S7-HOME-RETURN-FALLBACK-ROOT-SOURCE-VERIFICATION.json",
+      "sha256": "ecc8f249b0f03c6576a33eb6de139add0395239577766b51a71a7bb8379844a4",
+      "size": 3801
+    }
+  ],
+  "originalRedAndHarnessDiagnosticPreserved": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-RESULT.json",
+      "sha256": "10e5c2a5b2880d966c6f3a279f3fab8eab7be55412d1f9a5d4b00e981803faeb",
+      "size": 123397
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-SOURCE.zip",
+      "sha256": "a4e043cdab40831a6afe371bd76550c450becc2f904d3ba1d4254d5d71f2d092",
+      "size": 3593609
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-DIAGNOSTICS.zip",
+      "sha256": "1960a609a0206944b6952536eef520e04ba6fe56e368c3a1cf1ecff069d4b903",
+      "size": 693674
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-SOURCE-PROOF.json",
+      "sha256": "bf62de9491fcd27562e4174c3c46d1fa3a337306b44efb1d97629802d6b344eb",
+      "size": 11259
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-INITIAL-DIAGNOSTIC.json",
+      "sha256": "1aaa8fd4eef92f18d1f7ca345efa09addf3aeff30baa2d0995212cea9417deb7",
+      "size": 5975
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-INITIAL-DIAGNOSTIC-SOURCE.zip",
+      "sha256": "f22ed75fd38e48f0e5ec9e268ff6746c444abee43c6bfe327e09c83bbb73563e",
+      "size": 19507
+    }
+  ],
+  "teardown": {
+    "recordedAppPids": [61565],
+    "remainingAppPids": [],
+    "exactChildSourceMatches": [],
+    "allRecordedPidsReaped": true,
+    "lifecycle": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS/exact-s7-correction/child-lifecycle.json",
+      "sha256": "c939f943d0fdc851f9ef492b773c28f75b4f36dfc542a69dff13b4b536c1e8fc",
+      "size": 1466
+    }
+  },
+  "syntheticPreAppQualification": {
+    "canonicalCapturePreviewAdoptionAndHomeStorePinBeforeApp": true,
+    "notNativeCreateOutcomeOrAdoptSourceProof": true,
+    "notUserCreationOrPinningProof": true,
+    "noReseedingAfterAppStart": true
+  },
+  "actual667PinsAnd13ProtectionsVerifiedAtIntake": true,
+  "fullRowAccepted": false,
+  "acceptedMainQualified": false,
+  "liveRuntimeQualified": false
+}

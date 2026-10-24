@@ -1,0 +1,2936 @@
+{
+  "recordedAt": "2026-10-20T11:37:54.918658+00:00",
+  "executionHead": "ab2c1f6617053f81364025cafe6d6116d6d16cce",
+  "executionTree": "1ed4db82b7e1613a8f5d70ae4290dbc7279ba151",
+  "scope": "ONE unchanged actual-App source-only Home/direct case after exact root-closed S7 six-path correction. Synthetic PRE-App source capture/adoption/Home pin, not native or user creation/pinning proof.",
+  "selectedResult": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 16117.52490234375,
+    "disposition": "GREEN_same_case_Home_workspace_Back_returns_Home_origin_draft_retained"
+  },
+  "designGuards": {
+    "passed": 108,
+    "failed": 0,
+    "existingSkipped": 1,
+    "files": 6,
+    "raw": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS/design-guards/run.json",
+      "sha256": "11db2d42c4f140f46f7471aceff79b9b719f8eef486a78a326adc3a2d75fc72b",
+      "size": 41045
+    },
+    "notAdditionalAppCases": true
+  },
+  "sourceProof": {
+    "executionHead": "ab2c1f6617053f81364025cafe6d6116d6d16cce",
+    "executionTree": "1ed4db82b7e1613a8f5d70ae4290dbc7279ba151",
+    "sourceIntake": {
+      "recordedAt": "2026-10-20T11:35:38.095213+00:00",
+      "baseline": "ab93e70571223d2f578fbe6e5cff95a472a90178",
+      "preImportHead": "ed5e58ac948f6296c219225f3613e64fd5afafcb",
+      "donorHead": "2a6331969d46c8bda3dd69fa27c0b10c7f1b38ec",
+      "donorTree": "83cf1cdd38770e30ab5603a0f421ce9065db9012",
+      "exactImportedPaths": [
+        {
+          "path": "frontend/src/components/HomePins.tsx",
+          "sha256": "3f5b330a9fbb61cab54beaa4d573cbb62d8eae7b4ee5445ab502876e39db880e"
+        },
+        {
+          "path": "frontend/src/lib/telos-item-navigation.ts",
+          "sha256": "81d57f3656371909d0ab85cc9c6d1546b4af4bbc8719d06f1ccd0cce9dd2a36c"
+        },
+        {
+          "path": "frontend/src/lib/__tests__/telos-item-navigation.test.ts",
+          "sha256": "3c3291311f28dd00b96ec965db59b368e894840e03638101e9117e9764a3992a"
+        },
+        {
+          "path": "frontend/src/pages/TodoDetailView.tsx",
+          "sha256": "03fd23eebdc7fc716ae76bdc802546b421346634fa3ece8fce8af95cd1bba60e"
+        },
+        {
+          "path": "frontend/src/pages/__tests__/TelosWorkspace.home-return.test.tsx",
+          "sha256": "2f48668385e2846148f1456e7ea9e2d8de3cd0395efa2d2bcaa6087bdeefea6a"
+        },
+        {
+          "path": "server/connections/reviewed-handler-artifacts.ts",
+          "sha256": "62d2838ef318bf76969f0ef91767bada766d2c67562e09ddd4a45c48929ebf04"
+        }
+      ],
+      "allOtherDonorEntriesExactBaseline": 4610,
+      "all109IntegrationFilesExact": true,
+      "existing667PinsVerified": true,
+      "protected13ReferencesExact": true,
+      "runtime": "v1.0.401-telos-control-publication-copy-artifact-added-date-s7-task-readability.1-s7-home-return.2",
+      "retainedOriginalEvidence": [
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-RESULT.json",
+          "sha256": "10e5c2a5b2880d966c6f3a279f3fab8eab7be55412d1f9a5d4b00e981803faeb",
+          "size": 123397
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-SOURCE.zip",
+          "sha256": "a4e043cdab40831a6afe371bd76550c450becc2f904d3ba1d4254d5d71f2d092",
+          "size": 3593609
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-DIAGNOSTICS.zip",
+          "sha256": "1960a609a0206944b6952536eef520e04ba6fe56e368c3a1cf1ecff069d4b903",
+          "size": 693674
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-SOURCE-PROOF.json",
+          "sha256": "bf62de9491fcd27562e4174c3c46d1fa3a337306b44efb1d97629802d6b344eb",
+          "size": 11259
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-INITIAL-DIAGNOSTIC.json",
+          "sha256": "1aaa8fd4eef92f18d1f7ca345efa09addf3aeff30baa2d0995212cea9417deb7",
+          "size": 5975
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-INITIAL-DIAGNOSTIC-SOURCE.zip",
+          "sha256": "f22ed75fd38e48f0e5ec9e268ff6746c444abee43c6bfe327e09c83bbb73563e",
+          "size": 19507
+        }
+      ],
+      "productionImportScope": "Root-authorized exact six-path source/test/registry correction only; donor ancestry not imported",
+      "testsRun": 0
+    },
+    "all109IntegrationFilesExactOriginalAb93": true,
+    "unchangedCaseFixtureConfigAndSharedHelpers": [
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/source-only-outcome-browser.contract.ts",
+        "sha256": "36b235a0fcf5e151f6b80a25c7153dabbb787abdf98954f3aa7756689d565e48",
+        "size": 15400
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+        "sha256": "cb134d2c028b229a0f2c63f194508da486946c34b44e5d753a7cc24812141666",
+        "size": 22523
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/vitest.source-only-outcome.config.ts",
+        "sha256": "fd057f545f04ce4e584e5db0d8f74c3ab6df0ab72309ed9305d5998581d855d5",
+        "size": 311
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+        "sha256": "560d8c85d98b85db77415ae1f0bfa4e7918c764031890a5711f8209e3eb1c9be",
+        "size": 13260
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/advisor-material-process-fixture.ts",
+        "sha256": "1cc619f6204c55579d790100b4ed09bd09926ad2c3e930192ea94d3b6f79af7b",
+        "size": 21734
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/task-chat-tree-geometry.ts",
+        "sha256": "bd72de1b8ba7afe8565118f111b142fdc049d65062b9efd85bbaaeed467dad18",
+        "size": 6824
+      }
+    ],
+    "actualBoundarySourceFiles": [
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/pages/Today.tsx",
+        "sha256": "0bff44011ab3e36013d05a03abea6d96a233c538351804e49090787102597255",
+        "size": 8179
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/HomePins.tsx",
+        "sha256": "3f5b330a9fbb61cab54beaa4d573cbb62d8eae7b4ee5445ab502876e39db880e",
+        "size": 11198
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/pages/TodoDetailView.tsx",
+        "sha256": "03fd23eebdc7fc716ae76bdc802546b421346634fa3ece8fce8af95cd1bba60e",
+        "size": 19628
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosItemWorkspace.tsx",
+        "sha256": "d2f3d3e96a0d74a044dd01aad1df4fe99d2fb76a8af563fe2880ee5a730674c8",
+        "size": 11019
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosItemChatTab.tsx",
+        "sha256": "4e87ead8c43f572769ad946ca8bfb449941f10e98d0a0ac7930f037bea0d045c",
+        "size": 1971
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosChatList.tsx",
+        "sha256": "488b027baa3f9fe8dd8ca6126966004ff2a560b1a8a06a570b685e476e93defe",
+        "size": 6897
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosItemRoleEntries.tsx",
+        "sha256": "d19a53f26f66a44a47520475e2c9f3ff69c1ae8801253767f0ad88045bb7a819",
+        "size": 4804
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/hooks/useTelosChatOpen.ts",
+        "sha256": "05d18874cd25d27e0c31eee96697a2853b36c74347fefa4450d32f2884003d12",
+        "size": 2260
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/hooks/useTelosChatRoute.ts",
+        "sha256": "4152199fe96c045b8bec217ead5c913b7d708fffc8dd6281721a4b0d2b16e6a8",
+        "size": 6894
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/lib/telos-chat-rows.ts",
+        "sha256": "c7a31faa96b46c2992baadb43e06f968cdac9e54e19957ceb7372b9afca9ebe8",
+        "size": 3400
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/lib/telos-chat-return.ts",
+        "sha256": "82a93d73cc17247366037d16e0909473fbbb8f64b73a1730f1456bbadf701077",
+        "size": 1534
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/lib/telos-item-navigation.ts",
+        "sha256": "81d57f3656371909d0ab85cc9c6d1546b4af4bbc8719d06f1ccd0cce9dd2a36c",
+        "size": 1878
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/home-store.ts",
+        "sha256": "007b897df7db541f253e2f530851f8f56528fb99f1ceba67510056993828b12b",
+        "size": 8965
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/home-router.ts",
+        "sha256": "744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982",
+        "size": 5221
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-source-capture.ts",
+        "sha256": "9b42d3f627e7923a29b0b22fb44e6b46eea5e9b2466a5faa95ae835f9b91b641",
+        "size": 24269
+      }
+    ],
+    "approvedReferences": [
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/i-want-you-to-have-a-2/review-evidence/approved/acceptance-contract.md",
+        "sha256": "dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255",
+        "size": 8596
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/i-want-you-to-have-a-2/review-evidence/approved/implementation-plan.md",
+        "sha256": "28d94dd9c633e9bf2f0753d63a905f0abaaf923b3ef810d853d399f30a0fa8d5",
+        "size": 32292
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/i-want-you-to-have-a-2/review-evidence/approved/approved-mock.html",
+        "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab",
+        "size": 81084
+      }
+    ],
+    "sourceProducerIndependentReviews": [
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-RETAINED-2A-S7-HOME-RETURN-FALLBACK-CORRECTION-REVIEW.md",
+        "sha256": "1dc1204952eeca735ff0dd2d044c78a263d0fd72a3cbc2eaebe84af493b0f03c",
+        "size": 4010
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-RETAINED-2A-S7-HOME-RETURN-FALLBACK-CORRECTION-REVIEW.json",
+        "sha256": "c2db48a965604825f30117274331640e231491d949811d1b536cc3fb26d196b9",
+        "size": 17511
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-RETAINED-2A-S7-HOME-RETURN-FALLBACK-ROOT-SOURCE-VERIFICATION.json",
+        "sha256": "ecc8f249b0f03c6576a33eb6de139add0395239577766b51a71a7bb8379844a4",
+        "size": 3801
+      }
+    ],
+    "originalRedAndHarnessDiagnosticPreserved": [
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-RESULT.json",
+        "sha256": "10e5c2a5b2880d966c6f3a279f3fab8eab7be55412d1f9a5d4b00e981803faeb",
+        "size": 123397
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-SOURCE.zip",
+        "sha256": "a4e043cdab40831a6afe371bd76550c450becc2f904d3ba1d4254d5d71f2d092",
+        "size": 3593609
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-DIAGNOSTICS.zip",
+        "sha256": "1960a609a0206944b6952536eef520e04ba6fe56e368c3a1cf1ecff069d4b903",
+        "size": 693674
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-SOURCE-PROOF.json",
+        "sha256": "bf62de9491fcd27562e4174c3c46d1fa3a337306b44efb1d97629802d6b344eb",
+        "size": 11259
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-INITIAL-DIAGNOSTIC.json",
+        "sha256": "1aaa8fd4eef92f18d1f7ca345efa09addf3aeff30baa2d0995212cea9417deb7",
+        "size": 5975
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-INITIAL-DIAGNOSTIC-SOURCE.zip",
+        "sha256": "f22ed75fd38e48f0e5ec9e268ff6746c444abee43c6bfe327e09c83bbb73563e",
+        "size": 19507
+      }
+    ],
+    "teardown": {
+      "recordedAppPids": [61565],
+      "remainingAppPids": [],
+      "exactChildSourceMatches": [],
+      "allRecordedPidsReaped": true,
+      "lifecycle": {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS/exact-s7-correction/child-lifecycle.json",
+        "sha256": "c939f943d0fdc851f9ef492b773c28f75b4f36dfc542a69dff13b4b536c1e8fc",
+        "size": 1466
+      }
+    },
+    "syntheticPreAppQualification": {
+      "canonicalCapturePreviewAdoptionAndHomeStorePinBeforeApp": true,
+      "notNativeCreateOutcomeOrAdoptSourceProof": true,
+      "notUserCreationOrPinningProof": true,
+      "noReseedingAfterAppStart": true
+    },
+    "actual667PinsAnd13ProtectionsVerifiedAtIntake": true,
+    "fullRowAccepted": false,
+    "acceptedMainQualified": false,
+    "liveRuntimeQualified": false
+  },
+  "observations": {
+    "observations": [
+      {
+        "stage": "clearly-labeled-preexisting-source-only-baseline",
+        "seed": {
+          "scope": "Synthetic preexisting starting state via real owners, not UI adoption proof",
+          "actor": {
+            "kind": "operator",
+            "id": "50f85e9c-5057-45fd-bf80-48a2e37adbec"
+          },
+          "originalText": "Preexisting studio planning: arrange the room and equipment for a first recording. Keeping this discussion as origin does not assign a lead or start work.",
+          "selection": {
+            "requestId": "6aa0ccad-28f2-4891-89e2-c4c6a00598eb",
+            "expectedMembershipRevision": 0,
+            "sourceConversationId": "planning",
+            "mode": "selected",
+            "boundary": {
+              "sequence": 1,
+              "messageId": "preexisting-material-r1-decision"
+            },
+            "messageIds": ["preexisting-material-r1-decision"],
+            "artifacts": [
+              {
+                "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                "revision": 1,
+                "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+              }
+            ],
+            "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+            "joiningBrief": ""
+          },
+          "preview": {
+            "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474",
+            "packet": {
+              "version": 1,
+              "actorId": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+              "itemId": "studio",
+              "workRevision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+              "selection": {
+                "requestId": "6aa0ccad-28f2-4891-89e2-c4c6a00598eb",
+                "expectedMembershipRevision": 0,
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                  }
+                ],
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": ""
+              },
+              "brief": {
+                "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+                "text": "{\"itemId\":\"studio\",\"parentId\":null,\"summary\":\"Home studio\",\"intent\":\"Record music\",\"rationale\":\"Make music\",\"acceptanceCriteria\":[\"Approved plan\"],\"profile\":\"manual\",\"contextHints\":{\"repos\":[],\"paths\":[],\"issues\":[],\"docIds\":[],\"people\":[\"Original person\"],\"jiraKeys\":[],\"keywords\":[],\"taskHint\":\"Original hint\",\"sessionIds\":[]}}"
+              },
+              "context": {
+                "requestId": "6aa0ccad-28f2-4891-89e2-c4c6a00598eb",
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": "",
+                "messages": [
+                  {
+                    "conversationId": "planning",
+                    "messageId": "preexisting-material-r1-decision",
+                    "sequence": 1,
+                    "author": "operator",
+                    "source": null,
+                    "blocks": [
+                      {
+                        "blockId": "user-preexisting-material-r1-decision",
+                        "content": "Preexisting studio planning: arrange the room and equipment for a first recording. Keeping this discussion as origin does not assign a lead or start work.",
+                        "sha256": "d0b27a782b047280f0b31abed595c1c88a105f18e7e5469d0b38f54804b5442c"
+                      }
+                    ]
+                  }
+                ],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+                    "sourceConversationId": "planning",
+                    "mediaType": "application/octet-stream",
+                    "sizeBytes": 26,
+                    "contentBase64": "VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4="
+                  }
+                ],
+                "capacity": {
+                  "status": "unverified",
+                  "reason": "No exact ordinary capacity adapter is registered."
+                },
+                "summary": null
+              },
+              "attributions": {
+                "preexisting-material-r1-decision": {
+                  "seatId": null,
+                  "provenance": null,
+                  "createdAt": 1792496166518
+                }
+              },
+              "sourceTitle": "Preexisting studio planning",
+              "sourceCreatedAt": "2026-10-20T11:36:06.518Z"
+            }
+          },
+          "receipt": {
+            "commandId": "b0dd12ee-2a3a-45b1-b604-e863d763cb0a",
+            "actorId": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+            "work": {
+              "itemId": "studio",
+              "kind": "outcome",
+              "parentId": null,
+              "revision": "c96b52e98932e1f83f730dc48a9c5f263be6de045f9f8ddc63817e93bc5b3afd",
+              "links": [
+                {
+                  "version": 1,
+                  "linkId": "a9a25651-f6ec-4a22-a292-ca0b8a01c9a7",
+                  "itemId": "studio",
+                  "linkedAt": "2026-10-20T11:36:06.536Z",
+                  "linkedBy": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+                  "availability": "available",
+                  "attemptId": null,
+                  "role": "origin",
+                  "conversation": {
+                    "namespace": "mitzo",
+                    "conversationId": "planning"
+                  }
+                }
+              ],
+              "assignments": [],
+              "assignmentHistory": {
+                "lead": {
+                  "complete": true,
+                  "conversationIds": []
+                },
+                "worker": {
+                  "complete": true,
+                  "conversationIds": []
+                }
+              },
+              "sources": [
+                {
+                  "version": 1,
+                  "snapshotId": "fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+                  "itemId": "studio",
+                  "source": {
+                    "namespace": "mitzo",
+                    "conversationId": "planning"
+                  },
+                  "selection": {
+                    "kind": "selected",
+                    "messageIds": ["preexisting-material-r1-decision"],
+                    "blockIds": [],
+                    "throughSequence": 1
+                  },
+                  "adoptedBrief": {
+                    "revision": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+                    "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e"
+                  },
+                  "artifacts": [
+                    {
+                      "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                      "revision": 1,
+                      "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                    },
+                    {
+                      "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+                      "revision": 1,
+                      "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+                    }
+                  ],
+                  "author": null,
+                  "sourceCreatedAt": "2026-10-20T11:36:06.518Z",
+                  "adoptedAt": "2026-10-20T11:36:06.534Z"
+                }
+              ],
+              "attempts": []
+            }
+          },
+          "source": {
+            "snapshot": {
+              "version": 1,
+              "snapshotId": "fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+              "itemId": "studio",
+              "source": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              },
+              "selection": {
+                "kind": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "blockIds": [],
+                "throughSequence": 1
+              },
+              "adoptedBrief": {
+                "revision": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+                "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e"
+              },
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+                  "revision": 1,
+                  "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+                }
+              ],
+              "author": null,
+              "sourceCreatedAt": "2026-10-20T11:36:06.518Z",
+              "adoptedAt": "2026-10-20T11:36:06.534Z"
+            },
+            "packet": {
+              "version": 1,
+              "actorId": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+              "itemId": "studio",
+              "workRevision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+              "selection": {
+                "requestId": "6aa0ccad-28f2-4891-89e2-c4c6a00598eb",
+                "expectedMembershipRevision": 0,
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                  }
+                ],
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": ""
+              },
+              "brief": {
+                "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+                "text": "{\"itemId\":\"studio\",\"parentId\":null,\"summary\":\"Home studio\",\"intent\":\"Record music\",\"rationale\":\"Make music\",\"acceptanceCriteria\":[\"Approved plan\"],\"profile\":\"manual\",\"contextHints\":{\"repos\":[],\"paths\":[],\"issues\":[],\"docIds\":[],\"people\":[\"Original person\"],\"jiraKeys\":[],\"keywords\":[],\"taskHint\":\"Original hint\",\"sessionIds\":[]}}"
+              },
+              "context": {
+                "requestId": "6aa0ccad-28f2-4891-89e2-c4c6a00598eb",
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": "",
+                "messages": [
+                  {
+                    "conversationId": "planning",
+                    "messageId": "preexisting-material-r1-decision",
+                    "sequence": 1,
+                    "author": "operator",
+                    "source": null,
+                    "blocks": [
+                      {
+                        "blockId": "user-preexisting-material-r1-decision",
+                        "content": "Preexisting studio planning: arrange the room and equipment for a first recording. Keeping this discussion as origin does not assign a lead or start work.",
+                        "sha256": "d0b27a782b047280f0b31abed595c1c88a105f18e7e5469d0b38f54804b5442c"
+                      }
+                    ]
+                  }
+                ],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+                    "sourceConversationId": "planning",
+                    "mediaType": "application/octet-stream",
+                    "sizeBytes": 26,
+                    "contentBase64": "VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4="
+                  }
+                ],
+                "capacity": {
+                  "status": "unverified",
+                  "reason": "No exact ordinary capacity adapter is registered."
+                },
+                "summary": null
+              },
+              "attributions": {
+                "preexisting-material-r1-decision": {
+                  "seatId": null,
+                  "provenance": null,
+                  "createdAt": 1792496166518
+                }
+              },
+              "sourceTitle": "Preexisting studio planning",
+              "sourceCreatedAt": "2026-10-20T11:36:06.518Z"
+            },
+            "sourceHref": "/chat/planning?telosItem=studio&telosSource=fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+            "available": true
+          },
+          "material": {
+            "id": "6d8e589baeeb4f928fe135831d8eb2fb",
+            "itemId": "studio",
+            "filename": "acoustic-plan.md",
+            "title": "Acoustic plan",
+            "revision": 1,
+            "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+            "size": 26,
+            "sessionId": "planning",
+            "sourceKind": "session_artifact",
+            "sourcePath": null,
+            "createdAt": "2026-10-20T11:36:06.512Z",
+            "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb?revision=1"
+          },
+          "originalMaterialText": "The reviewed panel layout.",
+          "pin": {
+            "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+            "revision": 1,
+            "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+          },
+          "pins": [
+            {
+              "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+              "revision": 1,
+              "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+            },
+            {
+              "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+              "revision": 1,
+              "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+            }
+          ],
+          "sourceRecordPin": {
+            "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+            "revision": 1,
+            "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+          },
+          "originalSourceRecordText": "{\"version\":1,\"actorId\":\"operator:50f85e9c-5057-45fd-bf80-48a2e37adbec\",\"itemId\":\"studio\",\"workRevision\":\"079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048\",\"selection\":{\"requestId\":\"6aa0ccad-28f2-4891-89e2-c4c6a00598eb\",\"expectedMembershipRevision\":0,\"sourceConversationId\":\"planning\",\"boundary\":{\"sequence\":1,\"messageId\":\"preexisting-material-r1-decision\"},\"mode\":\"selected\",\"messageIds\":[\"preexisting-material-r1-decision\"],\"artifacts\":[{\"artifactId\":\"6d8e589baeeb4f928fe135831d8eb2fb\",\"revision\":1,\"sha256\":\"d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273\"}],\"purpose\":\"Preexisting reviewed source and exact acoustic material revision one\",\"joiningBrief\":\"\"},\"brief\":{\"sha256\":\"8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e\",\"text\":\"{\\\"itemId\\\":\\\"studio\\\",\\\"parentId\\\":null,\\\"summary\\\":\\\"Home studio\\\",\\\"intent\\\":\\\"Record music\\\",\\\"rationale\\\":\\\"Make music\\\",\\\"acceptanceCriteria\\\":[\\\"Approved plan\\\"],\\\"profile\\\":\\\"manual\\\",\\\"contextHints\\\":{\\\"repos\\\":[],\\\"paths\\\":[],\\\"issues\\\":[],\\\"docIds\\\":[],\\\"people\\\":[\\\"Original person\\\"],\\\"jiraKeys\\\":[],\\\"keywords\\\":[],\\\"taskHint\\\":\\\"Original hint\\\",\\\"sessionIds\\\":[]}}\"},\"context\":{\"requestId\":\"6aa0ccad-28f2-4891-89e2-c4c6a00598eb\",\"sourceConversationId\":\"planning\",\"boundary\":{\"sequence\":1,\"messageId\":\"preexisting-material-r1-decision\"},\"mode\":\"selected\",\"purpose\":\"Preexisting reviewed source and exact acoustic material revision one\",\"joiningBrief\":\"\",\"messages\":[{\"conversationId\":\"planning\",\"messageId\":\"preexisting-material-r1-decision\",\"sequence\":1,\"author\":\"operator\",\"source\":null,\"blocks\":[{\"blockId\":\"user-preexisting-material-r1-decision\",\"content\":\"Preexisting studio planning: arrange the room and equipment for a first recording. Keeping this discussion as origin does not assign a lead or start work.\",\"sha256\":\"d0b27a782b047280f0b31abed595c1c88a105f18e7e5469d0b38f54804b5442c\"}]}],\"artifacts\":[{\"artifactId\":\"6d8e589baeeb4f928fe135831d8eb2fb\",\"revision\":1,\"sha256\":\"d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273\",\"sourceConversationId\":\"planning\",\"mediaType\":\"application/octet-stream\",\"sizeBytes\":26,\"contentBase64\":\"VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4=\"}],\"capacity\":{\"status\":\"unverified\",\"reason\":\"No exact ordinary capacity adapter is registered.\"},\"summary\":null},\"attributions\":{\"preexisting-material-r1-decision\":{\"seatId\":null,\"provenance\":null,\"createdAt\":1792496166518}},\"sourceTitle\":\"Preexisting studio planning\",\"sourceCreatedAt\":\"2026-10-20T11:36:06.518Z\"}"
+        },
+        "workBefore": {
+          "itemId": "studio",
+          "kind": "outcome",
+          "parentId": null,
+          "revision": "c96b52e98932e1f83f730dc48a9c5f263be6de045f9f8ddc63817e93bc5b3afd",
+          "links": [
+            {
+              "version": 1,
+              "linkId": "a9a25651-f6ec-4a22-a292-ca0b8a01c9a7",
+              "itemId": "studio",
+              "linkedAt": "2026-10-20T11:36:06.536Z",
+              "linkedBy": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+              "availability": "available",
+              "attemptId": null,
+              "role": "origin",
+              "conversation": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              }
+            }
+          ],
+          "assignments": [],
+          "assignmentHistory": {
+            "lead": {
+              "complete": true,
+              "conversationIds": []
+            },
+            "worker": {
+              "complete": true,
+              "conversationIds": []
+            }
+          },
+          "sources": [
+            {
+              "version": 1,
+              "snapshotId": "fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+              "itemId": "studio",
+              "source": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              },
+              "selection": {
+                "kind": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "blockIds": [],
+                "throughSequence": 1
+              },
+              "adoptedBrief": {
+                "revision": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+                "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e"
+              },
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+                  "revision": 1,
+                  "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+                }
+              ],
+              "author": null,
+              "sourceCreatedAt": "2026-10-20T11:36:06.518Z",
+              "adoptedAt": "2026-10-20T11:36:06.534Z"
+            }
+          ],
+          "attempts": []
+        },
+        "recordBefore": {
+          "version": 1,
+          "itemId": "studio",
+          "kind": "outcome",
+          "parentId": null,
+          "summary": "Home studio",
+          "intent": "Record music",
+          "rationale": "Make music",
+          "acceptanceCriteria": ["Approved plan"],
+          "profile": "manual",
+          "status": "active",
+          "starred": false,
+          "priority": 8,
+          "categories": [],
+          "createdAt": "2026-10-16T10:00:00",
+          "updatedAt": "2026-10-16T10:00:00",
+          "contextHints": {
+            "repos": [],
+            "paths": [],
+            "issues": [],
+            "docIds": [],
+            "people": ["Original person"],
+            "jiraKeys": [],
+            "keywords": [],
+            "taskHint": "Original hint",
+            "sessionIds": []
+          },
+          "sources": [],
+          "links": [
+            {
+              "type": "artifact",
+              "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb",
+              "title": "Acoustic plan",
+              "description": "Versioned Telos document: acoustic-plan.md",
+              "addedAt": "2026-10-20T11:36:06.512Z"
+            }
+          ],
+          "legacyFields": {
+            "item": {
+              "id": "studio",
+              "summary": "Home studio",
+              "intent": "Record music",
+              "rationale": "Make music",
+              "acceptance_criteria": "[\"Approved plan\"]",
+              "idempotency_key": null,
+              "profile": "manual",
+              "cluster_id": null,
+              "urgency": 0,
+              "priority": 8,
+              "categories": "[]",
+              "starred": 0,
+              "status": "active",
+              "snoozed_until": null,
+              "context_hints": "{\"people\":[\"Original person\"],\"task_hint\":\"Original hint\"}",
+              "first_seen": "2026-10-16T10:00:00",
+              "last_seen": "2026-10-16T10:00:00",
+              "created_at": "2026-10-16T10:00:00",
+              "updated_at": "2026-10-16T10:00:00",
+              "parent_id": null,
+              "goal_id": null
+            },
+            "sources": [],
+            "links": [
+              {
+                "id": "artifact-6d8e589baeeb4f928fe135831d8eb2fb",
+                "item_id": "studio",
+                "type": "artifact",
+                "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb",
+                "title": "Acoustic plan",
+                "description": "Versioned Telos document: acoustic-plan.md",
+                "created_at": "2026-10-20T11:36:06.512Z"
+              }
+            ]
+          }
+        },
+        "peerBefore": {
+          "itemId": "quiet-job",
+          "kind": null,
+          "parentId": null,
+          "revision": "9986448f156c8368c9e32ba67d3c2f709da2c9212329a2c038d6e94d06632be5",
+          "links": [],
+          "assignments": [],
+          "assignmentHistory": {
+            "lead": {
+              "complete": true,
+              "conversationIds": []
+            },
+            "worker": {
+              "complete": true,
+              "conversationIds": []
+            }
+          },
+          "sources": [],
+          "attempts": []
+        },
+        "childBefore": {
+          "itemId": "recording-slice",
+          "kind": "work_item",
+          "parentId": "studio",
+          "revision": "153834c55d4f5bbbe73e16fb7f0c6244ab62b43be6c32a8ad00d44394e5801db",
+          "links": [],
+          "assignments": [],
+          "assignmentHistory": {
+            "lead": {
+              "complete": true,
+              "conversationIds": []
+            },
+            "worker": {
+              "complete": true,
+              "conversationIds": []
+            }
+          },
+          "sources": [],
+          "attempts": []
+        },
+        "sourceBefore": {
+          "snapshot": {
+            "version": 1,
+            "snapshotId": "fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+            "itemId": "studio",
+            "source": {
+              "namespace": "mitzo",
+              "conversationId": "planning"
+            },
+            "selection": {
+              "kind": "selected",
+              "messageIds": ["preexisting-material-r1-decision"],
+              "blockIds": [],
+              "throughSequence": 1
+            },
+            "adoptedBrief": {
+              "revision": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+              "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e"
+            },
+            "artifacts": [
+              {
+                "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                "revision": 1,
+                "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+              },
+              {
+                "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+                "revision": 1,
+                "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+              }
+            ],
+            "author": null,
+            "sourceCreatedAt": "2026-10-20T11:36:06.518Z",
+            "adoptedAt": "2026-10-20T11:36:06.534Z"
+          },
+          "packet": {
+            "version": 1,
+            "actorId": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+            "itemId": "studio",
+            "workRevision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+            "selection": {
+              "requestId": "6aa0ccad-28f2-4891-89e2-c4c6a00598eb",
+              "expectedMembershipRevision": 0,
+              "sourceConversationId": "planning",
+              "boundary": {
+                "sequence": 1,
+                "messageId": "preexisting-material-r1-decision"
+              },
+              "mode": "selected",
+              "messageIds": ["preexisting-material-r1-decision"],
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                }
+              ],
+              "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+              "joiningBrief": ""
+            },
+            "brief": {
+              "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+              "text": "{\"itemId\":\"studio\",\"parentId\":null,\"summary\":\"Home studio\",\"intent\":\"Record music\",\"rationale\":\"Make music\",\"acceptanceCriteria\":[\"Approved plan\"],\"profile\":\"manual\",\"contextHints\":{\"repos\":[],\"paths\":[],\"issues\":[],\"docIds\":[],\"people\":[\"Original person\"],\"jiraKeys\":[],\"keywords\":[],\"taskHint\":\"Original hint\",\"sessionIds\":[]}}"
+            },
+            "context": {
+              "requestId": "6aa0ccad-28f2-4891-89e2-c4c6a00598eb",
+              "sourceConversationId": "planning",
+              "boundary": {
+                "sequence": 1,
+                "messageId": "preexisting-material-r1-decision"
+              },
+              "mode": "selected",
+              "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+              "joiningBrief": "",
+              "messages": [
+                {
+                  "conversationId": "planning",
+                  "messageId": "preexisting-material-r1-decision",
+                  "sequence": 1,
+                  "author": "operator",
+                  "source": null,
+                  "blocks": [
+                    {
+                      "blockId": "user-preexisting-material-r1-decision",
+                      "content": "Preexisting studio planning: arrange the room and equipment for a first recording. Keeping this discussion as origin does not assign a lead or start work.",
+                      "sha256": "d0b27a782b047280f0b31abed595c1c88a105f18e7e5469d0b38f54804b5442c"
+                    }
+                  ]
+                }
+              ],
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+                  "sourceConversationId": "planning",
+                  "mediaType": "application/octet-stream",
+                  "sizeBytes": 26,
+                  "contentBase64": "VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4="
+                }
+              ],
+              "capacity": {
+                "status": "unverified",
+                "reason": "No exact ordinary capacity adapter is registered."
+              },
+              "summary": null
+            },
+            "attributions": {
+              "preexisting-material-r1-decision": {
+                "seatId": null,
+                "provenance": null,
+                "createdAt": 1792496166518
+              }
+            },
+            "sourceTitle": "Preexisting studio planning",
+            "sourceCreatedAt": "2026-10-20T11:36:06.518Z"
+          },
+          "sourceHref": "/chat/planning?telosItem=studio&telosSource=fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+          "available": true
+        },
+        "snapshotBefore": {
+          "allSessionIdentities": [
+            {
+              "sessionId": "planning",
+              "cwd": null
+            },
+            {
+              "sessionId": "2b6f8294-1d2d-867e-94ff-026e85a12907",
+              "ordinaryWorkspaceId": "19a1ada9-36e7-4cc5-9420-5e1e1cf69ba5",
+              "cwd": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-UiBo1c/tasks/ordinary-19a1ada9-36e7-4cc5-9420-5e1e1cf69ba5"
+            }
+          ],
+          "executionBindings": [],
+          "nativeOwnerObservation": "native_ledger_not_observed",
+          "runtimeBinding": null,
+          "pid": 61565,
+          "generation": 1,
+          "session": {
+            "sessionId": "planning",
+            "conversationSource": "mitzo",
+            "summary": "Preexisting studio planning",
+            "branch": null,
+            "cwd": null,
+            "mode": "agent",
+            "isActive": true,
+            "isHidden": false,
+            "promptCount": 0,
+            "manuallyRenamed": false,
+            "initialPrompt": null,
+            "sdkTranscriptVerified": false,
+            "wtId": null,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0,
+            "totalCostUsd": 0,
+            "numTurns": 0,
+            "durationMs": 0,
+            "durationApiMs": 0,
+            "goalId": null,
+            "telosTaskId": null,
+            "closedBy": null,
+            "lastSpeaker": null,
+            "lastSpeakerAt": null,
+            "state": "ENDED",
+            "lastStateChange": null,
+            "executionGeneration": 0,
+            "executionId": null,
+            "executionPhase": null,
+            "executionTerminalReason": null,
+            "executionUpdatedAt": null,
+            "agentName": null,
+            "bootContext": null,
+            "accountBinding": {
+              "accountId": "ordinary-personal",
+              "accountLabel": "Offline personal",
+              "provider": "openai-codex",
+              "model": "fixture-model",
+              "profileRevision": "fd440ff16115db0e2e40d43ca1d4190ac67004f8a1804f1ba0f237a006d2e435"
+            },
+            "selectedModel": null,
+            "reasoningEffort": null,
+            "sessionType": "chat",
+            "symposiumConfig": null,
+            "symposiumRevision": 0,
+            "createdAt": 1792496166518,
+            "updatedAt": 1792496166518
+          },
+          "workspace": null,
+          "preparation": null,
+          "events": [
+            {
+              "seq": 1,
+              "sessionId": "planning",
+              "type": "user_message",
+              "payload": {
+                "messageId": "preexisting-material-r1-decision",
+                "text": "Preexisting studio planning: arrange the room and equipment for a first recording. Keeping this discussion as origin does not assign a lead or start work."
+              },
+              "createdAt": 1792496166518
+            }
+          ],
+          "tasks": [],
+          "activeSessionIds": []
+        },
+        "effectsBefore": [
+          {
+            "kind": "preflight.close",
+            "generation": 1,
+            "pid": 61565,
+            "threadId": "restart-native-1-1"
+          }
+        ],
+        "prefsBefore": {
+          "revision": 1,
+          "names": {
+            "briefing": "Minion",
+            "terminal": "Minion"
+          },
+          "pins": [
+            {
+              "kind": "telos",
+              "id": "studio",
+              "title": "Home studio"
+            }
+          ],
+          "showDailyQuote": false
+        },
+        "tasksBefore": {
+          "tasks": []
+        },
+        "uniqueConversations": ["[\"mitzo\",\"planning\"]"],
+        "limitation": "Synthetic PRE-APP source capture/adoption and Home pin via real owners; not native CreateOutcome/AdoptSource or user creation/pinning proof. No lead/worker assigned. Origin session runtime/profile is not qualified by viewing."
+      },
+      {
+        "stage": "direct-no-forced-chooser",
+        "actualRoute": "http://127.0.0.1:53498/todos/studio?view=Chat",
+        "actualText": "Chats \u00b7 1\nChoose lead collaborator\nNew chat\nPreexisting studio planning\nOriginating conversation \u00b7 Offline personal \u00b7 Offline fixture\nCreated Oct 20, 2026\nConversation provenance\n\nEach chat retains its own history, settings and workspace. New chat keeps the assigned lead collaborator; Change lead collaborator assigns a replacement.",
+        "actualRows": [
+          "Preexisting studio planningOriginating conversation \u00b7 Offline personal \u00b7 Offline fixtureCreated Oct 20, 2026"
+        ],
+        "actualWork": {
+          "itemId": "studio",
+          "kind": "outcome",
+          "parentId": null,
+          "revision": "c96b52e98932e1f83f730dc48a9c5f263be6de045f9f8ddc63817e93bc5b3afd",
+          "links": [
+            {
+              "version": 1,
+              "linkId": "a9a25651-f6ec-4a22-a292-ca0b8a01c9a7",
+              "itemId": "studio",
+              "linkedAt": "2026-10-20T11:36:06.536Z",
+              "linkedBy": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+              "availability": "available",
+              "attemptId": null,
+              "role": "origin",
+              "conversation": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              }
+            }
+          ],
+          "assignments": [],
+          "assignmentHistory": {
+            "lead": {
+              "complete": true,
+              "conversationIds": []
+            },
+            "worker": {
+              "complete": true,
+              "conversationIds": []
+            }
+          },
+          "sources": [
+            {
+              "version": 1,
+              "snapshotId": "fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+              "itemId": "studio",
+              "source": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              },
+              "selection": {
+                "kind": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "blockIds": [],
+                "throughSequence": 1
+              },
+              "adoptedBrief": {
+                "revision": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+                "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e"
+              },
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+                  "revision": 1,
+                  "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+                }
+              ],
+              "author": null,
+              "sourceCreatedAt": "2026-10-20T11:36:06.518Z",
+              "adoptedAt": "2026-10-20T11:36:06.534Z"
+            }
+          ],
+          "attempts": []
+        },
+        "focus": {
+          "tag": "BODY",
+          "name": "\n    Home studioOutcome \u00b7 activePriority1 / 102 / 103 / 104 / 105 / 106 / 107 / 108 / 109 / 1010 / 1",
+          "connected": true,
+          "insideHiddenOrInert": false
+        },
+        "uniqueConversationCount": 1
+      },
+      {
+        "stage": "actual-original-exchange-and-unsent-draft",
+        "actualRoute": "http://127.0.0.1:53498/chat/planning?telosItem=studio&telosSource=fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a&telosChatItem=studio",
+        "originalText": "Preexisting studio planning: arrange the room and equipment for a first recording. Keeping this discussion as origin does not assign a lead or start work.",
+        "sourceHref": "/chat/planning?telosItem=studio&telosSource=fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+        "originTrace": [
+          {
+            "tag": "BUTTON",
+            "name": "Back",
+            "href": null
+          },
+          {
+            "tag": "SELECT",
+            "name": "1 / 102 / 103 / 104 / 105 / 106 / 107 / 108 / 109 / 1010 / 10",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Overview",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Chat",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Work",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Materials",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Choose lead collaborator",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "New chat",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Open Originating conversation: Preexisting studio planning",
+            "href": null
+          }
+        ],
+        "focus": {
+          "tag": "TEXTAREA",
+          "name": "Message Mitzo",
+          "connected": true,
+          "insideHiddenOrInert": false
+        }
+      },
+      {
+        "stage": "origin-back-retains-unassigned",
+        "actualRoute": "http://127.0.0.1:53498/todos/studio?view=Chat&chooseChat=1",
+        "actualText": "Chats \u00b7 1\nChoose lead collaborator\nNew chat\nPreexisting studio planning\nOriginating conversation \u00b7 Offline personal \u00b7 Offline fixture\nCreated Oct 20, 2026\nConversation provenance\n\nEach chat retains its own history, settings and workspace. New chat keeps the assigned lead collaborator; Change lead collaborator assigns a replacement.",
+        "actualRows": [
+          "Preexisting studio planningOriginating conversation \u00b7 Offline personal \u00b7 Offline fixtureCreated Oct 20, 2026"
+        ],
+        "actualWork": {
+          "itemId": "studio",
+          "kind": "outcome",
+          "parentId": null,
+          "revision": "c96b52e98932e1f83f730dc48a9c5f263be6de045f9f8ddc63817e93bc5b3afd",
+          "links": [
+            {
+              "version": 1,
+              "linkId": "a9a25651-f6ec-4a22-a292-ca0b8a01c9a7",
+              "itemId": "studio",
+              "linkedAt": "2026-10-20T11:36:06.536Z",
+              "linkedBy": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+              "availability": "available",
+              "attemptId": null,
+              "role": "origin",
+              "conversation": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              }
+            }
+          ],
+          "assignments": [],
+          "assignmentHistory": {
+            "lead": {
+              "complete": true,
+              "conversationIds": []
+            },
+            "worker": {
+              "complete": true,
+              "conversationIds": []
+            }
+          },
+          "sources": [
+            {
+              "version": 1,
+              "snapshotId": "fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+              "itemId": "studio",
+              "source": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              },
+              "selection": {
+                "kind": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "blockIds": [],
+                "throughSequence": 1
+              },
+              "adoptedBrief": {
+                "revision": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+                "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e"
+              },
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+                  "revision": 1,
+                  "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+                }
+              ],
+              "author": null,
+              "sourceCreatedAt": "2026-10-20T11:36:06.518Z",
+              "adoptedAt": "2026-10-20T11:36:06.534Z"
+            }
+          ],
+          "attempts": []
+        },
+        "focus": {
+          "tag": "BODY",
+          "name": "\n    Home studioOutcome \u00b7 activePriority1 / 102 / 103 / 104 / 105 / 106 / 107 / 108 / 109 / 1010 / 1",
+          "connected": true,
+          "insideHiddenOrInert": false
+        },
+        "uniqueConversationCount": 1
+      },
+      {
+        "stage": "source-back-keyboard-focus",
+        "backTrace": [
+          {
+            "tag": "BUTTON",
+            "name": "More composer actions",
+            "href": null
+          },
+          {
+            "tag": "INPUT",
+            "name": "",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Open session tray",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Symposium collaboration",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Token usage",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Send message",
+            "href": null
+          },
+          {
+            "tag": "A",
+            "name": "Today",
+            "href": "/"
+          },
+          {
+            "tag": "A",
+            "name": "Chats",
+            "href": "/sessions"
+          },
+          {
+            "tag": "A",
+            "name": "Inbox",
+            "href": "/inbox"
+          },
+          {
+            "tag": "A",
+            "name": "Work",
+            "href": "/todos"
+          },
+          {
+            "tag": "A",
+            "name": "More",
+            "href": "/more"
+          },
+          {
+            "tag": "BODY",
+            "name": "\n    ConversationChatDefault Mitzo \u00b7 Offline personal \u00b7 Offline fixture \u00b7 Thinking: model defaultSettingsReadyAgentsAcce",
+            "href": null
+          },
+          {
+            "tag": "A",
+            "name": "Back",
+            "href": "/todos/studio?view=Chat&chooseChat=1"
+          }
+        ],
+        "chooseTrace": [
+          {
+            "tag": "BUTTON",
+            "name": "Back",
+            "href": null
+          },
+          {
+            "tag": "SELECT",
+            "name": "1 / 102 / 103 / 104 / 105 / 106 / 107 / 108 / 109 / 1010 / 10",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Overview",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Chat",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Work",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Materials",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Choose lead collaborator",
+            "href": null
+          }
+        ],
+        "actualFocus": {
+          "tag": "BUTTON",
+          "name": "Choose lead collaborator",
+          "connected": true,
+          "insideHiddenOrInert": false
+        },
+        "qualification": "Natural keyboard reaches the existing assignment affordance; it is not activated. No claim of automatic route-focus restoration."
+      },
+      {
+        "stage": "actual-Home-preexisting-outcome-pin",
+        "actualRoute": "http://127.0.0.1:53498/",
+        "pinHref": "/todos/studio",
+        "focus": {
+          "tag": "BODY",
+          "name": "\n    Tuesday, October 20TodayNew session Search sessions and messagesPinned to TodayAdd pinManage pi",
+          "connected": true,
+          "insideHiddenOrInert": false
+        }
+      },
+      {
+        "stage": "unassigned-studio-overview-from-Home",
+        "actualRoute": "http://127.0.0.1:53498/todos/studio",
+        "leadText": "LEAD COLLABORATOR\n\nThe originating conversation is linked. Choose a lead to collaborate on the plan, delegate slices and review results.\n\nChoose lead collaborator\nRefine item\nAdd child with advisor",
+        "pinTrace": [
+          {
+            "tag": "A",
+            "name": "Mitzo home",
+            "href": "/"
+          },
+          {
+            "tag": "A",
+            "name": "New session ",
+            "href": "/chat"
+          },
+          {
+            "tag": "INPUT",
+            "name": "",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Add pin",
+            "href": null
+          },
+          {
+            "tag": "BUTTON",
+            "name": "Manage pins",
+            "href": null
+          },
+          {
+            "tag": "A",
+            "name": "Home studioWork \u00b7 Pinned to Today",
+            "href": "/todos/studio"
+          }
+        ],
+        "focus": {
+          "tag": "BODY",
+          "name": "\n    Home studioOutcome \u00b7 activePriority1 / 102 / 103 / 104 / 105 / 106 / 107 / 108 / 109 / 1010 / 1",
+          "connected": true,
+          "insideHiddenOrInert": false
+        }
+      },
+      {
+        "stage": "from-actual-home-explicit-chat-tab",
+        "actualRoute": "http://127.0.0.1:53498/todos/studio",
+        "actualText": "Chats \u00b7 1\nChoose lead collaborator\nNew chat\nPreexisting studio planning\nOriginating conversation \u00b7 Offline personal \u00b7 Offline fixture\nCreated Oct 20, 2026\nConversation provenance\n\nEach chat retains its own history, settings and workspace. New chat keeps the assigned lead collaborator; Change lead collaborator assigns a replacement.",
+        "actualRows": [
+          "Preexisting studio planningOriginating conversation \u00b7 Offline personal \u00b7 Offline fixtureCreated Oct 20, 2026"
+        ],
+        "actualWork": {
+          "itemId": "studio",
+          "kind": "outcome",
+          "parentId": null,
+          "revision": "c96b52e98932e1f83f730dc48a9c5f263be6de045f9f8ddc63817e93bc5b3afd",
+          "links": [
+            {
+              "version": 1,
+              "linkId": "a9a25651-f6ec-4a22-a292-ca0b8a01c9a7",
+              "itemId": "studio",
+              "linkedAt": "2026-10-20T11:36:06.536Z",
+              "linkedBy": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+              "availability": "available",
+              "attemptId": null,
+              "role": "origin",
+              "conversation": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              }
+            }
+          ],
+          "assignments": [],
+          "assignmentHistory": {
+            "lead": {
+              "complete": true,
+              "conversationIds": []
+            },
+            "worker": {
+              "complete": true,
+              "conversationIds": []
+            }
+          },
+          "sources": [
+            {
+              "version": 1,
+              "snapshotId": "fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+              "itemId": "studio",
+              "source": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              },
+              "selection": {
+                "kind": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "blockIds": [],
+                "throughSequence": 1
+              },
+              "adoptedBrief": {
+                "revision": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+                "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e"
+              },
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+                  "revision": 1,
+                  "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+                }
+              ],
+              "author": null,
+              "sourceCreatedAt": "2026-10-20T11:36:06.518Z",
+              "adoptedAt": "2026-10-20T11:36:06.534Z"
+            }
+          ],
+          "attempts": []
+        },
+        "focus": {
+          "tag": "BUTTON",
+          "name": "Chat",
+          "connected": true,
+          "insideHiddenOrInert": false
+        },
+        "uniqueConversationCount": 1
+      },
+      {
+        "stage": "actual-workspace-back-after-Home-entry",
+        "expectedPath": "/",
+        "actualPath": "/",
+        "actualRoute": "http://127.0.0.1:53498/",
+        "focus": {
+          "tag": "BODY",
+          "name": "\n    Tuesday, October 20TodayNew session Search sessions and messagesPinned to TodayAdd pinManage pi",
+          "connected": true,
+          "insideHiddenOrInert": false
+        }
+      },
+      {
+        "stage": "direct-after-home-roundtrip",
+        "actualRoute": "http://127.0.0.1:53498/todos/studio?view=Chat",
+        "actualText": "Chats \u00b7 1\nChoose lead collaborator\nNew chat\nPreexisting studio planning\nOriginating conversation \u00b7 Offline personal \u00b7 Offline fixture\nCreated Oct 20, 2026\nConversation provenance\n\nEach chat retains its own history, settings and workspace. New chat keeps the assigned lead collaborator; Change lead collaborator assigns a replacement.",
+        "actualRows": [
+          "Preexisting studio planningOriginating conversation \u00b7 Offline personal \u00b7 Offline fixtureCreated Oct 20, 2026"
+        ],
+        "actualWork": {
+          "itemId": "studio",
+          "kind": "outcome",
+          "parentId": null,
+          "revision": "c96b52e98932e1f83f730dc48a9c5f263be6de045f9f8ddc63817e93bc5b3afd",
+          "links": [
+            {
+              "version": 1,
+              "linkId": "a9a25651-f6ec-4a22-a292-ca0b8a01c9a7",
+              "itemId": "studio",
+              "linkedAt": "2026-10-20T11:36:06.536Z",
+              "linkedBy": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+              "availability": "available",
+              "attemptId": null,
+              "role": "origin",
+              "conversation": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              }
+            }
+          ],
+          "assignments": [],
+          "assignmentHistory": {
+            "lead": {
+              "complete": true,
+              "conversationIds": []
+            },
+            "worker": {
+              "complete": true,
+              "conversationIds": []
+            }
+          },
+          "sources": [
+            {
+              "version": 1,
+              "snapshotId": "fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+              "itemId": "studio",
+              "source": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              },
+              "selection": {
+                "kind": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "blockIds": [],
+                "throughSequence": 1
+              },
+              "adoptedBrief": {
+                "revision": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+                "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e"
+              },
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+                  "revision": 1,
+                  "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+                }
+              ],
+              "author": null,
+              "sourceCreatedAt": "2026-10-20T11:36:06.518Z",
+              "adoptedAt": "2026-10-20T11:36:06.534Z"
+            }
+          ],
+          "attempts": []
+        },
+        "focus": {
+          "tag": "BODY",
+          "name": "\n    Home studioOutcome \u00b7 activePriority1 / 102 / 103 / 104 / 105 / 106 / 107 / 108 / 109 / 1010 / 1",
+          "connected": true,
+          "insideHiddenOrInert": false
+        },
+        "uniqueConversationCount": 1
+      },
+      {
+        "stage": "final-origin-return",
+        "actualRoute": "http://127.0.0.1:53498/todos/studio?view=Chat&chooseChat=1",
+        "actualText": "Chats \u00b7 1\nChoose lead collaborator\nNew chat\nPreexisting studio planning\nOriginating conversation \u00b7 Offline personal \u00b7 Offline fixture\nCreated Oct 20, 2026\nConversation provenance\n\nEach chat retains its own history, settings and workspace. New chat keeps the assigned lead collaborator; Change lead collaborator assigns a replacement.",
+        "actualRows": [
+          "Preexisting studio planningOriginating conversation \u00b7 Offline personal \u00b7 Offline fixtureCreated Oct 20, 2026"
+        ],
+        "actualWork": {
+          "itemId": "studio",
+          "kind": "outcome",
+          "parentId": null,
+          "revision": "c96b52e98932e1f83f730dc48a9c5f263be6de045f9f8ddc63817e93bc5b3afd",
+          "links": [
+            {
+              "version": 1,
+              "linkId": "a9a25651-f6ec-4a22-a292-ca0b8a01c9a7",
+              "itemId": "studio",
+              "linkedAt": "2026-10-20T11:36:06.536Z",
+              "linkedBy": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+              "availability": "available",
+              "attemptId": null,
+              "role": "origin",
+              "conversation": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              }
+            }
+          ],
+          "assignments": [],
+          "assignmentHistory": {
+            "lead": {
+              "complete": true,
+              "conversationIds": []
+            },
+            "worker": {
+              "complete": true,
+              "conversationIds": []
+            }
+          },
+          "sources": [
+            {
+              "version": 1,
+              "snapshotId": "fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+              "itemId": "studio",
+              "source": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              },
+              "selection": {
+                "kind": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "blockIds": [],
+                "throughSequence": 1
+              },
+              "adoptedBrief": {
+                "revision": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+                "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e"
+              },
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+                  "revision": 1,
+                  "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+                }
+              ],
+              "author": null,
+              "sourceCreatedAt": "2026-10-20T11:36:06.518Z",
+              "adoptedAt": "2026-10-20T11:36:06.534Z"
+            }
+          ],
+          "attempts": []
+        },
+        "focus": {
+          "tag": "BODY",
+          "name": "\n    Home studioOutcome \u00b7 activePriority1 / 102 / 103 / 104 / 105 / 106 / 107 / 108 / 109 / 1010 / 1",
+          "connected": true,
+          "insideHiddenOrInert": false
+        },
+        "uniqueConversationCount": 1
+      },
+      {
+        "stage": "complete-source-only-unassigned-outcome-journey",
+        "workBefore": {
+          "itemId": "studio",
+          "kind": "outcome",
+          "parentId": null,
+          "revision": "c96b52e98932e1f83f730dc48a9c5f263be6de045f9f8ddc63817e93bc5b3afd",
+          "links": [
+            {
+              "version": 1,
+              "linkId": "a9a25651-f6ec-4a22-a292-ca0b8a01c9a7",
+              "itemId": "studio",
+              "linkedAt": "2026-10-20T11:36:06.536Z",
+              "linkedBy": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+              "availability": "available",
+              "attemptId": null,
+              "role": "origin",
+              "conversation": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              }
+            }
+          ],
+          "assignments": [],
+          "assignmentHistory": {
+            "lead": {
+              "complete": true,
+              "conversationIds": []
+            },
+            "worker": {
+              "complete": true,
+              "conversationIds": []
+            }
+          },
+          "sources": [
+            {
+              "version": 1,
+              "snapshotId": "fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+              "itemId": "studio",
+              "source": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              },
+              "selection": {
+                "kind": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "blockIds": [],
+                "throughSequence": 1
+              },
+              "adoptedBrief": {
+                "revision": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+                "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e"
+              },
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+                  "revision": 1,
+                  "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+                }
+              ],
+              "author": null,
+              "sourceCreatedAt": "2026-10-20T11:36:06.518Z",
+              "adoptedAt": "2026-10-20T11:36:06.534Z"
+            }
+          ],
+          "attempts": []
+        },
+        "workAfter": {
+          "itemId": "studio",
+          "kind": "outcome",
+          "parentId": null,
+          "revision": "c96b52e98932e1f83f730dc48a9c5f263be6de045f9f8ddc63817e93bc5b3afd",
+          "links": [
+            {
+              "version": 1,
+              "linkId": "a9a25651-f6ec-4a22-a292-ca0b8a01c9a7",
+              "itemId": "studio",
+              "linkedAt": "2026-10-20T11:36:06.536Z",
+              "linkedBy": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+              "availability": "available",
+              "attemptId": null,
+              "role": "origin",
+              "conversation": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              }
+            }
+          ],
+          "assignments": [],
+          "assignmentHistory": {
+            "lead": {
+              "complete": true,
+              "conversationIds": []
+            },
+            "worker": {
+              "complete": true,
+              "conversationIds": []
+            }
+          },
+          "sources": [
+            {
+              "version": 1,
+              "snapshotId": "fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+              "itemId": "studio",
+              "source": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              },
+              "selection": {
+                "kind": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "blockIds": [],
+                "throughSequence": 1
+              },
+              "adoptedBrief": {
+                "revision": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+                "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e"
+              },
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+                  "revision": 1,
+                  "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+                }
+              ],
+              "author": null,
+              "sourceCreatedAt": "2026-10-20T11:36:06.518Z",
+              "adoptedAt": "2026-10-20T11:36:06.534Z"
+            }
+          ],
+          "attempts": []
+        },
+        "sourceBefore": {
+          "snapshot": {
+            "version": 1,
+            "snapshotId": "fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+            "itemId": "studio",
+            "source": {
+              "namespace": "mitzo",
+              "conversationId": "planning"
+            },
+            "selection": {
+              "kind": "selected",
+              "messageIds": ["preexisting-material-r1-decision"],
+              "blockIds": [],
+              "throughSequence": 1
+            },
+            "adoptedBrief": {
+              "revision": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+              "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e"
+            },
+            "artifacts": [
+              {
+                "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                "revision": 1,
+                "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+              },
+              {
+                "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+                "revision": 1,
+                "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+              }
+            ],
+            "author": null,
+            "sourceCreatedAt": "2026-10-20T11:36:06.518Z",
+            "adoptedAt": "2026-10-20T11:36:06.534Z"
+          },
+          "packet": {
+            "version": 1,
+            "actorId": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+            "itemId": "studio",
+            "workRevision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+            "selection": {
+              "requestId": "6aa0ccad-28f2-4891-89e2-c4c6a00598eb",
+              "expectedMembershipRevision": 0,
+              "sourceConversationId": "planning",
+              "boundary": {
+                "sequence": 1,
+                "messageId": "preexisting-material-r1-decision"
+              },
+              "mode": "selected",
+              "messageIds": ["preexisting-material-r1-decision"],
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                }
+              ],
+              "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+              "joiningBrief": ""
+            },
+            "brief": {
+              "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+              "text": "{\"itemId\":\"studio\",\"parentId\":null,\"summary\":\"Home studio\",\"intent\":\"Record music\",\"rationale\":\"Make music\",\"acceptanceCriteria\":[\"Approved plan\"],\"profile\":\"manual\",\"contextHints\":{\"repos\":[],\"paths\":[],\"issues\":[],\"docIds\":[],\"people\":[\"Original person\"],\"jiraKeys\":[],\"keywords\":[],\"taskHint\":\"Original hint\",\"sessionIds\":[]}}"
+            },
+            "context": {
+              "requestId": "6aa0ccad-28f2-4891-89e2-c4c6a00598eb",
+              "sourceConversationId": "planning",
+              "boundary": {
+                "sequence": 1,
+                "messageId": "preexisting-material-r1-decision"
+              },
+              "mode": "selected",
+              "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+              "joiningBrief": "",
+              "messages": [
+                {
+                  "conversationId": "planning",
+                  "messageId": "preexisting-material-r1-decision",
+                  "sequence": 1,
+                  "author": "operator",
+                  "source": null,
+                  "blocks": [
+                    {
+                      "blockId": "user-preexisting-material-r1-decision",
+                      "content": "Preexisting studio planning: arrange the room and equipment for a first recording. Keeping this discussion as origin does not assign a lead or start work.",
+                      "sha256": "d0b27a782b047280f0b31abed595c1c88a105f18e7e5469d0b38f54804b5442c"
+                    }
+                  ]
+                }
+              ],
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+                  "sourceConversationId": "planning",
+                  "mediaType": "application/octet-stream",
+                  "sizeBytes": 26,
+                  "contentBase64": "VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4="
+                }
+              ],
+              "capacity": {
+                "status": "unverified",
+                "reason": "No exact ordinary capacity adapter is registered."
+              },
+              "summary": null
+            },
+            "attributions": {
+              "preexisting-material-r1-decision": {
+                "seatId": null,
+                "provenance": null,
+                "createdAt": 1792496166518
+              }
+            },
+            "sourceTitle": "Preexisting studio planning",
+            "sourceCreatedAt": "2026-10-20T11:36:06.518Z"
+          },
+          "sourceHref": "/chat/planning?telosItem=studio&telosSource=fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+          "available": true
+        },
+        "sourceAfter": {
+          "snapshot": {
+            "version": 1,
+            "snapshotId": "fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+            "itemId": "studio",
+            "source": {
+              "namespace": "mitzo",
+              "conversationId": "planning"
+            },
+            "selection": {
+              "kind": "selected",
+              "messageIds": ["preexisting-material-r1-decision"],
+              "blockIds": [],
+              "throughSequence": 1
+            },
+            "adoptedBrief": {
+              "revision": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+              "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e"
+            },
+            "artifacts": [
+              {
+                "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                "revision": 1,
+                "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+              },
+              {
+                "artifactId": "49539dbebca64cc99e2ab81e3f5db5c5",
+                "revision": 1,
+                "sha256": "d5582b83b8afea832a13b7b9436188ec6f211cf5a45da5f8c41d6887edbae474"
+              }
+            ],
+            "author": null,
+            "sourceCreatedAt": "2026-10-20T11:36:06.518Z",
+            "adoptedAt": "2026-10-20T11:36:06.534Z"
+          },
+          "packet": {
+            "version": 1,
+            "actorId": "operator:50f85e9c-5057-45fd-bf80-48a2e37adbec",
+            "itemId": "studio",
+            "workRevision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+            "selection": {
+              "requestId": "6aa0ccad-28f2-4891-89e2-c4c6a00598eb",
+              "expectedMembershipRevision": 0,
+              "sourceConversationId": "planning",
+              "boundary": {
+                "sequence": 1,
+                "messageId": "preexisting-material-r1-decision"
+              },
+              "mode": "selected",
+              "messageIds": ["preexisting-material-r1-decision"],
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                }
+              ],
+              "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+              "joiningBrief": ""
+            },
+            "brief": {
+              "sha256": "8ef11c1ee660f42b974e6b5d025a63d9610e600f9f8de43721630e78d1dc382e",
+              "text": "{\"itemId\":\"studio\",\"parentId\":null,\"summary\":\"Home studio\",\"intent\":\"Record music\",\"rationale\":\"Make music\",\"acceptanceCriteria\":[\"Approved plan\"],\"profile\":\"manual\",\"contextHints\":{\"repos\":[],\"paths\":[],\"issues\":[],\"docIds\":[],\"people\":[\"Original person\"],\"jiraKeys\":[],\"keywords\":[],\"taskHint\":\"Original hint\",\"sessionIds\":[]}}"
+            },
+            "context": {
+              "requestId": "6aa0ccad-28f2-4891-89e2-c4c6a00598eb",
+              "sourceConversationId": "planning",
+              "boundary": {
+                "sequence": 1,
+                "messageId": "preexisting-material-r1-decision"
+              },
+              "mode": "selected",
+              "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+              "joiningBrief": "",
+              "messages": [
+                {
+                  "conversationId": "planning",
+                  "messageId": "preexisting-material-r1-decision",
+                  "sequence": 1,
+                  "author": "operator",
+                  "source": null,
+                  "blocks": [
+                    {
+                      "blockId": "user-preexisting-material-r1-decision",
+                      "content": "Preexisting studio planning: arrange the room and equipment for a first recording. Keeping this discussion as origin does not assign a lead or start work.",
+                      "sha256": "d0b27a782b047280f0b31abed595c1c88a105f18e7e5469d0b38f54804b5442c"
+                    }
+                  ]
+                }
+              ],
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+                  "sourceConversationId": "planning",
+                  "mediaType": "application/octet-stream",
+                  "sizeBytes": 26,
+                  "contentBase64": "VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4="
+                }
+              ],
+              "capacity": {
+                "status": "unverified",
+                "reason": "No exact ordinary capacity adapter is registered."
+              },
+              "summary": null
+            },
+            "attributions": {
+              "preexisting-material-r1-decision": {
+                "seatId": null,
+                "provenance": null,
+                "createdAt": 1792496166518
+              }
+            },
+            "sourceTitle": "Preexisting studio planning",
+            "sourceCreatedAt": "2026-10-20T11:36:06.518Z"
+          },
+          "sourceHref": "/chat/planning?telosItem=studio&telosSource=fd7ce0bb1673673682c3b2753dc5fbc2083d1c0dfa674e3af78805577b25cc3a",
+          "available": true
+        },
+        "recordBefore": {
+          "version": 1,
+          "itemId": "studio",
+          "kind": "outcome",
+          "parentId": null,
+          "summary": "Home studio",
+          "intent": "Record music",
+          "rationale": "Make music",
+          "acceptanceCriteria": ["Approved plan"],
+          "profile": "manual",
+          "status": "active",
+          "starred": false,
+          "priority": 8,
+          "categories": [],
+          "createdAt": "2026-10-16T10:00:00",
+          "updatedAt": "2026-10-16T10:00:00",
+          "contextHints": {
+            "repos": [],
+            "paths": [],
+            "issues": [],
+            "docIds": [],
+            "people": ["Original person"],
+            "jiraKeys": [],
+            "keywords": [],
+            "taskHint": "Original hint",
+            "sessionIds": []
+          },
+          "sources": [],
+          "links": [
+            {
+              "type": "artifact",
+              "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb",
+              "title": "Acoustic plan",
+              "description": "Versioned Telos document: acoustic-plan.md",
+              "addedAt": "2026-10-20T11:36:06.512Z"
+            }
+          ],
+          "legacyFields": {
+            "item": {
+              "id": "studio",
+              "summary": "Home studio",
+              "intent": "Record music",
+              "rationale": "Make music",
+              "acceptance_criteria": "[\"Approved plan\"]",
+              "idempotency_key": null,
+              "profile": "manual",
+              "cluster_id": null,
+              "urgency": 0,
+              "priority": 8,
+              "categories": "[]",
+              "starred": 0,
+              "status": "active",
+              "snoozed_until": null,
+              "context_hints": "{\"people\":[\"Original person\"],\"task_hint\":\"Original hint\"}",
+              "first_seen": "2026-10-16T10:00:00",
+              "last_seen": "2026-10-16T10:00:00",
+              "created_at": "2026-10-16T10:00:00",
+              "updated_at": "2026-10-16T10:00:00",
+              "parent_id": null,
+              "goal_id": null
+            },
+            "sources": [],
+            "links": [
+              {
+                "id": "artifact-6d8e589baeeb4f928fe135831d8eb2fb",
+                "item_id": "studio",
+                "type": "artifact",
+                "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb",
+                "title": "Acoustic plan",
+                "description": "Versioned Telos document: acoustic-plan.md",
+                "created_at": "2026-10-20T11:36:06.512Z"
+              }
+            ]
+          }
+        },
+        "recordAfter": {
+          "version": 1,
+          "itemId": "studio",
+          "kind": "outcome",
+          "parentId": null,
+          "summary": "Home studio",
+          "intent": "Record music",
+          "rationale": "Make music",
+          "acceptanceCriteria": ["Approved plan"],
+          "profile": "manual",
+          "status": "active",
+          "starred": false,
+          "priority": 8,
+          "categories": [],
+          "createdAt": "2026-10-16T10:00:00",
+          "updatedAt": "2026-10-16T10:00:00",
+          "contextHints": {
+            "repos": [],
+            "paths": [],
+            "issues": [],
+            "docIds": [],
+            "people": ["Original person"],
+            "jiraKeys": [],
+            "keywords": [],
+            "taskHint": "Original hint",
+            "sessionIds": []
+          },
+          "sources": [],
+          "links": [
+            {
+              "type": "artifact",
+              "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb",
+              "title": "Acoustic plan",
+              "description": "Versioned Telos document: acoustic-plan.md",
+              "addedAt": "2026-10-20T11:36:06.512Z"
+            }
+          ],
+          "legacyFields": {
+            "item": {
+              "id": "studio",
+              "summary": "Home studio",
+              "intent": "Record music",
+              "rationale": "Make music",
+              "acceptance_criteria": "[\"Approved plan\"]",
+              "idempotency_key": null,
+              "profile": "manual",
+              "cluster_id": null,
+              "urgency": 0,
+              "priority": 8,
+              "categories": "[]",
+              "starred": 0,
+              "status": "active",
+              "snoozed_until": null,
+              "context_hints": "{\"people\":[\"Original person\"],\"task_hint\":\"Original hint\"}",
+              "first_seen": "2026-10-16T10:00:00",
+              "last_seen": "2026-10-16T10:00:00",
+              "created_at": "2026-10-16T10:00:00",
+              "updated_at": "2026-10-16T10:00:00",
+              "parent_id": null,
+              "goal_id": null
+            },
+            "sources": [],
+            "links": [
+              {
+                "id": "artifact-6d8e589baeeb4f928fe135831d8eb2fb",
+                "item_id": "studio",
+                "type": "artifact",
+                "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb",
+                "title": "Acoustic plan",
+                "description": "Versioned Telos document: acoustic-plan.md",
+                "created_at": "2026-10-20T11:36:06.512Z"
+              }
+            ]
+          }
+        },
+        "peerBefore": {
+          "itemId": "quiet-job",
+          "kind": null,
+          "parentId": null,
+          "revision": "9986448f156c8368c9e32ba67d3c2f709da2c9212329a2c038d6e94d06632be5",
+          "links": [],
+          "assignments": [],
+          "assignmentHistory": {
+            "lead": {
+              "complete": true,
+              "conversationIds": []
+            },
+            "worker": {
+              "complete": true,
+              "conversationIds": []
+            }
+          },
+          "sources": [],
+          "attempts": []
+        },
+        "peerAfter": {
+          "itemId": "quiet-job",
+          "kind": null,
+          "parentId": null,
+          "revision": "9986448f156c8368c9e32ba67d3c2f709da2c9212329a2c038d6e94d06632be5",
+          "links": [],
+          "assignments": [],
+          "assignmentHistory": {
+            "lead": {
+              "complete": true,
+              "conversationIds": []
+            },
+            "worker": {
+              "complete": true,
+              "conversationIds": []
+            }
+          },
+          "sources": [],
+          "attempts": []
+        },
+        "childBefore": {
+          "itemId": "recording-slice",
+          "kind": "work_item",
+          "parentId": "studio",
+          "revision": "153834c55d4f5bbbe73e16fb7f0c6244ab62b43be6c32a8ad00d44394e5801db",
+          "links": [],
+          "assignments": [],
+          "assignmentHistory": {
+            "lead": {
+              "complete": true,
+              "conversationIds": []
+            },
+            "worker": {
+              "complete": true,
+              "conversationIds": []
+            }
+          },
+          "sources": [],
+          "attempts": []
+        },
+        "childAfter": {
+          "itemId": "recording-slice",
+          "kind": "work_item",
+          "parentId": "studio",
+          "revision": "153834c55d4f5bbbe73e16fb7f0c6244ab62b43be6c32a8ad00d44394e5801db",
+          "links": [],
+          "assignments": [],
+          "assignmentHistory": {
+            "lead": {
+              "complete": true,
+              "conversationIds": []
+            },
+            "worker": {
+              "complete": true,
+              "conversationIds": []
+            }
+          },
+          "sources": [],
+          "attempts": []
+        },
+        "snapshotBefore": {
+          "allSessionIdentities": [
+            {
+              "sessionId": "planning",
+              "cwd": null
+            },
+            {
+              "sessionId": "2b6f8294-1d2d-867e-94ff-026e85a12907",
+              "ordinaryWorkspaceId": "19a1ada9-36e7-4cc5-9420-5e1e1cf69ba5",
+              "cwd": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-UiBo1c/tasks/ordinary-19a1ada9-36e7-4cc5-9420-5e1e1cf69ba5"
+            }
+          ],
+          "executionBindings": [],
+          "nativeOwnerObservation": "native_ledger_not_observed",
+          "runtimeBinding": null,
+          "pid": 61565,
+          "generation": 1,
+          "session": {
+            "sessionId": "planning",
+            "conversationSource": "mitzo",
+            "summary": "Preexisting studio planning",
+            "branch": null,
+            "cwd": null,
+            "mode": "agent",
+            "isActive": true,
+            "isHidden": false,
+            "promptCount": 0,
+            "manuallyRenamed": false,
+            "initialPrompt": null,
+            "sdkTranscriptVerified": false,
+            "wtId": null,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0,
+            "totalCostUsd": 0,
+            "numTurns": 0,
+            "durationMs": 0,
+            "durationApiMs": 0,
+            "goalId": null,
+            "telosTaskId": null,
+            "closedBy": null,
+            "lastSpeaker": null,
+            "lastSpeakerAt": null,
+            "state": "ENDED",
+            "lastStateChange": null,
+            "executionGeneration": 0,
+            "executionId": null,
+            "executionPhase": null,
+            "executionTerminalReason": null,
+            "executionUpdatedAt": null,
+            "agentName": null,
+            "bootContext": null,
+            "accountBinding": {
+              "accountId": "ordinary-personal",
+              "accountLabel": "Offline personal",
+              "provider": "openai-codex",
+              "model": "fixture-model",
+              "profileRevision": "fd440ff16115db0e2e40d43ca1d4190ac67004f8a1804f1ba0f237a006d2e435"
+            },
+            "selectedModel": null,
+            "reasoningEffort": null,
+            "sessionType": "chat",
+            "symposiumConfig": null,
+            "symposiumRevision": 0,
+            "createdAt": 1792496166518,
+            "updatedAt": 1792496166518
+          },
+          "workspace": null,
+          "preparation": null,
+          "events": [
+            {
+              "seq": 1,
+              "sessionId": "planning",
+              "type": "user_message",
+              "payload": {
+                "messageId": "preexisting-material-r1-decision",
+                "text": "Preexisting studio planning: arrange the room and equipment for a first recording. Keeping this discussion as origin does not assign a lead or start work."
+              },
+              "createdAt": 1792496166518
+            }
+          ],
+          "tasks": [],
+          "activeSessionIds": []
+        },
+        "snapshotAfter": {
+          "allSessionIdentities": [
+            {
+              "sessionId": "planning",
+              "cwd": null
+            },
+            {
+              "sessionId": "2b6f8294-1d2d-867e-94ff-026e85a12907",
+              "ordinaryWorkspaceId": "19a1ada9-36e7-4cc5-9420-5e1e1cf69ba5",
+              "cwd": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-UiBo1c/tasks/ordinary-19a1ada9-36e7-4cc5-9420-5e1e1cf69ba5"
+            }
+          ],
+          "executionBindings": [],
+          "nativeOwnerObservation": "native_ledger_not_observed",
+          "runtimeBinding": null,
+          "pid": 61565,
+          "generation": 1,
+          "session": {
+            "sessionId": "planning",
+            "conversationSource": "mitzo",
+            "summary": "Preexisting studio planning",
+            "branch": null,
+            "cwd": null,
+            "mode": "agent",
+            "isActive": true,
+            "isHidden": false,
+            "promptCount": 0,
+            "manuallyRenamed": false,
+            "initialPrompt": null,
+            "sdkTranscriptVerified": false,
+            "wtId": null,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0,
+            "totalCostUsd": 0,
+            "numTurns": 0,
+            "durationMs": 0,
+            "durationApiMs": 0,
+            "goalId": null,
+            "telosTaskId": null,
+            "closedBy": null,
+            "lastSpeaker": null,
+            "lastSpeakerAt": null,
+            "state": "ENDED",
+            "lastStateChange": null,
+            "executionGeneration": 0,
+            "executionId": null,
+            "executionPhase": null,
+            "executionTerminalReason": null,
+            "executionUpdatedAt": null,
+            "agentName": null,
+            "bootContext": null,
+            "accountBinding": {
+              "accountId": "ordinary-personal",
+              "accountLabel": "Offline personal",
+              "provider": "openai-codex",
+              "model": "fixture-model",
+              "profileRevision": "fd440ff16115db0e2e40d43ca1d4190ac67004f8a1804f1ba0f237a006d2e435"
+            },
+            "selectedModel": null,
+            "reasoningEffort": null,
+            "sessionType": "chat",
+            "symposiumConfig": null,
+            "symposiumRevision": 0,
+            "createdAt": 1792496166518,
+            "updatedAt": 1792496166518
+          },
+          "workspace": null,
+          "preparation": null,
+          "events": [
+            {
+              "seq": 1,
+              "sessionId": "planning",
+              "type": "user_message",
+              "payload": {
+                "messageId": "preexisting-material-r1-decision",
+                "text": "Preexisting studio planning: arrange the room and equipment for a first recording. Keeping this discussion as origin does not assign a lead or start work."
+              },
+              "createdAt": 1792496166518
+            }
+          ],
+          "tasks": [],
+          "activeSessionIds": []
+        },
+        "tasksBefore": {
+          "tasks": []
+        },
+        "tasksAfter": {
+          "tasks": []
+        },
+        "prefsBefore": {
+          "revision": 1,
+          "names": {
+            "briefing": "Minion",
+            "terminal": "Minion"
+          },
+          "pins": [
+            {
+              "kind": "telos",
+              "id": "studio",
+              "title": "Home studio"
+            }
+          ],
+          "showDailyQuote": false
+        },
+        "prefsAfter": {
+          "revision": 1,
+          "names": {
+            "briefing": "Minion",
+            "terminal": "Minion"
+          },
+          "pins": [
+            {
+              "kind": "telos",
+              "id": "studio",
+              "title": "Home studio"
+            }
+          ],
+          "showDailyQuote": false
+        },
+        "effectsBefore": [
+          {
+            "kind": "preflight.close",
+            "generation": 1,
+            "pid": 61565,
+            "threadId": "restart-native-1-1"
+          }
+        ],
+        "effectsAfter": [
+          {
+            "kind": "preflight.close",
+            "generation": 1,
+            "pid": 61565,
+            "threadId": "restart-native-1-1"
+          }
+        ],
+        "requests": [
+          {
+            "path": "/api/chat/switch",
+            "method": "POST",
+            "body": {
+              "type": "switch_session",
+              "sessionId": "planning"
+            },
+            "readOnlyWorkOperation": false
+          },
+          {
+            "path": "/api/chat/switch",
+            "method": "POST",
+            "body": {
+              "type": "switch_session",
+              "sessionId": "planning"
+            },
+            "readOnlyWorkOperation": false
+          },
+          {
+            "path": "/api/chat/switch",
+            "method": "POST",
+            "body": {
+              "type": "switch_session",
+              "sessionId": "planning",
+              "historyCursor": 1
+            },
+            "readOnlyWorkOperation": false
+          },
+          {
+            "path": "/api/chat/session-event-applied",
+            "method": "POST",
+            "body": {
+              "type": "session_event_applied",
+              "sessionId": "planning",
+              "seq": 1
+            },
+            "readOnlyWorkOperation": false
+          },
+          {
+            "path": "/api/telos/work/links",
+            "method": "POST",
+            "body": {
+              "namespace": "mitzo",
+              "conversationId": "planning"
+            },
+            "readOnlyWorkOperation": true
+          },
+          {
+            "path": "/api/chat/switch",
+            "method": "POST",
+            "body": {
+              "type": "switch_session",
+              "sessionId": "planning"
+            },
+            "readOnlyWorkOperation": false
+          },
+          {
+            "path": "/api/chat/switch",
+            "method": "POST",
+            "body": {
+              "type": "switch_session",
+              "sessionId": "planning"
+            },
+            "readOnlyWorkOperation": false
+          },
+          {
+            "path": "/api/chat/switch",
+            "method": "POST",
+            "body": {
+              "type": "switch_session",
+              "sessionId": "planning",
+              "historyCursor": 1
+            },
+            "readOnlyWorkOperation": false
+          },
+          {
+            "path": "/api/chat/session-event-applied",
+            "method": "POST",
+            "body": {
+              "type": "session_event_applied",
+              "sessionId": "planning",
+              "seq": 1
+            },
+            "readOnlyWorkOperation": false
+          },
+          {
+            "path": "/api/telos/work/links",
+            "method": "POST",
+            "body": {
+              "namespace": "mitzo",
+              "conversationId": "planning"
+            },
+            "readOnlyWorkOperation": true
+          }
+        ],
+        "authorityCalls": [],
+        "backFromHome": {
+          "expectedPath": "/",
+          "actualPath": "/",
+          "actualRoute": "http://127.0.0.1:53498/",
+          "focus": {
+            "tag": "BODY",
+            "name": "\n    Tuesday, October 20TodayNew session Search sessions and messagesPinned to TodayAdd pinManage pi",
+            "connected": true,
+            "insideHiddenOrInert": false
+          }
+        },
+        "sourceDraft": "Keep this unsent source-only planning draft; no lead is assigned.",
+        "lifecycle": [
+          {
+            "event": "ready",
+            "type": "ready",
+            "pid": 61565,
+            "generation": 1,
+            "port": 53497,
+            "authId": "50f85e9c-5057-45fd-bf80-48a2e37adbec",
+            "statePaths": {
+              "repo": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-UiBo1c/controller-workspace",
+              "canonicalDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-source-only-canonical-jgACTV/canonical-retained.db",
+              "nativeCustody": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-UiBo1c/native-custody",
+              "accountProfiles": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-UiBo1c/profiles.json",
+              "taskDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-UiBo1c/controller-workspace/.mitzo/tasks.db"
+            },
+            "startupRecovery": {
+              "stale": 0,
+              "orphaned": 0
+            },
+            "owners": [
+              "App/REST",
+              "EventStore",
+              "TaskStore/WorkloadStore",
+              "SessionRegistry",
+              "ConnectionRegistry",
+              "SSE",
+              "auth revocations",
+              "ordinary workspace custody",
+              "native conversation/command ledger",
+              "native driver (lazy on explicit command)"
+            ],
+            "exclusions": [
+              "index.ts host services",
+              "production bundle",
+              "real native/provider process"
+            ]
+          }
+        ],
+        "limitation": "ONE390px Chromium journey; pre-App synthetic source/outcome/Home pin notcreation/nativeCapture proof. Existing source-only list/origin/assignment separation and unique count only; no complete UX06/13/count matrix, assigned single-nonorigin behavior, source revocation/error matrix, runtime/profile/native/model/main/live qualification. NaturalTab reachability/focus observations, no automatic route-focus restoration claim."
+      }
+    ],
+    "requests": [
+      {
+        "path": "/api/chat/switch",
+        "method": "POST",
+        "body": {
+          "type": "switch_session",
+          "sessionId": "planning"
+        },
+        "readOnlyWorkOperation": false
+      },
+      {
+        "path": "/api/chat/switch",
+        "method": "POST",
+        "body": {
+          "type": "switch_session",
+          "sessionId": "planning"
+        },
+        "readOnlyWorkOperation": false
+      },
+      {
+        "path": "/api/chat/switch",
+        "method": "POST",
+        "body": {
+          "type": "switch_session",
+          "sessionId": "planning",
+          "historyCursor": 1
+        },
+        "readOnlyWorkOperation": false
+      },
+      {
+        "path": "/api/chat/session-event-applied",
+        "method": "POST",
+        "body": {
+          "type": "session_event_applied",
+          "sessionId": "planning",
+          "seq": 1
+        },
+        "readOnlyWorkOperation": false
+      },
+      {
+        "path": "/api/telos/work/links",
+        "method": "POST",
+        "body": {
+          "namespace": "mitzo",
+          "conversationId": "planning"
+        },
+        "readOnlyWorkOperation": true
+      },
+      {
+        "path": "/api/chat/switch",
+        "method": "POST",
+        "body": {
+          "type": "switch_session",
+          "sessionId": "planning"
+        },
+        "readOnlyWorkOperation": false
+      },
+      {
+        "path": "/api/chat/switch",
+        "method": "POST",
+        "body": {
+          "type": "switch_session",
+          "sessionId": "planning"
+        },
+        "readOnlyWorkOperation": false
+      },
+      {
+        "path": "/api/chat/switch",
+        "method": "POST",
+        "body": {
+          "type": "switch_session",
+          "sessionId": "planning",
+          "historyCursor": 1
+        },
+        "readOnlyWorkOperation": false
+      },
+      {
+        "path": "/api/chat/session-event-applied",
+        "method": "POST",
+        "body": {
+          "type": "session_event_applied",
+          "sessionId": "planning",
+          "seq": 1
+        },
+        "readOnlyWorkOperation": false
+      },
+      {
+        "path": "/api/telos/work/links",
+        "method": "POST",
+        "body": {
+          "namespace": "mitzo",
+          "conversationId": "planning"
+        },
+        "readOnlyWorkOperation": true
+      }
+    ],
+    "pageErrors": [],
+    "realModelProviderCalls": 0,
+    "simulatedProviderInputs": 0
+  },
+  "lifecycle": [
+    {
+      "event": "ready",
+      "type": "ready",
+      "pid": 61565,
+      "generation": 1,
+      "port": 53497,
+      "authId": "50f85e9c-5057-45fd-bf80-48a2e37adbec",
+      "statePaths": {
+        "repo": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-UiBo1c/controller-workspace",
+        "canonicalDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-source-only-canonical-jgACTV/canonical-retained.db",
+        "nativeCustody": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-UiBo1c/native-custody",
+        "accountProfiles": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-UiBo1c/profiles.json",
+        "taskDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-UiBo1c/controller-workspace/.mitzo/tasks.db"
+      },
+      "startupRecovery": {
+        "stale": 0,
+        "orphaned": 0
+      },
+      "owners": [
+        "App/REST",
+        "EventStore",
+        "TaskStore/WorkloadStore",
+        "SessionRegistry",
+        "ConnectionRegistry",
+        "SSE",
+        "auth revocations",
+        "ordinary workspace custody",
+        "native conversation/command ledger",
+        "native driver (lazy on explicit command)"
+      ],
+      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+    },
+    {
+      "event": "exit",
+      "pid": 61565,
+      "generation": 1,
+      "code": null,
+      "signal": "SIGKILL"
+    }
+  ],
+  "rawSelectedResult": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS/exact-s7-correction/run.json",
+    "sha256": "7ab1e57fbe0119883734624429c937017dee1dad3652de6189a3e727df7cf3d2",
+    "size": 1224
+  },
+  "archives": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-SOURCE.zip",
+      "sha256": "001386752010877a28a8db7a5ac411a77da6bd231901a0df828c1ff65ee6ae63",
+      "size": 3604272
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS.zip",
+      "sha256": "e4e7e0e45108aeb6db019e42f4cf0d2bfcd47c1a70b0d718ac8a5e60910031c4",
+      "size": 487249
+    }
+  ],
+  "sourceOnlyUiObservations": 5,
+  "observationsAreNotAdditionalTestPasses": true,
+  "syntheticInitialState": {
+    "canonicalCapturePreviewAdoptionAndHomeStorePinBeforeApp": true,
+    "notNativeCreateOutcomeOrAdoptSourceProof": true,
+    "notUserCreationOrPinningProof": true,
+    "noReseedingAfterAppStart": true
+  },
+  "zeroEffectScope": {
+    "actualPreexistingSessionIdentities": 2,
+    "sessionDelta": 0,
+    "assignments": 0,
+    "attempts": 0,
+    "authorityCalls": 0,
+    "nativeLaunchThreadTurnProviderCalls": 0,
+    "metadataPreflightCloses": 1,
+    "metadataPreflightAlreadyPresentBeforeObservedJourney": true,
+    "workSourceRecordPeerChildTaskPrefsEventsBindingsUnchanged": true,
+    "draftPersisted": true
+  },
+  "focusQualification": "Natural Tab/Enter actual controls; Back reaches Home with focus BODY. No automatic focus-restoration/full accessibility claim.",
+  "visualInspection": {
+    "viewed": [
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS/exact-s7-correction/source-only-workspace-back-after-home.png",
+        "sha256": "b74a0a5aef14f00b380bc7add8d102fc33ed6931026cd19b22ee1bb8cfdec600",
+        "size": 47175
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS/exact-s7-correction/source-only-unassigned-studio-overview.png",
+        "sha256": "25b23f55464a62e3a8f6a2637dd5a6db0851fe879fee365cdcd10717d8439b36",
+        "size": 52382
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS/exact-s7-correction/source-only-from-actual-home-explicit-chat-tab.png",
+        "sha256": "656a1ae89f4b3aa9b39f5f1d4f205e57fa3792126bcb01964f3e483c5ef76e23",
+        "size": 53353
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS/exact-s7-correction/source-only-origin-draft-retained-after-home.png",
+        "sha256": "954db527c94d4de28eb76f5d160e34806f9e56d314516c6fa03d70be2e97249e",
+        "size": 36306
+      }
+    ],
+    "scope": "Actual 390x844 screenshots: Home Back destination, unassigned Overview, Chats1 with one originating conversation and Choose lead, retained origin draft. Bounded behavioral/source correction inspection only; no new approved-mock visual qualification, full UX/device/theme/main acceptance."
+  },
+  "realModelProviderNativeBinaryCalls": 0,
+  "simulatedProviderInputs": 0,
+  "ownedHttpFulfilments": 0,
+  "independentBoundedReviewPending": true,
+  "soleCorrectionOwner": {
+    "slice": "57b0894e0379ab95",
+    "thread": "01a14bd3-4565-7163-9701-ffa4c87ce495"
+  },
+  "originalRedAndHarnessDiagnosticPreserved": true,
+  "pending": [
+    "Independent complete GREEN source/raw/archive/visual and interaction review; original valid RED and source reviews retained.",
+    "Selective accepted-base composition and CI/trusted exact-head gates owned by root/S5b, then coherent accepted-main UX qualification.",
+    "Unavailable genuine Core publication composition, source selection byte access and separately authorized live single-runtime Luna/account window remain pending."
+  ],
+  "fullRowAccepted": false,
+  "acceptedMainQualified": false,
+  "liveRuntimeQualified": false
+}

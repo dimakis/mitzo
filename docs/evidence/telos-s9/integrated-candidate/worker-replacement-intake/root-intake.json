@@ -1,0 +1,242 @@
+{
+  "disposition": "BOUNDED_FUNCTIONAL_PASS_WITH_EVIDENCE_ATTRIBUTION_CORRECTION",
+  "head": "e4ef207b418b46e9a650422c1d9ee0fcb3541fad",
+  "tree": "d6b6b13fe45b599b4b4b0ac581d840b48de749da",
+  "parents": ["fcd7da5e94eb7ca8833fef97c0d4b83ffd766734"],
+  "baseline": "99a8ab4ec03a83c62c11875468fa092d0b3cc5cc",
+  "changedPaths": [
+    "A\ttests/integration/telos-s9/integrated-candidate/vitest.worker-replacement.config.ts",
+    "A\ttests/integration/telos-s9/integrated-candidate/worker-replacement-browser.contract.ts",
+    "A\ttests/integration/telos-s9/integrated-candidate/worker-replacement-child-app.mjs",
+    "A\ttests/integration/telos-s9/integrated-candidate/worker-replacement-process-fixture.ts"
+  ],
+  "sourceProof": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-WORKER-REPLACEMENT-SOURCE-PROOF.json",
+    "sha256": "08e58e9ec0d3bcf402f804bbf75a0cc0322b052024a8485c17c0dc332a87d95e",
+    "size": 7499
+  },
+  "producerReport": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-WORKER-REPLACEMENT-RESULT.json",
+    "sha256": "748e36d5d04931e819142823051643b143b5ce7730c5de287d16761433399e1c",
+    "size": 371089
+  },
+  "claimedHashSizeEntriesVerified": 28,
+  "priorIntegrationFilesExact": 85,
+  "actualSourcePinsVerified": 667,
+  "protectedReferencesVerified": 13,
+  "archives": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-WORKER-REPLACEMENT-SOURCE.zip",
+      "sha256": "419e6bf619ae086fb6871cbeb0581541c05370410d06d211a4b2134e8ca19811",
+      "size": 3113383,
+      "fileMembers": 275,
+      "trackedMembers": 270,
+      "custodyMembers": [
+        {
+          "path": "custody/S9-WORKER-REPLACEMENT-PREPARATION.json",
+          "sha256": "6e9c11407d38e2f36de178910c1f1192ba9ec26bf227eb95afee8fc91159a826",
+          "size": 1914,
+          "exactOriginal": true
+        },
+        {
+          "path": "custody/S9-WORKER-REPLACEMENT-SOURCE-PROOF.json",
+          "sha256": "08e58e9ec0d3bcf402f804bbf75a0cc0322b052024a8485c17c0dc332a87d95e",
+          "size": 7499,
+          "exactOriginal": true
+        },
+        {
+          "path": "custody/6bbe-to-3afd-setup-observer.patch",
+          "sha256": "9828c4ee41726ad73a109c066ba694520fd120cab3c729c811330d91e0d3d8e4",
+          "size": 31186,
+          "exactGitDiff": true
+        },
+        {
+          "path": "custody/3afd-to-fcd7-explicit-operator-assignment.patch",
+          "sha256": "30b026c02a76666e88583bd46fa491131d4e1a63745e2dfc61e215e865543a9e",
+          "size": 2687,
+          "exactGitDiff": true
+        },
+        {
+          "path": "custody/fcd7-to-e4ef-visible-role-and-identity-selector.patch",
+          "sha256": "54512ab98b009d5d21495170c718e644d39b12ac0f83946dad5ead31f7d6f8d3",
+          "size": 3380,
+          "exactGitDiff": true
+        }
+      ]
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-WORKER-REPLACEMENT-DIAGNOSTICS.zip",
+      "sha256": "48879e0bcff7118238782cd0a8c4e7c0156559498f018eb29b607a71416ba89d",
+      "size": 364108,
+      "fileMembers": 47,
+      "trackedMembers": 0,
+      "custodyMembers": []
+    }
+  ],
+  "rawResult": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-WORKER-REPLACEMENT-DIAGNOSTICS/visible-role-identity/run.json",
+    "sha256": "d4147cd6897e674bce91c92ad1be62e2c1b290a4e85b5f066c801bd8d2ac526d",
+    "size": 1166
+  },
+  "rawHttp": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-WORKER-REPLACEMENT-DIAGNOSTICS/visible-role-identity/actual-http-observations.json",
+    "sha256": "2ab16713fd24162d002d85fa61c8787188d1d1c0184156165a7632ab62392211",
+    "size": 46735
+  },
+  "selectedResult": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 24975.39453125
+  },
+  "observationsMatchReport": true,
+  "functionalChecks": {
+    "explicitGuardedInitialAssignment": true,
+    "additionalKeepsRevision1": true,
+    "replacementAdvancesRevision2": true,
+    "threeIdsWorkspacesCwds": true,
+    "originalAttemptUnchanged": true,
+    "taskPendingUnchanged": true,
+    "historicalReplayExactOriginalReceipt": true,
+    "currentReplacementWorkUnchangedAfterRestartReplay": true,
+    "allThreeRoleContextsEventsExecutionBindingsBeforeAfterEqual": true,
+    "sixVisibleRoleExactOpenedIdDraftAssertions": true,
+    "rawSessionInventoriesBeforeAfterEqual": true,
+    "allTaskTreesBeforeAfterEqual": true
+  },
+  "profilesObserved": [
+    {
+      "sessionId": "5dd04806-71e5-88c3-994b-127be0ecc9a4",
+      "profileId": "ordinary-worker",
+      "profileRevision": 1,
+      "fullProfileBeforeAfterEqual": true,
+      "preparationBinding": {
+        "version": 2,
+        "account": {
+          "accountId": "ordinary-personal",
+          "provider": "openai-codex",
+          "profileRevision": "f30b2164936a3c844638f417c1257874d3475601278b91b99f167b6e7e1fd219"
+        },
+        "harness": {
+          "implementation": "codex"
+        },
+        "execution": {
+          "location": "local",
+          "targetId": "ordinary-fixture-local",
+          "targetRevision": "16793be610b7c7c1e33f3acee006a145a1a79c5c289fd634be2d5981b8db996a"
+        }
+      },
+      "preparationBeforeAfterEqual": true,
+      "currentBindingGetterRead": false
+    },
+    {
+      "sessionId": "9471c384-b976-8bac-b95c-02d1b1d1bb4d",
+      "profileId": "ordinary-worker",
+      "profileRevision": 1,
+      "fullProfileBeforeAfterEqual": true,
+      "preparationBinding": {
+        "version": 2,
+        "account": {
+          "accountId": "ordinary-personal",
+          "provider": "openai-codex",
+          "profileRevision": "f30b2164936a3c844638f417c1257874d3475601278b91b99f167b6e7e1fd219"
+        },
+        "harness": {
+          "implementation": "codex"
+        },
+        "execution": {
+          "location": "local",
+          "targetId": "ordinary-fixture-local",
+          "targetRevision": "16793be610b7c7c1e33f3acee006a145a1a79c5c289fd634be2d5981b8db996a"
+        }
+      },
+      "preparationBeforeAfterEqual": true,
+      "currentBindingGetterRead": false
+    },
+    {
+      "sessionId": "6250cc32-d87e-89ee-ab46-b871eb665488",
+      "profileId": "ordinary-worker",
+      "profileRevision": 1,
+      "fullProfileBeforeAfterEqual": true,
+      "preparationBinding": {
+        "version": 2,
+        "account": {
+          "accountId": "ordinary-personal",
+          "provider": "openai-codex",
+          "profileRevision": "f30b2164936a3c844638f417c1257874d3475601278b91b99f167b6e7e1fd219"
+        },
+        "harness": {
+          "implementation": "codex"
+        },
+        "execution": {
+          "location": "local",
+          "targetId": "ordinary-fixture-local",
+          "targetRevision": "16793be610b7c7c1e33f3acee006a145a1a79c5c289fd634be2d5981b8db996a"
+        }
+      },
+      "preparationBeforeAfterEqual": true,
+      "currentBindingGetterRead": false
+    }
+  ],
+  "observerLimit": "No native ledger read or fabricated empty commands; absence marker is descriptive, not native zero-command proof. Real preparation runtime binding/profile snapshots observed; no explicit getSessionRuntimeBinding snapshot assertion.",
+  "accessibleNamesActual": [
+    "Open Previous conversation: Offline restart",
+    "Open Additional worker: Offline restart",
+    "Open Assigned worker: Offline restart"
+  ],
+  "lifecycle": [
+    {
+      "stage": "initial",
+      "readyPids": [31958],
+      "exitPids": [31958]
+    },
+    {
+      "stage": "setup-only-reader",
+      "readyPids": [32918],
+      "exitPids": [32918]
+    },
+    {
+      "stage": "explicit-initial-assignment",
+      "readyPids": [34624],
+      "exitPids": [34624]
+    },
+    {
+      "stage": "visible-role-identity",
+      "readyPids": [35701, 35898],
+      "exitPids": [35701, 35898]
+    }
+  ],
+  "effectsMetadataCloseCounts": {
+    "initial": 1,
+    "setup-only-reader": 1,
+    "explicit-initial-assignment": 1,
+    "visible-role-identity": 2
+  },
+  "capturesVisuallyInspected": [
+    "additional-worker-does-not-replace-current.png",
+    "actual-replacement-worker-reviewed-setup.png",
+    "three-worker-chats-drafts-and-current-assignment-after-app-restart.png"
+  ],
+  "visualLimit": "Last two named three-row captures are identical transition chat/draft images, not stable three-row chooser captures. Six functional role/id/draft assertions retain separate force.",
+  "findings": [
+    {
+      "priority": "P3",
+      "kind": "evidence_attribution_only",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-WORKER-REPLACEMENT-RESULT.json",
+      "field": "visualInspection.accessibleNames; diagnosticHistory[2].disposition",
+      "issue": "Producer prose says duplicate aria-label OpenOffline restart; actual six raw chooserRows show three distinct role-prefixed accessible names before and after restart. Frozen TelosChatList composes role and appended title. Earlier exact-role-only locator lacked the title suffix; titles are duplicate, accessible names are not.",
+      "correction": "Correct this report wording; preserve original raw/captures/failed diagnostic. No source/test/production change required. This does not independently qualify full accessibility."
+    }
+  ],
+  "integrityErrors": [],
+  "reviewExecution": "Static source/evidence review only. No tests/compiler/browser/services/network/models or producer/index edits.",
+  "pending": [
+    "FullUX14/15/21/CT15 and accepted-main/CI/CentaurApp/device/keyboard/touch/theme/readability/accessibility matrix remainpending. Stablethree-row chooser visual capture is not established by the named transition captures.",
+    "No native inference/assistant transcript/task-tool-result/taskcompletion/canonicaloutcome or superseded-worker new-command/admission refusal was exercised; actualroleevents/unsentdrafts and originalpendingTask binding only.",
+    "Confirmed canonicalnativeoutput port remains unavailable; do not substitute inventedtool/directHTTPsave. SharedCore/Bassessment/S5blaterconsumer routing separate, no new outputgrant.",
+    "Owner1048 selective supplementaltestadoption is separate from requiredstrictnine byte-exact guard; fullTelos/Symposiumcoexistence and separately authorized CT19 runtime/window pending.",
+    "Initial observer, delegation-vs-assignment and titled-row selector diagnosticfailures are retained; one finalPASS, no productdefect fabricated or anotherlaneproductionedited. S9/parentACTIVE, no PR/push/merge/outgoingmessage/model/provider/live/staging/deploy."
+  ],
+  "observerTypeCaveat": "Unused admission field is annotated NonNullable in reused snapshot type, although never-admitted IPC snapshots omit it; no selected assertion uses it and no admission/native-zero-command proof is inferred."
+}

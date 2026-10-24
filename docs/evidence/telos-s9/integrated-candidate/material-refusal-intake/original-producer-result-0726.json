@@ -1,0 +1,2597 @@
+{
+  "recordedAt": "2026-10-20T08:43:09.700453+00:00",
+  "scope": "ONE API integritynegative for actual UI-reviewed selectedmaterial role context. r1withr2hash refusal, no content/work/source/session/task/nativechanges; not UInegative/error taxonomy/nativebytes/materialadoption UX.",
+  "executionHead": "07266938a17a87d13a886e4d7623fdccc96bb319",
+  "executionTree": "6471bac072e470e1d05cded031b5dca82135e300",
+  "selectedResult": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 13560.102294921875
+  },
+  "sourceProof": {
+    "executionHead": "07266938a17a87d13a886e4d7623fdccc96bb319",
+    "executionTree": "6471bac072e470e1d05cded031b5dca82135e300",
+    "baseline": "05292f463fc30d8bccf8dedee6db696270bfdac1",
+    "onlyTwoDedicatedTestFiles": true,
+    "all98PriorIntegrationFilesUnchanged": true,
+    "earlierAdvisorArtifactsAndAllRawMembersExact": true,
+    "actualSourcePins": 667,
+    "protectedReferences": [
+      {
+        "path": "docs/design/approved/chat-settings/quick-sheet.html",
+        "sha256": "281eaad8d89684cd7c16583cb9ca2c082cdfb64ab1cd3acb7647abc289c2736e",
+        "match": true
+      },
+      {
+        "path": "docs/design/approved/chat-settings/approved-mock-dark.png",
+        "sha256": "c93d33e6512dd8894a8e27aca542b5a88579f37534a6b8c5eca225ec7e6a4847",
+        "match": true
+      },
+      {
+        "path": "frontend/src/components/__tests__/QuickChatSettings.test.tsx",
+        "sha256": "beb34896b1fb88690215c0a04a766993f53e2b6b2e9db4157b9644a205d63462",
+        "match": true
+      },
+      {
+        "path": "tests/offline/chat-settings-surface.spec.ts",
+        "sha256": "723801bf293794ea06ca3cff7a5fe9287bfc69e75982102464d269c4c0396d08",
+        "match": true
+      },
+      {
+        "path": "frontend/src/styles/__tests__/approved-designs.test.ts",
+        "sha256": "ee25f7e4111e60dd4cfb4d0da5d9d30a4d6dbd745eae6c0cfeabaa85f9b7b941",
+        "match": true
+      },
+      {
+        "path": "docs/design/approved/telos-priority-scale/priority-scale.svg",
+        "sha256": "2bc9fb6bda585f4f66c8f7eab3f8dfdfa7881d6ab52da8b86831de8de2bb62a1",
+        "match": true
+      },
+      {
+        "path": "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+        "sha256": "c1ab0bd0174975e67a3af37692e06c9851aa694295b54281b6d6c9e4c741382a",
+        "match": true
+      },
+      {
+        "path": "frontend/src/pages/__tests__/TodoPriorityOrdering.test.tsx",
+        "sha256": "779365ef8c25b4fdfd90fb68839b0236fc06076b471b47012bc8251c85495970",
+        "match": true
+      },
+      {
+        "path": "tests/offline/telos-priority.spec.ts",
+        "sha256": "a69a0647dfa64f4b4504a5693c3e435c4981cd4612bfd2d761fae6e5d0011894",
+        "match": true
+      },
+      {
+        "path": "docs/design/approved/symposium/fresh-agent-review.html",
+        "sha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+        "match": true
+      },
+      {
+        "path": "docs/design/approved/symposium/approved-context-review.png",
+        "sha256": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+        "match": true
+      },
+      {
+        "path": "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+        "sha256": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+        "match": true
+      },
+      {
+        "path": "tests/offline/symposium-approved-design.spec.ts",
+        "sha256": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+        "match": true
+      }
+    ],
+    "productionWorkflowAndStrictNineUnchanged": true,
+    "composition": "Unchanged labelledprivate72c+f47 composition; not accepted-main7db.",
+    "newFiles": [
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/advisor-material-refusal.contract.ts",
+        "sha256": "fe8748a0ea3192882553fb7fb3ff3a558a7e8ce5bf514004bb0f7fb96ff86915",
+        "size": 11956
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/vitest.advisor-material-refusal.config.ts",
+        "sha256": "798559a64c1c68404c06ebb65ef77e59efa16e57ee7f78bd71243f6a5920f694",
+        "size": 308
+      }
+    ],
+    "reusedFixtureAndChild": [
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/advisor-material-process-fixture.ts",
+        "sha256": "1cc619f6204c55579d790100b4ed09bd09926ad2c3e930192ea94d3b6f79af7b",
+        "size": 21734
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+        "sha256": "560d8c85d98b85db77415ae1f0bfa4e7918c764031890a5711f8209e3eb1c9be",
+        "size": 13260
+      }
+    ],
+    "actualSourceOwners": [
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-work-role-review.ts",
+        "sha256": "badfdb971c6f67d4dc0f6d7fa6fe2b2dfced3e70590c9cf1f4fa3d8bfe62cacd",
+        "size": 6571
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-work-role-host.ts",
+        "sha256": "1bac562fab4c14747d549234a3955279b8cdb634a654e0773716a7bececca3c6",
+        "size": 17216
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-work-routes.ts",
+        "sha256": "341ca2354c075caf18b79865d8cc520d3ac36284d9b47bfb216f90c651427677",
+        "size": 17315
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-source-capture.ts",
+        "sha256": "9b42d3f627e7923a29b0b22fb44e6b46eea5e9b2466a5faa95ae835f9b91b641",
+        "size": 24269
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-artifact-store.ts",
+        "sha256": "df5f1bc68bf16822e3e4c6a0d998c1bc32dd460e19ad9e995bf71c94905a1865",
+        "size": 22399
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/hooks/useTelosRoleSetup.ts",
+        "sha256": "cbded6cb6136a45627de2b563b433cfc4b9f80c248035dcdbbfb05c79d9810d8",
+        "size": 23118
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosRoleSetup.tsx",
+        "sha256": "dd88d2194a07070ddfc6ca385acea2332bff2f928f9bc7f254ffad80412f82aa",
+        "size": 9095
+      },
+      {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/packages/client/src/telos-work-api.ts",
+        "sha256": "3e51db24e9269fda0aaeaaf1087ff1b3a388692c98d463792941fdeff0761692",
+        "size": 12709
+      }
+    ],
+    "negativeBoundary": "Actual normal Refine UI creates valid role-review request after realFilesr2; explicit typedclient call with only retainedr1hash replacedbyr2hash. Existing realhost/source/artifact/role currentness/privacy/hash owners reject503 withoutselectedcontent; no HTTPfulfilment/browserinterception/UIpicker/advisorpreview/save/newpermission/nativecall.",
+    "readObserverQualification": "Actual retainedplanning source session reads inventory/sourceevents/tasks only. It has no ownedworkspace/preparation. No absent runtimebinding equality or nativeworkspace recovery claim; originalfixture-preparedworkspace cannot be resolved by this Appowner and was unsuitableobserver.",
+    "selectedAndInitialAppPids": [23304, 23912],
+    "allAppPidsReaped": true,
+    "mcpTeardown": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-MCP-TEARDOWN-CHECK.json",
+      "sha256": "4bd473f85b911291a3dd9fc94c049a631e5c58b76643b95f029a55753d686b6f",
+      "size": 343
+    }
+  },
+  "approvedScope": {
+    "reference": "c54d6f2479aab619b163187829b6bdff@1 / dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255",
+    "rows": ["UX07", "UX08", "UX11", "CT20"],
+    "qualification": "Stable reviewed selectedmaterial/integrity boundary subset only; not fullrow/nativebyte/source-selection UI acceptance. No newstandalonepicker requirement inferred."
+  },
+  "acceptedSourceReference": {
+    "commit": "7db1850aaadbebe875645e97fd0ba2a86c2b8f24",
+    "tree": "220c10f5cf0adf11650bde79f071e2f1ea99365c",
+    "receipt": "f9d338166661a437bea1aed790b79fce@1",
+    "scope": "Indexed accepted1046 source-only. This test executes labelledprivate72c+f47, not acceptedmain/runtime qualification."
+  },
+  "verified": [
+    "Existing independentlyclosedmaterialfixture seeds clearlysyntheticpreexistingreviewedsource+r1 via actual signed/currentoperator/source/work/artifact owners beforeApp; unchangedfixtureandchild, no inventedpacket/receipt or UIadoptionclaim.",
+    "ActualFilesUI createsr2 viaPUT200; actual normalRefine/settings/roleUI produces validreview200 withsource and bothr1/originalsource-recordpins. Browserrequest/response retained; no standalonepicker or browserrequestinterception.",
+    "Explicit typedclient reviewRoleContext submits that actualrequest with onlyacousticr1SHA replacedbycurrentr2SHA. ActualApp/operatorauth/rolehost/source/artifact/hash/currentnessowners reject503 codeunavailable/genericerror. ActualfailedHTTPbody contains onlycode/error, no material/sourcepacket/selection. This is APInegative, not a visibleerrorcard UX proof.",
+    "Canonicalchild/work/source/parent/unrelatedrecord, exactoriginEventStoreevents/sessionidentities/TaskStorebindings/tasks/activechatinventory andfakeeffectlog areexactbeforeafternegative. No advisor/worker/lead link or assignment/attempt appears. No Startchat/allocator operation/nativeproviderturn is requested; no newallocationidentity observed, and role-reviewowner itself hasnoallocation/providerport.",
+    "Authenticatedactualartifactreads afterrefusal preserve distinctr1/r2bytes/hash. ActualvalidUIcontext remains visible/Startchatenabled, withoutclaiming UIerror/recovery. Observer isrealoriginplanning withnullworkspace/preparation; no runtime/profile/workspacerecovery proof fromabsentfields."
+  ],
+  "observations": {
+    "observations": [
+      {
+        "stage": "actual-files-r2-established",
+        "baseline": {
+          "scope": "Synthetic preexisting starting state via real owners, not UI adoption proof",
+          "actor": {
+            "kind": "operator",
+            "id": "76c39f16-c6e3-4378-8836-d873810d81c9"
+          },
+          "originalText": "Preexisting reviewed decision: retain acoustic plan revision one for the recording sample. Execution remains a separate decision.",
+          "selection": {
+            "requestId": "6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e",
+            "expectedMembershipRevision": 0,
+            "sourceConversationId": "planning",
+            "mode": "selected",
+            "boundary": {
+              "sequence": 1,
+              "messageId": "preexisting-material-r1-decision"
+            },
+            "messageIds": ["preexisting-material-r1-decision"],
+            "artifacts": [
+              {
+                "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                "revision": 1,
+                "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+              }
+            ],
+            "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+            "joiningBrief": ""
+          },
+          "preview": {
+            "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d",
+            "packet": {
+              "version": 1,
+              "actorId": "operator:76c39f16-c6e3-4378-8836-d873810d81c9",
+              "itemId": "recording-slice",
+              "workRevision": "153834c55d4f5bbbe73e16fb7f0c6244ab62b43be6c32a8ad00d44394e5801db",
+              "selection": {
+                "requestId": "6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e",
+                "expectedMembershipRevision": 0,
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                  }
+                ],
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": ""
+              },
+              "brief": {
+                "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                "text": "{\"itemId\":\"recording-slice\",\"parentId\":\"studio\",\"summary\":\"Record one acoustic sample\",\"intent\":\"Retain one reviewed sample\",\"rationale\":\"Exact smallest child only\",\"acceptanceCriteria\":[\"Retain sample evidence\"],\"profile\":\"manual\",\"contextHints\":{\"repos\":[],\"paths\":[],\"issues\":[],\"docIds\":[],\"people\":[],\"jiraKeys\":[],\"keywords\":[],\"taskHint\":\"\",\"sessionIds\":[]}}"
+              },
+              "context": {
+                "requestId": "6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e",
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": "",
+                "messages": [
+                  {
+                    "conversationId": "planning",
+                    "messageId": "preexisting-material-r1-decision",
+                    "sequence": 1,
+                    "author": "operator",
+                    "source": null,
+                    "blocks": [
+                      {
+                        "blockId": "user-preexisting-material-r1-decision",
+                        "content": "Preexisting reviewed decision: retain acoustic plan revision one for the recording sample. Execution remains a separate decision.",
+                        "sha256": "e79aa207afe2e96814379d3c22421013ec83d0d7003669ddcc8c3bc7605a2b13"
+                      }
+                    ]
+                  }
+                ],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+                    "sourceConversationId": "planning",
+                    "mediaType": "application/octet-stream",
+                    "sizeBytes": 26,
+                    "contentBase64": "VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4="
+                  }
+                ],
+                "capacity": {
+                  "status": "unverified",
+                  "reason": "No exact ordinary capacity adapter is registered."
+                },
+                "summary": null
+              },
+              "attributions": {
+                "preexisting-material-r1-decision": {
+                  "seatId": null,
+                  "provenance": null,
+                  "createdAt": 1792485657009
+                }
+              },
+              "sourceTitle": "Preexisting reviewed sample plan",
+              "sourceCreatedAt": "2026-10-20T08:40:57.009Z"
+            }
+          },
+          "receipt": {
+            "commandId": "00f51345-4835-4806-a55d-ae60b1ddd891",
+            "actorId": "operator:76c39f16-c6e3-4378-8836-d873810d81c9",
+            "work": {
+              "itemId": "recording-slice",
+              "kind": "work_item",
+              "parentId": "studio",
+              "revision": "9b5f2c357eedf1675e4367d9475e645e8158eabbd70c98c6a176a5515163e630",
+              "links": [
+                {
+                  "version": 1,
+                  "linkId": "28063b36-3c1d-49d8-b9f0-170d484d2d78",
+                  "itemId": "recording-slice",
+                  "linkedAt": "2026-10-20T08:40:57.023Z",
+                  "linkedBy": "operator:76c39f16-c6e3-4378-8836-d873810d81c9",
+                  "availability": "available",
+                  "attemptId": null,
+                  "role": "origin",
+                  "conversation": {
+                    "namespace": "mitzo",
+                    "conversationId": "planning"
+                  }
+                }
+              ],
+              "assignments": [],
+              "assignmentHistory": {
+                "lead": {
+                  "complete": true,
+                  "conversationIds": []
+                },
+                "worker": {
+                  "complete": true,
+                  "conversationIds": []
+                }
+              },
+              "sources": [
+                {
+                  "version": 1,
+                  "snapshotId": "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+                  "itemId": "recording-slice",
+                  "source": {
+                    "namespace": "mitzo",
+                    "conversationId": "planning"
+                  },
+                  "selection": {
+                    "kind": "selected",
+                    "messageIds": ["preexisting-material-r1-decision"],
+                    "blockIds": [],
+                    "throughSequence": 1
+                  },
+                  "adoptedBrief": {
+                    "revision": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                    "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03"
+                  },
+                  "artifacts": [
+                    {
+                      "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                      "revision": 1,
+                      "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                    },
+                    {
+                      "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                      "revision": 1,
+                      "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+                    }
+                  ],
+                  "author": null,
+                  "sourceCreatedAt": "2026-10-20T08:40:57.009Z",
+                  "adoptedAt": "2026-10-20T08:40:57.021Z"
+                }
+              ],
+              "attempts": []
+            }
+          },
+          "source": {
+            "snapshot": {
+              "version": 1,
+              "snapshotId": "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+              "itemId": "recording-slice",
+              "source": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              },
+              "selection": {
+                "kind": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "blockIds": [],
+                "throughSequence": 1
+              },
+              "adoptedBrief": {
+                "revision": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03"
+              },
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                  "revision": 1,
+                  "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+                }
+              ],
+              "author": null,
+              "sourceCreatedAt": "2026-10-20T08:40:57.009Z",
+              "adoptedAt": "2026-10-20T08:40:57.021Z"
+            },
+            "packet": {
+              "version": 1,
+              "actorId": "operator:76c39f16-c6e3-4378-8836-d873810d81c9",
+              "itemId": "recording-slice",
+              "workRevision": "153834c55d4f5bbbe73e16fb7f0c6244ab62b43be6c32a8ad00d44394e5801db",
+              "selection": {
+                "requestId": "6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e",
+                "expectedMembershipRevision": 0,
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                  }
+                ],
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": ""
+              },
+              "brief": {
+                "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                "text": "{\"itemId\":\"recording-slice\",\"parentId\":\"studio\",\"summary\":\"Record one acoustic sample\",\"intent\":\"Retain one reviewed sample\",\"rationale\":\"Exact smallest child only\",\"acceptanceCriteria\":[\"Retain sample evidence\"],\"profile\":\"manual\",\"contextHints\":{\"repos\":[],\"paths\":[],\"issues\":[],\"docIds\":[],\"people\":[],\"jiraKeys\":[],\"keywords\":[],\"taskHint\":\"\",\"sessionIds\":[]}}"
+              },
+              "context": {
+                "requestId": "6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e",
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": "",
+                "messages": [
+                  {
+                    "conversationId": "planning",
+                    "messageId": "preexisting-material-r1-decision",
+                    "sequence": 1,
+                    "author": "operator",
+                    "source": null,
+                    "blocks": [
+                      {
+                        "blockId": "user-preexisting-material-r1-decision",
+                        "content": "Preexisting reviewed decision: retain acoustic plan revision one for the recording sample. Execution remains a separate decision.",
+                        "sha256": "e79aa207afe2e96814379d3c22421013ec83d0d7003669ddcc8c3bc7605a2b13"
+                      }
+                    ]
+                  }
+                ],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+                    "sourceConversationId": "planning",
+                    "mediaType": "application/octet-stream",
+                    "sizeBytes": 26,
+                    "contentBase64": "VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4="
+                  }
+                ],
+                "capacity": {
+                  "status": "unverified",
+                  "reason": "No exact ordinary capacity adapter is registered."
+                },
+                "summary": null
+              },
+              "attributions": {
+                "preexisting-material-r1-decision": {
+                  "seatId": null,
+                  "provenance": null,
+                  "createdAt": 1792485657009
+                }
+              },
+              "sourceTitle": "Preexisting reviewed sample plan",
+              "sourceCreatedAt": "2026-10-20T08:40:57.009Z"
+            },
+            "sourceHref": "/chat/planning?telosItem=recording-slice&telosSource=6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+            "available": true
+          },
+          "material": {
+            "id": "6d8e589baeeb4f928fe135831d8eb2fb",
+            "itemId": "studio",
+            "filename": "acoustic-plan.md",
+            "title": "Acoustic plan",
+            "revision": 1,
+            "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+            "size": 26,
+            "sessionId": "planning",
+            "sourceKind": "session_artifact",
+            "sourcePath": null,
+            "createdAt": "2026-10-20T08:40:57.005Z",
+            "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb?revision=1"
+          },
+          "originalMaterialText": "The reviewed panel layout.",
+          "pin": {
+            "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+            "revision": 1,
+            "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+          },
+          "pins": [
+            {
+              "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+              "revision": 1,
+              "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+            },
+            {
+              "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+              "revision": 1,
+              "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+            }
+          ],
+          "sourceRecordPin": {
+            "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+            "revision": 1,
+            "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+          },
+          "originalSourceRecordText": "{\"version\":1,\"actorId\":\"operator:76c39f16-c6e3-4378-8836-d873810d81c9\",\"itemId\":\"recording-slice\",\"workRevision\":\"153834c55d4f5bbbe73e16fb7f0c6244ab62b43be6c32a8ad00d44394e5801db\",\"selection\":{\"requestId\":\"6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e\",\"expectedMembershipRevision\":0,\"sourceConversationId\":\"planning\",\"boundary\":{\"sequence\":1,\"messageId\":\"preexisting-material-r1-decision\"},\"mode\":\"selected\",\"messageIds\":[\"preexisting-material-r1-decision\"],\"artifacts\":[{\"artifactId\":\"6d8e589baeeb4f928fe135831d8eb2fb\",\"revision\":1,\"sha256\":\"d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273\"}],\"purpose\":\"Preexisting reviewed source and exact acoustic material revision one\",\"joiningBrief\":\"\"},\"brief\":{\"sha256\":\"706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03\",\"text\":\"{\\\"itemId\\\":\\\"recording-slice\\\",\\\"parentId\\\":\\\"studio\\\",\\\"summary\\\":\\\"Record one acoustic sample\\\",\\\"intent\\\":\\\"Retain one reviewed sample\\\",\\\"rationale\\\":\\\"Exact smallest child only\\\",\\\"acceptanceCriteria\\\":[\\\"Retain sample evidence\\\"],\\\"profile\\\":\\\"manual\\\",\\\"contextHints\\\":{\\\"repos\\\":[],\\\"paths\\\":[],\\\"issues\\\":[],\\\"docIds\\\":[],\\\"people\\\":[],\\\"jiraKeys\\\":[],\\\"keywords\\\":[],\\\"taskHint\\\":\\\"\\\",\\\"sessionIds\\\":[]}}\"},\"context\":{\"requestId\":\"6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e\",\"sourceConversationId\":\"planning\",\"boundary\":{\"sequence\":1,\"messageId\":\"preexisting-material-r1-decision\"},\"mode\":\"selected\",\"purpose\":\"Preexisting reviewed source and exact acoustic material revision one\",\"joiningBrief\":\"\",\"messages\":[{\"conversationId\":\"planning\",\"messageId\":\"preexisting-material-r1-decision\",\"sequence\":1,\"author\":\"operator\",\"source\":null,\"blocks\":[{\"blockId\":\"user-preexisting-material-r1-decision\",\"content\":\"Preexisting reviewed decision: retain acoustic plan revision one for the recording sample. Execution remains a separate decision.\",\"sha256\":\"e79aa207afe2e96814379d3c22421013ec83d0d7003669ddcc8c3bc7605a2b13\"}]}],\"artifacts\":[{\"artifactId\":\"6d8e589baeeb4f928fe135831d8eb2fb\",\"revision\":1,\"sha256\":\"d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273\",\"sourceConversationId\":\"planning\",\"mediaType\":\"application/octet-stream\",\"sizeBytes\":26,\"contentBase64\":\"VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4=\"}],\"capacity\":{\"status\":\"unverified\",\"reason\":\"No exact ordinary capacity adapter is registered.\"},\"summary\":null},\"attributions\":{\"preexisting-material-r1-decision\":{\"seatId\":null,\"provenance\":null,\"createdAt\":1792485657009}},\"sourceTitle\":\"Preexisting reviewed sample plan\",\"sourceCreatedAt\":\"2026-10-20T08:40:57.009Z\"}"
+        },
+        "editRequest": {
+          "content": "Revision two for the integrity refusal case. Its hash cannot authenticate retained revision one.\n",
+          "expectedRevision": 1,
+          "requestId": "85eba846-3b09-4592-9a19-b4ac39719870"
+        },
+        "second": {
+          "id": "6d8e589baeeb4f928fe135831d8eb2fb",
+          "itemId": "studio",
+          "filename": "acoustic-plan.md",
+          "title": "Acoustic plan",
+          "revision": 2,
+          "sha256": "0f7b2381a6ad174bc551bf03bb505e9c40c3050f53f0c78667ae8cfa56100da9",
+          "size": 97,
+          "sessionId": "user-edit:76c39f16-c6e3-4378-8836-d873810d81c9",
+          "sourceKind": "user_edit",
+          "sourcePath": null,
+          "createdAt": "2026-10-20T08:41:02.610Z",
+          "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb?revision=2"
+        },
+        "secondText": "Revision two for the integrity refusal case. Its hash cannot authenticate retained revision one.\n"
+      },
+      {
+        "stage": "complete-actual-role-review-mismatched-material-refusal",
+        "baseline": {
+          "scope": "Synthetic preexisting starting state via real owners, not UI adoption proof",
+          "actor": {
+            "kind": "operator",
+            "id": "76c39f16-c6e3-4378-8836-d873810d81c9"
+          },
+          "originalText": "Preexisting reviewed decision: retain acoustic plan revision one for the recording sample. Execution remains a separate decision.",
+          "selection": {
+            "requestId": "6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e",
+            "expectedMembershipRevision": 0,
+            "sourceConversationId": "planning",
+            "mode": "selected",
+            "boundary": {
+              "sequence": 1,
+              "messageId": "preexisting-material-r1-decision"
+            },
+            "messageIds": ["preexisting-material-r1-decision"],
+            "artifacts": [
+              {
+                "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                "revision": 1,
+                "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+              }
+            ],
+            "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+            "joiningBrief": ""
+          },
+          "preview": {
+            "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d",
+            "packet": {
+              "version": 1,
+              "actorId": "operator:76c39f16-c6e3-4378-8836-d873810d81c9",
+              "itemId": "recording-slice",
+              "workRevision": "153834c55d4f5bbbe73e16fb7f0c6244ab62b43be6c32a8ad00d44394e5801db",
+              "selection": {
+                "requestId": "6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e",
+                "expectedMembershipRevision": 0,
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                  }
+                ],
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": ""
+              },
+              "brief": {
+                "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                "text": "{\"itemId\":\"recording-slice\",\"parentId\":\"studio\",\"summary\":\"Record one acoustic sample\",\"intent\":\"Retain one reviewed sample\",\"rationale\":\"Exact smallest child only\",\"acceptanceCriteria\":[\"Retain sample evidence\"],\"profile\":\"manual\",\"contextHints\":{\"repos\":[],\"paths\":[],\"issues\":[],\"docIds\":[],\"people\":[],\"jiraKeys\":[],\"keywords\":[],\"taskHint\":\"\",\"sessionIds\":[]}}"
+              },
+              "context": {
+                "requestId": "6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e",
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": "",
+                "messages": [
+                  {
+                    "conversationId": "planning",
+                    "messageId": "preexisting-material-r1-decision",
+                    "sequence": 1,
+                    "author": "operator",
+                    "source": null,
+                    "blocks": [
+                      {
+                        "blockId": "user-preexisting-material-r1-decision",
+                        "content": "Preexisting reviewed decision: retain acoustic plan revision one for the recording sample. Execution remains a separate decision.",
+                        "sha256": "e79aa207afe2e96814379d3c22421013ec83d0d7003669ddcc8c3bc7605a2b13"
+                      }
+                    ]
+                  }
+                ],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+                    "sourceConversationId": "planning",
+                    "mediaType": "application/octet-stream",
+                    "sizeBytes": 26,
+                    "contentBase64": "VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4="
+                  }
+                ],
+                "capacity": {
+                  "status": "unverified",
+                  "reason": "No exact ordinary capacity adapter is registered."
+                },
+                "summary": null
+              },
+              "attributions": {
+                "preexisting-material-r1-decision": {
+                  "seatId": null,
+                  "provenance": null,
+                  "createdAt": 1792485657009
+                }
+              },
+              "sourceTitle": "Preexisting reviewed sample plan",
+              "sourceCreatedAt": "2026-10-20T08:40:57.009Z"
+            }
+          },
+          "receipt": {
+            "commandId": "00f51345-4835-4806-a55d-ae60b1ddd891",
+            "actorId": "operator:76c39f16-c6e3-4378-8836-d873810d81c9",
+            "work": {
+              "itemId": "recording-slice",
+              "kind": "work_item",
+              "parentId": "studio",
+              "revision": "9b5f2c357eedf1675e4367d9475e645e8158eabbd70c98c6a176a5515163e630",
+              "links": [
+                {
+                  "version": 1,
+                  "linkId": "28063b36-3c1d-49d8-b9f0-170d484d2d78",
+                  "itemId": "recording-slice",
+                  "linkedAt": "2026-10-20T08:40:57.023Z",
+                  "linkedBy": "operator:76c39f16-c6e3-4378-8836-d873810d81c9",
+                  "availability": "available",
+                  "attemptId": null,
+                  "role": "origin",
+                  "conversation": {
+                    "namespace": "mitzo",
+                    "conversationId": "planning"
+                  }
+                }
+              ],
+              "assignments": [],
+              "assignmentHistory": {
+                "lead": {
+                  "complete": true,
+                  "conversationIds": []
+                },
+                "worker": {
+                  "complete": true,
+                  "conversationIds": []
+                }
+              },
+              "sources": [
+                {
+                  "version": 1,
+                  "snapshotId": "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+                  "itemId": "recording-slice",
+                  "source": {
+                    "namespace": "mitzo",
+                    "conversationId": "planning"
+                  },
+                  "selection": {
+                    "kind": "selected",
+                    "messageIds": ["preexisting-material-r1-decision"],
+                    "blockIds": [],
+                    "throughSequence": 1
+                  },
+                  "adoptedBrief": {
+                    "revision": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                    "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03"
+                  },
+                  "artifacts": [
+                    {
+                      "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                      "revision": 1,
+                      "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                    },
+                    {
+                      "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                      "revision": 1,
+                      "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+                    }
+                  ],
+                  "author": null,
+                  "sourceCreatedAt": "2026-10-20T08:40:57.009Z",
+                  "adoptedAt": "2026-10-20T08:40:57.021Z"
+                }
+              ],
+              "attempts": []
+            }
+          },
+          "source": {
+            "snapshot": {
+              "version": 1,
+              "snapshotId": "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+              "itemId": "recording-slice",
+              "source": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              },
+              "selection": {
+                "kind": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "blockIds": [],
+                "throughSequence": 1
+              },
+              "adoptedBrief": {
+                "revision": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03"
+              },
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                  "revision": 1,
+                  "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+                }
+              ],
+              "author": null,
+              "sourceCreatedAt": "2026-10-20T08:40:57.009Z",
+              "adoptedAt": "2026-10-20T08:40:57.021Z"
+            },
+            "packet": {
+              "version": 1,
+              "actorId": "operator:76c39f16-c6e3-4378-8836-d873810d81c9",
+              "itemId": "recording-slice",
+              "workRevision": "153834c55d4f5bbbe73e16fb7f0c6244ab62b43be6c32a8ad00d44394e5801db",
+              "selection": {
+                "requestId": "6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e",
+                "expectedMembershipRevision": 0,
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                  }
+                ],
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": ""
+              },
+              "brief": {
+                "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                "text": "{\"itemId\":\"recording-slice\",\"parentId\":\"studio\",\"summary\":\"Record one acoustic sample\",\"intent\":\"Retain one reviewed sample\",\"rationale\":\"Exact smallest child only\",\"acceptanceCriteria\":[\"Retain sample evidence\"],\"profile\":\"manual\",\"contextHints\":{\"repos\":[],\"paths\":[],\"issues\":[],\"docIds\":[],\"people\":[],\"jiraKeys\":[],\"keywords\":[],\"taskHint\":\"\",\"sessionIds\":[]}}"
+              },
+              "context": {
+                "requestId": "6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e",
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": "",
+                "messages": [
+                  {
+                    "conversationId": "planning",
+                    "messageId": "preexisting-material-r1-decision",
+                    "sequence": 1,
+                    "author": "operator",
+                    "source": null,
+                    "blocks": [
+                      {
+                        "blockId": "user-preexisting-material-r1-decision",
+                        "content": "Preexisting reviewed decision: retain acoustic plan revision one for the recording sample. Execution remains a separate decision.",
+                        "sha256": "e79aa207afe2e96814379d3c22421013ec83d0d7003669ddcc8c3bc7605a2b13"
+                      }
+                    ]
+                  }
+                ],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+                    "sourceConversationId": "planning",
+                    "mediaType": "application/octet-stream",
+                    "sizeBytes": 26,
+                    "contentBase64": "VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4="
+                  }
+                ],
+                "capacity": {
+                  "status": "unverified",
+                  "reason": "No exact ordinary capacity adapter is registered."
+                },
+                "summary": null
+              },
+              "attributions": {
+                "preexisting-material-r1-decision": {
+                  "seatId": null,
+                  "provenance": null,
+                  "createdAt": 1792485657009
+                }
+              },
+              "sourceTitle": "Preexisting reviewed sample plan",
+              "sourceCreatedAt": "2026-10-20T08:40:57.009Z"
+            },
+            "sourceHref": "/chat/planning?telosItem=recording-slice&telosSource=6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+            "available": true
+          },
+          "material": {
+            "id": "6d8e589baeeb4f928fe135831d8eb2fb",
+            "itemId": "studio",
+            "filename": "acoustic-plan.md",
+            "title": "Acoustic plan",
+            "revision": 1,
+            "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+            "size": 26,
+            "sessionId": "planning",
+            "sourceKind": "session_artifact",
+            "sourcePath": null,
+            "createdAt": "2026-10-20T08:40:57.005Z",
+            "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb?revision=1"
+          },
+          "originalMaterialText": "The reviewed panel layout.",
+          "pin": {
+            "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+            "revision": 1,
+            "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+          },
+          "pins": [
+            {
+              "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+              "revision": 1,
+              "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+            },
+            {
+              "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+              "revision": 1,
+              "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+            }
+          ],
+          "sourceRecordPin": {
+            "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+            "revision": 1,
+            "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+          },
+          "originalSourceRecordText": "{\"version\":1,\"actorId\":\"operator:76c39f16-c6e3-4378-8836-d873810d81c9\",\"itemId\":\"recording-slice\",\"workRevision\":\"153834c55d4f5bbbe73e16fb7f0c6244ab62b43be6c32a8ad00d44394e5801db\",\"selection\":{\"requestId\":\"6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e\",\"expectedMembershipRevision\":0,\"sourceConversationId\":\"planning\",\"boundary\":{\"sequence\":1,\"messageId\":\"preexisting-material-r1-decision\"},\"mode\":\"selected\",\"messageIds\":[\"preexisting-material-r1-decision\"],\"artifacts\":[{\"artifactId\":\"6d8e589baeeb4f928fe135831d8eb2fb\",\"revision\":1,\"sha256\":\"d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273\"}],\"purpose\":\"Preexisting reviewed source and exact acoustic material revision one\",\"joiningBrief\":\"\"},\"brief\":{\"sha256\":\"706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03\",\"text\":\"{\\\"itemId\\\":\\\"recording-slice\\\",\\\"parentId\\\":\\\"studio\\\",\\\"summary\\\":\\\"Record one acoustic sample\\\",\\\"intent\\\":\\\"Retain one reviewed sample\\\",\\\"rationale\\\":\\\"Exact smallest child only\\\",\\\"acceptanceCriteria\\\":[\\\"Retain sample evidence\\\"],\\\"profile\\\":\\\"manual\\\",\\\"contextHints\\\":{\\\"repos\\\":[],\\\"paths\\\":[],\\\"issues\\\":[],\\\"docIds\\\":[],\\\"people\\\":[],\\\"jiraKeys\\\":[],\\\"keywords\\\":[],\\\"taskHint\\\":\\\"\\\",\\\"sessionIds\\\":[]}}\"},\"context\":{\"requestId\":\"6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e\",\"sourceConversationId\":\"planning\",\"boundary\":{\"sequence\":1,\"messageId\":\"preexisting-material-r1-decision\"},\"mode\":\"selected\",\"purpose\":\"Preexisting reviewed source and exact acoustic material revision one\",\"joiningBrief\":\"\",\"messages\":[{\"conversationId\":\"planning\",\"messageId\":\"preexisting-material-r1-decision\",\"sequence\":1,\"author\":\"operator\",\"source\":null,\"blocks\":[{\"blockId\":\"user-preexisting-material-r1-decision\",\"content\":\"Preexisting reviewed decision: retain acoustic plan revision one for the recording sample. Execution remains a separate decision.\",\"sha256\":\"e79aa207afe2e96814379d3c22421013ec83d0d7003669ddcc8c3bc7605a2b13\"}]}],\"artifacts\":[{\"artifactId\":\"6d8e589baeeb4f928fe135831d8eb2fb\",\"revision\":1,\"sha256\":\"d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273\",\"sourceConversationId\":\"planning\",\"mediaType\":\"application/octet-stream\",\"sizeBytes\":26,\"contentBase64\":\"VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4=\"}],\"capacity\":{\"status\":\"unverified\",\"reason\":\"No exact ordinary capacity adapter is registered.\"},\"summary\":null},\"attributions\":{\"preexisting-material-r1-decision\":{\"seatId\":null,\"provenance\":null,\"createdAt\":1792485657009}},\"sourceTitle\":\"Preexisting reviewed sample plan\",\"sourceCreatedAt\":\"2026-10-20T08:40:57.009Z\"}"
+        },
+        "runtimeBindingAndWorkspaceRecoveryNotQualified": true,
+        "second": {
+          "id": "6d8e589baeeb4f928fe135831d8eb2fb",
+          "itemId": "studio",
+          "filename": "acoustic-plan.md",
+          "title": "Acoustic plan",
+          "revision": 2,
+          "sha256": "0f7b2381a6ad174bc551bf03bb505e9c40c3050f53f0c78667ae8cfa56100da9",
+          "size": 97,
+          "sessionId": "user-edit:76c39f16-c6e3-4378-8836-d873810d81c9",
+          "sourceKind": "user_edit",
+          "sourcePath": null,
+          "createdAt": "2026-10-20T08:41:02.610Z",
+          "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb?revision=2"
+        },
+        "secondText": "Revision two for the integrity refusal case. Its hash cannot authenticate retained revision one.\n",
+        "capturedUiReviews": [
+          {
+            "status": 200,
+            "request": {
+              "itemId": "recording-slice",
+              "role": "advisor",
+              "sourceSnapshotIds": [
+                "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a"
+              ],
+              "artifactRefs": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                  "revision": 1,
+                  "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+                }
+              ],
+              "advisorPurpose": "refine"
+            },
+            "body": {
+              "version": 1,
+              "selection": {
+                "version": 1,
+                "itemId": "recording-slice",
+                "itemKind": "work_item",
+                "role": "advisor",
+                "brief": {
+                  "revision": "9b5f2c357eedf1675e4367d9475e645e8158eabbd70c98c6a176a5515163e630",
+                  "sha256": "43a5e804fabd17765ed9097739b7d1e5759a3806f6ff6db4483880fd09b27ccc",
+                  "text": "{\"summary\":\"Record one acoustic sample\",\"intent\":\"Retain one reviewed sample\",\"rationale\":\"Exact smallest child only\",\"acceptanceCriteria\":[\"Retain sample evidence\"],\"taskHint\":\"\"}"
+                },
+                "parentCriteria": [
+                  {
+                    "itemId": "studio",
+                    "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+                    "criteria": ["Approved plan"]
+                  }
+                ],
+                "overallGoal": {
+                  "itemId": "studio",
+                  "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+                  "text": "Record music"
+                },
+                "sources": [
+                  {
+                    "version": 1,
+                    "snapshotId": "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+                    "itemId": "recording-slice",
+                    "source": {
+                      "namespace": "mitzo",
+                      "conversationId": "planning"
+                    },
+                    "selection": {
+                      "kind": "selected",
+                      "messageIds": ["preexisting-material-r1-decision"],
+                      "blockIds": [],
+                      "throughSequence": 1
+                    },
+                    "adoptedBrief": {
+                      "revision": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                      "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03"
+                    },
+                    "artifacts": [
+                      {
+                        "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                        "revision": 1,
+                        "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                      },
+                      {
+                        "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                        "revision": 1,
+                        "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+                      }
+                    ],
+                    "author": null,
+                    "sourceCreatedAt": "2026-10-20T08:40:57.009Z",
+                    "adoptedAt": "2026-10-20T08:40:57.021Z"
+                  }
+                ],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                  },
+                  {
+                    "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                    "revision": 1,
+                    "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+                  }
+                ],
+                "advisorPurpose": "refine"
+              },
+              "presentationRef": {
+                "id": "249bbab1-b04b-4842-be5d-aaf8dd8ea7f5",
+                "sha256": "28761bfa1f1a7650a0a090395a173c5e287d99f7c404b9df759f45e0fdd32b2f"
+              },
+              "presentation": {
+                "version": 1,
+                "contextSha256": "b1defe00a8cc62607e19b0b6a823646dd201cb954a4ad257fb63ae9ecefa1e00",
+                "reviewedAt": "2026-10-20T08:41:04.854Z",
+                "item": {
+                  "itemId": "recording-slice",
+                  "revision": "9b5f2c357eedf1675e4367d9475e645e8158eabbd70c98c6a176a5515163e630",
+                  "title": "Record one acoustic sample"
+                },
+                "overallGoal": {
+                  "itemId": "studio",
+                  "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+                  "title": "Home studio"
+                },
+                "parents": [
+                  {
+                    "itemId": "studio",
+                    "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+                    "title": "Home studio"
+                  }
+                ],
+                "sources": [
+                  {
+                    "snapshotId": "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+                    "title": "Preexisting reviewed sample plan",
+                    "createdAt": "2026-10-20T08:40:57.009Z"
+                  }
+                ],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+                    "filename": "acoustic-plan.md",
+                    "title": "Acoustic plan",
+                    "createdAt": "2026-10-20T08:40:57.005Z",
+                    "sourceKind": "session_artifact"
+                  },
+                  {
+                    "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                    "revision": 1,
+                    "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d",
+                    "filename": "origin-f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d.json",
+                    "title": "Original discussion \u00b7 Preexisting reviewed sample plan",
+                    "createdAt": "2026-10-20T08:40:57.021Z",
+                    "sourceKind": "source_capture"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "selected": {
+          "status": 200,
+          "request": {
+            "itemId": "recording-slice",
+            "role": "advisor",
+            "sourceSnapshotIds": [
+              "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a"
+            ],
+            "artifactRefs": [
+              {
+                "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                "revision": 1,
+                "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+              },
+              {
+                "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                "revision": 1,
+                "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+              }
+            ],
+            "advisorPurpose": "refine"
+          },
+          "body": {
+            "version": 1,
+            "selection": {
+              "version": 1,
+              "itemId": "recording-slice",
+              "itemKind": "work_item",
+              "role": "advisor",
+              "brief": {
+                "revision": "9b5f2c357eedf1675e4367d9475e645e8158eabbd70c98c6a176a5515163e630",
+                "sha256": "43a5e804fabd17765ed9097739b7d1e5759a3806f6ff6db4483880fd09b27ccc",
+                "text": "{\"summary\":\"Record one acoustic sample\",\"intent\":\"Retain one reviewed sample\",\"rationale\":\"Exact smallest child only\",\"acceptanceCriteria\":[\"Retain sample evidence\"],\"taskHint\":\"\"}"
+              },
+              "parentCriteria": [
+                {
+                  "itemId": "studio",
+                  "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+                  "criteria": ["Approved plan"]
+                }
+              ],
+              "overallGoal": {
+                "itemId": "studio",
+                "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+                "text": "Record music"
+              },
+              "sources": [
+                {
+                  "version": 1,
+                  "snapshotId": "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+                  "itemId": "recording-slice",
+                  "source": {
+                    "namespace": "mitzo",
+                    "conversationId": "planning"
+                  },
+                  "selection": {
+                    "kind": "selected",
+                    "messageIds": ["preexisting-material-r1-decision"],
+                    "blockIds": [],
+                    "throughSequence": 1
+                  },
+                  "adoptedBrief": {
+                    "revision": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                    "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03"
+                  },
+                  "artifacts": [
+                    {
+                      "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                      "revision": 1,
+                      "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                    },
+                    {
+                      "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                      "revision": 1,
+                      "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+                    }
+                  ],
+                  "author": null,
+                  "sourceCreatedAt": "2026-10-20T08:40:57.009Z",
+                  "adoptedAt": "2026-10-20T08:40:57.021Z"
+                }
+              ],
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                  "revision": 1,
+                  "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+                }
+              ],
+              "advisorPurpose": "refine"
+            },
+            "presentationRef": {
+              "id": "249bbab1-b04b-4842-be5d-aaf8dd8ea7f5",
+              "sha256": "28761bfa1f1a7650a0a090395a173c5e287d99f7c404b9df759f45e0fdd32b2f"
+            },
+            "presentation": {
+              "version": 1,
+              "contextSha256": "b1defe00a8cc62607e19b0b6a823646dd201cb954a4ad257fb63ae9ecefa1e00",
+              "reviewedAt": "2026-10-20T08:41:04.854Z",
+              "item": {
+                "itemId": "recording-slice",
+                "revision": "9b5f2c357eedf1675e4367d9475e645e8158eabbd70c98c6a176a5515163e630",
+                "title": "Record one acoustic sample"
+              },
+              "overallGoal": {
+                "itemId": "studio",
+                "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+                "title": "Home studio"
+              },
+              "parents": [
+                {
+                  "itemId": "studio",
+                  "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+                  "title": "Home studio"
+                }
+              ],
+              "sources": [
+                {
+                  "snapshotId": "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+                  "title": "Preexisting reviewed sample plan",
+                  "createdAt": "2026-10-20T08:40:57.009Z"
+                }
+              ],
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+                  "filename": "acoustic-plan.md",
+                  "title": "Acoustic plan",
+                  "createdAt": "2026-10-20T08:40:57.005Z",
+                  "sourceKind": "session_artifact"
+                },
+                {
+                  "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                  "revision": 1,
+                  "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d",
+                  "filename": "origin-f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d.json",
+                  "title": "Original discussion \u00b7 Preexisting reviewed sample plan",
+                  "createdAt": "2026-10-20T08:40:57.021Z",
+                  "sourceKind": "source_capture"
+                }
+              ]
+            }
+          }
+        },
+        "input": {
+          "itemId": "recording-slice",
+          "role": "advisor",
+          "sourceSnapshotIds": ["6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a"],
+          "artifactRefs": [
+            {
+              "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+              "revision": 1,
+              "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+            },
+            {
+              "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+              "revision": 1,
+              "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+            }
+          ],
+          "advisorPurpose": "refine"
+        },
+        "reviewed": {
+          "version": 1,
+          "selection": {
+            "version": 1,
+            "itemId": "recording-slice",
+            "itemKind": "work_item",
+            "role": "advisor",
+            "brief": {
+              "revision": "9b5f2c357eedf1675e4367d9475e645e8158eabbd70c98c6a176a5515163e630",
+              "sha256": "43a5e804fabd17765ed9097739b7d1e5759a3806f6ff6db4483880fd09b27ccc",
+              "text": "{\"summary\":\"Record one acoustic sample\",\"intent\":\"Retain one reviewed sample\",\"rationale\":\"Exact smallest child only\",\"acceptanceCriteria\":[\"Retain sample evidence\"],\"taskHint\":\"\"}"
+            },
+            "parentCriteria": [
+              {
+                "itemId": "studio",
+                "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+                "criteria": ["Approved plan"]
+              }
+            ],
+            "overallGoal": {
+              "itemId": "studio",
+              "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+              "text": "Record music"
+            },
+            "sources": [
+              {
+                "version": 1,
+                "snapshotId": "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+                "itemId": "recording-slice",
+                "source": {
+                  "namespace": "mitzo",
+                  "conversationId": "planning"
+                },
+                "selection": {
+                  "kind": "selected",
+                  "messageIds": ["preexisting-material-r1-decision"],
+                  "blockIds": [],
+                  "throughSequence": 1
+                },
+                "adoptedBrief": {
+                  "revision": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                  "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03"
+                },
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                  },
+                  {
+                    "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                    "revision": 1,
+                    "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+                  }
+                ],
+                "author": null,
+                "sourceCreatedAt": "2026-10-20T08:40:57.009Z",
+                "adoptedAt": "2026-10-20T08:40:57.021Z"
+              }
+            ],
+            "artifacts": [
+              {
+                "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                "revision": 1,
+                "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+              },
+              {
+                "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                "revision": 1,
+                "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+              }
+            ],
+            "advisorPurpose": "refine"
+          },
+          "presentationRef": {
+            "id": "249bbab1-b04b-4842-be5d-aaf8dd8ea7f5",
+            "sha256": "28761bfa1f1a7650a0a090395a173c5e287d99f7c404b9df759f45e0fdd32b2f"
+          },
+          "presentation": {
+            "version": 1,
+            "contextSha256": "b1defe00a8cc62607e19b0b6a823646dd201cb954a4ad257fb63ae9ecefa1e00",
+            "reviewedAt": "2026-10-20T08:41:04.854Z",
+            "item": {
+              "itemId": "recording-slice",
+              "revision": "9b5f2c357eedf1675e4367d9475e645e8158eabbd70c98c6a176a5515163e630",
+              "title": "Record one acoustic sample"
+            },
+            "overallGoal": {
+              "itemId": "studio",
+              "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+              "title": "Home studio"
+            },
+            "parents": [
+              {
+                "itemId": "studio",
+                "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+                "title": "Home studio"
+              }
+            ],
+            "sources": [
+              {
+                "snapshotId": "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+                "title": "Preexisting reviewed sample plan",
+                "createdAt": "2026-10-20T08:40:57.009Z"
+              }
+            ],
+            "artifacts": [
+              {
+                "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                "revision": 1,
+                "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+                "filename": "acoustic-plan.md",
+                "title": "Acoustic plan",
+                "createdAt": "2026-10-20T08:40:57.005Z",
+                "sourceKind": "session_artifact"
+              },
+              {
+                "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                "revision": 1,
+                "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d",
+                "filename": "origin-f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d.json",
+                "title": "Original discussion \u00b7 Preexisting reviewed sample plan",
+                "createdAt": "2026-10-20T08:40:57.021Z",
+                "sourceKind": "source_capture"
+              }
+            ]
+          }
+        },
+        "mismatched": {
+          "itemId": "recording-slice",
+          "role": "advisor",
+          "sourceSnapshotIds": ["6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a"],
+          "artifactRefs": [
+            {
+              "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+              "revision": 1,
+              "sha256": "0f7b2381a6ad174bc551bf03bb505e9c40c3050f53f0c78667ae8cfa56100da9"
+            },
+            {
+              "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+              "revision": 1,
+              "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+            }
+          ],
+          "advisorPurpose": "refine"
+        },
+        "refusal": {
+          "status": 503,
+          "code": "unavailable",
+          "message": "Ordinary role setup unavailable"
+        },
+        "before": {
+          "work": {
+            "itemId": "recording-slice",
+            "kind": "work_item",
+            "parentId": "studio",
+            "revision": "9b5f2c357eedf1675e4367d9475e645e8158eabbd70c98c6a176a5515163e630",
+            "links": [
+              {
+                "version": 1,
+                "linkId": "28063b36-3c1d-49d8-b9f0-170d484d2d78",
+                "itemId": "recording-slice",
+                "linkedAt": "2026-10-20T08:40:57.023Z",
+                "linkedBy": "operator:76c39f16-c6e3-4378-8836-d873810d81c9",
+                "availability": "available",
+                "attemptId": null,
+                "role": "origin",
+                "conversation": {
+                  "namespace": "mitzo",
+                  "conversationId": "planning"
+                }
+              }
+            ],
+            "assignments": [],
+            "assignmentHistory": {
+              "lead": {
+                "complete": true,
+                "conversationIds": []
+              },
+              "worker": {
+                "complete": true,
+                "conversationIds": []
+              }
+            },
+            "sources": [
+              {
+                "version": 1,
+                "snapshotId": "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+                "itemId": "recording-slice",
+                "source": {
+                  "namespace": "mitzo",
+                  "conversationId": "planning"
+                },
+                "selection": {
+                  "kind": "selected",
+                  "messageIds": ["preexisting-material-r1-decision"],
+                  "blockIds": [],
+                  "throughSequence": 1
+                },
+                "adoptedBrief": {
+                  "revision": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                  "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03"
+                },
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                  },
+                  {
+                    "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                    "revision": 1,
+                    "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+                  }
+                ],
+                "author": null,
+                "sourceCreatedAt": "2026-10-20T08:40:57.009Z",
+                "adoptedAt": "2026-10-20T08:40:57.021Z"
+              }
+            ],
+            "attempts": []
+          },
+          "record": {
+            "version": 1,
+            "itemId": "recording-slice",
+            "kind": "work_item",
+            "parentId": "studio",
+            "summary": "Record one acoustic sample",
+            "intent": "Retain one reviewed sample",
+            "rationale": "Exact smallest child only",
+            "acceptanceCriteria": ["Retain sample evidence"],
+            "profile": "manual",
+            "status": "active",
+            "starred": false,
+            "priority": 7,
+            "categories": [],
+            "createdAt": "2026-10-16T10:00:00",
+            "updatedAt": "2026-10-16T10:00:00",
+            "contextHints": {
+              "repos": [],
+              "paths": [],
+              "issues": [],
+              "docIds": [],
+              "people": [],
+              "jiraKeys": [],
+              "keywords": [],
+              "taskHint": "",
+              "sessionIds": []
+            },
+            "sources": [],
+            "links": [],
+            "legacyFields": {
+              "item": {
+                "id": "recording-slice",
+                "summary": "Record one acoustic sample",
+                "intent": "Retain one reviewed sample",
+                "rationale": "Exact smallest child only",
+                "acceptance_criteria": "[\"Retain sample evidence\"]",
+                "idempotency_key": null,
+                "profile": "manual",
+                "cluster_id": null,
+                "urgency": 0,
+                "priority": 7,
+                "categories": "[]",
+                "starred": 0,
+                "status": "active",
+                "snoozed_until": null,
+                "context_hints": "{}",
+                "first_seen": "2026-10-16T10:00:00",
+                "last_seen": "2026-10-16T10:00:00",
+                "created_at": "2026-10-16T10:00:00",
+                "updated_at": "2026-10-16T10:00:00",
+                "parent_id": "studio",
+                "goal_id": null
+              },
+              "sources": [],
+              "links": []
+            }
+          },
+          "source": {
+            "snapshot": {
+              "version": 1,
+              "snapshotId": "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+              "itemId": "recording-slice",
+              "source": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              },
+              "selection": {
+                "kind": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "blockIds": [],
+                "throughSequence": 1
+              },
+              "adoptedBrief": {
+                "revision": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03"
+              },
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                  "revision": 1,
+                  "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+                }
+              ],
+              "author": null,
+              "sourceCreatedAt": "2026-10-20T08:40:57.009Z",
+              "adoptedAt": "2026-10-20T08:40:57.021Z"
+            },
+            "packet": {
+              "version": 1,
+              "actorId": "operator:76c39f16-c6e3-4378-8836-d873810d81c9",
+              "itemId": "recording-slice",
+              "workRevision": "153834c55d4f5bbbe73e16fb7f0c6244ab62b43be6c32a8ad00d44394e5801db",
+              "selection": {
+                "requestId": "6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e",
+                "expectedMembershipRevision": 0,
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                  }
+                ],
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": ""
+              },
+              "brief": {
+                "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                "text": "{\"itemId\":\"recording-slice\",\"parentId\":\"studio\",\"summary\":\"Record one acoustic sample\",\"intent\":\"Retain one reviewed sample\",\"rationale\":\"Exact smallest child only\",\"acceptanceCriteria\":[\"Retain sample evidence\"],\"profile\":\"manual\",\"contextHints\":{\"repos\":[],\"paths\":[],\"issues\":[],\"docIds\":[],\"people\":[],\"jiraKeys\":[],\"keywords\":[],\"taskHint\":\"\",\"sessionIds\":[]}}"
+              },
+              "context": {
+                "requestId": "6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e",
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": "",
+                "messages": [
+                  {
+                    "conversationId": "planning",
+                    "messageId": "preexisting-material-r1-decision",
+                    "sequence": 1,
+                    "author": "operator",
+                    "source": null,
+                    "blocks": [
+                      {
+                        "blockId": "user-preexisting-material-r1-decision",
+                        "content": "Preexisting reviewed decision: retain acoustic plan revision one for the recording sample. Execution remains a separate decision.",
+                        "sha256": "e79aa207afe2e96814379d3c22421013ec83d0d7003669ddcc8c3bc7605a2b13"
+                      }
+                    ]
+                  }
+                ],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+                    "sourceConversationId": "planning",
+                    "mediaType": "application/octet-stream",
+                    "sizeBytes": 26,
+                    "contentBase64": "VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4="
+                  }
+                ],
+                "capacity": {
+                  "status": "unverified",
+                  "reason": "No exact ordinary capacity adapter is registered."
+                },
+                "summary": null
+              },
+              "attributions": {
+                "preexisting-material-r1-decision": {
+                  "seatId": null,
+                  "provenance": null,
+                  "createdAt": 1792485657009
+                }
+              },
+              "sourceTitle": "Preexisting reviewed sample plan",
+              "sourceCreatedAt": "2026-10-20T08:40:57.009Z"
+            },
+            "sourceHref": "/chat/planning?telosItem=recording-slice&telosSource=6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+            "available": true
+          },
+          "parent": {
+            "version": 1,
+            "itemId": "studio",
+            "kind": "outcome",
+            "parentId": null,
+            "summary": "Home studio",
+            "intent": "Record music",
+            "rationale": "Make music",
+            "acceptanceCriteria": ["Approved plan"],
+            "profile": "manual",
+            "status": "active",
+            "starred": false,
+            "priority": 8,
+            "categories": [],
+            "createdAt": "2026-10-16T10:00:00",
+            "updatedAt": "2026-10-16T10:00:00",
+            "contextHints": {
+              "repos": [],
+              "paths": [],
+              "issues": [],
+              "docIds": [],
+              "people": ["Original person"],
+              "jiraKeys": [],
+              "keywords": [],
+              "taskHint": "Original hint",
+              "sessionIds": []
+            },
+            "sources": [],
+            "links": [
+              {
+                "type": "artifact",
+                "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb",
+                "title": "Acoustic plan",
+                "description": "Versioned Telos document: acoustic-plan.md",
+                "addedAt": "2026-10-20T08:40:57.005Z"
+              }
+            ],
+            "legacyFields": {
+              "item": {
+                "id": "studio",
+                "summary": "Home studio",
+                "intent": "Record music",
+                "rationale": "Make music",
+                "acceptance_criteria": "[\"Approved plan\"]",
+                "idempotency_key": null,
+                "profile": "manual",
+                "cluster_id": null,
+                "urgency": 0,
+                "priority": 8,
+                "categories": "[]",
+                "starred": 0,
+                "status": "active",
+                "snoozed_until": null,
+                "context_hints": "{\"people\":[\"Original person\"],\"task_hint\":\"Original hint\"}",
+                "first_seen": "2026-10-16T10:00:00",
+                "last_seen": "2026-10-16T10:00:00",
+                "created_at": "2026-10-16T10:00:00",
+                "updated_at": "2026-10-16T10:00:00",
+                "parent_id": null,
+                "goal_id": null
+              },
+              "sources": [],
+              "links": [
+                {
+                  "id": "artifact-6d8e589baeeb4f928fe135831d8eb2fb",
+                  "item_id": "studio",
+                  "type": "artifact",
+                  "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb",
+                  "title": "Acoustic plan",
+                  "description": "Versioned Telos document: acoustic-plan.md",
+                  "created_at": "2026-10-20T08:40:57.005Z"
+                }
+              ]
+            }
+          },
+          "quiet": {
+            "version": 1,
+            "itemId": "quiet-job",
+            "kind": null,
+            "parentId": null,
+            "summary": "Quiet unrelated job",
+            "intent": "Keep unrelated draft",
+            "rationale": "Isolation control",
+            "acceptanceCriteria": ["Retain draft"],
+            "profile": "manual",
+            "status": "active",
+            "starred": false,
+            "priority": 5,
+            "categories": [],
+            "createdAt": "2026-10-16T10:00:00",
+            "updatedAt": "2026-10-16T10:00:00",
+            "contextHints": {
+              "repos": [],
+              "paths": [],
+              "issues": [],
+              "docIds": [],
+              "people": [],
+              "jiraKeys": [],
+              "keywords": [],
+              "taskHint": "",
+              "sessionIds": []
+            },
+            "sources": [],
+            "links": [],
+            "legacyFields": {
+              "item": {
+                "id": "quiet-job",
+                "summary": "Quiet unrelated job",
+                "intent": "Keep unrelated draft",
+                "rationale": "Isolation control",
+                "acceptance_criteria": "[\"Retain draft\"]",
+                "idempotency_key": null,
+                "profile": "manual",
+                "cluster_id": null,
+                "urgency": 0,
+                "priority": 5,
+                "categories": "[]",
+                "starred": 0,
+                "status": "active",
+                "snoozed_until": null,
+                "context_hints": "{}",
+                "first_seen": "2026-10-16T10:00:00",
+                "last_seen": "2026-10-16T10:00:00",
+                "created_at": "2026-10-16T10:00:00",
+                "updated_at": "2026-10-16T10:00:00",
+                "parent_id": null,
+                "goal_id": null
+              },
+              "sources": [],
+              "links": []
+            }
+          },
+          "state": {
+            "allSessionIdentities": [
+              {
+                "sessionId": "planning",
+                "cwd": null
+              },
+              {
+                "sessionId": "c7fde855-10e5-82e6-b0b2-aaa6e4990f37",
+                "ordinaryWorkspaceId": "ef13dd10-f7e7-49b1-bb0d-8f09300e82ad",
+                "cwd": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-HDXFnS/tasks/ordinary-ef13dd10-f7e7-49b1-bb0d-8f09300e82ad"
+              }
+            ],
+            "executionBindings": [],
+            "nativeOwnerObservation": "native_ledger_not_observed",
+            "runtimeBinding": null,
+            "pid": 23912,
+            "generation": 1,
+            "session": {
+              "sessionId": "planning",
+              "conversationSource": "mitzo",
+              "summary": "Preexisting reviewed sample plan",
+              "branch": null,
+              "cwd": null,
+              "mode": "agent",
+              "isActive": true,
+              "isHidden": false,
+              "promptCount": 0,
+              "manuallyRenamed": false,
+              "initialPrompt": null,
+              "sdkTranscriptVerified": false,
+              "wtId": null,
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cacheReadTokens": 0,
+              "cacheCreationTokens": 0,
+              "totalCostUsd": 0,
+              "numTurns": 0,
+              "durationMs": 0,
+              "durationApiMs": 0,
+              "goalId": null,
+              "telosTaskId": null,
+              "closedBy": null,
+              "lastSpeaker": null,
+              "lastSpeakerAt": null,
+              "state": "ENDED",
+              "lastStateChange": null,
+              "executionGeneration": 0,
+              "executionId": null,
+              "executionPhase": null,
+              "executionTerminalReason": null,
+              "executionUpdatedAt": null,
+              "agentName": null,
+              "bootContext": null,
+              "accountBinding": {
+                "accountId": "ordinary-personal",
+                "accountLabel": "Offline personal",
+                "provider": "openai-codex",
+                "model": "fixture-model",
+                "profileRevision": "4f01e13225e4a9df8b09df78a5a49964605ada2937b57c4969e987bb6ad9712f"
+              },
+              "selectedModel": null,
+              "reasoningEffort": null,
+              "sessionType": "chat",
+              "symposiumConfig": null,
+              "symposiumRevision": 0,
+              "createdAt": 1792485657009,
+              "updatedAt": 1792485657009
+            },
+            "workspace": null,
+            "preparation": null,
+            "events": [
+              {
+                "seq": 1,
+                "sessionId": "planning",
+                "type": "user_message",
+                "payload": {
+                  "messageId": "preexisting-material-r1-decision",
+                  "text": "Preexisting reviewed decision: retain acoustic plan revision one for the recording sample. Execution remains a separate decision."
+                },
+                "createdAt": 1792485657009
+              }
+            ],
+            "tasks": [],
+            "activeSessionIds": []
+          },
+          "effects": [
+            {
+              "kind": "preflight.close",
+              "generation": 1,
+              "pid": 23912,
+              "threadId": "restart-native-1-1"
+            }
+          ]
+        },
+        "after": {
+          "work": {
+            "itemId": "recording-slice",
+            "kind": "work_item",
+            "parentId": "studio",
+            "revision": "9b5f2c357eedf1675e4367d9475e645e8158eabbd70c98c6a176a5515163e630",
+            "links": [
+              {
+                "version": 1,
+                "linkId": "28063b36-3c1d-49d8-b9f0-170d484d2d78",
+                "itemId": "recording-slice",
+                "linkedAt": "2026-10-20T08:40:57.023Z",
+                "linkedBy": "operator:76c39f16-c6e3-4378-8836-d873810d81c9",
+                "availability": "available",
+                "attemptId": null,
+                "role": "origin",
+                "conversation": {
+                  "namespace": "mitzo",
+                  "conversationId": "planning"
+                }
+              }
+            ],
+            "assignments": [],
+            "assignmentHistory": {
+              "lead": {
+                "complete": true,
+                "conversationIds": []
+              },
+              "worker": {
+                "complete": true,
+                "conversationIds": []
+              }
+            },
+            "sources": [
+              {
+                "version": 1,
+                "snapshotId": "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+                "itemId": "recording-slice",
+                "source": {
+                  "namespace": "mitzo",
+                  "conversationId": "planning"
+                },
+                "selection": {
+                  "kind": "selected",
+                  "messageIds": ["preexisting-material-r1-decision"],
+                  "blockIds": [],
+                  "throughSequence": 1
+                },
+                "adoptedBrief": {
+                  "revision": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                  "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03"
+                },
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                  },
+                  {
+                    "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                    "revision": 1,
+                    "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+                  }
+                ],
+                "author": null,
+                "sourceCreatedAt": "2026-10-20T08:40:57.009Z",
+                "adoptedAt": "2026-10-20T08:40:57.021Z"
+              }
+            ],
+            "attempts": []
+          },
+          "record": {
+            "version": 1,
+            "itemId": "recording-slice",
+            "kind": "work_item",
+            "parentId": "studio",
+            "summary": "Record one acoustic sample",
+            "intent": "Retain one reviewed sample",
+            "rationale": "Exact smallest child only",
+            "acceptanceCriteria": ["Retain sample evidence"],
+            "profile": "manual",
+            "status": "active",
+            "starred": false,
+            "priority": 7,
+            "categories": [],
+            "createdAt": "2026-10-16T10:00:00",
+            "updatedAt": "2026-10-16T10:00:00",
+            "contextHints": {
+              "repos": [],
+              "paths": [],
+              "issues": [],
+              "docIds": [],
+              "people": [],
+              "jiraKeys": [],
+              "keywords": [],
+              "taskHint": "",
+              "sessionIds": []
+            },
+            "sources": [],
+            "links": [],
+            "legacyFields": {
+              "item": {
+                "id": "recording-slice",
+                "summary": "Record one acoustic sample",
+                "intent": "Retain one reviewed sample",
+                "rationale": "Exact smallest child only",
+                "acceptance_criteria": "[\"Retain sample evidence\"]",
+                "idempotency_key": null,
+                "profile": "manual",
+                "cluster_id": null,
+                "urgency": 0,
+                "priority": 7,
+                "categories": "[]",
+                "starred": 0,
+                "status": "active",
+                "snoozed_until": null,
+                "context_hints": "{}",
+                "first_seen": "2026-10-16T10:00:00",
+                "last_seen": "2026-10-16T10:00:00",
+                "created_at": "2026-10-16T10:00:00",
+                "updated_at": "2026-10-16T10:00:00",
+                "parent_id": "studio",
+                "goal_id": null
+              },
+              "sources": [],
+              "links": []
+            }
+          },
+          "source": {
+            "snapshot": {
+              "version": 1,
+              "snapshotId": "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+              "itemId": "recording-slice",
+              "source": {
+                "namespace": "mitzo",
+                "conversationId": "planning"
+              },
+              "selection": {
+                "kind": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "blockIds": [],
+                "throughSequence": 1
+              },
+              "adoptedBrief": {
+                "revision": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03"
+              },
+              "artifacts": [
+                {
+                  "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                  "revision": 1,
+                  "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                },
+                {
+                  "artifactId": "2d740ae27a5a4b34f30c27a1c32e708d",
+                  "revision": 1,
+                  "sha256": "f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d"
+                }
+              ],
+              "author": null,
+              "sourceCreatedAt": "2026-10-20T08:40:57.009Z",
+              "adoptedAt": "2026-10-20T08:40:57.021Z"
+            },
+            "packet": {
+              "version": 1,
+              "actorId": "operator:76c39f16-c6e3-4378-8836-d873810d81c9",
+              "itemId": "recording-slice",
+              "workRevision": "153834c55d4f5bbbe73e16fb7f0c6244ab62b43be6c32a8ad00d44394e5801db",
+              "selection": {
+                "requestId": "6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e",
+                "expectedMembershipRevision": 0,
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "messageIds": ["preexisting-material-r1-decision"],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+                  }
+                ],
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": ""
+              },
+              "brief": {
+                "sha256": "706e8c37cb9f8f4bee4f063a26d774207457d1ce817e1807837f91f27f862a03",
+                "text": "{\"itemId\":\"recording-slice\",\"parentId\":\"studio\",\"summary\":\"Record one acoustic sample\",\"intent\":\"Retain one reviewed sample\",\"rationale\":\"Exact smallest child only\",\"acceptanceCriteria\":[\"Retain sample evidence\"],\"profile\":\"manual\",\"contextHints\":{\"repos\":[],\"paths\":[],\"issues\":[],\"docIds\":[],\"people\":[],\"jiraKeys\":[],\"keywords\":[],\"taskHint\":\"\",\"sessionIds\":[]}}"
+              },
+              "context": {
+                "requestId": "6c85e3fd-61f9-4ff2-ad28-13c7a4ef1a5e",
+                "sourceConversationId": "planning",
+                "boundary": {
+                  "sequence": 1,
+                  "messageId": "preexisting-material-r1-decision"
+                },
+                "mode": "selected",
+                "purpose": "Preexisting reviewed source and exact acoustic material revision one",
+                "joiningBrief": "",
+                "messages": [
+                  {
+                    "conversationId": "planning",
+                    "messageId": "preexisting-material-r1-decision",
+                    "sequence": 1,
+                    "author": "operator",
+                    "source": null,
+                    "blocks": [
+                      {
+                        "blockId": "user-preexisting-material-r1-decision",
+                        "content": "Preexisting reviewed decision: retain acoustic plan revision one for the recording sample. Execution remains a separate decision.",
+                        "sha256": "e79aa207afe2e96814379d3c22421013ec83d0d7003669ddcc8c3bc7605a2b13"
+                      }
+                    ]
+                  }
+                ],
+                "artifacts": [
+                  {
+                    "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+                    "revision": 1,
+                    "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+                    "sourceConversationId": "planning",
+                    "mediaType": "application/octet-stream",
+                    "sizeBytes": 26,
+                    "contentBase64": "VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4="
+                  }
+                ],
+                "capacity": {
+                  "status": "unverified",
+                  "reason": "No exact ordinary capacity adapter is registered."
+                },
+                "summary": null
+              },
+              "attributions": {
+                "preexisting-material-r1-decision": {
+                  "seatId": null,
+                  "provenance": null,
+                  "createdAt": 1792485657009
+                }
+              },
+              "sourceTitle": "Preexisting reviewed sample plan",
+              "sourceCreatedAt": "2026-10-20T08:40:57.009Z"
+            },
+            "sourceHref": "/chat/planning?telosItem=recording-slice&telosSource=6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a",
+            "available": true
+          },
+          "parent": {
+            "version": 1,
+            "itemId": "studio",
+            "kind": "outcome",
+            "parentId": null,
+            "summary": "Home studio",
+            "intent": "Record music",
+            "rationale": "Make music",
+            "acceptanceCriteria": ["Approved plan"],
+            "profile": "manual",
+            "status": "active",
+            "starred": false,
+            "priority": 8,
+            "categories": [],
+            "createdAt": "2026-10-16T10:00:00",
+            "updatedAt": "2026-10-16T10:00:00",
+            "contextHints": {
+              "repos": [],
+              "paths": [],
+              "issues": [],
+              "docIds": [],
+              "people": ["Original person"],
+              "jiraKeys": [],
+              "keywords": [],
+              "taskHint": "Original hint",
+              "sessionIds": []
+            },
+            "sources": [],
+            "links": [
+              {
+                "type": "artifact",
+                "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb",
+                "title": "Acoustic plan",
+                "description": "Versioned Telos document: acoustic-plan.md",
+                "addedAt": "2026-10-20T08:40:57.005Z"
+              }
+            ],
+            "legacyFields": {
+              "item": {
+                "id": "studio",
+                "summary": "Home studio",
+                "intent": "Record music",
+                "rationale": "Make music",
+                "acceptance_criteria": "[\"Approved plan\"]",
+                "idempotency_key": null,
+                "profile": "manual",
+                "cluster_id": null,
+                "urgency": 0,
+                "priority": 8,
+                "categories": "[]",
+                "starred": 0,
+                "status": "active",
+                "snoozed_until": null,
+                "context_hints": "{\"people\":[\"Original person\"],\"task_hint\":\"Original hint\"}",
+                "first_seen": "2026-10-16T10:00:00",
+                "last_seen": "2026-10-16T10:00:00",
+                "created_at": "2026-10-16T10:00:00",
+                "updated_at": "2026-10-16T10:00:00",
+                "parent_id": null,
+                "goal_id": null
+              },
+              "sources": [],
+              "links": [
+                {
+                  "id": "artifact-6d8e589baeeb4f928fe135831d8eb2fb",
+                  "item_id": "studio",
+                  "type": "artifact",
+                  "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb",
+                  "title": "Acoustic plan",
+                  "description": "Versioned Telos document: acoustic-plan.md",
+                  "created_at": "2026-10-20T08:40:57.005Z"
+                }
+              ]
+            }
+          },
+          "quiet": {
+            "version": 1,
+            "itemId": "quiet-job",
+            "kind": null,
+            "parentId": null,
+            "summary": "Quiet unrelated job",
+            "intent": "Keep unrelated draft",
+            "rationale": "Isolation control",
+            "acceptanceCriteria": ["Retain draft"],
+            "profile": "manual",
+            "status": "active",
+            "starred": false,
+            "priority": 5,
+            "categories": [],
+            "createdAt": "2026-10-16T10:00:00",
+            "updatedAt": "2026-10-16T10:00:00",
+            "contextHints": {
+              "repos": [],
+              "paths": [],
+              "issues": [],
+              "docIds": [],
+              "people": [],
+              "jiraKeys": [],
+              "keywords": [],
+              "taskHint": "",
+              "sessionIds": []
+            },
+            "sources": [],
+            "links": [],
+            "legacyFields": {
+              "item": {
+                "id": "quiet-job",
+                "summary": "Quiet unrelated job",
+                "intent": "Keep unrelated draft",
+                "rationale": "Isolation control",
+                "acceptance_criteria": "[\"Retain draft\"]",
+                "idempotency_key": null,
+                "profile": "manual",
+                "cluster_id": null,
+                "urgency": 0,
+                "priority": 5,
+                "categories": "[]",
+                "starred": 0,
+                "status": "active",
+                "snoozed_until": null,
+                "context_hints": "{}",
+                "first_seen": "2026-10-16T10:00:00",
+                "last_seen": "2026-10-16T10:00:00",
+                "created_at": "2026-10-16T10:00:00",
+                "updated_at": "2026-10-16T10:00:00",
+                "parent_id": null,
+                "goal_id": null
+              },
+              "sources": [],
+              "links": []
+            }
+          },
+          "state": {
+            "allSessionIdentities": [
+              {
+                "sessionId": "planning",
+                "cwd": null
+              },
+              {
+                "sessionId": "c7fde855-10e5-82e6-b0b2-aaa6e4990f37",
+                "ordinaryWorkspaceId": "ef13dd10-f7e7-49b1-bb0d-8f09300e82ad",
+                "cwd": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-HDXFnS/tasks/ordinary-ef13dd10-f7e7-49b1-bb0d-8f09300e82ad"
+              }
+            ],
+            "executionBindings": [],
+            "nativeOwnerObservation": "native_ledger_not_observed",
+            "runtimeBinding": null,
+            "pid": 23912,
+            "generation": 1,
+            "session": {
+              "sessionId": "planning",
+              "conversationSource": "mitzo",
+              "summary": "Preexisting reviewed sample plan",
+              "branch": null,
+              "cwd": null,
+              "mode": "agent",
+              "isActive": true,
+              "isHidden": false,
+              "promptCount": 0,
+              "manuallyRenamed": false,
+              "initialPrompt": null,
+              "sdkTranscriptVerified": false,
+              "wtId": null,
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cacheReadTokens": 0,
+              "cacheCreationTokens": 0,
+              "totalCostUsd": 0,
+              "numTurns": 0,
+              "durationMs": 0,
+              "durationApiMs": 0,
+              "goalId": null,
+              "telosTaskId": null,
+              "closedBy": null,
+              "lastSpeaker": null,
+              "lastSpeakerAt": null,
+              "state": "ENDED",
+              "lastStateChange": null,
+              "executionGeneration": 0,
+              "executionId": null,
+              "executionPhase": null,
+              "executionTerminalReason": null,
+              "executionUpdatedAt": null,
+              "agentName": null,
+              "bootContext": null,
+              "accountBinding": {
+                "accountId": "ordinary-personal",
+                "accountLabel": "Offline personal",
+                "provider": "openai-codex",
+                "model": "fixture-model",
+                "profileRevision": "4f01e13225e4a9df8b09df78a5a49964605ada2937b57c4969e987bb6ad9712f"
+              },
+              "selectedModel": null,
+              "reasoningEffort": null,
+              "sessionType": "chat",
+              "symposiumConfig": null,
+              "symposiumRevision": 0,
+              "createdAt": 1792485657009,
+              "updatedAt": 1792485657009
+            },
+            "workspace": null,
+            "preparation": null,
+            "events": [
+              {
+                "seq": 1,
+                "sessionId": "planning",
+                "type": "user_message",
+                "payload": {
+                  "messageId": "preexisting-material-r1-decision",
+                  "text": "Preexisting reviewed decision: retain acoustic plan revision one for the recording sample. Execution remains a separate decision."
+                },
+                "createdAt": 1792485657009
+              }
+            ],
+            "tasks": [],
+            "activeSessionIds": []
+          },
+          "effects": [
+            {
+              "kind": "preflight.close",
+              "generation": 1,
+              "pid": 23912,
+              "threadId": "restart-native-1-1"
+            }
+          ]
+        },
+        "materialReadbacks": [
+          {
+            "revision": 1,
+            "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+            "text": "The reviewed panel layout."
+          },
+          {
+            "revision": 2,
+            "sha256": "0f7b2381a6ad174bc551bf03bb505e9c40c3050f53f0c78667ae8cfa56100da9",
+            "text": "Revision two for the integrity refusal case. Its hash cannot authenticate retained revision one.\n"
+          }
+        ],
+        "initialReady": {
+          "type": "ready",
+          "pid": 23912,
+          "generation": 1,
+          "port": 53961,
+          "authId": "76c39f16-c6e3-4378-8836-d873810d81c9",
+          "statePaths": {
+            "repo": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-HDXFnS/controller-workspace",
+            "canonicalDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-advisor-material-canonical-97aZQA/canonical-retained.db",
+            "nativeCustody": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-HDXFnS/native-custody",
+            "accountProfiles": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-HDXFnS/profiles.json",
+            "taskDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-HDXFnS/controller-workspace/.mitzo/tasks.db"
+          },
+          "startupRecovery": {
+            "stale": 0,
+            "orphaned": 0
+          },
+          "owners": [
+            "App/REST",
+            "EventStore",
+            "TaskStore/WorkloadStore",
+            "SessionRegistry",
+            "ConnectionRegistry",
+            "SSE",
+            "auth revocations",
+            "ordinary workspace custody",
+            "native conversation/command ledger",
+            "native driver (lazy on explicit command)"
+          ],
+          "exclusions": [
+            "index.ts host services",
+            "production bundle",
+            "real native/provider process"
+          ]
+        },
+        "limits": "One App/typedclient material-integrity refusal using a real UI-produced valid role-review request. r1 with later r2 hash is rejected; exact canonical/source/session/task/origin-events/material/effects unchanged across the negative. Origin snapshot has no workspace/preparation and supplies no runtimebinding/recovery proof. No browser interception, invented picker, UI negative-state presentation, source adoption UI, advisor preview/save, Startchat submission, native turn/tool/terminal or model call. Synthetic preexisting source setup through real owners is not UIadoption proof. HTTP503 generic taxonomy remains existing behavior, not UX/error-message acceptance. No allocator invocation claimed solely from unchanged inventory; no new identity is observed and role-context reviewer has no allocation/provider port. Native selected content byte access remains open; full revocation/privacy/race/staleitem/recovery/currentmain/live matrix separate."
+      }
+    ],
+    "pageErrors": [],
+    "realModelProviderCalls": 0
+  },
+  "actualFailedHttp": {
+    "path": "/api/telos/work/roles/review",
+    "method": "POST",
+    "contentType": "application/json",
+    "requestBody": "{\"itemId\":\"recording-slice\",\"role\":\"advisor\",\"sourceSnapshotIds\":[\"6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a\"],\"artifactRefs\":[{\"artifactId\":\"6d8e589baeeb4f928fe135831d8eb2fb\",\"revision\":1,\"sha256\":\"0f7b2381a6ad174bc551bf03bb505e9c40c3050f53f0c78667ae8cfa56100da9\"},{\"artifactId\":\"2d740ae27a5a4b34f30c27a1c32e708d\",\"revision\":1,\"sha256\":\"f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d\"}],\"advisorPurpose\":\"refine\"}",
+    "status": 503,
+    "responseBody": "{\"code\":\"unavailable\",\"error\":\"Ordinary role setup unavailable\"}"
+  },
+  "lifecycleIncludingTeardown": {
+    "initial": [
+      {
+        "event": "ready",
+        "type": "ready",
+        "pid": 23304,
+        "generation": 1,
+        "port": 52777,
+        "authId": "80e3fab0-6b27-4137-bea9-4a9f4430ce24",
+        "statePaths": {
+          "repo": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-3ffAQQ/controller-workspace",
+          "canonicalDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-advisor-material-canonical-NWpnfY/canonical-retained.db",
+          "nativeCustody": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-3ffAQQ/native-custody",
+          "accountProfiles": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-3ffAQQ/profiles.json",
+          "taskDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-3ffAQQ/controller-workspace/.mitzo/tasks.db"
+        },
+        "startupRecovery": {
+          "stale": 0,
+          "orphaned": 0
+        },
+        "owners": [
+          "App/REST",
+          "EventStore",
+          "TaskStore/WorkloadStore",
+          "SessionRegistry",
+          "ConnectionRegistry",
+          "SSE",
+          "auth revocations",
+          "ordinary workspace custody",
+          "native conversation/command ledger",
+          "native driver (lazy on explicit command)"
+        ],
+        "exclusions": [
+          "index.ts host services",
+          "production bundle",
+          "real native/provider process"
+        ]
+      },
+      {
+        "event": "exit",
+        "pid": 23304,
+        "generation": 1,
+        "code": null,
+        "signal": "SIGKILL"
+      }
+    ],
+    "origin-observer": [
+      {
+        "event": "ready",
+        "type": "ready",
+        "pid": 23912,
+        "generation": 1,
+        "port": 53961,
+        "authId": "76c39f16-c6e3-4378-8836-d873810d81c9",
+        "statePaths": {
+          "repo": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-HDXFnS/controller-workspace",
+          "canonicalDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-advisor-material-canonical-97aZQA/canonical-retained.db",
+          "nativeCustody": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-HDXFnS/native-custody",
+          "accountProfiles": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-HDXFnS/profiles.json",
+          "taskDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-HDXFnS/controller-workspace/.mitzo/tasks.db"
+        },
+        "startupRecovery": {
+          "stale": 0,
+          "orphaned": 0
+        },
+        "owners": [
+          "App/REST",
+          "EventStore",
+          "TaskStore/WorkloadStore",
+          "SessionRegistry",
+          "ConnectionRegistry",
+          "SSE",
+          "auth revocations",
+          "ordinary workspace custody",
+          "native conversation/command ledger",
+          "native driver (lazy on explicit command)"
+        ],
+        "exclusions": [
+          "index.ts host services",
+          "production bundle",
+          "real native/provider process"
+        ]
+      },
+      {
+        "event": "exit",
+        "pid": 23912,
+        "generation": 1,
+        "code": null,
+        "signal": "SIGKILL"
+      }
+    ]
+  },
+  "effects": {
+    "selected": {
+      "preflight.close": 1
+    },
+    "nativeLaunchThreadTurnProviderNotificationInputs": 0,
+    "realProviderModelNativeBinaryCalls": 0,
+    "ownedHttpFulfilments": 0,
+    "browserRequestInterceptions": 0,
+    "directFixtureAdvisorPreviewSaveCalls": 0,
+    "apiNegativeUsesActualUiRequest": true,
+    "nativeLedgerReadBySnapshot": false,
+    "nativeRuntimeBindingOrWorkspaceRecoveryQualified": false
+  },
+  "rawResult": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/origin-observer/run.json",
+    "sha256": "48a11a33d0e4f2e734655f71d306bb425a3d380883473aaa85e820ccca86a271",
+    "size": 1220
+  },
+  "rawHttp": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/origin-observer/actual-http-observations.json",
+    "sha256": "90a49d7b5a6de2b6dae51f0f25dd11ef9e7ee8b974d5d821356c6a077ef75f01",
+    "size": 23116
+  },
+  "captures": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/origin-observer/actual-r2-before-role-material-refusal.png",
+      "sha256": "0cd860d773fc570530cdd60e23f23f208559b558a568a6b7e29bab836040ac75",
+      "size": 24476
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/origin-observer/actual-ui-valid-nonempty-r1-role-context.png",
+      "sha256": "c848012d163ef3c1964526dcd04905729ea881eb6b4676c4eaa5fd19956ce0cd",
+      "size": 74530
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/origin-observer/valid-ui-role-context-preserved-after-api-hash-refusal.png",
+      "sha256": "c848012d163ef3c1964526dcd04905729ea881eb6b4676c4eaa5fd19956ce0cd",
+      "size": 74530
+    }
+  ],
+  "visualInspection": {
+    "viewed": ["valid-ui-role-context-preserved-after-api-hash-refusal.png"],
+    "scope": "Actual390px permittedRefine context after separateAPInegative; contentcropped atMaterials byviewport. No displayedrefusal/errorcard/fullform/device/accessibility/readability qualification."
+  },
+  "archives": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-SOURCE.zip",
+      "sha256": "9d9012118234886399f56fce266c1be4cfde37a41f01256d477b437397f67bda",
+      "size": 3319901
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS.zip",
+      "sha256": "17aaad4a9fa9bf9fb0efd8de993efceb7a7ad86577a075baf66f7567da50edfd",
+      "size": 369524
+    }
+  ],
+  "diagnosticHistory": [
+    {
+      "stage": "initial",
+      "source": "51a42617",
+      "raw": {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/initial/run.json",
+        "sha256": "1fe667d4188e076b877f736b50cfd4775b59dd1c7b50c1f2e55dfbee2152cb9c",
+        "size": 1669
+      },
+      "disposition": "ActualFilesr2/validUIcontext reached. Readobserver triedfixture-preparedordinaryworkspace notresolvablebychildAppowner; failedbeforeAPInegative. Raw/source/screenshot/lifecycle retained; no productmaterialguardRED and no runtimebinding/initialworkspace assertion qualified."
+    },
+    {
+      "stage": "origin-observer",
+      "source": "07266938a17a87d13a886e4d7623fdccc96bb319",
+      "raw": {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/origin-observer/run.json",
+        "sha256": "48a11a33d0e4f2e734655f71d306bb425a3d380883473aaa85e820ccca86a271",
+        "size": 1220
+      },
+      "disposition": "Correctobserver usesactualretainedoriginplanning forinventory/events/tasks, explicitlynullworkspace/preparation and noruntimebindingproof. SAMEAPInegative passes1/0fail/0skip13.56s. Intermediate14dobserveredit scopedlint foundunusedf; removedat07266938 andscopedlint/formatpassed BEFOREthisexecution. No test ranat14d. Two diagnostics areoneacceptancecase."
+    }
+  ],
+  "findings": [],
+  "retainedPriorOverlays": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-ROOT-QUALIFIED-OVERLAY.json",
+      "sha256": "f263974dc1776a67eef76708d15ed513b6fa1629c90e67989d69922a9697f0bd",
+      "size": 5073
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-CAPTURE-ENTRY-GAP.json",
+      "sha256": "4e5512af6fcd298f72a12213c2471f65d6591ee8ded84f8bf6004e17805abab0",
+      "size": 8979
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-CAPTURE-ENTRY-SCOPE-OVERLAY.json",
+      "sha256": "3ba5306dbaaa008b253910377d8eda5f6f18251c388fe4d1b142cd930799ba20",
+      "size": 3425
+    }
+  ],
+  "pending": [
+    "Independent complete newtwofile/source/reusedfixture/raw/negativeauthority review before anotherjourney.",
+    "Native selectedtranscript/materialdelivery/read P2 stillopen forCore/B andlaterS5b; refs/UIaccess notnativebytes. UX11 workerbrief/parent/goal text remainsvalid, selectedsource/materialport separate.",
+    "Selection/adoption/creation sourceUI unexercised onselectedroute, no newstandalonepicker/designmandate. Existinggenuinepermission/source-operationflow mayintended; originaltrace+approvedscopeoverlay retained.",
+    "VisibleUInegative/error taxonomy/recovery/revocation/privacy/staleitem/race/crossaccount/deeperancestor/coexistence matrix pending. HTTP503 observed existingmapping, not errorUXacceptance.",
+    "Finalacceptedmain/hostedCI/trustedApp/fullUX/device/livewindow remainseparate. S9/parentACTIVE; no productedit/PR/push/merge/retarget/statuspoll/outgoingmessage."
+  ],
+  "productionEdits": false,
+  "outgoingMessages": false,
+  "newJourneysBeyondThisCase": 0
+}

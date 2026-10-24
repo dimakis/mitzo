@@ -1,0 +1,180 @@
+{
+  "executionHead": "72d6d6b8cb6456835543c96e24e3e17702b66c82",
+  "executionTree": "99f4c1ddd2292784a03ecdf15d4c7e2e48ffdabc",
+  "baseline": "757feb62145c6bff933d98e16fddd5e783539346",
+  "onlyTwoDedicatedTestFiles": true,
+  "allPriorIntegrationFilesUnchanged": 93,
+  "closedAddChildArtifactsAndAllArchivedRawMembersExact": true,
+  "actualSourcePins": 667,
+  "protectedReferences": [
+    {
+      "path": "docs/design/approved/chat-settings/quick-sheet.html",
+      "sha256": "281eaad8d89684cd7c16583cb9ca2c082cdfb64ab1cd3acb7647abc289c2736e",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/chat-settings/approved-mock-dark.png",
+      "sha256": "c93d33e6512dd8894a8e27aca542b5a88579f37534a6b8c5eca225ec7e6a4847",
+      "match": true
+    },
+    {
+      "path": "frontend/src/components/__tests__/QuickChatSettings.test.tsx",
+      "sha256": "beb34896b1fb88690215c0a04a766993f53e2b6b2e9db4157b9644a205d63462",
+      "match": true
+    },
+    {
+      "path": "tests/offline/chat-settings-surface.spec.ts",
+      "sha256": "723801bf293794ea06ca3cff7a5fe9287bfc69e75982102464d269c4c0396d08",
+      "match": true
+    },
+    {
+      "path": "frontend/src/styles/__tests__/approved-designs.test.ts",
+      "sha256": "ee25f7e4111e60dd4cfb4d0da5d9d30a4d6dbd745eae6c0cfeabaa85f9b7b941",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/telos-priority-scale/priority-scale.svg",
+      "sha256": "2bc9fb6bda585f4f66c8f7eab3f8dfdfa7881d6ab52da8b86831de8de2bb62a1",
+      "match": true
+    },
+    {
+      "path": "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+      "sha256": "c1ab0bd0174975e67a3af37692e06c9851aa694295b54281b6d6c9e4c741382a",
+      "match": true
+    },
+    {
+      "path": "frontend/src/pages/__tests__/TodoPriorityOrdering.test.tsx",
+      "sha256": "779365ef8c25b4fdfd90fb68839b0236fc06076b471b47012bc8251c85495970",
+      "match": true
+    },
+    {
+      "path": "tests/offline/telos-priority.spec.ts",
+      "sha256": "a69a0647dfa64f4b4504a5693c3e435c4981cd4612bfd2d761fae6e5d0011894",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/symposium/fresh-agent-review.html",
+      "sha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/symposium/approved-context-review.png",
+      "sha256": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+      "match": true
+    },
+    {
+      "path": "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+      "sha256": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+      "match": true
+    },
+    {
+      "path": "tests/offline/symposium-approved-design.spec.ts",
+      "sha256": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+      "match": true
+    }
+  ],
+  "productionWorkflowAndStrictNineUnchanged": true,
+  "composition": "Unchanged private72c20ef2b6eb70217953356f58be98619fac2d92 + frozenf47e store/test/composedpin.",
+  "newFiles": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/advisor-refine-browser.contract.ts",
+      "sha256": "c0bae8bd3b02ed180979293295b87683b96261af0f699737d646a80748fdf828",
+      "size": 21725
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/vitest.advisor-refine.config.ts",
+      "sha256": "085f987118e70195135a5e450dffdb0045a5e1e16a24e2c3c2571a4ba99c72e6",
+      "size": 293
+    }
+  ],
+  "reusedClosedFixtureAndChild": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/advisor-child-process-fixture.ts",
+      "sha256": "b6658e7f05d3c91ff35db2958da7c40b5e756251c132ab87d19526c25056b916",
+      "size": 16574
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "sha256": "560d8c85d98b85db77415ae1f0bfa4e7918c764031890a5711f8209e3eb1c9be",
+      "size": 13260
+    }
+  ],
+  "actualSourceOwners": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosItemRoleEntries.tsx",
+      "sha256": "d19a53f26f66a44a47520475e2c9f3ff69c1ae8801253767f0ad88045bb7a819",
+      "size": 4804
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/hooks/useTelosChatSetup.ts",
+      "sha256": "451a3b563e1c786c29723649b59d1bd43ded09b6489a8231c226c67358c71317",
+      "size": 1252
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/hooks/useTelosRoleSetup.ts",
+      "sha256": "cbded6cb6136a45627de2b563b433cfc4b9f80c248035dcdbbfb05c79d9810d8",
+      "size": 23118
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosRoleSetup.tsx",
+      "sha256": "dd88d2194a07070ddfc6ca385acea2332bff2f928f9bc7f254ffad80412f82aa",
+      "size": 9095
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosLinkedContext.tsx",
+      "sha256": "56770d51e35ff86f92876d5542749f399235e6a6ba6cd2a7fd046929f58f575a",
+      "size": 7250
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosSourceWorkLink.tsx",
+      "sha256": "c1390c9b009c2aef271379608f667ffa6d520bcb87c4ce6bb1ae12a57aed8bc8",
+      "size": 3786
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosAdvisorDraft.tsx",
+      "sha256": "091127d326a458cecab4514ecfe4f9b3244998acc571fccf887479d4afa4dffe",
+      "size": 12669
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-work-advisor-draft.ts",
+      "sha256": "a572995682705f98c47fffbdb11aff5eb0621f08d826e8584db542f8d89a28bb",
+      "size": 7900
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-work-store.ts",
+      "sha256": "0aa5ff7956c122b3b898d0366e9eabb662f31c9aefdce9b140b1e1137264f408",
+      "size": 77525
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-source-capture.ts",
+      "sha256": "9b42d3f627e7923a29b0b22fb44e6b46eea5e9b2466a5faa95ae835f9b91b641",
+      "size": 24269
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/codex-session-events.ts",
+      "sha256": "ac907391d5427c054eb4b2d5d64e28c853b5b5c52cf5bc689467aec994e532d9",
+      "size": 16580
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/codex-conversation.ts",
+      "sha256": "e47e586d92f1d756dd7e9b4d39526a7aff7f8e15277907f5b4d5e1fe8b065003",
+      "size": 109821
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/app.ts",
+      "sha256": "6c03db0e00aa800acc01b65f6ef1c6434134d95aac260a34961585fe40abb4de",
+      "size": 195863
+    }
+  ],
+  "providerInputSeam": "Unchanged frozen advisor fixture; deterministic EXTERNAL native agentMessage delta/itemcompleted/turncompleted using actual accepted thread/turn lifecycle callback. Actual parser/stream/EventStore/transcript establish completion. No owned events/DB/receipts/terminal fabricated or directfixtureadvisorpreview/save.",
+  "contextSelectionBoundary": "Actual role setup calls review() without selection controls; defaults from already retained work.sources. Baseline has no selectedsources or pins. Actual item/parentcriteria/overallgoal reviewed; parent Acoustic plan inspected through Files but not selected/inherited. Nonemptycontext variants pending.",
+  "actualRuntimeGetterAndFullInitialPublishedProfile": true,
+  "nativeLedgerReadBySnapshot": false,
+  "selectedAppPids": [94530, 94740],
+  "allAppPidsReaped": true,
+  "mcpPostTeardownCheck": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-MCP-TEARDOWN-CHECK.json",
+    "sha256": "b0f955e547718c06235bffe7d43e701174b8c97a9ccd5ea9115562eefe012d27",
+    "size": 352
+  }
+}

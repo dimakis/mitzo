@@ -1,0 +1,52 @@
+{
+  "numTotalTestSuites": 1,
+  "numPassedTestSuites": 0,
+  "numFailedTestSuites": 1,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 1,
+  "numPassedTests": 0,
+  "numFailedTests": 1,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1792477032036,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "preserves an actual admitted command and honest lost-result state through abrupt App process death, same-state recreation and exact UI recovery",
+          "status": "failed",
+          "title": "preserves an actual admitted command and honest lost-result state through abrupt App process death, same-state recreation and exact UI recovery",
+          "duration": 1798.5907080000002,
+          "failureMessages": [
+            "Error: spawnSync /private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-read-python-t8rs9r3n/bin/python3 ENOENT\n    at Object.spawnSync (node:internal/child_process:1120:20)\n    at spawnSync (node:child_process:911:24)\n    at execFileSync (node:child_process:954:15)\n    at Module.installPrivateCanonicalReadCli (/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/tests/integration/telos-s9/integrated-candidate/joined-canonical-cli.ts:61:5)\n    at createProcessRestartFixture (/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/tests/integration/telos-s9/integrated-candidate/process-restart-fixture.ts:104:15)\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/tests/integration/telos-s9/integrated-candidate/process-restart-browser.contract.ts:11:13\n    at file:///Users/dsaridak/tools/mitzo-releases/main-d0b06dc200a1/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+          ],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792477032759,
+      "endTime": 1792477034557.5908,
+      "status": "failed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/tests/integration/telos-s9/integrated-candidate/process-restart-browser.contract.ts"
+    }
+  ]
+}
