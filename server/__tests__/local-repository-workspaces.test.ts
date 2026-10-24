@@ -25,9 +25,9 @@ const binding = {
 } satisfies AccountBinding;
 async function fixture(
   harness: 'responses' | 'codex' | 'claude-sdk' | 'gemini' = 'responses',
-  provider: AccountBinding['provider'] = 'openai',
+  provider: SessionRuntimeBindingV2['account']['provider'] = 'openai',
 ) {
-  const selectedBinding: AccountBinding = { ...binding, provider };
+  const selectedBinding = { ...binding, provider } satisfies AccountBinding;
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'local-repo-')));
   roots.push(root);
   const repo = join(root, 'existing');

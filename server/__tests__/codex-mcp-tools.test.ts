@@ -79,9 +79,10 @@ it('aborts sibling startup after discovery failure and closes a peer that connec
   const failedPage = deferred<{ tools: [] }>();
   const lateClose = vi.fn(async () => {});
   const lateList = vi.fn(async () => ({ tools: [] }));
+  const lateCall = vi.fn(async () => ({}));
   const late = deferred<{
     listTools: typeof lateList;
-    callTool: ReturnType<typeof vi.fn>;
+    callTool: typeof lateCall;
     close: typeof lateClose;
   }>();
   const firstClose = vi.fn(async () => {});
@@ -103,7 +104,7 @@ it('aborts sibling startup after discovery failure and closes a peer that connec
   await failed;
   expect(siblingSignal?.aborted).toBe(true);
   expect(firstClose).toHaveBeenCalledOnce();
-  late.resolve({ listTools: lateList, callTool: vi.fn(), close: lateClose });
+  late.resolve({ listTools: lateList, callTool: lateCall, close: lateClose });
   await vi.waitFor(() => expect(lateClose).toHaveBeenCalledOnce());
   expect(lateList).not.toHaveBeenCalled();
   expect(firstClose).toHaveBeenCalledOnce();
@@ -237,7 +238,7 @@ it.each(['tool count', 'serialized bytes'] as const)(
 
 it('pins definitions and descriptors before a peer can mutate them during another discovery', async () => {
   const schema: Record<string, unknown> = {};
-  const lastPage = deferred<{ tools: { name: string; inputSchema: object }[] }>();
+  const lastPage = deferred<{ tools: { name: string; inputSchema: Record<string, unknown> }[] }>();
   const secondList = vi.fn(() => lastPage.promise);
   const close = vi.fn(async () => {});
   const opening = connectCodexMcpTools(
