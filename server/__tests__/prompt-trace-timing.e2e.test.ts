@@ -125,12 +125,32 @@ const startup = await vi.hoisted(async () => {
 beforeEach(async () => {
   vi.resetModules();
   turnSequence = 0;
+  const nativeProcess = process;
+  const dlopen = nativeProcess.dlopen;
+  vi.spyOn(nativeProcess, 'dlopen').mockImplementation(function (this: NodeJS.Process, ...args) {
+    if (/(?:better-sqlite3|better_sqlite3)/.test(args[1]))
+      expect(
+        globalThis.process === nativeProcess,
+        'SQLite binding must load on the actual OS before synthetic Mac qualification',
+      ).toBe(true);
+    return Reflect.apply(dlopen, this, args);
+  });
   vi.stubGlobal(
     'fetch',
     vi.fn(() => {
       throw Error('No external network or model calls');
     }),
   );
+  // better-sqlite3 chooses its native prebuild lazily on first construction.
+  // Load/cache the REAL host addon before simulating Mac runtime eligibility;
+  // otherwise Linux selects darwin-*.node even though SQLite itself is real.
+  const { default: Database } = await import('better-sqlite3');
+  const sqlite = new Database(':memory:');
+  try {
+    expect(sqlite.prepare('SELECT 1 AS value').get()).toEqual({ value: 1 });
+  } finally {
+    sqlite.close();
+  }
   const { ownedOrdinaryRuntimeFixture } =
     await import('./fixtures/owned-ordinary-workspace-runtime.js');
   // The fixture qualifies synthetic Mach-O artifacts; this is not host/kernel qualification.

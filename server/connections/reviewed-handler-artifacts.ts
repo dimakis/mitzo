@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.632-prompt-timing-validation-source-home';
+  'v1.0.633-ci-native-binding-fixtures';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1662,7 +1662,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prompt-trace-timing.test.ts':
     'e5ac6f87bfd69c1e788304b274cd7b25768869099361dc4e69d0e35c535bf6c1',
   '../__tests__/prompt-trace-timing.e2e.test.ts':
-    '85435694fa0379a7f4f79708908c3c18d7f011fe4127ec33b503d154643591db',
+    '751a6e2763c3a6affca6a03ccaa76e7e70971f40fced7a4535eaf01f3f0fe504',
   '../__tests__/fixtures/prompt-trace-timing.ts':
     '7f6af8c9c7d623f8cdcb2e7bbe21a5d5d31f4ad94a6faca86dc25817e6904e8d',
   '../../scripts/validate-prompt-timing.ts':
