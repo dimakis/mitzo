@@ -4,6 +4,8 @@ import { createLogger } from './logger.js';
 import { tracer } from './tracing.js';
 
 type Phase =
+  | 'repository_selection'
+  | 'repository_reservation'
   | 'host_tool_admission'
   | 'host_tool_execution'
   | 'credential_check'
