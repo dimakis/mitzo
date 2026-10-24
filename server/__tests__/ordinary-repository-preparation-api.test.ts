@@ -123,6 +123,42 @@ it('keeps a managed legacy account inside its existing credential and mutation o
   ).rejects.toThrow('managed credential unavailable');
   expect(state.key).not.toHaveBeenCalled();
 });
+it('uses the gateway resolver readiness check and retains a fresh final preparation fence', async () => {
+  const { f, binding, selection, authority } = await fixture('openshell');
+  const order: string[] = [];
+  const resolveKey = vi.fn(async () => {
+    order.push('resolve');
+    return 'offline-managed-key';
+  });
+  const ready = vi.fn(async () => {
+    order.push('ready');
+  });
+  state.runtime = {
+    openAIKeys: { manages: () => true, resolveKey },
+    assertOpenAIKeyReady: ready,
+    service: { assertAccountCredentialReady: ready },
+  };
+  const proof = await authority.captureOrdinaryRepositoryPreparation(
+    binding,
+    selection,
+    f.signal.signal,
+  );
+  expect(proof.runtimeBinding.execution.location).toBe('openshell');
+  expect(order).toEqual(['resolve', 'ready']);
+  expect(resolveKey).toHaveBeenCalledWith(binding.accountId, f.signal.signal);
+  expect(state.key).not.toHaveBeenCalled();
+  ready.mockRejectedValueOnce(Error('gateway changed after credential resolution'));
+  await expect(
+    authority.captureOrdinaryRepositoryPreparation(binding, selection, f.signal.signal),
+  ).rejects.toThrow('gateway changed');
+  resolveKey.mockRejectedValueOnce(Error('credential controller unavailable'));
+  ready.mockClear();
+  await expect(
+    authority.captureOrdinaryRepositoryPreparation(binding, selection, f.signal.signal),
+  ).rejects.toThrow('credential controller unavailable');
+  expect(ready).not.toHaveBeenCalled();
+  expect(state.key).not.toHaveBeenCalled();
+});
 it('requalifies a persisted legacy workspace proof through its owner without admitting fresh Responses work', async () => {
   const { f, binding, selection, authority } = await fixture('local');
   const fresh = await authority.captureOrdinaryRepositoryPreparation(

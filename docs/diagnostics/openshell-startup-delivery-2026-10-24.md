@@ -3,8 +3,8 @@
 This follow-up addresses live event delivery, provider-neutral warm-pool work and
 unsupported connection tool discovery. Executable reuse for Local/OpenShell seats
 and the independent startup overlaps remain with their existing owners (#1122 and
-#1124). This change does not alter executable custody, credential admission or the
-one-use knowledge admission receipt.
+#1124). This change does not alter executable custody or the one-use knowledge
+admission receipt.
 
 ## Observed delay
 
@@ -18,7 +18,11 @@ Server timestamps do not establish the exact device receive/render delay.
 Before dispatch, the trace recorded 18 repository credential checks and 82
 keychain reads. These are nested measurements, not additive elapsed time. They
 remain authority checks; this PR does not cache credentials or remove their
-revocation/provider fences.
+revocation/provider fences. OpenShell repository preparation omits one redundant
+preliminary readiness call: canonical key resolution already verifies readiness
+inside its credential owner. The fresh post-resolution readiness check remains.
+Failure to resolve through the selected controller never falls back to a raw key;
+post-resolution gateway drift still rejects the preparation proof.
 
 ## Immediate durable prefixes
 
