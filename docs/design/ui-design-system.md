@@ -14,7 +14,13 @@ command count. Context approval and applicable uncertainty/selection acknowledge
 are explicit. After an attempted commit, **Check admission** observes the same
 review and command identity without starting another command. The login-cleared
 session recovery hint retains this review across reloads; server authorization,
-source revisions and native admission remain authoritative.
+source revisions and native admission remain authoritative. If lineage confirms
+that an expired or stale review never claimed a command, **Discard rejected
+attempt and review again** atomically retires that review before reopening the
+pickers. It preserves the new request and source draft, and requires fresh context
+and uncertainty acknowledgements. Claimed or uncertain attempts remain observation
+only. [Phone recovery](assets/legacy-native-continuation-preclaim-mobile.png) shows
+the shared secondary action after a rejected review is restored across reload.
 
 The form uses semantic surface/text/border roles, shared spacing/type/radius tokens,
 the shared code font and 44px checkbox rows. The all-intercept

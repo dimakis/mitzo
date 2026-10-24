@@ -33,7 +33,21 @@ export function createLegacyNativeContinuationRouter(deps: {
     if (!deps.hasSession(id)) return void res.status(404).json({ error: 'Conversation not found' });
     try {
       res.json({
-        links: deps.store().listLegacyNativeLinks(id, (res.locals.authSession as AuthSession).id),
+        links: deps
+          .store()
+          .listLegacyNativeLinks(id, (res.locals.authSession as AuthSession).id)
+          .map((link) => {
+            let canReviewAgain = false;
+            if (link.state === 'reviewed' || link.state === 'discarded') {
+              const saved = deps
+                .store()
+                .readLegacyNativeLink(link.reviewHash, (res.locals.authSession as AuthSession).id);
+              canReviewAgain =
+                deps.commandState(saved.review) === undefined &&
+                !deps.hasSession(link.nativeSessionId);
+            }
+            return { ...link, canReviewAgain };
+          }),
       });
     } catch {
       res.status(503).json({ error: 'Linked native continuation history unavailable' });
@@ -58,6 +72,37 @@ export function createLegacyNativeContinuationRouter(deps: {
       });
     }
   });
+  router.post('/discard', requireSameOriginJson, (req: Request, res) => {
+    const input = LegacyNativeCommitInput.pick({ reviewHash: true }).safeParse(req.body);
+    if (!input.success) return void res.status(400).json({ error: 'Exact native review required' });
+    try {
+      const auth = res.locals.authSession as AuthSession;
+      const store = deps.store();
+      const { review } = store.readLegacyNativeLink(input.data.reviewHash, auth.id);
+      if (review.sourceSessionId !== req.params.id) throw Error('Original source required');
+      store.discardLegacyNativeReview(review.reviewHash, auth.id, () => {
+        if (
+          !isAuthSessionCurrent(auth) ||
+          deps.commandState(review) !== undefined ||
+          deps.hasSession(review.nativeSessionId)
+        )
+          throw Error('Native command outcome must remain with its original owner');
+      });
+      res.json({
+        reviewHash: review.reviewHash,
+        sourceSessionId: review.sourceSessionId,
+        nativeSessionId: review.nativeSessionId,
+        commandId: review.commandId,
+        state: 'discarded',
+      });
+    } catch {
+      res
+        .status(409)
+        .json({
+          error: 'This review has a claimed or unconfirmed command. Check its original admission.',
+        });
+    }
+  });
   router.post('/commit', requireSameOriginJson, async (req: Request, res, next) => {
     const input = LegacyNativeCommitInput.safeParse(req.body);
     if (!input.success)
@@ -71,6 +116,7 @@ export function createLegacyNativeContinuationRouter(deps: {
       review = link.review;
       if (review.sourceSessionId !== req.params.id)
         throw Error('Original continuation source required');
+      if (link.state === 'discarded') throw Error('This native review was discarded');
       if (link.state !== 'reviewed') {
         const state = deps.commandState(review) ?? 'uncertain';
         if (state === 'consumed') store.completeLegacyNativeLink(review.reviewHash, auth.id);

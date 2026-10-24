@@ -33,6 +33,8 @@ import {
 import {
   NativeContinuationReviewSchema,
   commitNativeContinuation,
+  canReviewNativeContinuationAgain,
+  discardUnclaimedNativeContinuation,
   type NativeContinuationReview,
 } from '../lib/legacy-native-continuation';
 import './LegacyNativeContinuation.css';
@@ -169,6 +171,7 @@ function NativeContinuationForm({
     [attempted, setAttempted] = useState(saved?.attempted ?? false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
+  const [canReviewAgain, setCanReviewAgain] = useState(false);
   const [contextApproved, setContextApproved] = useState(saved?.contextApproved ?? false),
     [uncertaintyApproved, setUncertaintyApproved] = useState(saved?.uncertaintyApproved ?? false),
     [selectionApproved, setSelectionApproved] = useState(saved?.selectionApproved ?? false);
@@ -208,6 +211,7 @@ function NativeContinuationForm({
       setOpen(false);
       setReview(null);
       setAttempted(false);
+      setCanReviewAgain(false);
       sessionStorage.removeItem(key);
     };
     window.addEventListener(AUTH_LOST_EVENT, close);
@@ -217,6 +221,44 @@ function NativeContinuationForm({
       window.removeEventListener(AUTH_RESTORED_EVENT, close);
     };
   }, [key]);
+  const observeRecovery = async (selected: NativeContinuationReview, generation: number) => {
+    try {
+      const allowed = await canReviewNativeContinuationAgain(sourceSessionId, selected);
+      if (generation === operationGeneration.current) setCanReviewAgain(allowed);
+    } catch {
+      if (generation === operationGeneration.current) setCanReviewAgain(false);
+    }
+  };
+  const discardUnclaimed = async () => {
+    if (inFlight.current || !review || !canReviewAgain) return;
+    const generation = ++operationGeneration.current;
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      await discardUnclaimedNativeContinuation(sourceSessionId, review);
+      if (generation !== operationGeneration.current) return;
+      if (!persist(false, null, true)) return;
+      setReview(null);
+      setAttempted(false);
+      setCanReviewAgain(false);
+      setContextApproved(false);
+      setUncertaintyApproved(false);
+      setSelectionApproved(false);
+      setError('');
+      runtime.refresh();
+    } catch (caught) {
+      if (generation !== operationGeneration.current) return;
+      setCanReviewAgain(false);
+      setError(
+        caught instanceof Error ? caught.message : 'The original admission remains unconfirmed.',
+      );
+    } finally {
+      if (generation === operationGeneration.current) {
+        inFlight.current = false;
+        setBusy(false);
+      }
+    }
+  };
   const preview = async () => {
     if (inFlight.current || attempted) return;
     const prepared = prepareLocalFirstCommand(runtime.intent, runtime.inventory, {
@@ -232,7 +274,7 @@ function NativeContinuationForm({
       );
       return;
     }
-    const generation = operationGeneration.current;
+    const generation = ++operationGeneration.current;
     inFlight.current = true;
     setBusy(true);
     setError('');
@@ -261,6 +303,7 @@ function NativeContinuationForm({
       )
         throw Error('Native continuation review identity changed');
       setReview(next);
+      setCanReviewAgain(false);
       setContextApproved(false);
       setUncertaintyApproved(false);
       setSelectionApproved(false);
@@ -292,10 +335,11 @@ function NativeContinuationForm({
       return;
     }
     if (!persist(true)) return;
-    const generation = operationGeneration.current;
+    const generation = ++operationGeneration.current;
     inFlight.current = true;
     setBusy(true);
     setAttempted(true);
+    setCanReviewAgain(false);
     setError('');
     try {
       const receipt = await commitNativeContinuation(
@@ -328,6 +372,7 @@ function NativeContinuationForm({
           ? caught.message
           : 'Native admission is unconfirmed. Check the original review again.',
       );
+      await observeRecovery(review, generation);
     } finally {
       if (generation === operationGeneration.current) {
         inFlight.current = false;
@@ -340,7 +385,13 @@ function NativeContinuationForm({
     <>
       <ChatStatusMessage
         status="Historical Responses execution is retired. Review a linked native continuation to request new work."
-        action={{ label: 'Continue with Codex', onClick: () => setOpen(true) }}
+        action={{
+          label: 'Continue with Codex',
+          onClick: () => {
+            setOpen(true);
+            if (attempted && review) void observeRecovery(review, operationGeneration.current);
+          },
+        }}
       />
       <HomeDialog
         title="Review native continuation"
@@ -510,6 +561,15 @@ function NativeContinuationForm({
                 >
                   {attempted ? 'Check admission' : 'Start reviewed native continuation'}
                 </button>
+                {attempted && canReviewAgain && (
+                  <button
+                    className="home-secondary"
+                    disabled={busy}
+                    onClick={() => void discardUnclaimed()}
+                  >
+                    Discard rejected attempt and review again
+                  </button>
+                )}
                 {!attempted && (
                   <button
                     className="home-secondary"

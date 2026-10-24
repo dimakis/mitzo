@@ -183,3 +183,62 @@ it('does not restore a delayed review after the authenticated login changes', as
   expect(screen.queryByText('["Visible historical text"]')).toBeNull();
   expect(sessionStorage.getItem('joining:legacy-native:legacy-source')).toBeNull();
 });
+
+it.each(['expired', 'stale'])(
+  'allows a fresh review only after the backend confirms and discards an unclaimed %s attempt',
+  async () => {
+    const { review } = fixture();
+    mocks.request.mockImplementation(async (url: string, input?: RequestInit) => {
+      if (url.endsWith('/preview')) return new Response(JSON.stringify(review));
+      if (url.endsWith('/commit'))
+        return new Response(JSON.stringify({ error: 'Review unavailable' }), { status: 409 });
+      if (url.endsWith('/discard'))
+        return new Response(
+          JSON.stringify({
+            reviewHash: review.reviewHash,
+            sourceSessionId: review.sourceSessionId,
+            nativeSessionId: review.nativeSessionId,
+            commandId: review.commandId,
+            state: 'discarded',
+          }),
+        );
+      expect(input?.method ?? 'GET').toBe('GET');
+      return new Response(
+        JSON.stringify({
+          links: [
+            {
+              reviewHash: review.reviewHash,
+              sourceSessionId: review.sourceSessionId,
+              nativeSessionId: review.nativeSessionId,
+              commandId: review.commandId,
+              state: 'reviewed',
+              createdAt: 1,
+              canReviewAgain: true,
+            },
+          ],
+        }),
+      );
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue with Codex' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare native workspace' }));
+    fireEvent.change(screen.getByLabelText('New request'), {
+      target: { value: 'Inspect actual state' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Review native continuation' }));
+    await screen.findByText('["Visible historical text"]');
+    fireEvent.click(screen.getByLabelText(/I reviewed the exact context/));
+    fireEvent.click(screen.getByLabelText(/I understand earlier effects/));
+    fireEvent.click(screen.getByLabelText(/I approve the displayed model/));
+    fireEvent.click(screen.getByRole('button', { name: 'Start reviewed native continuation' }));
+    const discard = await screen.findByRole('button', {
+      name: 'Discard rejected attempt and review again',
+    });
+    fireEvent.click(discard);
+    await screen.findByRole('button', { name: 'Review native continuation' });
+    expect((screen.getByLabelText('New request') as HTMLTextAreaElement).value).toBe(
+      'Inspect actual state',
+    );
+    expect(mocks.request.mock.calls.filter(([url]) => url.endsWith('/commit'))).toHaveLength(1);
+    expect(mocks.request.mock.calls.filter(([url]) => url.endsWith('/discard'))).toHaveLength(1);
+  },
+);

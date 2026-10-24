@@ -95,11 +95,19 @@ Modern ordinary command endpoints report `paid_reasoning_entry_required` with
 this entry action before accepting a new paid slash command, preserving its draft.
 An old unselected command is unavailable until its roles have explicit selections.
 
-`native-default` output policy explicitly acknowledges provider defaults. A
+`native-default` output policy explicitly acknowledges provider token defaults.
+Mitzo separately enforces a 32,768-character scoped adviser response limit:
+responses above it are rejected, never silently truncated. A
 required exact token ceiling is rejected before inference if the selected native
 capability cannot enforce it. The deferred Gemini capability retains its explicit
 upstream ceiling. Native sampling defaults may differ from the old direct SDK;
 role instructions, output validation and phase order remain feature owned.
+
+An admitted paid run retains its verified login across release of the original
+HTTP or SSE binding. The existing recovery operator binding and run authority
+stay scoped to that operation and are released after completion or cancellation.
+Actual login expiry or logout aborts the exact running phase; reconnecting a viewer
+does not revoke an already admitted operation.
 
 Each scoped phase returns genuine owner-observed token usage. USD budget values
 are configured usage-cost estimates, not claims about a subscription or API bill.

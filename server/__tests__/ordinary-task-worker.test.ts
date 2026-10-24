@@ -2,7 +2,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { EventStore } from '../event-store.js';
 import { TaskStore } from '../task-store.js';
 import { bindOrdinaryTaskWorkerSession } from '../ordinary-task-worker.js';
 const calls = vi.hoisted(() => ({
@@ -93,7 +94,7 @@ function fixture() {
   };
   const meta = {
     sessionId: 'source',
-    ordinaryWorkspaceId: 'source-workspace',
+    ordinaryWorkspaceId: '24064a82-976a-45c9-b9f2-c465b9d29d56',
     cwd: '/tmp/source',
     accountBinding: account,
     selectedModel: account.model,
@@ -109,7 +110,7 @@ function fixture() {
     model: account.model,
   };
   const record = {
-    id: 'child-workspace',
+    id: '7f3738a1-fb24-463c-8c71-ee66db43d012',
     conversationId: 'worker-conversation',
     directory: '/tmp/worker',
     preparationFingerprint: 'a'.repeat(64),
@@ -317,46 +318,83 @@ it('rejects a superseded allocation even while retained history includes its old
   expect(calls.dispatch).not.toHaveBeenCalled();
 });
 
-it('qualifies a fresh child proof for a supported source model change while preserving the original source preparation', async () => {
+it('uses the actual latest admitted model and thinking for a distinct child proof after ordinary continuation', async () => {
   const f = fixture();
-  f.meta.selectedModel = 'supported-new-model';
-  f.settings.selection.model = 'supported-new-model';
-  f.source.model = 'supported-new-model';
-  const original = structuredClone(f.settings);
-  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client', f.auth);
+  const events = new EventStore(join(f.deps.taskRoot(), 'source-events.db'));
+  cleanups.push(() => events.close());
+  const sourceOperation = randomUUID();
+  events.prepareOrdinaryWorkspaceSession(f.meta as never, {
+    allocationOperationId: sourceOperation,
+    preparationFingerprint: 'c'.repeat(64),
+    settings: f.settings,
+  });
+  events.admitPreparedOrdinaryWorkspaceCommand(
+    sourceOperation,
+    f.meta as never,
+    f.settings.binding,
+    {
+      clientMsgId: 'source-first',
+      requestFingerprint: 'd'.repeat(64),
+      selection: f.settings.selection,
+      payload: { text: 'First selected command' },
+    },
+  );
+  events.claimOrdinaryLocalCommandDispatch('source-first');
+  events.completeOrdinaryLocalCommand('source-first');
+  const selection = { ...f.settings.selection, model: 'supported-new-model', thinking: 'high' };
+  events.admitOrdinaryLocalContinuation(
+    {
+      ...f.meta,
+      accountBinding: { ...f.account, model: selection.model },
+      selectedModel: selection.model,
+      reasoningEffort: selection.thinking,
+    } as never,
+    f.settings.binding,
+    {
+      clientMsgId: 'source-follow-up',
+      requestFingerprint: 'e'.repeat(64),
+      selection,
+      payload: { text: 'Use the explicitly selected model and thinking' },
+    },
+  );
+  events.claimOrdinaryLocalCommandDispatch('source-follow-up');
+  events.completeOrdinaryLocalCommand('source-follow-up');
+  expect(events.getSession('source')).toMatchObject({
+    selectedModel: 'selected-model',
+    reasoningEffort: null,
+  });
+  expect(events.getOrdinaryWorkspaceConversationSettings('source')?.selection).toEqual(selection);
+  const sourceProof = events.getOrdinaryWorkspaceSessionPreparation(sourceOperation);
+  const spawn = bindOrdinaryTaskWorkerSession(
+    { ...f.deps, events } as never,
+    'selected-client',
+    f.auth,
+  );
   await spawn(f.task.id, 'Reviewed task', 'goal', vi.fn(), {
     operationId: f.record.allocationOperationId,
     signal: new AbortController().signal,
   });
   expect(f.workspaces.prepareOrdinaryWorkspace).toHaveBeenCalledWith(
     expect.objectContaining({
-      binding: { ...f.account, model: 'supported-new-model' },
-      selection: {
-        runOn: 'local',
-        runtime: {
-          account: f.settings.binding.account,
-          harness: 'codex',
-          targetId: 'selected-target',
-        },
-      },
+      binding: { ...f.account, model: selection.model },
     }),
   );
   expect(calls.reserve).toHaveBeenCalledWith(
     expect.objectContaining({
       settings: expect.objectContaining({
         workspace: { kind: 'ordinary', preparationId: '4dd560bc-44c5-4de8-95bc-9e65469f7880' },
-        selection: expect.objectContaining({ model: 'supported-new-model' }),
+        selection,
       }),
     }),
   );
-  expect(f.settings).toEqual(original);
-  expect(f.meta.accountBinding.model).toBe('selected-model');
+  expect(events.getOrdinaryWorkspaceSessionPreparation(sourceOperation)).toEqual(sourceProof);
+  expect(sourceProof?.settings.selection).toEqual(f.settings.selection);
 });
 
 it('rejects changed account/model/target selection before allocating or dispatching', async () => {
   const f = fixture();
   const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client', f.auth);
-  f.meta.selectedModel = 'changed-model';
+  f.settings.selection.model = 'changed-model';
   await expect(
     spawn(f.task.id, 'Reviewed task', 'goal', vi.fn(), {
       operationId: f.record.allocationOperationId,

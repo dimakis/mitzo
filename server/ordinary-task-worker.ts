@@ -65,6 +65,8 @@ export function bindOrdinaryTaskWorkerSession(
     'workspace' in raw
       ? OrdinaryWorkspaceSettingsSchema.parse(raw)
       : CollaborationSettingsSchema.parse(raw);
+  // Both settings owners project the latest admitted command's model/thinking.
+  // Session metadata and preparation proofs retain their creation-time values.
   const sourceSettings = structuredClone(settings);
   const originalAccount = structuredClone(sourceMeta.accountBinding);
   const profile = structuredClone(sourceMeta.agentProfile);
@@ -77,8 +79,6 @@ export function bindOrdinaryTaskWorkerSession(
     !['openai', 'openai-codex'].includes(settings.binding.account.provider) ||
     settings.selection.context.source !== 'none' ||
     profile.definition.contextRecipe !== undefined ||
-    sourceMeta.selectedModel !== settings.selection.model ||
-    (sourceMeta.reasoningEffort ?? null) !== settings.selection.thinking ||
     sourceMeta.mode !== settings.selection.permission.mode
   )
     throw Error(
@@ -93,8 +93,6 @@ export function bindOrdinaryTaskWorkerSession(
       binding: deps.events.getSessionRuntimeBinding(sourceId),
       account: meta?.accountBinding,
       profile: meta?.agentProfile,
-      model: meta?.selectedModel,
-      thinking: meta?.reasoningEffort ?? null,
       mode: meta?.mode,
       ordinaryWorkspaceId: meta?.ordinaryWorkspaceId,
       repositoryWorkspaceId: meta?.repositoryWorkspaceId,

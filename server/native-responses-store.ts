@@ -12,7 +12,7 @@ import type { LegacyNativeReview } from './legacy-native-continuation.js';
 
 export interface LegacyNativeLink {
   review: LegacyNativeReview;
-  state: 'reviewed' | 'uncertain' | 'consumed';
+  state: 'reviewed' | 'uncertain' | 'consumed' | 'discarded';
   createdAt: number;
 }
 
@@ -170,6 +170,24 @@ export class NativeResponsesStore {
             )
             .run(reviewHash, authId).changes === 1
         );
+      })
+      .immediate();
+  }
+  /** Retire an unclaimed review atomically. Keep the lineage so another tab
+   * cannot later claim an old reviewed command after a fresh review is chosen. */
+  discardLegacyNativeReview(reviewHash: string, authId: string, assertUnclaimed: () => void): void {
+    this.db
+      .transaction(() => {
+        const link = this.readLegacyNativeLink(reviewHash, authId);
+        if (link.state !== 'reviewed' && link.state !== 'discarded')
+          throw Error('Claimed native continuation cannot be discarded');
+        assertUnclaimed();
+        this.db
+          .prepare(
+            `UPDATE legacy_native_links SET state='discarded'
+        WHERE review_hash=? AND auth_id=? AND state='reviewed'`,
+          )
+          .run(reviewHash, authId);
       })
       .immediate();
   }

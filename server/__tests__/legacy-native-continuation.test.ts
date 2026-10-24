@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import express, { type Router, type RequestHandler } from 'express';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AccountBinding, SessionMeta } from '@mitzo/protocol';
+import type { SessionMeta } from '@mitzo/protocol';
 import { NativeResponsesStore } from '../native-responses-store.js';
 import {
   reviewLegacyNativeContinuation,
@@ -27,10 +27,10 @@ vi.mock('../auth.js', () => ({
 vi.mock('../connections-router.js', () => ({
   requireSameOriginJson: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
-const binding: AccountBinding = {
+const binding = {
   accountId: 'work',
   accountLabel: 'Work API',
-  provider: 'openai',
+  provider: 'openai' as const,
   model: 'supported-model',
   profileRevision: 'pinned-profile',
 };
@@ -115,7 +115,7 @@ describe('deliberate linked native continuation', () => {
   let store: NativeResponsesStore;
   let current: LegacyNativeSource;
   let app: Router;
-  let admit: ReturnType<typeof vi.fn>;
+  let admit: Mock<RequestHandler>;
   let commandState: 'consumed' | 'uncertain' | undefined;
   const openStore = () => new NativeResponsesStore(join(directory, 'responses.db'));
   beforeEach(() => {
@@ -138,13 +138,14 @@ describe('deliberate linked native continuation', () => {
           if (id !== current.meta.sessionId) throw Error('Unavailable');
           return current;
         },
-        hasSession: () => false,
+        hasSession: (id) => id === current.meta.sessionId,
         commandState: () => commandState,
         admit,
       }),
     );
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     store.close();
     rmSync(directory, { recursive: true, force: true });
   });
@@ -155,13 +156,16 @@ describe('deliberate linked native continuation', () => {
     expect(response.status).toBe(200);
     return response.body as unknown as LegacyNativeReview;
   }
-  const invoke = (url: string, body: unknown) =>
+  const invoke = (url: string, body: unknown, method = 'POST') =>
     new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
       let status = 200;
-      const req = { method: 'POST', url, headers: {}, body } as express.Request;
+      const req = { method, url, headers: {}, body } as express.Request;
+      const responseState = { headersSent: false };
       const res = {
         locals: {},
-        headersSent: false,
+        get headersSent() {
+          return responseState.headersSent;
+        },
         status(code: number) {
           status = code;
           return this;
@@ -170,7 +174,7 @@ describe('deliberate linked native continuation', () => {
           return this;
         },
         json(value: unknown) {
-          this.headersSent = true;
+          responseState.headersSent = true;
           resolve({ status, body: value as Record<string, unknown> });
           return this;
         },
@@ -233,6 +237,36 @@ describe('deliberate linked native continuation', () => {
     });
     expect(admit).toHaveBeenCalledOnce();
   });
+  it.each(['expired', 'stale'])(
+    'can retire an unclaimed %s review without leaving a commit replay path',
+    async (reason) => {
+      const review = await preview();
+      if (reason === 'expired') {
+        vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 31 * 60_000);
+      } else current.events.push({ seq: 9 });
+      expect((await commit(review.reviewHash)).status).toBe(409);
+      const lineage = await invoke(
+        '/sessions/retained-source/native-continuation/',
+        undefined,
+        'GET',
+      );
+      expect(lineage.body.links).toContainEqual(
+        expect.objectContaining({
+          reviewHash: review.reviewHash,
+          state: 'reviewed',
+          canReviewAgain: true,
+        }),
+      );
+      const discarded = await invoke('/sessions/retained-source/native-continuation/discard', {
+        reviewHash: review.reviewHash,
+      });
+      expect(discarded.status).toBe(200);
+      expect(discarded.body).toMatchObject({ reviewHash: review.reviewHash, state: 'discarded' });
+      expect((await commit(review.reviewHash)).status).toBe(409);
+      expect(admit).not.toHaveBeenCalled();
+      vi.restoreAllMocks();
+    },
+  );
   it('preserves uncertain native admission without replay even after reconnect', async () => {
     admit.mockImplementationOnce(async () => {
       throw Error('Lost native acceptance');
@@ -248,6 +282,32 @@ describe('deliberate linked native continuation', () => {
     expect(admit).toHaveBeenCalledOnce();
     expect(store.load(current.meta.sessionId, binding)).toEqual(current.state);
   });
+  it.each(['uncertain', 'consumed'] as const)(
+    'never discards a %s native command',
+    async (state) => {
+      const review = await preview();
+      store.claimLegacyNativeLink(review.reviewHash, auth.id);
+      if (state === 'consumed') store.completeLegacyNativeLink(review.reviewHash, auth.id);
+      commandState = state;
+      const lineage = await invoke(
+        '/sessions/retained-source/native-continuation/',
+        undefined,
+        'GET',
+      );
+      expect(lineage.body.links).toContainEqual(
+        expect.objectContaining({ reviewHash: review.reviewHash, canReviewAgain: false }),
+      );
+      expect(
+        (
+          await invoke('/sessions/retained-source/native-continuation/discard', {
+            reviewHash: review.reviewHash,
+          })
+        ).status,
+      ).toBe(409);
+      expect(store.readLegacyNativeLink(review.reviewHash, auth.id).state).toBe(state);
+      expect(admit).not.toHaveBeenCalled();
+    },
+  );
   it('requires an explicit acknowledgement for unknown historical effects, never clears them', async () => {
     current.state.status = 'interrupted';
     current.hasActiveCommand = true;

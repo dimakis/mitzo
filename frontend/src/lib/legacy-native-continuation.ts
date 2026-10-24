@@ -65,3 +65,71 @@ export async function commitNativeContinuation(
     throw Error('Native continuation receipt identity changed');
   return receipt;
 }
+
+const LinkIdentity = z.object({
+  reviewHash: z.string(),
+  sourceSessionId: z.string(),
+  nativeSessionId: z.string(),
+  commandId: z.string(),
+});
+const Lineage = z.object({
+  links: z.array(
+    LinkIdentity.extend({
+      state: z.enum(['reviewed', 'uncertain', 'consumed', 'discarded']),
+      canReviewAgain: z.boolean().optional(),
+    }),
+  ),
+});
+function matchesReview(
+  link: z.infer<typeof LinkIdentity>,
+  sourceSessionId: string,
+  review: ReviewIdentity,
+) {
+  return (
+    link.reviewHash === review.reviewHash &&
+    link.sourceSessionId === sourceSessionId &&
+    link.nativeSessionId === review.nativeSessionId &&
+    link.commandId === review.commandId
+  );
+}
+/** Read-only evidence can offer recovery; retiring the old review is a separate
+ * atomic owner operation before any picker or new-command identity is unlocked. */
+export async function canReviewNativeContinuationAgain(
+  sourceSessionId: string,
+  review: ReviewIdentity,
+) {
+  const response = await apiFetch(
+    `/api/sessions/${encodeURIComponent(sourceSessionId)}/native-continuation`,
+  );
+  if (!response.ok) return false;
+  const parsed = Lineage.safeParse(await response.json());
+  if (!parsed.success) return false;
+  const exact = parsed.data.links.filter((link) => matchesReview(link, sourceSessionId, review));
+  return (
+    exact.length === 1 &&
+    exact[0].canReviewAgain === true &&
+    ['reviewed', 'discarded'].includes(exact[0].state)
+  );
+}
+export async function discardUnclaimedNativeContinuation(
+  sourceSessionId: string,
+  review: ReviewIdentity,
+) {
+  const response = await apiFetch(
+    `/api/sessions/${encodeURIComponent(sourceSessionId)}/native-continuation/discard`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewHash: review.reviewHash }),
+    },
+  );
+  if (!response.ok)
+    throw Error(
+      'The original command may be claimed or uncertain. Check its admission before reviewing another attempt.',
+    );
+  const receipt = LinkIdentity.extend({ state: z.literal('discarded') }).parse(
+    await response.json(),
+  );
+  if (!matchesReview(receipt, sourceSessionId, review))
+    throw Error('Discarded native review identity changed');
+}
