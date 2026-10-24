@@ -90,7 +90,10 @@
     "selected_raw_baseline_download_hashes_independently_checked": true,
     "packet_material_and_source_record_base64_sha256_verified": true,
     "runtime_and_full_profile_nonnull_and_equal_initial_after_save_restart": true,
-    "selected_pids": [11890, 12000],
+    "selected_pids": [
+      11890,
+      12000
+    ],
     "same_private_state_paths": true,
     "selected_external_effect_counts": {
       "native.launch": 1,

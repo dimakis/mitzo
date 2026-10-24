@@ -2,7 +2,9 @@
   "disposition": "BOUNDED_ADD_CHILD_UX07_08_SUBSET_PASS",
   "head": "3df776dd16f7f7f2f56955696a53b8838a63f5b9",
   "tree": "6203d3b2c34e86ed0557296e05b3d360ca661a9c",
-  "parents": ["8a5faa32cc1208fc1950b92d64315c06a2aea63f"],
+  "parents": [
+    "8a5faa32cc1208fc1950b92d64315c06a2aea63f"
+  ],
   "baseline": "15291f6f40119a9fae72f6d3463ea9fb1a27880e",
   "changedPaths": [
     "A\ttests/integration/telos-s9/integrated-candidate/advisor-child-browser.contract.ts",
@@ -99,13 +101,25 @@
   "lifecycle": [
     {
       "stage": "initial",
-      "readyPids": [57802, 57921],
-      "exitPids": [57802, 57921]
+      "readyPids": [
+        57802,
+        57921
+      ],
+      "exitPids": [
+        57802,
+        57921
+      ]
     },
     {
       "stage": "idle-lifecycle",
-      "readyPids": [60768, 60883],
-      "exitPids": [60768, 60883]
+      "readyPids": [
+        60768,
+        60883
+      ],
+      "exitPids": [
+        60768,
+        60883
+      ]
     }
   ],
   "effects": {
@@ -191,7 +205,10 @@
   "approvedReference": {
     "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-2/references/acceptance-contract.md",
     "sha256": "dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255",
-    "rows": ["UX07", "UX08"],
+    "rows": [
+      "UX07",
+      "UX08"
+    ],
     "scenario": 5
   }
 }

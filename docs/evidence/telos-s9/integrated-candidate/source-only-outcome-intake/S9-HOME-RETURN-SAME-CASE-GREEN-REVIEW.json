@@ -2782,7 +2782,11 @@
         "native conversation/command ledger",
         "native driver (lazy on explicit command)"
       ],
-      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
     },
     {
       "event": "exit",
@@ -2793,7 +2797,9 @@
     }
   ],
   "teardown": {
-    "recordedAppPids": [61565],
+    "recordedAppPids": [
+      61565
+    ],
     "remainingAppPids": [],
     "exactChildSourceMatches": [],
     "allRecordedPidsReaped": true,

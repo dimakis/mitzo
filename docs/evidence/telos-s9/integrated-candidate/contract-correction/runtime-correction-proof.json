@@ -116,7 +116,10 @@
       "initialFullProfileAssertedAgainstFixtureAndColdAfterRetained": true,
       "runtimeBindingSha256": "021132604c3b636b6606bd4fb0c1adec833d05e351926ac41f1e62ef8095faaa",
       "profileSha256": "4c1beed4094a4cc37b38f95d302e4170ef00ab7501cdbfbd536df3cf545e6595",
-      "childPids": [43425, 43678],
+      "childPids": [
+        43425,
+        43678
+      ],
       "bothChildrenActuallyAbsent": true,
       "effectCounts": {
         "native.launch": 1,
@@ -134,7 +137,10 @@
       "initialFullProfileAssertedAgainstFixtureAndColdAfterRetained": true,
       "runtimeBindingSha256": "f37ea3ffd8d1fb496d9bcc8b89050ce8a104979da3f51c109547f96b502a1918",
       "profileSha256": "4c1beed4094a4cc37b38f95d302e4170ef00ab7501cdbfbd536df3cf545e6595",
-      "childPids": [44319, 44515],
+      "childPids": [
+        44319,
+        44515
+      ],
       "bothChildrenActuallyAbsent": true,
       "effectCounts": {
         "native.launch": 1,

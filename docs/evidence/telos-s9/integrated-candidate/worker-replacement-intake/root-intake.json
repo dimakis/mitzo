@@ -2,7 +2,9 @@
   "disposition": "BOUNDED_FUNCTIONAL_PASS_WITH_EVIDENCE_ATTRIBUTION_CORRECTION",
   "head": "e4ef207b418b46e9a650422c1d9ee0fcb3541fad",
   "tree": "d6b6b13fe45b599b4b4b0ac581d840b48de749da",
-  "parents": ["fcd7da5e94eb7ca8833fef97c0d4b83ffd766734"],
+  "parents": [
+    "fcd7da5e94eb7ca8833fef97c0d4b83ffd766734"
+  ],
   "baseline": "99a8ab4ec03a83c62c11875468fa092d0b3cc5cc",
   "changedPaths": [
     "A\ttests/integration/telos-s9/integrated-candidate/vitest.worker-replacement.config.ts",
@@ -188,23 +190,41 @@
   "lifecycle": [
     {
       "stage": "initial",
-      "readyPids": [31958],
-      "exitPids": [31958]
+      "readyPids": [
+        31958
+      ],
+      "exitPids": [
+        31958
+      ]
     },
     {
       "stage": "setup-only-reader",
-      "readyPids": [32918],
-      "exitPids": [32918]
+      "readyPids": [
+        32918
+      ],
+      "exitPids": [
+        32918
+      ]
     },
     {
       "stage": "explicit-initial-assignment",
-      "readyPids": [34624],
-      "exitPids": [34624]
+      "readyPids": [
+        34624
+      ],
+      "exitPids": [
+        34624
+      ]
     },
     {
       "stage": "visible-role-identity",
-      "readyPids": [35701, 35898],
-      "exitPids": [35701, 35898]
+      "readyPids": [
+        35701,
+        35898
+      ],
+      "exitPids": [
+        35701,
+        35898
+      ]
     }
   ],
   "effectsMetadataCloseCounts": {

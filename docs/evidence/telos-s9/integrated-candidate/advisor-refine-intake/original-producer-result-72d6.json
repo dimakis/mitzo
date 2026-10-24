@@ -182,7 +182,10 @@
     "contextSelectionBoundary": "Actual role setup calls review() without selection controls; defaults from already retained work.sources. Baseline has no selectedsources or pins. Actual item/parentcriteria/overallgoal reviewed; parent Acoustic plan inspected through Files but not selected/inherited. Nonemptycontext variants pending.",
     "actualRuntimeGetterAndFullInitialPublishedProfile": true,
     "nativeLedgerReadBySnapshot": false,
-    "selectedAppPids": [94530, 94740],
+    "selectedAppPids": [
+      94530,
+      94740
+    ],
     "allAppPidsReaped": true,
     "mcpPostTeardownCheck": {
       "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-MCP-TEARDOWN-CHECK.json",
@@ -194,7 +197,13 @@
     "id": "c54d6f2479aab619b163187829b6bdff",
     "revision": 1,
     "sha256": "dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255",
-    "rows": ["UX07", "UX08", "CT01", "CT05", "CT20"],
+    "rows": [
+      "UX07",
+      "UX08",
+      "CT01",
+      "CT05",
+      "CT20"
+    ],
     "scenario": 5,
     "qualification": "Bounded existing-item Refine branch only; no fullrow/worker/output/materialselection acceptance."
   },
@@ -276,7 +285,9 @@
                 {
                   "itemId": "studio",
                   "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -352,7 +363,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -441,7 +454,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -525,7 +540,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -619,7 +636,9 @@
                     {
                       "itemId": "studio",
                       "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -710,7 +729,9 @@
           "summary": "Home studio",
           "intent": "Record music",
           "rationale": "Make music",
-          "acceptanceCriteria": ["Approved plan"],
+          "acceptanceCriteria": [
+            "Approved plan"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
@@ -723,7 +744,9 @@
             "paths": [],
             "issues": [],
             "docIds": [],
-            "people": ["Original person"],
+            "people": [
+              "Original person"
+            ],
             "jiraKeys": [],
             "keywords": [],
             "taskHint": "Original hint",
@@ -805,7 +828,9 @@
           "summary": "Record one acoustic sample",
           "intent": "Retain one reviewed sample",
           "rationale": "Exact smallest child only",
-          "acceptanceCriteria": ["Retain sample evidence"],
+          "acceptanceCriteria": [
+            "Retain sample evidence"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
@@ -1130,7 +1155,9 @@
                     "456bc446-4168-455c-b55d-d2a4f06d7fdf",
                     "06dfd25e-8458-463f-82c5-b1c6f1afe109"
                   ],
-                  "blockIds": ["b0"],
+                  "blockIds": [
+                    "b0"
+                  ],
                   "throughSequence": 14
                 },
                 "adoptedBrief": {
@@ -1291,7 +1318,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -1380,7 +1409,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -1464,7 +1495,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -1558,7 +1591,9 @@
                     {
                       "itemId": "studio",
                       "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -1656,7 +1691,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -1745,7 +1782,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -1829,7 +1868,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -1973,7 +2014,9 @@
                     {
                       "itemId": "studio",
                       "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -2237,7 +2280,9 @@
             }
           ],
           "tasks": [],
-          "activeSessionIds": ["ba83cef9-2a14-850d-8b4c-145f45b37978"]
+          "activeSessionIds": [
+            "ba83cef9-2a14-850d-8b4c-145f45b37978"
+          ]
         },
         "afterRestart": {
           "roleContext": {
@@ -2254,7 +2299,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -2343,7 +2390,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -2427,7 +2476,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -2571,7 +2622,9 @@
                     {
                       "itemId": "studio",
                       "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -2857,12 +2910,16 @@
           "summary": "Review one acoustic sample",
           "intent": "Retain one reviewed sample and its listening notes against the approved studio plan.",
           "rationale": "Exact smallest child only",
-          "acceptanceCriteria": ["Retain sample evidence"],
+          "acceptanceCriteria": [
+            "Retain sample evidence"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
           "priority": 7,
-          "categories": ["Music"],
+          "categories": [
+            "Music"
+          ],
           "createdAt": "2026-10-16T10:00:00",
           "updatedAt": "2026-10-20T07:45:09.520Z",
           "contextHints": {
@@ -2967,7 +3024,9 @@
                   "456bc446-4168-455c-b55d-d2a4f06d7fdf",
                   "06dfd25e-8458-463f-82c5-b1c6f1afe109"
                 ],
-                "blockIds": ["b0"],
+                "blockIds": [
+                  "b0"
+                ],
                 "throughSequence": 14
               },
               "adoptedBrief": {
@@ -3003,7 +3062,9 @@
                 "456bc446-4168-455c-b55d-d2a4f06d7fdf",
                 "06dfd25e-8458-463f-82c5-b1c6f1afe109"
               ],
-              "blockIds": ["b0"],
+              "blockIds": [
+                "b0"
+              ],
               "throughSequence": 14
             },
             "adoptedBrief": {
@@ -3159,7 +3220,9 @@
           "summary": "Home studio",
           "intent": "Record music",
           "rationale": "Make music",
-          "acceptanceCriteria": ["Approved plan"],
+          "acceptanceCriteria": [
+            "Approved plan"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
@@ -3172,7 +3235,9 @@
             "paths": [],
             "issues": [],
             "docIds": [],
-            "people": ["Original person"],
+            "people": [
+              "Original person"
+            ],
             "jiraKeys": [],
             "keywords": [],
             "taskHint": "Original hint",
@@ -3254,7 +3319,9 @@
           "summary": "Record one acoustic sample",
           "intent": "Retain one reviewed sample",
           "rationale": "Exact smallest child only",
-          "acceptanceCriteria": ["Retain sample evidence"],
+          "acceptanceCriteria": [
+            "Retain sample evidence"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
@@ -3311,7 +3378,9 @@
           "summary": "Quiet unrelated job",
           "intent": "Keep unrelated draft",
           "rationale": "Isolation control",
-          "acceptanceCriteria": ["Retain draft"],
+          "acceptanceCriteria": [
+            "Retain draft"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
@@ -3477,7 +3546,9 @@
                 {
                   "itemId": "studio",
                   "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -3550,7 +3621,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -3639,7 +3712,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -3723,7 +3798,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -3817,7 +3894,9 @@
                     {
                       "itemId": "studio",
                       "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -4233,7 +4312,9 @@
                     "456bc446-4168-455c-b55d-d2a4f06d7fdf",
                     "06dfd25e-8458-463f-82c5-b1c6f1afe109"
                   ],
-                  "blockIds": ["b0"],
+                  "blockIds": [
+                    "b0"
+                  ],
                   "throughSequence": 14
                 },
                 "adoptedBrief": {
@@ -4263,12 +4344,16 @@
           "summary": "Review one acoustic sample",
           "intent": "Retain one reviewed sample and its listening notes against the approved studio plan.",
           "rationale": "Exact smallest child only",
-          "acceptanceCriteria": ["Retain sample evidence"],
+          "acceptanceCriteria": [
+            "Retain sample evidence"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
           "priority": 7,
-          "categories": ["Music"],
+          "categories": [
+            "Music"
+          ],
           "createdAt": "2026-10-16T10:00:00",
           "updatedAt": "2026-10-20T07:45:09.520Z",
           "contextHints": {
@@ -4373,7 +4458,9 @@
                   "456bc446-4168-455c-b55d-d2a4f06d7fdf",
                   "06dfd25e-8458-463f-82c5-b1c6f1afe109"
                 ],
-                "blockIds": ["b0"],
+                "blockIds": [
+                  "b0"
+                ],
                 "throughSequence": 14
               },
               "adoptedBrief": {
@@ -4409,7 +4496,9 @@
                 "456bc446-4168-455c-b55d-d2a4f06d7fdf",
                 "06dfd25e-8458-463f-82c5-b1c6f1afe109"
               ],
-              "blockIds": ["b0"],
+              "blockIds": [
+                "b0"
+              ],
               "throughSequence": 14
             },
             "adoptedBrief": {
@@ -4532,7 +4621,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -4621,7 +4712,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -4705,7 +4798,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -4849,7 +4944,9 @@
                     {
                       "itemId": "studio",
                       "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -5113,7 +5210,9 @@
             }
           ],
           "tasks": [],
-          "activeSessionIds": ["ba83cef9-2a14-850d-8b4c-145f45b37978"]
+          "activeSessionIds": [
+            "ba83cef9-2a14-850d-8b4c-145f45b37978"
+          ]
         },
         "afterRestart": {
           "roleContext": {
@@ -5130,7 +5229,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -5219,7 +5320,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -5303,7 +5406,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -5447,7 +5552,9 @@
                     {
                       "itemId": "studio",
                       "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -6053,7 +6160,11 @@
         "native conversation/command ledger",
         "native driver (lazy on explicit command)"
       ],
-      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
     },
     {
       "event": "exit",
@@ -6092,7 +6203,11 @@
         "native conversation/command ledger",
         "native driver (lazy on explicit command)"
       ],
-      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
     },
     {
       "event": "exit",

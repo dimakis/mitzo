@@ -4,12 +4,12 @@
 
 Read all four new files completely at `3df776dd16f7f7f2f56955696a53b8838a63f5b9`, tree `6203d3b2c34e86ed0557296e05b3d360ca661a9c`, parent `8a5faa32cc1208fc1950b92d64315c06a2aea63f`. Exactly four dedicated test paths differ from baseline `15291f6f40119a9fae72f6d3463ea9fb1a27880e`; all89 prior integration files are exact. All667 actual pins and13 protected reference/check hashes match. No tests/compiler/browser/services/network/models, worker messages or source/index edits occurred during review.
 
-| New file                          | SHA-256                                                            |
-| --------------------------------- | ------------------------------------------------------------------ |
-| advisor-child-process-fixture.ts  | `b6658e7f05d3c91ff35db2958da7c40b5e756251c132ab87d19526c25056b916` |
-| advisor-child-process-app.mjs     | `560d8c85d98b85db77415ae1f0bfa4e7918c764031890a5711f8209e3eb1c9be` |
+| New file | SHA-256 |
+| --- | --- |
+| advisor-child-process-fixture.ts | `b6658e7f05d3c91ff35db2958da7c40b5e756251c132ab87d19526c25056b916` |
+| advisor-child-process-app.mjs | `560d8c85d98b85db77415ae1f0bfa4e7918c764031890a5711f8209e3eb1c9be` |
 | advisor-child-browser.contract.ts | `1ca229ad9b7ee8e5916ca00cb74c34335132c5e22fdbc53c0485ee261d731030` |
-| vitest.advisor-child.config.ts    | `09e4baf2be127446e2c73dfda08991f92849ba7d37d9d14698c7e2c103eb325c` |
+| vitest.advisor-child.config.ts | `09e4baf2be127446e2c73dfda08991f92849ba7d37d9d14698c7e2c103eb325c` |
 
 ## Actual authority and caller chain
 

@@ -12,10 +12,10 @@ Four pending/done ×320/390 layout observations satisfy the unchanged text, raw-
 
 Integrity checks found no mismatch:
 
-| Archive     |     Bytes | Inventory                                           | SHA-256                                                            |
-| ----------- | --------: | --------------------------------------------------- | ------------------------------------------------------------------ |
-| SOURCE      | 3,641,451 | 335 tracked files +12 custody files +32 directories | `0919519b6dc3044d74dce3640451a65d1cd81969ef1cc4686bb8a4de634cad87` |
-| DIAGNOSTICS | 1,059,606 | 30 files                                            | `9479bd747cbdd43f59849fb1ec7c180c1a29398cc3878a54da197ef2802a1f95` |
+| Archive | Bytes | Inventory | SHA-256 |
+|---|---:|---|---|
+| SOURCE | 3,641,451 | 335 tracked files +12 custody files +32 directories | `0919519b6dc3044d74dce3640451a65d1cd81969ef1cc4686bb8a4de634cad87` |
+| DIAGNOSTICS | 1,059,606 | 30 files | `9479bd747cbdd43f59849fb1ec7c180c1a29398cc3878a54da197ef2802a1f95` |
 
 All source members match immutable Git, custody members match their declared origin, and diagnostic members exactly cover/match the retained directory. Paths are unique, relative and clean, without symlink entries. All 108 recorded path/sourcePath hash-size references (36 unique paths) match. Both retained import patches describe the exact two-path change; their only presentation difference is Git object-ID abbreviation length. The companion JSON retains member hashes/sizes and checks. Original f04/f507 RED reports, raw/source/diagnostic archives, initial observer failure and corrected b47 owner overlay remain unchanged. Local retention-receipt hash/size consistency is verified; canonical storage/ledger state was not queried or changed.
 

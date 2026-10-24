@@ -282,7 +282,11 @@
         "native conversation/command ledger",
         "native driver (lazy on explicit command)"
       ],
-      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
     },
     {
       "event": "exit",
@@ -321,7 +325,11 @@
         "native conversation/command ledger",
         "native driver (lazy on explicit command)"
       ],
-      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
     },
     {
       "event": "exit",
@@ -337,7 +345,11 @@
       "source": "7309b558",
       "sha256": "da1fd63cf73cfbe9a60a6d8dec509d485d86da68b640aa91e33ec113b2a0d8a4",
       "match": true,
-      "counts": [0, 1, 0],
+      "counts": [
+        0,
+        1,
+        0
+      ],
       "effects": {
         "preflight.close": 1,
         "native.launch": 1,
@@ -349,7 +361,11 @@
       "source": "bf0be93cd0cd83a916d349175afdbaf6761e14f5",
       "sha256": "6600aeb7fabaa627f9f7dc737f69ddf0348b1432b2a072e483c312c753c37313",
       "match": true,
-      "counts": [1, 0, 0],
+      "counts": [
+        1,
+        0,
+        0
+      ],
       "effects": {
         "preflight.close": 2,
         "native.launch": 1,

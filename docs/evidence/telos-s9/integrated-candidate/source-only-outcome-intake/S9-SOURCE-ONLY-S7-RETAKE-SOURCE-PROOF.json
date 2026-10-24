@@ -250,7 +250,9 @@
     }
   ],
   "teardown": {
-    "recordedAppPids": [61565],
+    "recordedAppPids": [
+      61565
+    ],
     "remainingAppPids": [],
     "exactChildSourceMatches": [],
     "allRecordedPidsReaped": true,

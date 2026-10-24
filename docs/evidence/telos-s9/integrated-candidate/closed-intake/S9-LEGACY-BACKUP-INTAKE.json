@@ -4,7 +4,9 @@
   "scope": "Static source/evidence intake only; no test or App execution. Partial UX20/scenario7 snapshot-byte restore/readback, not historical migration/Restic/full recovery/main qualification.",
   "head": "8720788c31980575a3da990d43768c9e8eac0947",
   "tree": "e4f7f73b6f02865b3c0d5462944aac359b9261ea",
-  "parents": ["1fb484ca0819375e3c27d66245dda884e0b3b477"],
+  "parents": [
+    "1fb484ca0819375e3c27d66245dda884e0b3b477"
+  ],
   "baseline": "3be2a0cfa458b9990a45b8e96da8c43804f5b8cc",
   "changedPaths": [
     "A\ttests/integration/telos-s9/integrated-candidate/legacy-backup-child-app.mjs",
@@ -114,7 +116,11 @@
   "captureCoverage": {
     "version": 1,
     "capturedAt": "2026-10-20T05:41:54.709Z",
-    "required": ["mitzo-events", "mitzo-tasks", "telos"],
+    "required": [
+      "mitzo-events",
+      "mitzo-tasks",
+      "telos"
+    ],
     "stores": [
       {
         "id": "mitzo-events",
@@ -138,20 +144,36 @@
   "lifecycle": [
     {
       "stage": "initial",
-      "readyPids": [16594],
-      "exitPids": [16594],
+      "readyPids": [
+        16594
+      ],
+      "exitPids": [
+        16594
+      ],
       "allRecordedReaped": true
     },
     {
       "stage": "process-budget",
-      "readyPids": [17191, 17267],
-      "exitPids": [17191, 17267],
+      "readyPids": [
+        17191,
+        17267
+      ],
+      "exitPids": [
+        17191,
+        17267
+      ],
       "allRecordedReaped": true
     },
     {
       "stage": "captured-group",
-      "readyPids": [17728, 17853],
-      "exitPids": [17728, 17853],
+      "readyPids": [
+        17728,
+        17853
+      ],
+      "exitPids": [
+        17728,
+        17853
+      ],
       "allRecordedReaped": true
     }
   ],

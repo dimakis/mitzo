@@ -150,7 +150,10 @@
   ],
   "providerInputSeam": "Deterministic external native agentMessage delta/itemcompleted/turncompleted inputs use actual accepted thread/turn and lifecycle callback. Actual parser/stream/EventStore/transcript establish completion/source boundary; no owned events/DB/receipts/terminal written directly.",
   "runtimeProfileObserver": "Actual top-level getSessionRuntimeBinding(sessionId), typed from that owner; non-null initial equals actual UI setup binding. Whole initial session.agentProfile equals f.agentProfile and cold/after equality. Native ledger not observed by this snapshot.",
-  "selectedAppPids": [60768, 60883],
+  "selectedAppPids": [
+    60768,
+    60883
+  ],
   "bothSelectedAndAllDiagnosticAppPidsReaped": true,
   "sameRootsSignedAuthStableOrigin": true
 }

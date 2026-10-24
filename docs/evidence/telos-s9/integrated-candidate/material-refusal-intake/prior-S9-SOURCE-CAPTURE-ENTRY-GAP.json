@@ -2,8 +2,14 @@
   "recordedAt": "2026-10-20T08:32:52.798669+00:00",
   "status": "confirmed_missing_selected_owned_local_normal_chat_capture_adoption_caller",
   "scope": "Read-only existing-source and frozen observed-inventory trace. Missing caller concerns arbitrary ordinary-chat selected-source/outcome capture/adoption/materialselection on this owned Local route. Actual advisor Refine/Addchild proposal source-save remains valid and already qualified within its bounded scope. No claim that all runtime/provider routes lack a UI.",
-  "approvedRows": ["UX07", "UX19"],
-  "approvedScenarios": [2, 5],
+  "approvedRows": [
+    "UX07",
+    "UX19"
+  ],
+  "approvedScenarios": [
+    2,
+    5
+  ],
   "frozenSource": {
     "executionHead": "472d5c538c86b506972fbd9b7a7356b46d7277ff",
     "executionTree": "a83fc19a7271254ef68205bbace4d89004941e53",

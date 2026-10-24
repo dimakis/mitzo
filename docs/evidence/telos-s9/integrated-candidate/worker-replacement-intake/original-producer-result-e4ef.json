@@ -168,7 +168,13 @@
     "id": "c54d6f2479aab619b163187829b6bdff",
     "revision": 1,
     "sha256": "dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255",
-    "rows": ["UX14", "UX15", "UX21", "CT15", "CT20"],
+    "rows": [
+      "UX14",
+      "UX15",
+      "UX21",
+      "CT15",
+      "CT20"
+    ],
     "scope": "Bounded worker-role additional/replacement/restart/historicalreceipt proof only; earlier closed leadchooser not rerun."
   },
   "acceptedSourceReference": {
@@ -367,7 +373,9 @@
               },
               "worker": {
                 "complete": true,
-                "conversationIds": ["5dd04806-71e5-88c3-994b-127be0ecc9a4"]
+                "conversationIds": [
+                  "5dd04806-71e5-88c3-994b-127be0ecc9a4"
+                ]
               }
             },
             "sources": [],
@@ -457,7 +465,9 @@
                 {
                   "itemId": "studio",
                   "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -534,7 +544,9 @@
               },
               "worker": {
                 "complete": true,
-                "conversationIds": ["5dd04806-71e5-88c3-994b-127be0ecc9a4"]
+                "conversationIds": [
+                  "5dd04806-71e5-88c3-994b-127be0ecc9a4"
+                ]
               }
             },
             "sources": [],
@@ -624,7 +636,9 @@
                 {
                   "itemId": "studio",
                   "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -839,7 +853,9 @@
               {
                 "itemId": "studio",
                 "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -867,7 +883,9 @@
               {
                 "itemId": "studio",
                 "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -962,7 +980,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -1046,7 +1066,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -1141,7 +1163,9 @@
                     {
                       "itemId": "studio",
                       "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -1293,7 +1317,9 @@
             },
             "worker": {
               "complete": true,
-              "conversationIds": ["5dd04806-71e5-88c3-994b-127be0ecc9a4"]
+              "conversationIds": [
+                "5dd04806-71e5-88c3-994b-127be0ecc9a4"
+              ]
             }
           },
           "sources": [],
@@ -1379,7 +1405,9 @@
                   {
                     "itemId": "studio",
                     "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                    "criteria": ["Approved plan"]
+                    "criteria": [
+                      "Approved plan"
+                    ]
                   }
                 ],
                 "overallGoal": {
@@ -1456,7 +1484,9 @@
                 },
                 "worker": {
                   "complete": true,
-                  "conversationIds": ["5dd04806-71e5-88c3-994b-127be0ecc9a4"]
+                  "conversationIds": [
+                    "5dd04806-71e5-88c3-994b-127be0ecc9a4"
+                  ]
                 }
               },
               "sources": [],
@@ -1535,7 +1565,9 @@
             },
             "worker": {
               "complete": true,
-              "conversationIds": ["5dd04806-71e5-88c3-994b-127be0ecc9a4"]
+              "conversationIds": [
+                "5dd04806-71e5-88c3-994b-127be0ecc9a4"
+              ]
             }
           },
           "sources": [],
@@ -1621,7 +1653,9 @@
                   {
                     "itemId": "studio",
                     "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                    "criteria": ["Approved plan"]
+                    "criteria": [
+                      "Approved plan"
+                    ]
                   }
                 ],
                 "overallGoal": {
@@ -1866,7 +1900,9 @@
                 {
                   "itemId": "studio",
                   "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -1971,7 +2007,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -2055,7 +2093,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -2150,7 +2190,9 @@
                       {
                         "itemId": "studio",
                         "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                        "criteria": ["Approved plan"]
+                        "criteria": [
+                          "Approved plan"
+                        ]
                       }
                     ],
                     "overallGoal": {
@@ -2276,7 +2318,9 @@
                 {
                   "itemId": "studio",
                   "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -2381,7 +2425,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -2465,7 +2511,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -2559,7 +2607,9 @@
                       {
                         "itemId": "studio",
                         "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                        "criteria": ["Approved plan"]
+                        "criteria": [
+                          "Approved plan"
+                        ]
                       }
                     ],
                     "overallGoal": {
@@ -2685,7 +2735,9 @@
                 {
                   "itemId": "studio",
                   "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -2790,7 +2842,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -2874,7 +2928,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -2968,7 +3024,9 @@
                       {
                         "itemId": "studio",
                         "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                        "criteria": ["Approved plan"]
+                        "criteria": [
+                          "Approved plan"
+                        ]
                       }
                     ],
                     "overallGoal": {
@@ -3146,7 +3204,9 @@
           "assignmentHistory": {
             "lead": {
               "complete": true,
-              "conversationIds": ["949f97bb-098e-8e21-8911-b13351c0dc98"]
+              "conversationIds": [
+                "949f97bb-098e-8e21-8911-b13351c0dc98"
+              ]
             },
             "worker": {
               "complete": true,
@@ -3193,7 +3253,9 @@
           "assignmentHistory": {
             "lead": {
               "complete": true,
-              "conversationIds": ["34079da8-4b74-877b-826d-e358dfbf7af1"]
+              "conversationIds": [
+                "34079da8-4b74-877b-826d-e358dfbf7af1"
+              ]
             },
             "worker": {
               "complete": true,
@@ -3356,7 +3418,9 @@
               },
               "worker": {
                 "complete": true,
-                "conversationIds": ["5dd04806-71e5-88c3-994b-127be0ecc9a4"]
+                "conversationIds": [
+                  "5dd04806-71e5-88c3-994b-127be0ecc9a4"
+                ]
               }
             },
             "sources": [],
@@ -3506,7 +3570,9 @@
               {
                 "itemId": "studio",
                 "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -3534,7 +3600,9 @@
               {
                 "itemId": "studio",
                 "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -3629,7 +3697,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -3713,7 +3783,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -3808,7 +3880,9 @@
                     {
                       "itemId": "studio",
                       "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -3960,7 +4034,9 @@
             },
             "worker": {
               "complete": true,
-              "conversationIds": ["5dd04806-71e5-88c3-994b-127be0ecc9a4"]
+              "conversationIds": [
+                "5dd04806-71e5-88c3-994b-127be0ecc9a4"
+              ]
             }
           },
           "sources": [],
@@ -4046,7 +4122,9 @@
                   {
                     "itemId": "studio",
                     "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                    "criteria": ["Approved plan"]
+                    "criteria": [
+                      "Approved plan"
+                    ]
                   }
                 ],
                 "overallGoal": {
@@ -4123,7 +4201,9 @@
                 },
                 "worker": {
                   "complete": true,
-                  "conversationIds": ["5dd04806-71e5-88c3-994b-127be0ecc9a4"]
+                  "conversationIds": [
+                    "5dd04806-71e5-88c3-994b-127be0ecc9a4"
+                  ]
                 }
               },
               "sources": [],
@@ -4202,7 +4282,9 @@
             },
             "worker": {
               "complete": true,
-              "conversationIds": ["5dd04806-71e5-88c3-994b-127be0ecc9a4"]
+              "conversationIds": [
+                "5dd04806-71e5-88c3-994b-127be0ecc9a4"
+              ]
             }
           },
           "sources": [],
@@ -4288,7 +4370,9 @@
                   {
                     "itemId": "studio",
                     "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                    "criteria": ["Approved plan"]
+                    "criteria": [
+                      "Approved plan"
+                    ]
                   }
                 ],
                 "overallGoal": {
@@ -4627,7 +4711,9 @@
                 {
                   "itemId": "studio",
                   "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -4732,7 +4818,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -4816,7 +4904,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -4911,7 +5001,9 @@
                       {
                         "itemId": "studio",
                         "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                        "criteria": ["Approved plan"]
+                        "criteria": [
+                          "Approved plan"
+                        ]
                       }
                     ],
                     "overallGoal": {
@@ -5037,7 +5129,9 @@
                 {
                   "itemId": "studio",
                   "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -5142,7 +5236,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -5226,7 +5322,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -5320,7 +5418,9 @@
                       {
                         "itemId": "studio",
                         "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                        "criteria": ["Approved plan"]
+                        "criteria": [
+                          "Approved plan"
+                        ]
                       }
                     ],
                     "overallGoal": {
@@ -5446,7 +5546,9 @@
                 {
                   "itemId": "studio",
                   "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -5551,7 +5653,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -5635,7 +5739,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -5729,7 +5835,9 @@
                       {
                         "itemId": "studio",
                         "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                        "criteria": ["Approved plan"]
+                        "criteria": [
+                          "Approved plan"
+                        ]
                       }
                     ],
                     "overallGoal": {
@@ -5857,7 +5965,9 @@
                 {
                   "itemId": "studio",
                   "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -5962,7 +6072,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -6046,7 +6158,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -6141,7 +6255,9 @@
                       {
                         "itemId": "studio",
                         "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                        "criteria": ["Approved plan"]
+                        "criteria": [
+                          "Approved plan"
+                        ]
                       }
                     ],
                     "overallGoal": {
@@ -6267,7 +6383,9 @@
                 {
                   "itemId": "studio",
                   "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -6372,7 +6490,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -6456,7 +6576,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -6550,7 +6672,9 @@
                       {
                         "itemId": "studio",
                         "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                        "criteria": ["Approved plan"]
+                        "criteria": [
+                          "Approved plan"
+                        ]
                       }
                     ],
                     "overallGoal": {
@@ -6676,7 +6800,9 @@
                 {
                   "itemId": "studio",
                   "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -6781,7 +6907,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -6865,7 +6993,9 @@
                   "role": "agent",
                   "instructions": "Use the retained material and preserve ownership.",
                   "expectedOutput": "A retained report",
-                  "acceptanceCriteria": ["Evidence"],
+                  "acceptanceCriteria": [
+                    "Evidence"
+                  ],
                   "modelPolicyRole": "agent"
                 },
                 "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -6959,7 +7089,9 @@
                       {
                         "itemId": "studio",
                         "revision": "0369ba94ec251edfdfef14ccdb0f62e77a6e5edc02e035492a4d72ffd60db2ac",
-                        "criteria": ["Approved plan"]
+                        "criteria": [
+                          "Approved plan"
+                        ]
                       }
                     ],
                     "overallGoal": {
@@ -7137,7 +7269,9 @@
           "assignmentHistory": {
             "lead": {
               "complete": true,
-              "conversationIds": ["949f97bb-098e-8e21-8911-b13351c0dc98"]
+              "conversationIds": [
+                "949f97bb-098e-8e21-8911-b13351c0dc98"
+              ]
             },
             "worker": {
               "complete": true,
@@ -7184,7 +7318,9 @@
           "assignmentHistory": {
             "lead": {
               "complete": true,
-              "conversationIds": ["34079da8-4b74-877b-826d-e358dfbf7af1"]
+              "conversationIds": [
+                "34079da8-4b74-877b-826d-e358dfbf7af1"
+              ]
             },
             "worker": {
               "complete": true,
@@ -7396,7 +7532,11 @@
         "native conversation/command ledger",
         "native driver (lazy on explicit command)"
       ],
-      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
     },
     {
       "event": "exit",
@@ -7435,7 +7575,11 @@
         "native conversation/command ledger",
         "native driver (lazy on explicit command)"
       ],
-      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
     },
     {
       "event": "exit",

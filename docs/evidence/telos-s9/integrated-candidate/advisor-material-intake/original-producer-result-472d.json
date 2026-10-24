@@ -196,7 +196,10 @@
     "providerInputSeam": "Frozen advisor-child actual externalnotification callback unchanged. Simulated agentdelta/itemcompleted/turncompleted inputs only; actual lifecycle/parser/EventStore/transcript/source/persistence owners.",
     "actualRuntimeGetterAndFullInitialProfile": true,
     "nativeLedgerReadBySnapshot": false,
-    "selectedAppPids": [11890, 12000],
+    "selectedAppPids": [
+      11890,
+      12000
+    ],
     "allSelectedAppPidsReaped": true,
     "initialDiagnosticAppNotStarted": true,
     "mcpPostTeardownCheck": {
@@ -209,7 +212,12 @@
     "id": "c54d6f2479aab619b163187829b6bdff",
     "revision": 1,
     "sha256": "dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255",
-    "rows": ["UX07", "UX08", "CT05", "CT20"],
+    "rows": [
+      "UX07",
+      "UX08",
+      "CT05",
+      "CT20"
+    ],
     "scenario": 5,
     "qualification": "Nonempty preexistingreviewedsource/materialcontext Refine subset, not full UIselection/adoption/negative/coexistence acceptance."
   },
@@ -245,7 +253,9 @@
               "sequence": 1,
               "messageId": "preexisting-material-r1-decision"
             },
-            "messageIds": ["preexisting-material-r1-decision"],
+            "messageIds": [
+              "preexisting-material-r1-decision"
+            ],
             "artifacts": [
               {
                 "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -272,7 +282,9 @@
                   "messageId": "preexisting-material-r1-decision"
                 },
                 "mode": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "artifacts": [
                   {
                     "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -387,7 +399,9 @@
                   },
                   "selection": {
                     "kind": "selected",
-                    "messageIds": ["preexisting-material-r1-decision"],
+                    "messageIds": [
+                      "preexisting-material-r1-decision"
+                    ],
                     "blockIds": [],
                     "throughSequence": 1
                   },
@@ -426,7 +440,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -464,7 +480,9 @@
                   "messageId": "preexisting-material-r1-decision"
                 },
                 "mode": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "artifacts": [
                   {
                     "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -605,7 +623,9 @@
             },
             "selection": {
               "kind": "selected",
-              "messageIds": ["preexisting-material-r1-decision"],
+              "messageIds": [
+                "preexisting-material-r1-decision"
+              ],
               "blockIds": [],
               "throughSequence": 1
             },
@@ -643,7 +663,9 @@
                 "messageId": "preexisting-material-r1-decision"
               },
               "mode": "selected",
-              "messageIds": ["preexisting-material-r1-decision"],
+              "messageIds": [
+                "preexisting-material-r1-decision"
+              ],
               "artifacts": [
                 {
                   "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -811,7 +833,9 @@
                 {
                   "itemId": "studio",
                   "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -830,7 +854,9 @@
                   },
                   "selection": {
                     "kind": "selected",
-                    "messageIds": ["preexisting-material-r1-decision"],
+                    "messageIds": [
+                      "preexisting-material-r1-decision"
+                    ],
                     "blockIds": [],
                     "throughSequence": 1
                   },
@@ -936,7 +962,9 @@
                 },
                 "selection": {
                   "kind": "selected",
-                  "messageIds": ["preexisting-material-r1-decision"],
+                  "messageIds": [
+                    "preexisting-material-r1-decision"
+                  ],
                   "blockIds": [],
                   "throughSequence": 1
                 },
@@ -982,7 +1010,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -1001,7 +1031,9 @@
                 },
                 "selection": {
                   "kind": "selected",
-                  "messageIds": ["preexisting-material-r1-decision"],
+                  "messageIds": [
+                    "preexisting-material-r1-decision"
+                  ],
                   "blockIds": [],
                   "throughSequence": 1
                 },
@@ -1121,7 +1153,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -1205,7 +1239,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -1299,7 +1335,9 @@
                     {
                       "itemId": "studio",
                       "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -1318,7 +1356,9 @@
                       },
                       "selection": {
                         "kind": "selected",
-                        "messageIds": ["preexisting-material-r1-decision"],
+                        "messageIds": [
+                          "preexisting-material-r1-decision"
+                        ],
                         "blockIds": [],
                         "throughSequence": 1
                       },
@@ -1461,7 +1501,9 @@
           "summary": "Home studio",
           "intent": "Record music",
           "rationale": "Make music",
-          "acceptanceCriteria": ["Approved plan"],
+          "acceptanceCriteria": [
+            "Approved plan"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
@@ -1474,7 +1516,9 @@
             "paths": [],
             "issues": [],
             "docIds": [],
-            "people": ["Original person"],
+            "people": [
+              "Original person"
+            ],
             "jiraKeys": [],
             "keywords": [],
             "taskHint": "Original hint",
@@ -1556,7 +1600,9 @@
           "summary": "Record one acoustic sample",
           "intent": "Retain one reviewed sample",
           "rationale": "Exact smallest child only",
-          "acceptanceCriteria": ["Retain sample evidence"],
+          "acceptanceCriteria": [
+            "Retain sample evidence"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
@@ -1648,7 +1694,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -1732,7 +1780,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -2044,7 +2094,9 @@
                 },
                 "selection": {
                   "kind": "selected",
-                  "messageIds": ["preexisting-material-r1-decision"],
+                  "messageIds": [
+                    "preexisting-material-r1-decision"
+                  ],
                   "blockIds": [],
                   "throughSequence": 1
                 },
@@ -2082,7 +2134,9 @@
                     "6cf5fff2-36f1-4439-aed4-f3339a67d1d5",
                     "5cc2dc10-1f4a-48a1-ac3f-7897fdf0df6f"
                   ],
-                  "blockIds": ["b0"],
+                  "blockIds": [
+                    "b0"
+                  ],
                   "throughSequence": 15
                 },
                 "adoptedBrief": {
@@ -2253,7 +2307,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -2272,7 +2328,9 @@
                 },
                 "selection": {
                   "kind": "selected",
-                  "messageIds": ["preexisting-material-r1-decision"],
+                  "messageIds": [
+                    "preexisting-material-r1-decision"
+                  ],
                   "blockIds": [],
                   "throughSequence": 1
                 },
@@ -2392,7 +2450,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -2476,7 +2536,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -2570,7 +2632,9 @@
                     {
                       "itemId": "studio",
                       "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -2589,7 +2653,9 @@
                       },
                       "selection": {
                         "kind": "selected",
-                        "messageIds": ["preexisting-material-r1-decision"],
+                        "messageIds": [
+                          "preexisting-material-r1-decision"
+                        ],
                         "blockIds": [],
                         "throughSequence": 1
                       },
@@ -2739,7 +2805,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -2758,7 +2826,9 @@
                 },
                 "selection": {
                   "kind": "selected",
-                  "messageIds": ["preexisting-material-r1-decision"],
+                  "messageIds": [
+                    "preexisting-material-r1-decision"
+                  ],
                   "blockIds": [],
                   "throughSequence": 1
                 },
@@ -2878,7 +2948,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -2962,7 +3034,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -3106,7 +3180,9 @@
                     {
                       "itemId": "studio",
                       "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -3125,7 +3201,9 @@
                       },
                       "selection": {
                         "kind": "selected",
-                        "messageIds": ["preexisting-material-r1-decision"],
+                        "messageIds": [
+                          "preexisting-material-r1-decision"
+                        ],
                         "blockIds": [],
                         "throughSequence": 1
                       },
@@ -3441,7 +3519,9 @@
             }
           ],
           "tasks": [],
-          "activeSessionIds": ["6e0855d4-8d48-8895-b3d5-576fca89c6a7"]
+          "activeSessionIds": [
+            "6e0855d4-8d48-8895-b3d5-576fca89c6a7"
+          ]
         },
         "afterRestart": {
           "roleContext": {
@@ -3458,7 +3538,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -3477,7 +3559,9 @@
                 },
                 "selection": {
                   "kind": "selected",
-                  "messageIds": ["preexisting-material-r1-decision"],
+                  "messageIds": [
+                    "preexisting-material-r1-decision"
+                  ],
                   "blockIds": [],
                   "throughSequence": 1
                 },
@@ -3597,7 +3681,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -3681,7 +3767,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -3825,7 +3913,9 @@
                     {
                       "itemId": "studio",
                       "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -3844,7 +3934,9 @@
                       },
                       "selection": {
                         "kind": "selected",
-                        "messageIds": ["preexisting-material-r1-decision"],
+                        "messageIds": [
+                          "preexisting-material-r1-decision"
+                        ],
                         "blockIds": [],
                         "throughSequence": 1
                       },
@@ -4182,12 +4274,16 @@
           "summary": "Review one acoustic sample",
           "intent": "Retain one reviewed sample and listening notes against the exact original acoustic-plan r1.",
           "rationale": "Exact smallest child only",
-          "acceptanceCriteria": ["Retain sample evidence"],
+          "acceptanceCriteria": [
+            "Retain sample evidence"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
           "priority": 7,
-          "categories": ["Music"],
+          "categories": [
+            "Music"
+          ],
           "createdAt": "2026-10-16T10:00:00",
           "updatedAt": "2026-10-20T08:16:24.099Z",
           "contextHints": {
@@ -4302,7 +4398,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -4340,7 +4438,9 @@
                   "6cf5fff2-36f1-4439-aed4-f3339a67d1d5",
                   "5cc2dc10-1f4a-48a1-ac3f-7897fdf0df6f"
                 ],
-                "blockIds": ["b0"],
+                "blockIds": [
+                  "b0"
+                ],
                 "throughSequence": 15
               },
               "adoptedBrief": {
@@ -4386,7 +4486,9 @@
                 "6cf5fff2-36f1-4439-aed4-f3339a67d1d5",
                 "5cc2dc10-1f4a-48a1-ac3f-7897fdf0df6f"
               ],
-              "blockIds": ["b0"],
+              "blockIds": [
+                "b0"
+              ],
               "throughSequence": 15
             },
             "adoptedBrief": {
@@ -4588,7 +4690,9 @@
               "sequence": 1,
               "messageId": "preexisting-material-r1-decision"
             },
-            "messageIds": ["preexisting-material-r1-decision"],
+            "messageIds": [
+              "preexisting-material-r1-decision"
+            ],
             "artifacts": [
               {
                 "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -4615,7 +4719,9 @@
                   "messageId": "preexisting-material-r1-decision"
                 },
                 "mode": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "artifacts": [
                   {
                     "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -4730,7 +4836,9 @@
                   },
                   "selection": {
                     "kind": "selected",
-                    "messageIds": ["preexisting-material-r1-decision"],
+                    "messageIds": [
+                      "preexisting-material-r1-decision"
+                    ],
                     "blockIds": [],
                     "throughSequence": 1
                   },
@@ -4769,7 +4877,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -4807,7 +4917,9 @@
                   "messageId": "preexisting-material-r1-decision"
                 },
                 "mode": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "artifacts": [
                   {
                     "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -4928,7 +5040,9 @@
             },
             "selection": {
               "kind": "selected",
-              "messageIds": ["preexisting-material-r1-decision"],
+              "messageIds": [
+                "preexisting-material-r1-decision"
+              ],
               "blockIds": [],
               "throughSequence": 1
             },
@@ -4966,7 +5080,9 @@
                 "messageId": "preexisting-material-r1-decision"
               },
               "mode": "selected",
-              "messageIds": ["preexisting-material-r1-decision"],
+              "messageIds": [
+                "preexisting-material-r1-decision"
+              ],
               "artifacts": [
                 {
                   "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -5062,7 +5178,9 @@
           "summary": "Home studio",
           "intent": "Record music",
           "rationale": "Make music",
-          "acceptanceCriteria": ["Approved plan"],
+          "acceptanceCriteria": [
+            "Approved plan"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
@@ -5075,7 +5193,9 @@
             "paths": [],
             "issues": [],
             "docIds": [],
-            "people": ["Original person"],
+            "people": [
+              "Original person"
+            ],
             "jiraKeys": [],
             "keywords": [],
             "taskHint": "Original hint",
@@ -5157,7 +5277,9 @@
           "summary": "Record one acoustic sample",
           "intent": "Retain one reviewed sample",
           "rationale": "Exact smallest child only",
-          "acceptanceCriteria": ["Retain sample evidence"],
+          "acceptanceCriteria": [
+            "Retain sample evidence"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
@@ -5214,7 +5336,9 @@
           "summary": "Quiet unrelated job",
           "intent": "Keep unrelated draft",
           "rationale": "Isolation control",
-          "acceptanceCriteria": ["Retain draft"],
+          "acceptanceCriteria": [
+            "Retain draft"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
@@ -5306,7 +5430,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -5390,7 +5516,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -5479,7 +5607,9 @@
                 {
                   "itemId": "studio",
                   "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -5498,7 +5628,9 @@
                   },
                   "selection": {
                     "kind": "selected",
-                    "messageIds": ["preexisting-material-r1-decision"],
+                    "messageIds": [
+                      "preexisting-material-r1-decision"
+                    ],
                     "blockIds": [],
                     "throughSequence": 1
                   },
@@ -5604,7 +5736,9 @@
                 },
                 "selection": {
                   "kind": "selected",
-                  "messageIds": ["preexisting-material-r1-decision"],
+                  "messageIds": [
+                    "preexisting-material-r1-decision"
+                  ],
                   "blockIds": [],
                   "throughSequence": 1
                 },
@@ -5647,7 +5781,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -5666,7 +5802,9 @@
                 },
                 "selection": {
                   "kind": "selected",
-                  "messageIds": ["preexisting-material-r1-decision"],
+                  "messageIds": [
+                    "preexisting-material-r1-decision"
+                  ],
                   "blockIds": [],
                   "throughSequence": 1
                 },
@@ -5786,7 +5924,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -5870,7 +6010,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -5964,7 +6106,9 @@
                     {
                       "itemId": "studio",
                       "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -5983,7 +6127,9 @@
                       },
                       "selection": {
                         "kind": "selected",
-                        "messageIds": ["preexisting-material-r1-decision"],
+                        "messageIds": [
+                          "preexisting-material-r1-decision"
+                        ],
                         "blockIds": [],
                         "throughSequence": 1
                       },
@@ -6513,7 +6659,9 @@
                 },
                 "selection": {
                   "kind": "selected",
-                  "messageIds": ["preexisting-material-r1-decision"],
+                  "messageIds": [
+                    "preexisting-material-r1-decision"
+                  ],
                   "blockIds": [],
                   "throughSequence": 1
                 },
@@ -6551,7 +6699,9 @@
                     "6cf5fff2-36f1-4439-aed4-f3339a67d1d5",
                     "5cc2dc10-1f4a-48a1-ac3f-7897fdf0df6f"
                   ],
-                  "blockIds": ["b0"],
+                  "blockIds": [
+                    "b0"
+                  ],
                   "throughSequence": 15
                 },
                 "adoptedBrief": {
@@ -6591,12 +6741,16 @@
           "summary": "Review one acoustic sample",
           "intent": "Retain one reviewed sample and listening notes against the exact original acoustic-plan r1.",
           "rationale": "Exact smallest child only",
-          "acceptanceCriteria": ["Retain sample evidence"],
+          "acceptanceCriteria": [
+            "Retain sample evidence"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
           "priority": 7,
-          "categories": ["Music"],
+          "categories": [
+            "Music"
+          ],
           "createdAt": "2026-10-16T10:00:00",
           "updatedAt": "2026-10-20T08:16:24.099Z",
           "contextHints": {
@@ -6711,7 +6865,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -6749,7 +6905,9 @@
                   "6cf5fff2-36f1-4439-aed4-f3339a67d1d5",
                   "5cc2dc10-1f4a-48a1-ac3f-7897fdf0df6f"
                 ],
-                "blockIds": ["b0"],
+                "blockIds": [
+                  "b0"
+                ],
                 "throughSequence": 15
               },
               "adoptedBrief": {
@@ -6795,7 +6953,9 @@
                 "6cf5fff2-36f1-4439-aed4-f3339a67d1d5",
                 "5cc2dc10-1f4a-48a1-ac3f-7897fdf0df6f"
               ],
-              "blockIds": ["b0"],
+              "blockIds": [
+                "b0"
+              ],
               "throughSequence": 15
             },
             "adoptedBrief": {
@@ -6958,7 +7118,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -6977,7 +7139,9 @@
                 },
                 "selection": {
                   "kind": "selected",
-                  "messageIds": ["preexisting-material-r1-decision"],
+                  "messageIds": [
+                    "preexisting-material-r1-decision"
+                  ],
                   "blockIds": [],
                   "throughSequence": 1
                 },
@@ -7097,7 +7261,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -7181,7 +7347,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -7325,7 +7493,9 @@
                     {
                       "itemId": "studio",
                       "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -7344,7 +7514,9 @@
                       },
                       "selection": {
                         "kind": "selected",
-                        "messageIds": ["preexisting-material-r1-decision"],
+                        "messageIds": [
+                          "preexisting-material-r1-decision"
+                        ],
                         "blockIds": [],
                         "throughSequence": 1
                       },
@@ -7660,7 +7832,9 @@
             }
           ],
           "tasks": [],
-          "activeSessionIds": ["6e0855d4-8d48-8895-b3d5-576fca89c6a7"]
+          "activeSessionIds": [
+            "6e0855d4-8d48-8895-b3d5-576fca89c6a7"
+          ]
         },
         "afterRestart": {
           "roleContext": {
@@ -7677,7 +7851,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -7696,7 +7872,9 @@
                 },
                 "selection": {
                   "kind": "selected",
-                  "messageIds": ["preexisting-material-r1-decision"],
+                  "messageIds": [
+                    "preexisting-material-r1-decision"
+                  ],
                   "blockIds": [],
                   "throughSequence": 1
                 },
@@ -7816,7 +7994,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -7900,7 +8080,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -8044,7 +8226,9 @@
                     {
                       "itemId": "studio",
                       "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                      "criteria": ["Approved plan"]
+                      "criteria": [
+                        "Approved plan"
+                      ]
                     }
                   ],
                   "overallGoal": {
@@ -8063,7 +8247,9 @@
                       },
                       "selection": {
                         "kind": "selected",
-                        "messageIds": ["preexisting-material-r1-decision"],
+                        "messageIds": [
+                          "preexisting-material-r1-decision"
+                        ],
                         "blockIds": [],
                         "throughSequence": 1
                       },
@@ -8721,7 +8907,11 @@
         "native conversation/command ledger",
         "native driver (lazy on explicit command)"
       ],
-      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
     },
     {
       "event": "exit",
@@ -8760,7 +8950,11 @@
         "native conversation/command ledger",
         "native driver (lazy on explicit command)"
       ],
-      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
     },
     {
       "event": "exit",

@@ -24,11 +24,11 @@ The original seed-only diagnostic failed before App startup because it expected 
 
 ## Exact new-file SHA-256
 
-| File                                   | SHA-256                                                            |
-| -------------------------------------- | ------------------------------------------------------------------ |
+| File | SHA-256 |
+|---|---|
 | `advisor-material-browser.contract.ts` | `338b0e40986573679297c40a8fb5a0a8882ed314fce985d0a178cf685d998f78` |
-| `advisor-material-process-fixture.ts`  | `1cc619f6204c55579d790100b4ed09bd09926ad2c3e930192ea94d3b6f79af7b` |
-| `vitest.advisor-material.config.ts`    | `f8623df6e422473dac548b289b37aefe96d92fbeee0a5e05f0b6db43c687521b` |
+| `advisor-material-process-fixture.ts` | `1cc619f6204c55579d790100b4ed09bd09926ad2c3e930192ea94d3b6f79af7b` |
+| `vitest.advisor-material.config.ts` | `f8623df6e422473dac548b289b37aefe96d92fbeee0a5e05f0b6db43c687521b` |
 
 Producer result SHA-256: `22ab66b19c7c2f3bd1b5771b2fd28ad8dc4c794dc37d81a8923ca4364c17bdae`. Source-proof SHA-256: `73b4d15f3ed7f249b9b19ba2e906ff8857316261ee0bc27a90b187f47a942b29`.
 

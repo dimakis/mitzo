@@ -31,7 +31,9 @@
   },
   "pinCount": 667,
   "pinMismatches": [],
-  "changedPinKeys": ["../telos-artifact-store.ts"],
+  "changedPinKeys": [
+    "../telos-artifact-store.ts"
+  ],
   "integrationFileCount": 66,
   "sourceInventory": [
     {

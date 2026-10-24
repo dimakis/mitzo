@@ -275,7 +275,9 @@
       }
     ],
     "teardown": {
-      "recordedAppPids": [61565],
+      "recordedAppPids": [
+        61565
+      ],
       "remainingAppPids": [],
       "exactChildSourceMatches": [],
       "allRecordedPidsReaped": true,
@@ -316,7 +318,9 @@
               "sequence": 1,
               "messageId": "preexisting-material-r1-decision"
             },
-            "messageIds": ["preexisting-material-r1-decision"],
+            "messageIds": [
+              "preexisting-material-r1-decision"
+            ],
             "artifacts": [
               {
                 "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -343,7 +347,9 @@
                   "messageId": "preexisting-material-r1-decision"
                 },
                 "mode": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "artifacts": [
                   {
                     "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -458,7 +464,9 @@
                   },
                   "selection": {
                     "kind": "selected",
-                    "messageIds": ["preexisting-material-r1-decision"],
+                    "messageIds": [
+                      "preexisting-material-r1-decision"
+                    ],
                     "blockIds": [],
                     "throughSequence": 1
                   },
@@ -497,7 +505,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -535,7 +545,9 @@
                   "messageId": "preexisting-material-r1-decision"
                 },
                 "mode": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "artifacts": [
                   {
                     "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -688,7 +700,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -723,7 +737,9 @@
           "summary": "Home studio",
           "intent": "Record music",
           "rationale": "Make music",
-          "acceptanceCriteria": ["Approved plan"],
+          "acceptanceCriteria": [
+            "Approved plan"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
@@ -736,7 +752,9 @@
             "paths": [],
             "issues": [],
             "docIds": [],
-            "people": ["Original person"],
+            "people": [
+              "Original person"
+            ],
             "jiraKeys": [],
             "keywords": [],
             "taskHint": "Original hint",
@@ -841,7 +859,9 @@
             },
             "selection": {
               "kind": "selected",
-              "messageIds": ["preexisting-material-r1-decision"],
+              "messageIds": [
+                "preexisting-material-r1-decision"
+              ],
               "blockIds": [],
               "throughSequence": 1
             },
@@ -879,7 +899,9 @@
                 "messageId": "preexisting-material-r1-decision"
               },
               "mode": "selected",
-              "messageIds": ["preexisting-material-r1-decision"],
+              "messageIds": [
+                "preexisting-material-r1-decision"
+              ],
               "artifacts": [
                 {
                   "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -1061,7 +1083,9 @@
         "tasksBefore": {
           "tasks": []
         },
-        "uniqueConversations": ["[\"mitzo\",\"planning\"]"],
+        "uniqueConversations": [
+          "[\"mitzo\",\"planning\"]"
+        ],
         "limitation": "Synthetic PRE-APP source capture/adoption and Home pin via real owners; not native CreateOutcome/AdoptSource or user creation/pinning proof. No lead/worker assigned. Origin session runtime/profile is not qualified by viewing."
       },
       {
@@ -1114,7 +1138,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -1258,7 +1284,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -1511,7 +1539,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -1608,7 +1638,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -1693,7 +1725,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -1773,7 +1807,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -1843,7 +1879,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -1881,7 +1919,9 @@
             },
             "selection": {
               "kind": "selected",
-              "messageIds": ["preexisting-material-r1-decision"],
+              "messageIds": [
+                "preexisting-material-r1-decision"
+              ],
               "blockIds": [],
               "throughSequence": 1
             },
@@ -1919,7 +1959,9 @@
                 "messageId": "preexisting-material-r1-decision"
               },
               "mode": "selected",
-              "messageIds": ["preexisting-material-r1-decision"],
+              "messageIds": [
+                "preexisting-material-r1-decision"
+              ],
               "artifacts": [
                 {
                   "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -2001,7 +2043,9 @@
             },
             "selection": {
               "kind": "selected",
-              "messageIds": ["preexisting-material-r1-decision"],
+              "messageIds": [
+                "preexisting-material-r1-decision"
+              ],
               "blockIds": [],
               "throughSequence": 1
             },
@@ -2039,7 +2083,9 @@
                 "messageId": "preexisting-material-r1-decision"
               },
               "mode": "selected",
-              "messageIds": ["preexisting-material-r1-decision"],
+              "messageIds": [
+                "preexisting-material-r1-decision"
+              ],
               "artifacts": [
                 {
                   "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -2118,7 +2164,9 @@
           "summary": "Home studio",
           "intent": "Record music",
           "rationale": "Make music",
-          "acceptanceCriteria": ["Approved plan"],
+          "acceptanceCriteria": [
+            "Approved plan"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
@@ -2131,7 +2179,9 @@
             "paths": [],
             "issues": [],
             "docIds": [],
-            "people": ["Original person"],
+            "people": [
+              "Original person"
+            ],
             "jiraKeys": [],
             "keywords": [],
             "taskHint": "Original hint",
@@ -2193,7 +2243,9 @@
           "summary": "Home studio",
           "intent": "Record music",
           "rationale": "Make music",
-          "acceptanceCriteria": ["Approved plan"],
+          "acceptanceCriteria": [
+            "Approved plan"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
@@ -2206,7 +2258,9 @@
             "paths": [],
             "issues": [],
             "docIds": [],
-            "people": ["Original person"],
+            "people": [
+              "Original person"
+            ],
             "jiraKeys": [],
             "keywords": [],
             "taskHint": "Original hint",
@@ -2843,7 +2897,11 @@
         "native conversation/command ledger",
         "native driver (lazy on explicit command)"
       ],
-      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
     },
     {
       "event": "exit",

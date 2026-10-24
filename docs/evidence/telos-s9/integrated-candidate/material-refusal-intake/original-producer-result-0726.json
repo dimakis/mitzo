@@ -155,7 +155,10 @@
     ],
     "negativeBoundary": "Actual normal Refine UI creates valid role-review request after realFilesr2; explicit typedclient call with only retainedr1hash replacedbyr2hash. Existing realhost/source/artifact/role currentness/privacy/hash owners reject503 withoutselectedcontent; no HTTPfulfilment/browserinterception/UIpicker/advisorpreview/save/newpermission/nativecall.",
     "readObserverQualification": "Actual retainedplanning source session reads inventory/sourceevents/tasks only. It has no ownedworkspace/preparation. No absent runtimebinding equality or nativeworkspace recovery claim; originalfixture-preparedworkspace cannot be resolved by this Appowner and was unsuitableobserver.",
-    "selectedAndInitialAppPids": [23304, 23912],
+    "selectedAndInitialAppPids": [
+      23304,
+      23912
+    ],
     "allAppPidsReaped": true,
     "mcpTeardown": {
       "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-MCP-TEARDOWN-CHECK.json",
@@ -165,7 +168,12 @@
   },
   "approvedScope": {
     "reference": "c54d6f2479aab619b163187829b6bdff@1 / dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255",
-    "rows": ["UX07", "UX08", "UX11", "CT20"],
+    "rows": [
+      "UX07",
+      "UX08",
+      "UX11",
+      "CT20"
+    ],
     "qualification": "Stable reviewed selectedmaterial/integrity boundary subset only; not fullrow/nativebyte/source-selection UI acceptance. No newstandalonepicker requirement inferred."
   },
   "acceptedSourceReference": {
@@ -201,7 +209,9 @@
               "sequence": 1,
               "messageId": "preexisting-material-r1-decision"
             },
-            "messageIds": ["preexisting-material-r1-decision"],
+            "messageIds": [
+              "preexisting-material-r1-decision"
+            ],
             "artifacts": [
               {
                 "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -228,7 +238,9 @@
                   "messageId": "preexisting-material-r1-decision"
                 },
                 "mode": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "artifacts": [
                   {
                     "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -343,7 +355,9 @@
                   },
                   "selection": {
                     "kind": "selected",
-                    "messageIds": ["preexisting-material-r1-decision"],
+                    "messageIds": [
+                      "preexisting-material-r1-decision"
+                    ],
                     "blockIds": [],
                     "throughSequence": 1
                   },
@@ -382,7 +396,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -420,7 +436,9 @@
                   "messageId": "preexisting-material-r1-decision"
                 },
                 "mode": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "artifacts": [
                   {
                     "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -569,7 +587,9 @@
               "sequence": 1,
               "messageId": "preexisting-material-r1-decision"
             },
-            "messageIds": ["preexisting-material-r1-decision"],
+            "messageIds": [
+              "preexisting-material-r1-decision"
+            ],
             "artifacts": [
               {
                 "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -596,7 +616,9 @@
                   "messageId": "preexisting-material-r1-decision"
                 },
                 "mode": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "artifacts": [
                   {
                     "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -711,7 +733,9 @@
                   },
                   "selection": {
                     "kind": "selected",
-                    "messageIds": ["preexisting-material-r1-decision"],
+                    "messageIds": [
+                      "preexisting-material-r1-decision"
+                    ],
                     "blockIds": [],
                     "throughSequence": 1
                   },
@@ -750,7 +774,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -788,7 +814,9 @@
                   "messageId": "preexisting-material-r1-decision"
                 },
                 "mode": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "artifacts": [
                   {
                     "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -953,7 +981,9 @@
                   {
                     "itemId": "studio",
                     "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                    "criteria": ["Approved plan"]
+                    "criteria": [
+                      "Approved plan"
+                    ]
                   }
                 ],
                 "overallGoal": {
@@ -972,7 +1002,9 @@
                     },
                     "selection": {
                       "kind": "selected",
-                      "messageIds": ["preexisting-material-r1-decision"],
+                      "messageIds": [
+                        "preexisting-material-r1-decision"
+                      ],
                       "blockIds": [],
                       "throughSequence": 1
                     },
@@ -1105,7 +1137,9 @@
                 {
                   "itemId": "studio",
                   "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                  "criteria": ["Approved plan"]
+                  "criteria": [
+                    "Approved plan"
+                  ]
                 }
               ],
               "overallGoal": {
@@ -1124,7 +1158,9 @@
                   },
                   "selection": {
                     "kind": "selected",
-                    "messageIds": ["preexisting-material-r1-decision"],
+                    "messageIds": [
+                      "preexisting-material-r1-decision"
+                    ],
                     "blockIds": [],
                     "throughSequence": 1
                   },
@@ -1221,7 +1257,9 @@
         "input": {
           "itemId": "recording-slice",
           "role": "advisor",
-          "sourceSnapshotIds": ["6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a"],
+          "sourceSnapshotIds": [
+            "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a"
+          ],
           "artifactRefs": [
             {
               "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -1252,7 +1290,9 @@
               {
                 "itemId": "studio",
                 "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
-                "criteria": ["Approved plan"]
+                "criteria": [
+                  "Approved plan"
+                ]
               }
             ],
             "overallGoal": {
@@ -1271,7 +1311,9 @@
                 },
                 "selection": {
                   "kind": "selected",
-                  "messageIds": ["preexisting-material-r1-decision"],
+                  "messageIds": [
+                    "preexisting-material-r1-decision"
+                  ],
                   "blockIds": [],
                   "throughSequence": 1
                 },
@@ -1367,7 +1409,9 @@
         "mismatched": {
           "itemId": "recording-slice",
           "role": "advisor",
-          "sourceSnapshotIds": ["6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a"],
+          "sourceSnapshotIds": [
+            "6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a"
+          ],
           "artifactRefs": [
             {
               "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -1431,7 +1475,9 @@
                 },
                 "selection": {
                   "kind": "selected",
-                  "messageIds": ["preexisting-material-r1-decision"],
+                  "messageIds": [
+                    "preexisting-material-r1-decision"
+                  ],
                   "blockIds": [],
                   "throughSequence": 1
                 },
@@ -1466,7 +1512,9 @@
             "summary": "Record one acoustic sample",
             "intent": "Retain one reviewed sample",
             "rationale": "Exact smallest child only",
-            "acceptanceCriteria": ["Retain sample evidence"],
+            "acceptanceCriteria": [
+              "Retain sample evidence"
+            ],
             "profile": "manual",
             "status": "active",
             "starred": false,
@@ -1526,7 +1574,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -1564,7 +1614,9 @@
                   "messageId": "preexisting-material-r1-decision"
                 },
                 "mode": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "artifacts": [
                   {
                     "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -1643,7 +1695,9 @@
             "summary": "Home studio",
             "intent": "Record music",
             "rationale": "Make music",
-            "acceptanceCriteria": ["Approved plan"],
+            "acceptanceCriteria": [
+              "Approved plan"
+            ],
             "profile": "manual",
             "status": "active",
             "starred": false,
@@ -1656,7 +1710,9 @@
               "paths": [],
               "issues": [],
               "docIds": [],
-              "people": ["Original person"],
+              "people": [
+                "Original person"
+              ],
               "jiraKeys": [],
               "keywords": [],
               "taskHint": "Original hint",
@@ -1718,7 +1774,9 @@
             "summary": "Quiet unrelated job",
             "intent": "Keep unrelated draft",
             "rationale": "Isolation control",
-            "acceptanceCriteria": ["Retain draft"],
+            "acceptanceCriteria": [
+              "Retain draft"
+            ],
             "profile": "manual",
             "status": "active",
             "starred": false,
@@ -1905,7 +1963,9 @@
                 },
                 "selection": {
                   "kind": "selected",
-                  "messageIds": ["preexisting-material-r1-decision"],
+                  "messageIds": [
+                    "preexisting-material-r1-decision"
+                  ],
                   "blockIds": [],
                   "throughSequence": 1
                 },
@@ -1940,7 +2000,9 @@
             "summary": "Record one acoustic sample",
             "intent": "Retain one reviewed sample",
             "rationale": "Exact smallest child only",
-            "acceptanceCriteria": ["Retain sample evidence"],
+            "acceptanceCriteria": [
+              "Retain sample evidence"
+            ],
             "profile": "manual",
             "status": "active",
             "starred": false,
@@ -2000,7 +2062,9 @@
               },
               "selection": {
                 "kind": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "blockIds": [],
                 "throughSequence": 1
               },
@@ -2038,7 +2102,9 @@
                   "messageId": "preexisting-material-r1-decision"
                 },
                 "mode": "selected",
-                "messageIds": ["preexisting-material-r1-decision"],
+                "messageIds": [
+                  "preexisting-material-r1-decision"
+                ],
                 "artifacts": [
                   {
                     "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
@@ -2117,7 +2183,9 @@
             "summary": "Home studio",
             "intent": "Record music",
             "rationale": "Make music",
-            "acceptanceCriteria": ["Approved plan"],
+            "acceptanceCriteria": [
+              "Approved plan"
+            ],
             "profile": "manual",
             "status": "active",
             "starred": false,
@@ -2130,7 +2198,9 @@
               "paths": [],
               "issues": [],
               "docIds": [],
-              "people": ["Original person"],
+              "people": [
+                "Original person"
+              ],
               "jiraKeys": [],
               "keywords": [],
               "taskHint": "Original hint",
@@ -2192,7 +2262,9 @@
             "summary": "Quiet unrelated job",
             "intent": "Keep unrelated draft",
             "rationale": "Isolation control",
-            "acceptanceCriteria": ["Retain draft"],
+            "acceptanceCriteria": [
+              "Retain draft"
+            ],
             "profile": "manual",
             "status": "active",
             "starred": false,
@@ -2529,7 +2601,9 @@
     }
   ],
   "visualInspection": {
-    "viewed": ["valid-ui-role-context-preserved-after-api-hash-refusal.png"],
+    "viewed": [
+      "valid-ui-role-context-preserved-after-api-hash-refusal.png"
+    ],
     "scope": "Actual390px permittedRefine context after separateAPInegative; contentcropped atMaterials byviewport. No displayedrefusal/errorcard/fullform/device/accessibility/readability qualification."
   },
   "archives": [

@@ -2741,7 +2741,9 @@
   "rows": [
     {
       "stage": "pending-before-restart",
-      "actualRows": ["Awaiting review \u00b7 Record one acoustic sample"],
+      "actualRows": [
+        "Awaiting review \u00b7 Record one acoustic sample"
+      ],
       "taskId": "d0479726-d7c0-41da-9993-23cdbd4e422d",
       "workerId": "48a5e3d7-f78d-892d-bda2-0b266d5991fd",
       "attemptId": "931e3030-a874-4e5f-ae63-a5cddbc26c54",
@@ -2749,7 +2751,9 @@
     },
     {
       "stage": "pending-after-restart",
-      "actualRows": ["Awaiting review \u00b7 Record one acoustic sample"],
+      "actualRows": [
+        "Awaiting review \u00b7 Record one acoustic sample"
+      ],
       "taskId": "d0479726-d7c0-41da-9993-23cdbd4e422d",
       "workerId": "48a5e3d7-f78d-892d-bda2-0b266d5991fd",
       "attemptId": "931e3030-a874-4e5f-ae63-a5cddbc26c54",
@@ -2757,7 +2761,9 @@
     },
     {
       "stage": "done-after-explicit-approval",
-      "actualRows": ["Task done \u00b7 Record one acoustic sample"],
+      "actualRows": [
+        "Task done \u00b7 Record one acoustic sample"
+      ],
       "taskId": "d0479726-d7c0-41da-9993-23cdbd4e422d",
       "workerId": "48a5e3d7-f78d-892d-bda2-0b266d5991fd",
       "attemptId": "931e3030-a874-4e5f-ae63-a5cddbc26c54",
@@ -2772,7 +2778,10 @@
     "provider.tool.request": 5,
     "provider.tool.result": 5
   },
-  "pids": [85402, 85678],
+  "pids": [
+    85402,
+    85678
+  ],
   "visualInspection": [
     {
       "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-CHAT-TREE-S8-RETAKE-DIAGNOSTICS/exact-s8-correction/actual-worker-chat-tree-pending-before-restart.png",

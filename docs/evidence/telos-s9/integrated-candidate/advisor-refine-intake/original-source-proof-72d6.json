@@ -170,7 +170,10 @@
   "contextSelectionBoundary": "Actual role setup calls review() without selection controls; defaults from already retained work.sources. Baseline has no selectedsources or pins. Actual item/parentcriteria/overallgoal reviewed; parent Acoustic plan inspected through Files but not selected/inherited. Nonemptycontext variants pending.",
   "actualRuntimeGetterAndFullInitialPublishedProfile": true,
   "nativeLedgerReadBySnapshot": false,
-  "selectedAppPids": [94530, 94740],
+  "selectedAppPids": [
+    94530,
+    94740
+  ],
   "allAppPidsReaped": true,
   "mcpPostTeardownCheck": {
     "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-MCP-TEARDOWN-CHECK.json",

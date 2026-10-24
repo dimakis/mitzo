@@ -287,7 +287,11 @@
         "native conversation/command ledger",
         "native driver (lazy on explicit command)"
       ],
-      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
     },
     {
       "event": "exit",
@@ -326,7 +330,11 @@
         "native conversation/command ledger",
         "native driver (lazy on explicit command)"
       ],
-      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
     },
     {
       "event": "exit",
@@ -343,7 +351,11 @@
       "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/initial/run.json",
       "sha256": "3dc1ef3b87abfc24dc59d293dc862bd6d39a2a965ab6eee483d4aa81ef5a43ac",
       "match": true,
-      "counts": [0, 1, 0],
+      "counts": [
+        0,
+        1,
+        0
+      ],
       "countsMatch": true
     },
     {
@@ -352,7 +364,11 @@
       "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/async-loader/run.json",
       "sha256": "a1dc9ece81717a95969908dfd381fd99bd01ad0aedabc341fe666e4d86986c7d",
       "match": true,
-      "counts": [0, 1, 0],
+      "counts": [
+        0,
+        1,
+        0
+      ],
       "countsMatch": true
     },
     {
@@ -361,7 +377,11 @@
       "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/real-http/run.json",
       "sha256": "f1b0c4e9ee2a2212affd960db9141a4be34ece5da1ed47317399deaae9543542",
       "match": true,
-      "counts": [1, 0, 0],
+      "counts": [
+        1,
+        0,
+        0
+      ],
       "countsMatch": true
     },
     {
@@ -370,7 +390,11 @@
       "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/canonical-read/run.json",
       "sha256": "0ad826fca393c2f0bafae1eb340be25238676f9410658577cb301b9238f16df6",
       "match": true,
-      "counts": [0, 1, 0],
+      "counts": [
+        0,
+        1,
+        0
+      ],
       "countsMatch": true
     },
     {
@@ -379,7 +403,11 @@
       "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/retained-canonical-root/run.json",
       "sha256": "644900c0d488d4a46eeb90f66e618dd50ff1190e578c2b0a6c83c2d5e4ee7ff9",
       "match": true,
-      "counts": [1, 0, 0],
+      "counts": [
+        1,
+        0,
+        0
+      ],
       "countsMatch": true
     },
     {
@@ -388,7 +416,11 @@
       "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/native-owner-proof/run.json",
       "sha256": "4fdc89b8793e309868e86134e4fc89814250b5af8659bae1acd5f8541f4806b9",
       "match": true,
-      "counts": [0, 1, 0],
+      "counts": [
+        0,
+        1,
+        0
+      ],
       "countsMatch": true
     },
     {
@@ -397,7 +429,11 @@
       "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-native-owner/run.json",
       "sha256": "32f77a157f7d0a83c078b0cbe22a67afa01125db5c9ac395837f588b0f9c8b20",
       "match": true,
-      "counts": [0, 1, 0],
+      "counts": [
+        0,
+        1,
+        0
+      ],
       "countsMatch": true
     },
     {
@@ -406,7 +442,11 @@
       "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/existing-recovery-contract/run.json",
       "sha256": "49c4b554be301df2f3649fe220e232814105ad0b9f94227f4b0436ef14febf40",
       "match": true,
-      "counts": [0, 1, 0],
+      "counts": [
+        0,
+        1,
+        0
+      ],
       "countsMatch": true
     },
     {
@@ -415,7 +455,11 @@
       "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-recovery-marker/run.json",
       "sha256": "d9b16e4c0b16bbef2e0089e2527039fee2e3ab47e50d268b3d79cd49a889bc33",
       "match": true,
-      "counts": [1, 0, 0],
+      "counts": [
+        1,
+        0,
+        0
+      ],
       "countsMatch": true
     }
   ],
@@ -540,7 +584,10 @@
       "CodexAppServerClient.launchIsolated",
       "CodexAppServerClient.launchPreflight"
     ],
-    "forbiddenAlternateNativeFactories": ["launch", "launchOpenShell"],
+    "forbiddenAlternateNativeFactories": [
+      "launch",
+      "launchOpenShell"
+    ],
     "ownedAuthorityAndStateFabricated": false,
     "parentProxy": "Node HTTP stream forwarding to current child, no response synthesis",
     "restart": "SIGKILL + wait for exit + process.kill(pid,0) refusal, then fresh fork; initial seed handles closed and no reseed",

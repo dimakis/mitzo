@@ -24,9 +24,9 @@ Selected retained result: **1 PASS / 0 FAIL / 0 SKIP, 13.560s**. I verified sele
 
 The superseding `S9-SOURCE-CAPTURE-ENTRY-SCOPE-OVERLAY.json` is preserved and applies: this measured route does not establish actual UI source adoption/selection, and its absence is not authority to invent a standalone picker or declare an approved-design defect. Native selected-byte access remains a separate confirmed gap. Full rows/main/hosted CI/trusted/full UX/device/live, UI error/recovery, direct hash-corruption and other negative matrices remain open.
 
-| New file                                    | SHA-256                                                            |
-| ------------------------------------------- | ------------------------------------------------------------------ |
-| `advisor-material-refusal.contract.ts`      | `fe8748a0ea3192882553fb7fb3ff3a558a7e8ce5bf514004bb0f7fb96ff86915` |
+| New file | SHA-256 |
+|---|---|
+| `advisor-material-refusal.contract.ts` | `fe8748a0ea3192882553fb7fb3ff3a558a7e8ce5bf514004bb0f7fb96ff86915` |
 | `vitest.advisor-material-refusal.config.ts` | `798559a64c1c68404c06ebb65ef77e59efa16e57ee7f78bd71243f6a5920f694` |
 
 Stopping point: this frozen API refusal authority intake is complete; prior `472d` and all open acceptance boundaries remain preserved.

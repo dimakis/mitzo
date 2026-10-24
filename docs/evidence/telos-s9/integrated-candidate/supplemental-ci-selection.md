@@ -29,6 +29,7 @@ The repository helper removes the unsupported synchronous Git `signal` option an
 
 The four focused retakes each execute exactly one case with zero failures or skips: pre-aborted helper, process restart, worker restart and repository caller. Explicit integration no-emit types and focused lint pass. Exact raw results and owner-read/lifecycle proofs are retained in `contract-correction/`. An initial missing-interpreter failure is retained separately and does not count as a pass. Broader required-nine/supplemental execution and accepted-main/UX qualification remain pending.
 
+
 ## Worker replacement addition
 
 One further closed case from frozen e4ef207b selects real New chat versus Change worker behavior, explicit guarded assignment revisions, three independent chat drafts, App restart and exact historical delegation receipt replay. The pending original task and attempt binding remain unchanged. Its dedicated read observer explicitly omits unavailable, never-admitted native ledger reads; `not_read_no_native_admission` is not an empty-ledger or zero-command claim. No inference, provider terminal, task completion or canonical outcome verification is claimed.
@@ -43,6 +44,7 @@ The retained private execution is one pass with no skips. Its initial whole-even
 
 `advisor-child-intake/` retains byte-exact producer report/proof, both independent root reviews and original archive custody hashes. Only cleanup return typing changes in the imported fixture; TypeScript 5.9.3 emits identical JavaScript. The original eleven selection records, required-nine runner, workflow and all production paths remain unchanged. Focused no-emit types and one-case collection qualify this composition without repeating the browser execution or expanding the closed selection.
 
+
 ## Existing-item Refine addition
 
 The thirteenth case copies exactly two files from frozen `72d6d6b8cb6456835543c96e24e3e17702b66c82` and reuses the closed Add-child fixture/App without runtime changes. It covers ordinary Refine setup and context inspection, one composer command, operator-reviewed same-item preview/save, exact source return/backlink and restart. Actual owner reads retain the full original binding/profile, same item ID/type/parent/createdAt/unknown fields and the unchanged parent/unrelated item. Three simulated external provider notifications pass through actual transcript/source owners; no worker is dispatched.
@@ -50,6 +52,7 @@ The thirteenth case copies exactly two files from frozen `72d6d6b8cb6456835543c9
 Historical raw evidence is one pass with no skips in 19.387 seconds. Selected source references and packet material pins are empty. Materials inspection does not establish selection, adoption or inheritance. Real provider/native behavior, canonical native output, stale/revoked/retry/deeper-context variants, full UX/device/accessibility and accepted-main qualification remain open. `advisor-refine-intake/` retains the byte-exact producer report/proof, independent root review and verified original archive/raw custody. The original producer report's then-pending review text is preserved; the separate root report closes that bounded review.
 
 The two imported files require no type correction. Explicit 64-file no-emit types, scoped lint/format and one-case collection qualify composition only. All twelve earlier selections, the required-nine runner/workflow and production/protected references remain unchanged. No repeated browser runtime execution or production ancestry is included.
+
 
 ## Nonempty reviewed source/material addition
 
@@ -59,6 +62,7 @@ The original initial seed-only failure remains retained: real capture added its 
 
 Focused 67-file no-emit types, scoped lint/format and one-case collection qualify composition only. Every earlier thirteen selection record, required-nine runner/workflow, production path and protected reference remains unchanged. No repeated browser runtime, new native port, authority grant, production ancestry, accepted-main or full UX/device/live acceptance is included.
 
+
 ## Composite selected-material refusal addition
 
 The fifteenth case imports only the frozen `07266938a17a87d13a886e4d7623fdccc96bb319` contract/config and reuses the closed material fixture and child App. A successful real UI role review supplies the actual typed API input; the case changes the selected r1 material hash to later r2's hash and observes the real 503/unavailable response with no selected content. Canonical records, source, planning origin events, inventories, task state and effects remain unchanged. The altered parent-owned pin fails reviewed custody before later revision/hash/byte predicates. This qualifies composite custody/integrity refusal, not isolated direct byte-hash coverage. The generic error taxonomy and UI error/recovery are not accepted by this case. The planning origin explicitly has no workspace/preparation, so runtime recovery is not inferred.
@@ -67,10 +71,12 @@ The two imported files are byte-exact and need no declaration correction. The ru
 
 `material-refusal-intake/` retains original producer report/proof, both root reviews, original archive/raw custody and prior scope overlays. The initial unsuitable-observer failure and original pending-review wording remain preserved. The source-entry scope overlay supersedes the older gap classification and supplies no new picker, adoption caller or implementation authority. Historical selected raw evidence is one pass with no skips in 13.560 seconds. Native selected-byte access, direct corruption branches, broader negatives, UI/device/live/current-main and final acceptance remain separate.
 
+
 ## Exact task chat-tree App addition
 
 The sixteenth mandatory case imports only the exact frozen bbf04d App case, geometry helper and config. Its independently closed original result is one pass in 29.255 seconds, with the original f04/f507 RED evidence retained. That source-qualified result is not a runtime pass on this private composition. Accepted #1057 predicate and the later S7 CSS corrective are explicit prerequisites; no production bytes are imported here.
 
 `task-chat-tree-app-intake/` retains the original raw, root review, original RED custody, reused-dependency and inherited production source qualification. The existing fixture's already reviewed erased cleanup declaration is preserved with identical TypeScript 5.9.3 JavaScript. Every earlier fifteen selection object, required-nine runner/workflow and platform recipe is unchanged. The runner count becomes sixteen and allows only this one further exact basename beside its earlier material-refusal exception; all identity, path, count, assertion and exit guards remain. Types/lint/format and non-executing collection qualify source only. Final #1048 is last and must run the real combined required nine plus all sixteen after its actual accepted-base reconstruction.
+
 
 Seventeenth mandatory regression: source-only-outcome, frozen ab2c1f6617053f81364025cafe6d6116d6d16cce. Exact three-file intake; prior sixteen objects and all runner guards except mandatory count unchanged. See source-only-outcome-intake/README.md for raw evidence, synthetic pre-App limits and later accepted Home/route/CSS prerequisites. Types/lint/format and nonexecuting collection only; no current-source App pass or public refresh.

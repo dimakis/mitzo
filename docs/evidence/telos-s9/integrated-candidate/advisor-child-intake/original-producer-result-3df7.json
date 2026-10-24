@@ -162,7 +162,10 @@
     ],
     "providerInputSeam": "Deterministic external native agentMessage delta/itemcompleted/turncompleted inputs use actual accepted thread/turn and lifecycle callback. Actual parser/stream/EventStore/transcript establish completion/source boundary; no owned events/DB/receipts/terminal written directly.",
     "runtimeProfileObserver": "Actual top-level getSessionRuntimeBinding(sessionId), typed from that owner; non-null initial equals actual UI setup binding. Whole initial session.agentProfile equals f.agentProfile and cold/after equality. Native ledger not observed by this snapshot.",
-    "selectedAppPids": [60768, 60883],
+    "selectedAppPids": [
+      60768,
+      60883
+    ],
     "bothSelectedAndAllDiagnosticAppPidsReaped": true,
     "sameRootsSignedAuthStableOrigin": true
   },
@@ -170,7 +173,13 @@
     "id": "c54d6f2479aab619b163187829b6bdff",
     "revision": 1,
     "sha256": "dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255",
-    "rows": ["UX07", "UX08", "CT01", "CT05", "CT20"],
+    "rows": [
+      "UX07",
+      "UX08",
+      "CT01",
+      "CT05",
+      "CT20"
+    ],
     "scenario": 5,
     "qualification": "Addchild subset only; no fullrow/Refine/worker/output-artifact completion claim."
   },
@@ -515,7 +524,9 @@
                     "3a819fbb-04ec-4548-ac23-a918a4a2bef4",
                     "0ab19412-7357-4e89-ac5a-9056f017386f"
                   ],
-                  "blockIds": ["b0"],
+                  "blockIds": [
+                    "b0"
+                  ],
                   "throughSequence": 14
                 },
                 "adoptedBrief": {
@@ -759,7 +770,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -843,7 +856,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -1106,7 +1121,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -1190,7 +1207,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -1586,7 +1605,9 @@
             }
           ],
           "tasks": [],
-          "activeSessionIds": ["69b447fd-bbd0-8af5-9b5a-8a46be5d8044"]
+          "activeSessionIds": [
+            "69b447fd-bbd0-8af5-9b5a-8a46be5d8044"
+          ]
         },
         "afterRestart": {
           "roleContext": {
@@ -1686,7 +1707,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -1770,7 +1793,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -2193,7 +2218,9 @@
           "status": "active",
           "starred": false,
           "priority": 5,
-          "categories": ["Music"],
+          "categories": [
+            "Music"
+          ],
           "createdAt": "2026-10-20T06:35:38.786Z",
           "updatedAt": "2026-10-20T06:35:38.786Z",
           "contextHints": {
@@ -2205,7 +2232,9 @@
             "jiraKeys": [],
             "keywords": [],
             "taskHint": "",
-            "sessionIds": ["69b447fd-bbd0-8af5-9b5a-8a46be5d8044"]
+            "sessionIds": [
+              "69b447fd-bbd0-8af5-9b5a-8a46be5d8044"
+            ]
           },
           "sources": [],
           "links": [],
@@ -2284,7 +2313,9 @@
                   "3a819fbb-04ec-4548-ac23-a918a4a2bef4",
                   "0ab19412-7357-4e89-ac5a-9056f017386f"
                 ],
-                "blockIds": ["b0"],
+                "blockIds": [
+                  "b0"
+                ],
                 "throughSequence": 14
               },
               "adoptedBrief": {
@@ -2320,7 +2351,9 @@
                 "3a819fbb-04ec-4548-ac23-a918a4a2bef4",
                 "0ab19412-7357-4e89-ac5a-9056f017386f"
               ],
-              "blockIds": ["b0"],
+              "blockIds": [
+                "b0"
+              ],
               "throughSequence": 14
             },
             "adoptedBrief": {
@@ -2476,7 +2509,9 @@
           "summary": "Home studio",
           "intent": "Record music",
           "rationale": "Make music",
-          "acceptanceCriteria": ["Approved plan"],
+          "acceptanceCriteria": [
+            "Approved plan"
+          ],
           "profile": "manual",
           "status": "active",
           "starred": false,
@@ -2489,7 +2524,9 @@
             "paths": [],
             "issues": [],
             "docIds": [],
-            "people": ["Original person"],
+            "people": [
+              "Original person"
+            ],
             "jiraKeys": [],
             "keywords": [],
             "taskHint": "Original hint",
@@ -2775,7 +2812,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -2859,7 +2898,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -3343,7 +3384,9 @@
                     "3a819fbb-04ec-4548-ac23-a918a4a2bef4",
                     "0ab19412-7357-4e89-ac5a-9056f017386f"
                   ],
-                  "blockIds": ["b0"],
+                  "blockIds": [
+                    "b0"
+                  ],
                   "throughSequence": 14
                 },
                 "adoptedBrief": {
@@ -3378,7 +3421,9 @@
           "status": "active",
           "starred": false,
           "priority": 5,
-          "categories": ["Music"],
+          "categories": [
+            "Music"
+          ],
           "createdAt": "2026-10-20T06:35:38.786Z",
           "updatedAt": "2026-10-20T06:35:38.786Z",
           "contextHints": {
@@ -3390,7 +3435,9 @@
             "jiraKeys": [],
             "keywords": [],
             "taskHint": "",
-            "sessionIds": ["69b447fd-bbd0-8af5-9b5a-8a46be5d8044"]
+            "sessionIds": [
+              "69b447fd-bbd0-8af5-9b5a-8a46be5d8044"
+            ]
           },
           "sources": [],
           "links": [],
@@ -3469,7 +3516,9 @@
                   "3a819fbb-04ec-4548-ac23-a918a4a2bef4",
                   "0ab19412-7357-4e89-ac5a-9056f017386f"
                 ],
-                "blockIds": ["b0"],
+                "blockIds": [
+                  "b0"
+                ],
                 "throughSequence": 14
               },
               "adoptedBrief": {
@@ -3505,7 +3554,9 @@
                 "3a819fbb-04ec-4548-ac23-a918a4a2bef4",
                 "0ab19412-7357-4e89-ac5a-9056f017386f"
               ],
-              "blockIds": ["b0"],
+              "blockIds": [
+                "b0"
+              ],
               "throughSequence": 14
             },
             "adoptedBrief": {
@@ -3711,7 +3762,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -3795,7 +3848,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -4191,7 +4246,9 @@
             }
           ],
           "tasks": [],
-          "activeSessionIds": ["69b447fd-bbd0-8af5-9b5a-8a46be5d8044"]
+          "activeSessionIds": [
+            "69b447fd-bbd0-8af5-9b5a-8a46be5d8044"
+          ]
         },
         "afterRestart": {
           "roleContext": {
@@ -4291,7 +4348,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -4375,7 +4434,9 @@
                 "role": "agent",
                 "instructions": "Use the retained material and preserve ownership.",
                 "expectedOutput": "A retained report",
-                "acceptanceCriteria": ["Evidence"],
+                "acceptanceCriteria": [
+                  "Evidence"
+                ],
                 "modelPolicyRole": "agent"
               },
               "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
@@ -5113,7 +5174,11 @@
         "native conversation/command ledger",
         "native driver (lazy on explicit command)"
       ],
-      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
     },
     {
       "event": "exit",
@@ -5152,7 +5217,11 @@
         "native conversation/command ledger",
         "native driver (lazy on explicit command)"
       ],
-      "exclusions": ["index.ts host services", "production bundle", "real native/provider process"]
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
     },
     {
       "event": "exit",

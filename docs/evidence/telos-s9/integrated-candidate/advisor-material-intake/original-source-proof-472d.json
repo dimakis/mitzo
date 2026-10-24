@@ -184,7 +184,10 @@
   "providerInputSeam": "Frozen advisor-child actual externalnotification callback unchanged. Simulated agentdelta/itemcompleted/turncompleted inputs only; actual lifecycle/parser/EventStore/transcript/source/persistence owners.",
   "actualRuntimeGetterAndFullInitialProfile": true,
   "nativeLedgerReadBySnapshot": false,
-  "selectedAppPids": [11890, 12000],
+  "selectedAppPids": [
+    11890,
+    12000
+  ],
   "allSelectedAppPidsReaped": true,
   "initialDiagnosticAppNotStarted": true,
   "mcpPostTeardownCheck": {
