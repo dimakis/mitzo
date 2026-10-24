@@ -68,7 +68,10 @@ it.each(['actor', 'schema', 'bound', 'cas', 'success'] as const)(
     f.record.pendingHostTaskDecision!.scope.sourceDigest = factsSha;
     f.save(f.record);
     const diagnostics = createPreparationAttemptDiagnostics();
-    const serviceState = observePreparationService(diagnostics, f.service);
+    let privatelyObserved: unknown;
+    const serviceState = observePreparationService(diagnostics, f.service, (receipt) => {
+      privatelyObserved = receipt;
+    });
     const operation = f.service.beginPendingHostTaskDecisionMaterialization(
       f.record.pendingHostTask!.request,
       f.owner as never,
@@ -97,7 +100,10 @@ it.each(['actor', 'schema', 'bound', 'cas', 'success'] as const)(
     if (failure === 'success') {
       expect(error).toBeUndefined();
       expect(receipt).toMatchObject({ state: 'materialized' });
+      expect(privatelyObserved).toBe(receipt);
       expect(serviceState().receipt).toMatchObject({ status: 'returned', state: 'materialized' });
+      expect(serviceState().receipt).not.toHaveProperty('directory');
+      expect(serviceState().receipt).not.toHaveProperty('request');
       expect(serviceState().cas.zeroChanges).toBe(0);
       expect(diagnostics.snapshot().stages['service-materialize'].returned).toBe(1);
       const saved = JSON.parse(
@@ -123,6 +129,7 @@ it.each(['actor', 'schema', 'bound', 'cas', 'success'] as const)(
     if (failure === 'cas') expect(original).toMatchObject({ code: 'SQLITE_CONSTRAINT_TRIGGER' });
     expect(JSON.stringify(error)).toBe('{"code":"pending_host_task_uncertain"}');
     expect(serviceState().receipt).toEqual({ status: 'not-reached' });
+    expect(privatelyObserved).toBeUndefined();
     const row = JSON.parse(
       (
         f.db.prepare('SELECT record FROM repository_workspaces WHERE id=?').get(f.record.id) as {

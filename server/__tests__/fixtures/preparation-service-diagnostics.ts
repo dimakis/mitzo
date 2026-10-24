@@ -10,6 +10,9 @@ import type { PreparationAttemptDiagnostics } from './preparation-attempt-diagno
 export function observePreparationService(
   diagnostics: PreparationAttemptDiagnostics,
   service: RepositoryWorkspaces,
+  observedReceipt?: (
+    receipt: Awaited<ReturnType<RepositoryWorkspaces['materializeQualifiedPendingHostTask']>>,
+  ) => void,
 ) {
   let receipt: unknown = { status: 'not-reached' };
   const cas = { calls: 0, returned: 0, zeroChanges: 0 };
@@ -26,6 +29,9 @@ export function observePreparationService(
         ? createHash('sha256').update(JSON.stringify(value.taskIdentity)).digest('hex')
         : null,
     };
+    // Private fixture observation only. The sanitized diagnostic snapshot never
+    // includes this real receipt or reconstructs it from public result JSON.
+    observedReceipt?.(value);
     return value;
   });
   const parse = PendingHostTaskReceiptSchema.parse;

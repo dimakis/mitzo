@@ -1,5 +1,15 @@
 import * as authorizationModule from '../local-repository-preparation-authorization.js';
-import { executeLocalRepositoryPreparation } from '../local-repository-preparation-operation.js';
+import * as operationModule from '../local-repository-preparation-operation.js';
+import * as sourceModule from '../local-repository-preparation-source.js';
+import {
+  executeLocalRepositoryPreparation,
+  type LocalRepositoryPreparationEnvelope,
+} from '../local-repository-preparation-operation.js';
+import { executeNativeLocalRepositoryPreparation } from '../native-local-repository-preparation.js';
+import { preparedRepositoryResultSha256 } from '../codex-conversation-store.js';
+import { withPreparedRepositoryBarrierReadScope } from '../prepared-repository-barrier-read.js';
+import { composeOwnedLocalNativeExecutionPolicy } from '../owned-local-codex-native-policy.js';
+import type { NativeHostToolContext } from '../native-host-tool-context.js';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
@@ -146,7 +156,15 @@ actual(
     const read = readers.captureNativeLocalRepositoryReader;
     vi.spyOn(readers, 'captureNativeLocalRepositoryReader').mockImplementation(async (...args) => {
       const reader = await diagnostics.capture('reader-capture', () => read(...args));
-      returnedReaders.push(reader);
+      if (!returnedReaders.includes(reader)) returnedReaders.push(reader);
+      return reader;
+    });
+    const preparedRead = readers.capturePreparedRepositoryReader;
+    vi.spyOn(readers, 'capturePreparedRepositoryReader').mockImplementation(async (...args) => {
+      const reader = await diagnostics.capture('prepared-reader-capture', () =>
+        preparedRead(...args),
+      );
+      if (!returnedReaders.includes(reader)) returnedReaders.push(reader);
       return reader;
     });
     const captureData = objectData.captureLocalRepositoryPreparationObjectData;
@@ -171,6 +189,14 @@ actual(
       });
     });
     let prepared = false;
+    let observedContext: NativeHostToolContext | undefined;
+    let normalizedPreparedResult:
+      Awaited<ReturnType<typeof executeNativeLocalRepositoryPreparation>> | undefined;
+    let sourcePreservation: ((prefix: string, staged: boolean) => Promise<void>) | undefined;
+    const postPreparation: { status: string; elapsedMs?: number; rowSha256?: string } = {
+      status: 'not-reached',
+    };
+    let observedReceipt: Awaited<ReturnType<typeof executeLocalRepositoryPreparation>> | undefined;
     let authorization:
       Awaited<ReturnType<typeof captureLocalRepositoryPreparationAuthorization>> | undefined;
     const originalCapture = captureLocalRepositoryPreparationAuthorization;
@@ -188,13 +214,45 @@ actual(
     const metrics = {
       admission: { calls: 0, ms: 0 },
       operationCounts: {} as Record<string, number>,
-      source: { calls: 0, ms: 0 },
+      source: {
+        calls: profileOnly ? 0 : (null as number | null),
+        ms: profileOnly ? 0 : (null as number | null),
+        fullOwnerCallsObserved: profileOnly,
+        captureCalls: 0,
+        captureMs: 0,
+      },
       readTransports: { calls: 0, ms: 0 },
       effectTransports: { calls: 0, ms: 0 },
       checkouts: { calls: 0, ms: 0 },
       approvalRemainingMs: 0,
       consumptionRemainingMs: 0,
     };
+    const originalOperation = executeLocalRepositoryPreparation;
+    vi.spyOn(operationModule, 'executeLocalRepositoryPreparation').mockImplementation(function (
+      this: unknown,
+      ...args
+    ) {
+      observedContext = args[0].context; // actual adapter-owned context; never reboxed
+      return diagnostics.capture('preparation-operation', () =>
+        Reflect.apply(originalOperation, this, args),
+      );
+    });
+    const sourceFactory = captureNativeLocalRepositoryPreparationSource;
+    vi.spyOn(sourceModule, 'captureNativeLocalRepositoryPreparationSource').mockImplementation(
+      async function (this: unknown, ...args) {
+        const start = performance.now();
+        metrics.source.captureCalls++;
+        try {
+          // Preserve the actual returned owner and witness. Full-assertion
+          // counts are explicitly unobserved on the private-adapter path.
+          return await diagnostics.capture('source-capture', () =>
+            Reflect.apply(sourceFactory, this, args),
+          );
+        } finally {
+          metrics.source.captureMs += performance.now() - start;
+        }
+      },
+    );
     const nativeFull = OwnedLocalCodexChatAdmission.prototype.assertCurrent;
     vi.spyOn(OwnedLocalCodexChatAdmission.prototype, 'assertCurrent').mockImplementation(
       async function (this: OwnedLocalCodexChatAdmission) {
@@ -265,8 +323,8 @@ actual(
                 ms: metrics.admission.ms - before.admission.ms,
               },
               source: {
-                calls: metrics.source.calls - before.source.calls,
-                ms: metrics.source.ms - before.source.ms,
+                calls: (metrics.source.calls ?? 0) - (before.source.calls ?? 0),
+                ms: (metrics.source.ms ?? 0) - (before.source.ms ?? 0),
               },
               readTransports: {
                 calls: metrics.readTransports.calls - before.readTransports.calls,
@@ -328,218 +386,249 @@ actual(
         }
       },
     );
-    const f = await localPreparationNativeFixture(
-      cleanups,
-      async (context, input, envelope) => {
-        mark('callback');
-        if (!envelope) throw Error('Preparation fixture envelope missing');
-        const source = input.path as string;
-        await writeFile(join(source, 'task.txt'), 'DIRTY SOURCE\n');
-        await writeFile(join(source, 'untracked'), 'KEEP\n');
-        // Real staged content change reuses an existing accepted blob, so the
-        // object-count budget stays five while index preservation is meaningful.
-        await writeFile(join(source, 'context.md'), 'accepted source');
-        const git = (...args: string[]) =>
-          execFileSync(
-            '/usr/bin/git',
-            ['-C', source, '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', ...args],
-            {
-              encoding: 'utf8',
-              env: {
-                PATH: '/usr/bin:/bin',
-                GIT_CONFIG_GLOBAL: '/dev/null',
-                GIT_CONFIG_SYSTEM: '/dev/null',
-              },
+    const executeAttempt = async (
+      context: NativeHostToolContext | undefined,
+      input: Record<string, unknown>,
+      envelope?: Readonly<LocalRepositoryPreparationEnvelope>,
+      nativeRun?: () => Promise<
+        Awaited<ReturnType<typeof executeNativeLocalRepositoryPreparation>>
+      >,
+    ) => {
+      mark('callback');
+      if (!nativeRun && !envelope) throw Error('Preparation fixture envelope missing');
+      const source = input.path as string;
+      await writeFile(join(source, 'task.txt'), 'DIRTY SOURCE\n');
+      await writeFile(join(source, 'untracked'), 'KEEP\n');
+      // Real staged content change reuses an existing accepted blob, so the
+      // object-count budget stays five while index preservation is meaningful.
+      await writeFile(join(source, 'context.md'), 'accepted source');
+      const git = (...args: string[]) =>
+        execFileSync(
+          '/usr/bin/git',
+          ['-C', source, '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', ...args],
+          {
+            encoding: 'utf8',
+            env: {
+              PATH: '/usr/bin:/bin',
+              GIT_CONFIG_GLOBAL: '/dev/null',
+              GIT_CONFIG_SYSTEM: '/dev/null',
             },
-          ).trim();
-        git('add', '--', 'context.md');
-        await diagnostics.check(
-          'setup-staged-name',
-          async () => git('diff', '--cached', '--name-only') === 'context.md',
-        );
-        await diagnostics.check(
-          'setup-staged-blob',
-          async () => git('rev-parse', ':context.md') === git('rev-parse', 'HEAD:task.txt'),
-        );
-        if (
-          Object.values(diagnostics.snapshot().checks).some((check) => check.status !== 'passed')
-        ) {
-          await persistAttempt();
-          throw Object.assign(Error('Preparation fixture setup failed'), {
-            code: 'fixture_setup_check_failed',
-          });
-        }
-        const index = await readFile(join(source, '.git', 'index'));
-        const head = await readFile(join(source, '.git', 'HEAD'));
-        const run = () =>
-          executeLocalRepositoryPreparation(
-            {
-              context,
-              registry: f.registry,
-              events: f.f.events,
-              workspaces: f.f.workspace,
-              qualifySource: async (_path, original, intent, options) => {
-                mark('qualify-start');
-                const result = await captureNativeLocalRepositoryPreparationSource(
-                  original,
-                  intent,
-                  options,
-                );
-                mark('qualify-end');
-                return Object.freeze({
-                  ...result,
-                  async assertCurrent(options?: Readonly<{ deadline: number }>) {
-                    const start = performance.now();
-                    metrics.source.calls++;
-                    try {
-                      await diagnostics.capture('source-owner', () =>
-                        result.assertCurrent(options),
-                      );
-                    } finally {
-                      metrics.source.ms += performance.now() - start;
-                    }
-                  },
-                });
-              },
-            },
-            input,
-            envelope!,
-          );
-        let receipt: Awaited<ReturnType<typeof executeLocalRepositoryPreparation>> | undefined;
-        const sourceChecks = async (prefix: string, includeStaged: boolean) => {
-          await diagnostics.check(`${prefix}-index`, async () =>
-            (await readFile(join(source, '.git', 'index'))).equals(index),
-          );
-          await diagnostics.check(`${prefix}-head`, async () =>
-            (await readFile(join(source, '.git', 'HEAD'))).equals(head),
-          );
-          await diagnostics.check(
-            `${prefix}-dirty`,
-            async () => (await readFile(join(source, 'task.txt'), 'utf8')) === 'DIRTY SOURCE\n',
-          );
-          if (includeStaged)
-            await diagnostics.check(
-              `${prefix}-staged`,
-              async () =>
-                (await readFile(join(source, 'context.md'), 'utf8')) === 'accepted source',
-            );
-          await diagnostics.check(
-            `${prefix}-untracked`,
-            async () => (await readFile(join(source, 'untracked'), 'utf8')) === 'KEEP\n',
-          );
-        };
-        const inspect = async () => {
-          // Every observation is independent: one failed read/check never hides
-          // another preservation outcome or the original operation exception.
-          await sourceChecks('finally', true);
-          rowState = (await diagnostics.observe('row-state', async () => {
-            const record = f.f.workspace.get(authorization!.request.id);
-            return {
-              status: 'observed',
-              state: record.state,
-              rowSha256: createHash('sha256').update(JSON.stringify(record)).digest('hex'),
-              pendingState: record.pendingHostTask?.state ?? null,
-              decisionState: record.pendingHostTaskDecision?.state ?? null,
-              hasPublication: record.qualifiedLocalPreparation?.publication !== undefined,
-              hasHostReservation: record.hostReservation !== undefined,
-              taskIdentitySha256: record.pendingHostTask?.taskIdentity
-                ? createHash('sha256')
-                    .update(JSON.stringify(record.pendingHostTask.taskIdentity))
-                    .digest('hex')
-                : null,
-            };
-          })) ?? { status: 'unknown-read-failed' };
-          if (profileOnly) {
-            await diagnostics.check(
-              'profile-consumed',
-              async () =>
-                f.f.workspace.get(authorization!.request.id).pendingHostTaskDecision?.state ===
-                'consumed',
-            );
-            for (const [index, path] of [
-              authorization!.scope.create.task.directory,
-              authorization!.scope.sourceGitEffects.administrationDirectory,
-              authorization!.scope.sourceGitEffects.branchReference,
-            ].entries())
-              await diagnostics.check(`profile-absent-${index}`, async () => {
-                try {
-                  await lstat(path);
-                  return false;
-                } catch (error) {
-                  return (error as NodeJS.ErrnoException).code === 'ENOENT';
-                }
+          },
+        ).trim();
+      git('add', '--', 'context.md');
+      await diagnostics.check(
+        'setup-staged-name',
+        async () => git('diff', '--cached', '--name-only') === 'context.md',
+      );
+      await diagnostics.check(
+        'setup-staged-blob',
+        async () => git('rev-parse', ':context.md') === git('rev-parse', 'HEAD:task.txt'),
+      );
+      if (Object.values(diagnostics.snapshot().checks).some((check) => check.status !== 'passed')) {
+        await persistAttempt();
+        throw Object.assign(Error('Preparation fixture setup failed'), {
+          code: 'fixture_setup_check_failed',
+        });
+      }
+      const index = await readFile(join(source, '.git', 'index'));
+      const head = await readFile(join(source, '.git', 'HEAD'));
+      const run = () => {
+        if (!context || !envelope) throw Error('Original legacy preparation context missing');
+        return executeLocalRepositoryPreparation(
+          {
+            context,
+            registry: f.registry,
+            events: f.f.events,
+            workspaces: f.f.workspace,
+            qualifySource: async (_path, original, intent, options) => {
+              mark('qualify-start');
+              const result = await captureNativeLocalRepositoryPreparationSource(
+                original,
+                intent,
+                options,
+              );
+              mark('qualify-end');
+              return Object.freeze({
+                ...result,
+                async assertCurrent(options?: Readonly<{ deadline: number }>) {
+                  const start = performance.now();
+                  metrics.source.calls = (metrics.source.calls ?? 0) + 1;
+                  try {
+                    await diagnostics.capture('source-owner', () => result.assertCurrent(options));
+                  } finally {
+                    metrics.source.ms = (metrics.source.ms ?? 0) + performance.now() - start;
+                  }
+                },
               });
-            return;
-          }
+            },
+          },
+          input,
+          envelope,
+        );
+      };
+      let normalizedResult:
+        Awaited<ReturnType<typeof executeNativeLocalRepositoryPreparation>> | undefined;
+      let receipt: Awaited<ReturnType<typeof executeLocalRepositoryPreparation>> | undefined;
+      const sourceChecks = async (prefix: string, includeStaged: boolean) => {
+        await diagnostics.check(`${prefix}-index`, async () =>
+          (await readFile(join(source, '.git', 'index'))).equals(index),
+        );
+        await diagnostics.check(`${prefix}-head`, async () =>
+          (await readFile(join(source, '.git', 'HEAD'))).equals(head),
+        );
+        await diagnostics.check(
+          `${prefix}-dirty`,
+          async () => (await readFile(join(source, 'task.txt'), 'utf8')) === 'DIRTY SOURCE\n',
+        );
+        if (includeStaged)
           await diagnostics.check(
-            'primary-custody',
-            async () =>
-              f.f.workspace.getOrdinaryWorkspaceForConversation(context.conversationId)?.id ===
-              context.workspace.id,
+            `${prefix}-staged`,
+            async () => (await readFile(join(source, 'context.md'), 'utf8')) === 'accepted source',
           );
-          await diagnostics.check(
-            'repository-primary',
-            async () => f.f.workspace.getForConversation(context.conversationId) === undefined,
-          );
-          await diagnostics.check(
-            'task-linkage',
-            async () =>
-              (await readFile(
-                join(receipt?.directory ?? authorization!.scope.create.task.directory, '.git'),
-                'utf8',
-              )) === `gitdir: ${authorization!.scope.sourceGitEffects.administrationDirectory}\n`,
-          );
-          if (!receipt) {
-            for (const name of ['receipt-materialized', 'receipt-task-identity'])
-              diagnostics.skip(name);
-            return;
-          }
-          receiptState = {
-            status: 'returned',
-            state: receipt.state,
-            sha256: createHash('sha256').update(JSON.stringify(receipt)).digest('hex'),
-            taskIdentitySha256: receipt.taskIdentity
-              ? createHash('sha256').update(JSON.stringify(receipt.taskIdentity)).digest('hex')
+        await diagnostics.check(
+          `${prefix}-untracked`,
+          async () => (await readFile(join(source, 'untracked'), 'utf8')) === 'KEEP\n',
+        );
+      };
+      sourcePreservation = sourceChecks;
+      const inspect = async () => {
+        receipt ??= observedReceipt;
+        const originalContext = observedContext ?? context;
+        // Every observation is independent: one failed read/check never hides
+        // another preservation outcome or the original operation exception.
+        await sourceChecks('finally', true);
+        rowState = (await diagnostics.observe('row-state', async () => {
+          const record = f.f.workspace.get(authorization!.request.id);
+          return {
+            status: 'observed',
+            state: record.state,
+            rowSha256: createHash('sha256').update(JSON.stringify(record)).digest('hex'),
+            pendingState: record.pendingHostTask?.state ?? null,
+            decisionState: record.pendingHostTaskDecision?.state ?? null,
+            hasPublication: record.qualifiedLocalPreparation?.publication !== undefined,
+            hasHostReservation: record.hostReservation !== undefined,
+            taskIdentitySha256: record.pendingHostTask?.taskIdentity
+              ? createHash('sha256')
+                  .update(JSON.stringify(record.pendingHostTask.taskIdentity))
+                  .digest('hex')
               : null,
           };
+        })) ?? { status: 'unknown-read-failed' };
+        if (profileOnly) {
           await diagnostics.check(
-            'receipt-materialized',
-            async () => receipt!.state === 'materialized',
-          );
-          await diagnostics.check(
-            'receipt-task-identity',
+            'profile-consumed',
             async () =>
-              receipt!.taskIdentity?.linkedGit?.directory ===
-              authorization!.scope.sourceGitEffects.administrationDirectory,
+              f.f.workspace.get(authorization!.request.id).pendingHostTaskDecision?.state ===
+              'consumed',
           );
-          await sourceChecks('post-receipt', false);
-        };
-        await runRecordedPreparationAttempt(
-          diagnostics,
-          async () => {
-            if (profileOnly) {
-              let error: unknown;
+          for (const [index, path] of [
+            authorization!.scope.create.task.directory,
+            authorization!.scope.sourceGitEffects.administrationDirectory,
+            authorization!.scope.sourceGitEffects.branchReference,
+          ].entries())
+            await diagnostics.check(`profile-absent-${index}`, async () => {
               try {
-                await diagnostics.capture('profile-operation', run);
-              } catch (caught) {
-                error = caught;
+                await lstat(path);
+                return false;
+              } catch (error) {
+                return (error as NodeJS.ErrnoException).code === 'ENOENT';
               }
-              await diagnostics.check(
-                'profile-expected-error',
-                async () => (error as { code?: string })?.code === 'pending_host_task_uncertain',
-              );
-            } else receipt = await run();
-          },
-          inspect,
-          async () => persistAttempt(),
+            });
+          return;
+        }
+        await diagnostics.check('primary-custody', async () => {
+          if (!originalContext) throw Error('Original preparation context unavailable');
+          return (
+            f.f.workspace.getOrdinaryWorkspaceForConversation(originalContext.conversationId)
+              ?.id === originalContext.workspace.id
+          );
+        });
+        await diagnostics.check('repository-primary', async () => {
+          if (!originalContext) throw Error('Original preparation context unavailable');
+          return f.f.workspace.getForConversation(originalContext.conversationId) === undefined;
+        });
+        await diagnostics.check(
+          'task-linkage',
+          async () =>
+            (await readFile(
+              join(receipt?.directory ?? authorization!.scope.create.task.directory, '.git'),
+              'utf8',
+            )) === `gitdir: ${authorization!.scope.sourceGitEffects.administrationDirectory}\n`,
         );
-        if (profileOnly) return { profiled: true };
-        prepared = true;
-        return { prepared: true };
-      },
-      { nativeBaseReads: true, preparationEnvelope: true, diagnostics },
-    );
-    const serviceState = observePreparationService(diagnostics, f.f.workspace);
+        if (!receipt) {
+          for (const name of ['receipt-materialized', 'receipt-task-identity'])
+            diagnostics.skip(name);
+          return;
+        }
+        receiptState = {
+          status: nativeRun ? 'service-returned' : 'returned',
+          adapterReturned: normalizedResult !== undefined,
+          state: receipt.state,
+          sha256: createHash('sha256').update(JSON.stringify(receipt)).digest('hex'),
+          taskIdentitySha256: receipt.taskIdentity
+            ? createHash('sha256').update(JSON.stringify(receipt.taskIdentity)).digest('hex')
+            : null,
+        };
+        await diagnostics.check(
+          'receipt-materialized',
+          async () => receipt!.state === 'materialized',
+        );
+        await diagnostics.check(
+          'receipt-task-identity',
+          async () =>
+            receipt!.taskIdentity?.linkedGit?.directory ===
+            authorization!.scope.sourceGitEffects.administrationDirectory,
+        );
+        await sourceChecks('post-receipt', false);
+      };
+      await runRecordedPreparationAttempt(
+        diagnostics,
+        async () => {
+          if (profileOnly) {
+            let error: unknown;
+            try {
+              await diagnostics.capture('profile-operation', run);
+            } catch (caught) {
+              error = caught;
+            }
+            await diagnostics.check(
+              'profile-expected-error',
+              async () => (error as { code?: string })?.code === 'pending_host_task_uncertain',
+            );
+          } else if (nativeRun) normalizedPreparedResult = normalizedResult = await nativeRun();
+          else receipt = await run();
+        },
+        inspect,
+        async () => persistAttempt(),
+      );
+      if (profileOnly) return { profiled: true };
+      prepared = true;
+      return normalizedResult ?? { prepared: true };
+    };
+    const f = await localPreparationNativeFixture(cleanups, executeAttempt, {
+      nativeBaseReads: true,
+      preparationEnvelope: profileOnly,
+      diagnostics,
+      ...(!profileOnly
+        ? {
+            executeOriginalCapture: async (capture, input, signal) => {
+              const result = await executeAttempt(undefined, input, undefined, () =>
+                executeNativeLocalRepositoryPreparation(
+                  { capture, events: f.f.events, registry: f.registry, workspaces: f.f.workspace },
+                  input,
+                  signal,
+                ),
+              );
+              if (!('content' in result) || !('isError' in result))
+                throw Error('Normalized native preparation result missing');
+              return result; // actual adapter result, never JSON-normalized twice
+            },
+          }
+        : {}),
+    });
+    const serviceState = observePreparationService(diagnostics, f.f.workspace, (value) => {
+      observedReceipt = value;
+    });
     const finalize = f.f.workspace.finalizePendingHostTaskDecision;
     vi.spyOn(f.f.workspace, 'finalizePendingHostTaskDecision').mockImplementation((...args) => {
       const result = Reflect.apply(finalize, f.f.workspace, args);
@@ -560,8 +649,16 @@ actual(
             diagnostics: diagnostics.snapshot(),
             rowState,
             receiptState,
+            postPreparation,
             serviceState: serviceState(),
-            cleanup: { returnedReaders: returnedReaders.length, completed: cleanupCounts },
+            cleanup: {
+              returnedReaders: returnedReaders.length,
+              completed: cleanupCounts,
+              contextDisposalIndependentlyObserved: profileOnly,
+              contextDisposal: profileOnly
+                ? (diagnostics.snapshot().stages['context-dispose'] ?? null)
+                : 'unknown',
+            },
             phases,
             metrics,
             profileOnly,
@@ -581,6 +678,179 @@ actual(
       async () => {},
       async () => persistAttempt(),
     );
+    if (
+      !profileOnly &&
+      result.response.success &&
+      observedReceipt &&
+      observedContext &&
+      normalizedPreparedResult
+    ) {
+      const receipt = observedReceipt;
+      const original = observedContext; // historical tuple only, never reused as current authority
+      const normalized = normalizedPreparedResult;
+      const source = original.nativeTarget!;
+      const binding = f.a.initial.lease.binding;
+      const custodyBefore = f.native.readHostCustody(f.a.sessionId, binding);
+      const taskCanary = join(receipt.directory, 'host-acceptance-task.txt');
+      let boundaryEntered = false;
+      let boundarySettled = false;
+      let boundaryError: unknown;
+      await recordPreparationAttempt(
+        diagnostics,
+        'post-prepare-admission',
+        async () => {
+          const start = performance.now();
+          postPreparation.status = 'waiting-for-completed-boundary';
+          try {
+            f.a.installPreparedBoundary(async (assertConversationCurrentSync) => {
+              if (boundaryEntered) return;
+              boundaryEntered = true;
+              try {
+                const durable = f.native.completedPreparedRepositoryResultSha256(
+                  f.a.sessionId,
+                  binding,
+                  source,
+                  original.callId,
+                  original.requestHash,
+                );
+                if (durable !== preparedRepositoryResultSha256(normalized))
+                  throw Error('Actual completed preparation result mismatch');
+                const admission = f.a.initial.admission;
+                const selectedPolicy = () =>
+                  composeOwnedLocalNativeExecutionPolicy({
+                    session: f.a.session,
+                    binding,
+                    assertCurrentSync: () =>
+                      admission.assertPreparedRepositoryBoundaryCurrentSync(),
+                  });
+                const owner = Object.freeze({
+                  signal: f.f.signal.signal,
+                  selectedPolicy,
+                  assertCurrentSync: () => admission.assertPreparedRepositoryBoundaryCurrentSync(),
+                });
+                const adopted = await diagnostics.capture('prepared-boundary', () =>
+                  withPreparedRepositoryBarrierReadScope(
+                    selectedPolicy(),
+                    source.commandId,
+                    {
+                      signal: f.f.signal.signal,
+                      selectedPolicy,
+                      assertCurrentSync: () => {
+                        assertConversationCurrentSync();
+                        admission.assertPreparedRepositoryBoundaryCurrentSync();
+                      },
+                      revalidate: async () => {
+                        await admission.assertCurrent();
+                        assertConversationCurrentSync();
+                      },
+                    },
+                    (scope) =>
+                      admission.adoptPreparedRepositoryAtBoundary(
+                        scope,
+                        source,
+                        assertConversationCurrentSync,
+                        owner,
+                      ),
+                  ),
+                );
+                if (adopted?.id !== receipt.request.id || adopted.directory !== receipt.directory)
+                  throw Error('Actual materialized primary was not adopted');
+                postPreparation.status = 'actual-primary-adopted';
+                await writeFile(taskCanary, 'Retain new task work');
+              } catch (error) {
+                boundaryError = error;
+                throw error;
+              } finally {
+                boundarySettled = true;
+              }
+            });
+            await f.a.complete();
+            await vi.waitFor(
+              () => {
+                if (!boundarySettled) throw Error('Waiting for original completed boundary');
+              },
+              { timeout: 60000 },
+            ); // harness wait only; original authority deadlines remain unchanged
+            if (boundaryError) throw boundaryError;
+            await vi.waitFor(
+              () => {
+                const children = f.native
+                  .commands(f.a.sessionId, binding)
+                  .filter((command) => command.id !== source.commandId);
+                if (
+                  f.a.requests.filter((request) => request.method === 'turn/start').length !== 2 ||
+                  children.length !== 1 ||
+                  f.native.readNativeExecution(f.a.sessionId, binding, children[0])?.phase !==
+                    'accepted'
+                )
+                  throw Error('Waiting for actual queued child turn');
+              },
+              { timeout: 10000 },
+            );
+            postPreparation.status = 'second-turn-acknowledged-by-controlled-rpc';
+          } finally {
+            postPreparation.elapsedMs = performance.now() - start;
+          }
+        },
+        async () => {
+          await diagnostics.check(
+            'adopted-source-observer',
+            async () => typeof sourcePreservation === 'function',
+          );
+          await sourcePreservation?.('adopted', true);
+          await diagnostics.check(
+            'adopted-task-work',
+            async () => (await readFile(taskCanary, 'utf8')) === 'Retain new task work',
+          );
+          await diagnostics.check(
+            'adopted-repository-primary',
+            async () => f.f.workspace.getForConversation(f.a.sessionId)?.id === receipt.request.id,
+          );
+          await diagnostics.check(
+            'adopted-event-cwd',
+            async () => f.f.events.getSession(f.a.sessionId)?.cwd === receipt.directory,
+          );
+          await diagnostics.check(
+            'adopted-native-cwd',
+            async () => f.native.read(f.a.sessionId, binding).cwd === receipt.directory,
+          );
+          await diagnostics.check(
+            'adopted-original-client',
+            async () =>
+              f.a.initial.lease.client === f.f.rpc &&
+              JSON.stringify(f.native.readHostCustody(f.a.sessionId, binding)) ===
+                JSON.stringify(custodyBefore),
+          );
+          await diagnostics.check('adopted-child-fifo', async () => {
+            const children = f.native
+              .commands(f.a.sessionId, binding)
+              .filter((command) => command.id !== source.commandId);
+            return (
+              children.length === 1 &&
+              f.f.events.observePreparedRepositoryContinuation(children[0].id).state === 'consumed'
+            );
+          });
+          await diagnostics.check('adopted-second-turn', async () => {
+            const starts = f.a.requests.filter((request) => request.method === 'turn/start');
+            return starts.length === 2 && starts[1].params.cwd === receipt.directory;
+          });
+          await diagnostics.check(
+            'original-execution-cwd',
+            async () =>
+              f.native.readNativeExecution(f.a.sessionId, binding, {
+                id: source.commandId,
+                attempt: source.attempt,
+              })?.policy.cwd === f.a.initial.workspace.directory,
+          );
+          await diagnostics.observe('post-adoption-row', async () => {
+            postPreparation.rowSha256 = createHash('sha256')
+              .update(JSON.stringify(f.f.workspace.get(receipt.request.id)))
+              .digest('hex');
+          });
+        },
+        async () => persistAttempt(),
+      );
+    }
     expect(atRunRepository.trackedStatus).toBe('');
     expect(rowState).toMatchObject({ status: 'observed' });
     expect(cleanupCounts.reader).toBe(returnedReaders.length);
@@ -598,7 +868,21 @@ actual(
       result.response.success,
       JSON.stringify({ value: result.value, phases, metrics, permissions: f.permissions.length }),
     ).toBe(true);
-    expect(result.value).toEqual(profileOnly ? { profiled: true } : { prepared: true });
+    expect(result.value).toEqual(
+      profileOnly
+        ? { profiled: true }
+        : {
+            preparationId: observedReceipt?.request.id,
+            directory: observedReceipt?.directory,
+            state: 'materialized',
+          },
+    );
+    if (!profileOnly) {
+      expect(observedReceipt).toBeDefined();
+      expect(metrics.source.captureCalls).toBeGreaterThan(0);
+      expect(metrics.source.fullOwnerCallsObserved).toBe(false);
+      expect(metrics.source.calls).toBeNull();
+    }
     expect(prepared).toBe(!profileOnly);
     if (profileOnly) {
       expect(metrics.effectTransports.calls).toBe(0);
@@ -606,7 +890,10 @@ actual(
     }
     expect(f.permissions).toHaveLength(1);
   },
-  300000,
+  // Test-harness budget for consecutive stages only: unchanged preparation
+  // envelope (300s), fresh boundary wait (60s), child RPC wait (10s), and setup/
+  // evidence cleanup. No approval/read/helper/native authority is extended.
+  420000,
 );
 
 it('refuses a fabricated operation in the actual signed callback before allocation or source effects', async () => {

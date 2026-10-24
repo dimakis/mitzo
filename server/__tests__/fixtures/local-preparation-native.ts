@@ -16,7 +16,7 @@ import {
 } from '../../native-host-tool-context.js';
 import { bindAgentToolSelection } from '../../agent-tool-selection.js';
 import { CodexConversationStore } from '../../codex-conversation-store.js';
-import { CodexConversation } from '../../codex-conversation.js';
+import { CodexConversation, type CodexConversationOptions } from '../../codex-conversation.js';
 import type { CodexLifecycleTransport } from '../../codex-app-server-client.js';
 import {
   OrdinaryLocalCodexOwnedRuntime,
@@ -40,6 +40,12 @@ export async function localPreparationNativeFixture(
     nativeBaseReads?: boolean;
     preparationEnvelope?: boolean;
     diagnostics?: PreparationAttemptDiagnostics;
+    /** Private test-only raw ORIGINAL callback; never a product registration option. */
+    executeOriginalCapture?: (
+      capture: (signal: AbortSignal) => NativeHostToolContext,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+    ) => Promise<{ content: string; isError: boolean }>;
   } = {},
 ) {
   const f = await ownedRuntimeFixture(cleanups, {
@@ -90,6 +96,7 @@ export async function localPreparationNativeFixture(
     bindAgentToolSelection(session, f.agentProfile.definition, 'codex-owned-local');
     let conversation!: CodexConversation;
     let callbacks!: CodexLifecycleTransport;
+    let conversationOptions!: CodexConversationOptions;
     let turn = 0;
     const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
     const originalRequest = selected.rpc.request.getMockImplementation()!;
@@ -140,7 +147,7 @@ export async function localPreparationNativeFixture(
             assertCurrentSync: () => dispatch.admission.assertCurrentSync(),
           });
         const nativeExecution = options.nativeBaseReads ? selectedNativePolicy() : undefined;
-        conversation = new CodexConversation({
+        conversationOptions = {
           conversationId: sessionId,
           cwd: dispatch.workspace.directory!,
           profile: dispatch.profile,
@@ -205,12 +212,9 @@ export async function localPreparationNativeFixture(
               turnId,
             ),
           executeTool: async (name, input, signal, call) => {
-            const run = async (
-              ownedSignal: AbortSignal,
-              envelope?: Readonly<LocalRepositoryPreparationEnvelope>,
-            ) => {
+            const capture = (ownedSignal: AbortSignal) => {
               const meta = f.events.getSession(sessionId)!;
-              const scope = captureNativeHostToolContext({
+              return captureNativeHostToolContext({
                 events: f.events,
                 native,
                 registry,
@@ -236,6 +240,21 @@ export async function localPreparationNativeFixture(
                 call,
                 signal: ownedSignal,
               });
+            };
+            if (options.executeOriginalCapture) {
+              const invoke = () => options.executeOriginalCapture!(capture, input, signal);
+              // The real adapter owns its genuine context and joined disposal.
+              // Observe this outer callback without replacing immutable owners
+              // or inferring an independently observed context cleanup outcome.
+              return options.diagnostics
+                ? options.diagnostics.capture('raw-callback', invoke)
+                : invoke();
+            }
+            const run = async (
+              ownedSignal: AbortSignal,
+              envelope?: Readonly<LocalRepositoryPreparationEnvelope>,
+            ) => {
+              const scope = capture(ownedSignal);
               try {
                 const value = options.diagnostics
                   ? await options.diagnostics.capture('callback', () =>
@@ -258,7 +277,8 @@ export async function localPreparationNativeFixture(
                 )
               : run(signal);
           },
-        });
+        };
+        conversation = new CodexConversation(conversationOptions);
         cleanups.push(() => conversation.close());
         await conversation.initialize();
         await conversation.admitExplicitSend({
@@ -313,6 +333,14 @@ export async function localPreparationNativeFixture(
       requests,
       rpc: selected.rpc,
       initial,
+      // Test-only installation on the ORIGINAL runtime options; the actual
+      // conversation generates/expires its original preclaim lifetime fence.
+      installPreparedBoundary(admit: (assertCurrentSync: () => void) => Promise<void>) {
+        conversationOptions.beforeRuntimeAdmission = Object.freeze({
+          kind: 'prepared-repository-primary',
+          admit,
+        });
+      },
       async call(input: Record<string, unknown>, override?: Record<string, unknown>) {
         const response = await callbacks.onRequest(
           'item/tool/call',
