@@ -247,7 +247,27 @@ it('retains actual native task-tool evidence and pending review across App proce
     });
     await vi.waitFor(async () => {
       const snapshot = await h.snapshot(workerId, command.clientMsgId);
-      const results = snapshot.events.filter((e) => e.type === 'tool_result');
+      // Discovery results are durable too. Match original effects through their
+      // actual public tool IDs; also require the complete sequence and all results.
+      const allResults = snapshot.events.filter((e) => e.type === 'tool_result');
+      const calls = snapshot.events
+        .filter((e) => e.type === 'block_end' && e.payload.blockType === 'tool_use')
+        .map((e) => e.payload);
+      expect(calls.map((call) => call.toolName)).toEqual(
+        toolCalls.flatMap(({ name }) =>
+          name.startsWith('mcp__')
+            ? ['ListIntegrationTools', 'DescribeIntegrationTool', name]
+            : [name],
+        ),
+      );
+      const originalIds = new Set(
+        calls
+          .filter((call) => toolCalls.some(({ name }) => name === call.toolName))
+          .map((call) => call.toolId),
+      );
+      const results = allResults.filter((e) => originalIds.has(e.payload.toolId));
+      expect(allResults).toHaveLength(13);
+      expect(allResults.every((e) => e.payload.isError === false)).toBe(true);
       expect(results).toHaveLength(5);
       expect(results.every((e) => (e.payload as { isError?: boolean }).isError === false)).toBe(
         true,

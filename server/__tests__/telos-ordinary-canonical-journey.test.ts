@@ -1,3 +1,4 @@
+import { prepareNativeProviderToolCall } from './fixtures/native-provider-tool-call.js';
 import { afterAll, afterEach, expect, it as platformTest, vi } from 'vitest';
 import request from 'supertest';
 import { randomUUID, createHash } from 'node:crypto';
@@ -532,22 +533,18 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
   const retained = canonical.artifacts.read(output.id, output.revision);
   expect(retained.bytes.toString()).toBe(report);
   expect(retained.sha256).toBe(output.sha256);
-  const nativeTool = async (name: string, args: object) => {
-    const definition = workerNative.tools.find((tool) => tool.description.startsWith(name + ':'));
+  const nativeTool = async (name: string, args: Record<string, unknown>) => {
+    const prepared = await prepareNativeProviderToolCall(workerNative, name, args);
     expect(
-      definition,
-      'Actual task MCP definition must be registered with the provider',
+      prepared.contract,
+      'Actual task MCP contract must be discovered through the registered provider bridge',
     ).toBeTruthy();
+    expect(prepared.contract?.name).toBe(name);
+    expect(prepared.request.tool).toBe('InvokeIntegrationTool');
     const before = streamMessages.length;
     const pending = workerNative.lifecycle.onRequest(
       'item/tool/call',
-      {
-        threadId: workerNative.threadId,
-        turnId: workerNative.turnId,
-        callId: randomUUID(),
-        tool: definition!.name,
-        arguments: args,
-      },
+      prepared.request,
       new AbortController().signal,
     ) as Promise<{ success: boolean; contentItems: Array<{ text: string }> }>;
     await vi.waitFor(() =>

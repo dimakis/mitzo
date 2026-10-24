@@ -1,3 +1,4 @@
+import { prepareNativeProviderToolCall } from '../../../../server/__tests__/fixtures/native-provider-tool-call.ts';
 // Dedicated test child. Never imports index.ts or starts host/runtime services.
 import process from 'node:process';
 import { Buffer } from 'node:buffer';
@@ -184,18 +185,15 @@ process.on('message', async (message) => {
   if (message?.type === 'provider-tool-call') {
     try {
       const current = fakeNative.at(-1);
-      const definition = current?.definitions.find(
-        (tool) => tool.name === message.name || tool.description.startsWith(message.name + ':'),
+      if (!current?.turnId) throw Error('Actual current native turn unavailable');
+      const prepared = await prepareNativeProviderToolCall(
+        { ...current, tools: current.definitions },
+        message.name,
+        message.args,
+        message.callId,
       );
-      if (!current?.turnId || !definition)
-        throw Error('Actual current dynamic tool unavailable: ' + message.name);
-      const request = {
-        threadId: current.threadId,
-        turnId: current.turnId,
-        callId: message.callId,
-        tool: definition.name,
-        arguments: message.args,
-      };
+      for (const entry of prepared.discovery) effect('provider.discovery', entry);
+      const request = prepared.request;
       effect('provider.tool.request', { name: message.name, ...request });
       // Simulated external provider input only. Real lifecycle parser, permission,
       // task/stdio/HTTP/file owners produce every result and durable transition.
@@ -207,7 +205,8 @@ process.on('message', async (message) => {
       const value = {
         callId: message.callId,
         name: message.name,
-        wireName: definition.name,
+        wireName: request.tool,
+        contract: prepared.contract,
         threadId: current.threadId,
         turnId: current.turnId,
         result,
