@@ -1,0 +1,72 @@
+{
+  "numTotalTestSuites": 1,
+  "numPassedTestSuites": 0,
+  "numFailedTestSuites": 1,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 3,
+  "numPassedTests": 2,
+  "numFailedTests": 1,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1792449462262,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "actual app: authenticated durable reads preserve separate ordinary histories and redact private fields",
+          "status": "passed",
+          "title": "actual app: authenticated durable reads preserve separate ordinary histories and redact private fields",
+          "duration": 13.261167000000114,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "actual app: message text cannot replace interactive or internal authority",
+          "status": "passed",
+          "title": "actual app: message text cannot replace interactive or internal authority",
+          "duration": 4.779167000000143,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "REQUIRED RED: the actual app admits an explicitly directed message instead of its unconditional unavailable response",
+          "status": "failed",
+          "title": "REQUIRED RED: the actual app admits an explicitly directed message instead of its unconditional unavailable response",
+          "duration": 3.278457999999773,
+          "failureMessages": [
+            "AssertionError: {\"code\":\"execution_unavailable\",\"error\":\"Fresh-agent preparation and ordinary delivery are not wired. No session or model is started.\",\"execution\":{\"enabled\":false,\"reason\":\"Fresh-agent preparation and ordinary delivery are not wired. No session or model is started.\"}}: expected 503 to be less than 300\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-integrated-candidate-acceptance/tests/integration/telos-s9/integrated-candidate/peer-messaging.required-contract.ts:163:58\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at file:///Users/dsaridak/tools/mitzo-releases/main-d0b06dc200a1/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+          ],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792449465566,
+      "endTime": 1792449465587.2786,
+      "status": "failed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-integrated-candidate-acceptance/tests/integration/telos-s9/integrated-candidate/peer-messaging.required-contract.ts"
+    }
+  ]
+}

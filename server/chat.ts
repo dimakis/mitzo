@@ -32,6 +32,7 @@ import { nativeStartupSessionId, reserveRepositoryStartup } from './ordinary-rep
 import { PROFILE_TOOL_INSTRUCTIONS } from './session-profile-tools.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
+import { retainNativeHostToolOperator } from './native-host-tool-context.js';
 import { findNativeMacExecutionUnavailable } from './codex-native-artifact-qualification.js';
 import {
   OrdinaryLocalCodexOwnedRuntime,
@@ -209,8 +210,23 @@ import type { TaskStore } from './task-store.js';
 import { loadAgentDef } from './agent-loader.js';
 
 let _taskStore: TaskStore | null = null;
-export function setTaskStore(store: TaskStore): void {
+let taskStoreInstallation = 0;
+/** Return a denial-only check for this actual installation. Even change-back
+ * advances the generation and cannot revive a previous App assembly. */
+export function setTaskStore(store: TaskStore): () => void {
   _taskStore = store;
+  const generation = ++taskStoreInstallation;
+  const installedEvents = eventStore;
+  let invalidated = false;
+  return () => {
+    if (
+      _taskStore !== store ||
+      taskStoreInstallation !== generation ||
+      eventStore !== installedEvents
+    )
+      invalidated = true;
+    if (invalidated) throw new Error('Actual installed Telos chat owners changed');
+  };
 }
 
 /** Existing ordinary admission calls this before effects and after awaits.
@@ -3249,6 +3265,7 @@ export async function startOwnedLocalCodexCommand(
       dispatch: async (dispatch) => {
         if (prepared || released || !driver) throw unavailable();
         prepared = await prepareOwnedLocalCodexChat(transport, clientId, dispatch, {
+          operatorConnectionId,
           ownerConnectionId,
           ownerAuthSessionId,
           onEnded: release,
@@ -3344,6 +3361,8 @@ export async function prepareOwnedCodexChat(
   clientId: string,
   input: OrdinaryLocalCodexOwnedDispatch<LocalWorkspaceKind> | OrdinaryOpenShellCodexOwnedDispatch,
   options: {
+    /** Retained startup operator, distinct from the browser's event connection. */
+    operatorConnectionId?: string;
     ownerConnectionId?: string;
     ownerAuthSessionId?: string;
     onSessionResolved?: (sessionId: string) => void;
@@ -3437,6 +3456,7 @@ export async function prepareOwnedCodexChat(
   let ownedClientId = clientId;
   let closed = false;
   let ran = false;
+  let releaseNativeHostOperator: (() => void) | undefined;
   const close = () => {
     if (closed) return;
     closed = true;
@@ -3451,6 +3471,7 @@ export async function prepareOwnedCodexChat(
     };
     attempt(() => queryInstance?.close());
     attempt(() => admission.close());
+    attempt(() => releaseNativeHostOperator?.());
     attempt(() => {
       const current = registry.findBySessionId(sessionId);
       if (session && current?.session === session) {
@@ -3495,6 +3516,11 @@ export async function prepareOwnedCodexChat(
       ownedLocalAuthSessionId: options.ownerAuthSessionId,
     });
     session = registry.get(clientId)!;
+    if (localAdmission && options.operatorConnectionId)
+      releaseNativeHostOperator = retainNativeHostToolOperator(
+        session,
+        options.operatorConnectionId,
+      );
     resolveOwnedTelosWorkCommandScope(sessionId);
     // Existing public stop/interrupt controls expect this lifecycle marker.
     // Native commands remain owned exclusively by CodexConversation's FIFO.

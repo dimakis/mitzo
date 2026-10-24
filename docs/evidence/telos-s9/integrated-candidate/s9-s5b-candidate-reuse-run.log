@@ -1,0 +1,48 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s5b-candidate-acceptance
+
+{"level":30,"time":1792449498490,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-Tuk5An/controller-workspace/.mitzo/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449498491,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"workload-store","msg":"WorkloadStore initialized (shared DB)"}
+{"level":30,"time":1792449498507,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"session-sse","intervalMs":30000,"msg":"Starting SSE chat heartbeat"}
+{"level":30,"time":1792449499461,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"query-loop","clientId":"9ba706d8-8d58-4ac5-8bfb-525278e8f1e7:5bc26387-3406-8fad-8286-cb79865c8a9e","msg":"query loop started"}
+{"level":30,"time":1792449501144,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"query-loop","clientId":"9ba706d8-8d58-4ac5-8bfb-525278e8f1e7:41dbac79-6897-8a11-b7ba-696f2bec98f9","msg":"query loop started"}
+{"level":40,"time":1792449501144,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"server","route":"/first","method":"POST","status":202,"durationMs":850.76,"aborted":false,"msg":"Slow API request"}
+{"level":30,"time":1792449501158,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"query-loop","clientId":"9ba706d8-8d58-4ac5-8bfb-525278e8f1e7:41dbac79-6897-8a11-b7ba-696f2bec98f9","blockId":"b0","blockType":"text","contentLength":37,"msg":"text block complete"}
+{"level":40,"time":1792449501856,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"server","route":"/api/internal/telos/artifacts/save","method":"POST","status":200,"durationMs":697.68,"aborted":false,"msg":"Slow API request"}
+{"level":30,"time":1792449501963,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"query-loop","clientId":"9ba706d8-8d58-4ac5-8bfb-525278e8f1e7:41dbac79-6897-8a11-b7ba-696f2bec98f9","tool":"mcp__task-board__TaskArtifact","toolId":"bb22f6f0-7c7e-4455-af08-774b4d4f2394","msg":"tool call"}
+{"level":30,"time":1792449502026,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"query-loop","clientId":"9ba706d8-8d58-4ac5-8bfb-525278e8f1e7:41dbac79-6897-8a11-b7ba-696f2bec98f9","toolId":"bb22f6f0-7c7e-4455-af08-774b4d4f2394","isError":false,"resultLength":69,"imageCount":0,"msg":"tool result"}
+{"level":30,"time":1792449502196,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"query-loop","clientId":"9ba706d8-8d58-4ac5-8bfb-525278e8f1e7:41dbac79-6897-8a11-b7ba-696f2bec98f9","tool":"mcp__task-board__TaskComplete","toolId":"f0267568-4f07-4a59-a492-431489ed3269","msg":"tool call"}
+{"level":30,"time":1792449502230,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"query-loop","clientId":"9ba706d8-8d58-4ac5-8bfb-525278e8f1e7:41dbac79-6897-8a11-b7ba-696f2bec98f9","toolId":"f0267568-4f07-4a59-a492-431489ed3269","isError":false,"resultLength":76,"imageCount":0,"msg":"tool result"}
+{"level":30,"time":1792449502307,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"task-orchestrator","taskId":"cefc322a-fabc-46de-b88b-f708ae264cce","msg":"task approved"}
+{"level":30,"time":1792449502319,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"query-loop","clientId":"9ba706d8-8d58-4ac5-8bfb-525278e8f1e7:5bc26387-3406-8fad-8286-cb79865c8a9e","sessionId":"5bc26387-3406-8fad-8286-cb79865c8a9e","msg":"result received"}
+{"level":30,"time":1792449502321,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"query-loop","clientId":"9ba706d8-8d58-4ac5-8bfb-525278e8f1e7:41dbac79-6897-8a11-b7ba-696f2bec98f9","sessionId":"41dbac79-6897-8a11-b7ba-696f2bec98f9","msg":"result received"}
+{"level":30,"time":1792449502330,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"query-loop","clientId":"9ba706d8-8d58-4ac5-8bfb-525278e8f1e7:5bc26387-3406-8fad-8286-cb79865c8a9e","doneSent":true,"caughtError":false,"msg":"query loop ended"}
+{"level":30,"time":1792449502330,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"query-loop","clientId":"9ba706d8-8d58-4ac5-8bfb-525278e8f1e7:41dbac79-6897-8a11-b7ba-696f2bec98f9","doneSent":true,"caughtError":false,"msg":"query loop ended"}
+{"level":30,"time":1792449502331,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-Tuk5An/controller-workspace/.mitzo/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449502341,"pid":99396,"hostname":"Dimitris-MacBook-Pro","module":"session-sse","msg":"Stopping SSE chat heartbeat"}
+ ✓ server/__tests__/telos-ordinary-canonical-journey.test.ts (1 test) 7628ms
+   ✓ CT09: actual canonical non-Git advisor-to-worker journey retains file bytes, review and verified completion  7627ms
+{"level":30,"time":1792449505221,"pid":701,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-11abrG/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449506183,"pid":701,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-b95YFO/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449506253,"pid":701,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-b95YFO/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449506863,"pid":701,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-5dhS2Z/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449506889,"pid":701,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-5dhS2Z/tasks.db","msg":"TaskStore initialized"}
+ ✓ tests/integration/telos-s9/accepted-foundations/recovery.test.tsx (3 tests) 2435ms
+   ✓ CT03 accepted-source full boundary: definite real HTTP stale rejection permits fresh review of the same retained draft after reload  868ms
+   ✓ CT04 real committed response loss stays uncertain until exact hook/client/HTTP replay recovers the original allocation  888ms
+   ✓ CT04 post-intent HTTP conflict retains the original request across reload and cannot start a fresh review  634ms
+{"level":30,"time":1792449508190,"pid":1670,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-yUzpoQ/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449508373,"pid":1670,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-yUzpoQ/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449508944,"pid":1670,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-yUzpoQ/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449509001,"pid":1670,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-yUzpoQ/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449509001,"pid":1670,"hostname":"Dimitris-MacBook-Pro","module":"task-orchestrator","taskId":"977e2d60-8312-4a32-b750-5cf09b1e66cd","msg":"task approved"}
+{"level":30,"time":1792449509005,"pid":1670,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-yUzpoQ/tasks.db","msg":"TaskStore initialized"}
+ ✓ tests/integration/telos-s9/accepted-foundations/vertical.test.ts (1 test) 1407ms
+   ✓ CT06/17/18 partial: origin and actual advisor-created child reach accepted delegation, retained result and explicit task review without pre-seeding the child  1406ms
+
+ Test Files  3 passed (3)
+      Tests  5 passed (5)
+   Start at  23:38:14
+   Duration  14.50s (transform 2.59s, setup 0ms, import 2.72s, tests 11.47s, environment 0ms)
+
+JSON report written to /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S5B-CANDIDATE-REUSE-RESULTS.json

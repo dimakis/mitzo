@@ -1,0 +1,238 @@
+{
+  "version": 1,
+  "scope": "Closed supplemental offline owner journeys, separate from unchanged required-nine selection",
+  "expectedCases": 17,
+  "cases": [
+    {
+      "name": "chooser-hydration",
+      "config": "vitest.chooser-hydration.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/chooser-hydration-browser.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "d3a06681f7f7b8a99b0d81b04ea65b6dac712b37",
+      "caseSha256AtIntake": "feb07f4b082ca51aa744172f72f96a87174111f6dbd232ee16fd0a50af8e61bb",
+      "configSha256AtIntake": "6439947a34eb4b1c573889ed5fd1e470dd87fd0f27e9178f5d6561720e6d7659",
+      "currentCaseSha256": "feb07f4b082ca51aa744172f72f96a87174111f6dbd232ee16fd0a50af8e61bb"
+    },
+    {
+      "name": "voice-image",
+      "config": "vitest.voice-image.config.ts",
+      "files": ["tests/integration/telos-s9/integrated-candidate/voice-image-browser.contract.ts"],
+      "expectedTests": 1,
+      "frozenSource": "d3a06681f7f7b8a99b0d81b04ea65b6dac712b37",
+      "caseSha256AtIntake": "d09af3c3b4f155014db405c6d0abaa9ec6de9330c6a44b0d0d2059d1edbfef48",
+      "configSha256AtIntake": "5767d013942b25dde164061378c3b518f66dec2f19ec5a4ec72327314aba0585",
+      "currentCaseSha256": "63e3924615d16fe1242bad52cada74a9bd0ec1313cc809a63b8f30d1c8d428b1",
+      "correctionEvidence": "Erased-only correction qualified at private69ce; identical JavaScript"
+    },
+    {
+      "name": "navigation-context",
+      "config": "vitest.navigation-context.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/navigation-context-browser.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "d3a06681f7f7b8a99b0d81b04ea65b6dac712b37",
+      "caseSha256AtIntake": "d84fe557dfef602138e8a4df2618e03af5f75bf169a0d99aad75927c37e8be2d",
+      "configSha256AtIntake": "cb37b795610758a3a81358c614f21295d45a1e28c877a08336c8ca3d4b0b63f1",
+      "currentCaseSha256": "d84fe557dfef602138e8a4df2618e03af5f75bf169a0d99aad75927c37e8be2d"
+    },
+    {
+      "name": "coordinator-controls",
+      "config": "vitest.coordinator-controls.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/coordinator-controls-browser.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "e446b5d0f20d4579a5cdb6bcaf82a99b3a7961d1",
+      "caseSha256AtIntake": "0aa5c6c1ae9805de414850b88bdbe53cf9d7ab8b283bcdff04ec248c5738183c",
+      "configSha256AtIntake": "2111a81073966bc73b9dbdc34ff6e20c2bff32205f6e8c17b2cc0d2b40974784",
+      "currentCaseSha256": "3586e4c521ba08b2dc1a921068f6785f3eba58519f59bb9565d88b63cf8de63f",
+      "correctionEvidence": "Erased-only correction qualified at private69ce; identical JavaScript"
+    },
+    {
+      "name": "coordinator-refresh",
+      "config": "vitest.coordinator-refresh.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/coordinator-refresh-browser.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "e446b5d0f20d4579a5cdb6bcaf82a99b3a7961d1",
+      "caseSha256AtIntake": "a9d9d4ba6307d65153a929ff77f63771be69ae3ae798b5e0f45627132e587356",
+      "configSha256AtIntake": "359a7b3f08fe465719a5925b17e0a3b9b5d1e5b84a048b752705232b6dca8d21",
+      "currentCaseSha256": "a9d9d4ba6307d65153a929ff77f63771be69ae3ae798b5e0f45627132e587356"
+    },
+    {
+      "name": "origin-material-versions",
+      "config": "vitest.origin-material-versions.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/origin-material-versions-browser.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "eea1cee020ce2ec1b624213743bcf7c88ea3805a",
+      "caseSha256AtIntake": "60e6c57928c7b1bf687c671f2d3eb33cd3b003f668f065acc369aac3d1140816",
+      "configSha256AtIntake": "113028802429717110cc67e8373e3605f41dcac432b85b047a508ed5e294d0dd",
+      "currentCaseSha256": "60e6c57928c7b1bf687c671f2d3eb33cd3b003f668f065acc369aac3d1140816"
+    },
+    {
+      "name": "process-restart",
+      "config": "vitest.process-restart.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/process-restart-browser.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "f428b18eb87a90d05f0d16c02b00b1e65577435e",
+      "caseSha256AtIntake": "2a01e6b85a7ae5c433ce9a562d18f27c5667d8503e083eae811774a1f3c7b824",
+      "configSha256AtIntake": "831e3b8e039aacd37ea5fc036388bca3b253a562ff9838178d1d0297e491557b",
+      "currentCaseSha256": "e1c1bd9f7e65e66dfa5390f1c2f8b80f418179820c4fd116af4adb97464a4534",
+      "correctionEvidence": "docs/evidence/telos-s9/integrated-candidate/contract-correction/runtime-correction-proof.json"
+    },
+    {
+      "name": "worker-process-restart",
+      "config": "vitest.worker-process-restart.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/worker-process-restart-browser.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "bf0be93cd0cd83a916d349175afdbaf6761e14f5",
+      "caseSha256AtIntake": "a46c6ed846824db5163f135a6b85c2c1694b78038107a3c03eddd694b0705c5e",
+      "configSha256AtIntake": "0ae20aa63614808c89b5028a109b5dd69b4ed441d8930c6e55a13d72edc6f0c2",
+      "currentCaseSha256": "465253b0b21f1103cb1b8ad7e2771259db64740c1fba0e3f27c1b34cb7c25234",
+      "correctionEvidence": "docs/evidence/telos-s9/integrated-candidate/contract-correction/runtime-correction-proof.json"
+    },
+    {
+      "name": "task-review-process",
+      "config": "vitest.task-review-process.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/task-review-process-browser.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "8b3c22b4897a8bb7f19646fdb433ab2abb865955",
+      "caseSha256AtIntake": "aa90e52113481959d37885b5f25b43c4bcc906b7fb27d6de551e9bf343a691e8",
+      "configSha256AtIntake": "4b34b13383f2375e5cf61cb46e9f8ac52192a3852ac5496f5664e0021e16e695",
+      "currentCaseSha256": "aa90e52113481959d37885b5f25b43c4bcc906b7fb27d6de551e9bf343a691e8"
+    },
+    {
+      "name": "legacy-backup-process",
+      "config": "vitest.legacy-backup-process.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/legacy-backup-process-browser.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "8720788c31980575a3da990d43768c9e8eac0947",
+      "caseSha256AtIntake": "e28d56adc9d1859e8d80e104307df0b33367c7ad860bfba361c02ebb311678ed",
+      "configSha256AtIntake": "b132639a0b1cff6fde31f7a3b4e0cd01f110d975cb6888ccf96be82c00678e97",
+      "currentCaseSha256": "e28d56adc9d1859e8d80e104307df0b33367c7ad860bfba361c02ebb311678ed"
+    },
+    {
+      "name": "worker-replacement",
+      "config": "vitest.worker-replacement.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/worker-replacement-browser.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "e4ef207b418b46e9a650422c1d9ee0fcb3541fad",
+      "caseSha256AtIntake": "567bcf13c4bfa2765ea1c6ebdcd7640a966b562bce4fac7a3e8ce7a69a89d1eb",
+      "configSha256AtIntake": "9a0bfa6127e96158b786620dfd46af068916de278b76385fba7a064defb0a9e3",
+      "currentCaseSha256": "567bcf13c4bfa2765ea1c6ebdcd7640a966b562bce4fac7a3e8ce7a69a89d1eb"
+    },
+    {
+      "name": "advisor-child",
+      "config": "vitest.advisor-child.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/advisor-child-browser.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "3df776dd16f7f7f2f56955696a53b8838a63f5b9",
+      "caseSha256AtIntake": "1ca229ad9b7ee8e5916ca00cb74c34335132c5e22fdbc53c0485ee261d731030",
+      "configSha256AtIntake": "09e4baf2be127446e2c73dfda08991f92849ba7d37d9d14698c7e2c103eb325c",
+      "currentCaseSha256": "1ca229ad9b7ee8e5916ca00cb74c34335132c5e22fdbc53c0485ee261d731030"
+    },
+    {
+      "name": "advisor-refine",
+      "config": "vitest.advisor-refine.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/advisor-refine-browser.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "72d6d6b8cb6456835543c96e24e3e17702b66c82",
+      "caseSha256AtIntake": "c0bae8bd3b02ed180979293295b87683b96261af0f699737d646a80748fdf828",
+      "configSha256AtIntake": "085f987118e70195135a5e450dffdb0045a5e1e16a24e2c3c2571a4ba99c72e6",
+      "currentCaseSha256": "c0bae8bd3b02ed180979293295b87683b96261af0f699737d646a80748fdf828"
+    },
+    {
+      "name": "advisor-material",
+      "config": "vitest.advisor-material.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/advisor-material-browser.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "472d5c538c86b506972fbd9b7a7356b46d7277ff",
+      "caseSha256AtIntake": "338b0e40986573679297c40a8fb5a0a8882ed314fce985d0a178cf685d998f78",
+      "configSha256AtIntake": "f8623df6e422473dac548b289b37aefe96d92fbeee0a5e05f0b6db43c687521b",
+      "currentCaseSha256": "338b0e40986573679297c40a8fb5a0a8882ed314fce985d0a178cf685d998f78"
+    },
+    {
+      "name": "advisor-material-refusal",
+      "config": "vitest.advisor-material-refusal.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/advisor-material-refusal.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "07266938a17a87d13a886e4d7623fdccc96bb319",
+      "caseSha256AtIntake": "fe8748a0ea3192882553fb7fb3ff3a558a7e8ce5bf514004bb0f7fb96ff86915",
+      "configSha256AtIntake": "798559a64c1c68404c06ebb65ef77e59efa16e57ee7f78bd71243f6a5920f694",
+      "currentCaseSha256": "fe8748a0ea3192882553fb7fb3ff3a558a7e8ce5bf514004bb0f7fb96ff86915"
+    },
+    {
+      "name": "task-chat-tree-app",
+      "config": "vitest.task-chat-tree-app.config.ts",
+      "files": ["tests/integration/telos-s9/integrated-candidate/task-chat-tree-app.contract.ts"],
+      "expectedTests": 1,
+      "frozenSource": "bbf04d660adc62618824b69124d8d3a53ff5659d",
+      "caseSha256AtIntake": "cb059caa2733e2442fd34d2fb544d0e9ddc6e2e4ee1310c2878c9e62916a1dfe",
+      "configSha256AtIntake": "a3388cc11e91d843e81048c9beceb48ebeb98ec7d532c546e36334201bcb79f6",
+      "currentCaseSha256": "cb059caa2733e2442fd34d2fb544d0e9ddc6e2e4ee1310c2878c9e62916a1dfe",
+      "requiredProductionDependencies": [
+        "Accepted #1057 exact task-association predicate",
+        "Later accepted S7 task-readability CSS corrective"
+      ],
+      "qualificationEvidence": "docs/evidence/telos-s9/integrated-candidate/task-chat-tree-app-intake/README.md"
+    },
+    {
+      "name": "source-only-outcome",
+      "config": "vitest.source-only-outcome.config.ts",
+      "files": [
+        "tests/integration/telos-s9/integrated-candidate/source-only-outcome-browser.contract.ts"
+      ],
+      "expectedTests": 1,
+      "frozenSource": "ab2c1f6617053f81364025cafe6d6116d6d16cce",
+      "caseSha256AtIntake": "36b235a0fcf5e151f6b80a25c7153dabbb787abdf98954f3aa7756689d565e48",
+      "configSha256AtIntake": "fd057f545f04ce4e584e5db0d8f74c3ab6df0ab72309ed9305d5998581d855d5",
+      "currentCaseSha256": "36b235a0fcf5e151f6b80a25c7153dabbb787abdf98954f3aa7756689d565e48",
+      "requiredProductionDependencies": [
+        "Later accepted S7 combined Home return correction and previously closed source-only route/CSS dependencies"
+      ],
+      "qualificationEvidence": "docs/evidence/telos-s9/integrated-candidate/source-only-outcome-intake/README.md",
+      "fixtureCorrectionEvidence": "One authorized erased cleanup annotation unknown to void; TypeScript5.9.3 emits byteidentical JavaScript. Raw donor/TS2345/root proof retained in source-only-outcome-intake."
+    }
+  ],
+  "limits": [
+    "Not accepted-main or full UX/device qualification",
+    "Restart requests are exact decoded JSON values, not an independently recorded raw wire-byte identity claim",
+    "Task result is a working file plus TaskBoard evidence and explicit task approval; canonical items remain active, not outcome verification",
+    "External native/provider/model effects are fake; no live model call or deployment",
+    "Legacy case proves repeated schema enrollment and byte-copy restore of completed three-owner snapshots; not historical Python migration, Restic or encrypted-cloud restore policy",
+    "Worker replacement is setup/assignment/history/delegation replay with no native admission; unavailable ledger is explicitly not read, not asserted empty",
+    "Advisor Add-child uses simulated external provider notifications through actual owners and operator UI save/source return; not Refine, material inheritance/pins, real provider terminal or native canonical output-save qualification",
+    "Advisor Refine proves same-item reviewed UI save/source return/restart with simulated external completion; selected sources and material pins empty, no nonempty inheritance/adoption/full UX/native output/main qualification",
+    "Nonempty advisor material/source state is explicitly synthetic preexisting capture/adoption; actual UI r2 edit, r1 download and saved packet/restart pins/bytes only, no UI picker/adoption or native byte-access/live/fullUX/main qualification",
+    "Material-refusal is composite reviewed custody/integrity API503 with exact state preservation; no isolated direct byte-hash predicate, UI negative/recovery, runtime/workspace recovery, native content access or current-main claim",
+    "Task chat-tree App case is source-qualified only at bbf04d: one unchanged case, three row and four layout observations; synthetic external native effects, actual App/task/file/permission owners. Current private production lacks required predicate and S7 CSS fixes; no runtime rerun or current-main/full UX claim at intake",
+    "Source-only outcome case is qualified only at ab2c1f: one 390px Chromium journey. Source capture/adoption/material pins and Home pin are synthetic pre-App state through real owners. No native CreateOutcome/AdoptSource, user creation/pinning, runtime/profile/model/main/full UX or automatic focus restoration claim. No runtime rerun at private intake; later accepted S7 Home/route/CSS prerequisites and actual accepted-base reconstruction remain mandatory."
+  ],
+  "notSelected": [
+    "ordinary-parity and ux-composition preparation configurations are not closed supplemental acceptance claims"
+  ]
+}

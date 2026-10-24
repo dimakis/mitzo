@@ -185,6 +185,7 @@ export class TelosWorkLifecycle {
     raw: unknown,
     actor: TelosWorkActor,
     assertQuiescent?: (itemId: string) => void,
+    beforeCommit?: () => void,
   ): TelosWorkLifecycleReceipt {
     this.operator(actor);
     const input = TelosWorkLifecycleCommandSchema.parse(raw);
@@ -304,6 +305,7 @@ export class TelosWorkLifecycle {
         this.db
           .prepare('INSERT INTO telos_work_lifecycle_commands VALUES(?,?,?,?)')
           .run(actorId, input.requestId, fingerprint, JSON.stringify(receipt));
+        beforeCommit?.();
         return receipt;
       })
       .immediate();

@@ -1,3 +1,9 @@
+import {
+  openTelosOwnedDatabase,
+  beginTelosDeletionReferenceScope,
+  type TelosOwnedDatabase,
+} from '@mitzo/protocol/telos-sqlite-owners';
+import { TelosWorkIdSchema } from '@mitzo/protocol';
 import { databaseBackupWatermark, backupOwnedDatabase } from '@mitzo/protocol/database-backup';
 import Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
@@ -221,14 +227,23 @@ export class TaskStore {
     return this.db;
   }
 
+  #telosOwner: TelosOwnedDatabase;
   constructor(dbPath: string) {
-    const db = new Database(dbPath);
-    this.db = db;
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    db.exec(SCHEMA);
-    this.runMigrations(db);
-    log.info('TaskStore initialized', { dbPath });
+    const owner = openTelosOwnedDatabase('tasks', dbPath);
+    this.#telosOwner = owner;
+    const db = owner.database;
+    try {
+      this.db = db;
+      db.pragma('journal_mode = WAL');
+      db.pragma('foreign_keys = ON');
+      db.exec(SCHEMA);
+      this.runMigrations(db);
+      log.info('TaskStore initialized', { dbPath });
+      owner.seal();
+    } catch (error) {
+      owner.close();
+      throw error;
+    }
   }
 
   /** Captured only through the existing owner connection; source files remain live. */
@@ -241,9 +256,39 @@ export class TaskStore {
 
   close(): void {
     if (this.db) {
-      this.db.close();
+      this.#telosOwner.close();
       this.db = null;
     }
+  }
+
+  beginTelosDeletionReferenceScope(itemId: string) {
+    TelosWorkIdSchema.parse(itemId);
+    return beginTelosDeletionReferenceScope(this.#telosOwner, () => {
+      // All retained bindings, including orphaned or inactive tasks. No join/cap.
+      const rows = this.getDb()
+        .prepare('SELECT * FROM task_telos_execution_bindings')
+        .iterate() as Iterable<Record<string, unknown>>;
+      for (const row of rows) {
+        for (const key of [
+          'task_id',
+          'attempt_id',
+          'item_id',
+          'lead_conversation_id',
+          'worker_conversation_id',
+          'context_snapshot_id',
+        ])
+          if (!TelosWorkIdSchema.safeParse(row[key]).success)
+            throw new Error('Retained Telos task custody unavailable');
+        if (
+          typeof row.context_hash !== 'string' ||
+          !/^[a-f0-9]{64}$/.test(row.context_hash) ||
+          !Number.isSafeInteger(row.created_at)
+        )
+          throw new Error('Retained Telos task custody unavailable');
+        if (Object.values(row).some((value) => typeof value === 'string' && value.includes(itemId)))
+          throw new Error('Permanent deletion refuses retained Telos task references');
+      }
+    });
   }
 
   private getDb(): Database.Database {

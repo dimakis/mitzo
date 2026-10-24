@@ -1,0 +1,31 @@
+# S9 advisor Add-child evidence review
+
+**Bounded UX07/UX08 Add-child subset PASS; no actionable source/evidence defect found.** Frozen `3df776dd16f7f7f2f56955696a53b8838a63f5b9`, tree `6203d3b2c34e86ed0557296e05b3d360ca661a9c`, direct parent `8a5faa32cc1208fc1950b92d64315c06a2aea63f`. This is private-candidate evidence intake, not full scenario5/UX07/08 or accepted-main acceptance. No tests/compiler/browser/services/network/models, producer/index edits or outgoing messages occurred during review.
+
+## Source and integrity
+
+Read the complete report/proof and four dedicated fixture/App/test/config files, relevant reused boundaries and actual advisor UI/preview/save/source owners. Relative to baseline `15291f6f40119a9fae72f6d3463ea9fb1a27880e`, exactly those four test files are added; all **89 prior S9 files** remain exact. Production72+f47, strict-nine cases/runner and workflow are unchanged. Independently verified all **667 source hashes**, **13 protected references**, **27 reported hash/size entries**, and every archive member.
+
+Source ZIP: **277 immutable tracked members + four matching custody files/Git patch**, SHA-256 `3e878748c798de2fa28561061153fcbec3226c7f81e5bb16e53c28e88a5dbc7b`. Diagnostics ZIP: **35 exact retained members**, SHA-256 `322dafa1aa399a3af35a5fecf21f66237692bd85c42f5d5ae5e5c79d5e8025e9`. Zero mismatches. Detailed hashes are in the companion JSON.
+
+## Supported approved subset
+
+Approved scenario5 and UX07/08 require a normal advisor discussion, source inspection, a reviewed draft, return to that same exchange and a link back, without worker dispatch. The selected path provides bounded functional evidence for **Add child**:
+
+- Actual Materials→Files inspection precedes ordinary Add-child advisor setup through the real settings/context review and POST200. Retained advisor context contains item/overall goal and purpose `child`. The initial actual runtime getter equals submitted settings, and the full persisted initial profile equals the published fixture profile; both remain equal after save/restart. This uses actual owner fields, not the earlier unsupported SessionMeta runtime comparison.
+- The ordinary composer sends one first command, with actual POST202 consumed/dispatched receipt. One fake external native launcher/thread/turn receives three explicitly simulated notifications: assistant delta, completed message and completed turn. Real lifecycle/parser/EventStore/transcript owners establish the resulting completed exchange. The fixture does not directly append owned history/terminal events, save a source or invent an ACK/receipt. This demonstrates host projection of simulated completion, not real provider/native-binary behavior.
+- The operator fills the real proposal fields and clicks **Save child draft**. Actual browser preview200/save200 requests are retained; there are no direct fixture preview/save calls. Saved selection boundary exactly equals the last completed transcript message ID/sequence; its preview hash equals the real preview receipt. Actual operator/context/currentness/material/source owners authorize and commit the new child and source.
+- Child ID is server-generated, with the selected name/outcome/category, parent `studio`, kind work_item and active status. It has one advisor source and no lead/worker assignment, attempt or execution task. Parent canonical item fields/no-lead assignment remain unchanged. The packet preserves the same advisor exchange and selected boundary.
+- Actual child Materials **Open original chat** opens the advisor with the exact `telosSource` snapshot ID. Both planning messages and saved-child link render; actual Back returns to that child. The same route is exercised after a distinct fresh App PID over the same private paths, signed auth and browser origin. Child/work/source packet, runtime/profile and empty TaskBoard readback remain exact.
+
+## Raw result, lifecycle and limits
+
+Final raw result is **1 PASS, 0 FAIL, 0 SKIP, 15.379 s**, SHA-256 `1374afeafb6abfaf49100ac483cbd0a5d049fb68fc0b4d2c1ced887c61069fca`. Raw observations equal the report. Both selected App PIDs and both initial diagnostic PIDs have retained ready/exit records; fixture kill awaits exit and checks absence. The archived post-teardown MCP check records no matching subprocesses. These are retained checks, not a new live process probe.
+
+Selected effects are two synthetic metadata preflight closes, one fake launcher/thread/turn and three external notification inputs. Native ledger is explicitly not read by this snapshot. Real model/provider/binary calls, tool calls, worker dispatch and task/outcome completion are not claimed. Fixture HTTP logs cover fixture/control reads; browser setup/command/preview/save requests are recorded separately.
+
+The initial diagnostic reached readback but failed overly strict whole-event equality. Its failure remains archived. The exact final patch preserves the original event prefix and permits only actual ENDED/idle session-state appends; the final run records exactly one such event. No new content/source/terminal event is allowed by that change. Initial full snapshots were not retained, and the report correctly avoids claiming otherwise. Only the final run is an acceptance case.
+
+Inspected original captures show the real proposal fields, child Materials source and post-restart exchange/child backlink. The proposal image is cropped within the chat scroller and does not show the full form/Save control; actual Save behavior comes from the UI/request assertions. The source-return filename is reused, so the retained image is the final post-restart view.
+
+Refine/reviewed-revision behavior, deeper ancestor criteria, stale/revoked/error/retry/backup variants, full theme/device/keyboard/readability/accessibility and full UX24 remain open. The acoustic material was inspected, but role-selected artifact refs and packet material pins are **empty**: no material inheritance/pin qualification is inferred. Owned native canonical output remains a separate gap. Accepted `d1120d6a…` is a reference only; selected-base/current CI/trusted review, supplemental1048 adoption and actual accepted-main retake remain separate. Parent/S9 acceptance stays active.

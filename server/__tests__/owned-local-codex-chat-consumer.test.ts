@@ -14,6 +14,7 @@ import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstr
 import { openCodexChat } from '../codex-chat-session.js';
 import { createWorktree } from '../worktree.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import * as nativeHost from '../native-host-tool-context.js';
 
 const nativeQueues = vi.hoisted(() => new WeakMap<object, { startQueued(): Promise<void> }>());
 vi.mock('../codex-chat-session.js', () => ({
@@ -316,6 +317,43 @@ function fixture(store?: EventStore, withContext = false) {
     serverOptions: { onEnded: ended },
   };
 }
+
+it.each([false, true])(
+  'retains native-tool startup authorization and releases it on close or startup failure (failure: %s)',
+  async (failStartup) => {
+    const f = fixture();
+    const release = vi.fn();
+    const retain = vi
+      .spyOn(nativeHost, 'retainNativeHostToolOperator')
+      .mockImplementation((session, operatorConnectionId) => {
+        expect(operatorConnectionId).toBe('retained-startup-operator');
+        expect(session.ownerConnectionId).toBe('browser');
+        expect(session.ownedLocalAuthSessionId).toBe('admitted-login');
+        return release;
+      });
+    if (failStartup)
+      vi.mocked(openCodexChat).mockRejectedValueOnce(Error('Offline startup failed'));
+    try {
+      const preparation = chat.prepareOwnedLocalCodexChat(f.transport, f.id, f.input, {
+        operatorConnectionId: 'retained-startup-operator',
+        ownerConnectionId: 'browser',
+        ownerAuthSessionId: 'admitted-login',
+        onEnded: f.ended,
+      });
+      if (failStartup) await expect(preparation).rejects.toThrow();
+      else {
+        const prepared = await preparation;
+        expect(release).not.toHaveBeenCalled();
+        prepared.close();
+        prepared.close();
+      }
+      expect(retain).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      retain.mockRestore();
+    }
+  },
+);
 
 it('prepares exact existing native ownership under uncertainty and runs shared stream translation only after consumed', async () => {
   const f = fixture();

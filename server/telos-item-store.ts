@@ -1,3 +1,7 @@
+import {
+  openTelosOwnedDatabase,
+  type TelosOwnedDatabase,
+} from '@mitzo/protocol/telos-sqlite-owners';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 
@@ -30,24 +34,27 @@ interface UpdateRow {
 /** Operates on the canonical Telos DB, preserving its existing item/history model. */
 export class TelosItemStore {
   private db: Database.Database;
+  #telosOwner: TelosOwnedDatabase;
   constructor(path: string) {
-    this.db = new Database(path, { fileMustExist: true });
-    this.db.pragma('busy_timeout = 5000');
-    this.db.pragma('foreign_keys = ON');
+    this.#telosOwner = openTelosOwnedDatabase('canonical', path, { fileMustExist: true });
+    this.db = this.#telosOwner.database;
     try {
+      this.db.pragma('busy_timeout = 5000');
+      this.db.pragma('foreign_keys = ON');
       this.db
         .prepare(
           'SELECT id,summary,status,parent_id,intent,rationale,acceptance_criteria,updated_at,snoozed_until FROM items LIMIT 1',
         )
         .get();
       this.db.prepare('SELECT item_id,old_status,new_status,changed_at FROM history LIMIT 1').get();
+      this.#telosOwner.seal();
     } catch (error) {
-      this.db.close();
+      this.#telosOwner.close();
       throw error;
     }
   }
   close(): void {
-    this.db.close();
+    this.#telosOwner.close();
   }
 
   private hasUpdates(): boolean {

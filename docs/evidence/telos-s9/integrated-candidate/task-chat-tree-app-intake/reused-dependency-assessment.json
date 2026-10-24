@@ -1,0 +1,103 @@
+{
+  "donor": "bbf04d660adc62618824b69124d8d3a53ff5659d",
+  "base": "a6a1f93a8d830df7ef4da82fd032503e6575094c",
+  "paths": [
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/task-chat-tree-app.contract.ts",
+      "donorSha256": "cb059caa2733e2442fd34d2fb544d0e9ddc6e2e4ee1310c2878c9e62916a1dfe",
+      "currentSha256": null,
+      "exact": false,
+      "newImport": true
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/task-chat-tree-geometry.ts",
+      "donorSha256": "bd72de1b8ba7afe8565118f111b142fdc049d65062b9efd85bbaaeed467dad18",
+      "currentSha256": null,
+      "exact": false,
+      "newImport": true
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/vitest.task-chat-tree-app.config.ts",
+      "donorSha256": "a3388cc11e91d843e81048c9beceb48ebeb98ec7d532c546e36334201bcb79f6",
+      "currentSha256": null,
+      "exact": false,
+      "newImport": true
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/task-review-process-fixture.ts",
+      "donorSha256": "0228a5c65fa9075703c4bca38b8441c618f3cc03949001c9e7f7cff8880fd6a2",
+      "currentSha256": "04d7dc02ea5ff032205478e49e0250f1751ac9ecaef653710899c74be802e989",
+      "exact": false,
+      "newImport": false
+    },
+    {
+      "path": "vitest.config.ts",
+      "donorSha256": "317dd2e81b06574464010ab4a3ca8447af6120ee6f1ab5978171bf8254bced94",
+      "currentSha256": "317dd2e81b06574464010ab4a3ca8447af6120ee6f1ab5978171bf8254bced94",
+      "exact": true,
+      "newImport": false
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "donorSha256": "95e4ec1b903a6419ff357cdfbd743a49c86a92efe0336ea860ba8ea337c51e66",
+      "currentSha256": "95e4ec1b903a6419ff357cdfbd743a49c86a92efe0336ea860ba8ea337c51e66",
+      "exact": true,
+      "newImport": false
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/joined-canonical-cli.ts",
+      "donorSha256": "75770f88a7bbcbedbfea6ca5399fdb6f663b9771789eb1098a1fd763e1cd7c1f",
+      "currentSha256": "75770f88a7bbcbedbfea6ca5399fdb6f663b9771789eb1098a1fd763e1cd7c1f",
+      "exact": true,
+      "newImport": false
+    },
+    {
+      "path": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "donorSha256": "32f7430bfe25aa9c6ebe03e6cc8fc4952e92b32618891255bd743e2332bb11c5",
+      "currentSha256": "32f7430bfe25aa9c6ebe03e6cc8fc4952e92b32618891255bd743e2332bb11c5",
+      "exact": true,
+      "newImport": false
+    },
+    {
+      "path": "server/__tests__/fixtures/telos-canonical-advisor.ts",
+      "donorSha256": "81026a8705f60f56facf3272e617b3820a805d3219c02abf946ee323756526f9",
+      "currentSha256": "81026a8705f60f56facf3272e617b3820a805d3219c02abf946ee323756526f9",
+      "exact": true,
+      "newImport": false
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/task-review-child-app.mjs",
+      "donorSha256": "4eb7d7ad4b1f4c27fb2f4058a4ee69209cafb891fd0ac748fb33324cb1a048d5",
+      "currentSha256": "4eb7d7ad4b1f4c27fb2f4058a4ee69209cafb891fd0ac748fb33324cb1a048d5",
+      "exact": true,
+      "newImport": false
+    }
+  ],
+  "productionImportBoundary": [
+    "server/account-profiles.ts",
+    "server/agent-library-store.ts",
+    "server/agent-library-transport.ts",
+    "server/auth.ts",
+    "server/chat-rest-handler.ts",
+    "server/chat.ts",
+    "server/codex-conversation-store.ts",
+    "server/event-store.ts",
+    "server/native-commands.ts",
+    "server/ordinary-local-codex-capabilities.ts",
+    "server/ordinary-local-codex-entry.ts",
+    "server/ordinary-local-codex-host-runtime.ts",
+    "server/ordinary-local-codex-owned-runtime.ts",
+    "server/ordinary-repository-preparation-authority.ts",
+    "server/owned-local-codex-chat-admission.ts",
+    "server/repository-workspaces.ts",
+    "server/session-sse-registry.ts",
+    "server/sse-transport.ts",
+    "server/task-store.ts",
+    "server/telos-artifact-store.ts",
+    "server/telos-work-advisor-draft.ts",
+    "server/telos-work-role-context.ts",
+    "server/telos-work-role-review.ts",
+    "server/telos-work-store.ts",
+    "server/transport-auth-ownership.ts"
+  ]
+}

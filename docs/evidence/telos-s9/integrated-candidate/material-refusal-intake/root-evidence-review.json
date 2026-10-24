@@ -1,0 +1,65 @@
+{
+  "verifiedAt": "2026-10-20T08:45:29.509727+00:00",
+  "head": "07266938a17a87d13a886e4d7623fdccc96bb319",
+  "tree": "6471bac072e470e1d05cded031b5dca82135e300",
+  "baseline": "05292f463fc30d8bccf8dedee6db696270bfdac1",
+  "changedPaths": [
+    "A\ttests/integration/telos-s9/integrated-candidate/advisor-material-refusal.contract.ts",
+    "A\ttests/integration/telos-s9/integrated-candidate/vitest.advisor-material-refusal.config.ts"
+  ],
+  "priorIntegrationFilesByteExact": 98,
+  "sourcePins": 667,
+  "protectedReferences": 13,
+  "claimedHashSizeEntriesVerified": 25,
+  "archives": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-SOURCE.zip",
+      "sha256": "9d9012118234886399f56fce266c1be4cfde37a41f01256d477b437397f67bda",
+      "members": 300,
+      "trackedMembers": 292
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS.zip",
+      "sha256": "17aaad4a9fa9bf9fb0efd8de993efceb7a7ad86577a075baf66f7567da50edfd",
+      "members": 26,
+      "trackedMembers": 0
+    }
+  ],
+  "rawResult": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/origin-observer/run.json",
+    "sha256": "48a11a33d0e4f2e734655f71d306bb425a3d380883473aaa85e820ccca86a271",
+    "size": 1220
+  },
+  "actualRawObservationsExactReport": true,
+  "selectedResult": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 13560.102294921875
+  },
+  "actualFailedHttp": {
+    "path": "/api/telos/work/roles/review",
+    "method": "POST",
+    "contentType": "application/json",
+    "requestBody": "{\"itemId\":\"recording-slice\",\"role\":\"advisor\",\"sourceSnapshotIds\":[\"6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a\"],\"artifactRefs\":[{\"artifactId\":\"6d8e589baeeb4f928fe135831d8eb2fb\",\"revision\":1,\"sha256\":\"0f7b2381a6ad174bc551bf03bb505e9c40c3050f53f0c78667ae8cfa56100da9\"},{\"artifactId\":\"2d740ae27a5a4b34f30c27a1c32e708d\",\"revision\":1,\"sha256\":\"f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d\"}],\"advisorPurpose\":\"refine\"}",
+    "status": 503,
+    "responseBody": "{\"code\":\"unavailable\",\"error\":\"Ordinary role setup unavailable\"}"
+  },
+  "actualRefusalIsCompositeReviewedCustodyOrIntegrityGuard": true,
+  "directLaterByteHashPredicateCoverageNotInferred": true,
+  "retainedPriorChildRefineBytesVerified": true,
+  "initialHarnessFailurePreserved": {
+    "stage": "initial",
+    "source": "51a42617",
+    "raw": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/initial/run.json",
+      "sha256": "1fe667d4188e076b877f736b50cfd4775b59dd1c7b50c1f2e55dfbee2152cb9c",
+      "size": 1669
+    },
+    "disposition": "ActualFilesr2/validUIcontext reached. Readobserver triedfixture-preparedordinaryworkspace notresolvablebychildAppowner; failedbeforeAPInegative. Raw/source/screenshot/lifecycle retained; no productmaterialguardRED and no runtimebinding/initialworkspace assertion qualified."
+  },
+  "realModelCalls": 0,
+  "noTestsBrowserCompilerOrRuntimeExecutedByVerifier": true,
+  "disposition": "Evidence integrity PASS only. Actual UI valid role selection and one real typed-App mismatched pin refusal with raw code/error-only response and unchanged observed inventory. No direct later byte-hash predicate, visible UI error, native byte access, runtime recovery, main or full UX proof."
+}

@@ -1,0 +1,36 @@
+{
+  "compilerVersion": "5.9.3",
+  "actualCompilerOptions": {
+    "target": 9,
+    "module": 7,
+    "moduleResolution": 100,
+    "esModuleInterop": true,
+    "strict": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": false,
+    "rewriteRelativeImportExtensions": true,
+    "allowJs": true,
+    "checkJs": false,
+    "jsx": 4,
+    "sourceMap": false,
+    "inlineSourceMap": false,
+    "inlineSources": false,
+    "declaration": false,
+    "composite": false,
+    "incremental": false
+  },
+  "frozenSource": "3df776dd16f7f7f2f56955696a53b8838a63f5b9",
+  "files": [
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-fixture.ts",
+      "beforeSha256": "b6658e7f05d3c91ff35db2958da7c40b5e756251c132ab87d19526c25056b916",
+      "afterSha256": "6a64330393f16f67b9f0996c8c03dc554f9f3e16778b8e3c3bfe15bc9b4952e2",
+      "emittedJavaScriptSha256": "2c47c9bd2654ca634b6b9b2638627decbaf9f0d7b60776a9b2ef068bd8ac4dfb",
+      "identicalEmittedJavaScript": true
+    }
+  ],
+  "scope": "Only cleanup return typing changes from unknown/Promise<unknown> to void/Promise<void>. No native-state fabrication or runtime assertion change."
+}
