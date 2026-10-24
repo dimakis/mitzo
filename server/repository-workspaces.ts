@@ -2954,10 +2954,12 @@ export class RepositoryWorkspaces {
         throw new PendingHostTaskError('pending_host_task_ownership_changed');
       operation.completePublication();
       return freezePendingHostTaskData(receipt);
-    } catch {
+    } catch (cause) {
       // Retain materializing/partial effects. Never replay, clean foreign data,
       // write after expiry, or infer current ownership from historical evidence.
-      throw new PendingHostTaskError('pending_host_task_uncertain');
+      // Error.cause is private/nonenumerable; public code/message and durable
+      // records remain unchanged. Offline fixtures can classify the real fault.
+      throw new PendingHostTaskError('pending_host_task_uncertain', { cause });
     }
   }
   async materializePendingHostTask(

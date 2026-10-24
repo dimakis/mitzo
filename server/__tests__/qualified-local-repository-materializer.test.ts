@@ -6,7 +6,16 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, expect, it, vi } from 'vitest';
 import { lstat, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import * as filesystem from 'node:fs/promises';
+import * as readers from '../local-repository-native-read.js';
+import * as objectData from '../local-repository-preparation-object-data.js';
+import {
+  createPreparationAttemptDiagnostics,
+  recordPreparationAttempt,
+  runRecordedPreparationAttempt,
+} from './fixtures/preparation-attempt-diagnostics.js';
+import { observePreparationService } from './fixtures/preparation-service-diagnostics.js';
 import * as actor from '../qualified-local-repository-actor.js';
 import * as sandbox from '../sandboxed-command.js';
 import { OwnedLocalCodexChatAdmission } from '../owned-local-codex-chat-admission.js';
@@ -15,6 +24,11 @@ import { setAuthRevocationStore } from '../auth.js';
 import { localPreparationNativeFixture } from './fixtures/local-preparation-native.js';
 import { captureLocalRepositoryPreparationAuthorization } from '../local-repository-preparation-authorization.js';
 import { captureNativeLocalRepositoryPreparationSource } from '../local-repository-preparation-source.js';
+
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>();
+  return { ...actual, rm: vi.fn(actual.rm) };
+});
 
 const cleanups: Array<() => void | Promise<void>> = [];
 const revocations = new EventStore(':memory:');
@@ -92,10 +106,6 @@ actual(
       };
     };
     const atRunRepository = await repositoryIdentity();
-    expect(
-      atRunRepository.trackedStatus,
-      'Actual attempt requires exact committed clean fixture/config/lock inputs',
-    ).toBe('');
     const atRunSources = await productionIdentity();
     const inputIdentity = createHash('sha256').update(JSON.stringify(atRunSources)).digest('hex');
     const require = createRequire(import.meta.url),
@@ -115,6 +125,51 @@ actual(
       workerRuntime: 'existing sourceRuntime tsx/esm worker; no separately compiled worker binary',
     };
     const actorEvidencePath = `/private/tmp/mitzo-qualified-preparation-actor-${inputIdentity.slice(0, 16)}.json`;
+    if (atRunRepository.trackedStatus !== '') {
+      await writeFile(
+        actorEvidencePath,
+        JSON.stringify({
+          version: 1,
+          precondition: 'tracked-inputs-not-clean',
+          head: atRunRepository.head,
+          tree: atRunRepository.tree,
+        }),
+      );
+      throw Error('Actual attempt requires committed clean fixture inputs');
+    }
+    const diagnostics = createPreparationAttemptDiagnostics();
+    let rowState: unknown = { status: 'not-reached' };
+    let receiptState: unknown = { status: 'not-reached' };
+    const returnedReaders: Array<
+      Awaited<ReturnType<typeof readers.captureNativeLocalRepositoryReader>>
+    > = [];
+    const read = readers.captureNativeLocalRepositoryReader;
+    vi.spyOn(readers, 'captureNativeLocalRepositoryReader').mockImplementation(async (...args) => {
+      const reader = await diagnostics.capture('reader-capture', () => read(...args));
+      returnedReaders.push(reader);
+      return reader;
+    });
+    const captureData = objectData.captureLocalRepositoryPreparationObjectData;
+    vi.spyOn(objectData, 'captureLocalRepositoryPreparationObjectData').mockImplementation(
+      (...args) => diagnostics.capture('object-data-capture', () => captureData(...args)),
+    );
+    const originalFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    const cleanupCounts = { reader: 0, objects: 0, artifact: 0 };
+    vi.mocked(filesystem.rm).mockImplementation(async (...args) => {
+      const name = typeof args[0] === 'string' ? basename(args[0]) : '';
+      const kind = name.startsWith('mitzo-native-read-')
+        ? 'reader'
+        : name.startsWith('mitzo-preparation-objects-')
+          ? 'objects'
+          : name.startsWith('mitzo-qualified-actor-')
+            ? 'artifact'
+            : undefined;
+      if (!kind) return Reflect.apply(originalFs.rm, filesystem, args);
+      return diagnostics.capture(`${kind}-cleanup`, async () => {
+        await Reflect.apply(originalFs.rm, filesystem, args);
+        cleanupCounts[kind]++;
+      });
+    });
     let prepared = false;
     let authorization:
       Awaited<ReturnType<typeof captureLocalRepositoryPreparationAuthorization>> | undefined;
@@ -146,7 +201,7 @@ actual(
         const start = performance.now();
         metrics.admission.calls++;
         try {
-          await Reflect.apply(nativeFull, this, []);
+          await diagnostics.capture('admission-owner', () => Reflect.apply(nativeFull, this, []));
         } finally {
           metrics.admission.ms += performance.now() - start;
         }
@@ -170,7 +225,7 @@ actual(
       const start = performance.now();
       metrics.effectTransports.calls++;
       try {
-        return await effectTransport(...args);
+        return await diagnostics.capture('publication', () => effectTransport(...args));
       } finally {
         metrics.effectTransports.ms += performance.now() - start;
       }
@@ -180,7 +235,7 @@ actual(
         const start = performance.now();
         metrics.checkouts.calls++;
         try {
-          return await checkout(...args);
+          return await diagnostics.capture('checkout', () => checkout(...args));
         } finally {
           metrics.checkouts.ms += performance.now() - start;
         }
@@ -255,16 +310,20 @@ actual(
                 2,
               ),
             );
-            expect(await productionIdentity()).toEqual(atRunSources);
+            await diagnostics.check(
+              'profile-production-identity',
+              async () =>
+                JSON.stringify(await productionIdentity()) === JSON.stringify(atRunSources),
+            );
             throw Error(
               'Bounded original full-owner profile complete; actor deliberately not invoked',
             );
           }
-          const result = await actualActor(...args);
+          const result = await diagnostics.capture('actor', () => actualActor(...args));
           mark('actor-complete');
           return result;
         } catch (error) {
-          mark('actor-error:' + String(error));
+          mark('actor-error');
           throw error;
         }
       },
@@ -273,7 +332,7 @@ actual(
       cleanups,
       async (context, input, envelope) => {
         mark('callback');
-        expect(envelope).toBeDefined();
+        if (!envelope) throw Error('Preparation fixture envelope missing');
         const source = input.path as string;
         await writeFile(join(source, 'task.txt'), 'DIRTY SOURCE\n');
         await writeFile(join(source, 'untracked'), 'KEEP\n');
@@ -294,8 +353,22 @@ actual(
             },
           ).trim();
         git('add', '--', 'context.md');
-        expect(git('diff', '--cached', '--name-only')).toBe('context.md');
-        expect(git('rev-parse', ':context.md')).toBe(git('rev-parse', 'HEAD:task.txt'));
+        await diagnostics.check(
+          'setup-staged-name',
+          async () => git('diff', '--cached', '--name-only') === 'context.md',
+        );
+        await diagnostics.check(
+          'setup-staged-blob',
+          async () => git('rev-parse', ':context.md') === git('rev-parse', 'HEAD:task.txt'),
+        );
+        if (
+          Object.values(diagnostics.snapshot().checks).some((check) => check.status !== 'passed')
+        ) {
+          await persistAttempt();
+          throw Object.assign(Error('Preparation fixture setup failed'), {
+            code: 'fixture_setup_check_failed',
+          });
+        }
         const index = await readFile(join(source, '.git', 'index'));
         const head = await readFile(join(source, '.git', 'HEAD'));
         const run = () =>
@@ -319,7 +392,9 @@ actual(
                     const start = performance.now();
                     metrics.source.calls++;
                     try {
-                      await result.assertCurrent(options);
+                      await diagnostics.capture('source-owner', () =>
+                        result.assertCurrent(options),
+                      );
                     } finally {
                       metrics.source.ms += performance.now() - start;
                     }
@@ -330,55 +405,141 @@ actual(
             input,
             envelope!,
           );
-        if (profileOnly) {
-          await expect(run()).rejects.toMatchObject({
-            code: 'pending_host_task_uncertain',
-          });
-          expect(f.f.workspace.get(authorization!.request.id).pendingHostTaskDecision?.state).toBe(
-            'consumed',
+        let receipt: Awaited<ReturnType<typeof executeLocalRepositoryPreparation>> | undefined;
+        const sourceChecks = async (prefix: string, includeStaged: boolean) => {
+          await diagnostics.check(`${prefix}-index`, async () =>
+            (await readFile(join(source, '.git', 'index'))).equals(index),
           );
-          for (const path of [
-            authorization!.scope.create.task.directory,
-            authorization!.scope.sourceGitEffects.administrationDirectory,
-            authorization!.scope.sourceGitEffects.branchReference,
-          ])
-            await expect(lstat(path)).rejects.toMatchObject({ code: 'ENOENT' });
-          expect(await readFile(join(source, '.git', 'index'))).toEqual(index);
-          expect(await readFile(join(source, '.git', 'HEAD'))).toEqual(head);
-          expect(await readFile(join(source, 'task.txt'), 'utf8')).toBe('DIRTY SOURCE\n');
-          expect(await readFile(join(source, 'untracked'), 'utf8')).toBe('KEEP\n');
-          return { profiled: true };
-        }
-        let receipt: Awaited<ReturnType<typeof executeLocalRepositoryPreparation>>;
-        try {
-          receipt = await run();
-        } finally {
-          expect(await readFile(join(source, '.git', 'index'))).toEqual(index);
-          expect(await readFile(join(source, '.git', 'HEAD'))).toEqual(head);
-          expect(await readFile(join(source, 'task.txt'), 'utf8')).toBe('DIRTY SOURCE\n');
-          expect(await readFile(join(source, 'context.md'), 'utf8')).toBe('accepted source');
-          expect(await readFile(join(source, 'untracked'), 'utf8')).toBe('KEEP\n');
-        }
-        expect(receipt.state).toBe('materialized');
-        expect(receipt.taskIdentity?.linkedGit?.directory).toBe(
-          authorization!.scope.sourceGitEffects.administrationDirectory,
+          await diagnostics.check(`${prefix}-head`, async () =>
+            (await readFile(join(source, '.git', 'HEAD'))).equals(head),
+          );
+          await diagnostics.check(
+            `${prefix}-dirty`,
+            async () => (await readFile(join(source, 'task.txt'), 'utf8')) === 'DIRTY SOURCE\n',
+          );
+          if (includeStaged)
+            await diagnostics.check(
+              `${prefix}-staged`,
+              async () =>
+                (await readFile(join(source, 'context.md'), 'utf8')) === 'accepted source',
+            );
+          await diagnostics.check(
+            `${prefix}-untracked`,
+            async () => (await readFile(join(source, 'untracked'), 'utf8')) === 'KEEP\n',
+          );
+        };
+        const inspect = async () => {
+          // Every observation is independent: one failed read/check never hides
+          // another preservation outcome or the original operation exception.
+          await sourceChecks('finally', true);
+          rowState = (await diagnostics.observe('row-state', async () => {
+            const record = f.f.workspace.get(authorization!.request.id);
+            return {
+              status: 'observed',
+              state: record.state,
+              rowSha256: createHash('sha256').update(JSON.stringify(record)).digest('hex'),
+              pendingState: record.pendingHostTask?.state ?? null,
+              decisionState: record.pendingHostTaskDecision?.state ?? null,
+              hasPublication: record.qualifiedLocalPreparation?.publication !== undefined,
+              hasHostReservation: record.hostReservation !== undefined,
+              taskIdentitySha256: record.pendingHostTask?.taskIdentity
+                ? createHash('sha256')
+                    .update(JSON.stringify(record.pendingHostTask.taskIdentity))
+                    .digest('hex')
+                : null,
+            };
+          })) ?? { status: 'unknown-read-failed' };
+          if (profileOnly) {
+            await diagnostics.check(
+              'profile-consumed',
+              async () =>
+                f.f.workspace.get(authorization!.request.id).pendingHostTaskDecision?.state ===
+                'consumed',
+            );
+            for (const [index, path] of [
+              authorization!.scope.create.task.directory,
+              authorization!.scope.sourceGitEffects.administrationDirectory,
+              authorization!.scope.sourceGitEffects.branchReference,
+            ].entries())
+              await diagnostics.check(`profile-absent-${index}`, async () => {
+                try {
+                  await lstat(path);
+                  return false;
+                } catch (error) {
+                  return (error as NodeJS.ErrnoException).code === 'ENOENT';
+                }
+              });
+            return;
+          }
+          await diagnostics.check(
+            'primary-custody',
+            async () =>
+              f.f.workspace.getOrdinaryWorkspaceForConversation(context.conversationId)?.id ===
+              context.workspace.id,
+          );
+          await diagnostics.check(
+            'repository-primary',
+            async () => f.f.workspace.getForConversation(context.conversationId) === undefined,
+          );
+          await diagnostics.check(
+            'task-linkage',
+            async () =>
+              (await readFile(
+                join(receipt?.directory ?? authorization!.scope.create.task.directory, '.git'),
+                'utf8',
+              )) === `gitdir: ${authorization!.scope.sourceGitEffects.administrationDirectory}\n`,
+          );
+          if (!receipt) {
+            for (const name of ['receipt-materialized', 'receipt-task-identity'])
+              diagnostics.skip(name);
+            return;
+          }
+          receiptState = {
+            status: 'returned',
+            state: receipt.state,
+            sha256: createHash('sha256').update(JSON.stringify(receipt)).digest('hex'),
+            taskIdentitySha256: receipt.taskIdentity
+              ? createHash('sha256').update(JSON.stringify(receipt.taskIdentity)).digest('hex')
+              : null,
+          };
+          await diagnostics.check(
+            'receipt-materialized',
+            async () => receipt!.state === 'materialized',
+          );
+          await diagnostics.check(
+            'receipt-task-identity',
+            async () =>
+              receipt!.taskIdentity?.linkedGit?.directory ===
+              authorization!.scope.sourceGitEffects.administrationDirectory,
+          );
+          await sourceChecks('post-receipt', false);
+        };
+        await runRecordedPreparationAttempt(
+          diagnostics,
+          async () => {
+            if (profileOnly) {
+              let error: unknown;
+              try {
+                await diagnostics.capture('profile-operation', run);
+              } catch (caught) {
+                error = caught;
+              }
+              await diagnostics.check(
+                'profile-expected-error',
+                async () => (error as { code?: string })?.code === 'pending_host_task_uncertain',
+              );
+            } else receipt = await run();
+          },
+          inspect,
+          async () => persistAttempt(),
         );
-        expect(await readFile(join(source, '.git', 'index'))).toEqual(index);
-        expect(await readFile(join(source, '.git', 'HEAD'))).toEqual(head);
-        expect(await readFile(join(source, 'task.txt'), 'utf8')).toBe('DIRTY SOURCE\n');
-        expect(await readFile(join(source, 'untracked'), 'utf8')).toBe('KEEP\n');
-        expect(f.f.workspace.getOrdinaryWorkspaceForConversation(context.conversationId)?.id).toBe(
-          context.workspace.id,
-        );
-        expect(f.f.workspace.getForConversation(context.conversationId)).toBeUndefined();
-        expect(await readFile(join(receipt.directory, '.git'), 'utf8')).toBe(
-          `gitdir: ${authorization!.scope.sourceGitEffects.administrationDirectory}\n`,
-        );
+        if (profileOnly) return { profiled: true };
         prepared = true;
         return { prepared: true };
       },
-      { nativeBaseReads: true, preparationEnvelope: true },
+      { nativeBaseReads: true, preparationEnvelope: true, diagnostics },
     );
+    const serviceState = observePreparationService(diagnostics, f.f.workspace);
     const finalize = f.f.workspace.finalizePendingHostTaskDecision;
     vi.spyOn(f.f.workspace, 'finalizePendingHostTaskDecision').mockImplementation((...args) => {
       const result = Reflect.apply(finalize, f.f.workspace, args);
@@ -386,10 +547,7 @@ actual(
       metrics.approvalRemainingMs = result.evidence.expiresAt - Date.now();
       return result;
     });
-    let result: Awaited<ReturnType<typeof f.a.call>>;
-    try {
-      result = await f.a.call({ path: join(f.f.root, 'source') });
-    } finally {
+    async function persistAttempt() {
       const after = await productionIdentity();
       await writeFile(
         actorEvidencePath,
@@ -399,6 +557,11 @@ actual(
             productionIdentity: { before: atRunSources, after },
             repositoryIdentity: { before: atRunRepository, after: await repositoryIdentity() },
             runtimeInputs,
+            diagnostics: diagnostics.snapshot(),
+            rowState,
+            receiptState,
+            serviceState: serviceState(),
+            cleanup: { returnedReaders: returnedReaders.length, completed: cleanupCounts },
             phases,
             metrics,
             profileOnly,
@@ -411,8 +574,26 @@ actual(
         ),
       );
     }
+    const result = await recordPreparationAttempt(
+      diagnostics,
+      'native-call',
+      () => f.a.call({ path: join(f.f.root, 'source') }),
+      async () => {},
+      async () => persistAttempt(),
+    );
+    expect(atRunRepository.trackedStatus).toBe('');
+    expect(rowState).toMatchObject({ status: 'observed' });
+    expect(cleanupCounts.reader).toBe(returnedReaders.length);
+    expect(cleanupCounts.objects).toBe(1);
+    for (const name of ['reader-cleanup', 'objects-cleanup'])
+      expect(diagnostics.snapshot().stages[name]?.errors ?? []).toEqual([]);
     expect(await productionIdentity()).toEqual(atRunSources);
     expect(await repositoryIdentity()).toEqual(atRunRepository);
+    for (const [name, check] of Object.entries(diagnostics.snapshot().checks))
+      expect(
+        check.status,
+        JSON.stringify({ name, diagnostic: diagnostics.snapshot(), rowState, receiptState }),
+      ).toBe('passed');
     expect(
       result.response.success,
       JSON.stringify({ value: result.value, phases, metrics, permissions: f.permissions.length }),

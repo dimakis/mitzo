@@ -8,6 +8,12 @@ import {
 it('pins the private preparation decision producer, same-row custody and signed fixtures', async () => {
   const artifacts: Readonly<Record<string, string>> = reviewedHandlerSourceArtifacts;
   for (const file of [
+    '../__tests__/fixtures/preparation-attempt-diagnostics.ts',
+    '../__tests__/fixtures/preparation-service-diagnostics.ts',
+    '../__tests__/preparation-attempt-diagnostics.test.ts',
+    '../__tests__/preparation-service-diagnostics.test.ts',
+    '../__tests__/pending-host-task-error-cause.test.ts',
+
     '../local-repository-preparation-authorization.ts',
     '../local-repository-preparation-source.ts',
     '../local-repository-preparation-objects.ts',

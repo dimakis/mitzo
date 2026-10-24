@@ -25,6 +25,7 @@ import {
 import { recordAgentMessageAcceptance } from '../../agent-communication-tools.js';
 import { composeOwnedLocalNativeExecutionPolicy } from '../../owned-local-codex-native-policy.js';
 import { createCodexNativeApprovalHandler } from '../../codex-native-approvals.js';
+import type { PreparationAttemptDiagnostics } from './preparation-attempt-diagnostics.js';
 
 // Actual signed login, custody, admission, native callback and context factory.
 // External process/RPC/model effects are synthetic; no production tool is registered.
@@ -35,7 +36,11 @@ export async function localPreparationNativeFixture(
     input: Record<string, unknown>,
     envelope?: Readonly<LocalRepositoryPreparationEnvelope>,
   ) => Promise<unknown>,
-  options: { nativeBaseReads?: boolean; preparationEnvelope?: boolean } = {},
+  options: {
+    nativeBaseReads?: boolean;
+    preparationEnvelope?: boolean;
+    diagnostics?: PreparationAttemptDiagnostics;
+  } = {},
 ) {
   const f = await ownedRuntimeFixture(cleanups, {
     // Legacy default selection permits this private fixture-only dynamic tool.
@@ -232,12 +237,19 @@ export async function localPreparationNativeFixture(
                 signal: ownedSignal,
               });
               try {
-                return {
-                  content: JSON.stringify(await execute(scope, input, envelope)),
-                  isError: false,
-                };
+                const value = options.diagnostics
+                  ? await options.diagnostics.capture('callback', () =>
+                      execute(scope, input, envelope),
+                    )
+                  : await execute(scope, input, envelope);
+                const serialize = () => ({ content: JSON.stringify(value), isError: false });
+                return options.diagnostics
+                  ? options.diagnostics.captureSync('callback-serialization', serialize)
+                  : serialize();
               } finally {
-                scope.dispose();
+                if (options.diagnostics)
+                  options.diagnostics.captureSync('context-dispose', () => scope.dispose());
+                else scope.dispose();
               }
             };
             return options.preparationEnvelope
