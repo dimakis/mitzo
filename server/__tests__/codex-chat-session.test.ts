@@ -3515,7 +3515,9 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         'AgentProposeTask',
         'AgentCommunication',
         'RequestGithubPublish',
-        mcpDefinition.name,
+        'ListIntegrationTools',
+        'DescribeIntegrationTool',
+        'InvokeIntegrationTool',
       ].sort(),
     );
     const execute = config.executeTool as (
@@ -3604,11 +3606,27 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         callId: 'native',
       }),
     ).rejects.toThrow('Tool unavailable for owned local Codex chat');
-    await expect(
-      execute(mcpDefinition.name, {}, new AbortController().signal, {
+    const detail = (await execute(
+      'DescribeIntegrationTool',
+      { toolId: mcpDefinition.name },
+      new AbortController().signal,
+      {
         turnId: 'turn',
-        callId: 'mcp',
-      }),
+        callId: 'describe',
+      },
+    )) as { content: string };
+    expect(mcpExecute).not.toHaveBeenCalled();
+    const { catalogRevision } = JSON.parse(detail.content);
+    await expect(
+      execute(
+        'InvokeIntegrationTool',
+        { toolId: mcpDefinition.name, catalogRevision, arguments: {} },
+        new AbortController().signal,
+        {
+          turnId: 'turn',
+          callId: 'mcp',
+        },
+      ),
     ).resolves.toEqual({ content: 'MCP result', isError: false });
     expect(connectionExecute).not.toHaveBeenCalled();
     expect(nativeExecute).not.toHaveBeenCalled();
@@ -4134,17 +4152,45 @@ it('admits selected MCP through the actual owned Local Codex lifecycle and fence
     }));
     query = await openCodexChat(f.opts);
     const definitions = mocks.conversationOptions!.tools as { name: string }[];
-    expect(definitions).toHaveLength(2);
+    expect(definitions.map(({ name }) => name).sort()).toEqual([
+      'AskUserQuestion',
+      'DescribeIntegrationTool',
+      'InvokeIntegrationTool',
+      'ListIntegrationTools',
+    ]);
     expect(sourceOptions.connect).toHaveBeenCalledOnce();
-    const wire = definitions.find((tool) => tool.name !== 'AskUserQuestion')!.name;
     const execute = mocks.conversationOptions!.executeTool as (
       name: string,
       input: Record<string, unknown>,
       signal: AbortSignal,
       context: { turnId: string; callId: string },
     ) => Promise<{ isError: boolean; content: string }>;
+    const list = JSON.parse(
+      (
+        await execute('ListIntegrationTools', {}, new AbortController().signal, {
+          turnId: 'turn',
+          callId: 'list',
+        })
+      ).content,
+    );
+    expect(list.tools).toHaveLength(1);
+    const wire = list.tools[0].toolId;
+    const detail = JSON.parse(
+      (
+        await execute('DescribeIntegrationTool', { toolId: wire }, new AbortController().signal, {
+          turnId: 'turn',
+          callId: 'describe',
+        })
+      ).content,
+    );
+    expect(peerCall).not.toHaveBeenCalled();
     const call = () =>
-      execute(wire, {}, new AbortController().signal, { turnId: 'turn', callId: 'call' });
+      execute(
+        'InvokeIntegrationTool',
+        { toolId: wire, catalogRevision: detail.catalogRevision, arguments: {} },
+        new AbortController().signal,
+        { turnId: 'turn', callId: 'call' },
+      );
     expect(await call()).toMatchObject({ content: 'Owned MCP result', isError: false });
     peerCall.mockClear();
     const lease = f.lease;
@@ -4154,7 +4200,7 @@ it('admits selected MCP through the actual owned Local Codex lifecycle and fence
       });
       return { behavior: 'allow', updatedInput: input };
     });
-    expect(await call()).toMatchObject({ isError: true });
+    await expect(call()).rejects.toThrow('Owned local Codex chat unavailable');
     expect(peerCall).not.toHaveBeenCalled();
   } finally {
     query?.close();
@@ -5169,7 +5215,17 @@ it('composes explicitly selected native artifacts and task MCP on the same owned
         .filter((d) => !d.name.startsWith('mitzo_mcp_'))
         .map((d) => d.name)
         .sort(),
-    ).toEqual(['AskUserQuestion', 'TelosReadArtifact', 'TelosSaveArtifact', 'Write'].sort());
+    ).toEqual(
+      [
+        'AskUserQuestion',
+        'DescribeIntegrationTool',
+        'InvokeIntegrationTool',
+        'ListIntegrationTools',
+        'TelosReadArtifact',
+        'TelosSaveArtifact',
+        'Write',
+      ].sort(),
+    );
     expect(connect).toHaveBeenCalledOnce();
     const execute = mocks.conversationOptions!.executeTool as (
       name: string,
@@ -5177,17 +5233,43 @@ it('composes explicitly selected native artifacts and task MCP on the same owned
       signal: AbortSignal,
       context: { turnId: string; callId: string },
     ) => Promise<{ content: string; isError: boolean }>;
+    const inventory = JSON.parse(
+      (
+        await execute('ListIntegrationTools', {}, new AbortController().signal, {
+          turnId: 'original-turn',
+          callId: 'list',
+        })
+      ).content,
+    );
+    const describeTask = async (name: string) => {
+      const toolId = inventory.tools.find(
+        (tool: { name: string }) => tool.name === `mcp__task-board__${name}`,
+      )!.toolId;
+      return JSON.parse(
+        (
+          await execute('DescribeIntegrationTool', { toolId }, new AbortController().signal, {
+            turnId: 'original-turn',
+            callId: `describe-${name}`,
+          })
+        ).content,
+      );
+    };
     for (const [name, input] of [
       ['TaskStatus', {}],
       ['TaskArtifact', { key: 'r1', value: 'exact-evidence' }],
       ['TaskComplete', { summary: 'pending review' }],
     ] as const) {
-      const wire = defs.find((d) => d.description.startsWith(`mcp__task-board__${name}:`))!.name;
+      const detail = await describeTask(name as string);
       expect(
-        await execute(wire, input, new AbortController().signal, {
-          turnId: 'original-turn',
-          callId: name,
-        }),
+        await execute(
+          'InvokeIntegrationTool',
+          { toolId: detail.toolId, catalogRevision: detail.catalogRevision, arguments: input },
+          new AbortController().signal,
+          {
+            turnId: 'original-turn',
+            callId: name,
+          },
+        ),
       ).toMatchObject({ content: `original ${name} receipt`, isError: false });
       expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
         `mcp__task-board__${name}`,
@@ -5200,14 +5282,19 @@ it('composes explicitly selected native artifacts and task MCP on the same owned
       );
     }
     expect(defs).toHaveLength(7);
-    const status = defs.find((d) => d.description.startsWith('mcp__task-board__TaskStatus:'))!.name;
+    const status = await describeTask('TaskStatus');
     taskCall.mockClear();
     mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
     expect(
-      await execute(status, {}, new AbortController().signal, {
-        turnId: 'original-turn',
-        callId: 'denied',
-      }),
+      await execute(
+        'InvokeIntegrationTool',
+        { toolId: status.toolId, catalogRevision: status.catalogRevision, arguments: {} },
+        new AbortController().signal,
+        {
+          turnId: 'original-turn',
+          callId: 'denied',
+        },
+      ),
     ).toMatchObject({ isError: true });
     expect(taskCall).not.toHaveBeenCalled();
     await expect(
@@ -5222,12 +5309,17 @@ it('composes explicitly selected native artifacts and task MCP on the same owned
       });
       return { behavior: 'allow', updatedInput: input };
     });
-    expect(
-      await execute(status, {}, new AbortController().signal, {
-        turnId: 'original-turn',
-        callId: 'revoked',
-      }),
-    ).toMatchObject({ isError: true });
+    await expect(
+      execute(
+        'InvokeIntegrationTool',
+        { toolId: status.toolId, catalogRevision: status.catalogRevision, arguments: {} },
+        new AbortController().signal,
+        {
+          turnId: 'original-turn',
+          callId: 'revoked',
+        },
+      ),
+    ).rejects.toThrow('Owned local Codex chat unavailable');
     expect(taskCall).not.toHaveBeenCalled();
   } finally {
     query?.close();

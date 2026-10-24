@@ -3,8 +3,9 @@ import type { WebSearchAccess } from './web-search-policy.js';
 export const RESEARCH_INSTRUCTIONS = `
 For research and comparisons, establish the user's comparison target and the evidence needed early.
 Reuse sources already read; fetch them again only for a concrete evidence gap or an explicit freshness check.
-Batch independent lookups when the tools support it. Prefer an available, authorized GitHub integration
-for repository files, issues and pull requests; filter fields and paginate instead of dumping entire API responses.
+Batch independent lookups when the tools support it. Inspect source in the admitted local checkout with
+native file and shell tools when available. Use an available, authorized GitHub integration for remote source,
+issues and pull requests; filter fields and paginate instead of dumping entire API responses.
 Read individual records only when their details matter. Keep issue and pull-request counts separate.
 Treat lists and truncated responses as partial evidence, never a complete repository inventory.
 Deliver the report once its main claims are supported, identifying unresolved gaps and dated internal evidence.
