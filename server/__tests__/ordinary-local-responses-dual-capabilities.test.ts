@@ -28,7 +28,10 @@ it('projects retained Responses as history-only while new native entry remains s
   });
   expect(retained.inventory().routes).toEqual([]);
   expect(retained.inventory().accounts[0].account).toEqual(f.request.runtime.account);
-  expect(retained.resolve(f.request.runtime)).toMatchObject({ status: 'rejected', code: 'new_work_harness_unsupported' });
+  expect(retained.resolve(f.request.runtime)).toMatchObject({
+    status: 'rejected',
+    code: 'new_work_harness_unsupported',
+  });
 });
 it('keeps deferred Gemini available without borrowing an OpenAI route', async () => {
   const f = await ownedResponsesRuntimeFixture(cleanups, { gemini: true });

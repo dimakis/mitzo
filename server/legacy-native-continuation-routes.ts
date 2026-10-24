@@ -96,11 +96,9 @@ export function createLegacyNativeContinuationRouter(deps: {
         state: 'discarded',
       });
     } catch {
-      res
-        .status(409)
-        .json({
-          error: 'This review has a claimed or unconfirmed command. Check its original admission.',
-        });
+      res.status(409).json({
+        error: 'This review has a claimed or unconfirmed command. Check its original admission.',
+      });
     }
   });
   router.post('/commit', requireSameOriginJson, async (req: Request, res, next) => {

@@ -1298,7 +1298,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-responses-store.ts':
     '18335d42422f6c145f830dd2ce6a516b473184767483f2067ae7d1a8b7351046',
   '../ordinary-local-responses-capabilities.ts':
-    '85b81176d11cae52d098bc0a19b58c212d74bf9aad4546e3012b303c69d5541d',
+    '44323c874b53f49f9fb696173bf67d45531db4127df865a93d140de813dd9360',
   '../ordinary-local-responses-owned-runtime.ts':
     '927ce3a3d143450702deb4576f49018ba193a347eb3c0bc4757f571380d1edfe',
   '../ordinary-local-responses-queue.ts':
@@ -1627,7 +1627,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-responses-chat.test.ts':
     '32b92d84f17784cc7b6364e159f7f49c91acf21fb83a6f626f100cda765fcf3e',
   '../__tests__/ordinary-local-responses-dual-capabilities.test.ts':
-    'd0c9c587226f548ba87387e5134fe9e4fb989eb94d4af6a285496ed3fb8b5b6b',
+    'e6947e54b3d9bc137d8a25b43d64681459b7d27c3542f3405ce797c3cfcbb147',
   '../__tests__/ordinary-local-responses-preparation.test.ts':
     '8f9c5d3b3ba18d05a4319769d731ece393fb2485035b7feac239f876c4c2695e',
   '../__tests__/session-harness-routing.test.ts':
@@ -1788,7 +1788,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../deliberate-route.ts': 'd1901cc19fdc9bb0cbb75f5c1936f0bbe495e0a62391fa5786c9d7b10208fe75',
   '../fusion-admission.ts': '1dbc1594e04d4abfd8c05440e738faf0bfdbae453da70c79b882d674c09e6ee4',
   '../legacy-native-continuation-routes.ts':
-    'cb81addecd114e3712b18285fbf2455c06975dc78743dbcafe95ae9ad65ae5e7',
+    'c41db0ec44f49e635549978f98df7dae6f6bb6b9ffeb73d010fd3f36bd4cb3b0',
   '../legacy-native-continuation.ts':
     '75955f2b5b48daf47a31ffe5f10cbc0d17fcff392bbf5c2d094b60b0a0c2ff97',
   '../native-commands.ts': '72538f21ed2d0e6610fd4ca424218ec1183f312fe17d2ef4b2f91b09125a19ed',

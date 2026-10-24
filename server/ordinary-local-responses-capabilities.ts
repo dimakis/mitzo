@@ -98,7 +98,10 @@ function responsesCapabilities(
   const resolve = (request: unknown) =>
     target.harness === 'responses'
       ? { status: 'rejected' as const, code: 'new_work_harness_unsupported' as const }
-      : (newWork ? resolveNewOrdinarySessionRuntime : resolveOrdinarySessionRuntime)(request, catalog);
+      : (newWork ? resolveNewOrdinarySessionRuntime : resolveOrdinarySessionRuntime)(
+          request,
+          catalog,
+        );
   const inventory = {
     version: 1 as const,
     authority: 'configuration-only' as const,
