@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.635-combined-ci-fixture-lifecycle';
+  'v1.0.636-purpose-bound-inspection-fixtures';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -177,7 +177,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-local-repository-tools.ts':
     '627b29d214806e714efece255923fb68c0099e1cd30bdb359212bd261baf63f2',
   '../__tests__/local-repository-read-scope.test.ts':
-    '2f22523033ff5b90d7ca4176ebfbb9d5297d361574a4e77ae89a3626fb6ff017',
+    '8beb98baaa9143122b12803270470f06d6dbab393f3870a908438565bb3122f4',
   '../__tests__/session-local-repository-tools.test.ts':
     '1dd52cfc7e24011f14e99ef4928ab71bf0211ba4a88d5d8a12d8ed07bbb7570a',
   '../__tests__/local-repository-read-artifacts.test.ts':

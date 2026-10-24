@@ -268,7 +268,12 @@ describe.each(['roots', 'host-wide'] as const)('effective denied roots with %s a
     await writeFile(join(selected, '.git'), `gitdir: ${storage}\n`);
     await writeFile(join(storage, 'config'), 'invalid Git configuration\n');
     await expect(
-      inspectLocalRepository({ path: selected, accessScope: scope([storage]) }),
+      inspectLocalRepository({
+        path: selected,
+        accessScope: scope([storage]),
+        limits: { maxInstructionDirectories: 1 },
+        executeReadOperation: syntheticRead,
+      }),
     ).rejects.toMatchObject({
       kind: 'access',
       reason: 'read-access-required',
@@ -315,13 +320,26 @@ describe.each(['roots', 'host-wide'] as const)('effective denied roots with %s a
     const denied = join(selected, 'private');
     await mkdir(denied);
     await writeFile(join(denied, 'secret.txt'), 'Excluded content\n');
-    const result = await inspectLocalRepository({ path: selected, accessScope: scope([denied]) });
+    const churn = ancestorChurn();
+    const requested: string[] = [];
+    const result = await inspectLocalRepository({
+      path: selected,
+      accessScope: scope([denied]),
+      limits: { maxInstructionDirectories: 1 },
+      executeReadOperation: async (request, signal) => {
+        requested.push(request.file_path);
+        return churn.read(request, signal);
+      },
+    });
     expect(result.dirty).toEqual({ state: 'unknown', entries: [] });
     expect(result.diagnostics).toContainEqual({
       path: selected,
       reason: 'dirty-state-unavailable',
     });
     expect(statusReads).not.toHaveBeenCalled();
+    expect(requested.every((path) => path !== denied && !path.startsWith(denied + '/'))).toBe(true);
+    expect(requested.filter((path) => path === selected).length).toBeGreaterThanOrEqual(2);
+    expect(churn.count()).toBe(0);
   });
 });
 
