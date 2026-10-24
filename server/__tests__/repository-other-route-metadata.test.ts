@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import { GoogleAuth } from 'google-auth-library';
 import { join } from 'node:path';
 
 const services = vi.hoisted(() => ({
@@ -38,7 +39,7 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-it('preserves actual started Responses repository continuation metadata when only Local Codex is disabled', async () => {
+it('preserves actual started Gemini repository continuation metadata when only Local Codex is disabled', async () => {
   vi.resetModules();
   const calls: Array<{
     url: string;
@@ -56,20 +57,24 @@ it('preserves actual started Responses repository continuation metadata when onl
         bodyType: typeof init?.body,
         body: init?.body,
       });
-      if (String(url) !== 'https://api.openai.com/v1/responses') {
+      if (
+        String(url) !==
+        'https://europe-west1-aiplatform.googleapis.com/v1/projects/original-project/locations/europe-west1/publishers/google/models/gemini-2.5-pro:generateContent'
+      ) {
         unexpectedUrls.push(String(url));
         throw Error('Unexpected offline provider URL: ' + String(url));
       }
-      const events = [
-        { type: 'response.created', response: { id: 'metadata-response', model: 'fixture-model' } },
-        {
-          type: 'response.completed',
-          response: { output: [], usage: { input_tokens: 1, output_tokens: 0 } },
-        },
-      ];
       return new Response(
-        events.map((event) => 'data: ' + JSON.stringify(event) + '\n\n').join(''),
-        { headers: { 'content-type': 'text/event-stream' } },
+        JSON.stringify({
+          responseId: 'metadata-response',
+          candidates: [
+            {
+              content: { role: 'model', parts: [{ text: 'Offline answer' }] },
+              finishReason: 'STOP',
+            },
+          ],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+        }),
       );
     }),
   );
@@ -79,9 +84,12 @@ it('preserves actual started Responses repository continuation metadata when onl
     .spyOn(credentials, 'resolve')
     .mockRejectedValue(Error('No host credential fallback'));
   vi.spyOn(AccountProfiles.prototype, 'isEnrolledOpenAIAccount').mockReturnValue(true);
+  const googleToken = vi
+    .spyOn(GoogleAuth.prototype, 'getAccessToken')
+    .mockResolvedValue('offline-google-token');
   const { ownedResponsesRuntimeFixture } =
     await import('./fixtures/owned-local-responses-runtime.js');
-  const f = await ownedResponsesRuntimeFixture(cleanup, { chatRoute: true });
+  const f = await ownedResponsesRuntimeFixture(cleanup, { chatRoute: true, gemini: true });
   services.workspace = f.workspace;
   services.library = f.library;
   vi.stubEnv('MITZO_INTERNAL_TOKEN_PATH', join(f.root, 'internal-token'));
@@ -117,7 +125,7 @@ it('preserves actual started Responses repository continuation metadata when onl
   });
   const { repositoryPreparedCommandStatus } = await import('../repository-prepared-command.js');
   const firstOnlyAuthority = vi.fn(() => {
-    throw Error('Local Codex preparation authority is inapplicable to Responses');
+    throw Error('Local Codex preparation authority is inapplicable to Gemini');
   });
   const firstOnlyWorkspace = vi.fn(() => {
     throw Error('No Local Codex workspace qualification');
@@ -131,7 +139,7 @@ it('preserves actual started Responses repository continuation metadata when onl
       // Observe the real atomic new-session owner BEFORE it records the initial command.
       // Pre-seeding a separate bound session would violate the new-session admission rule.
       expect(chat.eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation).toBe(
-        'responses',
+        'gemini',
       );
       expect(chat.eventStore.getOrdinaryInitialCommandId(meta.sessionId)).toBeUndefined();
       expect(calls).toEqual([]);
@@ -146,7 +154,7 @@ it('preserves actual started Responses repository continuation metadata when onl
   );
   const transport = { send: vi.fn(), isOpen: () => true };
   await expect(
-    chat.startOwnedLocalResponsesCommand(transport, 'metadata-responses', {
+    chat.startOwnedLocalResponsesCommand(transport, 'metadata-gemini', {
       command: f.request,
       reservation: f.reservation,
       operatorConnectionId: f.dependencies.operatorConnectionId,
@@ -165,15 +173,12 @@ it('preserves actual started Responses repository continuation metadata when onl
     { timeout: 5_000 },
   );
   expect(calls[0]).toMatchObject({
-    url: 'https://api.openai.com/v1/responses',
+    url: 'https://europe-west1-aiplatform.googleapis.com/v1/projects/original-project/locations/europe-west1/publishers/google/models/gemini-2.5-pro:generateContent',
     method: 'POST',
     bodyType: 'string',
   });
   expect(JSON.parse(String(calls[0].body))).toMatchObject({
-    model: f.reservation.binding.model,
-    stream: true,
-    store: false,
-    input: expect.arrayContaining([{ role: 'user', content: f.request.payload.text }]),
+    contents: expect.arrayContaining([{ role: 'user', parts: [{ text: f.request.payload.text }] }]),
   });
   await vi.waitFor(() =>
     expect(native.status(f.reservation.conversationId, f.reservation.binding)).toBe('idle'),
@@ -219,7 +224,8 @@ it('preserves actual started Responses repository continuation metadata when onl
   );
   expect(native.load(f.reservation.conversationId, f.reservation.binding)).toEqual(beforeHistory);
   expect(calls).toHaveLength(1);
-  expect(services.manager.resolveKey).toHaveBeenCalledOnce();
+  expect(googleToken).toHaveBeenCalled();
+  expect(services.manager.resolveKey).not.toHaveBeenCalled();
   expect(fallbackCredential).not.toHaveBeenCalled();
   expect(launch).not.toHaveBeenCalled();
 }, 20_000);

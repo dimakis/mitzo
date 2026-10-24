@@ -840,6 +840,9 @@ it('a qualified preparation A starts model B on its original checkout and exact 
     ).toBe('completed'),
   );
   expect(services.requests[3].options.resume).toBe(sessionId);
+  expect(services.requests[3].options.model).toBe('future-C');
+  expect(chat.eventStore.getSession(sessionId)?.accountBinding?.model).toBe('next-model');
+  expect(chat.eventStore.getSessionRuntimeBinding(sessionId)).toEqual(originalRuntime);
   expect(observedInputs).toEqual(['prepared-first-B', 'future-C', 'cold-future-C']);
   expect(f.workspace.get(ready.id).directory).toBe(claimed.directory);
 }, 20000);

@@ -1303,7 +1303,20 @@ export async function startChat(
     const profiles =
       options.accountProfiles ??
       (options.accountId || retainedBinding ? loadAccountProfiles() : undefined);
-    const selected = resolveAccountSelection(options, retainedBinding, !!options.resume, profiles);
+    let selected;
+    if (options.ordinarySdkAuthority && retainedBinding) {
+      // A sealed SDK command retains its original account identity while each
+      // new command selects a currently supported model. Retiring that original
+      // model must not rebind the account or prevent a qualified cold command.
+      if (
+        !(options.ordinarySdkAuthority instanceof OrdinaryLocalVertexSdkAuthority) ||
+        !profiles ||
+        options.accountId !== retainedBinding.accountId
+      )
+        throw Error('Original SDK account unavailable');
+      profiles.resumeRouting(retainedBinding);
+      selected = retainedBinding;
+    } else selected = resolveAccountSelection(options, retainedBinding, !!options.resume, profiles);
     if (
       selected?.provider === 'openai' &&
       (!(
