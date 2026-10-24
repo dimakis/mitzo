@@ -12,6 +12,7 @@ import {
   type ReactNode,
   type KeyboardEvent,
   type ChangeEvent,
+  type SetStateAction,
 } from 'react';
 import type { BootContextMeta, SendMessageOptions } from '@mitzo/client';
 import type { FinishedMessage, ImageAttachment, StreamingMessage } from '../types/chat';
@@ -160,6 +161,12 @@ export function ChatInput({
     ? chatDraftStorageKey(savedChatDraft.id)
     : suppliedDraftStorageKey;
   const sendPending = useRef<{ assignedSessionId?: string } | null>(null);
+  const [pendingText, setPendingText] = useState<{
+    pending: object;
+    scope: number;
+    textRevision: number;
+    composerGeneration: number;
+  } | null>(null);
   // Acceptance can precede the routed render. Keep its exact assignment until
   // that ownership transfer is applied, independently of the pending receipt.
   const assignedDraft = useRef<{
@@ -342,6 +349,7 @@ export function ChatInput({
     draftStorageKey,
     scope: 0,
     revision: 0,
+    textRevision: 0,
   });
   const previous = latestDraft.current;
   const generationChanged = previous.composerGeneration !== composerGeneration;
@@ -363,6 +371,7 @@ export function ChatInput({
     composerGeneration,
     draftStorageKey,
     scope: previous.scope + (scopeChanged ? 1 : 0),
+    textRevision: previous.textRevision + (previous.text !== text || scopeChanged ? 1 : 0),
     revision:
       previous.revision +
       (previous.text !== text ||
@@ -380,6 +389,45 @@ export function ChatInput({
   }, []);
 
   const composerScope = latestDraft.current.scope;
+  const pendingAssignment =
+    pendingText !== null &&
+    pendingText.composerGeneration === composerGeneration &&
+    sendPending.current?.assignedSessionId !== undefined &&
+    sendPending.current.assignedSessionId === sessionId &&
+    composerScope === pendingText.scope + 1;
+  // The outbox already owns the visible user message. Retain this exact draft
+  // for receipt recovery without leaving its submitted text in the input.
+  const hideSubmittedText =
+    pendingText !== null &&
+    sendPending.current === pendingText.pending &&
+    (composerScope === pendingText.scope || pendingAssignment) &&
+    latestDraft.current.textRevision === pendingText.textRevision + (pendingAssignment ? 1 : 0);
+  const displayedText = hideSubmittedText ? '' : text;
+  const displayedDraft = useRef<{ pending?: object; text: string }>({ text });
+  displayedDraft.current = { pending: hideSubmittedText ? pendingText.pending : undefined, text };
+  const editText = useCallback(
+    (update: SetStateAction<string>) => {
+      const pending = displayedDraft.current.pending;
+      const submittedText = displayedDraft.current.text;
+      const editingSubmitted = pending !== undefined && pending === sendPending.current;
+      if (editingSubmitted) {
+        displayedDraft.current.pending = undefined;
+        setPendingText(null);
+        // Pasting an identical next message is still a new draft revision.
+        latestDraft.current = {
+          ...latestDraft.current,
+          revision: latestDraft.current.revision + 1,
+          textRevision: latestDraft.current.textRevision + 1,
+        };
+      }
+      setText((previous) =>
+        typeof update === 'function'
+          ? update(editingSubmitted && submittedText === previous ? '' : previous)
+          : update,
+      );
+    },
+    [setText],
+  );
   const importing = attachmentImport?.scope === composerScope && attachmentImport.busy;
   const attachmentError =
     attachmentImport?.scope === composerScope ? attachmentImport.error : undefined;
@@ -423,7 +471,7 @@ export function ChatInput({
   // A passive resize can paint the new text at the previous draft’s height.
   useLayoutEffect(() => {
     autoResize();
-  }, [text, autoResize]);
+  }, [displayedText, autoResize]);
 
   const sendOrdinary = useCallback(
     (
@@ -435,16 +483,42 @@ export function ChatInput({
       const submittedSavedDraft = savedChatDraft ? getChatDraft(savedChatDraft.id) : null;
       const pending: { assignedSessionId?: string } = {};
       sendPending.current = pending;
+      if (!queued)
+        setPendingText({
+          pending,
+          scope: submitted.scope,
+          textRevision: submitted.textRevision,
+          composerGeneration: submitted.composerGeneration,
+        });
       // Keep dequeued input under the existing explicit-retry fence until a
       // definitive receipt. A missing receipt must never resume automatic drain.
       const retained = queued ? restoreRejected(payload) : undefined;
       let settled = false;
       const onDelivery: NonNullable<SendMessageOptions['onDelivery']> = (status) => {
-        if (status === 'uncertain' || settled) return;
+        if (settled) return;
+        if (displayedDraft.current.pending === pending) displayedDraft.current.pending = undefined;
+        if (mounted.current)
+          setPendingText((current) => (current?.pending === pending ? null : current));
+        if (status === 'uncertain') return;
         settled = true;
         if (sendPending.current === pending) sendPending.current = null;
         if (queued) {
           if (status === 'accepted' && retained) removeSubmitted(retained);
+          return;
+        }
+        const latest = latestDraft.current;
+        const assigned =
+          latest.composerGeneration === submitted.composerGeneration &&
+          pending.assignedSessionId !== undefined &&
+          pending.assignedSessionId === latest.sessionId &&
+          latest.scope === submitted.scope + 1;
+        const ownsDraft = latest.scope === submitted.scope || assigned;
+        const draftEdited = latest.revision !== submitted.revision + (assigned ? 1 : 0);
+        const textEdited = latest.textRevision !== submitted.textRevision + (assigned ? 1 : 0);
+        if (status === 'accepted' && submittedSavedDraft && ownsDraft && draftEdited) {
+          // Attachment/context edits belong to the next draft. Consume only the
+          // accepted text, retaining those edits and any newer text verbatim.
+          if (mounted.current && !textEdited) setText('');
           return;
         }
         const savedRevisionConsumed =
@@ -452,15 +526,10 @@ export function ChatInput({
             ? consumeChatDraft(submittedSavedDraft)
             : true;
         if (status === 'accepted' && !savedRevisionConsumed) return;
-        const latest = latestDraft.current;
-        const assigned =
-          latest.composerGeneration === submitted.composerGeneration &&
-          pending.assignedSessionId !== undefined &&
-          pending.assignedSessionId === latest.sessionId &&
-          latest.scope === submitted.scope + 1;
-        if (!mounted.current || (latest.scope !== submitted.scope && !assigned)) return;
-        if (latest.revision !== submitted.revision + (assigned ? 1 : 0)) {
+        if (!mounted.current || !ownsDraft) return;
+        if (draftEdited) {
           if (status === 'failed') restoreRejected(payload);
+          else if (!textEdited) clearDraft();
         } else if (status === 'accepted') {
           clearDraft();
           setImages([]);
@@ -498,6 +567,7 @@ export function ChatInput({
       restoreRejected,
       removeSubmitted,
       clearDraft,
+      setText,
       useExternal,
       draftStorageKey,
       savedChatDraft,
@@ -545,16 +615,16 @@ export function ChatInput({
       setShowSlashPicker(false);
       return;
     }
-    const trimmed = text.trimStart();
+    const trimmed = displayedText.trimStart();
     if (trimmed.startsWith('/') && !/\s/.test(trimmed)) {
       setShowSlashPicker(true);
     } else {
       setShowSlashPicker(false);
     }
-  }, [text, boundedFirstCommand, guardedConversation]);
+  }, [displayedText, boundedFirstCommand, guardedConversation]);
 
   function handleSlashSelect(name: string) {
-    setText((draft) => insertComposerCommand(draft, name));
+    editText((draft) => insertComposerCommand(draft, name));
     setShowSlashPicker(false);
     textareaRef.current?.focus();
   }
@@ -730,7 +800,7 @@ export function ChatInput({
     return key;
   }
 
-  const canSend = text.trim() || images.length > 0;
+  const canSend = displayedText.trim() || images.length > 0;
 
   const micProps = voice
     ? {
@@ -754,7 +824,7 @@ export function ChatInput({
             latestDraft.current.scope === composerScope &&
             voiceOperation.current === operation;
           if (transcript && ownsTranscript()) {
-            setText((prev) =>
+            editText((prev) =>
               ownsTranscript() ? (prev ? `${prev} ${transcript}` : transcript) : prev,
             );
             textareaRef.current?.focus();
@@ -803,7 +873,7 @@ export function ChatInput({
     });
     if (!added) return;
     impactMedium();
-    setText('');
+    editText('');
     setImages([]);
     if (!useExternal) setContextBlocks([]);
     requestAnimationFrame(() => {
@@ -816,7 +886,7 @@ export function ChatInput({
     if (importPending.current?.scope === composerScope) return;
     const q = editQueued(index);
     if (!q) return;
-    setText(q.text);
+    editText(q.text);
     setImages(q.images);
     if (!useExternal) setContextBlocks(q.contextBlocks);
     requestAnimationFrame(() => {
@@ -902,7 +972,7 @@ export function ChatInput({
 
   return (
     <div className="chat-input chat-input--compact">
-      {currentSave && (currentSave.failed || currentSave.stored) && (
+      {currentSave && (currentSave.failed || (currentSave.stored && !hideSubmittedText)) && (
         <p className="chat-draft-save-status" role={currentSave.failed ? 'alert' : 'status'}>
           {currentSave.failed
             ? 'Couldn’t save this draft on this device. Keep it open and free some storage before leaving.'
@@ -960,7 +1030,7 @@ export function ChatInput({
       )}
       <MotionPresence open={showSlashPicker} kind="popover" appear={false}>
         <SlashPicker
-          query={text.trimStart()}
+          query={displayedText.trimStart()}
           onSelect={handleSlashSelect}
           onClose={(reason) => {
             if (reason === 'escape') textareaRef.current?.focus();
@@ -1011,8 +1081,9 @@ export function ChatInput({
           ref={textareaRef}
           className="chat-input-field"
           aria-label="Message Mitzo"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
+          value={displayedText}
+          aria-busy={hideSubmittedText || undefined}
+          onChange={(e) => editText(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={
@@ -1037,8 +1108,8 @@ export function ChatInput({
             {responders && (
               <ComposerResponders
                 selection={responders}
-                text={text}
-                onTextChange={setText}
+                text={displayedText}
+                onTextChange={editText}
                 input={textareaRef}
                 onOpenChange={setRespondersOpen}
               />
@@ -1050,7 +1121,7 @@ export function ChatInput({
                   : undefined
               }
               onCommands={() => {
-                if (!text.trim()) setText('/');
+                if (!displayedText.trim()) editText('/');
                 setShowSlashPicker(true);
                 textareaRef.current?.focus();
               }}
