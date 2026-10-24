@@ -496,6 +496,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
                 base: this.owners.baseEnv,
                 resolveKey: (binding, signal) =>
                   keyAuthority!.resolveKey(binding.accountId, signal),
+                assertCurrentSync: () => this.assertSync(expected, undefined, executable),
                 assertCurrent: async () => {
                   this.assertSync(expected, undefined, executable);
                   await keyAuthority!.assertReady(this.owners.signal);

@@ -117,6 +117,10 @@ export interface CodexApiBootstrapOptions {
   signal: AbortSignal;
   resolveKey(binding: Readonly<AccountBinding>, signal: AbortSignal): Promise<string>;
   assertCurrent(binding: Readonly<AccountBinding>): Promise<void>;
+  /** Optional trusted synchronous ownership fence when resolveKey itself checks
+   * current credential/controller/rotation authority. Must return undefined.
+   * Full asynchronous checks still run after native RPC boundaries. */
+  assertCurrentSync?(binding: Readonly<AccountBinding>): void;
   base?: NodeJS.ProcessEnv;
 }
 interface Pending {
@@ -602,6 +606,15 @@ export class CodexAppServerClient {
     let client: CodexAppServerClient | undefined;
     const { privateHome, executable, signal, lifecycle } = options;
     const assertCurrent = options.assertCurrent.bind(options);
+    const assertCurrentSync = options.assertCurrentSync?.bind(options);
+    const assertBeforeKey = (binding: Readonly<AccountBinding>) => {
+      if (!assertCurrentSync) return assertCurrent(binding);
+      const result = assertCurrentSync(binding);
+      if (result !== undefined) {
+        void Promise.resolve(result).catch(() => {});
+        throw Error('Synchronous API account ownership check required');
+      }
+    };
     const resolveKey = options.resolveKey.bind(options);
     const base = { ...(options.base ?? process.env) };
     const onAbort = () => client?.close();
@@ -633,12 +646,12 @@ export class CodexAppServerClient {
           throw new Error('New private API home required');
       };
       assertNewHome();
-      await assertCurrent(binding);
+      await assertBeforeKey(binding);
       signal.throwIfAborted();
       const key = await resolveKey(binding, signal);
       signal.throwIfAborted();
       if (typeof key !== 'string' || !key.trim()) throw new Error('API credential required');
-      await assertCurrent(binding);
+      await assertBeforeKey(binding);
       signal.throwIfAborted();
       executable.assertLaunchCurrent();
       assertNewHome();
