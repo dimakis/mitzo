@@ -192,7 +192,7 @@ it('acknowledges the original consumed receipt at full queue capacity while refu
   expect(f.events.getOrdinaryLocalResponsesCommandAdmission('overflow')).toBeUndefined();
 }, 15000);
 
-it('fences subsequent MCP startup connections when enrolled account authority changes during listTools', async () => {
+it('closes parallel MCP startup peers without publishing when enrolled account authority changes during listTools', async () => {
   const { f, native, create, dispatch } = await fixture();
   const { SessionRegistry } = await import('@mitzo/harness');
   const { AsyncQueue } = await import('../async-queue.js');
@@ -206,7 +206,7 @@ it('fences subsequent MCP startup connections when enrolled account authority ch
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const connects = vi.fn(async () => ({
+  const peers = [0, 1].map(() => ({
     listTools: async () => {
       entered();
       await gate;
@@ -215,6 +215,9 @@ it('fences subsequent MCP startup connections when enrolled account authority ch
     callTool: vi.fn(),
     close: vi.fn(async () => {}),
   }));
+  let nextPeer = 0;
+  const connects = vi.fn(async () => peers[nextPeer++]);
+  const published = vi.fn();
   vi.spyOn(mcp, 'connectCodexMcpTools').mockImplementation((configs, options) =>
     actual(configs, { ...options, connect: connects }),
   );
@@ -243,17 +246,24 @@ it('fences subsequent MCP startup connections when enrolled account authority ch
       env: {},
       mcpServers: {
         first: { command: 'offline-first', args: [] },
-        second: { command: 'must-not-start', args: [] },
+        second: { command: 'offline-second', args: [] },
       },
     });
     cleanups.push(() => query.close());
+    published(query);
   });
   const result = owner.admit(f.request);
   await waiting;
+  expect(connects).toHaveBeenCalledTimes(2);
   manager.manages.mockReturnValue(false);
   release();
   await expect(result).rejects.toThrow();
-  expect(connects).toHaveBeenCalledOnce();
+  expect(connects).toHaveBeenCalledTimes(2);
+  for (const peer of peers) {
+    expect(peer.close).toHaveBeenCalledOnce();
+    expect(peer.callTool).not.toHaveBeenCalled();
+  }
+  expect(published).not.toHaveBeenCalled();
   expect(f.events.getOrdinaryLocalResponsesCommandAdmission(f.request.clientMsgId)?.state).toBe(
     'uncertain',
   );
