@@ -31,6 +31,12 @@ process.on('message', async (message) => {
       auth.revokeAuthSession(current);
       if ((await auth.authenticateToken(message.token)) !== null)
         throw Error('Final operator revocation not retained');
+      if (!process.send) throw Error('Owned parent IPC required for final auth release');
+      await new Promise((done, reject) =>
+        process.send({ type: 'auth-revoked', operatorId: current.id, confirmed: true }, (error) =>
+          error ? reject(error) : done(),
+        ),
+      );
     }
     application.taskStore.close();
     chat.eventStore.close();

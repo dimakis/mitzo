@@ -20,6 +20,7 @@ export async function createPurgeApplication(
     canonical = join(root, 'telos.db');
   let target: number | undefined,
     token = '',
+    operatorId = '',
     child: ChildProcess | undefined,
     terminal: Promise<{ code: number | null; signal: NodeJS.Signals | null }> | undefined,
     browser: Awaited<ReturnType<typeof createJoinedBrowser>> | undefined;
@@ -54,6 +55,13 @@ export async function createPurgeApplication(
     if (!child || !terminal) return;
     const current = child,
       outcome = terminal;
+    let finalAuthRelease: { operatorId: string; confirmed: true } | undefined;
+    const observeRelease = (message: unknown) => {
+      const value = message as { type?: string; operatorId: string; confirmed?: boolean };
+      if (value.type === 'auth-revoked' && value.confirmed === true)
+        finalAuthRelease = { operatorId: value.operatorId, confirmed: true };
+    };
+    current.on('message', observeRelease);
     target = undefined;
     const timer = setTimeout(() => current.kill('SIGKILL'), 5000);
     let sendFailure: unknown;
@@ -74,12 +82,15 @@ export async function createPurgeApplication(
         pid: current.pid,
         ...ended,
         final,
+        finalAuthRelease: finalAuthRelease ?? null,
         diagnostics: [...diagnostics],
       });
       expect(ended).toEqual({ code: 0, signal: null });
+      if (final) expect(finalAuthRelease).toEqual({ operatorId, confirmed: true });
       if (sendFailure) throw sendFailure;
     } finally {
       clearTimeout(timer);
+      current.off('message', observeRelease);
       child = undefined;
       terminal = undefined;
     }
@@ -225,6 +236,12 @@ export async function createPurgeApplication(
     token = login.body.token as string;
     expect(typeof token).toBe('string');
     expect(token.length).toBeGreaterThan(0);
+    const checked = await request(front).get('/api/auth/check').auth(token, { type: 'bearer' });
+    expect(checked.status).toBe(200);
+    operatorId = checked.body.authSessionId as string;
+    expect(typeof operatorId).toBe('string');
+    expect(operatorId.length).toBeGreaterThan(0);
+    await record('actual-signed-purge-operator', { operatorId });
     const http = async (path: string, body?: object) => {
       const call = body ? request(front).post(path).send(body) : request(front).get(path);
       return call.auth(token, { type: 'bearer' });
