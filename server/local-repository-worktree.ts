@@ -3,11 +3,12 @@ import { lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { detectDefaultBranch, fetchWorktreeBase } from './worktree.js';
+import { readOnlyGitExecutable } from './read-only-git.js';
 
 const unavailable = () => Error('Original local repository is unavailable');
 const git = (cwd: string, ...args: string[]) =>
   execFileSync(
-    'git',
+    readOnlyGitExecutable(),
     [
       '--no-replace-objects',
       '-C',
