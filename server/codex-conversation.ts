@@ -203,7 +203,7 @@ export interface CodexConversationOptions {
     }>,
   ) => Promise<ObjectValue>;
   validateModel?: (model: string, reasoningEffort?: string) => void;
-  displayToolName?: (name: string) => string;
+  displayToolName?: (name: string, input?: ObjectValue) => string;
   /** Resolve control-plane prerequisites before the prompt reaches the provider. */
   prepareTurn?: (
     turn: { providerPrompt: string; userIntent?: string; turnId: string },
@@ -2977,7 +2977,7 @@ export class CodexConversation {
     }
     const publicId = this.mapper!.toolStart(
       call.callId,
-      this.opts.displayToolName?.(call.tool) ?? call.tool,
+      this.opts.displayToolName?.(call.tool, call.arguments) ?? call.tool,
       call.arguments,
     );
     let result: CodexToolResult;
