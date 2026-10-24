@@ -72,6 +72,16 @@ const fixture = (options?: {
   realPreparationAuthority?: boolean;
 }) => ownedRuntimeFixture(cleanups, options);
 
+it('binds a fresh prepared barrier to the actual retained operator, lease and physical old workspace', async () => {
+  const f = await fixture();
+  const runtime = f.create();
+  await runtime.admit(f.request);
+  const admission = f.dispatch.mock.calls[0][0].admission;
+  expect(() => admission.assertPreparedRepositoryBoundaryCurrentSync()).not.toThrow();
+  revokeAuthSession(f.auth);
+  expect(() => admission.assertPreparedRepositoryBoundaryCurrentSync()).toThrow();
+});
+
 it('renews run authority only on an explicit send from another verified operator login', async () => {
   const f = await fixture();
   const runtime = f.create();
@@ -1649,4 +1659,47 @@ it('commits a retained legacy companion upgrade in the native owner before launc
   const { codeModeHost: helper, ...main } = completed.executable;
   expect({ ...completed, executable: main }).toEqual(custody);
   expect(helper?.path).toBe(codeModeHost!.path);
+});
+
+it('does not invent an adoption or open a second transport when the real repository selector has no completed Prepare candidate', async () => {
+  const f = await fixture();
+  const native = new CodexConversationStore(join(f.root, 'transition-native.db'));
+  cleanups.push(() => native.close());
+  native.create(f.reservation.conversationId, f.reservation.binding, f.reserved.directory!);
+  const runtime = new OrdinaryLocalCodexOwnedRuntime({ ...f.dependencies, nativeStore: native });
+  cleanups.push(() => runtime.close());
+  await runtime.admit(f.request);
+  const admission = f.dispatch.mock.calls[0][0].admission;
+  const scope = Object.freeze({
+    bindingRevision: 'binding',
+    profileRevision: 'profile',
+    policyRevision: 'policy',
+    readableRoots: Object.freeze(['/']),
+    workspaceRoots: Object.freeze([]),
+    deniedRoots: Object.freeze([]),
+    signal: f.signal.signal,
+    assertCurrentSync() {},
+    async revalidate() {},
+  });
+  const policyOwner = Object.freeze({
+    signal: f.signal.signal,
+    selectedPolicy: () => {
+      throw Error('No candidate must not create physical owner');
+    },
+    assertCurrentSync() {},
+  });
+  const target = Object.freeze({
+    commandId: f.request.clientMsgId,
+    attempt: 1,
+    threadId: 'thread',
+    turnId: 'turn',
+    generation: 0,
+  });
+  await expect(
+    admission.adoptPreparedRepositoryAtBoundary(scope, target, () => {}, policyOwner),
+  ).resolves.toBeUndefined();
+  expect(f.launch).toHaveBeenCalledOnce();
+  expect(f.events.getLatestOrdinaryCommandAdmission(f.reservation.conversationId)?.state).toBe(
+    'consumed',
+  );
 });

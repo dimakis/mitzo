@@ -1,3 +1,6 @@
+import { context, trace } from '@opentelemetry/api';
+import { contextFromTraceparent } from './trace-context.js';
+import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { sessionHarnessForProvider } from './session-harness-routing.js';
 import { prepareDefaultOpenShellCommand } from './ordinary-openshell-default-workspace.js';
@@ -462,7 +465,7 @@ function createOwnedCodexEntryRouter(
       return res.status(409).json({ ok: false, code: 'entry_unavailable', error: unavailable });
     }
   });
-  const sendCommand =
+  const executeCommand =
     (continuation: boolean, observeOnly = false): import('express').RequestHandler =>
     async (req, res) => {
       // Workspace normalization and provider startup consume the same request
@@ -1135,6 +1138,24 @@ function createOwnedCodexEntryRouter(
         authority?.release();
       }
     };
+  const sendCommand = (
+    continuation: boolean,
+    observeOnly = false,
+  ): import('express').RequestHandler => {
+    const execute = executeCommand(continuation, observeOnly);
+    return async (req, res, next) => {
+      const header = req.headers.traceparent;
+      const parent = typeof header === 'string' ? contextFromTraceparent(header) : context.active();
+      const span = startCommandTimingSpan('codex.command.http', req.body?.clientMsgId, parent);
+      try {
+        return await context.with(span ? trace.setSpan(parent, span) : parent, () =>
+          execute(req, res, next),
+        );
+      } finally {
+        finishCommandTimingSpan(span, res.statusCode);
+      }
+    };
+  };
   router.post(ordinary ? '/first' : '/send', requireSameOriginJson, sendCommand(false));
   router.post('/continue', requireSameOriginJson, sendCommand(true));
   router.post(

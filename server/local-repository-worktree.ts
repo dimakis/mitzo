@@ -38,6 +38,8 @@ function directory(path: string) {
   return { dev: stat.dev, ino: stat.ino };
 }
 export interface LocalRepositorySource {
+  /** Server-captured path intent. Custody identity is not a filesystem grant. */
+  selection?: 'existing';
   repositoryId: string;
   path: string;
   root: { dev: number; ino: number };
@@ -55,13 +57,18 @@ export async function captureLocalRepository(
   if (git(path, 'rev-parse', '--show-toplevel') !== path) throw unavailable();
   const commonDirectory = git(path, 'rev-parse', '--path-format=absolute', '--git-common-dir');
   const commonRoot = directory(commonDirectory);
-  const baseBranch = startPoint ?? detectDefaultBranch(path);
+  const selectedRef = startPoint ?? detectDefaultBranch(path);
   const baseOid =
     startPoint === undefined
       ? await fetchWorktreeBase(path, signal)
       : git(path, 'rev-parse', '--verify', '--end-of-options', `${startPoint}^{commit}`);
   signal.throwIfAborted();
-  if (!/^[a-f0-9]{40}$/.test(baseOid)) throw unavailable();
+  if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(baseOid)) throw unavailable();
+  // HEAD is a valid source ref, but is a reserved Git branch name. Keep the
+  // reservation's display branch valid for non-main and detached repositories.
+  const branch =
+    selectedRef === 'HEAD' ? git(path, 'rev-parse', '--abbrev-ref', 'HEAD') : selectedRef;
+  const baseBranch = branch === 'HEAD' ? baseOid : branch;
   return {
     localSource: { repositoryId, path, root, commonDirectory, commonRoot },
     baseBranch,

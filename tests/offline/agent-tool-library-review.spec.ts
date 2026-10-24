@@ -135,10 +135,13 @@ for (const theme of ['dark', 'light'])
     await library.getByRole('button', { name: 'Clear filters' }).click();
     await expect(library.getByRole('article')).toHaveCount(tools.length);
     await search.fill('mitzo:Read');
-    await expect(library.getByRole('article')).toHaveCount(2);
+    await expect(library.getByRole('article')).toHaveCount(3);
     await expect(read).toBeVisible();
     await expect(
       library.getByRole('heading', { name: 'ReadKnowledge', exact: true }),
+    ).toBeVisible();
+    await expect(
+      library.getByRole('heading', { name: 'ReadPastSession', exact: true }),
     ).toBeVisible();
     const toggle = read.locator('.tool-library-details > summary');
     expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(44);

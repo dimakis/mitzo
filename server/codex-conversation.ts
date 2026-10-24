@@ -1,3 +1,4 @@
+import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
 import {
   codexApplicationContextFragments,
   codexDynamicToolsOption,
@@ -229,7 +230,12 @@ export interface CodexConversationOptions {
   startupSignal?: AbortSignal;
   beforeReconnect?: () => Promise<void>;
   /** Completed-turn boundary, before claiming queued work. */
-  beforeRuntimeAdmission?: (closeOwnedTransport: () => Promise<void>) => Promise<boolean>;
+  beforeRuntimeAdmission?:
+    | ((closeOwnedTransport: () => Promise<void>) => Promise<boolean>)
+    | {
+        readonly kind: 'prepared-repository-primary';
+        admit(assertCurrentSync: () => void): Promise<void>;
+      };
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
   completionHookTimeoutMs?: number;
   runtimeCwd?: string;
@@ -399,6 +405,7 @@ type ActiveCommand = {
   abort: AbortController;
   span?: Span;
   firstOutputSpan?: Span;
+  preparationSpan?: Span;
   traceContext: Context;
   nativeExecution?: CodexNativeExecutionPolicy;
   nativeFileChanges?: Map<string, readonly string[] | null>;
@@ -431,6 +438,7 @@ export class CodexConversation {
   };
   private mapper?: CodexSessionEvents;
   private commandContexts = new Map<string, Context>();
+  private queueTimingSpans = new Map<string, Span>();
   private active?: ActiveCommand;
   private interruptTargets = new WeakMap<
     CodexInterruptTarget,
@@ -1111,6 +1119,9 @@ export class CodexConversation {
     if (saved) {
       this.clearCapacityTimer();
       this.commandContexts.set(input.id, context.active());
+      // The durable enqueue has returned; time waiting for this exact command's claim.
+      const timing = startCommandTimingSpan('codex.command.queue_wait', input.id, context.active());
+      if (timing) this.queueTimingSpans.set(input.id, timing);
     }
     this.opts.onQueueChange?.();
     return { model, reasoningEffort };
@@ -1251,6 +1262,8 @@ export class CodexConversation {
     const result = this.opts.store.cancelQueued(this.opts.conversationId, this.binding, commandId);
     if (result === 'cancelled') {
       this.commandContexts.delete(commandId);
+      finishCommandTimingSpan(this.queueTimingSpans.get(commandId), 'cancelled');
+      this.queueTimingSpans.delete(commandId);
       this.opts.onQueueChange?.();
     }
     return result;
@@ -1985,20 +1998,65 @@ export class CodexConversation {
   }
   private async beginNext() {
     if (this.opts.beforeRuntimeAdmission && this.binding && !this.active) {
+      const boundary = this.opts.beforeRuntimeAdmission;
+      const boundaryAdmit = typeof boundary === 'function' ? undefined : boundary.admit;
+      const client = this.client;
+      const generation = this.transportGeneration;
+      const threadId = this.threadId;
+      const binding = this.binding;
+      const startupSignal = this.opts.startupSignal;
       await this.verifyCurrentBinding(this.binding);
       try {
-        const admit = async () => {
-          const changed = await this.opts.beforeRuntimeAdmission!(async () => {
-            this.transportGeneration += 1;
-            this.ready = false;
-            this.client.close();
-          });
-          if (changed || !this.ready) await this.reconnectBound();
-        };
-        // Hold the current grant reservation across migration and reattachment;
-        // validating only afterward could already provision revoked connections.
-        if (this.opts.reconnectGuard) await this.opts.reconnectGuard(admit);
-        else await admit();
+        if (typeof boundary !== 'function') {
+          if (!boundary || boundary.kind !== 'prepared-repository-primary' || !this.ready)
+            throw Error('Retained primary admission requires the original transport');
+          const admit = boundaryAdmit!;
+          let boundaryOpen = true;
+          const assertBoundaryCurrentSync = () => {
+            startupSignal?.throwIfAborted();
+            if (
+              !boundaryOpen ||
+              this.opts.startupSignal !== startupSignal ||
+              this.closed ||
+              this.paused ||
+              this.active ||
+              !this.ready ||
+              this.client !== client ||
+              this.transportGeneration !== generation ||
+              this.threadId !== threadId ||
+              this.binding !== binding ||
+              this.opts.beforeRuntimeAdmission !== boundary ||
+              boundary.admit !== admit
+            )
+              throw Error('Original retained primary boundary unavailable');
+          };
+          try {
+            assertBoundaryCurrentSync();
+            const admitted: unknown = await Reflect.apply(admit, boundary, [
+              assertBoundaryCurrentSync,
+            ]);
+            if (admitted !== undefined)
+              throw Error('Retained primary admission must settle without a value');
+            assertBoundaryCurrentSync();
+            await this.verifyCurrentBinding(this.binding);
+            assertBoundaryCurrentSync();
+          } finally {
+            boundaryOpen = false;
+          }
+        } else {
+          const admit = async () => {
+            const changed = await boundary(async () => {
+              this.transportGeneration += 1;
+              this.ready = false;
+              this.client.close();
+            });
+            if (changed || !this.ready) await this.reconnectBound();
+          };
+          // Hold the current grant reservation across migration and reattachment;
+          // validating only afterward could already provision revoked connections.
+          if (this.opts.reconnectGuard) await this.opts.reconnectGuard(admit);
+          else await admit();
+        }
       } catch (error) {
         // Admission precedes claimNext: preserve queued FIFO and expose an
         // explicit recovery pause even when only our idle transport was closed.
@@ -2024,6 +2082,8 @@ export class CodexConversation {
     }
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
+    finishCommandTimingSpan(this.queueTimingSpans.get(command.id), 'claimed');
+    this.queueTimingSpans.delete(command.id);
     const continuation = this.opts.store.capacityContinuation(
       this.opts.conversationId,
       this.binding!,
@@ -2048,6 +2108,11 @@ export class CodexConversation {
     let transportGeneration = this.transportGeneration;
     this.opts.onQueueChange?.();
     try {
+      active.preparationSpan = startCommandTimingSpan(
+        'codex.command.preparation',
+        command.id,
+        active.traceContext,
+      );
       const model = command.model ?? this.binding!.model;
       this.validateModel(model, command.reasoningEffort);
       this.mapper?.setModel(model);
@@ -2164,6 +2229,8 @@ export class CodexConversation {
             this.threadId!,
             active.nativeExecution,
           );
+        finishCommandTimingSpan(active.preparationSpan, 'submitted');
+        active.preparationSpan = undefined;
         const pendingAck = this.client.request(
           'turn/start',
           codexTurnStartParams({
@@ -2425,6 +2492,9 @@ export class CodexConversation {
       if (replaceProviderThread || active.accepted) this.retireTransportForRecovery();
       this.opts.onQueueChange?.();
       throw error;
+    } finally {
+      finishCommandTimingSpan(active.preparationSpan, 'stopped');
+      active.preparationSpan = undefined;
     }
   }
   private persistAcceptedTerminalConflict(thread: string, turn: string) {
@@ -3065,11 +3135,10 @@ export class CodexConversation {
           this.opts.assertNativeExecutionCurrent !== assertNativePolicyCurrent
         )
           throw Error('Original native base read policy owner changed');
-        const checked: unknown = assertNativePolicyCurrent.call(
-          this.opts,
+        const checked: unknown = Reflect.apply(assertNativePolicyCurrent, this.opts, [
           nativePolicy,
           active.command.id,
-        );
+        ]);
         if (checked !== undefined) {
           void Promise.resolve(checked).catch(() => {});
           throw Error('Native base read policy owner must be synchronous');
@@ -3315,6 +3384,10 @@ export class CodexConversation {
   }
   close() {
     this.commandContexts.clear();
+    for (const span of this.queueTimingSpans.values()) finishCommandTimingSpan(span, 'closed');
+    this.queueTimingSpans.clear();
+    finishCommandTimingSpan(this.active?.preparationSpan, 'closed');
+    if (this.active) this.active.preparationSpan = undefined;
     if (this.closed) return;
     this.closed = true;
     this.paused = true;
