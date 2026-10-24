@@ -85,10 +85,15 @@ Use ListIntegrationTools for concise names/descriptions, then DescribeIntegratio
     definitions,
     instructions,
     handles,
-    displayName(name: string, input?: Input): string {
-      return name === 'InvokeIntegrationTool' && typeof input?.toolId === 'string'
-        ? (entries.get(input.toolId)?.name ?? name)
-        : name;
+    displayCall(name: string, input: Input): { name: string; input: Input } {
+      if (name === 'InvokeIntegrationTool') {
+        const parsed = schemas.InvokeIntegrationTool.safeParse(input);
+        if (parsed.success && parsed.data.catalogRevision === revision) {
+          const tool = entries.get(parsed.data.toolId);
+          if (tool) return { name: tool.name, input: parsed.data.arguments };
+        }
+      }
+      return { name, input };
     },
     async execute(name: string, input: Input, signal: AbortSignal): Promise<CodexToolResult> {
       current(signal);

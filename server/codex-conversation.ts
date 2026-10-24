@@ -204,7 +204,7 @@ export interface CodexConversationOptions {
     }>,
   ) => Promise<ObjectValue>;
   validateModel?: (model: string, reasoningEffort?: string) => void;
-  displayToolName?: (name: string, input?: ObjectValue) => string;
+  displayToolCall?: (name: string, input: ObjectValue) => { name: string; input: ObjectValue };
   /** Resolve control-plane prerequisites before the prompt reaches the provider. */
   prepareTurn?: (
     turn: { providerPrompt: string; userIntent?: string; turnId: string },
@@ -3045,11 +3045,11 @@ export class CodexConversation {
         ],
       };
     }
-    const publicId = this.mapper!.toolStart(
-      call.callId,
-      this.opts.displayToolName?.(call.tool, call.arguments) ?? call.tool,
-      call.arguments,
-    );
+    const display = this.opts.displayToolCall?.(call.tool, call.arguments) ?? {
+      name: call.tool,
+      input: call.arguments,
+    };
+    const publicId = this.mapper!.toolStart(call.callId, display.name, display.input);
     let result: CodexToolResult;
     let callbackOpen = true;
     const callbackBinding = this.binding!;

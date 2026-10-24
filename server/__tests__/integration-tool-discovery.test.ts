@@ -57,12 +57,6 @@ it('starts with a small integration index and retrieves paginated summaries with
   );
   expect(result.content).not.toContain('schema_only_');
   expect(execute).not.toHaveBeenCalled();
-  expect(discovery.displayName('InvokeIntegrationTool', { toolId: 'wire_42' })).toBe(
-    'mcp__jira__operation_42',
-  );
-  expect(discovery.displayName('InvokeIntegrationTool', { toolId: 'unselected' })).toBe(
-    'InvokeIntegrationTool',
-  );
 });
 
 it('searches summaries, then returns the full contract for only the selected tool', async () => {
@@ -201,4 +195,34 @@ it('exposes no discovery bridge for an empty selected catalog and pages large co
     offset = page.nextOffset;
   }
   expect(JSON.parse(contract).inputSchema).toEqual(tools[0].input_schema);
+});
+
+it('keeps invalid, stale and unselected invocation activity in its bridge envelope', async () => {
+  const { discovery } = setup();
+  const detail = JSON.parse(
+    (await discovery.execute('DescribeIntegrationTool', { toolId: 'wire_42' }, signal())).content,
+  );
+  const valid = {
+    toolId: detail.toolId,
+    catalogRevision: detail.catalogRevision,
+    arguments: { issue: 'J-42' },
+  };
+  expect(discovery.displayCall('InvokeIntegrationTool', valid)).toEqual({
+    name: 'mcp__jira__operation_42',
+    input: valid.arguments,
+  });
+  for (const input of [
+    { toolId: 'wire_42' },
+    { ...valid, catalogRevision: 'stale' },
+    { ...valid, toolId: 'unselected' },
+  ]) {
+    expect(discovery.displayCall('InvokeIntegrationTool', input)).toEqual({
+      name: 'InvokeIntegrationTool',
+      input,
+    });
+  }
+  expect(discovery.displayCall('ListIntegrationTools', {})).toEqual({
+    name: 'ListIntegrationTools',
+    input: {},
+  });
 });

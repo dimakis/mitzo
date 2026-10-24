@@ -2445,10 +2445,10 @@ async function openCodexChatBound(
     !agentToolAllowed(options.session, REQUEST_WEB_ACCESS)
       ? { disableWebSearch: true }
       : {}),
-    displayToolName: (name, input) =>
+    displayToolCall: (name, input) =>
       integrationDiscovery?.handles(name)
-        ? integrationDiscovery.displayName(name, input)
-        : mcp.displayName(name),
+        ? integrationDiscovery.displayCall(name, input)
+        : { name: mcp.displayName(name), input },
     createClient: (callbacks) => {
       try {
         if (options.ownedLocal) return options.ownedLocal.attach(callbacks);

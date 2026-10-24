@@ -24,9 +24,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/integration-tool-discovery.test.ts':
-    'aaae1ba77876b80e87286ebb22f91c73e0c81c435c4af56ae9c55efc8a6fd1f5',
+    '5a82a553e7e23759aa2dac0a0c310cb30e57110ac35a3b001547d8e1df5c742b',
   '../integration-tool-discovery.ts':
-    'e0d30422bee84cdef0792e4d4fe329d6239a2615f7a7ad8292654a633cba7b62',
+    'c0fc9ce4f72fcfd03d46213b08641ac329792b6737707c6194d4140840dcf8c4',
   '../__tests__/prepared-repository-physical-boundary.test.ts':
     'd63526850338a948cf1e9cd2eadfdb8d5eb4902baec0eaa73ae38b04e7548cd8',
   '../local-repository-preparation-tool.ts':
@@ -237,7 +237,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     'c26b31c0fa00fd179ab04031a4e9f99fe9fc1d857a28f8d15841604e2e4c00ea',
   '../__tests__/codex-conversation.test.ts':
-    '3c4f1db17ac0d82c4ff1fb31f79e9bb8bb0b4d8b6590f210c304118ca005a5f3',
+    'f1462db1be4ff0d1ae499b265a741dc3fd50f1d1901d73d82d05f1110c8f423a',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -1033,7 +1033,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '39d081ec49ff74cc74ef33ce79310774c186822ac4dc06aa02f42a97504562a0',
+  '../codex-conversation.ts': '26a69d8b592353db1ad4cd8cf5010ec31a982f1b929df2a5cc398919dbfff8ff',
   '../codex-conversation-store.ts':
     '888ece3535ec53213a058bee7acc944b86d89587dfcc8e2dc8ffad49ead79b58',
   '../symposium-custodian-ipc.ts':
@@ -1201,7 +1201,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '3e9734030dea1237f60f274bca7c2a3e68f31ded5d60cca3419df7c84617145f',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': 'e9ab94b556fd80a149e1f9d73b18133231bbedf188d40fb992cb56ba7862f221',
+  '../codex-chat-session.ts': 'd106fe2eab11cf698a281350de7c06c3b18b2bc7c7bddb8e55763acd2bee5bf4',
   '../connections-runtime.ts': '0793e87975e59fc74dc4306802f2633d7d8cd7bca4a42af5bc1a5a2a04c22424',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
