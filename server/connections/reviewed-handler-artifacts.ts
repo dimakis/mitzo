@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.638-telos-regression-fixture-integration';
+  'v1.0.639-telos-discovery-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -35,6 +35,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '0d06513fcc4db6a5966c19e9135172b5a9f98d108cd1525930e405eda3eb5c00',
   '../../packages/protocol/src/telos-sqlite-owners.ts':
     '19ac125030b518a353b2f7dbe51a4a1eca7ff5b30bf719e45dc9d9b5debdb006',
+  '../__tests__/integration-tool-discovery.test.ts':
+    '5a82a553e7e23759aa2dac0a0c310cb30e57110ac35a3b001547d8e1df5c742b',
+  '../integration-tool-discovery.ts':
+    'c0fc9ce4f72fcfd03d46213b08641ac329792b6737707c6194d4140840dcf8c4',
   '../__tests__/prepared-repository-physical-boundary.test.ts':
     'd63526850338a948cf1e9cd2eadfdb8d5eb4902baec0eaa73ae38b04e7548cd8',
   '../local-repository-preparation-tool.ts':
@@ -243,9 +247,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     'ca56ac179cfc28efc71e68a4c88d99b323d9f44aa515f11b26109523d515aba8',
   '../__tests__/codex-chat-session.test.ts':
-    '397a7ed0539ce6f206e9478c552b0e84a98560e7512a5118cd801f847e7ffb28',
+    'c26b31c0fa00fd179ab04031a4e9f99fe9fc1d857a28f8d15841604e2e4c00ea',
   '../__tests__/codex-conversation.test.ts':
-    '3c4f1db17ac0d82c4ff1fb31f79e9bb8bb0b4d8b6590f210c304118ca005a5f3',
+    'f1462db1be4ff0d1ae499b265a741dc3fd50f1d1901d73d82d05f1110c8f423a',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -1041,7 +1045,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': 'fd069a3c8e742780790513835465204e4437757c1b2ffa77ae6bb35a3afe8e5d',
+  '../codex-conversation.ts': '26a69d8b592353db1ad4cd8cf5010ec31a982f1b929df2a5cc398919dbfff8ff',
   '../codex-conversation-store.ts':
     '888ece3535ec53213a058bee7acc944b86d89587dfcc8e2dc8ffad49ead79b58',
   '../symposium-custodian-ipc.ts':
@@ -1209,7 +1213,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '3e9734030dea1237f60f274bca7c2a3e68f31ded5d60cca3419df7c84617145f',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '68bf3d7e24ece50e1fb975fa38601030151b25d4ca9894213c7a82b14102883c',
+  '../codex-chat-session.ts': 'd106fe2eab11cf698a281350de7c06c3b18b2bc7c7bddb8e55763acd2bee5bf4',
   '../connections-runtime.ts': '0793e87975e59fc74dc4306802f2633d7d8cd7bca4a42af5bc1a5a2a04c22424',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
@@ -1434,7 +1438,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'a0f869d7883f0bed0b8882b14d7569ee34b9e4316268813f3c6767721e86a7e7',
   '../../packages/protocol/src/ordinary-prepared-session.ts':
     'fc4d953515c7df9cf7594b4fc502c39d891cdf53c667a3db6839c390effa20e3',
-  '../codex-ordinary-packet.ts': 'cadc43f0f96797e4554d30300cddd8f49531c8f3d9c4e60946bade3a598a0f62',
+  '../codex-ordinary-packet.ts': 'ea55894e288ef8b7f495242cea7fddd1c085cdbaabdbbf9161cec70c0c77758c',
   '../collaboration-ordinary-delivery.ts':
     'bd5f853078019770871a660083177cd54e7dae8c7718f230fdd203ca39a942e7',
   '../collaboration-review-owner.ts':
@@ -1490,7 +1494,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '091127d326a458cecab4514ecfe4f9b3244998acc571fccf887479d4afa4dffe',
   '../../frontend/src/hooks/useTelosRoleSetup.ts':
     'cbded6cb6136a45627de2b563b433cfc4b9f80c248035dcdbbfb05c79d9810d8',
-  '../research-instructions.ts': '0847d737a765fd2b1c3707d44909d92b186167b6ab34782ea2deb878dc1488a2',
+  '../research-instructions.ts': '43b6b28df80b4b1e306619c7089c5e3e1326cfc97253f810a1732ce67bf9c082',
   '../github-read-summary.ts': 'a0484745af976ccee6b840e3955824509669d0fedb1561d6a6ce35c31ebadc2d',
   '../../frontend/src/components/AgentActivity.tsx':
     '6dace0ce097e4c7647a14134f3d75e0d2e76650da4a222ea1e117c7bf04178a0',
