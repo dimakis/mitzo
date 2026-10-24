@@ -149,7 +149,9 @@ export class FrozenHostCodexApiLogin {
         options.signal,
         true,
       );
-      await login.assertKey();
+      // The key was just resolved under its controller fence. Only synchronous
+      // private-home setup intervenes; connect rechecks the key before launch.
+      login.assertRoot();
       return login;
     } catch {
       throw unavailable();

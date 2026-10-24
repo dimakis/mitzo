@@ -88,6 +88,7 @@ import {
   canResumeOwnedOpenShellCodexDriver,
 } from './ordinary-openshell-codex-entry.js';
 import { createLogger } from './logger.js';
+import { observeLocalCodexPhase } from './local-codex-observation.js';
 import { nativeStartupSessionId, reserveRepositoryStartup } from './ordinary-repository-startup.js';
 import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
 import type { SessionSseRegistry } from './session-sse-registry.js';
@@ -895,19 +896,21 @@ function createOwnedCodexEntryRouter(
         if (!ordinaryInput && (!BASE_REPO || !isAbsolute(BASE_REPO))) throw Error(unavailable);
         if (automaticLocalRepository) {
           authority.assertCurrent();
-          await getLocalRepositoryWorkspaces().selectLocalRepository(
-            binding,
-            'primary',
-            {
-              runOn: 'local',
-              runtime: {
-                account: input.runtime.account,
-                harness: input.runtime.harness,
-                targetId: input.runtime.targetId,
+          await observeLocalCodexPhase('repository_selection', () =>
+            getLocalRepositoryWorkspaces().selectLocalRepository(
+              binding,
+              'primary',
+              {
+                runOn: 'local',
+                runtime: {
+                  account: input.runtime.account,
+                  harness: input.runtime.harness,
+                  targetId: input.runtime.targetId,
+                },
               },
-            },
-            controller.signal,
-            repositoryWorkspaceId!,
+              controller.signal,
+              repositoryWorkspaceId!,
+            ),
           );
           authority.assertCurrent();
         }
@@ -977,10 +980,12 @@ function createOwnedCodexEntryRouter(
         };
         authority.assertCurrent();
         if (!ordinaryInput && !continuation && input.runOn === 'local')
-          await getRepositoryWorkspaces(true).reserveHostTask({
-            ...reservation,
-            signal: controller.signal,
-          });
+          await observeLocalCodexPhase('repository_reservation', () =>
+            getRepositoryWorkspaces(true).reserveHostTask({
+              ...reservation,
+              signal: controller.signal,
+            }),
+          );
         else if (!ordinaryInput && !continuation)
           await getRepositoryWorkspaces(true).reserveOrdinarySandboxTask({
             ...reservation,

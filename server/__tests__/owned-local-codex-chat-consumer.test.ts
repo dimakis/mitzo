@@ -681,6 +681,28 @@ it('never captures an unrelated replacement in the original client slot when the
   }
 });
 
+it('leaves async context qualification to the owned host wrapper while preserving synchronous revocation', async () => {
+  const f = fixture(undefined, true);
+  const prepared = await chat.prepareOwnedCodexChat(
+    f.transport,
+    `client-${f.id}`,
+    f.input,
+    f.serverOptions,
+  );
+  try {
+    const options = vi.mocked(openCodexChat).mock.calls.at(-1)![0];
+    vi.mocked(f.lease.assertCurrent).mockClear();
+    await options.prepareAgentContext!(new AbortController().signal);
+    expect(f.lease.assertCurrent).not.toHaveBeenCalled();
+    vi.mocked(f.lease.assertCurrentSync).mockImplementationOnce(() => {
+      throw Error('Offline owner revoked');
+    });
+    await expect(options.prepareAgentContext!(new AbortController().signal)).rejects.toThrow();
+  } finally {
+    prepared.close();
+  }
+});
+
 it('delivers the pinned context through shared owned startup and records only provider-confirmed acceptance', async () => {
   const f = fixture(undefined, true);
   const prepared = await chat.prepareOwnedCodexChat(
