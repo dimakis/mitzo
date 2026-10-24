@@ -3322,6 +3322,40 @@ it('retains the existing non-Mac owned host tools without claiming native Mac pe
   }
 });
 
+it.each(['before', 'during'] as const)(
+  'rejects owned context preparation when the credential is revoked %s the callback',
+  async (when) => {
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
+    });
+    const f = ownedLocalOptions();
+    let revoked = false;
+    const prepare = vi.fn(async () => {
+      revoked = true;
+    });
+    let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      chat = await openCodexChat({ ...f.opts, prepareAgentContext: prepare });
+      vi.mocked(f.lease.assertCurrent).mockImplementation(async () => {
+        if (revoked) throw Error('Offline credential revoked');
+      });
+      revoked = when === 'before';
+      const wrapped = mocks.conversationOptions!.prepareAgentContext as (
+        signal: AbortSignal,
+      ) => Promise<void>;
+      await expect(wrapped(new AbortController().signal)).rejects.toThrow();
+      expect(prepare).toHaveBeenCalledTimes(when === 'before' ? 0 : 1);
+    } finally {
+      chat?.close();
+      f.eventStore.close();
+    }
+  },
+);
+
 it('uses the already verified owned client locally regardless of global OpenShell settings', async () => {
   vi.clearAllMocks();
   vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
@@ -3339,6 +3373,7 @@ it('uses the already verified owned client locally regardless of global OpenShel
   const f = ownedLocalOptions();
   try {
     const chat = await openCodexChat(f.opts);
+    expect(f.lease.assertCurrent).toHaveBeenCalledTimes(2);
     expect(hostLaunch).not.toHaveBeenCalled();
     expect(shellLaunch).not.toHaveBeenCalled();
     expect(mocks.reserveStartup).not.toHaveBeenCalled();

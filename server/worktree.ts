@@ -17,6 +17,7 @@ import {
 import { mkdir, mkdtemp, rm } from 'fs/promises';
 import { join, basename, resolve } from 'path';
 import { tmpdir } from 'os';
+import { observeLocalCodexPhase } from './local-codex-observation.js';
 
 const execFileAsync = promisify(execFileCb);
 import {
@@ -75,14 +76,14 @@ export function detectDefaultBranch(repoPath: string): string {
   return 'HEAD';
 }
 
-function worktreeBase(repoPath: string) {
+function worktreeBase(repoPath: string, selectedBranch?: string) {
   const read = (...args: string[]) =>
     execFileSync('git', ['-C', repoPath, ...args], {
       encoding: 'utf8',
       stdio: 'pipe',
       timeout: WORKTREE_GIT_TIMEOUT_MS,
     }).trim();
-  const branch = detectDefaultBranch(repoPath);
+  const branch = selectedBranch ?? detectDefaultBranch(repoPath);
   const remotes = read('remote').split('\n');
   const tracking = read('for-each-ref', '--format=%(upstream:remotename)', `refs/heads/${branch}`);
   const remote =
@@ -117,10 +118,17 @@ function worktreeBase(repoPath: string) {
   };
 }
 /** Shared by all local providers. Refresh remote refs; leave local branches and working files alone. */
-export async function fetchWorktreeBase(repoPath: string, signal?: AbortSignal): Promise<string> {
+export async function fetchWorktreeBase(
+  repoPath: string,
+  signal?: AbortSignal,
+  selectedBranch?: string,
+): Promise<string> {
   signal?.throwIfAborted();
-  const base = worktreeBase(repoPath);
-  if (base.remote) await execFileAsync('git', base.args, { ...base.options, signal });
+  const base = worktreeBase(repoPath, selectedBranch);
+  if (base.remote)
+    await observeLocalCodexPhase('repository_fetch', () =>
+      execFileAsync('git', base.args, { ...base.options, signal }),
+    );
   signal?.throwIfAborted();
   return base.commit();
 }
