@@ -96,7 +96,9 @@ function responsesCapabilities(
     })),
   };
   const resolve = (request: unknown) =>
-    (newWork ? resolveNewOrdinarySessionRuntime : resolveOrdinarySessionRuntime)(request, catalog);
+    target.harness === 'responses'
+      ? { status: 'rejected' as const, code: 'new_work_harness_unsupported' as const }
+      : (newWork ? resolveNewOrdinarySessionRuntime : resolveOrdinarySessionRuntime)(request, catalog);
   const inventory = {
     version: 1 as const,
     authority: 'configuration-only' as const,
@@ -119,7 +121,7 @@ function responsesCapabilities(
       },
     ],
   };
-  if (newWork && target.harness === 'responses') {
+  if (target.harness === 'responses') {
     inventory.routes = inventory.routes.filter(
       (route) =>
         resolve({
@@ -130,13 +132,14 @@ function responsesCapabilities(
         }).status === 'compatible',
     );
     inventory.capabilityRevision = digest([
-      'ordinary-local-new-work-capabilities-v1',
+      'ordinary-local-retired-responses-capabilities-v1',
+      newWork,
       inventory.capabilityRevision,
       inventory.routes,
     ]);
     if (!inventory.routes.length)
       inventory.locations = [
-        { location: 'local', status: 'unavailable', reason: 'supported_harness_unavailable' },
+        { location: 'local', status: 'unavailable', reason: 'responses_execution_retired' },
       ];
   }
   return {
@@ -145,7 +148,8 @@ function responsesCapabilities(
   };
 }
 
-/** Retained legacy engine compatibility. Do not use for new-entry admission. */
+/** Retained account/target metadata only. Responses execution is retired; the
+ * same owner still serves executable deferred Gemini capability projection. */
 export function localResponsesCapabilities(
   profiles: AccountProfiles,
   target: OrdinaryLocalResponsesTarget,
