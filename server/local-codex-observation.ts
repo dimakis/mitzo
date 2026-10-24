@@ -6,6 +6,7 @@ import { tracer } from './tracing.js';
 type Phase =
   | 'repository_selection'
   | 'repository_reservation'
+  | 'repository_fetch'
   | 'repository_credential_check'
   | 'bootstrap'
   | 'keychain_read'

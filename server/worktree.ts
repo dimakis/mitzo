@@ -17,6 +17,7 @@ import {
 import { mkdir, mkdtemp, rm } from 'fs/promises';
 import { join, basename, resolve } from 'path';
 import { tmpdir } from 'os';
+import { observeLocalCodexPhase } from './local-codex-observation.js';
 
 const execFileAsync = promisify(execFileCb);
 import {
@@ -120,7 +121,10 @@ function worktreeBase(repoPath: string) {
 export async function fetchWorktreeBase(repoPath: string, signal?: AbortSignal): Promise<string> {
   signal?.throwIfAborted();
   const base = worktreeBase(repoPath);
-  if (base.remote) await execFileAsync('git', base.args, { ...base.options, signal });
+  if (base.remote)
+    await observeLocalCodexPhase('repository_fetch', () =>
+      execFileAsync('git', base.args, { ...base.options, signal }),
+    );
   signal?.throwIfAborted();
   return base.commit();
 }
