@@ -107,7 +107,19 @@ export function captureTaskToolExecution(
   owners: TaskToolOwners,
   input: { clientId: string; expected: { sessionId: unknown; taskId: unknown } },
 ): TaskToolExecution | null {
-  const session = owners.registry.get(input.clientId);
+  let session = owners.registry.get(input.clientId);
+  // The task MCP process keeps its original logical worker client id when a
+  // viewer reconnect rekeys the live native session. Only the immutable receipt
+  // may connect that old callback id to the current registered session.
+  if (!session && typeof input.expected.sessionId === 'string') {
+    try {
+      const proof = readAllocation(owners.events, input.expected.sessionId);
+      if (proof?.workerClientId === input.clientId && proof.taskId === input.expected.taskId)
+        session = owners.registry.findBySessionId(proof.conversationId)?.session;
+    } catch {
+      return null;
+    }
+  }
   const sessionId = session?.sessionId,
     context = session?.taskContext;
   if (!session || !sessionId || !context) return null;

@@ -1,3 +1,7 @@
+import {
+  TASK_WORKER_ALLOCATION_EVENT,
+  resolveTaskWorkerAllocationContext,
+} from './task-worker-authority.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
 import { restoreOwnedVertexInitialPrompt } from './ordinary-local-vertex-replay.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
@@ -247,11 +251,16 @@ export function resolveOwnedTelosWorkCommandScope(sessionId: string, forNewComma
         sessionId,
         eventStore.getSession(sessionId)?.accountBinding ?? undefined,
       );
-    const scope = resolveTelosWorkCommandScope(
+    let scope: ManagedSession['taskContext'] = resolveTelosWorkCommandScope(
       owners,
       sessionId,
       eventStore.getSession(sessionId)?.accountBinding ?? undefined,
     );
+    if (eventStore.getLatestEvent(sessionId, TASK_WORKER_ALLOCATION_EVENT)) {
+      if (!_taskStore || scope) throw Error('Exact ordinary worker task authority unavailable');
+      scope = resolveTaskWorkerAllocationContext(eventStore, _taskStore, sessionId);
+      if (!scope) throw Error('Retained ordinary worker allocation proof unavailable');
+    }
     const session = registry.findBySessionId(sessionId)?.session;
     if (scope && session) session.taskContext = scope;
     return scope;
@@ -993,7 +1002,8 @@ function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> |
         '--client-id',
         clientId,
         ...(session.sessionId &&
-        _taskStore?.getTelosExecutionBinding(session.taskContext.currentTaskId)
+        (session.taskContext.workerAllocationId ||
+          _taskStore?.getTelosExecutionBinding(session.taskContext.currentTaskId))
           ? ['--session-id', session.sessionId, '--task-id', session.taskContext.currentTaskId]
           : []),
       ],

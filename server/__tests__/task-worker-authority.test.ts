@@ -1,12 +1,14 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { SessionRegistry } from '@mitzo/harness';
 import { EventStore } from '../event-store.js';
 import { TaskStore } from '../task-store.js';
 import {
   captureTaskToolExecution,
+  retainTaskWorkerAllocation,
   TASK_WORKER_ALLOCATION_EVENT,
 } from '../task-worker-authority.js';
 import { handleTaskArtifact, handleTaskComplete, handleTaskSet } from '../task-tools.js';
+vi.mock('../chat.js', () => ({ sendToChat: vi.fn(async () => true) }));
 const cleanup: (() => void)[] = [];
 afterEach(() => {
   for (const close of cleanup.splice(0).reverse()) close();
@@ -103,6 +105,8 @@ it('rechecks actual current ownership at the mutation boundary after intervening
   f.registry.rekey(old.clientId, 'reattached-viewer');
   const reattached = f.capture('reattached-viewer', old.sessionId);
   expect(reattached).not.toBeNull();
+  expect(f.capture(old.clientId, old.sessionId)).not.toBeNull();
+  expect(f.capture('unrelated-viewer', old.sessionId)).toBeNull();
   expect(handleTaskArtifact(f.tasks, f.task.id, 'before', 'accepted', reattached!)).toContain(
     'Artifact stored',
   );
@@ -110,7 +114,7 @@ it('rechecks actual current ownership at the mutation boundary after intervening
   expect(() => handleTaskArtifact(f.tasks, f.task.id, 'after', 'stale', captured)).toThrow();
   expect(f.tasks.get(f.task.id)?.artifacts).toEqual({ before: 'accepted' });
 });
-it('refuses missing or ambiguous durable worker proof and leaves ordinary reuse tasks unchanged', () => {
+it('refuses a missing live allocation identity and leaves ordinary reuse tasks unchanged', () => {
   const f = fixture();
   const old = f.allocate(0);
   const live = f.registry.get(old.clientId)!;
@@ -128,4 +132,91 @@ it('refuses missing or ambiguous durable worker proof and leaves ordinary reuse 
   });
   f.registry.get('reuse-client')!.taskContext = { currentTaskId: f.task.id, goalId: f.goal.id };
   expect(f.capture('reuse-client', 'reuse')?.taskId).toBe(f.task.id);
+});
+
+it('refuses missing or duplicate durable receipts while retaining worker history', () => {
+  const f = fixture();
+  const old = f.allocate(0);
+  const emptyEvents = new EventStore(':memory:');
+  cleanup.push(() => emptyEvents.close());
+  emptyEvents.upsertSession({ sessionId: old.sessionId });
+  expect(
+    captureTaskToolExecution(
+      { ...f.owners, events: emptyEvents },
+      { clientId: old.clientId, expected: { sessionId: old.sessionId, taskId: f.task.id } },
+    ),
+  ).toBeNull();
+  const original = f.events.getEventsOfType(old.sessionId, TASK_WORKER_ALLOCATION_EVENT)[0];
+  f.events.append(old.sessionId, TASK_WORKER_ALLOCATION_EVENT, original.payload);
+  expect(f.capture(old.clientId, old.sessionId)).toBeNull();
+  expect(f.events.getEventsOfType(old.sessionId, TASK_WORKER_ALLOCATION_EVENT)).toHaveLength(2);
+  expect(f.tasks.get(f.task.id)?.artifacts).toBeNull();
+});
+
+it('rejection and a fresh scheduler retry revoke the old idle worker before it can mutate the replacement attempt', async () => {
+  const f = fixture();
+  const { TaskOrchestrator } = await import('../task-orchestrator.js');
+  f.tasks.update(f.task.id, { requiresApproval: true });
+  const allocated: { clientId: string; sessionId: string }[] = [];
+  const orchestrator = new TaskOrchestrator({
+    store: f.tasks,
+    getClientId: () => 'source',
+    setTaskContext() {},
+    clearTaskContext() {},
+    broadcastStatus() {},
+    broadcastTasks() {},
+    bindWorkerSession: () => async (taskId, _prompt, goalId, _onEnded, scope) => {
+      const clientId = `task-worker:${scope.operationId}`,
+        sessionId = `native-${scope.operationId}`;
+      f.tasks.setSessionId(taskId, clientId);
+      f.tasks.update(taskId, {
+        annotations: [...f.tasks.get(taskId)!.annotations, `worker_conversation: ${sessionId}`],
+      });
+      f.events.upsertSession({ sessionId });
+      retainTaskWorkerAllocation(f.events, {
+        version: 1,
+        taskId,
+        goalId,
+        operationId: scope.operationId,
+        workerClientId: clientId,
+        conversationId: sessionId,
+      });
+      f.registry.register(clientId, {
+        sessionId,
+        mode: 'ask',
+        abortController: new AbortController(),
+        transport: { send() {}, isOpen: () => true },
+        sessionAllowList: new Set(),
+      });
+      f.registry.get(clientId)!.taskContext = {
+        currentTaskId: taskId,
+        goalId,
+        workerAllocationId: scope.operationId,
+      };
+      allocated.push({ clientId, sessionId });
+      return clientId;
+    },
+  });
+  cleanup.push(() => orchestrator.stop());
+  orchestrator.setSpawnEnabled(true);
+  orchestrator.start(f.goal.id, { clientId: 'source' });
+  await vi.waitFor(() => expect(allocated).toHaveLength(1));
+  const old = allocated[0],
+    oldEffect = f.capture(old.clientId, old.sessionId)!;
+  expect(handleTaskComplete(f.tasks, f.task.id, 'First reviewed attempt', oldEffect)).toContain(
+    'pending_review',
+  );
+  orchestrator.onTaskCompleted(f.task.id);
+  expect(orchestrator.rejectTask(f.task.id, 'Use a fresh attempt')).toBe(true);
+  await vi.waitFor(() => expect(allocated).toHaveLength(2));
+  expect(f.capture(old.clientId, old.sessionId)).toBeNull();
+  expect(() =>
+    handleTaskArtifact(f.tasks, f.task.id, 'stale', 'must not persist', oldEffect),
+  ).toThrow();
+  const latest = allocated[1],
+    current = f.capture(latest.clientId, latest.sessionId)!;
+  expect(handleTaskArtifact(f.tasks, f.task.id, 'current', 'retained evidence', current)).toContain(
+    'Artifact stored',
+  );
+  expect(f.tasks.get(f.task.id)?.artifacts).toEqual({ current: 'retained evidence' });
 });
