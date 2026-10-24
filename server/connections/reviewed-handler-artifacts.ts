@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.656-parallel-startup-feedback';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.657-verified-code-reuse';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -916,9 +915,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../frozen-host-codex-login.ts':
     'd1f5d8b6fc4f2793f80308918918161206c644300e1f8f6242e5b1cf26620c1a',
   '../frozen-host-codex-executable.ts':
-    '1f6bf29d5da1fe3fff90bb6760515d745a189d007c7673981afe7c8485ae6c98',
+    '54106826add4062d7e29d1f2249856629c1afe89a15d148aea497ef9858480fb',
   '../frozen-host-codex-bootstrap.ts':
-    '110f6df04d8688cb63163f1b2ec2974de5c229e61c82a7d077e51b64029d3585',
+    '014b450bab7eaf3e5d02b666eb409bdbcd0ad01a69941f5ed21513e14d973c4c',
   '../owned-codex-lifecycle-bridge.ts':
     'b76d973b736e98d2b140b87e0bcd767449539a1bf8fa5f6d41d95e3839408a96',
   '../owned-local-codex-chat-admission.ts':
@@ -943,7 +942,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-approval-scope.ts':
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
-    'f3bcf777d6e684cc00a7cebd7513d50a172ce65340cc278208bccba6681ff5ee',
+    'c46d7798654c4f2893124c9b1e13374bd90be1762bee40fa23221f6ab8ef39ce',
   '../codex-mcp-tools.ts': 'b90c6fcd1b2df124308806be2a1ff95e43609e50789e7a9b01a0b2c418f810a3',
   '../codex-runtime-diagnostics.ts':
     '00b48e32557feff7923a5d548f085d2107383491689ec43f75f465287552f4c9',
@@ -1276,7 +1275,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '497a2c4bbb4ca61892e392b11fe554bb88d5302921eef7305f88e74d03c206cc',
   '../../packages/protocol/src/ordinary-openshell-admission.ts':
     'd55a6266b2d5b4df95b9ab2e92526032de1ea6f080921f5adc4d182fced38f3f',
-  '../host-codex-custody.ts': 'a9ebb76743bc7d5a1f67d27c879b71816e2efad7c2d60f20277e31f4a19ccc08',
+  '../host-codex-custody.ts': 'c3c7f43b0b16cececf1fc406e3a72360a37f61c5f4ad31ea5e00e6456bb88f00',
   '../interactive-auth-core.ts': '512e933252bda6a86584dcb3d6a622ddea43d9e525c682dffae91f622e745120',
   '../openshell-codex-custody.ts':
     '7e08950de4b9e31af2aaa87e5bb8eb14a11322e893a4adc363e6c507fe6b323a',

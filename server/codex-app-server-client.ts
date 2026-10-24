@@ -20,7 +20,7 @@ import { z } from 'zod';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
-import { dirname, isAbsolute, posix } from 'node:path';
+import { isAbsolute, posix } from 'node:path';
 import { AccountBindingSchema, type AccountBinding } from '@mitzo/protocol';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
@@ -565,6 +565,7 @@ export class CodexAppServerClient {
   ) {
     if (!(executable instanceof FrozenHostCodexExecutable))
       throw new Error('Host Codex runtime unavailable');
+    executable.assertForLoginHome(privateHome);
     executable.assertLaunchCurrent();
     return this.launchHost(privateHome, base, lifecycle, true, executable);
   }
@@ -576,11 +577,9 @@ export class CodexAppServerClient {
     executable?: FrozenHostCodexExecutable,
     connection?: ApiHarnessConnection,
   ) {
-    if (
-      !(executable instanceof FrozenHostCodexExecutable) ||
-      dirname(executable.path) !== privateHome
-    )
+    if (!(executable instanceof FrozenHostCodexExecutable))
       throw new Error('Host Codex runtime unavailable');
+    executable.assertForLoginHome(privateHome);
     executable.assertLaunchCurrent();
     return this.launchHost(
       privateHome,
@@ -639,11 +638,11 @@ export class CodexAppServerClient {
           (current.mode & 0o077) !== 0 ||
           current.uid !== process.getuid?.() ||
           !(executable instanceof FrozenHostCodexExecutable) ||
-          dirname(executable.path) !== privateHome ||
           lstatSync(`${privateHome}/auth.json`, { throwIfNoEntry: false }) ||
           lstatSync(`${privateHome}/config.toml`, { throwIfNoEntry: false })
         )
           throw new Error('New private API home required');
+        executable.assertForLoginHome(privateHome);
       };
       assertNewHome();
       await assertBeforeKey(binding);

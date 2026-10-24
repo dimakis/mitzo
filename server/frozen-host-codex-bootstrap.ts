@@ -406,10 +406,14 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             this.owners.privateRoot ?? codexPrivateDirectory(),
             `${api ? 'host-api' : 'host-login'}-${retained.bootstrapId}`,
           ) ||
-          retained.executable.path !== join(retained.login.privateHome, 'codex-runtime') ||
           retained.executable.source !== observed.executablePath)
       )
         throw unavailable();
+      if (retained)
+        FrozenHostCodexExecutable.assertCustodyForLoginHome(
+          retained.executable,
+          retained.login.privateHome,
+        );
       const authBinding =
         this.owners.retainedAccountBinding ??
         this.owners.loadProfiles().resolve(expected.binding.account.accountId, ownedProfile.model);
@@ -450,7 +454,11 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             });
       const executable = retained
         ? FrozenHostCodexExecutable.reopen(retained.executable)
-        : FrozenHostCodexExecutable.capture(observed.executablePath, login.privateHome);
+        : FrozenHostCodexExecutable.captureReusable(
+            observed.executablePath,
+            this.owners.privateRoot ?? codexPrivateDirectory(),
+          );
+      executable.assertForLoginHome(login.privateHome);
       if (retained && executable.companionUpgradePlan()) {
         if (!this.owners.completeRetainedRuntimeBundle) throw unavailable();
         this.owners.completeRetainedRuntimeBundle(executable);

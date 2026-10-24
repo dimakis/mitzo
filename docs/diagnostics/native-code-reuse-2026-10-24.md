@@ -1,0 +1,73 @@
+# Reusing verified Local Codex code
+
+New Local Codex conversations previously copied the reviewed native executable
+and its companion into each private login home. An isolated diagnostic showed
+that each fresh copy incurred approximately two seconds on first execution.
+Removing `--version` merely moved that cost into initialization.
+
+The follow-up to parallel startup retains one process-owned code bundle per
+unchanged source identity/private root. API and subscription conversations reuse
+the same verified code files while keeping independent private login homes,
+credentials, configuration, native state and processes. There is no shared login
+or credential/readiness cache. OpenShell, Claude and Gemini do not use this Local
+Codex executable-copy path.
+
+## Ownership and compatibility
+
+The registry publishes only complete main/companion custody snapshots after the
+existing exclusive capture, hash and fsync checks. Snapshots are immutable; each
+conversation receives a fresh wrapper bound to exactly one private home. Shared
+placement records the private root's physical identity and validates bundle
+ancestry, private directory ownership/modes and login-home identity. Source and
+owned-file inode/link/mode checks, full launch hashes and version checks remain.
+
+Closing or failing one conversation does not delete code used by another. No
+code files are evicted in this change. A source update allocates a new bundle;
+retained custody continues to use its exact original files and existing
+fail-closed source checks. A corrupt registry entry can be discarded for new
+adoption without repairing or rebinding retained conversations. Unexplained disk
+directories are never scanned/adopted; a process restart begins with an empty
+registry. The first new bundle execution after restart/source replacement still
+incurs the cold cost.
+
+Legacy code-inside-login-home custody remains supported, including its recorded
+companion-upgrade path. New shared snapshots carry explicit placement evidence
+and reopen their exact recorded bundle on cold continuation. Builds predating
+shared placement cannot consume these new snapshots; deployment/rollback planning
+must retain a build that understands them. No custody is deleted or migrated.
+
+## Account-free native layout diagnostic
+
+The exact reviewed native bytes were copied to a disposable sibling code bundle,
+then initialized in three distinct private homes. Before native execution, an
+explicit macOS OS sandbox was proved to deny loopback networking, real-home reads
+and writes outside the fixture. Keychain files and securityd lookup were also
+denied. Children inherited only an explicit minimal environment with disposable
+HOME/CODEX_HOME and file-only credential storage. The provider was an offline
+endpoint with OS-denied networking.
+
+| New private home using the same code inode |      Version | Initialize |     Combined |
+| ------------------------------------------ | -----------: | ---------: | -----------: |
+| First execution                            | 2,199.917 ms | 122.885 ms | 2,322.802 ms |
+| Second home/process                        |    54.346 ms |  84.939 ms |   139.285 ms |
+| Third home/process                         |    52.693 ms |  88.805 ms |   141.498 ms |
+
+All three native sessions received only `initialize`/`initialized` and exited on
+stdin EOF. Companion `--help` succeeded under the same policy. Code hashes and
+inode remained unchanged; the code directory contained only the two executable
+files and the three homes had distinct physical identities. The initial copy
+took 1,376.224 ms in this Python fixture and is excluded from the table.
+
+No account, credential, model, thread, turn, tool or backend operation was made.
+No model was invoked and no account was charged. Temporary files were removed.
+This small diagnostic qualifies the sibling layout and illustrates the first
+execution penalty; it is not a benchmark of the complete application path.
+The precise macOS subsystem responsible for the cold penalty was not identified.
+
+Synthetic application regressions separately cover API/subscription ownership,
+independent clients/homes, cold legacy/shared custody, source updates, partial
+capture, immutable publication, tampering and home/root substitution. Fresh
+measurement and full launch hashing still cost time. Total live startup with
+parallel setup and code reuse remains unmeasured; subsecond cold startup is not
+established by these results. No service restart, deployment or staging operation
+is included.
