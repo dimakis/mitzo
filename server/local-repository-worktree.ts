@@ -3,11 +3,12 @@ import { lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { detectDefaultBranch, fetchWorktreeBase } from './worktree.js';
+import { readOnlyGitExecutable } from './read-only-git.js';
 
 const unavailable = () => Error('Original local repository is unavailable');
 const git = (cwd: string, ...args: string[]) =>
   execFileSync(
-    'git',
+    readOnlyGitExecutable(),
     [
       '--no-replace-objects',
       '-C',
@@ -54,13 +55,20 @@ export async function captureLocalRepository(
 ) {
   signal.throwIfAborted();
   const root = directory(path);
-  if (git(path, 'rev-parse', '--show-toplevel') !== path) throw unavailable();
-  const commonDirectory = git(path, 'rev-parse', '--path-format=absolute', '--git-common-dir');
+  const identity = git(
+    path,
+    'rev-parse',
+    '--show-toplevel',
+    '--path-format=absolute',
+    '--git-common-dir',
+  ).split('\n');
+  if (identity.length !== 2 || identity[0] !== path) throw unavailable();
+  const commonDirectory = identity[1];
   const commonRoot = directory(commonDirectory);
   const selectedRef = startPoint ?? detectDefaultBranch(path);
   const baseOid =
     startPoint === undefined
-      ? await fetchWorktreeBase(path, signal)
+      ? await fetchWorktreeBase(path, signal, selectedRef)
       : git(path, 'rev-parse', '--verify', '--end-of-options', `${startPoint}^{commit}`);
   signal.throwIfAborted();
   if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(baseOid)) throw unavailable();
@@ -83,12 +91,20 @@ export function assertLocalRepository(
   if (
     configured !== source.path ||
     !isDeepStrictEqual(directory(source.path), source.root) ||
-    !isDeepStrictEqual(directory(source.commonDirectory), source.commonRoot) ||
-    git(source.path, 'rev-parse', '--path-format=absolute', '--git-common-dir') !==
-      source.commonDirectory
+    !isDeepStrictEqual(directory(source.commonDirectory), source.commonRoot)
   )
     throw unavailable();
-  git(source.path, 'cat-file', '-e', `${baseOid}^{commit}`);
+  const output = git(
+    source.path,
+    'rev-parse',
+    '--path-format=absolute',
+    '--git-common-dir',
+    '--verify',
+    '--end-of-options',
+    `${baseOid}^{commit}`,
+  ).split('\n');
+  if (output.length !== 2 || output[0] !== source.commonDirectory || output[1] !== baseOid)
+    throw unavailable();
 }
 export function inspectLocalRepositoryWorktree(
   directoryPath: string,
@@ -104,6 +120,12 @@ export function inspectLocalRepositoryWorktree(
     '--absolute-git-dir',
     '--symbolic-full-name',
     'HEAD',
+    // rev-parse emits the symbolic name above, then independently verifies the
+    // peeled commit. Failure still rejects even though symbolic mode emits no
+    // additional line for that object. Keep both checks in this one process.
+    '--verify',
+    '--end-of-options',
+    'HEAD^{commit}',
   ).split('\n');
   if (
     output.length !== 4 ||
@@ -115,6 +137,5 @@ export function inspectLocalRepositoryWorktree(
     throw unavailable();
   directory(output[2]);
   directory(source.commonDirectory);
-  git(directoryPath, 'cat-file', '-e', 'HEAD^{commit}');
   return output[2];
 }

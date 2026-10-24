@@ -506,7 +506,9 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
         }
         if (!d.bootstrapAuthority && !claim()) return { dispatched: false };
         try {
-          await lease.assertCurrent();
+          // Bootstrap already claimed before the first fence. Only ordinary
+          // admission crosses a new durable claim here and needs another read.
+          if (!d.bootstrapAuthority) await lease.assertCurrent();
           await prepareWorkspace(structuredClone(snapshot));
           await lease.assertCurrent();
           await dispatch(structuredClone(snapshot), request.clientMsgId);

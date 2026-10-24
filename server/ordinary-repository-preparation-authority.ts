@@ -8,6 +8,7 @@ import { OpenShellRuntimeManager } from './openshell-runtime.js';
 import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-entry-owner.js';
 import { openAIAccountKeyAuthority } from './openai-account-key-authority.js';
 import { VertexAdcCustody } from './ordinary-local-vertex-custody.js';
+import { observeLocalCodexPhase } from './local-codex-observation.js';
 import {
   readPrivateRuntimeSettings,
   OrdinaryLocalCodexHostRuntime,
@@ -81,9 +82,10 @@ async function credentialDigest(
       consumer: 'host',
       endpoint: connection.endpoint,
     });
-    await manager.assertReady(signal);
+    // Host resolution already validates the current controller, profile and
+    // rotation fence around the Keychain read. Host assertReady does that same
+    // read again; sandwiching resolution triples every repository fence.
     credential = digest(await manager.resolveKey(binding.accountId, signal));
-    await manager.assertReady(signal);
   } else {
     const configured = loadOrdinaryOpenShellCodexTarget();
     if (!configured) throw unavailable();
@@ -204,7 +206,9 @@ async function captureCurrentPreparation(
     ...(selection.runOn === 'openshell'
       ? { sandboxWorkdir: loadOrdinaryOpenShellCodexTarget()?.config.workdir }
       : {}),
-    credentialDigest: await credentialDigest(binding, selection, signal),
+    credentialDigest: await observeLocalCodexPhase('repository_credential_check', () =>
+      credentialDigest(binding, selection, signal),
+    ),
     ...(binding.provider === 'openai-codex' && selection.runOn === 'local'
       ? { credentialDigestVersion: 2 }
       : {}),

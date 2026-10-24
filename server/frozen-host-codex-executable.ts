@@ -14,6 +14,7 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { observeLocalCodexSyncPhase } from './local-codex-observation.js';
 import {
   HostCodexCompanionUpgradePlanSchema,
   type HostCodexCompanionUpgradePlan,
@@ -143,11 +144,13 @@ export class FrozenHostCodexExecutable {
     private codeModeHost?: FrozenHostCodexExecutable,
   ) {}
   static capture(source: string, privateHome: string): FrozenHostCodexExecutable {
-    const executable = this.captureFile(source, privateHome, 'codex-runtime');
-    const companion = join(dirname(source), 'codex-code-mode-host');
-    if (lstatSync(companion, { throwIfNoEntry: false }))
-      executable.codeModeHost = this.captureFile(companion, privateHome, 'codex-code-mode-host');
-    return executable;
+    return observeLocalCodexSyncPhase('native_capture', () => {
+      const executable = this.captureFile(source, privateHome, 'codex-runtime');
+      const companion = join(dirname(source), 'codex-code-mode-host');
+      if (lstatSync(companion, { throwIfNoEntry: false }))
+        executable.codeModeHost = this.captureFile(companion, privateHome, 'codex-code-mode-host');
+      return executable;
+    });
   }
   private static captureFile(
     source: string,
@@ -313,14 +316,19 @@ export class FrozenHostCodexExecutable {
     }
   }
   assertLaunchCurrent(): void {
-    try {
-      this.assertCurrent();
-      if (inspect(this.source).sha256 !== this.sha256 || inspect(this.path).sha256 !== this.sha256)
+    observeLocalCodexSyncPhase('native_launch_integrity', () => {
+      try {
+        this.assertCurrent();
+        if (
+          inspect(this.source).sha256 !== this.sha256 ||
+          inspect(this.path).sha256 !== this.sha256
+        )
+          throw unavailable();
+        this.codeModeHost?.assertLaunchCurrent();
+        this.assertCurrent();
+      } catch {
         throw unavailable();
-      this.codeModeHost?.assertLaunchCurrent();
-      this.assertCurrent();
-    } catch {
-      throw unavailable();
-    }
+      }
+    });
   }
 }

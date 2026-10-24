@@ -11,6 +11,7 @@ import {
 } from './connections/reviewed-handler-artifacts.js';
 import { OrdinaryLocalCodexTarget } from './ordinary-local-codex-capabilities.js';
 import { measureHostCodexExecutable } from './frozen-host-codex-executable.js';
+import { observeLocalCodexSyncPhase } from './local-codex-observation.js';
 import type { FrozenHostCodexRuntimeObservation } from './frozen-host-codex-bootstrap.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
 import {
@@ -26,19 +27,28 @@ const Native = z.strictObject({
   executableSha256: z.string().regex(/^[a-f0-9]{64}$/),
   codeModeHostSha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
+// Only the frozen, in-memory code manifest is reusable. Mutable test manifests,
+// filesystem observations, settings and native executable identities stay fresh.
+const immutableCodeClosures = new WeakMap<object, string>();
 export function ordinaryLocalCodexHostContractRevision(
   executableSha256: string,
   codeModeHostSha256: string,
 ): string {
-  const codeClosure = createHash('sha256')
-    .update(
-      JSON.stringify(
-        Object.entries(reviewedHandlerSourceArtifacts).sort(([left], [right]) =>
-          left < right ? -1 : left > right ? 1 : 0,
+  const artifacts = reviewedHandlerSourceArtifacts;
+  const immutable = Object.isFrozen(artifacts);
+  let codeClosure = immutable ? immutableCodeClosures.get(artifacts) : undefined;
+  if (codeClosure === undefined) {
+    codeClosure = createHash('sha256')
+      .update(
+        JSON.stringify(
+          Object.entries(artifacts).sort(([left], [right]) =>
+            left < right ? -1 : left > right ? 1 : 0,
+          ),
         ),
-      ),
-    )
-    .digest('hex');
+      )
+      .digest('hex');
+    if (immutable) immutableCodeClosures.set(artifacts, codeClosure);
+  }
   return createHash('sha256')
     .update(
       JSON.stringify([
@@ -108,9 +118,15 @@ export class OrdinaryLocalCodexHostRuntime {
       this.#target = new OrdinaryLocalCodexTarget(
         readPrivateRuntimeSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE),
       );
-      this.#measurement = measureHostCodexExecutable(this.#native.executablePath);
-      this.#codeModeHost = measureHostCodexExecutable(
-        join(dirname(this.#native.executablePath), 'codex-code-mode-host'),
+      [this.#measurement, this.#codeModeHost] = observeLocalCodexSyncPhase(
+        'native_measurement',
+        () =>
+          [
+            measureHostCodexExecutable(this.#native.executablePath),
+            measureHostCodexExecutable(
+              join(dirname(this.#native.executablePath), 'codex-code-mode-host'),
+            ),
+          ] as const,
       );
       this.assertCurrentSync();
       const selectors = [

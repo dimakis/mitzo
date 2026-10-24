@@ -252,10 +252,14 @@ export class NotificationCenter {
     });
     return id;
   }
-  feed(filter: Parameters<NotificationStore['feed']>[0], limit?: number, offset?: number) {
+  /** Refresh current sources/permissions without computing an unused feed. */
+  reconcile(): void {
     this.assertAvailable();
     if (this.inboxReconciler?.()) this.changed();
     if (this.store.reconcilePermissions(hasPending)) this.changed();
+  }
+  feed(filter: Parameters<NotificationStore['feed']>[0], limit?: number, offset?: number) {
+    this.reconcile();
     return {
       ...this.store.feed(filter, Date.now(), limit, offset),
       preferences: this.store.preferences(),
