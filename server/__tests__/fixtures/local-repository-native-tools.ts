@@ -8,6 +8,7 @@ import { bindAgentLibraryTransport } from '../../agent-library-transport.js';
 import { retainAgentContextAuthority } from '../../agent-context-authority.js';
 import {
   captureNativeHostToolContext,
+  retainNativeHostToolOperator,
   type NativeHostToolContext,
 } from '../../native-host-tool-context.js';
 import { bindAgentToolSelection } from '../../agent-tool-selection.js';
@@ -33,12 +34,16 @@ export async function localRepositoryNativeToolFixture(
     input: Record<string, unknown>,
   ) => Promise<{ content: string; isError: boolean }>,
   options: {
+    api?: boolean;
+    separateViewer?: boolean;
     nativeBaseReads?: boolean;
     readableRoots?: readonly string[];
     registeredExecutablePath?: string;
   } = {},
 ) {
   const f = await ownedRuntimeFixture(cleanups, {
+    api: options.api,
+    localRepository: options.api,
     // Legacy default selection permits these actual read tools.
     ...(options.registeredExecutablePath
       ? { chatRoute: true, nativeExecutablePath: options.registeredExecutablePath }
@@ -49,6 +54,11 @@ export async function localRepositoryNativeToolFixture(
   const auth = (await authenticateToken(token!))!;
   const operatorConnectionId = f.dependencies.operatorConnectionId;
   cleanups.push(bindAgentLibraryTransport(operatorConnectionId, auth));
+  const viewerConnectionId = options.separateViewer ? randomUUID() : operatorConnectionId;
+  const detachViewer = options.separateViewer
+    ? bindAgentLibraryTransport(viewerConnectionId, auth)
+    : () => {};
+  cleanups.push(detachViewer);
   const native = options.registeredExecutablePath
     ? (await import('../../codex-chat-session.js')).getCodexConversationStore()
     : new CodexConversationStore(join(f.root, 'peer-native.db'));
@@ -70,7 +80,7 @@ export async function localRepositoryNativeToolFixture(
     const clientId = `${operatorConnectionId}:${sessionId}`;
     registry.register(clientId, {
       sessionId,
-      ownerConnectionId: operatorConnectionId,
+      ownerConnectionId: viewerConnectionId,
       ownedLocalAuthSessionId: auth.id,
       transport: {
         isOpen: () => true,
@@ -88,6 +98,10 @@ export async function localRepositoryNativeToolFixture(
       cwd: selected.reserved.directory,
     });
     const session = registry.get(clientId)!;
+    const releaseNativeOperator = options.separateViewer
+      ? retainNativeHostToolOperator(session, operatorConnectionId)
+      : () => {};
+    cleanups.push(releaseNativeOperator);
     bindAgentToolSelection(session, f.agentProfile.definition, 'codex-owned-local');
     let conversation!: CodexConversation;
     let callbacks!: CodexLifecycleTransport;
@@ -332,6 +346,7 @@ export async function localRepositoryNativeToolFixture(
       close: () => driver.close(),
     };
     const result = {
+      releaseNativeOperator,
       sessionId,
       session,
       clientId,
@@ -383,6 +398,7 @@ export async function localRepositoryNativeToolFixture(
   }
   const a = await start(f);
   return {
+    detachViewer,
     f,
     native,
     auth,
