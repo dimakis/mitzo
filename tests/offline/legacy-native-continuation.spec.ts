@@ -233,7 +233,9 @@ for (const { theme, preclaim } of [
     await page.getByRole('button', { name: 'Add repository' }).click();
     await page.getByLabel('Local repository').selectOption('local:local/fixture');
     await page.getByRole('button', { name: 'Use repository' }).click();
-    await page.getByLabel('New request').fill('Inspect actual state before making a new change.');
+    await page
+      .getByRole('textbox', { name: /^New request/ })
+      .fill('Inspect actual state before making a new change.');
     await page.getByRole('button', { name: 'Review native continuation', exact: true }).click();
     await expect(page.getByLabel('Exact historical context')).toContainText(
       'Review actual repository state',
@@ -262,7 +264,7 @@ for (const { theme, preclaim } of [
         fullPage: true,
       });
       await discardButton.click();
-      await expect(page.getByLabel('New request')).toHaveValue(
+      await expect(page.getByRole('textbox', { name: /^New request/ })).toHaveValue(
         'Inspect actual state before making a new change.',
       );
       expect(discarded).toBe(true);
