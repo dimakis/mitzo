@@ -25,7 +25,7 @@ export function latestTaskWorkerMarker(
   kind: 'allocation' | 'conversation',
 ): string | null {
   const prefix = `worker_${kind}: `;
-  const saved = annotations.findLast((value) => value.startsWith(prefix));
+  const saved = [...annotations].reverse().find((value) => value.startsWith(prefix));
   if (saved === undefined) return null;
   const parsed = reference.safeParse(saved.slice(prefix.length));
   return parsed.success ? parsed.data : null;
