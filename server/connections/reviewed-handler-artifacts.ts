@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../scripts/measure-openshell-agent-efficiency.mjs':
+    'dbc3e5edb8d7ef1db4204f261797accdf52ae16849b377dca6f2a9b86a0520b3',
   '../../scripts/measure-local-agent-efficiency.mjs':
     'e7cb7e9c7e78ae185fc5608ed58afdbd8d5a0117a2e19ebba0b4ab47d774e66d',
   '../__tests__/wait-for-change.test.ts':
@@ -249,9 +251,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     'ca56ac179cfc28efc71e68a4c88d99b323d9f44aa515f11b26109523d515aba8',
   '../__tests__/codex-chat-session.test.ts':
-    '1cd776aa8453cb7ce360f468d503f0cb4c0a5db28e6b8ec7fa576eb5a6987ea3',
+    'ff1f4769c65a6301590df1ba12fed27521998480e1d07d54f85aaf46803e4240',
   '../__tests__/codex-conversation.test.ts':
-    '0aa7f852870a4a90dc24d3f0f5337a65344cd25f063a66838ecddc830ee40844',
+    'f54e5ec0cb2b2737fd8d4ab55713a3cbe0de7800fadadb25d6bf70ac02a416ff',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':

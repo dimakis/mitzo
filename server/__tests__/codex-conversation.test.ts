@@ -3860,6 +3860,21 @@ it.each([undefined, '/sandbox/workspaces/task'])(
       ),
     ).rejects.toThrow('revoked');
     current = true;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'skills/list') {
+        f.conversationOptions.runtimeCwd = '/sandbox/replaced-workspace';
+        return response;
+      }
+      return original(method, params);
+    });
+    await expect(
+      f.c.searchSkills(
+        { query: '', offset: 0, limit: 5 },
+        new AbortController().signal,
+        assertCurrent,
+      ),
+    ).rejects.toThrow('Current native skill owner unavailable');
+    f.conversationOptions.runtimeCwd = runtimeCwd;
     const abort = new AbortController();
     abort.abort();
     await expect(
