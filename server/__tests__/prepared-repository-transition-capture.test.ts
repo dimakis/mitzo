@@ -7,9 +7,11 @@ import {
 } from './prepared-repository-candidate-fixture.js';
 import type { PreparedRepositoryTransitionCaptureOwners } from '../prepared-repository-transition.js';
 import type { PreparedRepositoryBarrierReadScope } from '../prepared-repository-barrier-read.js';
+import type { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
 
 const physical = vi.hoisted(() => ({ reader: vi.fn(), task: vi.fn() }));
-vi.mock('../local-repository-native-read.js', () => ({
+vi.mock('../local-repository-native-read.js', async (original) => ({
+  ...(await original<typeof import('../local-repository-native-read.js')>()),
   capturePreparedRepositoryReader: physical.reader,
 }));
 vi.mock('../qualified-local-repository-task.js', async (original) => ({
@@ -33,6 +35,7 @@ function fixture() {
   f.save(record);
   let live = true,
     queue = false;
+  const abort = new AbortController();
   const scope: PreparedRepositoryBarrierReadScope = Object.freeze({
     bindingRevision: 'binding',
     profileRevision: 'profile',
@@ -40,7 +43,7 @@ function fixture() {
     readableRoots: Object.freeze(['/']),
     workspaceRoots: Object.freeze([]),
     deniedRoots: Object.freeze([]),
-    signal: new AbortController().signal,
+    signal: abort.signal,
     assertCurrentSync() {
       expect(this).toBe(scope);
       if (!live) throw Error('owner changed');
@@ -51,12 +54,13 @@ function fixture() {
     },
   });
   const dispose = vi.fn(async () => {});
-  physical.reader.mockImplementation(async (actual) => {
+  physical.reader.mockImplementation(async (actual, options: { deadline: number }) => {
     expect(actual).toBe(scope);
     return {
       deniedRoots: [],
-      deadline: Date.now() + 30000,
-      assertReadable: async () => {},
+      signal: scope.signal,
+      deadline: options.deadline,
+      assertReadable: async () => scope.assertCurrentSync(),
       captureReadAnchor: vi.fn(),
       dispose,
     };
@@ -99,6 +103,7 @@ function fixture() {
     owners,
     dispose,
     cas,
+    abort: () => abort.abort(Error('Synthetic owner cancelled')),
     revoke: () => {
       live = false;
     },
@@ -107,6 +112,73 @@ function fixture() {
     },
   };
 }
+
+it('allows a fresh prepared validation after 45 synthetic seconds without changing its owner or disposing early', async () => {
+  const f = fixture();
+  let now = Date.now();
+  const start = now;
+  let validationError: unknown, outwardError: unknown;
+  vi.spyOn(Date, 'now').mockImplementation(() => now);
+  physical.task.mockImplementation(async (access: LocalRepositoryReadAccess) => {
+    now += 45000;
+    try {
+      await access.assertPath('/fixture/source');
+    } catch (error) {
+      validationError = error;
+      throw error;
+    }
+    expect(f.dispose).not.toHaveBeenCalled();
+    const task = structuredClone(f.record.pendingHostTask!.taskIdentity!);
+    delete task.localSource;
+    return task;
+  });
+  const proof = await capturePreparedRepositoryTransition(f.service, f.input, f.owners).catch(
+    (error) => {
+      outwardError = error;
+      return undefined;
+    },
+  );
+  expect(physical.task).toHaveBeenCalledOnce();
+  expect(f.dispose).toHaveBeenCalledOnce();
+  expect(validationError).toBeUndefined();
+  expect(outwardError).toBeUndefined();
+  expect(proof).toBeDefined();
+  expect(physical.reader).toHaveBeenCalledExactlyOnceWith(f.scope, { deadline: start + 60000 });
+  expect(f.cas).not.toHaveBeenCalled();
+});
+
+it.each(['deadline', 'cancel', 'revoke'] as const)(
+  'refuses fresh prepared validation at the %s boundary and joins disposal',
+  async (change) => {
+    const f = fixture();
+    let now = Date.now();
+    let readError: unknown;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    physical.task.mockImplementation(async (access: LocalRepositoryReadAccess) => {
+      now += change === 'deadline' ? 60000 : 45000;
+      if (change === 'cancel') f.abort();
+      if (change === 'revoke') f.revoke();
+      try {
+        await access.assertPath('/fixture/source');
+      } catch (error) {
+        readError = error;
+        throw error;
+      }
+      const task = structuredClone(f.record.pendingHostTask!.taskIdentity!);
+      delete task.localSource;
+      return task;
+    });
+    await expect(
+      capturePreparedRepositoryTransition(f.service, f.input, f.owners),
+    ).rejects.toThrow();
+    expect(physical.task).toHaveBeenCalledOnce();
+    expect(readError).toBeDefined();
+    if (change === 'deadline')
+      expect(readError).toMatchObject({ kind: 'limit', reason: 'timeout' });
+    expect(f.dispose).toHaveBeenCalledOnce();
+    expect(f.cas).not.toHaveBeenCalled();
+  },
+);
 
 it('captures frozen original full-row facts with the exact fresh owner and joined disposal, without adopting', async () => {
   const f = fixture();

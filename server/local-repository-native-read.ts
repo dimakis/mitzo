@@ -29,6 +29,10 @@ import {
   type NativePreparationObservationPlan,
   type NativePreparationObservationScratch,
 } from './native-preparation-observation.js';
+
+/** Fresh read-only prepared-workspace validation; individual helpers retain their 30s cap. */
+export const preparedRepositoryValidationReadMs = 60000;
+
 const unavailable = () => Error('Local repository native reads unavailable');
 const contains = (root: string, path: string) => {
   const child = relative(root, path);

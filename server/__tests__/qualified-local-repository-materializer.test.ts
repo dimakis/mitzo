@@ -767,7 +767,7 @@ actual(
               () => {
                 if (!boundarySettled) throw Error('Waiting for original completed boundary');
               },
-              { timeout: 120000 },
+              { timeout: 210000 },
             ); // harness wait only; original authority deadlines remain unchanged
             if (boundaryError) throw boundaryError;
             await vi.waitFor(
@@ -783,7 +783,7 @@ actual(
                 )
                   throw Error('Waiting for actual queued child turn');
               },
-              { timeout: 10000 },
+              { timeout: 150000 }, // two fresh workspace checks precede controlled child RPC
             );
             postPreparation.status = 'second-turn-acknowledged-by-controlled-rpc';
           } finally {
@@ -889,10 +889,11 @@ actual(
     expect(f.permissions).toHaveLength(1);
   },
   // Test-harness budget for consecutive stages only: unchanged preparation
-  // envelope (300s), THREE independently30s fresh phases plus joined owner/
-  // cleanup work (120s boundary wait), child RPC (10s), setup/evidence (50s).
+  // envelope (300s), THREE independently60s fresh phases plus joined owner/
+  // cleanup work (210s boundary), two post-boundary workspace checks + child
+  // RPC (150s), setup/evidence (60s). Completion-row settlement is not adoption.
   // No approval/read/helper/native authority is extended.
-  480000,
+  720000,
 );
 
 it('refuses a fabricated operation in the actual signed callback before allocation or source effects', async () => {

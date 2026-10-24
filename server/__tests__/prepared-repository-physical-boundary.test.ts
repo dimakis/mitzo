@@ -374,11 +374,11 @@ it.runIf(process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION 
         }
       });
       await f.a.complete();
-      await vi.waitFor(() => expect(settled).toBe(true), { timeout: 120000 }); // three independently30s physical phases plus joined owner/cleanup work
+      await vi.waitFor(() => expect(settled).toBe(true), { timeout: 210000 }); // three independently60s physical phases plus joined owner/cleanup work
       if (failure) throw failure;
       await vi.waitFor(
         () => expect(f.a.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2),
-        { timeout: 10000 },
+        { timeout: 150000 }, // two fresh workspace checks precede controlled child RPC
       );
       expect(f.f.workspace.getForConversation(f.a.sessionId)?.id).toBe(seed.record.id);
       expect(f.f.events.getSession(f.a.sessionId)?.cwd).toBe(seed.taskIdentity.directory);
@@ -441,5 +441,5 @@ it.runIf(process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION 
     }
     if (failed) throw failure;
   },
-  180000, // Host seed30 + three existing fresh phases/cleanup120 + child10 + evidence20; no authority extension.
+  420000, // Host seed30 + three fresh phases/cleanup210 + two workspace checks/child150 + evidence30; no authority extension.
 );

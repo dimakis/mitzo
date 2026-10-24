@@ -57,7 +57,10 @@ import { hasPersistentRevocationAuthority } from './auth.js';
 import { PreparedRepositoryWorkspaceOwner } from './prepared-repository-workspace-owner.js';
 import { performPreparedRepositoryPrimaryTransition } from './owned-prepared-repository-transition.js';
 import { withPreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
-import { capturePreparedRepositoryReader } from './local-repository-native-read.js';
+import {
+  capturePreparedRepositoryReader,
+  preparedRepositoryValidationReadMs,
+} from './local-repository-native-read.js';
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from './owned-local-codex-native-policy.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
@@ -478,7 +481,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                       },
                       async (scope) => {
                         const reader = await capturePreparedRepositoryReader(scope, {
-                          deadline: Date.now() + 30000,
+                          deadline: Date.now() + preparedRepositoryValidationReadMs,
                         });
                         try {
                           const result: unknown = await action(
@@ -957,7 +960,9 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                                     async (readScope) => {
                                       const reader = await capturePreparedRepositoryReader(
                                         readScope,
-                                        { deadline: Date.now() + 30000 },
+                                        {
+                                          deadline: Date.now() + preparedRepositoryValidationReadMs,
+                                        },
                                       );
                                       try {
                                         const result: unknown = await action(
