@@ -63,3 +63,5 @@ for this validation.
 This change reduces initial integration metadata. Tool-output retention, skill
 catalog size, repository preparation recovery and provider compaction latency
 remain separate optimization work; none is claimed solved by a smaller manifest.
+
+[Local agent efficiency](local-agent-efficiency.md) adds abbreviated platform contracts, native skill budgeting/discovery, retained text previews and bounded peer waits. The measurements above describe the first discovery change; the companion offline benchmark measures the combined surface.
