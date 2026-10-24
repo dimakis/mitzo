@@ -1,3 +1,4 @@
+import { localRepositoryPreparationDefinition } from './local-repository-preparation-tool.js';
 import { localRepositoryToolDefinitions } from './session-local-repository-tools.js';
 import { taskMcpToolCatalog } from './task-mcp-selection.js';
 import { githubMainPublicationTool } from './telos-main-publication.js';
@@ -49,7 +50,10 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
     { source: 'Workspace', definitions: nativeToolDefinitions },
     { source: 'Connections', definitions: credentialConnectionToolDefinitions },
     { source: 'Repositories', definitions: repositoryChatToolDefinitions },
-    { source: 'Local repositories', definitions: localRepositoryToolDefinitions },
+    {
+      source: 'Local repositories',
+      definitions: [...localRepositoryToolDefinitions, localRepositoryPreparationDefinition],
+    },
     {
       source: 'Agent Library',
       definitions: [...profileToolDefinitions, ...agentTaskToolDefinitions],
@@ -136,7 +140,9 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                       ].includes(tool.name)
                     ? 'Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access.'
                     : source === 'Local repositories'
-                      ? 'Requires the current signed native call and qualified original base read scope, with current account, tool and skill gates. Reads do not prepare a task or grant filesystem access.'
+                      ? tool.name === localRepositoryPreparationDefinition.name
+                        ? 'Requires a Local Mac Codex chat with native command and file tools (Bash, Read, Write and Edit) selected. Approve the displayed repository and task changes each time, in every mode. Selecting this tool grants no access. The prepared task becomes active after the current turn finishes.'
+                        : 'Requires the current signed native call and qualified original base read scope, with current account, tool and skill gates. Reads do not prepare a task or grant filesystem access.'
                       : source === 'Repositories'
                         ? 'Requires an authorized repository connection for the selected account.'
                         : source === 'GitHub publishing' || tool.name === 'GitHubRead'

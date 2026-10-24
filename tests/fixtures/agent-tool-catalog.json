@@ -264,6 +264,17 @@
     "requirement": "Requires the current signed native call and qualified original base read scope, with current account, tool and skill gates. Reads do not prepare a task or grant filesystem access."
   },
   {
+    "id": "mitzo:PrepareLocalRepository",
+    "version": 1,
+    "name": "PrepareLocalRepository",
+    "description": "Create an isolated task folder for an existing Mac repository after you approve the displayed repository and task changes. Keeps source work and this turn’s working directory intact. The prepared task becomes active after this turn finishes.",
+    "source": "Local repositories",
+    "required": false,
+    "behavior": "write",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires a Local Mac Codex chat with native command and file tools (Bash, Read, Write and Edit) selected. Approve the displayed repository and task changes each time, in every mode. Selecting this tool grants no access. The prepared task becomes active after the current turn finishes."
+  },
+  {
     "id": "mitzo:SymposiumProposeProfile",
     "version": 1,
     "name": "SymposiumProposeProfile",

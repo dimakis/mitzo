@@ -36,6 +36,8 @@ export async function ownedRuntimeFixture(
   cleanups: Array<() => void | Promise<void>>,
   options: {
     tools?: AgentToolReference[];
+    /** Initial admitted mode for signed offline permission controls only. */
+    mode?: 'ask' | 'agent' | 'auto';
     /** Synthetic operator lifetime for multi-operation offline journeys only. */
     operatorLifetimeMs?: number;
     workspaceId?: string;
@@ -339,7 +341,7 @@ export async function ownedRuntimeFixture(
       account: catalog.inventory().accounts[0].account,
       harness: 'codex' as const,
       targetId: 'local-mac',
-      mode: 'agent' as const,
+      mode: options.mode ?? ('agent' as const),
     },
     selection: {
       version: 1 as const,
@@ -349,7 +351,7 @@ export async function ownedRuntimeFixture(
         ...(agentProfile.kind ? { kind: agentProfile.kind } : {}),
       },
       context: { source: 'none' as const, revision: null },
-      permission: { mode: 'agent' as const, revision: 0 },
+      permission: { mode: options.mode ?? ('agent' as const), revision: 0 },
       model: modelId,
       thinking: 'low',
     },
@@ -428,7 +430,7 @@ export async function ownedRuntimeFixture(
         messageId: commandId,
         binding,
         profile: value.profile,
-        session: { cwd: value.workspace.directory, mode: 'agent' },
+        session: { cwd: value.workspace.directory, mode: options.mode ?? 'agent' },
         prompt: value.payload.text,
         systemPrompt: value.payload.systemPrompt,
         intent: value.payload.intent,
