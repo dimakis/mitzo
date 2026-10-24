@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.656-local-agent-efficiency';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.657-local-agent-efficiency';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -29,7 +29,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-agent-efficiency-budget.test.ts':
     '292984de9ccc7ef7a5010d891e4e31662a05ab0bf6cb10b72b69f317d63474c3',
   '../__tests__/local-agent-efficiency.test.ts':
-    'e3e50e5f5ebcd27d405aaaf136e828fb160f3f41b68b4d0e24014b914f94e831',
+    'fa29d3de451cd2b335751c7be3427ff3f924dd41b2aceeeb664c106096468cbb',
   '../wait-for-change.ts': '82cfc955560c5494b9453bfc82e1a14004fc8349f2a5731583791323a03f17a0',
   '../local-agent-efficiency.ts':
     '2bb42e21923250ffe48e075cd387c3a7a8003fb9a906e540860c0dc8b51ece40',

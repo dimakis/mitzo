@@ -642,7 +642,7 @@ it('preserves an existing skill allowlist after source opt-in and rechecks pendi
     grant?: { sessionGrantKey: string },
   ) =>
     buildPermissionHandler('skill', registry)(name, input, { ...grant, signal, toolUseID: name });
-  let pending: Promise<unknown> | undefined;
+  let pending: ReturnType<typeof tools.execute> | undefined;
   try {
     setSkillPolicy(registry, 'skill', ['mcp__docs__search']);
     const wire = tools.definitions[0].name;

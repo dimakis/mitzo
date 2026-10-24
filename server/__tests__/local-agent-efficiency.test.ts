@@ -72,12 +72,14 @@ it('retains complete pre-truncation MCP text across restart, isolates accounts/c
     limit: 256,
     query: 'needle-at-tail',
   });
+  if (!('content' in page)) throw Error('Expected a matching output page');
   expect(page.content).toContain('needle-at-tail');
   let offset: number | null = 0,
     restored = '';
   while (offset !== null) {
     const part = readToolOutputPage(output.content, { offset, limit: 4096 });
-    expect(Buffer.byteLength(part.content!)).toBeLessThanOrEqual(4096);
+    if (!('content' in part)) throw Error('Expected an output page');
+    expect(Buffer.byteLength(part.content)).toBeLessThanOrEqual(4096);
     restored += part.content;
     offset = part.nextOffset;
   }
@@ -247,7 +249,8 @@ it('keeps escaped output pages parseable within the delivery budget without losi
   while (offset !== null) {
     const page = readToolOutputPage(text, { offset, limit: 4096 });
     expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThanOrEqual(8192);
-    expect(page.content!.length).toBeGreaterThan(0);
+    if (!('content' in page)) throw Error('Expected an output page');
+    expect(page.content.length).toBeGreaterThan(0);
     restored += page.content;
     offset = page.nextOffset;
   }
