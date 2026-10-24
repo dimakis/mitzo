@@ -7,7 +7,10 @@ import {
   withPreparedRepositoryBarrierReadScope,
   type PreparedRepositoryBarrierReadScope,
 } from '../prepared-repository-barrier-read.js';
-import { capturePreparedRepositoryReader } from '../local-repository-native-read.js';
+import {
+  capturePreparedRepositoryReader,
+  preparedRepositoryValidationReadMs,
+} from '../local-repository-native-read.js';
 import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
 import * as sandboxedCommand from '../sandboxed-command.js';
 
@@ -59,6 +62,44 @@ async function fixture(hostWide = true) {
     },
   };
 }
+
+// Synthetic elapsed time over the real reader/scope composition. These checks
+// never request a physical helper; actual SRT/physical availability is separate.
+it
+  .runIf(process.platform === 'darwin')
+  .each(['complete', 'deadline', 'earlier', 'cancel', 'revoke'] as const)(
+  'retains the prepared read validation window and live-owner refusal (%s)',
+  async (change) => {
+    const f = await fixture();
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const execute = vi
+      .spyOn(sandboxedCommand, 'executeSandboxedCommand')
+      .mockRejectedValue(Error('Physical helper must not execute'));
+    await withPreparedRepositoryBarrierReadScope(f.policy, 'completed', f.owners, async (scope) => {
+      const window = change === 'earlier' ? 12000 : preparedRepositoryValidationReadMs;
+      const deadline = now + window;
+      const reader = await capturePreparedRepositoryReader(scope, { deadline });
+      try {
+        now += change === 'deadline' ? 60000 : change === 'earlier' ? 12000 : 45000;
+        if (change === 'cancel') f.abort();
+        if (change === 'revoke') f.revoke();
+        const access = new LocalRepositoryReadAccess(reader);
+        if (change === 'complete') {
+          await reader.assertReadable(f.source);
+          await access.verify(); // Actual final full-owner/current fence, cached-only.
+        } else {
+          await expect(reader.assertReadable(f.source)).rejects.toThrow();
+          await expect(access.verify()).rejects.toThrow();
+        }
+        expect(reader.deadline).toBe(deadline);
+      } finally {
+        await reader.dispose();
+      }
+    });
+    expect(execute).not.toHaveBeenCalled();
+  },
+);
 
 // The real scope producer and actual SRT/helper are composed here with explicit
 // fixture-only current callbacks. Signed completed-turn wiring is a separate

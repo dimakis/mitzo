@@ -11,7 +11,10 @@ import {
   captureQualifiedLocalRepositoryTask,
   snapshotQualifiedLocalRepositoryPublication,
 } from './qualified-local-repository-task.js';
-import { capturePreparedRepositoryReader } from './local-repository-native-read.js';
+import {
+  capturePreparedRepositoryReader,
+  preparedRepositoryValidationReadMs,
+} from './local-repository-native-read.js';
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 
 const unavailable = () => Error('Prepared repository transition unavailable');
@@ -157,7 +160,9 @@ export async function capturePreparedRepositoryTransition(
       current(adopting);
       let reader: Awaited<ReturnType<typeof capturePreparedRepositoryReader>> | undefined;
       try {
-        reader = await capturePreparedRepositoryReader(scope, { deadline: Date.now() + 30000 });
+        reader = await capturePreparedRepositoryReader(scope, {
+          deadline: Date.now() + preparedRepositoryValidationReadMs,
+        });
         current(adopting);
         const observed = await captureQualifiedLocalRepositoryTask(
           new LocalRepositoryReadAccess(reader),
