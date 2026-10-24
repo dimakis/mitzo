@@ -81,9 +81,10 @@ async function credentialDigest(
       consumer: 'host',
       endpoint: connection.endpoint,
     });
-    await manager.assertReady(signal);
+    // Host resolution already validates the current controller, profile and
+    // rotation fence around the Keychain read. Host assertReady does that same
+    // read again; sandwiching resolution triples every repository fence.
     credential = digest(await manager.resolveKey(binding.accountId, signal));
-    await manager.assertReady(signal);
   } else {
     const configured = loadOrdinaryOpenShellCodexTarget();
     if (!configured) throw unavailable();
