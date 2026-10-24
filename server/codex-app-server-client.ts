@@ -789,6 +789,7 @@ export class CodexAppServerClient {
     if (this.lifecycle && !this.loginOnly)
       allowed.push(
         'config/read',
+        'skills/list',
         'thread/start',
         'thread/resume',
         'thread/fork',

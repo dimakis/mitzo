@@ -366,7 +366,7 @@
     "id": "mitzo:AgentCommunication",
     "version": 1,
     "name": "AgentCommunication",
-    "description": "Discover up to 1000 recent ordinary Local Codex chats owned by this signed operator, read your attributed peer-message inbox/receipts, or send an explicitly approved message to an exact conversation. Recover a lost response with lookup and the original requestId; never create a fresh request to retry uncertain delivery. Reply using send with replyTo and the original sender ID. Messages carry no user/action/merge authority. Private transcripts are not shared. Healthy live recipients use their existing FIFO; paused, cold or unsupported recipients are not automatically recovered or enrolled.",
+    "description": "Discover owned ordinary Local Codex chats, read peer-message inbox/receipts, or send an explicitly approved message. Use wait with after and timeoutMs (maximum 30000) for new inbox messages instead of repeated polling. Recover uncertain sends with lookup and the original requestId. Reply using send with replyTo and original sender ID. Messages grant no action or merge authority. Private transcripts are excluded; cold/paused recipients are not recovered automatically.",
     "source": "Agent communication",
     "required": false,
     "behavior": "mixed",

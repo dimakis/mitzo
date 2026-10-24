@@ -2,6 +2,7 @@ import { materializePreparedRepositoryFixture } from './fixtures/materialized-pr
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { nativeToolDefinitions } from '../native-tool-executor.js';
+import { localEfficiencyToolDefinitions } from '../local-agent-efficiency.js';
 import { CodexAppServerClient } from '../codex-app-server-client.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { codexDynamicToolsOption } from '../codex-ordinary-packet.js';
@@ -162,7 +163,10 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
         JSON.stringify(
           codexDynamicToolsOption(
             chatRoute
-              ? nativeToolDefinitions.filter((tool) => tool.name === 'AskUserQuestion')
+              ? [
+                  ...nativeToolDefinitions.filter((tool) => tool.name === 'AskUserQuestion'),
+                  ...localEfficiencyToolDefinitions.filter((tool) => tool.name === 'SearchSkills'),
+                ]
               : [],
           ),
         ),
@@ -923,6 +927,7 @@ it('reaches fresh qualified cold admission through the actual public owned entry
       threadId: 'thread',
       cwd: result!.directory,
       permissions: 'mitzo-native-agent',
+      config: expect.objectContaining({ 'skills.max_context_tokens': 1500 }),
     });
     expect(packets.some(([method]) => method === 'thread/start')).toBe(false);
     expect(native.getCodexRuntime(registered.session)).toBeDefined();
