@@ -1,3 +1,7 @@
+import {
+  localRepositoryPreparationDefinition,
+  LOCAL_REPOSITORY_PREPARATION_INSTRUCTIONS,
+} from './local-repository-preparation-tool.js';
 import { executeNativeLocalRepositoryPreparation } from './native-local-repository-preparation.js';
 import {
   sessionLocalRepositoryTools,
@@ -1697,6 +1701,7 @@ async function openCodexChatBound(
     process.platform === 'darwin' &&
     ['Bash', 'Read', 'Write', 'Edit'].every((name) => agentToolAllowed(options.session, name));
   const localRepositoryReadDefinitions: typeof localRepositoryToolDefinitions = [];
+  const localRepositoryPreparationDefinitions: typeof localRepositoryToolDefinitions = [];
   const localExecutionTools = nativeExecutionEnabled
     ? nativeToolDefinitions.filter((tool) => !['Bash', 'Read', 'Write', 'Edit'].includes(tool.name))
     : nativeToolDefinitions;
@@ -1710,6 +1715,7 @@ async function openCodexChatBound(
           ...agentCommunicationDefinitions,
           ...localHistoryDefinitions,
           ...localRepositoryReadDefinitions,
+          ...localRepositoryPreparationDefinitions,
           githubPublishingDefinition,
           ...leadWorkTools,
           ...controlWorkTools,
@@ -1854,6 +1860,10 @@ async function openCodexChatBound(
       ) {
         localRepositoryReadDefinitions.push(...localRepositoryToolDefinitions);
         for (const tool of localRepositoryReadDefinitions) ownedToolNames?.add(tool.name);
+        if (agentToolAllowed(options.session, localRepositoryPreparationDefinition.name)) {
+          localRepositoryPreparationDefinitions.push(localRepositoryPreparationDefinition);
+          ownedToolNames?.add(localRepositoryPreparationDefinition.name);
+        }
       }
     }
   } catch (error) {
@@ -1867,6 +1877,9 @@ async function openCodexChatBound(
       GITHUB_PUBLISHING_INSTRUCTIONS +
       (localRepositoryReadDefinitions.some((tool) => agentToolAllowed(options.session, tool.name))
         ? `\n${LOCAL_REPOSITORY_TOOL_INSTRUCTIONS}\n`
+        : '') +
+      (localRepositoryPreparationDefinitions.length
+        ? `\n${LOCAL_REPOSITORY_PREPARATION_INSTRUCTIONS}\n`
         : '')
     : options.systemPrompt +
       CONNECTION_TOOL_INSTRUCTIONS +
@@ -1954,6 +1967,7 @@ async function openCodexChatBound(
           ...agentCommunicationDefinitions,
           ...localHistoryDefinitions,
           ...localRepositoryReadDefinitions,
+          ...localRepositoryPreparationDefinitions,
           githubPublishingDefinition,
           ...leadWorkTools,
           ...controlWorkTools,
@@ -2569,9 +2583,27 @@ async function openCodexChatBound(
           throw error;
         }
       };
-      // Latent private composition only: the unchanged ownedToolNames gate
-      // above and public definitions deliberately do not admit Prepare yet.
-      if (name === 'PrepareLocalRepository' && options.ownedLocal && nativeExecution) {
+      if (name === localRepositoryPreparationDefinition.name) {
+        // Definitions are only eligibility. Recheck selected native scope before
+        // manager lookup/capture; original signed context and approval own effects.
+        if (
+          !options.ownedLocal ||
+          !nativeExecution ||
+          !localRepositoryPreparationDefinitions.length ||
+          process.platform !== 'darwin' ||
+          !options.assertAgentContextAuthorization ||
+          !['Bash', 'Read', 'Write', 'Edit'].every((tool) =>
+            agentToolAllowed(options.session, tool),
+          )
+        )
+          throw Error('Tool unavailable for owned local Codex chat');
+        assertHostCurrentSync();
+        const currentPolicy = selectedNativePolicy();
+        if (
+          currentPolicy.policyRevision !== nativeExecution.policyRevision ||
+          ![...currentPolicy.readableRoots, ...currentPolicy.workspaceRoots].includes('/')
+        )
+          throw Error('Original native repository preparation scope unavailable');
         return executeNativeLocalRepositoryPreparation(
           Object.freeze({
             capture: (executionSignal: AbortSignal) => captureNativeContext(executionSignal),

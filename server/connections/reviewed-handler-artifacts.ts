@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.624-private-native-preparation-composition';
+  'v1.0.625-native-preparation-registration-candidate';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -169,9 +169,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/local-repository-read-owner.ts':
     '54892e9098eb368d7b31d54498e7ba6c390db333e55dfaa67d1139932c940376',
   '../local-repository-preparation-authorization.ts':
-    '61b069e1e3feab9542adf82eaa6978fd18bcec9d3f0daecd742aafc39c9c0859',
+    '642763d6e647e95a84e4743b451778ca546d94dfbeb3e3506b589ecb4d2c4b01',
   '../__tests__/fixtures/local-preparation-native.ts':
-    'b4a38bf4d75fd4f189468cb3c9f6c5e1c5438cb223cc3dcb275bed49d0c2abc1',
+    'd38546e22bc033c5ecf60be5721148f25d02d0bfb5a5d4291e5973c9f409b0c6',
   '../__tests__/local-repository-preparation-authorization.test.ts':
     '3621d87762c222c8500b49b4e89ce5890e6fe6a6945208bbebfe85bcb9f897ee',
   '../__tests__/local-repository-preparation-artifacts.test.ts':
@@ -203,7 +203,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     'ca56ac179cfc28efc71e68a4c88d99b323d9f44aa515f11b26109523d515aba8',
   '../__tests__/codex-chat-session.test.ts':
-    '7555886ca804a5e9fccaa2e06d93fbbb4cdac5d81d6032372d007c025403dd9c',
+    'dbd2e5e0ea57bf72a05983d5684b1a7d40dfc89f2479e5a416425521122ca592',
   '../__tests__/codex-conversation.test.ts':
     '3c4f1db17ac0d82c4ff1fb31f79e9bb8bb0b4d8b6590f210c304118ca005a5f3',
   '../__tests__/codex-native-approvals.test.ts':
@@ -675,7 +675,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1f5a4b6bd080363af3a1f77ea246be04894cb9893b0f021353d723658a9f10a7',
   '../../frontend/src/components/AgentToolsEditor.tsx':
     '185739f065ba2ad81534a2b171239d086010447fe03e3669d920dcd13804b5b1',
-  '../agent-tool-catalog.ts': 'b57a3225bd7df4a3dd0f6986463a3c495660970a7b1735f3635e285e69521f94',
+  '../agent-tool-catalog.ts': '2b9b1126bfb77a4ccd542f1589784f3a3749aa61d455cef3c7d395a827413053',
   '../agent-tool-selection.ts': '6ef32b850ba81b4eadd6aded850988e2f29ecc4e5cf64692456447c53ba84105',
   '../../packages/protocol/src/agent-tools.ts':
     'a25c3fcd8a885db213c6528fe9e07fd11da6744304420b4f3affd2e354d1af82',
@@ -1169,7 +1169,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '3e9734030dea1237f60f274bca7c2a3e68f31ded5d60cca3419df7c84617145f',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '360007406df717469c64a4a95207913cded9742375fcc228b771a4a82f2fdaed',
+  '../codex-chat-session.ts': '68bf3d7e24ece50e1fb975fa38601030151b25d4ca9894213c7a82b14102883c',
   '../connections-runtime.ts': '0793e87975e59fc74dc4306802f2633d7d8cd7bca4a42af5bc1a5a2a04c22424',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
@@ -1659,4 +1659,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'f8998e983a98a644a6a10ba6f6bd6518d16fd31f5ef7e223a82310af8d608ba2',
   '../__tests__/fixtures/materialized-prepared-repository.ts':
     '7697b26d28caee5aee91614d341bb14159ccec9db64c9b99b784200cd07b2f0d',
+  '../local-repository-preparation-tool.ts':
+    'f4f4db06528f0e287397bd45c51952685321e7e4f7e48a1b83062b4f68b5531e',
+  '../__tests__/local-repository-preparation-registration.test.ts':
+    '0ca706ce8e30e280ce6047bc616e3f663459d9ca5707fbc92c5b682cccb6c09b',
+  '../__tests__/native-local-repository-preparation-approval-modes.test.ts':
+    '6a0436e26879457f561fb795e18bd5cf83980aec9a8fc7836bedffa35b0c5f2c',
+  '../__tests__/native-local-repository-preparation-registration-dispatch.test.ts':
+    '8ff8546333b01eb5454b8f73bf0b415f79dcf2e3256aeb08a60c3c2924901c91',
 });

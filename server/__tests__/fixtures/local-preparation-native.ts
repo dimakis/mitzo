@@ -37,6 +37,7 @@ export async function localPreparationNativeFixture(
   ) => Promise<unknown>,
   options: {
     nativeBaseReads?: boolean;
+    mode?: 'ask' | 'agent' | 'auto';
     preparationEnvelope?: boolean;
     /** Private test-only raw ORIGINAL callback; never a product registration option. */
     executeOriginalCapture?: (
@@ -48,6 +49,7 @@ export async function localPreparationNativeFixture(
 ) {
   const f = await ownedRuntimeFixture(cleanups, {
     // Legacy default selection permits this private fixture-only dynamic tool.
+    mode: options.mode,
   });
   f.detach();
   const token = await login(process.env.AUTH_PASSPHRASE!);
@@ -87,7 +89,7 @@ export async function localPreparationNativeFixture(
       },
       abortController: new AbortController(),
       sessionAllowList: new Set(),
-      mode: 'agent',
+      mode: options.mode ?? 'agent',
       cwd: selected.reserved.directory,
     });
     const session = registry.get(clientId)!;

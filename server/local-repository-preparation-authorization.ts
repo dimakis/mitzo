@@ -22,7 +22,7 @@ import {
   type PendingHostTaskDecisionOwner,
 } from './pending-host-task.js';
 
-const inputSchema = z.strictObject({
+export const inputSchema = z.strictObject({
   path: z
     .string()
     .min(1)
@@ -351,6 +351,17 @@ export async function captureLocalRepositoryPreparationAuthorization(
   };
   Object.defineProperty(owner, 'publicationPackedRefs', { value: publicationPackedRefs });
   Object.freeze(owner);
+  const originalOwnerCurrent = owner.assertCurrentSync;
+  const nativeApproval = Object.freeze({
+    allowSessionScope: false,
+    assertCurrentSync: Object.freeze(() => {
+      if (owner.assertCurrentSync !== originalOwnerCurrent)
+        throw new PendingHostTaskError('pending_host_task_authority_required');
+      synchronous(() => Reflect.apply(originalOwnerCurrent, owner, []));
+      if (owner.assertCurrentSync !== originalOwnerCurrent)
+        throw new PendingHostTaskError('pending_host_task_authority_required');
+    }),
+  });
   await owner.assertCurrent();
   let approvalStarted = false;
   return Object.freeze({
@@ -380,6 +391,7 @@ export async function captureLocalRepositoryPreparationAuthorization(
         payload,
         {
           signal: context.signal,
+          nativeApproval,
           toolUseID: context.callId,
           forcePrompt: true,
           allowSessionGrant: false,

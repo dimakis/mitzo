@@ -291,6 +291,7 @@ function options(abortController: AbortController) {
 function ownedLocalOptions(
   cwd = '/tmp',
   agentProfile?: import('@mitzo/protocol').AgentLibraryVersion,
+  mode: 'ask' | 'agent' | 'auto' = 'agent',
 ) {
   const eventStore = new EventStore(':memory:');
   // This qualified Mac lease fixture must select the same host branch on CI.
@@ -330,7 +331,7 @@ function ownedLocalOptions(
     version: 1 as const,
     agent: { profileId: 'owned-agent', revision: 1 },
     context: { source: 'none' as const, revision: null },
-    permission: { mode: 'agent' as const, revision: 0 },
+    permission: { mode, revision: 0 },
     model: 'owned-model',
     thinking: null,
   };
@@ -351,7 +352,7 @@ function ownedLocalOptions(
       repositoryWorkspaceId: 'owned-workspace',
       selectedModel: 'owned-model',
       reasoningEffort: null,
-      mode: 'agent',
+      mode,
       ...(agentProfile ? { agentProfile } : {}),
     },
     runtimeBinding,
@@ -409,7 +410,7 @@ function ownedLocalOptions(
       directory: cwd,
       sandbox: false,
     },
-    session: { ...options(new AbortController()).session, cwd, mode: 'agent' },
+    session: { ...options(new AbortController()).session, cwd, mode },
     ownedLocal,
   } as Parameters<typeof openCodexChat>[0];
   return { eventStore, opts, lease, ownedLocal, expected };
@@ -5469,5 +5470,167 @@ it('refreshes retained native initialization and only the admitted child policy 
   } finally {
     f.eventStore.close();
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it.each([
+  { mode: 'ask', selected: true, eligible: true },
+  { mode: 'agent', selected: true, eligible: true },
+  { mode: 'auto', selected: true, eligible: true },
+  { selected: false, eligible: false },
+  { missingNativeTool: true, eligible: false },
+  { readonly: true, role: 'advisor', eligible: false },
+  { readonly: true, role: 'reviewer', eligible: false },
+  { role: 'advisor', eligible: true },
+  { role: 'reviewer', eligible: true },
+  { legacy: true, eligible: true },
+  { narrow: true, eligible: false },
+  { authorized: false, eligible: false },
+  { platform: 'linux', eligible: false },
+] as const)(
+  'candidate Prepare respects existing selection/native scope without new role or mode policy: %j',
+  async (entry) => {
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
+    });
+    const test = entry as {
+      mode?: 'ask' | 'agent' | 'auto';
+      selected?: boolean;
+      readonly?: boolean;
+      missingNativeTool?: boolean;
+      role?: 'advisor' | 'reviewer';
+      legacy?: boolean;
+      narrow?: boolean;
+      authorized?: boolean;
+      platform?: string;
+      eligible: boolean;
+    };
+    const definition = {
+      name: 'Prepare candidate',
+      role: 'agent' as const,
+      instructions: 'Only selected operations',
+      expectedOutput: 'Receipt',
+      acceptanceCriteria: ['Exact original approval'],
+      modelPolicyRole: 'agent' as const,
+      tools: [
+        ...(test.readonly
+          ? ['Read']
+          : test.missingNativeTool
+            ? ['Bash', 'Read', 'Write']
+            : ['Bash', 'Read', 'Write', 'Edit']),
+        'DiscoverLocalRepository',
+        'InspectLocalRepository',
+        ...(test.selected === false || test.readonly ? [] : ['PrepareLocalRepository']),
+      ].map((name) => ({ id: `mitzo:${name}`, version: 1 })),
+    };
+    const profile = {
+      profileId: 'owned-agent',
+      revision: 1,
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+    };
+    const f = ownedLocalOptions('/tmp', test.legacy ? undefined : profile, test.mode ?? 'agent');
+    if (test.platform)
+      vi.stubGlobal('process', Object.create(process, { platform: { value: test.platform } }));
+    if (test.authorized !== false) f.opts.assertAgentContextAuthorization = vi.fn();
+    if (test.role)
+      retainTelosWorkRoleContext(f.eventStore, f.opts.conversationId, f.opts.binding, {
+        version: 1,
+        itemId: 'retained-work',
+        role: test.role,
+        brief: {
+          revision: 'r1',
+          text: 'Current retained context',
+          sha256: createHash('sha256').update('Current retained context').digest('hex'),
+        },
+        parentCriteria: [],
+        overallGoal: { itemId: 'retained-work', revision: 'r1', text: 'Review the task' },
+        sources: [],
+        artifacts: [],
+      });
+    let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      chat = await openCodexChat({
+        ...f.opts,
+        ...(test.narrow ? { nativeExecutionReadRoots: ['/tmp'] } : {}),
+      });
+      const tools = mocks.conversationOptions!.tools as Array<{ name: string }>;
+      expect(tools.some((tool) => tool.name === 'PrepareLocalRepository')).toBe(test.eligible);
+      if (test.eligible) {
+        expect(mocks.conversationOptions!.systemPrompt).toMatch(/PrepareLocalRepository/);
+        const native = mocks.conversationOptions!.nativeExecution as { writableRoots: string[] };
+        expect(native.writableRoots).toEqual(test.mode === 'ask' ? [] : ['/private/tmp']);
+      }
+      if (!test.eligible) {
+        const execute = mocks.conversationOptions!.executeTool as (
+          name: string,
+          input: Record<string, unknown>,
+          signal: AbortSignal,
+        ) => Promise<unknown>;
+        await expect(
+          execute(
+            'PrepareLocalRepository',
+            { path: '/private/tmp/source' },
+            new AbortController().signal,
+          ),
+        ).rejects.toThrow();
+      }
+      if (
+        !test.readonly &&
+        !test.missingNativeTool &&
+        test.authorized !== false &&
+        !test.narrow &&
+        !test.platform
+      )
+        for (const name of ['DiscoverLocalRepository', 'InspectLocalRepository'])
+          expect(tools.some((tool) => tool.name === name)).toBe(true);
+    } finally {
+      chat?.close();
+      f.eventStore.close();
+    }
+  },
+);
+
+it('candidate Prepare is unavailable to the nonowned legacy host route before original capture', async () => {
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const chat = await openCodexChat(options(new AbortController()));
+  try {
+    expect(
+      (mocks.conversationOptions!.tools as Array<{ name: string }>).some(
+        (tool) => tool.name === 'PrepareLocalRepository',
+      ),
+    ).toBe(false);
+    const execute = mocks.conversationOptions!.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+    ) => Promise<unknown>;
+    await expect(
+      execute(
+        'PrepareLocalRepository',
+        { path: '/private/tmp/source' },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('Tool unavailable for owned local Codex chat');
+  } finally {
+    chat.close();
+  }
+});
+it('candidate Prepare cannot downgrade an unknown native executable artifact to another route', async () => {
+  const f = ownedLocalOptions();
+  f.opts.assertAgentContextAuthorization = vi.fn();
+  Object.defineProperty(f.lease, 'executableSha256', { value: 'f'.repeat(64) });
+  const before = mocks.send.mock.calls.length;
+  try {
+    await expect(openCodexChat(f.opts)).rejects.toThrow();
+    expect(mocks.send).toHaveBeenCalledTimes(before);
+  } finally {
+    f.eventStore.close();
   }
 });
