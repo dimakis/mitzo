@@ -399,7 +399,9 @@ it.each([false, true])(
       }
     });
     await f.a.complete();
-    await vi.waitFor(() => expect(boundarySettled).toBe(true), { timeout: 30000 });
+    // Capture, proof revalidation and adopt each perform an independent fresh
+    // physical validation (3 x 60s), before joined current/cleanup checks.
+    await vi.waitFor(() => expect(boundarySettled).toBe(true), { timeout: 210000 });
     if (!mismatch && boundaryError) throw boundaryError;
     if (mismatch) {
       expect(boundaryError).toBeDefined();
@@ -421,7 +423,9 @@ it.each([false, true])(
       await vi.waitFor(
         () =>
           expect(f.a.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2),
-        { timeout: 10000 },
+        // Two full verifyBinding/adopted-owner physical checks precede
+        // turn/start; this is NOT a pure controlled-RPC ACK wait.
+        { timeout: 150000 },
       );
       expect(
         f.a.requests.filter((request) => request.method === 'turn/start').at(-1)?.params.cwd,
@@ -434,4 +438,6 @@ it.each([false, true])(
       ).toBe(f.a.initial.workspace.directory);
     }
   },
+  // Controlled seed +3 boundary physicals +2 child physicals +joined cleanup.
+  420000,
 );
