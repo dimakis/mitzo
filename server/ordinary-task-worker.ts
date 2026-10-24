@@ -11,10 +11,11 @@ import {
   captureAgentLibraryAuthorization,
   withAgentLibraryRecoveryAuthorization,
 } from './agent-library-transport.js';
-import { registerAuthSession } from './auth.js';
+import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { ordinaryRepositoryRuntimeInventory } from './ordinary-local-codex-entry.js';
 import { nativeStartupSessionId } from './ordinary-repository-startup.js';
 import { dispatchOwnedOrdinaryCommand } from './ordinary-scoped-command.js';
+import { latestTaskWorkerMarker, retainTaskWorkerAllocation } from './task-worker-authority.js';
 
 interface WorkerDependencies {
   events: EventStore;
@@ -25,8 +26,10 @@ interface WorkerDependencies {
   ):
     | Pick<ManagedSession, 'sessionId' | 'ownerConnectionId' | 'accountBinding' | 'mode' | 'model'>
     | undefined;
+  /** Resolve the exact live owner after browser transport keys change. */
+  sourceForSession?(sessionId: string): ReturnType<WorkerDependencies['source']>;
   taskRoot(): string;
-  stop?(clientId: string): void;
+  stop?(clientId: string, conversationId?: string): void;
 }
 
 /** Bind one workflow run to the selected existing ordinary conversation. The
@@ -91,30 +94,51 @@ export function bindOrdinaryTaskWorkerSession(
     };
   };
   const original = structuredClone(sourceSnapshot());
+  const runController = new AbortController();
+  const runAuthority = retainAgentContextAuthority({ ...authorization.auth }, runController);
+  const close = () => {
+    try {
+      runController.abort(Error('Worker run authority closed'));
+    } finally {
+      runAuthority.release();
+    }
+  };
   const assertCurrent = () => {
-    authorization.assertCurrent();
+    try {
+      runAuthority.assertCurrent();
+    } catch (error) {
+      close();
+      throw error;
+    }
     if (
-      deps.source(sourceClientId) !== source ||
+      (deps.sourceForSession ? deps.sourceForSession(sourceId) : deps.source(sourceClientId)) !==
+        source ||
       !isDeepStrictEqual(sourceSnapshot(), original) ||
       !isDeepStrictEqual(original.binding, sourceSettings.binding)
-    )
+    ) {
+      close();
       throw Error('Selected worker source changed');
+    }
   };
-  assertCurrent();
+  try {
+    assertCurrent();
+  } catch (error) {
+    close();
+    throw error;
+  }
 
-  return async (taskId, prompt, goalId, onEnded, scope) => {
+  const spawn: TaskWorkerSession = async (taskId, prompt, goalId, onEnded, scope) => {
     assertCurrent();
     scope.signal.throwIfAborted();
-    const controller = new AbortController();
-    const signal = AbortSignal.any([scope.signal, controller.signal]);
-    const unregister = registerAuthSession(authorization.auth, () => controller.abort());
+    const signal = AbortSignal.any([scope.signal, runController.signal]);
     const clientId = `task-worker:${scope.operationId}`;
     let dispatched = false;
     let attempted = false;
+    let workerConversationId: string | undefined;
     const cancel = () => {
-      if (attempted) deps.stop?.(clientId);
+      if (attempted) deps.stop?.(clientId, workerConversationId);
     };
-    scope.signal.addEventListener('abort', cancel, { once: true });
+    signal.addEventListener('abort', cancel, { once: true });
     const taskCurrent = () => {
       signal.throwIfAborted();
       assertCurrent();
@@ -122,7 +146,7 @@ export function bindOrdinaryTaskWorkerSession(
       if (
         !task ||
         task.status !== 'active' ||
-        !task.annotations.includes(`worker_allocation: ${scope.operationId}`)
+        latestTaskWorkerMarker(task.annotations, 'allocation') !== scope.operationId
       )
         throw Error('Exact active worker allocation required');
     };
@@ -318,6 +342,7 @@ export function bindOrdinaryTaskWorkerSession(
             payload: { text: prompt },
           };
           const transport: SessionTransport = { isOpen: () => !signal.aborted, send() {} };
+          workerConversationId = sessionId;
           attempted = true;
           const result = await dispatchOwnedOrdinaryCommand({
             transport,
@@ -336,13 +361,25 @@ export function bindOrdinaryTaskWorkerSession(
             preparationOperationId,
             onSessionPrepared(session) {
               taskCurrent();
-              session.taskContext = { currentTaskId: taskId, goalId };
+              retainTaskWorkerAllocation(deps.events, {
+                version: 1,
+                taskId,
+                goalId,
+                operationId: scope.operationId,
+                workerClientId: clientId,
+                conversationId: sessionId,
+              });
+              session.taskContext = {
+                currentTaskId: taskId,
+                goalId,
+                workerAllocationId: scope.operationId,
+              };
             },
             onTerminalOutcome(error) {
               if (error) onEnded(clientId, error);
             },
             onEnded() {
-              scope.signal.removeEventListener('abort', cancel);
+              signal.removeEventListener('abort', cancel);
               onEnded(clientId);
             },
           });
@@ -359,8 +396,9 @@ export function bindOrdinaryTaskWorkerSession(
         },
       );
     } finally {
-      unregister();
-      if (!attempted) scope.signal.removeEventListener('abort', cancel);
+      if (!attempted) signal.removeEventListener('abort', cancel);
     }
   };
+  spawn.close = close;
+  return spawn;
 }

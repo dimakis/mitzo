@@ -79,6 +79,15 @@ it('captures the selected source when spawning is enabled on a waiting workflow'
   expect(f.capture).toHaveBeenCalledExactlyOnceWith('selected-source');
 });
 
+it('releases selected worker run authority when the workflow stops', () => {
+  const f = fixture();
+  const close = vi.fn();
+  Object.assign(f.spawn, { close });
+  f.loop.start(f.goal.id, { clientId: 'selected-source' });
+  f.loop.stop();
+  expect(close).toHaveBeenCalledOnce();
+});
+
 it('retains admitted worker uncertainty on restart instead of reclaiming and replaying effects', async () => {
   const f = fixture();
   f.store.update(f.task.id, {

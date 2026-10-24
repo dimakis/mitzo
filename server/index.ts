@@ -545,8 +545,12 @@ const orchestrator = new TaskOrchestrator({
         tasks: taskStore,
         workspaces: getLocalRepositoryWorkspaces(),
         source: (clientId) => registry.get(clientId),
+        sourceForSession: (sessionId) => registry.findBySessionId(sessionId)?.session,
         taskRoot: () => ordinaryWorkspaceTaskRoot(true),
-        stop: stopOrdinaryChat,
+        stop: (clientId, conversationId) =>
+          stopOrdinaryChat(
+            (conversationId && registry.findBySessionId(conversationId)?.clientId) || clientId,
+          ),
       },
       sourceClientId,
     ),

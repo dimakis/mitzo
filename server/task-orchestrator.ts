@@ -58,13 +58,13 @@ export interface OrchestratorDeps {
   bindWorkerSession?: (sourceClientId: string) => TaskWorkerSession;
 }
 
-export type TaskWorkerSession = (
+export type TaskWorkerSession = ((
   taskId: string,
   prompt: string,
   goalId: string,
   onEnded: (clientId: string, error?: Error) => void,
   scope: { operationId: string; signal: AbortSignal },
-) => Promise<string | null>;
+) => Promise<string | null>) & { close?: () => void };
 
 export class TaskOrchestrator {
   /**
@@ -289,6 +289,7 @@ export class TaskOrchestrator {
     this.deferredReviewDispatch = null;
     this.dispatchAbort.abort();
     this.dispatchAbort = new AbortController();
+    this.boundWorkerSession?.close?.();
     this.runGeneration++;
     this.goalId = goalId;
     this.activeTaskId = null;
@@ -386,6 +387,7 @@ export class TaskOrchestrator {
     this.specMode = false;
     this.awaitingApproval = false;
     this.pinnedClientId = null;
+    this.boundWorkerSession?.close?.();
     this.boundWorkerSession = undefined;
     this.spawnDepth = 0;
     this.recentSpawns.clear();

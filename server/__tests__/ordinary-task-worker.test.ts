@@ -118,6 +118,8 @@ function fixture() {
   };
   const prepared = vi.fn();
   const events = {
+    getEventsOfType: vi.fn(() => []),
+    append: vi.fn(),
     getSession: vi.fn(() => structuredClone(meta)),
     getSessionRuntimeBinding: vi.fn(() => structuredClone(binding)),
     getOrdinaryWorkspaceConversationSettings: vi.fn(() => structuredClone(settings)),
@@ -131,12 +133,10 @@ function fixture() {
       binding: input.binding,
       settings: input.settings,
     })),
-    prepareOrdinaryWorkspace: vi
-      .fn()
-      .mockResolvedValue({
-        preparationId: '4dd560bc-44c5-4de8-95bc-9e65469f7880',
-        runtimeBinding: binding,
-      }),
+    prepareOrdinaryWorkspace: vi.fn().mockResolvedValue({
+      preparationId: '4dd560bc-44c5-4de8-95bc-9e65469f7880',
+      runtimeBinding: binding,
+    }),
     qualifyOrdinaryWorkspace: vi.fn(),
     getOrdinaryWorkspaceForOperation: vi.fn(() => undefined),
   };
@@ -185,7 +185,25 @@ it('allocates and dispatches a worker through the exact selected ordinary owner 
     expect(input.command.selection).toEqual(f.settings.selection);
     const session = {};
     input.onSessionPrepared(session);
-    expect(session).toEqual({ taskContext: { currentTaskId: f.task.id, goalId: 'goal' } });
+    expect(f.events.append).toHaveBeenCalledWith(
+      'worker-conversation',
+      'ordinary_task_worker_allocation',
+      {
+        version: 1,
+        taskId: f.task.id,
+        goalId: 'goal',
+        operationId: f.record.allocationOperationId,
+        workerClientId: 'task-worker:' + f.record.allocationOperationId,
+        conversationId: 'worker-conversation',
+      },
+    );
+    expect(session).toEqual({
+      taskContext: {
+        currentTaskId: f.task.id,
+        goalId: 'goal',
+        workerAllocationId: f.record.allocationOperationId,
+      },
+    });
     return { sessionId: input.sessionId, dispatched: true };
   });
   expect(
@@ -204,6 +222,78 @@ it('allocates and dispatches a worker through the exact selected ordinary owner 
       allocationOperationId: f.record.allocationOperationId,
     }),
   );
+});
+
+it('continues the same selected run across viewer disconnect and session driver rekey', async () => {
+  const f = fixture();
+  const sourceBySession = vi.fn(() => f.source);
+  const deps = {
+    ...f.deps,
+    sourceForSession: sourceBySession,
+    source: vi.fn(() => f.source as typeof f.source | undefined),
+  };
+  const spawn = bindOrdinaryTaskWorkerSession(deps as never, 'old-client');
+  const captured = calls.capture.mock.results[0].value;
+  captured.assertCurrent.mockImplementation(() => {
+    throw Error('Old viewer disconnected');
+  });
+  deps.source.mockReturnValue(undefined);
+  f.source.ownerConnectionId = 'reconnected-viewer';
+  await expect(
+    spawn(f.task.id, 'Reviewed task', 'goal', vi.fn(), {
+      operationId: f.record.allocationOperationId,
+      signal: new AbortController().signal,
+    }),
+  ).resolves.toBe('task-worker:7aa6a744-d27c-4eca-a49c-bde6c305ab10');
+  expect(sourceBySession).toHaveBeenCalledWith('source');
+});
+
+it('cancels the retained worker conversation independently of a changed viewer driver key', async () => {
+  const f = fixture();
+  const stop = vi.fn();
+  const spawn = bindOrdinaryTaskWorkerSession({ ...f.deps, stop } as never, 'selected-client');
+  const signal = new AbortController();
+  await spawn(f.task.id, 'Reviewed task', 'goal', vi.fn(), {
+    operationId: f.record.allocationOperationId,
+    signal: signal.signal,
+  });
+  signal.abort();
+  expect(stop).toHaveBeenCalledWith(
+    'task-worker:' + f.record.allocationOperationId,
+    'worker-conversation',
+  );
+});
+
+it('closes run authority on teardown and refuses future worker effects', async () => {
+  const f = fixture();
+  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client');
+  expect(spawn.close).toBeTypeOf('function');
+  spawn.close?.();
+  await expect(
+    spawn(f.task.id, 'Reviewed task', 'goal', vi.fn(), {
+      operationId: f.record.allocationOperationId,
+      signal: new AbortController().signal,
+    }),
+  ).rejects.toThrow();
+  expect(calls.reserve).not.toHaveBeenCalled();
+  expect(calls.dispatch).not.toHaveBeenCalled();
+});
+
+it('rejects a superseded allocation even while retained history includes its old marker', async () => {
+  const f = fixture();
+  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client');
+  const annotations = f.tasks.get(f.task.id)!.annotations;
+  f.tasks.update(f.task.id, {
+    annotations: [...annotations, 'worker_allocation: replacement-operation'],
+  });
+  await expect(
+    spawn(f.task.id, 'Old task', 'goal', vi.fn(), {
+      operationId: f.record.allocationOperationId,
+      signal: new AbortController().signal,
+    }),
+  ).rejects.toThrow('Exact active worker allocation required');
+  expect(calls.reserve).not.toHaveBeenCalled();
+  expect(calls.dispatch).not.toHaveBeenCalled();
 });
 
 it('qualifies a fresh child proof for a supported source model change while preserving the original source preparation', async () => {
