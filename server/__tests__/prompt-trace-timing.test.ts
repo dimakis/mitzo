@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { summarizePromptTiming, type TimingSpan } from '../../scripts/lib/prompt-trace-timing.js';
+import { summarizePromptTiming, type TimingSpan } from './fixtures/prompt-trace-timing.js';
 
 const traceId = 'a'.repeat(32);
 function fixture() {
@@ -110,7 +110,7 @@ it('accepts legitimate assistant output before the RPC ACK without summing overl
 });
 
 it('reports honest sample counts and adds nearest-rank p95 only with at least twenty samples', async () => {
-  const { promptTimingSummary } = await import('../../scripts/lib/prompt-trace-timing.js');
+  const { promptTimingSummary } = await import('./fixtures/prompt-trace-timing.js');
   const samples = Array.from({ length: 20 }, (_, i) => ({
     kind: 'warm' as const,
     ms: { serverToWriteCompleted: i + 1 },

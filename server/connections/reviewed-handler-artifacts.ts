@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.631-prepared-validation-window-harness-integration';
+  'v1.0.632-prompt-timing-validation-source-home';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1660,13 +1660,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/command-timing-trace.test.ts':
     '65f51c783408f255dce89aa221ff33b0f45f51eb8c906f858cb61fc99f1f0a80',
   '../__tests__/prompt-trace-timing.test.ts':
-    '59a2013e174cccfaed3a7eaca52d27234beea9f3c59c6cabb8ecfe00136e941c',
+    'e5ac6f87bfd69c1e788304b274cd7b25768869099361dc4e69d0e35c535bf6c1',
   '../__tests__/prompt-trace-timing.e2e.test.ts':
-    'dcbefbb295e0c06bb207f3cf648f8dcda3f290f4dd7f56973e2fd1953ba4cd1c',
-  '../../scripts/lib/prompt-trace-timing.ts':
+    '85435694fa0379a7f4f79708908c3c18d7f011fe4127ec33b503d154643591db',
+  '../__tests__/fixtures/prompt-trace-timing.ts':
     '7f6af8c9c7d623f8cdcb2e7bbe21a5d5d31f4ad94a6faca86dc25817e6904e8d',
   '../../scripts/validate-prompt-timing.ts':
-    '1e63a2ee2691fd959df77617d2d63cf323294ecd1306a8e15c250d20fa09f170',
+    'f54835f8968317c8b580caaee95effbed91e84d667b3003b31215e3a97159063',
   '../__tests__/local-repository-metadata-directory-batch.test.ts':
     '52d0953d6d2e1e07fcaa6dd292d63d632e1a406b61a6b723a45af149dada45ed',
   '../__tests__/local-repository-initial-directory-batch.test.ts':

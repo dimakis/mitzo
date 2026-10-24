@@ -4,7 +4,10 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promptTimingSummary, type summarizePromptTiming } from './lib/prompt-trace-timing.js';
+import {
+  promptTimingSummary,
+  type summarizePromptTiming,
+} from '../server/__tests__/fixtures/prompt-trace-timing.js';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 function option(name: string, fallback: string) {

@@ -10,10 +10,7 @@ import {
   InMemorySpanExporter,
 } from '@opentelemetry/sdk-trace-node';
 import { context, trace, ROOT_CONTEXT, type Context, type Span } from '@opentelemetry/api';
-import {
-  summarizePromptTiming,
-  type PromptTimingCommand,
-} from '../../scripts/lib/prompt-trace-timing.js';
+import { summarizePromptTiming, type PromptTimingCommand } from './fixtures/prompt-trace-timing.js';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import type { Response } from 'express';
