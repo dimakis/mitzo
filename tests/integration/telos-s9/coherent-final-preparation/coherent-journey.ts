@@ -322,6 +322,42 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
     directories = ids.map((id) => chat.eventStore.getSession(id)!.cwd!);
   expect(new Set(ids).size).toBe(3);
   expect(new Set(directories).size).toBe(3);
+  const assertRepositoryRole = async (id: string, materialized: boolean) => {
+    const session = chat.eventStore.getSession(id)!;
+    const { getRepositoryWorkspaces } =
+      await import('../../../../server/repository-workspace-runtime.js');
+    const retained = getRepositoryWorkspaces(true).get(session.repositoryWorkspaceId!);
+    expect(retained).toMatchObject({
+      state: materialized ? 'claimed' : 'reserved',
+      conversationId: id,
+      directory: session.cwd,
+      baseBranch: 'main',
+      baseOid: app.sourceOid,
+    });
+    await app.record('actual-repository-role-reservation-or-materialization', {
+      conversationId: id,
+      repositoryWorkspaceId: retained.id,
+      cwd: session.cwd,
+      state: retained.state,
+      materialized,
+      baseOid: retained.baseOid,
+    });
+    if (!materialized) {
+      // Silent setup reserves identity only. The first real command owns copying
+      // the checkout; neither an advisor nor a silent worker has run yet.
+      await expect(access(session.cwd!)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(chat.eventStore.getOrdinaryInitialCommandId(id)).toBeUndefined();
+      return;
+    }
+    const main = (
+      await exec('git', ['-C', session.cwd!, 'rev-parse', 'refs/heads/main'])
+    ).stdout.trim();
+    expect(main).toBe(app.sourceOid);
+    const branch = (
+      await exec('git', ['-C', session.cwd!, 'branch', '--show-current'])
+    ).stdout.trim();
+    expect(branch).not.toBe('main');
+  };
   for (const id of ids) {
     const session = chat.eventStore.getSession(id)!;
     if (kind === 'non-git') {
@@ -332,14 +368,7 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
     } else {
       expect(session.repositoryWorkspaceId).toBeTruthy();
       expect(session.ordinaryWorkspaceId).toBeUndefined();
-      const main = (
-        await exec('git', ['-C', session.cwd!, 'rev-parse', 'refs/heads/main'])
-      ).stdout.trim();
-      expect(main).toBe(app.sourceOid);
-      const branch = (
-        await exec('git', ['-C', session.cwd!, 'branch', '--show-current'])
-      ).stdout.trim();
-      expect(branch).not.toBe('main');
+      await assertRepositoryRole(id, id === leadId);
     }
   }
   const { resolveTelosWorkRoleContext } =
@@ -356,6 +385,7 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
   });
   expect(workerContext!.sources).toEqual([originalSource]);
   const started = await start(workerId);
+  if (kind === 'repository') await assertRepositoryRole(workerId, true);
   expect(app.actors).toHaveLength(2);
   expect(chat.registry.findBySessionId(workerId)!.session.taskContext?.currentTaskId).toBe(taskId);
   const worker = app.actorBySession.get(workerId)!,
@@ -371,7 +401,7 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
     sha256: hash(report),
     bytes: report.length,
   });
-  const retainedOutput = await nativeJson(workerId, 'TelosSaveArtifact', {
+  const retainedOutput = await nativeJson(workerId, 'mcp__telos__TelosSaveArtifact', {
     requestId: 'coherent-output',
     itemId: childId,
     filename: 'recording-report.md',
@@ -387,7 +417,7 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
   expect(output.sessionId).toBe(workerId);
   expect(output.sha256).toBe(hash(report));
   expect(
-    await nativeJson(workerId, 'TelosSaveArtifact', {
+    await nativeJson(workerId, 'mcp__telos__TelosSaveArtifact', {
       requestId: 'coherent-output',
       itemId: childId,
       filename: 'recording-report.md',
@@ -395,7 +425,7 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
       path: 'recording-report.md',
     }),
   ).toEqual(retainedOutput);
-  const nativeRead = await nativeJson(workerId, 'TelosReadArtifact', {
+  const nativeRead = await nativeJson(workerId, 'mcp__telos__TelosReadArtifact', {
     id: output.id,
     revision: output.revision,
   });

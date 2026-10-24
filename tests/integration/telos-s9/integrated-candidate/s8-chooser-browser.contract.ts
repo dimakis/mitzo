@@ -272,7 +272,11 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
   page.on('requestfailed', (request) => {
     if (new URL(request.url()).pathname === '/api/events') broadcastFailures++;
   });
-  const offline = async (route: import('@playwright/test').Route) => route.abort('failed');
+  let broadcastOffline = true;
+  // Keep the handler installed while EventSource reconnects. Removing it can
+  // auto-continue an in-flight route before the context handler receives it.
+  const offline = async (route: import('@playwright/test').Route) =>
+    broadcastOffline ? route.abort('failed') : route.fallback();
   await page.route('**/api/events', offline);
   front.server.closeAllConnections();
   await vi.waitFor(() => expect(broadcastFailures).toBeGreaterThan(0), { timeout: 10000 });
@@ -316,7 +320,7 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
   expect(external.work.assignments).toMatchObject([
     { role: 'lead', revision: 2, conversation: { conversationId: replacement.id } },
   ]);
-  await page.unroute('**/api/events', offline);
+  broadcastOffline = false;
   await browserExpect(page.getByRole('heading', { name: 'Chats · 5', exact: true })).toBeVisible({
     timeout: 15000,
   });
