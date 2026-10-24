@@ -1,3 +1,4 @@
+import { adviserExecutionProjection } from './adviser-harness-runtime.js';
 import { initializeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { resolveTelosWorkCommandScope } from './telos-work-command-scope.js';
 import { ordinaryWorkspacePreparedCommandStatus } from './ordinary-workspace-prepared-command.js';
@@ -4034,19 +4035,28 @@ app.use(
     adviser: new TerminalAdviser(createTerminalAdviserSession),
     accounts: async () => {
       const profiles = loadAccountProfiles();
-      // Subscription CLI agents do not establish an inference-only capability.
+      // Native account selection stays independent of the human terminal destination.
       return [
         ...terminalAdviserCatalog(profiles.catalog()).map((account) => ({
           ...account,
           label: accountAliases.label(account.id, account.label),
         })),
-        ...(getTerminalPlanAdviserHost()?.catalog() ?? []),
+        ...(getTerminalPlanAdviserHost()?.catalog() ?? []).map((account) => ({
+          ...account,
+          adviserMigration: {
+            available: false,
+            message:
+              'Saved registration retained. Select a configured Codex subscription account; no credentials are substituted.',
+          },
+        })),
       ];
     },
-    context: (id) => {
+    context: async (id) => {
       const meta = id ? eventStore.getSession(id) : undefined;
+      const adviserExecution = await adviserExecutionProjection();
       return meta?.accountBinding
         ? {
+            adviserExecution,
             summary: {
               profile: accountAliases.label(
                 meta.accountBinding.accountId,
@@ -4061,7 +4071,7 @@ app.use(
               reasoningEffort: meta.reasoningEffort,
             },
           }
-        : {};
+        : { adviserExecution };
     },
     destinations: () =>
       eventStore

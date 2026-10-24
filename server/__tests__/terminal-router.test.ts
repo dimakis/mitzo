@@ -230,7 +230,11 @@ it('exposes only server supplied adviser accounts and explicit reviewed context'
     })
     .expect(200);
   expect(ask).toHaveBeenCalledWith(
-    'advice-login',
+    expect.objectContaining({
+      authSessionId: 'advice-login',
+      operatorConnectionId: expect.any(String),
+      feature: { kind: 'terminal', terminalId: 'owned' },
+    }),
     expect.objectContaining({ output: 'reviewed' }),
     expect.any(AbortSignal),
   );

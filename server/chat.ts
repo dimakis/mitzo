@@ -1,3 +1,4 @@
+import { AdviserTaskScope } from './adviser-task-scope.js';
 import { restoreOwnedVertexInitialPrompt } from './ordinary-local-vertex-replay.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import type { LocalWorkspaceRecord } from './ordinary-local-workspace-owner.js';
@@ -1238,6 +1239,7 @@ export async function startChat(
     onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
     /** Trusted live-query observer, never a viewer transport or replay subscription. */
     onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
+    adviserScope?: AdviserTaskScope;
     telosTaskId?: string;
     agentName?: string;
     agentProfile?: AgentProfileSelection;
@@ -1285,8 +1287,6 @@ export async function startChat(
       ? nativeStartupSessionId(initialMessageId)
       : undefined;
   try {
-    if (options.ordinarySdkAuthority) {
-      if (
     const retainedBinding = options.resume
       ? eventStore.getSession(options.resume)?.accountBinding
       : undefined;
@@ -1306,6 +1306,8 @@ export async function startChat(
       throw Error(
         'Custom Responses execution is retired. Use native ordinary admission or review a linked native continuation.',
       );
+    if (options.ordinarySdkAuthority) {
+      if (
         !(options.ordinarySdkAuthority instanceof OrdinaryLocalVertexSdkAuthority) ||
         !options.ordinarySdkCommandOwner
       )
@@ -1421,6 +1423,7 @@ async function _startChatInner(
     onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
     /** Trusted live-query observer, never a viewer transport or replay subscription. */
     onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
+    adviserScope?: AdviserTaskScope;
     telosTaskId?: string;
     agentName?: string;
     agentProfile?: AgentProfileSelection;
@@ -1455,6 +1458,17 @@ async function _startChatInner(
   let gemini: GeminiOptions | undefined;
   let accountEnv: Record<string, string> | undefined;
   try {
+    if (options.resume && eventStore.getLatestEvent(options.resume, 'adviser_task_scope'))
+      throw Error('Adviser history is read-only; ask again with a reviewed snapshot');
+    if (
+      options.adviserScope &&
+      (!(options.adviserScope instanceof AdviserTaskScope) ||
+        options.resume ||
+        options.agentProfile ||
+        options.contextBlocks?.length ||
+        options.sourceSnapshots?.length)
+    )
+      throw Error('Original scoped adviser context required');
     const storedMeta = options.resume ? eventStore.getSession(options.resume) : undefined;
     const storedBinding = storedMeta?.accountBinding;
     const profiles =
@@ -1467,6 +1481,13 @@ async function _startChatInner(
       accountBinding = storedBinding;
     } else
       accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
+    if (
+      accountBinding?.provider === 'openai' &&
+      (!openShellAvailable || process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED === '0')
+    )
+      throw new Error(
+        'Custom Responses execution is retired. Use native ordinary admission or review a linked native continuation.',
+      );
     options = {
       ...options,
       contributorGuidance: resolveOrdinaryContributorGuidance(
@@ -1486,13 +1507,6 @@ async function _startChatInner(
       accountBinding?.provider === 'openai-codex'
         ? openShellAvailable
           ? 'openshell'
-    if (
-      accountBinding?.provider === 'openai' &&
-      (!openShellAvailable || process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED === '0')
-    )
-      throw new Error(
-        'Custom Responses execution is retired. Use native ordinary admission or review a linked native continuation.',
-      );
           : 'codex'
         : accountBinding?.provider === 'openai' &&
             openShellAvailable &&
@@ -1640,6 +1654,11 @@ async function _startChatInner(
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
       } else accountEnv = profiles!.sdkEnv(accountBinding, buildSdkChildEnvironment());
     }
+    if (options.adviserScope) {
+      if (!accountBinding || accountBinding.provider !== 'anthropic-vertex')
+        throw Error('Scoped SDK adviser requires the selected Claude account');
+      options.adviserScope.assertSelection(accountBinding, options.reasoningEffort);
+    }
     if (options.ordinaryTurnLifecycle && !codexProfile)
       throw new Error('Selected account does not support ordinary contributor turns');
   } catch (err: unknown) {
@@ -1664,6 +1683,9 @@ async function _startChatInner(
       : process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
     : undefined;
   const abortController = new AbortController();
+  const abortAdviser = () => abortController.abort(options.adviserScope?.signal.reason);
+  options.adviserScope?.signal.addEventListener('abort', abortAdviser, { once: true });
+  if (options.adviserScope?.signal.aborted) abortAdviser();
   options.ordinarySdkAuthority?.bindAbortController(abortController);
   const resumedSession = options.resume
     ? registry.findBySessionId(options.resume)?.session
@@ -1965,13 +1987,15 @@ async function _startChatInner(
     }
   }
 
-  const fullPrompt = assemblePrompt(
-    prompt,
-    cwd,
-    codexProfile || nativeProviderSelected ? undefined : options.images,
-    options.contextBlocks,
-    options.sourceSnapshots,
-  );
+  const fullPrompt = options.adviserScope
+    ? prompt
+    : assemblePrompt(
+        prompt,
+        cwd,
+        codexProfile || nativeProviderSelected ? undefined : options.images,
+        options.contextBlocks,
+        options.sourceSnapshots,
+      );
   const userIntent = options.userIntent ?? prompt;
   if (options.reattachOnly && (!options.resume || !codexProfile))
     throw new Error('Provider-only reattachment requires a resumable Codex conversation');
@@ -2126,9 +2150,10 @@ async function _startChatInner(
     : createWorkspaceRuntimeCommandRunner();
 
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
-  const projectHooks = sdkCredentialIsolation
-    ? undefined
-    : loadProjectHooks(cwd, sessionEnv, projectCommandRunner);
+  const projectHooks =
+    options.adviserScope || sdkCredentialIsolation
+      ? undefined
+      : loadProjectHooks(cwd, sessionEnv, projectCommandRunner);
   const hooks =
     agentProfile?.definition.contextRecipe && projectHooks
       ? (Object.fromEntries(
@@ -2220,8 +2245,8 @@ async function _startChatInner(
             : undefined,
         )
       : undefined) ??
-    (options.ordinarySdkAuthority
-      ? { ...FALLBACK_BOOT_CONTEXT }
+    (options.adviserScope || options.ordinarySdkAuthority
+      ? { ...FALLBACK_BOOT_CONTEXT, fullMarkdown: '' }
       : openShellSelected
         ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
         : await fetchBootContext(
@@ -2244,6 +2269,15 @@ async function _startChatInner(
     });
   // Cache in ManagedSession for replay on reconnect/switch
   session.bootContext = bootContextMsg as unknown as Record<string, unknown>;
+  if (options.adviserScope && stateSessionId) {
+    options.adviserScope.assertCurrent();
+    eventStore.append(stateSessionId, 'adviser_task_scope', {
+      version: 1,
+      contextSha256: options.adviserScope.contextSha256,
+      feature: options.adviserScope.feature(),
+      policy: 'reviewed-context-only',
+    });
+  }
   // For resumed sessions, persist immediately (sessionId is known).
   // For new sessions, persist in onSessionResolved once SDK assigns the ID.
   if (stateSessionId) {
@@ -2282,29 +2316,35 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     : openShellWorkdir
       ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
       : buildWorktreeSystemPrompt(repoWorktrees);
-  const systemPromptAppend =
-    repositoryChatContext(repositoryWorkspace) +
-    'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
-    SESSION_PERMISSION_INSTRUCTIONS +
-    PROFILE_TOOL_INSTRUCTIONS +
-    (options.contributorGuidance === undefined ? telosArtifactInstructions(!!agentContext) : '') +
-    '- Read operations are fine without asking.\n' +
-    '- Keep responses concise — small screen.\n' +
-    (agentContext
-      ? ''
-      : '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.') +
-    buildClientCapabilitiesPrompt() +
-    workspacePrompt +
-    (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
-    (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
-    (options.contributorGuidance
-      ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
-      : '') +
-    bootContextAppend;
+  const systemPromptAppend = options.adviserScope
+    ? options.adviserScope.instructions()
+    : repositoryChatContext(repositoryWorkspace) +
+      'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
+      SESSION_PERMISSION_INSTRUCTIONS +
+      PROFILE_TOOL_INSTRUCTIONS +
+      (options.contributorGuidance === undefined ? telosArtifactInstructions(!!agentContext) : '') +
+      '- Read operations are fine without asking.\n' +
+      '- Keep responses concise — small screen.\n' +
+      (agentContext
+        ? ''
+        : '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.') +
+      buildClientCapabilitiesPrompt() +
+      workspacePrompt +
+      (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
+      (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
+      (options.contributorGuidance
+        ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
+        : '') +
+      bootContextAppend;
 
   // Recipe-bound chats already have their exact Library definition and context.
   // Loading the legacy definition would compile another, unrelated default bundle.
-  if (!options.ordinarySdkAuthority && !agentContext && !agentProfile?.definition.contextRecipe)
+  if (
+    !options.adviserScope &&
+    !options.ordinarySdkAuthority &&
+    !agentContext &&
+    !agentProfile?.definition.contextRecipe
+  )
     loadAgentDef(agentName, cwd)
       .then((loaded) => {
         const s = registry.get(clientId);
@@ -2543,6 +2583,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       const authorizeSdkContext = async (signal: AbortSignal) => {
         const joined = AbortSignal.any([abortController.signal, signal]);
         try {
+          options.adviserScope?.assertCurrent();
           joined.throwIfAborted();
           await prepareAgentContext?.(joined);
           await options.ordinarySdkAuthority?.assertCurrent(joined);
@@ -2750,6 +2791,15 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             },
         hooks: sdkHooks,
         canUseTool: decide,
+        ...(options.adviserScope
+          ? {
+              ...options.adviserScope.sdkPolicy(),
+              strictMcpConfig: true,
+              systemPrompt: options.adviserScope.instructions(),
+              allowedTools: [],
+              disallowedTools: [],
+            }
+          : {}),
       };
       if (options.ordinarySdkAuthority) {
         const ownedQuery = createOrdinaryLocalVertexSdkQuery({
@@ -2889,6 +2939,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     const sdkContextEvents = async function* () {
       let acknowledged = false;
       for await (const message of queryEvents) {
+        options.adviserScope?.assertCurrent();
         if (
           !acknowledged &&
           agentContext &&
@@ -2951,7 +3002,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           options.onSessionResolved?.(sessionId);
         },
         onInitialPrompt: (sessionId: string) => {
-          if (!options.ordinarySdkAuthority)
+          if (!options.adviserScope && !options.ordinarySdkAuthority)
             tryAutoRename(sessionId, clientId).catch(() => {
               /* errors logged internally */
             });
@@ -2978,6 +3029,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               .catch(() =>
                 abortController.abort(Error('Original SDK result authority unavailable')),
               );
+          options.adviserScope?.assertCurrent();
           options.onTurnResult?.(result, inputUuid);
         },
         onSuccessfulAccountUse: (binding) => getAccountUseStore().record(binding),
@@ -3038,6 +3090,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       }
     }
   } finally {
+    options.adviserScope?.signal.removeEventListener('abort', abortAdviser);
     const current = registry.get(clientId);
     if (!current || current === session) _onSessionChange?.(clientId, 'end', session.sessionId);
   }
@@ -3051,6 +3104,7 @@ export function hasOwnedLocalCodexDriver(sessionId: string): boolean {
 /** Capability to request a guarded resume, never a provider readiness claim. */
 export function canResumeOwnedLocalCodexDriver(sessionId: string, authSessionId: string): boolean {
   try {
+    if (eventStore.getLatestEvent(sessionId, 'adviser_task_scope')) return false;
     if (
       !hasPersistentRevocationAuthority() ||
       process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' ||
@@ -3092,6 +3146,7 @@ export async function sendOwnedLocalCodexCommand(input: {
 }): Promise<{ dispatched: boolean; sessionId: string }> {
   const unavailable = () => new Error('Owned local Codex chat unavailable');
   try {
+    if (eventStore.getLatestEvent(input.sessionId, 'adviser_task_scope')) throw unavailable();
     if (
       process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' ||
       custodianControllerMode ||
@@ -3151,6 +3206,11 @@ export async function startOwnedLocalCodexCommand(
     resume?: boolean;
     /** Trusted silent allocation receipt; explicit first command only. */
     preparationOperationId?: string;
+    adviserScope?: AdviserTaskScope;
+    onSessionPrepared?: (session: ManagedSession) => void;
+    onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
+    onTerminalOutcome?: (error?: Error) => void;
+    onEnded?: () => void;
   },
 ): Promise<{ dispatched: boolean; sessionId: string }> {
   const unavailable = () => new Error('Owned local Codex chat unavailable');
@@ -3172,6 +3232,7 @@ export async function startOwnedLocalCodexCommand(
     if (live && driver && live.ordinaryRuntimeOwner?.identity === driver)
       delete live.ordinaryRuntimeOwner;
     driver?.close();
+    input.onEnded?.();
   };
   try {
     const commandId = input.commandId;
@@ -3197,6 +3258,14 @@ export async function startOwnedLocalCodexCommand(
     const reservation = structuredClone(input.reservation);
     const command = structuredClone(input.command);
     const sessionId = reservation.conversationId;
+    if (eventStore.getLatestEvent(sessionId, 'adviser_task_scope') && !input.adviserScope)
+      throw unavailable();
+    if (input.adviserScope && (!(input.adviserScope instanceof AdviserTaskScope) || resume))
+      throw unavailable();
+    input.adviserScope?.assertSelection(
+      reservation.binding,
+      (command as { selection?: { thinking?: string | null } }).selection?.thinking,
+    );
     resolveOwnedTelosWorkCommandScope(sessionId);
     const liveOwner = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
     if (liveOwner) {
@@ -3226,8 +3295,15 @@ export async function startOwnedLocalCodexCommand(
       operatorConnectionId,
       signal,
       nativeStore: getCodexConversationStore(),
+      ...(input.adviserScope
+        ? {
+            nativeExecutionReadRoots: input.adviserScope.nativeReadRoots(
+              getOrdinaryWorkspaces(true).getOrdinaryWorkspace(reservation.id).directory,
+            ),
+          }
+        : {}),
       dispatchContinuation: async (dispatch) => {
-        if (released || !driver) throw unavailable();
+        if (released || !driver || input.adviserScope) throw unavailable();
         const current = registry.findBySessionId(sessionId);
         const session = current?.session;
         const native = session && getCodexRuntime(session);
@@ -3278,6 +3354,10 @@ export async function startOwnedLocalCodexCommand(
           ownerConnectionId,
           ownerAuthSessionId,
           onEnded: release,
+          adviserScope: input.adviserScope,
+          onSessionPrepared: input.onSessionPrepared,
+          onQueryEvent: input.onQueryEvent,
+          onTerminalOutcome: input.onTerminalOutcome,
         });
       },
     });
@@ -3376,6 +3456,9 @@ export async function prepareOwnedCodexChat(
     onFirstEventOutcome?: (error?: Error) => void;
     onTerminalOutcome?: (error?: Error) => void;
     onEnded: () => void;
+    adviserScope?: AdviserTaskScope;
+    onSessionPrepared?: (session: ManagedSession) => void;
+    onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
   },
 ): Promise<{ run(): Promise<void>; close(): void }> {
   const unavailable = () =>
@@ -3522,6 +3605,16 @@ export async function prepareOwnedCodexChat(
     });
     session = registry.get(clientId)!;
     resolveOwnedTelosWorkCommandScope(sessionId);
+    options.onSessionPrepared?.(session);
+    if (options.adviserScope) {
+      options.adviserScope.assertSelection(boundAccount, expected.selection.thinking);
+      eventStore.append(sessionId, 'adviser_task_scope', {
+        version: 1,
+        contextSha256: options.adviserScope.contextSha256,
+        feature: options.adviserScope.feature(),
+        policy: 'reviewed-context-only',
+      });
+    }
     // Existing public stop/interrupt controls expect this lifecycle marker.
     // Native commands remain owned exclusively by CodexConversation's FIFO.
     session.inputQueue = {
@@ -3615,15 +3708,18 @@ export async function prepareOwnedCodexChat(
       prompt: assembleSourceSnapshots(payload.text, payload.sourceSnapshots),
       intent: payload.intent ?? payload.text,
       systemPrompt: payload.systemPrompt,
+      adviserScope: options.adviserScope,
       model: expected.selection.model,
       reasoningEffort: expected.selection.thinking,
       images: payload.images,
       env,
       configuredSourceEnv: nativeExecutionEnv(),
-      mcpServers: {
-        ...mcpServers,
-        ...(supportsHostTaskTools(!!openShellAdmission) ? buildTaskMcpServer(clientId) : null),
-      },
+      mcpServers: options.adviserScope
+        ? {}
+        : {
+            ...mcpServers,
+            ...(supportsHostTaskTools(!!openShellAdmission) ? buildTaskMcpServer(clientId) : null),
+          },
       eventStore,
       publishingGitStorageRoots: isOrdinaryWorkspace(workspace)
         ? undefined
@@ -3710,6 +3806,7 @@ export async function prepareOwnedCodexChat(
             initialImages: imagePreviews(payload.images),
             onFirstEventOutcome: options.onFirstEventOutcome,
             onTerminalOutcome: options.onTerminalOutcome,
+            onEvent: options.onQueryEvent,
             onTurnEnd: (ownerClientId) => _onSessionChange?.(ownerClientId, 'turn_end'),
             onSuccessfulAccountUse: (binding) => getAccountUseStore().record(binding),
           },
@@ -4027,11 +4124,15 @@ export async function sendToChat(
       throw new Error('Runtime-bound commands require guarded admission');
     if (session?.sessionId)
       assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'send');
+    if (session?.sessionId && eventStore.getLatestEvent(session.sessionId, 'adviser_task_scope'))
+      throw Error('Adviser history is read-only; ask again with a reviewed snapshot');
     if (session?.sessionId && eventStore.getSession(session.sessionId)?.symposiumConfig)
       throw new Error('Use Symposium directed prompts for this session');
     if (!session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
+    if (responses && session.accountBinding?.provider !== 'google-vertex')
+      throw Error('Custom Responses execution is retired; review a linked native continuation');
     if (!codex && !responses && model && model !== session.model) {
       send(session.transport, {
         type: 'error',
@@ -4150,8 +4251,6 @@ export async function sendToChat(
           ...(selectionReasoningEffort !== undefined
             ? { reasoningEffort: selectionReasoningEffort || null }
             : {}),
-    if (responses && session.accountBinding?.provider !== 'google-vertex')
-      throw Error('Custom Responses execution is retired; review a linked native continuation');
         });
       }
       if (model) {
@@ -4415,6 +4514,10 @@ export async function interruptChat(
     }
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
+    if (responses && session.accountBinding?.provider !== 'google-vertex') {
+      await session.queryInstance.interrupt();
+      return false;
+    }
     if (
       responses &&
       images?.length &&
@@ -4533,10 +4636,6 @@ export async function interruptChat(
     }
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
     const previews = imagePreviews(images);
-    if (responses && session.accountBinding?.provider !== 'google-vertex') {
-      await session.queryInstance.interrupt();
-      return false;
-    }
     // Store and echo the user message. A retried interrupt must still stop
     // the agent — only the echo/store is skipped on duplicate.
     let isDup = false;
@@ -4689,6 +4788,12 @@ function queueCloseoutPrompt(
   }
   const codex = getCodexRuntime(session);
   const responses = getResponsesRuntime(session);
+  if (responses && session.accountBinding?.provider !== 'google-vertex') {
+    log.warn('retired Responses closeout requires explicit linked native continuation', {
+      sessionId: session.sessionId,
+    });
+    return;
+  }
   const metadata = eventStore.getSession(session.sessionId);
   let admission: CloseoutAdmission;
   try {
@@ -4807,12 +4912,6 @@ function _closeoutSessionInner(clientId: string, episode: CloseoutEpisode): void
   }
 
   log.info('injecting closeout prompt', { clientId, wtId: session.wtId });
-  if (responses && session.accountBinding?.provider !== 'google-vertex') {
-    log.warn('retired Responses closeout requires explicit linked native continuation', {
-      sessionId: session.sessionId,
-    });
-    return;
-  }
 
   queueCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT, episode);
 
@@ -6616,6 +6715,8 @@ export async function startOwnedLocalResponsesCommand(
   },
 ) {
   options.signal?.throwIfAborted();
+  if (options.reservation.binding.provider !== 'google-vertex')
+    throw Error('Custom Responses execution is retired; review a linked native continuation');
   const sessionId = options.reservation.conversationId,
     command = options.command as { clientMsgId: string };
   const live = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
@@ -6734,8 +6835,6 @@ export async function startOwnedLocalResponsesCommand(
           if (result.dispatched) {
             echo((raw as { clientMsgId: string }).clientMsgId);
             void pump();
-  if (options.reservation.binding.provider !== 'google-vertex')
-    throw Error('Custom Responses execution is retired; review a linked native continuation');
           }
           return result;
         },

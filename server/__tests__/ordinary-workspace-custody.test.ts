@@ -74,11 +74,20 @@ const agentProfile = {
   contentHash: contextDigest(definition),
 };
 async function fixture(
-  options: { location?: 'local' | 'openshell'; provider?: 'openai' | 'openai-codex' } = {},
+  options: {
+    location?: 'local' | 'openshell';
+    provider?: 'openai' | 'openai-codex' | 'anthropic-vertex';
+  } = {},
 ) {
   const selectedBinding = { ...binding, provider: options.provider ?? binding.provider };
   const selectedRuntime = {
     ...runtimeBinding,
+    harness: {
+      implementation:
+        selectedBinding.provider === 'anthropic-vertex'
+          ? ('claude-sdk' as const)
+          : ('codex' as const),
+    },
     account: { ...runtimeBinding.account, provider: selectedBinding.provider },
     execution: { ...runtimeBinding.execution, location: options.location ?? 'local' },
   };
@@ -114,7 +123,11 @@ async function fixture(
       binding: selectedBinding,
       selection: {
         runOn: selectedRuntime.execution.location,
-        runtime: { account: selectedRuntime.account, harness: 'codex', targetId: 'offline-target' },
+        runtime: {
+          account: selectedRuntime.account,
+          harness: selectedRuntime.harness.implementation,
+          targetId: 'offline-target',
+        },
       },
       signal: new AbortController().signal,
     });
@@ -318,14 +331,14 @@ it('requires readiness to bind the selected account to the original account, not
 
 it('rejects an unsupported provider before asking the credential readiness owner', async () => {
   const f = await fixture();
-  const apiBinding = { ...binding, provider: 'openai' as const };
+  const apiBinding = { ...binding, provider: 'google-vertex' as const };
   await expect(
     f.owner.prepareOrdinaryWorkspace({
       binding: apiBinding,
       selection: {
         runOn: 'local',
         runtime: {
-          account: { ...runtimeBinding.account, provider: 'openai' },
+          account: { ...runtimeBinding.account, provider: 'google-vertex' },
           harness: 'codex',
           targetId: runtimeBinding.execution.targetId,
         },
@@ -625,3 +638,17 @@ it('normalizes a fresh default OpenShell send once and recovers its exact worksp
   });
   expect(differentOperator.sessionId).not.toBe(original.sessionId);
 });
+
+it.each(['openai', 'anthropic-vertex'] as const)(
+  'uses existing empty workspace custody for selected local %s without Git or credential substitution',
+  async (provider) => {
+    const f = await fixture({ provider });
+    const prepared = await f.prepare();
+    const input = f.input(prepared.preparationId);
+    const record = await f.owner.reserveOrdinaryWorkspace(input);
+    expect(record.binding).toEqual(f.binding);
+    expect(record.settings.binding.account.provider).toBe(provider);
+    expect(f.capture).toHaveBeenCalledOnce();
+    expect(f.forbidden).not.toHaveBeenCalled();
+  },
+);

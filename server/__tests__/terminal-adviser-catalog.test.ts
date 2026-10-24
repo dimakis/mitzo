@@ -26,7 +26,8 @@ it('offers only Gemini thinking modes supported by the text-only adviser adapter
     },
     { id: 'personal', provider: 'openai-codex', models: [{ id: 'gpt-6-luna' }] },
   ]);
-  expect(accounts).toHaveLength(2);
+  expect(accounts).toHaveLength(3);
+  expect(accounts[2].provider).toBe('openai-codex');
   expect(accounts[0].models.map((model) => model.reasoningEfforts)).toEqual([
     ['low', 'medium', 'high'],
     ['low', 'high'],

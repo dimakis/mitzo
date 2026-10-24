@@ -52,3 +52,24 @@ it('bounds accumulated text and requires a nonempty successful response', () => 
   expect(() => scope.result('x'.repeat(32769))).toThrow();
   expect(scope.result('Advice')).toEqual({ text: 'Advice' });
 });
+it('constrains SDK settings and every tool effect, including apparently safe reads', async () => {
+  const scope = new AdviserTaskScope(input(), () => {}, new AbortController().signal);
+  const settings = scope.sdkPolicy();
+  expect(settings.tools).toEqual([]);
+  expect(settings.settingSources).toEqual([]);
+  expect(settings.mcpServers).toEqual({});
+  expect(settings.hooks).toEqual({});
+  expect(await settings.canUseTool('Read', { file_path: '/private' })).toMatchObject({
+    behavior: 'deny',
+  });
+});
+it('disables inherited native skills and projects only task directory reads', () => {
+  const scope = new AdviserTaskScope(input(), () => {}, new AbortController().signal);
+  expect(scope.codexConfig([{ path: '/private/SKILL.md' }])).toMatchObject({
+    web_search: 'disabled',
+    project_doc_max_bytes: 0,
+    'skills.config': [{ path: '/private/SKILL.md', enabled: false }],
+  });
+  expect(() => scope.codexConfig([{ path: 'relative' }])).toThrow();
+  expect(scope.nativeReadRoots('/task')).toEqual(['/task']);
+});
