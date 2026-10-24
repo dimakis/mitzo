@@ -84,58 +84,62 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
   const { mode, ...runtimeSelection } = app.runtime;
   expect(mode).toBe('agent');
   const ordinaryRuntime = { runOn: 'local' as const, runtime: runtimeSelection };
-  let settings: CollaborationSettings | OrdinaryWorkspaceSettings;
-  if (kind === 'non-git') {
-    const prepared = await app.ordinary.prepare({
-      version: 1,
-      model: app.binding.model,
-      ...ordinaryRuntime,
-    });
-    expect(prepared.capabilities).toEqual([
-      'ordinary_conversation',
-      'writable_files',
-      'retained_artifacts',
-      'task_execution',
-    ]);
-    settings = {
-      version: 2,
-      binding: prepared.runtimeBinding,
-      selection: app.selection,
-      workspace: { kind: 'ordinary', preparationId: prepared.preparationId },
-    };
-  } else {
-    const preview = await app.http('/api/repository-workspaces/preview', {
-      method: 'POST',
-      body: JSON.stringify({
-        accountId: app.binding.accountId,
+  // Each distinct role needs its own real allocation preparation; exact retries
+  // below retain that role's original selection and request.
+  const prepareSettings = async (): Promise<CollaborationSettings | OrdinaryWorkspaceSettings> => {
+    if (kind === 'non-git') {
+      const prepared = await app.ordinary.prepare({
+        version: 1,
         model: app.binding.model,
-        connectionId: app.connectionId,
-        repository: 'owner/project',
-        ordinaryRuntime,
-        requestId: randomUUID(),
-      }),
-    });
-    expect(preview.status).toBe(200);
-    const source = (await preview.json()) as { id: string; baseOid: string };
-    expect(source.baseOid).toBe(app.sourceOid);
-    const prepared = await app.http('/api/repository-workspaces/' + source.id + '/prepare', {
-      method: 'POST',
-      body: JSON.stringify({ accountId: app.binding.accountId, model: app.binding.model }),
-    });
-    expect(prepared.status).toBe(200);
-    const { getRepositoryWorkspaces } =
-      await import('../../../../server/repository-workspace-runtime.js');
-    const retained = getRepositoryWorkspaces(true).get(source.id);
-    expect(retained.state).toBe('ready');
-    expect(retained.ordinaryPreparation).toBeDefined();
-    expect(retained.ordinaryPreparation!.credentialDigest).not.toBe('a'.repeat(64));
-    settings = {
-      binding: retained.ordinaryPreparation!.runtimeBinding,
-      selection: app.selection,
-      repositoryWorkspaceId: retained.id,
-    };
-  }
+        ...ordinaryRuntime,
+      });
+      expect(prepared.capabilities).toEqual([
+        'ordinary_conversation',
+        'writable_files',
+        'retained_artifacts',
+        'task_execution',
+      ]);
+      return {
+        version: 2,
+        binding: prepared.runtimeBinding,
+        selection: app.selection,
+        workspace: { kind: 'ordinary', preparationId: prepared.preparationId },
+      };
+    } else {
+      const preview = await app.http('/api/repository-workspaces/preview', {
+        method: 'POST',
+        body: JSON.stringify({
+          accountId: app.binding.accountId,
+          model: app.binding.model,
+          connectionId: app.connectionId,
+          repository: 'owner/project',
+          ordinaryRuntime,
+          requestId: randomUUID(),
+        }),
+      });
+      expect(preview.status).toBe(200);
+      const source = (await preview.json()) as { id: string; baseOid: string };
+      expect(source.baseOid).toBe(app.sourceOid);
+      const prepared = await app.http('/api/repository-workspaces/' + source.id + '/prepare', {
+        method: 'POST',
+        body: JSON.stringify({ accountId: app.binding.accountId, model: app.binding.model }),
+      });
+      expect(prepared.status).toBe(200);
+      const { getRepositoryWorkspaces } =
+        await import('../../../../server/repository-workspace-runtime.js');
+      const retained = getRepositoryWorkspaces(true).get(source.id);
+      expect(retained.state).toBe('ready');
+      expect(retained.ordinaryPreparation).toBeDefined();
+      expect(retained.ordinaryPreparation!.credentialDigest).not.toBe('a'.repeat(64));
+      return {
+        binding: retained.ordinaryPreparation!.runtimeBinding,
+        selection: app.selection,
+        repositoryWorkspaceId: retained.id,
+      };
+    }
+  };
   const setupRole = async (role: 'advisor' | 'lead') => {
+    const settings = await prepareSettings();
     const work = await api.read('studio');
     const review = await api.reviewRoleContext({
       itemId: 'studio',
@@ -183,10 +187,14 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
             presentationRef: review.presentationRef,
           });
     expect(retry).toEqual(receipt);
-    return receipt.work.links.find((link) => link.role === role)!.conversation.conversationId;
+    return {
+      conversationId: receipt.work.links.find((link) => link.role === role)!.conversation
+        .conversationId,
+      settings,
+    };
   };
   const before = chat.eventStore.listSessions().length;
-  const advisorId = await setupRole('advisor');
+  const advisorId = (await setupRole('advisor')).conversationId;
   expect(chat.eventStore.listSessions()).toHaveLength(before + 1);
   expect(app.actors).toHaveLength(0);
   const sequence = chat.eventStore.append(advisorId, 'user_message', {
@@ -240,7 +248,9 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
       throughSequence: sequence,
     },
   });
-  const leadId = await setupRole('lead');
+  const lead = await setupRole('lead');
+  const leadId = lead.conversationId;
+  const settings = lead.settings;
   expect(new Set([origin, advisorId, leadId]).size).toBe(3);
   expect(app.actors).toHaveLength(0);
   const start = async (sessionId: string, selected = app.selection) => {

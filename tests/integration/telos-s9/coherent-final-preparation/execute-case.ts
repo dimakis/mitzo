@@ -43,6 +43,7 @@ export async function executeCoherentCase(kind: 'repository' | 'non-git') {
       'S9_MGMT_PYTHON',
       'S9_MGMT_SOURCE_ROOT',
       'S9_CODEX_NATIVE_FIXTURE',
+      'PLAYWRIGHT_BROWSERS_PATH',
       'S9_COHERENT_EVIDENCE_DIR',
     ])
       if (process.env[key] !== undefined) env[key] = process.env[key];

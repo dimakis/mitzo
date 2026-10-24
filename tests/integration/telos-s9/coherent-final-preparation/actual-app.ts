@@ -16,6 +16,7 @@ import { join, isAbsolute } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { installPrivatePublicationTransport } from './private-publication-runtime.js';
+import { prepareNativeProviderToolCall } from '../../../../server/__tests__/fixtures/native-provider-tool-call.js';
 import type { CodexLifecycleTransport } from '../../../../server/codex-app-server-client.js';
 import type { GithubRepositoryCommand } from '../../../../server/github-repository-source.js';
 import { initializeFreshPrivateAppFiles } from './fresh-private-files.js';
@@ -246,9 +247,11 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
     }),
     { mode: 0o600 },
   );
-  const executablePath = join(root, 'codex'),
-    nativePath = join(root, 'native.json'),
-    targetPath = join(root, 'target.json');
+  // Private selector parents are write-protected by the real SDK fence. Keep
+  // authority under its existing private root, separate from canonical data.
+  const executablePath = join(privateRoot, 'codex'),
+    nativePath = join(privateRoot, 'native.json'),
+    targetPath = join(privateRoot, 'target.json');
   const selectedArtifact = process.env.S9_CODEX_NATIVE_FIXTURE;
   if (!selectedArtifact || !isAbsolute(selectedArtifact))
     throw Error(
@@ -265,7 +268,7 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
   // The companion belongs only to the deterministic fake RPC boundary. It has
   // its own measured identity and is never qualified or executed as native code.
   const companion = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
-  await writeFile(join(root, 'codex-code-mode-host'), companion, { mode: 0o755 });
+  await writeFile(join(privateRoot, 'codex-code-mode-host'), companion, { mode: 0o755 });
   const codeModeHostSha256 = createHash('sha256').update(companion).digest('hex');
   await record('qualified-offline-native-artifact-private-copy', {
     selectedArtifact,
@@ -912,27 +915,52 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
     if (!handle) throw Error('Original native actor missing');
     const actor = actorBySession.get(sessionId);
     if (!actor) throw Error('Original retained native thread missing');
-    const definition = actor.tools.find(
-      (tool) =>
-        tool.name === name ||
-        tool.description.startsWith(
-          (name.startsWith('mcp__') ? name : 'mcp__telos__' + name) + ':',
-        ),
+    // The actual provider must have received this actor's first turn before it
+    // supplies tools. This observes the fake RPC boundary, never runtime state.
+    await vi.waitFor(() =>
+      expect(
+        actor.rpc.request.mock.calls.filter(([method]) => method === 'turn/start'),
+      ).toHaveLength(1),
     );
-    expect(definition).toBeTruthy();
-    const before = streamMessages.length,
-      callId = randomUUID();
-    const pending = actor.lifecycle.onRequest(
-      'item/tool/call',
-      {
+    const callId = randomUUID();
+    const prepared = await prepareNativeProviderToolCall(
+      actor,
+      name,
+      input as Record<string, unknown>,
+      callId,
+    );
+    if (name.startsWith('mcp__')) {
+      expect(prepared.contract).toBeTruthy();
+      expect(prepared.contract?.name).toBe(name);
+      expect(prepared.request.tool).toBe('InvokeIntegrationTool');
+    } else expect(prepared.request.tool).toBe(name);
+    await record('actual-provider-tool-discovery', {
+      conversationId: sessionId,
+      name,
+      discovery: prepared.discovery,
+      contract: prepared.contract ?? null,
+    });
+    const before = streamMessages.length;
+    const pending = (
+      actor.lifecycle.onRequest(
+        'item/tool/call',
+        prepared.request,
+        new AbortController().signal,
+      ) as Promise<{ success: boolean; contentItems: Array<{ type: string; text?: string }> }>
+    ).catch(async (error: unknown) => {
+      await record('original-native-callback-failure', {
+        conversationId: sessionId,
+        name,
         threadId: actor.threadId,
         turnId: actor.turnId,
         callId,
-        tool: definition!.name,
-        arguments: input,
-      },
-      new AbortController().signal,
-    ) as Promise<{ success: boolean; contentItems: Array<{ type: string; text?: string }> }>;
+        error:
+          error instanceof Error
+            ? { name: error.name, message: error.message, stack: error.stack }
+            : String(error),
+      });
+      throw error;
+    });
     // Safe tools need no fabricated permission. For actual pending permission,
     // consume the real application's authenticated Once endpoint exactly once.
     let settled = false;
