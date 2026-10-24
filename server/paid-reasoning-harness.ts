@@ -30,7 +30,10 @@ interface PhaseQualification {
 }
 export interface PaidReasoningHarnessDependencies {
   /** Pure account/target/capability qualification. No model invocation. */
-  qualify(selection: PaidReasoningPhaseSelection): Promise<PhaseQualification>;
+  qualify(
+    selection: PaidReasoningPhaseSelection,
+    owner: Omit<AdviserFeatureOwner, 'feature'>,
+  ): Promise<PhaseQualification>;
   createSession(
     config: ModelSessionConfig,
     request: AdviserRequest,
@@ -42,11 +45,18 @@ function fail(message: string): never {
 }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const production: PaidReasoningHarnessDependencies = {
-  async qualify(selection) {
+  async qualify(selection, owner) {
     const { loadAccountProfiles } = await import('./account-profiles.js');
     const { sessionHarnessForProvider } = await import('./session-harness-routing.js');
     const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
+    const { captureAgentLibraryAuthorization } = await import('./agent-library-transport.js');
+    const authorization = captureAgentLibraryAuthorization(owner.operatorConnectionId);
+    if (authorization.auth.id !== owner.authSessionId)
+      fail(
+        'The original reasoning operator is required. Review this phase with the current login.',
+      );
     const current = () => {
+      authorization.assertCurrent();
       const profiles = loadAccountProfiles();
       const account = profiles.resolve(selection.binding.account.accountId, selection.model);
       if (
@@ -128,7 +138,7 @@ export async function preparePaidReasoningHarness(
       );
     let qualification: PhaseQualification;
     try {
-      qualification = await deps.qualify(selection);
+      qualification = await deps.qualify(selection, input.owner);
     } catch (error) {
       if (error instanceof PaidReasoningSelectionError) throw error;
       fail(

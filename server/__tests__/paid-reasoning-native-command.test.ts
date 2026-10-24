@@ -9,11 +9,17 @@ const f = vi.hoisted(() => ({
   sessions: vi.fn(),
   revision: 'pinned',
   hold: false,
-  provider: 'anthropic-vertex' as 'anthropic-vertex' | 'openai',
+  provider: 'anthropic-vertex' as 'anthropic-vertex' | 'openai' | 'google-vertex',
+  authorized: true,
   rate: undefined as CostRate | undefined,
 }));
 vi.mock('../agent-library-transport.js', () => ({
-  captureAgentLibraryAuthorization: () => ({ auth: { id: 'operator' }, assertCurrent() {} }),
+  captureAgentLibraryAuthorization: () => ({
+    auth: { id: 'operator' },
+    assertCurrent() {
+      if (!f.authorized) throw Error('Operator revoked');
+    },
+  }),
 }));
 vi.mock('../account-profiles.js', () => ({
   loadAccountProfiles: () => ({
@@ -88,6 +94,7 @@ describe('real native command selected reasoning entrance', () => {
     f.revision = 'pinned';
     f.hold = false;
     f.provider = 'anthropic-vertex';
+    f.authorized = true;
     f.rate = undefined;
     f.sessions.mockReset();
     store = new EventStore(':memory:');
@@ -219,6 +226,45 @@ describe('real native command selected reasoning entrance', () => {
     await registry.execute('deliberate', 'Explain the tradeoffs', skills, ctx);
     expect(f.sessions).toHaveBeenCalledOnce();
     expect(store.getEventsOfType('paid-stream', 'error')).toHaveLength(1);
+  });
+  it('revalidates the original operator before a deferred Gemini follow-up phase or credential factory', async () => {
+    f.provider = 'google-vertex';
+    f.sessions.mockImplementation(async (config: ModelSessionConfig): Promise<ModelSession> => ({
+      provider: 'google-vertex',
+      async *turn() {
+        yield {
+          type: 'message_start',
+          message: {
+            id: 'controlled-gemini',
+            model: config.model,
+            role: 'assistant',
+            usage: { input_tokens: 100, output_tokens: 50 },
+          },
+        };
+        yield {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'Completed first phase' },
+        };
+        f.authorized = false;
+      },
+    }));
+    const ctx = context();
+    ctx.paidReasoning.phaseSelections = selections.map((entry) => ({
+      ...entry,
+      model: 'gemini-2.5-pro',
+      binding: {
+        ...entry.binding,
+        account: { ...entry.binding.account, provider: 'google-vertex' },
+        harness: { implementation: 'gemini' },
+      },
+    }));
+    const result = await registry.execute('deliberate', 'Explain the tradeoffs', skills, ctx);
+    expect(result?.content).toContain('failed');
+    expect(f.sessions).toHaveBeenCalledOnce();
+    const receipt = store.getExecutionAdmission('paid-stream', 'paid-command')!;
+    expect(store.getProviderAttempts(receipt.token)).toHaveLength(1);
+    expect(store.getProviderAttempts(receipt.token)[0].terminalReason).toBe('completed');
   });
   it('refuses unselected, unknown-price or unavailable exact-cap work before durable provider attempts or session allocation', async () => {
     for (const phaseSelections of [
