@@ -116,7 +116,22 @@ it('keeps attached scope usable despite unrelated transport failure and fences o
       unrelatedFailures++;
       await route.abort('failed');
     });
+    // Wait for actual canonical discovery, then retain the original UI oracle.
+    const attachedRecords = Promise.all(
+      Array.from({ length: 6 }, (_, index) =>
+        page.waitForResponse(
+          (response) =>
+            response.request().method() === 'GET' &&
+            new URL(response.url()).pathname ===
+              `/api/telos/work/items/refresh-feature-${index}/record`,
+        ),
+      ),
+    );
     await page.goto(front.origin + '/chat/' + oldId);
+    const readyRecords = await attachedRecords;
+    expect(readyRecords.map((response) => response.status())).toEqual([
+      200, 200, 200, 200, 200, 200,
+    ]);
     const controls = page.getByRole('region', { name: 'Coordinator controls', exact: true });
     // Affected scope is read from actual canonical endpoints. No response is
     // fulfilled for the unrelated failure, and no attached record is changed.

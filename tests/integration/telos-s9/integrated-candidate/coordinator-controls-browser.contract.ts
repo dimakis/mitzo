@@ -40,6 +40,7 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
       throw Error('No external/provider or alternate owned fetch');
     return hostFetch(input, init);
   });
+  const observationStarted = performance.now();
   const facts: Array<Record<string, unknown>> = [];
   const browserControls: unknown[] = [];
   page.on('request', (req) => {
@@ -69,7 +70,7 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
       );
   };
   const record = async (stage: string, values: Record<string, unknown> = {}) => {
-    facts.push({ stage, ...values });
+    facts.push({ stage, elapsedMs: performance.now() - observationStarted, ...values });
     await save();
   };
   const capture = async (stage: string) => {
@@ -654,4 +655,8 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
   } finally {
     await save();
   }
-}, 180_000);
+  // The retained a19 CI180s RED had all eleven native ACKs; complete local
+  // owner/permission/safe-point/release execution takes81s and observed CI paths
+  // run roughly3x slower. This5min harness bound retains every original oracle;
+  // it is not a product latency allowance or a retry of a failed assertion.
+}, 300_000);

@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
+import { selectSupplementalShard, parseSupplementalShardArgs } from './supplemental-shards.mjs';
 
 // Separate closed regressions; the original required-nine runner is unchanged.
 if (process.platform !== 'darwin') throw Error('Supplemental owner journeys require macOS');
@@ -45,11 +46,15 @@ for (const selected of selection.cases) {
     paths.add(path);
   }
 }
+const selectedCases = selectSupplementalShard(
+  selection.cases,
+  parseSupplementalShardArgs(process.argv.slice(2)),
+);
 const require = createRequire(import.meta.url);
 const vitest = join(dirname(require.resolve('vitest/package.json')), 'vitest.mjs');
 const summary = [];
 const failures = [];
-for (const selected of selection.cases) {
+for (const selected of selectedCases) {
   const directory = join(root, 'test-results/telos-s9-supplemental', selected.name);
   mkdirSync(directory, { recursive: true });
   // A failed collection or absent reporter must never reuse an earlier result.

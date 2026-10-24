@@ -84,6 +84,9 @@ vi.mock('../../../../server/account-session-name.js', () => ({
 // CT09 composes the actual application owners. Only native provider RPCs and
 // unrelated notification/naming integrations are fake; no model is invoked.
 const cleanup: Array<() => void | Promise<void>> = [];
+let closeActiveBrowser: (() => Promise<void>) | undefined;
+let closeActiveFrontend: (() => Promise<void>) | undefined;
+let drainPrivateCommands: (() => Promise<void>) | undefined;
 let f: Awaited<ReturnType<typeof ownedOrdinaryRuntimeFixture>>;
 let application: typeof import('../../../../server/app.js');
 let chat: typeof import('../../../../server/chat.js');
@@ -133,6 +136,7 @@ afterEach(async () => {
       JSON.stringify(browserNetwork, null, 2),
     );
   }
+  await closeActiveBrowser?.();
   if (chat && f) {
     for (const row of chat.eventStore.listSessions()) {
       const owned = chat.registry.findBySessionId(row.sessionId);
@@ -142,10 +146,15 @@ afterEach(async () => {
     await vi.waitFor(() => expect(chat.registry.getActiveSessions()).toHaveLength(0));
     streams?.remove(f.operatorConnectionId);
     transportAuth.releaseTransportConnection(f.operatorConnectionId, f.auth.id);
+    await closeActiveFrontend?.();
+    await drainPrivateCommands?.();
     chat.eventStore.close();
     application.taskStore.close();
   }
   for (const close of cleanup.splice(0).reverse()) await close();
+  closeActiveBrowser = undefined;
+  closeActiveFrontend = undefined;
+  drainPrivateCommands = undefined;
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -183,6 +192,13 @@ export async function createJoinedOrdinaryApplication(browserOptions: BrowserCon
       join(process.env.S9_JOINED_SCREENSHOT_DIR, 'mgmt-cli-pins.json'),
       JSON.stringify(mgmtCli, null, 2),
     );
+  const { observePrivateCanonicalCommands } = await import('./observe-private-command-lifecycle');
+  drainPrivateCommands = observePrivateCanonicalCommands({
+    scriptPath: join(f.configuredWorkspace, 'command_center', 'todo_api.py'),
+    databasePath: canonical.dbPath,
+    evidenceDirectory: process.env.S9_JOINED_SCREENSHOT_DIR,
+  });
+  cleanup.push(drainPrivateCommands);
   application = await import('../../../../server/app.js');
   chat = await import('../../../../server/chat.js');
   auth = await import('../../../../server/auth.js');
@@ -224,9 +240,17 @@ export async function createJoinedOrdinaryApplication(browserOptions: BrowserCon
   });
   const front = await createJoinedFrontend(application.app, f.root);
   vi.stubEnv('PORT', String(front.port));
-  cleanup.push(() => front.close());
+  let frontendClosed = false;
+  closeActiveFrontend = async () => {
+    if (frontendClosed) return;
+    await front.close();
+    frontendClosed = true;
+  };
+  cleanup.push(closeActiveFrontend);
   const browser = await createJoinedBrowser(front.origin, f.token, browserOptions);
-  cleanup.push(async () => {
+  let browserClosed = false;
+  closeActiveBrowser = async () => {
+    if (browserClosed) return;
     if (process.env.S9_JOINED_SCREENSHOT_DIR) {
       await browser.page
         .screenshot({
@@ -243,7 +267,9 @@ export async function createJoinedOrdinaryApplication(browserOptions: BrowserCon
       );
     }
     await browser.browser.close();
-  });
+    browserClosed = true;
+  };
+  cleanup.push(closeActiveBrowser);
   activeBrowser = browser;
   const page = browser.page;
   await page.addInitScript(() => localStorage.setItem('mitzo:transport', 'sse'));
