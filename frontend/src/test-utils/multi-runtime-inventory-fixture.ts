@@ -1,6 +1,8 @@
 import { localInventoryFixture } from './local-inventory-fixture';
 import type { ExplicitLocalInventory } from '../lib/explicit-local-chat';
-export function multiRuntimeInventoryFixture(): ExplicitLocalInventory {
+export function multiRuntimeInventoryFixture(
+  options: { nativeLocalApi?: boolean } = {},
+): ExplicitLocalInventory {
   const base = localInventoryFixture();
   const api = { accountId: 'api', provider: 'openai' as const, profileRevision: 'api-r1' };
   const claude = {
@@ -8,7 +10,7 @@ export function multiRuntimeInventoryFixture(): ExplicitLocalInventory {
     provider: 'anthropic-vertex' as const,
     profileRevision: 'vertex-r1',
   };
-  return {
+  const inventory: ExplicitLocalInventory = {
     ...base,
     accounts: [
       ...base.accounts,
@@ -81,4 +83,17 @@ export function multiRuntimeInventoryFixture(): ExplicitLocalInventory {
       { location: 'local', status: 'configured' },
     ],
   };
+  if (options.nativeLocalApi) {
+    const legacyTarget = inventory.targets.find((target) => target.harness === 'responses')!;
+    const legacyRoute = inventory.routes.find((route) => route.harness === 'responses')!;
+    inventory.targets.push({
+      ...legacyTarget,
+      targetId: 'api-codex',
+      targetRevision: 'api-codex-r1',
+      label: 'Local Codex',
+      harness: 'codex',
+    });
+    inventory.routes.push({ ...legacyRoute, targetId: 'api-codex', harness: 'codex' });
+  }
+  return inventory;
 }

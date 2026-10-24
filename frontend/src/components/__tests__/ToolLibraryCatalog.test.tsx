@@ -1,3 +1,4 @@
+import authoritativeTools from '../../../../tests/fixtures/agent-tool-catalog.json';
 // @vitest-environment jsdom
 import { useState, type ComponentProps } from 'react';
 import { afterEach, expect, it } from 'vitest';
@@ -90,3 +91,26 @@ it.each(['codex', 'codex-owned-local'])(
     expect(screen.getByText('Original scoped task and tool permission required.')).toBeTruthy();
   },
 );
+
+it('shows the authoritative Prepare write capability with its existing local route and approval details', () => {
+  const prepare = authoritativeTools.find((tool) => tool.name === 'PrepareLocalRepository');
+  if (!prepare || prepare.behavior !== 'write')
+    throw Error('Authoritative Prepare write entry missing');
+  render(
+    <Catalog
+      tools={[{ ...prepare, behavior: prepare.behavior }]}
+      catalog={{ drafts: [], versions: [] }}
+      loaded
+    />,
+  );
+  const card = screen.getByRole('article');
+  expect(within(card).getByText('PrepareLocalRepository')).toBeTruthy();
+  expect(within(card).getByText('Writes')).toBeTruthy();
+  expect(within(card).queryByText('Read only')).toBeNull();
+  expect(
+    within(card).getByText(/Approve the displayed repository and task changes each time/),
+  ).toBeTruthy();
+  expect(within(card).getAllByText(/Codex.*local|local.*Codex/i).length).toBeGreaterThan(0);
+  fireEvent.click(within(card).getByText('Details'));
+  expect(card.querySelector('details')?.open).toBe(true);
+});

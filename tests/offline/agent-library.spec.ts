@@ -109,20 +109,24 @@ async function exerciseLibraryJourney(
         targetRevision: 't1',
         label: 'OpenShell',
         location: 'openshell',
-        harness: 'responses',
+        harness: 'codex',
       },
       {
         targetId: 'task-mac',
         targetRevision: 't1',
         label: 'Local Mac',
         location: 'local',
-        harness: 'responses',
+        harness: 'codex',
       },
     ],
-    routes: ['task-shell', 'task-mac'].map((targetId) => ({
+    routes: [
+      ['task-shell', 'openshell'],
+      ['task-mac', 'local'],
+    ].map(([targetId, location]) => ({
       account,
       targetId,
-      harness: 'responses',
+      location,
+      harness: 'codex',
       modes: ['agent'],
     })),
     locations: [
@@ -151,6 +155,7 @@ async function exerciseLibraryJourney(
   taskInventory.routes.push({
     account: subscription,
     targetId: 'task-mac',
+    location: 'openshell',
     harness: 'codex',
     modes: ['agent'],
   });
@@ -418,7 +423,7 @@ async function exerciseLibraryJourney(
   await taskPanel.getByLabel('Account', { exact: true }).selectOption('task-account');
   await taskPanel.getByLabel('Thinking level', { exact: true }).selectOption('high');
   await taskPanel.getByRole('button', { name: 'Local Mac', exact: true }).click();
-  await expect(taskPanel.getByText('Runs with Mitzo Responses')).toBeVisible();
+  await expect(taskPanel.getByText('Runs with Codex')).toBeVisible();
   await taskPanel.getByLabel('Model', { exact: true }).focus();
   await page.keyboard.press('Escape');
   await expect(taskSettings).toBeFocused();
@@ -467,7 +472,7 @@ async function exerciseLibraryJourney(
       model: 'luna-fixture',
       reasoningEffort: 'high',
       targetId: 'task-mac',
-      harness: 'responses',
+      harness: 'codex',
     },
     schedule: { cron: '0 7 * * 1-5', timezone: 'Europe/Dublin', state: 'paused' },
   });

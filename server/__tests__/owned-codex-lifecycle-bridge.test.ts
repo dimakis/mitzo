@@ -1,3 +1,9 @@
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import {
+  CodexAppServerClient,
+  CodexServerRequestResolvedError,
+} from '../codex-app-server-client.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
@@ -50,7 +56,162 @@ function fixture() {
   };
 }
 
+function nativeTransportFixture() {
+  const f = fixture();
+  const child = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(),
+  });
+  const sent: Record<string, unknown>[] = [];
+  child.stdin.on('data', (chunk) => sent.push(JSON.parse(chunk.toString())));
+  const reply = (message: unknown) => child.stdout.write(JSON.stringify(message) + '\n');
+  const transport = new CodexAppServerClient(child, { lifecycle: f.bridge.lifecycle });
+  f.lease.client = transport;
+  f.bridge.attach(f.owner);
+  return { ...f, child, sent, reply, transport };
+}
+
 describe('owned Codex lifecycle bridge', () => {
+  it('dismisses one upstream-resolved RPC without closing the owned lease or the next request', async () => {
+    const f = nativeTransportFixture();
+    let pendingSignal: AbortSignal | undefined;
+    vi.mocked(f.owner.onRequest).mockImplementation(async (_method, _params, signal) => {
+      if (!pendingSignal) {
+        pendingSignal = signal;
+        return new Promise((_resolve, reject) =>
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+        );
+      }
+      return { decision: 'accept' };
+    });
+    try {
+      f.reply({
+        id: 'first',
+        method: 'item/commandExecution/requestApproval',
+        params: { threadId: 'thread' },
+      });
+      await vi.waitFor(() => expect(pendingSignal).toBeDefined());
+      f.reply({
+        method: 'serverRequest/resolved',
+        params: { threadId: 'thread', requestId: 'first' },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(pendingSignal!.aborted).toBe(true);
+      expect(pendingSignal!.reason).toBeInstanceOf(CodexServerRequestResolvedError);
+      expect(pendingSignal!.reason.requestId).toBe('first');
+      expect(f.lease.close).not.toHaveBeenCalled();
+      expect(f.sent).toEqual([]);
+      f.reply({
+        id: 'next',
+        method: 'item/commandExecution/requestApproval',
+        params: { threadId: 'thread' },
+      });
+      await vi.waitFor(() =>
+        expect(f.sent).toContainEqual({ id: 'next', result: { decision: 'accept' } }),
+      );
+      expect(f.lease.close).not.toHaveBeenCalled();
+      expect(f.owner.onRequest).toHaveBeenCalledTimes(2);
+    } finally {
+      f.transport.close();
+    }
+    expect(f.lease.close).toHaveBeenCalledOnce();
+  });
+
+  it.each(['ordinary abort', 'another RPC'] as const)(
+    'does not preserve a lease for %s',
+    async (reason) => {
+      const f = fixture();
+      f.bridge.attach(f.owner);
+      let entered = false;
+      const controller = new AbortController();
+      vi.mocked(f.owner.onRequest).mockImplementation(async (_method, _params, signal) => {
+        entered = true;
+        return new Promise((_resolve, reject) =>
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+        );
+      });
+      const pending = f.bridge.lifecycle.onRequest(
+        'item/permissions/requestApproval',
+        {},
+        controller.signal,
+        { requestId: 'current' },
+      );
+      await vi.waitFor(() => expect(entered).toBe(true));
+      const rejected = expect(pending).rejects.toThrow('Owned Codex lifecycle unavailable');
+      controller.abort(
+        reason === 'another RPC' ? new CodexServerRequestResolvedError('other') : undefined,
+      );
+      await rejected;
+      expect(f.lease.close).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('still closes a revoked original lease when its pending native RPC resolves', async () => {
+    const f = nativeTransportFixture();
+    let pendingSignal: AbortSignal | undefined;
+    vi.mocked(f.owner.onRequest).mockImplementation(async (_method, _params, signal) => {
+      pendingSignal = signal;
+      return new Promise((_resolve, reject) =>
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+      );
+    });
+    f.reply({
+      id: 'revoked',
+      method: 'item/permissions/requestApproval',
+      params: { threadId: 'thread' },
+    });
+    await vi.waitFor(() => expect(pendingSignal).toBeDefined());
+    f.setCurrent({ ...f.lease });
+    f.reply({
+      method: 'serverRequest/resolved',
+      params: { threadId: 'thread', requestId: 'revoked' },
+    });
+    await vi.waitFor(() => expect(f.lease.close).toHaveBeenCalledOnce());
+    expect(f.child.kill).toHaveBeenCalledOnce();
+    expect(f.sent).toEqual([]);
+    f.transport.close();
+  });
+
+  it('preserves the immutable native RPC identity through admission', async () => {
+    const f = fixture();
+    f.bridge.attach(f.owner);
+    const context = Object.freeze({ requestId: 'native-approval-1' });
+    await f.bridge.lifecycle.onRequest(
+      'item/permissions/requestApproval',
+      {},
+      new AbortController().signal,
+      context,
+    );
+    expect(f.owner.onRequest).toHaveBeenCalledWith(
+      'item/permissions/requestApproval',
+      {},
+      expect.any(AbortSignal),
+      context,
+    );
+  });
+
+  it('registers the original owned lease fence at the RPC write boundary', async () => {
+    const f = fixture();
+    f.bridge.attach(f.owner);
+    const fences: Array<() => void> = [];
+    await f.bridge.lifecycle.onRequest(
+      'item/permissions/requestApproval',
+      {},
+      new AbortController().signal,
+      {
+        requestId: 1,
+        registerResponseFence: (assertCurrent) => {
+          fences.push(assertCurrent);
+        },
+      },
+    );
+    expect(fences).toHaveLength(1);
+    f.setCurrent({ ...f.lease });
+    expect(fences[0]).toThrow('Owned Codex lifecycle unavailable');
+  });
+
   it('uses the qualified tool fence without repeating bootstrap discovery', async () => {
     const f = fixture();
     f.lease.assertToolCurrent = vi.fn(async () => {});

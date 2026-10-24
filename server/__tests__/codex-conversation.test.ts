@@ -11,6 +11,7 @@ import {
   CodexConversation,
   codexTurnFailureDiagnostic,
   type CodexConversationOptions,
+  type NativeBaseReadScope,
 } from '../codex-conversation.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import {
@@ -21,6 +22,7 @@ import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { CodexRequestError, CodexTransportError } from '../codex-app-server-client.js';
 import { tracer } from '../tracing.js';
+import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 import {
   context,
   ROOT_CONTEXT,
@@ -37,6 +39,429 @@ const binding = {
   model: 'test-model',
   profileRevision: 'chatgpt:test@example.com:test',
 };
+
+it('refuses native startup from a configured DTO without the current owner and native approval adapter', async () => {
+  const nativeExecution = codexNativeExecutionPolicy({
+    bindingRevision: 'owner-v1',
+    mode: 'agent',
+    cwd: '/workspace',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace'],
+    deniedRoots: ['/private/auth'],
+  });
+  const f = startupFixture(() => {}, undefined, { nativeExecution });
+  await expect(f.c.initialize()).rejects.toThrow('Native execution owner unavailable');
+  expect(f.requests).not.toContain('thread/start');
+});
+
+it('refreshes native cwd and workspace policy for the exact command on the same thread', async () => {
+  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+  const initial = codexNativeExecutionPolicy({
+    bindingRevision: 'owner-v1',
+    mode: 'agent',
+    cwd: '/workspace/one',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace/one'],
+    deniedRoots: ['/private/auth'],
+  });
+  const next = codexNativeExecutionPolicy({
+    bindingRevision: 'owner-v1',
+    mode: 'agent',
+    cwd: '/workspace/two',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace/two'],
+    deniedRoots: ['/private/auth'],
+  });
+  f.conversationOptions.nativeExecution = initial;
+  f.conversationOptions.assertNativeExecutionCurrent = () => {};
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+  const resolvePolicy = vi.fn(async () => next);
+  f.conversationOptions.resolveNativeExecutionPolicy = resolvePolicy;
+  await f.c.send({ id: 'frozen-command', prompt: 'Use the admitted workspace' });
+  expect(
+    f.store.readNativeExecution('app', binding, { id: 'frozen-command', attempt: 1 }),
+  ).toMatchObject({
+    phase: 'accepted',
+    threadId: f.getProviderThread(),
+    turnId: 'turn-1',
+    policy: next,
+  });
+  expect(resolvePolicy).toHaveBeenCalledExactlyOnceWith({
+    commandId: 'frozen-command',
+    signal: expect.any(AbortSignal),
+  });
+  expect(f.requests.find(({ method }) => method === 'turn/start')?.params).toMatchObject({
+    threadId: f.getProviderThread(),
+    cwd: '/workspace/two',
+    runtimeWorkspaceRoots: ['/workspace/two'],
+    permissions: 'mitzo-native-agent',
+    approvalPolicy: 'on-request',
+  });
+  expect(f.requests.filter(({ method }) => method === 'thread/start')).toHaveLength(1);
+});
+
+it.each(['tool-surface', 'provider-recovery'] as const)(
+  'links frozen native policy to the exact replacement ACK after %s',
+  async (replacement) => {
+    const args: Parameters<typeof setup> = [];
+    args[4] = async () => binding;
+    if (replacement === 'tool-surface') {
+      const dir = mkdtempSync(join(tmpdir(), 'mitzo-native-replacement-'));
+      const store = new CodexConversationStore(join(dir, 'private.db'));
+      cleanup.push(() => {
+        store.close();
+        rmSync(dir, { recursive: true, force: true });
+      });
+      store.create('app', binding, '/workspace');
+      store.bindThread('app', binding, 'durable-parent');
+      args[0] = store;
+      args[17] = true;
+    }
+    const f = await setup(...args);
+    const policy = codexNativeExecutionPolicy({
+      bindingRevision: 'owner-v1',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    f.conversationOptions.nativeExecution = policy;
+    f.conversationOptions.assertNativeExecutionCurrent = () => {};
+    f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+    if (replacement === 'provider-recovery') {
+      await f.c.send({ id: 'first', prompt: 'First' });
+      f.callbacks.onNotification('turn/completed', {
+        threadId: f.getProviderThread(),
+        turn: {
+          id: 'turn-1',
+          status: 'failed',
+          error: { message: 'stream disconnected before completion' },
+        },
+      });
+    }
+    await f.c.send({ id: 'replacement', prompt: 'Continue on the original workspace' });
+    const threadId = f.getProviderThread();
+    const turnId = replacement === 'provider-recovery' ? 'turn-2' : 'turn-1';
+    expect(
+      f.store.readNativeExecution('app', binding, { id: 'replacement', attempt: 1 }),
+    ).toMatchObject({ phase: 'accepted', threadId, turnId, generation: 1, policy });
+    expect(f.store.read('app', binding)).toMatchObject({ threadId, threadGeneration: 1 });
+    expect(() => f.store.assertNoPendingThreadDispatch('app', binding)).not.toThrow();
+    expect(f.requests.filter(({ method }) => method === 'turn/start').at(-1)?.params).toMatchObject(
+      {
+        threadId,
+        cwd: '/workspace',
+        runtimeWorkspaceRoots: ['/workspace'],
+        permissions: 'mitzo-native-agent',
+      },
+    );
+  },
+);
+
+it.each(['lost-ack', 'pre-rpc-failure'] as const)(
+  'preserves the frozen native policy without granting replay after %s',
+  async (failure) => {
+    const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+    const policy = codexNativeExecutionPolicy({
+      bindingRevision: 'owner-v1',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    f.conversationOptions.nativeExecution = policy;
+    f.conversationOptions.assertNativeExecutionCurrent = () => {};
+    f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+    const prepare = f.store.prepareNativeExecution.bind(f.store);
+    vi.spyOn(f.store, 'prepareNativeExecution').mockImplementation((...args) => {
+      prepare(...args);
+      if (failure === 'pre-rpc-failure') throw Error('Prepared persistence observer failed');
+    });
+    const original = f.rpc.request.getMockImplementation()!;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'turn/start') {
+        expect(
+          f.store.readNativeExecution('app', binding, { id: 'frozen-command', attempt: 1 }),
+        ).toMatchObject({ phase: 'prepared', policy });
+        throw new CodexTransportError('connection');
+      }
+      return original(method, params);
+    });
+    await expect(f.c.send({ id: 'frozen-command', prompt: 'Run' })).rejects.toThrow();
+    expect(
+      f.store.readNativeExecution('app', binding, { id: 'frozen-command', attempt: 1 }),
+    ).toMatchObject({ phase: 'prepared', policy });
+    expect(
+      f.store.readNativeExecution('app', binding, { id: 'frozen-command', attempt: 1 }),
+    ).not.toHaveProperty('turnId');
+    expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
+      failure === 'pre-rpc-failure' ? 0 : 1,
+    );
+  },
+);
+
+it('rejects a changed native credential fence before provider dispatch', async () => {
+  const f = await setup();
+  const make = (deniedRoots: string[]) =>
+    codexNativeExecutionPolicy({
+      bindingRevision: 'owner-v1',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots,
+    });
+  f.conversationOptions.nativeExecution = make(['/private/auth']);
+  f.conversationOptions.assertNativeExecutionCurrent = () => {};
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+  f.conversationOptions.resolveNativeExecutionPolicy = async () => make(['/private/new-auth']);
+  await expect(f.c.send({ id: 'frozen-command', prompt: 'Use workspace' })).rejects.toThrow(
+    'Native execution policy changed',
+  );
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  expect(f.c.queue()).toContainEqual(
+    expect.objectContaining({ id: 'frozen-command', status: 'failed' }),
+  );
+});
+
+it('fences native grants against the frozen active policy at the final transport write', async () => {
+  const f = await setup();
+  const initial = codexNativeExecutionPolicy({
+    bindingRevision: 'owner-v1',
+    mode: 'agent',
+    cwd: '/workspace',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace'],
+    deniedRoots: ['/private/auth'],
+  });
+  f.conversationOptions.nativeExecution = initial;
+  let current = true;
+  f.conversationOptions.assertNativeExecutionCurrent = (policy, commandId) => {
+    expect(policy).toBe(initial);
+    expect(commandId).toBe('frozen-command');
+    if (!current) throw Error('Native owner revoked');
+  };
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'accept' });
+  await f.c.send({ id: 'frozen-command', prompt: 'Run' });
+  let fence!: () => void;
+  const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+  await expect(
+    request(
+      'item/commandExecution/requestApproval',
+      { threadId: f.getProviderThread(), turnId: 'turn-1', itemId: 'cmd' },
+      new AbortController().signal,
+      {
+        requestId: 20,
+        registerResponseFence: (fn: () => void) => {
+          fence = fn;
+        },
+      },
+    ),
+  ).resolves.toEqual({ decision: 'accept' });
+  expect(fence).toBeTypeOf('function');
+  current = false;
+  expect(fence).toThrow('Native owner revoked');
+});
+
+it('routes an exact native approval to its owner without executing a host tool or replaying a turn', async () => {
+  const f = await setup();
+  const approve = vi.fn<NonNullable<CodexConversationOptions['requestNativeApproval']>>(
+    async () => ({ decision: 'decline' }),
+  );
+  f.conversationOptions.requestNativeApproval = approve;
+  await f.c.send({ id: 'native-request', prompt: 'Run the permitted action' });
+  const params = {
+    threadId: f.getProviderThread(),
+    turnId: 'turn-1',
+    itemId: 'command-1',
+    command: 'pwd',
+  };
+  const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+  await expect(
+    request('item/commandExecution/requestApproval', params, new AbortController().signal, {
+      requestId: 17,
+      commandId: 'untrusted-context-command',
+    }),
+  ).resolves.toEqual({ decision: 'decline' });
+  expect(approve).toHaveBeenCalledExactlyOnceWith(
+    'item/commandExecution/requestApproval',
+    params,
+    expect.any(AbortSignal),
+    expect.objectContaining({
+      requestId: 17,
+      commandId: 'native-request',
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      assertCurrentSync: expect.any(Function),
+    }),
+  );
+  expect(f.execute).not.toHaveBeenCalled();
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+});
+
+it('includes both source and move destination in the exact native file approval fence', async () => {
+  const f = await setup();
+  const approve = vi.fn<NonNullable<CodexConversationOptions['requestNativeApproval']>>(
+    async () => ({ decision: 'decline' }),
+  );
+  f.conversationOptions.requestNativeApproval = approve;
+  await f.c.send({ id: 'native-move', prompt: 'Move file' });
+  f.callbacks.onNotification('item/started', {
+    threadId: f.getProviderThread(),
+    turnId: 'turn-1',
+    item: {
+      type: 'fileChange',
+      id: 'patch-1',
+      status: 'inProgress',
+      changes: [
+        {
+          path: '/workspace/allowed',
+          kind: { type: 'update', move_path: '/private/auth/secret' },
+          diff: '@@',
+        },
+      ],
+    },
+  });
+  const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+  await request(
+    'item/fileChange/requestApproval',
+    { threadId: f.getProviderThread(), turnId: 'turn-1', itemId: 'patch-1' },
+    new AbortController().signal,
+    { requestId: 21 },
+  );
+  expect(approve).toHaveBeenCalledWith(
+    'item/fileChange/requestApproval',
+    expect.any(Object),
+    expect.any(AbortSignal),
+    expect.objectContaining({ fileChangePaths: ['/workspace/allowed', '/private/auth/secret'] }),
+  );
+});
+
+it.each(['path', 'diff'] as const)(
+  'rejects a native file grant when the exact pending file list changes during review (%s)',
+  async (change) => {
+    const f = await setup();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reviewed = false;
+    f.conversationOptions.requestNativeApproval = async () => {
+      reviewed = true;
+      await held;
+      return { decision: 'accept' };
+    };
+    await f.c.send({ id: 'native-file', prompt: 'Edit file' });
+    const start = (path: string, diff = '+new') =>
+      f.callbacks.onNotification('item/started', {
+        threadId: f.getProviderThread(),
+        turnId: 'turn-1',
+        item: {
+          type: 'fileChange',
+          id: 'patch',
+          changes: [{ path, kind: { type: 'add' }, diff }],
+        },
+      });
+    start('/workspace/allowed');
+    const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+    const pending = request(
+      'item/fileChange/requestApproval',
+      { threadId: f.getProviderThread(), turnId: 'turn-1', itemId: 'patch' },
+      new AbortController().signal,
+      { requestId: 23 },
+    );
+    await vi.waitFor(() => expect(reviewed).toBe(true));
+    start(
+      change === 'path' ? '/private/auth/secret' : '/workspace/allowed',
+      change === 'diff' ? '+different' : '+new',
+    );
+    release();
+    await expect(pending).rejects.toThrow('Codex native file approval changed');
+  },
+);
+
+it.each([{ type: 'unknown' }, { type: 'update', move_path: 7 }])(
+  'does not grant authoritative paths for malformed native file-change kind %j',
+  async (kind) => {
+    const f = await setup();
+    const approve = vi.fn<NonNullable<CodexConversationOptions['requestNativeApproval']>>(
+      async () => ({ decision: 'decline' }),
+    );
+    f.conversationOptions.requestNativeApproval = approve;
+    await f.c.send({ id: 'native-move', prompt: 'Move file' });
+    f.callbacks.onNotification('item/started', {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      item: {
+        type: 'fileChange',
+        id: 'patch-1',
+        changes: [{ path: '/workspace/allowed', kind, diff: '@@' }],
+      },
+    });
+    const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+    await request(
+      'item/fileChange/requestApproval',
+      { threadId: f.getProviderThread(), turnId: 'turn-1', itemId: 'patch-1' },
+      new AbortController().signal,
+      { requestId: 22 },
+    );
+    expect(approve.mock.calls[0][3].fileChangePaths).toBeUndefined();
+  },
+);
+
+it.each(['thread', 'turn', 'request-id'])(
+  'rejects a native approval with stale or missing %s identity',
+  async (mismatch) => {
+    const f = await setup();
+    const approve = vi.fn(async () => ({ decision: 'accept' }));
+    f.conversationOptions.requestNativeApproval = approve;
+    await f.c.send({ id: 'native-request', prompt: 'Run' });
+    const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+    await expect(
+      request(
+        'item/fileChange/requestApproval',
+        {
+          threadId: mismatch === 'thread' ? 'other' : f.getProviderThread(),
+          turnId: mismatch === 'turn' ? 'other' : 'turn-1',
+          itemId: 'file-1',
+        },
+        new AbortController().signal,
+        mismatch === 'request-id' ? undefined : { requestId: 18 },
+      ),
+    ).rejects.toThrow();
+    expect(approve).not.toHaveBeenCalled();
+  },
+);
+
+it('rejects a native grant if Stop arrives while the permission owner is waiting', async () => {
+  const f = await setup();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let permissionSignal!: AbortSignal;
+  f.conversationOptions.requestNativeApproval = async (_method, _params, signal) => {
+    permissionSignal = signal;
+    await held;
+    return { decision: 'accept' };
+  };
+  await f.c.send({ id: 'native-request', prompt: 'Run' });
+  const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+  const result = request(
+    'item/commandExecution/requestApproval',
+    { threadId: f.getProviderThread(), turnId: 'turn-1', itemId: 'command-1' },
+    new AbortController().signal,
+    { requestId: 19 },
+  );
+  await vi.waitFor(() => expect(permissionSignal).toBeDefined());
+  await f.c.interrupt();
+  expect(permissionSignal.aborted).toBe(true);
+  release();
+  await expect(result).rejects.toThrow();
+  expect(f.execute).not.toHaveBeenCalled();
+});
 
 it.each(['commit', 'cancel'] as const)(
   'keeps a guarded uncertain FIFO entry undispatched until %s',
@@ -1677,6 +2102,253 @@ it.each([
     expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
     if (['success', 'error', 'throw', 'result-write-failure'].includes(outcome))
       expect(f.c.queue()[0].status).toBe('running');
+  },
+);
+
+it.each(['native', 'no-policy'] as const)(
+  'exposes a private base-read capture only on the original %s tool invocation',
+  async (mode) => {
+    const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+    const policy = codexNativeExecutionPolicy({
+      bindingRevision: 'selected-owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/workspace', '/usr'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    if (mode === 'native') {
+      f.conversationOptions.nativeExecution = policy;
+      f.conversationOptions.assertNativeExecutionCurrent = function (
+        this: CodexConversationOptions,
+        current,
+        commandId,
+      ) {
+        expect(this).toBe(f.conversationOptions);
+        expect(current).toBe(policy);
+        expect(commandId).toBe('read-command');
+      };
+      f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+    }
+    await f.c.send({ id: 'read-command', prompt: 'Read selected local files' });
+    const call = {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'base-read',
+      tool: 'Read',
+      arguments: {
+        file_path: '/workspace/note',
+        captureNativeBaseReadScope: { readableRoots: ['/'] },
+      },
+    };
+    let retained: Parameters<CodexConversationOptions['executeTool']>[3] | undefined;
+    let scope: NativeBaseReadScope | undefined;
+    f.conversationOptions.executeTool = async (_name, _args, _signal, invocation) => {
+      retained = invocation;
+      expect(Object.isFrozen(invocation)).toBe(true);
+      expect(Object.keys(invocation)).toEqual(['turnId', 'callId']);
+      expect(structuredClone(invocation)).not.toHaveProperty('captureNativeBaseReadScope');
+      expect(JSON.parse(JSON.stringify(invocation))).not.toHaveProperty(
+        'captureNativeBaseReadScope',
+      );
+      if (mode === 'no-policy') {
+        expect(retained).not.toHaveProperty('captureNativeBaseReadScope');
+        return { content: 'original', isError: false };
+      }
+      expect(retained!.captureNativeBaseReadScope).toBeTypeOf('function');
+      expect(Object.isFrozen(retained!.captureNativeBaseReadScope)).toBe(true);
+      expect(
+        Object.getOwnPropertyDescriptor(invocation, 'captureNativeBaseReadScope'),
+      ).toMatchObject({ enumerable: false, writable: false, configurable: false });
+      scope = retained!.captureNativeBaseReadScope!();
+      const hash = createHash('sha256').update(JSON.stringify(call.arguments)).digest('hex');
+      expect(scope).toMatchObject({
+        nativeTarget: f.store.nativeTurnTarget('app', binding, 'read-command', 1),
+        callId: 'base-read',
+        toolName: 'Read',
+        requestHash: hash,
+        bindingRevision: policy.bindingRevision,
+        profileRevision: policy.profileRevision,
+        policyRevision: policy.policyRevision,
+        readableRoots: policy.readableRoots,
+        workspaceRoots: policy.workspaceRoots,
+        deniedRoots: policy.deniedRoots,
+      });
+      for (const frozen of [
+        scope,
+        scope.nativeTarget,
+        scope.readableRoots,
+        scope.workspaceRoots,
+        scope.deniedRoots,
+      ])
+        expect(Object.isFrozen(frozen)).toBe(true);
+      expect(scope.readableRoots).not.toBe(policy.readableRoots);
+      expect(JSON.parse(JSON.stringify(scope))).not.toHaveProperty('assertCurrentSync');
+      expect(Object.isFrozen(scope.assertCurrentSync)).toBe(true);
+      expect(() => scope!.assertCurrentSync()).not.toThrow();
+      return { content: 'original', isError: false };
+    };
+    await expect(
+      f.callbacks.onRequest('item/tool/call', call, new AbortController().signal),
+    ).resolves.toMatchObject({ success: true });
+    if (mode === 'native') {
+      expect(() => retained!.captureNativeBaseReadScope!()).toThrow(
+        'Original native tool callback is no longer current',
+      );
+      expect(() => scope!.assertCurrentSync()).toThrow(
+        'Original native tool callback is no longer current',
+      );
+    }
+  },
+);
+
+it.each([
+  'abort',
+  'result',
+  'owner',
+  'async-owner',
+  'value-owner',
+  'policy-object',
+  'owner-replaced',
+  'tuple',
+  'hash',
+] as const)(
+  'invalidates captured base-read authority on %s before the original tool returns',
+  async (change) => {
+    const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+    const policy = codexNativeExecutionPolicy({
+      bindingRevision: 'selected-owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/workspace'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    let ownerCurrent = true;
+    let ownerResult: unknown;
+    f.conversationOptions.nativeExecution = policy;
+    f.conversationOptions.assertNativeExecutionCurrent = () => {
+      if (!ownerCurrent) throw Error('Native policy owner revoked');
+      return ownerResult;
+    };
+    f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+    await f.c.send({ id: 'read-command', prompt: 'Read' });
+    const call = {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'base-read',
+      tool: 'Read',
+      arguments: { file_path: '/workspace/note' },
+    };
+    let entered!: () => void, release!: () => void;
+    const executing = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let capture!: () => NativeBaseReadScope;
+    let scope!: ReturnType<typeof capture>;
+    f.conversationOptions.executeTool = async (_name, _args, _signal, invocation) => {
+      capture = invocation.captureNativeBaseReadScope!;
+      scope = capture();
+      entered();
+      await held;
+      return { content: 'original', isError: false };
+    };
+    const controller = new AbortController();
+    const callback = f.callbacks.onRequest('item/tool/call', call, controller.signal);
+    const outcome = callback.catch((error) => error);
+    // Fail promptly if a missing facet prevents the executor entering its hold.
+    await Promise.race([
+      executing,
+      callback.then(() => {
+        throw Error('Original scope capture unavailable');
+      }),
+    ]);
+    if (change === 'abort') controller.abort();
+    if (change === 'owner') ownerCurrent = false;
+    if (change === 'async-owner') ownerResult = Promise.resolve();
+    if (change === 'value-owner') ownerResult = 1;
+    if (change === 'owner-replaced') f.conversationOptions.assertNativeExecutionCurrent = () => {};
+    if (change === 'result')
+      f.store.recordToolResult(
+        'app',
+        binding,
+        'read-command',
+        call.callId,
+        {
+          turnId: call.turnId,
+          toolName: call.tool,
+          requestHash: createHash('sha256').update(JSON.stringify(call.arguments)).digest('hex'),
+        },
+        { content: 'original', isError: false },
+      );
+    if (change === 'policy-object')
+      (f.c as unknown as { active: { nativeExecution: typeof policy } }).active.nativeExecution =
+        Object.freeze({ ...policy });
+    if (change === 'tuple' || change === 'hash') {
+      const pending = f.store.pendingNativeHostTool.bind(f.store);
+      vi.spyOn(f.store, 'pendingNativeHostTool').mockImplementation((...args) => {
+        const original = pending(...args);
+        if (!original) return original;
+        return {
+          ...original,
+          ...(change === 'tuple'
+            ? { generation: original.generation + 1 }
+            : { requestHash: 'f'.repeat(64) }),
+        };
+      });
+    }
+    expect(() => capture()).toThrow();
+    expect(() => scope.assertCurrentSync()).toThrow();
+    release();
+    await outcome;
+  },
+);
+
+it.each(['object', 'roots'] as const)(
+  'refuses base-read authority from an unfrozen policy %s',
+  async (mutable) => {
+    const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+    const selected = codexNativeExecutionPolicy({
+      bindingRevision: 'selected-owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/workspace'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    const policy =
+      mutable === 'object'
+        ? { ...selected }
+        : Object.freeze({ ...selected, readableRoots: [...selected.readableRoots] });
+    f.conversationOptions.nativeExecution = policy;
+    f.conversationOptions.assertNativeExecutionCurrent = () => {};
+    f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+    await f.c.send({ id: 'read-command', prompt: 'Read' });
+    let entered = false;
+    f.conversationOptions.executeTool = async (_name, _args, _signal, invocation) => {
+      entered = true;
+      expect(() => invocation.captureNativeBaseReadScope!()).toThrow(
+        'Native base read policy must be frozen',
+      );
+      return { content: 'refused mutable scope', isError: false };
+    };
+    await expect(
+      f.callbacks.onRequest(
+        'item/tool/call',
+        {
+          threadId: f.getProviderThread(),
+          turnId: 'turn-1',
+          callId: 'base-read',
+          tool: 'Read',
+          arguments: {},
+        },
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({ success: true });
+    expect(entered).toBe(true);
   },
 );
 
@@ -3386,6 +4058,7 @@ it('fails closed on a conflicting terminal while the completion hook is pending'
 function startupFixture(
   observeStartupConfig: (event: unknown, signal?: AbortSignal) => Promise<void> | void,
   startupSignal?: AbortSignal,
+  overrides?: Partial<CodexConversationOptions>,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-startup-observer-'));
   const store = new CodexConversationStore(join(dir, 'private.db'));
@@ -3426,6 +4099,7 @@ function startupFixture(
     },
     observeStartupConfig,
     startupSignal,
+    ...overrides,
   } as ConstructorParameters<typeof CodexConversation>[0]);
   cleanup.push(() => {
     c.close();
@@ -3564,6 +4238,121 @@ it('keeps an undefined startup rejection fail-closed', async () => {
   expect(requests).not.toContain('thread/start');
   await expect(c.initialize()).rejects.toThrow('permanently vetoed');
 });
+
+it('runs retained-primary admission only after completed cleanup and before claiming its automatic child', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'original-workspace', prompt: 'Original task' });
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const guard = vi.fn(async () => {
+    throw Error('Owned transport reconnect forbidden');
+  });
+  f.conversationOptions.reconnectGuard = guard;
+  const admit = vi.fn(async () => {
+    expect(f.c.queue()).toMatchObject([{ id: 'original-workspace', status: 'completed' }]);
+    await waiting;
+    f.c.enqueue({ id: 'owned-child', prompt: 'Continue original task' });
+  });
+  f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(admit).toHaveBeenCalledOnce());
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  release();
+  await vi.waitFor(() =>
+    expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2),
+  );
+  expect(guard).not.toHaveBeenCalled();
+  expect(f.rpc.close).not.toHaveBeenCalled();
+  expect(f.requests.filter((request) => request.method === 'thread/start')).toHaveLength(1);
+});
+
+it('pauses a failed retained-primary boundary before claiming queued old-workspace work', async () => {
+  const f = await setup();
+  f.conversationOptions.beforeRuntimeAdmission = {
+    kind: 'prepared-repository-primary',
+    admit: async () => {
+      throw Error('Transition requires reconciliation');
+    },
+  };
+  await expect(f.c.send({ id: 'queued-old', prompt: 'Original task' })).rejects.toThrow(
+    'reconciliation',
+  );
+  expect(f.c.queue()).toMatchObject([{ id: 'queued-old', status: 'queued' }]);
+  expect(f.c.isPaused()).toBe(true);
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+});
+
+it('invalidates the original retained boundary while admission awaits transport closure', async () => {
+  const f = await setup();
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let fence!: () => void;
+  const admit = vi.fn(async (assertCurrentSync: () => void) => {
+    fence = assertCurrentSync;
+    await waiting;
+  });
+  f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+  const sent = f.c
+    .send({ id: 'closed-before-claim', prompt: 'Original task' })
+    .catch((error: unknown) => error);
+  await vi.waitFor(() => expect(admit).toHaveBeenCalledOnce());
+  expect(typeof fence).toBe('function');
+  expect(() => fence()).not.toThrow();
+  f.c.close();
+  expect(() => fence()).toThrow();
+  release();
+  expect(await sent).toBeInstanceOf(Error);
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+});
+
+it.each(['initial verification', 'admission', 'final verification'] as const)(
+  'retains the original startup cancellation through %s, including signal replacement',
+  async (phase) => {
+    const f = await setup();
+    const controller = new AbortController();
+    f.conversationOptions.startupSignal = controller.signal;
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let atGate = false;
+    let verified = 0;
+    f.conversationOptions.verifyBinding = async () => {
+      verified++;
+      if (
+        (phase === 'initial verification' && verified === 1) ||
+        (phase === 'final verification' && verified === 2)
+      ) {
+        atGate = true;
+        await waiting;
+      }
+      return f.getBinding();
+    };
+    const admit = vi.fn(async () => {
+      if (phase === 'admission') {
+        atGate = true;
+        await waiting;
+      }
+    });
+    f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+    const sent = f.c
+      .send({ id: 'cancelled-at-boundary', prompt: 'Original task' })
+      .catch((error: unknown) => error);
+    await vi.waitFor(() => expect(atGate).toBe(true));
+    controller.abort(Error('Original startup revoked'));
+    f.conversationOptions.startupSignal = new AbortController().signal;
+    release();
+    expect(await sent).toBeInstanceOf(Error);
+    expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+  },
+);
 
 it('pauses admission failure before claim and resumes the preserved FIFO on explicit send', async () => {
   let blocked = true;
@@ -6157,4 +6946,121 @@ it('does not drain further saved commands if the automatic follow-up loses its t
   expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
   expect(f.c.queue().find(({ id }) => id === 'preserved')?.status).toBe('queued');
   expect(f.c.isRecovering()).toBe(false);
+});
+
+it('bounds timing spans on duplicate/failed enqueue, queued cancel/close and preparation refusal/close', async () => {
+  const timings: Array<{
+    name: string;
+    end: ReturnType<typeof vi.fn>;
+    setAttribute: ReturnType<typeof vi.fn>;
+  }> = [];
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, parent) => {
+    if (!name.startsWith('codex.command.')) return original(name, options, parent);
+    const span = { name, end: vi.fn(), setAttribute: vi.fn() };
+    timings.push(span);
+    return span as unknown as Span;
+  });
+  const f = await setup();
+  expect(() => f.c.enqueue({ id: 'invalid', prompt: 'offline', model: 'not-admitted' })).toThrow();
+  expect(timings).toHaveLength(0);
+  f.c.enqueue({ id: 'cancelled', prompt: 'offline' });
+  f.c.enqueue({ id: 'cancelled', prompt: 'offline' });
+  expect(timings).toHaveLength(1);
+  expect(f.c.cancelQueued('cancelled')).toBe('cancelled');
+  expect(timings[0].setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'cancelled');
+  f.c.enqueue({ id: 'closed', prompt: 'offline' });
+  f.c.close();
+  expect(timings[1].setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'closed');
+  const refused = await setup();
+  refused.conversationOptions.prepareSystemPrompt = async () => {
+    throw Error('Private refusal');
+  };
+  await expect(refused.c.send({ id: 'refused', prompt: 'offline' })).rejects.toThrow();
+  expect(timings.at(-1)?.setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'stopped');
+  const closed = await setup();
+  let release!: () => void;
+  closed.conversationOptions.prepareSystemPrompt = () =>
+    new Promise((resolve) => {
+      release = () => resolve(undefined);
+    });
+  const sending = closed.c.send({ id: 'preparing-close', prompt: 'offline' });
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  closed.c.close();
+  expect(timings.at(-1)?.setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'closed');
+  release();
+  await Promise.allSettled([sending]);
+  for (const span of timings) expect(span.end).toHaveBeenCalledOnce();
+});
+
+it('invokes the genuine native base-scope owner despite a poisoned original call property', async () => {
+  const f = await setup();
+  const policy = codexNativeExecutionPolicy({
+    bindingRevision: 'owner',
+    mode: 'agent',
+    cwd: '/workspace',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace'],
+    deniedRoots: ['/private/auth'],
+  });
+  let revoked = false,
+    captured = false;
+  const poisoned = vi.fn(() => undefined);
+  const current = Object.assign(
+    function (this: unknown) {
+      expect(this).toBe(f.conversationOptions);
+      if (revoked) throw Error('Original base-scope owner revoked');
+    },
+    { call: poisoned },
+  );
+  f.conversationOptions.nativeExecution = policy;
+  f.conversationOptions.assertNativeExecutionCurrent = current;
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+  await f.c.send({ id: 'base-scope-poison', prompt: 'Read current workspace' });
+  f.conversationOptions.executeTool = async (_name, _input, _signal, invocation) => {
+    revoked = true;
+    invocation.captureNativeBaseReadScope!();
+    captured = true;
+    return { content: 'unsafe', isError: false };
+  };
+  const result = await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'poisoned-base',
+      tool: 'Read',
+      arguments: { file_path: '/workspace/a' },
+    },
+    new AbortController().signal,
+  );
+  expect(result.success).toBe(false);
+  expect(captured).toBe(false);
+  expect(poisoned).not.toHaveBeenCalled();
+});
+
+it('invokes the genuine retained prepared admission despite its poisoned original call property', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'before-poisoned-boundary', prompt: 'Original task' });
+  const admit = vi.fn(async function (this: unknown) {
+    expect(this).toBe(boundary);
+    throw Error('Original prepared owner refuses');
+  });
+  const poisoned = vi.fn(async () => {
+    f.c.enqueue({ id: 'counterfeit-child', prompt: 'Unauthorized continuation' });
+  });
+  Object.defineProperty(admit, 'call', { value: poisoned });
+  const boundary = { kind: 'prepared-repository-primary' as const, admit };
+  f.conversationOptions.beforeRuntimeAdmission = boundary;
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() =>
+    expect(admit.mock.calls.length + poisoned.mock.calls.length).toBeGreaterThan(0),
+  );
+  expect(admit).toHaveBeenCalledOnce();
+  expect(poisoned).not.toHaveBeenCalled();
+  expect(f.c.queue().some((c) => c.id === 'counterfeit-child')).toBe(false);
+  expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
 });

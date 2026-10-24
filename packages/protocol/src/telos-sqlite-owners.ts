@@ -152,7 +152,13 @@ function contents(fd: number): Buffer {
   if (readSync(fd, buffer, 0, size, 0) !== size) deny();
   return buffer;
 }
-function capture(path: string, dir = false, keepContents = false, writable = false): Anchor {
+function capture(
+  path: string,
+  dir = false,
+  keepContents = false,
+  writable = false,
+  retainRejected?: (fd: number) => void,
+): Anchor {
   const fd = openSync(
     path,
     (writable ? constants.O_RDWR : constants.O_RDONLY) | constants.O_NOFOLLOW,
@@ -163,7 +169,10 @@ function capture(path: string, dir = false, keepContents = false, writable = fal
     if (!same(identity(stat), identity(lstatSync(path, { bigint: true })))) deny();
     return { path, fd, id: identity(stat), ...(keepContents ? { contents: contents(fd) } : {}) };
   } catch (error) {
-    closeSync(fd);
+    // A rejected sidecar can alias another live role's SHM file. Closing even
+    // this auxiliary fd would release that process's SQLite record locks.
+    if (retainRejected) retainRejected(fd);
+    else closeSync(fd);
     throw error;
   }
 }
@@ -191,6 +200,7 @@ class Family {
   readonly mains: Partial<Record<Role, Anchor>> = {};
   readonly connections: Record<Role, number> = { canonical: 0, events: 0, tasks: 0 };
   readonly sidecarSets: Partial<Record<Role, Array<Anchor | { path: string }>>> = {};
+  readonly rejectedSidecars: number[] = [];
   constructor(readonly files: TelosDatabaseFiles) {
     this.root = directory(files);
     // Main-thread confinement makes the synchronous check/capture/open sequence
@@ -282,6 +292,14 @@ class Family {
       if (this.disposed || this.invalid || !this.lease || exists(join(this.root, 'invalid')))
         deny();
       for (const anchor of this.anchors) check(anchor);
+      // A sole-link rename can alias another role without failing nlink. Check
+      // every retained role before accepting new captures, not only this caller.
+      for (const captures of Object.values(this.sidecarSets)) {
+        for (const anchor of captures) {
+          if ('fd' in anchor) check(anchor);
+          else if (exists(anchor.path)) deny();
+        }
+      }
       const lock = lstatSync(join(this.root, 'exclusion'), { bigint: true });
       privateFile(lock);
       if (!same(identity(lock), leaseIdentity(this.lease))) deny();
@@ -297,6 +315,7 @@ class Family {
     this.disposed = true;
     this.birthRecord = undefined;
     const anchors = this.anchors.splice(0);
+    const rejectedSidecars = this.rejectedSidecars.splice(0);
     const lease = this.lease;
     this.lease = undefined;
     if (activeFamily === this) activeFamily = undefined;
@@ -304,6 +323,13 @@ class Family {
     for (const anchor of anchors) {
       try {
         closeSync(anchor.fd);
+      } catch {
+        failed = true;
+      }
+    }
+    for (const fd of rejectedSidecars) {
+      try {
+        closeSync(fd);
       } catch {
         failed = true;
       }
@@ -348,6 +374,12 @@ function releaseConnectionLifetime(
     delete family.sidecarSets[role];
     for (const capture of captures) {
       if (!('fd' in capture)) continue;
+      // An invalid family may contain a successfully captured sole-link alias
+      // to a different role. Defer it until ALL actual family handles close.
+      if (family.invalid) {
+        family.rejectedSidecars.push(capture.fd);
+        continue;
+      }
       try {
         closeSync(capture.fd);
       } catch (error) {
@@ -459,10 +491,6 @@ export function openTelosOwnedDatabase(
         ).current !== 1
       )
         deny();
-      for (const sidecar of family.sidecarSets[role] ?? []) {
-        if ('fd' in sidecar) check(sidecar);
-        else if (exists(sidecar.path)) deny();
-      }
     } catch (error) {
       family?.invalidate();
       throw error;
@@ -478,11 +506,25 @@ export function openTelosOwnedDatabase(
       if (!supportedJournal) return;
       try {
         if (!family.sidecarSets[role]) {
+          // An unsealed different role may already hold a writer but has no
+          // retained sidecar identities with which to reject a sole-link alias.
+          // Finish each role's construction before sealing another role.
+          if (
+            roles.some(
+              (other) =>
+                other !== role && family!.connections[other] > 0 && !family!.sidecarSets[other],
+            )
+          )
+            deny();
           const captures: Array<Anchor | { path: string }> = [];
           family.sidecarSets[role] = captures;
           for (const suffix of sidecars) {
             const path = filename + suffix;
-            captures.push(exists(path) ? capture(path) : { path });
+            captures.push(
+              exists(path)
+                ? capture(path, false, false, false, (fd) => family!.rejectedSidecars.push(fd))
+                : { path },
+            );
           }
         }
         assertCurrent();

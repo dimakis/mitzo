@@ -69,6 +69,13 @@ sets are detached before any descriptor close; every close and reference cleanup
 is attempted even after a partial failure. Ambiguous descriptor closes are never
 retried by numeric fd. Cleanup errors invalidate still-live original authority
 before disposal and are reported without restoring a closed owner's authority.
+Rejected sidecar captures retain their opened descriptors until every actual
+family connection closes: even closing a rejected alias can release another
+role's process-owned SHM writer locks. Every retained role's sidecar identities
+are checked together, so a sole-link rename is also refused. Once the family is
+invalidated, detached sidecar descriptors likewise wait for final family closure;
+numeric descriptors are never retried after an ambiguous close. This exceptional
+retention cannot grant deletion authority or admit another owner.
 Unsupported environments and failed retained-family admission reject before
 opening SQLite; they cannot leave an untracked connection behind. WAL is the
 supported deletion mode, established by the existing canonical owner. The helper
@@ -167,6 +174,14 @@ exit. The helper retains its exact loaded module image until process exit so
 unloading a worker environment cannot reset that count. An ambiguous native
 lease-close failure likewise keeps admission denied.
 These are availability consequences, never new deletion authority.
+
+Finish each role's initialization and sealing before sealing a different live
+role. A live different role without sealed sidecar identities cannot exclude a
+sole-link alias, so first sidecar capture is refused and invalidates the family.
+Rejected captures and sidecars of an invalid family can retain descriptors until
+the last actual connection closes, including a connection whose close failed.
+Normal validated role-local cleanup is unchanged. These rules preserve existing
+writers during failed constructor disposal, not merely during the sealing call.
 
 The targeted regressions use real private SQLite files and independent writer
 processes. They cover warm-directory loss in the original module, another module

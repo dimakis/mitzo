@@ -180,11 +180,18 @@ it('denies an observed canonical selection change even after change-back', async
   expect((await f.post(purge(f.current))).status).toBe(409);
   expect((await f.read()).body.disposition).toBe('trashed');
 }, 30000);
-it('denies actual chat TaskStore change-back and a closed selected TaskStore', async () => {
+it('denies actual chat TaskStore change-back even within the selected file family', async () => {
   const f = await fixture();
   const { TaskStore } = await import('../task-store.js');
-  const other = new TaskStore(join(root!, 'other-tasks.db'));
+  // An unrelated ordinary connection is excluded before it could replace the
+  // installed owner. Keep that guard, then exercise actual installation ABA
+  // with a distinct connection admitted by the same retained file family.
+  expect(() => new TaskStore(join(root!, 'other-tasks.db'))).toThrow(
+    expect.objectContaining({ code: 'MITZO_OWNER_BUSY' }),
+  );
+  const other = new TaskStore(f.files.tasks);
   try {
+    expect(other.getDatabase()).not.toBe(appModule!.taskStore.getDatabase());
     chatModule!.setTaskStore(other);
     chatModule!.setTaskStore(appModule!.taskStore);
   } finally {

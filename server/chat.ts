@@ -32,6 +32,7 @@ import { nativeStartupSessionId, reserveRepositoryStartup } from './ordinary-rep
 import { PROFILE_TOOL_INSTRUCTIONS } from './session-profile-tools.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
+import { findNativeMacExecutionUnavailable } from './codex-native-artifact-qualification.js';
 import {
   OrdinaryLocalCodexOwnedRuntime,
   type OrdinaryLocalCodexOwnedDispatch,
@@ -3325,7 +3326,7 @@ export async function startOwnedLocalCodexCommand(
       }
     });
     return { dispatched: true, sessionId };
-  } catch {
+  } catch (error) {
     try {
       prepared?.close();
     } catch {
@@ -3336,7 +3337,7 @@ export async function startOwnedLocalCodexCommand(
     } catch {
       /* No automatic retry or custody cleanup. */
     }
-    throw unavailable();
+    throw findNativeMacExecutionUnavailable(error) ?? unavailable();
   }
 }
 
@@ -3631,13 +3632,13 @@ export async function prepareOwnedCodexChat(
     session.queryInstance = queryInstance;
     eventStore.setSessionState(sessionId, 'STARTING', { clientId });
     options.onSessionResolved?.(sessionId);
-  } catch {
+  } catch (error) {
     try {
       close();
     } catch {
       /* Retain uncertainty even if shutdown cannot finish. */
     }
-    throw unavailable();
+    throw findNativeMacExecutionUnavailable(error) ?? unavailable();
   } finally {
     releaseStartup?.();
   }

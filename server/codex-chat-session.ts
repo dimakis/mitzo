@@ -1,10 +1,25 @@
 import {
+  localRepositoryPreparationDefinition,
+  LOCAL_REPOSITORY_PREPARATION_INSTRUCTIONS,
+} from './local-repository-preparation-tool.js';
+import { executeNativeLocalRepositoryPreparation } from './native-local-repository-preparation.js';
+import {
+  sessionLocalRepositoryTools,
+  nativeRepositoryReadRootUnion,
+  localRepositoryToolDefinitions,
+  LOCAL_REPOSITORY_TOOL_INSTRUCTIONS,
+} from './session-local-repository-tools.js';
+import { captureNativeLocalRepositoryReader } from './local-repository-native-read.js';
+import {
   admissionPhase,
   admissionLifecycle,
   prepareKnowledgeAndCapabilities,
 } from './codex-admission-preparation.js';
 import { executeNativeTelosArtifactOperation } from './native-telos-artifact-operations.js';
-import { captureNativeHostToolContext } from './native-host-tool-context.js';
+import {
+  captureNativeHostReadOwner,
+  captureNativeHostToolContext,
+} from './native-host-tool-context.js';
 import { getTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { githubMainPublicationTool } from './telos-main-publication.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
@@ -52,6 +67,23 @@ import { recordOrdinaryReplySource } from './collaboration-ordinary-replies.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { OwnedOpenShellCodexChatAdmission } from './owned-openshell-codex-chat-admission.js';
 import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
+import {
+  composeOwnedLocalNativeExecutionPolicy,
+  NATIVE_MAC_EXECUTION_INSTRUCTIONS,
+} from './owned-local-codex-native-policy.js';
+import {
+  createCodexNativeApprovalHandler,
+  type ApprovePreparedWorkspaceGrant,
+} from './codex-native-approvals.js';
+import {
+  assertNativeExecutionRefresh,
+  type CodexNativeExecutionPolicy,
+} from './codex-native-execution-policy.js';
+import { withPreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
+import {
+  assertQualifiedNativeMacExecutionArtifact,
+  NATIVE_MAC_ARTIFACT_UNAVAILABLE,
+} from './codex-native-artifact-qualification.js';
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import type { RepositoryChatWorkspace } from './repository-chat-startup.js';
 import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
@@ -109,6 +141,8 @@ import {
   WEB_ACCESS_INSTRUCTIONS,
 } from './request-web-access.js';
 import { sessionProfileTools, profileToolDefinitions } from './session-profile-tools.js';
+import { sessionHistoryTools, sessionHistoryToolDefinitions } from './session-history-tools.js';
+import { captureSessionHistoryAuthorization } from './session-history-authorization.js';
 import { createWebAccessTool } from './web-access-tool.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import {
@@ -315,6 +349,7 @@ function capabilityToolsForConversation(
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  if (error.message === NATIVE_MAC_ARTIFACT_UNAVAILABLE) return error.message;
   if (error instanceof SandboxAgentContextAdmissionError)
     return error.message + ' No provider turn was started.';
   if (error instanceof CodexStartupError) {
@@ -584,6 +619,15 @@ export function readCodexLifecycleQueue(conversationId: string, binding: Account
   return store().lifecycleQueue(conversationId, binding);
 }
 interface Options {
+  /** Trusted selected execution-target read ceiling, never caller JSON. */
+  nativeExecutionReadRoots?: readonly string[];
+  /** Safe-point workspace authority; roots do not retarget already queued commands. */
+  resolveNativeExecutionPolicy?: CodexConversationOptions['resolveNativeExecutionPolicy'];
+  assertNativeExecutionCurrent?: CodexConversationOptions['assertNativeExecutionCurrent'];
+  /** Existing operator/target/source/task-storage WRITE authorization and
+   * materialized reservation receipt are all required. A prompt, selected path
+   * or prepared row alone cannot authorize this callback. */
+  approvePreparedWorkspaceGrant?: ApprovePreparedWorkspaceGrant;
   /** Server-internal exact uncertain receipt and actual frozen client. */
   ownedLocal?: OwnedLocalCodexChatAdmission;
   /** Exact admitted ordinary OpenShell target; bypasses deployment route inference. */
@@ -732,6 +776,9 @@ export async function openCodexChat(options: Options) {
     images: options.images ? structuredClone(options.images) : undefined,
     mcpServers: structuredClone(options.mcpServers),
     env: { ...options.env },
+    nativeExecutionReadRoots: options.nativeExecutionReadRoots
+      ? Object.freeze([...options.nativeExecutionReadRoots])
+      : undefined,
     configuredSourceEnv: options.configuredSourceEnv
       ? { ...options.configuredSourceEnv }
       : undefined,
@@ -1645,14 +1692,30 @@ async function openCodexChatBound(
         assertHostCurrentSync,
       )
     : undefined;
+  const localHistoryDefinitions =
+    options.ownedLocal && options.assertAgentContextAuthorization
+      ? sessionHistoryToolDefinitions
+      : [];
+  const nativeExecutionEnabled =
+    !!options.ownedLocal &&
+    process.platform === 'darwin' &&
+    ['Bash', 'Read', 'Write', 'Edit'].every((name) => agentToolAllowed(options.session, name));
+  const localRepositoryReadDefinitions: typeof localRepositoryToolDefinitions = [];
+  const localRepositoryPreparationDefinitions: typeof localRepositoryToolDefinitions = [];
+  const localExecutionTools = nativeExecutionEnabled
+    ? nativeToolDefinitions.filter((tool) => !['Bash', 'Read', 'Write', 'Edit'].includes(tool.name))
+    : nativeToolDefinitions;
   const ownedToolNames = options.ownedLocal
     ? new Set(
         [
-          ...nativeToolDefinitions,
+          ...localExecutionTools,
           ...mcp.definitions,
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
           ...agentCommunicationDefinitions,
+          ...localHistoryDefinitions,
+          ...localRepositoryReadDefinitions,
+          ...localRepositoryPreparationDefinitions,
           githubPublishingDefinition,
           ...leadWorkTools,
           ...controlWorkTools,
@@ -1752,8 +1815,72 @@ async function openCodexChatBound(
         connectionRevision: managedCapabilityConnection.revision,
       });
   }
+  let nativeExecution: CodexNativeExecutionPolicy | undefined;
+  const selectedNativePolicy = () =>
+    composeOwnedLocalNativeExecutionPolicy({
+      session: options.session,
+      binding: options.binding,
+      readableRoots: options.nativeExecutionReadRoots,
+      assertCurrentSync: assertHostCurrentSync,
+    });
+  const originalNativePolicyCurrent = options.assertNativeExecutionCurrent;
+  const assertNativePolicyCurrent = (policy: CodexNativeExecutionPolicy, commandId: string) => {
+    assertHostCurrentSync();
+    if (
+      options.assertNativeExecutionCurrent !== originalNativePolicyCurrent ||
+      selectedNativePolicy().policyRevision !== policy.policyRevision
+    )
+      throw Error('Native execution policy changed during the active command');
+    const checked: unknown = originalNativePolicyCurrent
+      ? Reflect.apply(originalNativePolicyCurrent, options, [policy, commandId])
+      : undefined;
+    if (checked !== undefined) {
+      void Promise.resolve(checked).catch(() => {});
+      throw Error('Native execution policy owner must be synchronous');
+    }
+    assertHostCurrentSync();
+  };
+  const preparedRepositoryPolicyOwner = Object.freeze({
+    signal,
+    selectedPolicy: selectedNativePolicy,
+    assertCurrentSync: assertHostCurrentSync,
+    assertNativeExecutionCurrent: assertNativePolicyCurrent,
+  });
+  try {
+    if (nativeExecutionEnabled) {
+      assertQualifiedNativeMacExecutionArtifact(
+        options.ownedLocal!.nativeExecutionArtifactSha256(),
+      );
+      nativeExecution = selectedNativePolicy();
+      // The existing reader factory is qualified only for the actual '/' base.
+      // Hints and host placement never widen an otherwise narrower selected policy.
+      if (
+        options.assertAgentContextAuthorization &&
+        [...nativeExecution.readableRoots, ...nativeExecution.workspaceRoots].includes('/')
+      ) {
+        localRepositoryReadDefinitions.push(...localRepositoryToolDefinitions);
+        for (const tool of localRepositoryReadDefinitions) ownedToolNames?.add(tool.name);
+        if (agentToolAllowed(options.session, localRepositoryPreparationDefinition.name)) {
+          localRepositoryPreparationDefinitions.push(localRepositoryPreparationDefinition);
+          ownedToolNames?.add(localRepositoryPreparationDefinition.name);
+        }
+      }
+    }
+  } catch (error) {
+    finish();
+    startupReservation?.();
+    throw error;
+  }
   const baseSystemPrompt = options.ownedLocal
-    ? options.systemPrompt + HOST_TOOL_INSTRUCTIONS + GITHUB_PUBLISHING_INSTRUCTIONS
+    ? options.systemPrompt +
+      (nativeExecution ? NATIVE_MAC_EXECUTION_INSTRUCTIONS : HOST_TOOL_INSTRUCTIONS) +
+      GITHUB_PUBLISHING_INSTRUCTIONS +
+      (localRepositoryReadDefinitions.some((tool) => agentToolAllowed(options.session, tool.name))
+        ? `\n${LOCAL_REPOSITORY_TOOL_INSTRUCTIONS}\n`
+        : '') +
+      (localRepositoryPreparationDefinitions.length
+        ? `\n${LOCAL_REPOSITORY_PREPARATION_INSTRUCTIONS}\n`
+        : '')
     : options.systemPrompt +
       CONNECTION_TOOL_INSTRUCTIONS +
       WEB_ACCESS_INSTRUCTIONS +
@@ -1833,11 +1960,14 @@ async function openCodexChatBound(
     options.session,
     options.ownedLocal
       ? [
-          ...nativeToolDefinitions,
+          ...localExecutionTools,
           ...mcp.definitions,
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
           ...agentCommunicationDefinitions,
+          ...localHistoryDefinitions,
+          ...localRepositoryReadDefinitions,
+          ...localRepositoryPreparationDefinitions,
           githubPublishingDefinition,
           ...leadWorkTools,
           ...controlWorkTools,
@@ -1880,6 +2010,93 @@ async function openCodexChatBound(
         ? 'openshell-runtime-config-v1'
         : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
     getMode: () => options.session.mode,
+    ...(nativeExecution
+      ? {
+          nativeExecution,
+          resolveNativeExecutionPolicy:
+            options.resolveNativeExecutionPolicy ??
+            (async ({ commandId, signal }) => {
+              signal.throwIfAborted();
+              await assertHostCurrent();
+              signal.throwIfAborted();
+              const workspace = options.ownedLocal!.nativeExecutionWorkspace(commandId);
+              if (workspace.cwd !== nativeExecution!.cwd || workspace.cwd !== options.session.cwd)
+                throw Error('Original command workspace policy unavailable');
+              assertNativePolicyCurrent(nativeExecution!, commandId);
+              return nativeExecution!;
+            }),
+          assertNativeExecutionCurrent: assertNativePolicyCurrent,
+          beforeRuntimeAdmission: Object.freeze({
+            kind: 'prepared-repository-primary' as const,
+            async admit(assertConversationCurrentSync: () => void): Promise<void> {
+              assertConversationCurrentSync();
+              assertHostCurrentSync();
+              const source = options.ownedLocal!.completedPreparedRepositorySourceTarget();
+              if (!source) return;
+              const adopted = await withPreparedRepositoryBarrierReadScope(
+                nativeExecution,
+                source.commandId,
+                {
+                  signal,
+                  selectedPolicy: selectedNativePolicy,
+                  assertCurrentSync: () => {
+                    assertConversationCurrentSync();
+                    assertHostCurrentSync();
+                  },
+                  revalidate: async () => {
+                    await assertHostCurrent();
+                    assertConversationCurrentSync();
+                  },
+                  assertNativeExecutionCurrent: assertNativePolicyCurrent,
+                },
+                (scope) =>
+                  options.ownedLocal!.adoptPreparedRepositoryAtBoundary(
+                    scope,
+                    source,
+                    assertConversationCurrentSync,
+                    preparedRepositoryPolicyOwner,
+                  ),
+              );
+              assertConversationCurrentSync();
+              assertHostCurrentSync();
+              if (!adopted) return;
+              if (
+                options.session.cwd !== adopted.directory ||
+                adopted.repositoryWorkspace.id !== adopted.id ||
+                adopted.repositoryWorkspace.directory !== adopted.directory
+              )
+                throw Error('Prepared repository primary handoff incomplete');
+              const policy = selectedNativePolicy();
+              assertNativeExecutionRefresh(nativeExecution!, policy);
+              options.repositoryWorkspace = structuredClone(adopted.repositoryWorkspace);
+              options.ordinaryWorkspace = undefined;
+              nativeExecution = policy;
+              runtimeOptions.nativeExecution = policy;
+              runtimeOptions.cwd = policy.cwd;
+              if (runtimeOptions.runtimeCwd !== undefined) runtimeOptions.runtimeCwd = policy.cwd;
+            },
+          }),
+          requestNativeApproval: (
+            method: string,
+            params: Record<string, unknown>,
+            signal: AbortSignal,
+            context: Parameters<ReturnType<typeof createCodexNativeApprovalHandler>>[3],
+          ) => {
+            const owner = options.registry.findBySessionId(options.conversationId);
+            if (!owner || owner.session !== options.session)
+              throw Error('Native approval session unavailable');
+            return createCodexNativeApprovalHandler({
+              clientId: owner.clientId,
+              registry: options.registry,
+              runtimeId: nativeHostRuntimeId,
+              environmentId: 'local',
+              deniedRoots: nativeExecution!.deniedRoots,
+              writeProtectedRoots: nativeExecution!.writeProtectedRoots,
+              approvePreparedWorkspaceGrant: options.approvePreparedWorkspaceGrant,
+            })(method, params, signal, context);
+          },
+        }
+      : {}),
     systemPrompt: persistentSystemPrompt,
     startupSignal: signal,
     prepareAgentContext: ownedHost
@@ -2317,12 +2534,8 @@ async function openCodexChatBound(
       // Refuse an unqualified helper before any owner await, approval or effect.
       if (ownedToolNames && !ownedToolNames.has(name))
         throw Error('Tool unavailable for owned local Codex chat');
-      const captureSignedContext = () => {
-        if (
-          !options.ownedLocal ||
-          !options.assertAgentContextAuthorization ||
-          !mainPublicationRuntime
-        )
+      const captureNativeContext = (executionSignal: AbortSignal = signal) => {
+        if (!options.ownedLocal || !options.assertAgentContextAuthorization)
           throw Error('Original native Telos host unavailable');
         const workspace = options.ordinaryWorkspace
           ? {
@@ -2339,7 +2552,7 @@ async function openCodexChatBound(
             : undefined;
         if (!workspace) throw Error('Original admitted workspace unavailable');
         // Capture original callback authority before interpreting any tool intent.
-        const context = captureNativeHostToolContext({
+        return captureNativeHostToolContext({
           events: options.eventStore,
           native: store(),
           registry: options.registry,
@@ -2357,8 +2570,12 @@ async function openCodexChatBound(
           toolName: name,
           input,
           call: callContext,
-          signal,
+          signal: executionSignal,
         });
+      };
+      const captureSignedContext = () => {
+        if (!mainPublicationRuntime) throw Error('Original native Telos host unavailable');
+        const context = captureNativeContext();
         try {
           return mainPublicationRuntime.bindNativeContext(context);
         } catch (error) {
@@ -2366,6 +2583,110 @@ async function openCodexChatBound(
           throw error;
         }
       };
+      if (name === localRepositoryPreparationDefinition.name) {
+        // Definitions are only eligibility. Recheck selected native scope before
+        // manager lookup/capture; original signed context and approval own effects.
+        if (
+          !options.ownedLocal ||
+          !nativeExecution ||
+          !localRepositoryPreparationDefinitions.length ||
+          process.platform !== 'darwin' ||
+          !options.assertAgentContextAuthorization ||
+          !['Bash', 'Read', 'Write', 'Edit'].every((tool) =>
+            agentToolAllowed(options.session, tool),
+          )
+        )
+          throw Error('Tool unavailable for owned local Codex chat');
+        assertHostCurrentSync();
+        const currentPolicy = selectedNativePolicy();
+        if (
+          currentPolicy.policyRevision !== nativeExecution.policyRevision ||
+          ![...currentPolicy.readableRoots, ...currentPolicy.workspaceRoots].includes('/')
+        )
+          throw Error('Original native repository preparation scope unavailable');
+        return executeNativeLocalRepositoryPreparation(
+          Object.freeze({
+            capture: (executionSignal: AbortSignal) => captureNativeContext(executionSignal),
+            events: options.eventStore,
+            registry: options.registry,
+            workspaces: getRepositoryWorkspaces(true),
+          }),
+          input,
+          signal,
+        );
+      }
+      if (localRepositoryReadDefinitions.some((tool) => tool.name === name)) {
+        const context = captureNativeContext();
+        try {
+          const readOwner = captureNativeHostReadOwner(context);
+          const scope = readOwner?.scope;
+          if (
+            !readOwner ||
+            !scope ||
+            readOwner.context !== context ||
+            readOwner.signal !== context.signal ||
+            scope !== context.nativeBaseReadScope
+          )
+            throw Error('Original native read policy unavailable');
+          const tools = sessionLocalRepositoryTools(
+            Object.freeze({
+              capture: () => context,
+              captureReader: captureNativeLocalRepositoryReader,
+              readPolicy: async () => ({
+                limits: { timeoutMs: name === 'InspectLocalRepository' ? 60000 : 30000 },
+                accessScope: {
+                  kind: 'roots' as const,
+                  roots: nativeRepositoryReadRootUnion([
+                    ...scope.readableRoots,
+                    ...scope.workspaceRoots,
+                  ]),
+                  deniedRoots: scope.deniedRoots,
+                },
+                // Current workspace is a bounded scan/orientation hint only.
+                // An explicit source override remains under the actual base policy.
+                discoveryRoots: [context.workspace.directory],
+                orientationHints: [context.workspace.directory],
+                assertCurrentSync: () => {
+                  if (
+                    readOwner.context !== context ||
+                    readOwner.scope !== context.nativeBaseReadScope ||
+                    readOwner.signal !== context.signal
+                  )
+                    throw Error('Original native read projection required');
+                },
+              }),
+            }),
+          );
+          const result = await tools.execute(name, input, signal);
+          if (!result) throw Error('Local repository read tool unavailable');
+          return result;
+        } finally {
+          context.dispose();
+        }
+      }
+      if (localHistoryDefinitions.some((tool) => tool.name === name)) {
+        const context = captureNativeContext();
+        try {
+          const tools = sessionHistoryTools({
+            store: options.eventStore,
+            capture: (call, toolName) =>
+              captureSessionHistoryAuthorization({
+                context,
+                events: options.eventStore,
+                call,
+                toolName,
+              }),
+            // These durable user/text fields are the product's public transcript
+            // projection; the adapter excludes reasoning/tool/config payloads.
+            projectPublicText: (text) => text,
+          });
+          const result = await tools.execute(name, input, context.signal, callContext);
+          if (!result) throw Error('History tool unavailable');
+          return result;
+        } finally {
+          context.dispose();
+        }
+      }
       if (name === githubMainPublicationTool.name) {
         if (
           !options.ownedLocal ||

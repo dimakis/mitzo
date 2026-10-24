@@ -1,3 +1,4 @@
+import { OrdinaryRuntimeFirstCommandSchema } from '@mitzo/protocol';
 import { z } from 'zod';
 import {
   ChatDraftSchema,
@@ -7,8 +8,13 @@ import {
   saveChatDraft,
   consumeChatDraft,
   chatDraftTextKey,
+  chatDraftStorageKey,
 } from './chat-drafts';
 import { getApiBaseUrl } from './api-fetch';
+import { selectedRuntimeRoute } from './chat-runtime-route';
+import { normalizeLocalInventory, type ExplicitLocalInventory } from './explicit-local-chat';
+import { evaluateChatRuntimeSelection, type ChatRuntimeSelection } from './chat-runtime-selection';
+import type { ChatDraft } from './chat-drafts';
 
 const schema = z.object({
   draftId: z.string().min(1),
@@ -93,8 +99,160 @@ export function subscribeLaunchDrafts(listener: () => void) {
     window.removeEventListener('storage', listener);
   };
 }
+/** Inspect the retained source before permissive historical schemas strip unknown metadata. */
+export function briefingLaunchUnsupportedReason(
+  id?: string | null,
+  pending?: unknown,
+  search = '',
+): string | undefined {
+  try {
+    const stored = id ? JSON.parse(localStorage.getItem(chatDraftStorageKey(id)) || 'null') : null;
+    const launch = stored?.settings?.launch ?? pending;
+    if (!launch?.briefing) return;
+    const unsupported = ['contextBlocks', 'telosTaskId', 'agentName', 'extraTools'];
+    if (
+      unsupported.some((field) => Object.hasOwn(launch, field)) ||
+      Object.hasOwn(stored?.settings ?? {}, 'extraTools') ||
+      new URLSearchParams(stored?.settings?.search).has('extraTools') ||
+      new URLSearchParams(search).has('extraTools') ||
+      stored?.contextBlocks?.length
+    ) {
+      return 'This saved briefing carries unsupported launch metadata. Its original draft was kept; open a new explicitly configured conversation.';
+    }
+  } catch {
+    return 'Could not verify this saved briefing. Its original draft was kept; restore it before sending.';
+  }
+}
+
+/** Freeze the selected route independently of the combined inventory freshness token. */
+export function reviewedBriefingLaunch(
+  draft: ChatDraft,
+  runtime: ChatRuntimeSelection,
+  inventory: ExplicitLocalInventory | null,
+): ChatDraft['settings']['launch'] {
+  const launch = draft.settings.launch;
+  if (!launch?.briefing) return launch;
+  const previous = getChatDraft(draft.id)?.settings.launch?.reviewedRoute ?? launch.reviewedRoute;
+  const route = selectedRuntimeRoute(runtime, inventory);
+  if (
+    !inventory ||
+    !route ||
+    !evaluateChatRuntimeSelection(runtime, normalizeLocalInventory(inventory)).ready
+  )
+    return { ...launch, reviewedRoute: previous };
+  const selected = {
+    inventoryRevision: inventory.capabilityRevision,
+    capabilityRevision: route.capabilityRevision ?? inventory.capabilityRevision,
+    account: route.account,
+    location: runtime.execution.location,
+    targetId: route.targetId,
+    harness: route.harness,
+  };
+  // A route revision cannot change inside an already reviewed inventory snapshot.
+  // A genuinely new inventory still requires the existing explicit freshness review.
+  const sameReview =
+    previous &&
+    previous.inventoryRevision === selected.inventoryRevision &&
+    JSON.stringify(previous.account) === JSON.stringify(selected.account) &&
+    previous.location === selected.location &&
+    previous.targetId === selected.targetId &&
+    previous.harness === selected.harness;
+  return { ...launch, reviewedRoute: sameReview ? previous : selected };
+}
+
+function normalizeOwnedBriefingCommand(
+  submitted: z.infer<typeof ChatDraftSchema> | null | undefined,
+  command: unknown,
+) {
+  const parsed = OrdinaryRuntimeFirstCommandSchema.safeParse(command);
+  const runtime = submitted?.settings.runtimeSelection;
+  const launch = submitted?.settings.launch;
+  if (!parsed.success || !runtime || !launch?.briefing) return null;
+  const request = parsed.data;
+  if (
+    JSON.stringify(request.runtime.account) !== JSON.stringify(runtime.accountReference) ||
+    request.runOn !== runtime.execution.location ||
+    request.runtime.targetId !== runtime.execution.targetId ||
+    (launch.reviewedRoute
+      ? launch.reviewedRoute.inventoryRevision !== runtime.capabilityRevision ||
+        request.capabilityRevision !== launch.reviewedRoute.capabilityRevision ||
+        JSON.stringify(request.runtime.account) !== JSON.stringify(launch.reviewedRoute.account) ||
+        request.runOn !== launch.reviewedRoute.location ||
+        request.runtime.targetId !== launch.reviewedRoute.targetId ||
+        request.runtime.harness !== launch.reviewedRoute.harness
+      : request.capabilityRevision !== runtime.capabilityRevision) ||
+    JSON.stringify(request.selection.agent) !== JSON.stringify(runtime.agentProfile) ||
+    request.selection.model !== runtime.account?.model ||
+    request.selection.thinking !== (runtime.account?.reasoningEffort ?? null) ||
+    request.runtime.mode !== submitted!.settings.mode ||
+    request.payload.text !== launch.prompt ||
+    JSON.stringify(request.payload.sourceSnapshots ?? []) !==
+      JSON.stringify(launch.sourceSnapshots ?? []) ||
+    request.runtime.account.accountId !== launch.accountSelection?.accountId ||
+    request.selection.model !== launch.accountSelection?.model ||
+    !request.payload.sourceSnapshots?.some(
+      (source) =>
+        source.kind === 'briefing' &&
+        source.date === launch.briefing!.date &&
+        source.revision === launch.briefing!.revision,
+    )
+  )
+    return null;
+  return {
+    clientMsgId: request.clientMsgId,
+    prompt: request.payload.text,
+    accountId: request.runtime.account.accountId,
+    model: request.selection.model,
+    sourceSnapshots: request.payload.sourceSnapshots,
+  };
+}
+/** ACK authority is the original submitted receipt, never the currently edited draft. */
+export function validateOwnedBriefingAssignment(
+  draftId: unknown,
+  command: unknown,
+  sessionId?: string,
+): boolean {
+  try {
+    if (typeof draftId !== 'string') return false;
+    const receipt = read(draftId);
+    const normalized = normalizeOwnedBriefingCommand(receipt?.submitted, command);
+    return (
+      !!receipt &&
+      !!normalized &&
+      receipt.clientMsgId === normalized.clientMsgId &&
+      (!sessionId || !receipt.sessionId || receipt.sessionId === sessionId)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Accepted assignment survives normal link confirmation until durable outbox retirement. */
+export function ownedBriefingAssignmentCommitted(
+  draftId: unknown,
+  command: unknown,
+  sessionId: string,
+): boolean {
+  try {
+    if (typeof draftId !== 'string' || !sessionId) return false;
+    const receipt = read(draftId);
+    const normalized = normalizeOwnedBriefingCommand(receipt?.submitted, command);
+    return (
+      receipt?.state === 'accepted' &&
+      receipt.sessionId === sessionId &&
+      !!normalized &&
+      receipt.clientMsgId === normalized.clientMsgId
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Durable command association is independent of a mounted composer or store instance. */
 export const launchDraftDelivery = {
+  matches(draftId: string, command: Record<string, unknown>) {
+    return validateOwnedBriefingAssignment(draftId, command);
+  },
   pending(id: string) {
     return !!launchDeliveryState(id);
   },
@@ -103,6 +261,12 @@ export const launchDraftDelivery = {
       if (read(id)) return false;
       const submitted = getChatDraft(id);
       const launch = submitted?.settings.launch;
+      if (command.payload !== undefined || command.runOn !== undefined) {
+        if (briefingLaunchUnsupportedReason(id)) return false;
+        const normalized = normalizeOwnedBriefingCommand(submitted, command);
+        if (!normalized) return false;
+        command = normalized;
+      }
       if (
         !submitted ||
         !launch ||
@@ -115,12 +279,23 @@ export const launchDraftDelivery = {
         JSON.stringify(command.sourceSnapshots ?? [])
       )
         return false;
-      const selection = submitted.settings.selection;
+      if (
+        launch.briefing &&
+        !launch.sourceSnapshots?.some(
+          (source) =>
+            source.kind === 'briefing' &&
+            source.date === launch.briefing!.date &&
+            source.revision === launch.briefing!.revision,
+        )
+      )
+        return false;
+      const selection = launch.briefing ? launch.accountSelection : submitted.settings.selection;
       if (
         selection &&
         (selection.accountId !== command.accountId || selection.model !== command.model)
       )
         return false;
+      if (find(command.clientMsgId)) return false;
       write({
         draftId: id,
         clientMsgId: command.clientMsgId,
@@ -139,6 +314,8 @@ export const launchDraftDelivery = {
     if (record.sessionId && record.sessionId !== sessionId)
       throw new Error('Launch assignment changed');
     write({ ...record, sessionId });
+    if (record.submitted?.settings.launch?.briefing && record.submitted.settings.runtimeSelection)
+      return { context: record.submitted.settings.launch.context };
   },
   settle(command: string, state: 'accepted' | 'failed' | 'uncertain'): string | undefined {
     const record = find(command);
@@ -158,12 +335,33 @@ export const launchDraftDelivery = {
       record.submitted &&
       (!getChatDraft(record.draftId) || consumeChatDraft(record.submitted, { preserveText: true }))
     ) {
-      record.submitted = undefined;
+      // Owned briefing proof remains available until its consumed outbox entry
+      // has been durably removed. Generic launch cleanup keeps its old timing.
+      if (
+        !record.submitted.settings.launch?.briefing ||
+        !record.submitted.settings.runtimeSelection
+      )
+        record.submitted = undefined;
       const settings = { ...record.settings };
       delete settings.launch;
       record.settings = settings;
     }
     write(record);
     return record.draftId;
+  },
+  finalize(command: string) {
+    const record = find(command);
+    if (
+      record?.state !== 'accepted' ||
+      !record.sessionId ||
+      !record.submitted?.settings.launch?.briefing ||
+      !record.submitted.settings.runtimeSelection
+    )
+      return;
+    record.submitted = undefined;
+    const settings = { ...record.settings };
+    delete settings.launch;
+    record.settings = settings;
+    write(record);
   },
 };

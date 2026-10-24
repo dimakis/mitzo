@@ -75,7 +75,12 @@ async function credentialDigest(
     // It is still independently checked on every qualification.
     await new OrdinaryLocalCodexHostRuntime().observe();
   } else if (binding.provider === 'openai' && selection.runOn === 'local') {
-    const manager = openAIAccountKeyAuthority(binding, profiles, { consumer: 'host' });
+    const connection = profiles.harnessConnection(binding);
+    if (connection.authentication !== 'api-key') throw unavailable();
+    const manager = openAIAccountKeyAuthority(binding, profiles, {
+      consumer: 'host',
+      endpoint: connection.endpoint,
+    });
     await manager.assertReady(signal);
     credential = digest(await manager.resolveKey(binding.accountId, signal));
     await manager.assertReady(signal);
@@ -159,11 +164,25 @@ export async function captureOrdinaryRepositoryPreparation(
   signal: AbortSignal,
   requireModelReadiness = true,
 ): Promise<OrdinaryRepositoryPreparation> {
+  return captureCurrentPreparation(binding, selection, signal, requireModelReadiness);
+}
+
+/** Retained context is private to assertion of an existing owner-store proof.
+ * Fresh capture never receives this argument and cannot mint a legacy route.
+ */
+async function captureCurrentPreparation(
+  binding: AccountBinding,
+  selection: OrdinaryRepositoryRuntimeSelection,
+  signal: AbortSignal,
+  requireModelReadiness: boolean,
+  retainedBinding?: OrdinaryRepositoryPreparation['runtimeBinding'],
+): Promise<OrdinaryRepositoryPreparation> {
   signal.throwIfAborted();
   const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
   const { profiles, catalog } = ordinaryRepositoryRuntimeInventory(
     selection.runOn,
     selection.runtime.harness,
+    retainedBinding,
   );
   const resolved = catalog.resolve({ ...selection.runtime, mode: 'agent' });
   if (
@@ -195,6 +214,7 @@ export async function captureOrdinaryRepositoryPreparation(
   const current = ordinaryRepositoryRuntimeInventory(
     selection.runOn,
     selection.runtime.harness,
+    retainedBinding,
   ).catalog.resolve({ ...selection.runtime, mode: 'agent' });
   if (current.status !== 'compatible' || !isDeepStrictEqual(current.binding, proof.runtimeBinding))
     throw unavailable();
@@ -233,7 +253,7 @@ export async function assertOrdinaryRepositoryPreparation(
       throw unavailable();
   };
   assertSelectionCurrent();
-  const current = await captureOrdinaryRepositoryPreparation(
+  const current = await captureCurrentPreparation(
     binding,
     {
       runOn: saved.runtimeBinding.execution.location,
@@ -245,6 +265,7 @@ export async function assertOrdinaryRepositoryPreparation(
     },
     signal,
     requireModelReadiness,
+    saved.runtimeBinding,
   );
   let sameRuntime = isDeepStrictEqual(current.runtimeBinding, saved.runtimeBinding);
   const localCodex =

@@ -107,8 +107,12 @@ and braces in directory names, with a neighboring name remaining readable and
 writable. They also cover a standalone credential file, hostile exact child
 read/write allowances, symlink aliases, external retargeting across repeated
 constructions of the same profile, and protected-directory/ancestor rename.
-All credential operations remain denied under the glob fence. This qualifies
-POSIX/macOS patterns only; it does not establish Windows escaping semantics.
+The exercised direct-path, symlink and rename credential controls remain denied
+under the glob fence. This is a pathname qualification, not a universal inode
+alias guarantee: [the follow-up alias controls](codex-native-alias-qualification.md)
+show that host-preexisting hardlinks need distinct physical-authority assumptions.
+This qualifies POSIX/macOS patterns only; it does not establish Windows escaping
+semantics.
 
 A whole-private-home deny glob defeats more-specific runtime read exceptions.
 Actual native `apply_patch` arg0 symlinks under that home fail with both an outside

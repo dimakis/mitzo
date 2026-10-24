@@ -441,6 +441,16 @@ vi.mock('../../hooks/useExplicitLocalChat', async () => {
 
 for (const Page of [ChatView, DesktopChatView]) {
   it(`${Page.name} reopens an unsent briefing in its own draft and New clears its chrome`, async () => {
+    // A fast render must not hide repeated draft writes behind one timestamp.
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => ++now);
+    const originalSetItem = Storage.prototype.setItem;
+    let writes = 0;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      // Bound a regression locally instead of letting its notifications exhaust CI.
+      if (++writes > 80) throw new Error('Unbounded saved briefing notifications');
+      return originalSetItem.call(this, key, value);
+    });
     const draft = { ...createChatDraft(), text: 'Explore my saved briefing' };
     const launch = {
       prompt: draft.text,
@@ -458,6 +468,7 @@ for (const Page of [ChatView, DesktopChatView]) {
     expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
     expect(getChatDraft(draft.id)?.settings.launch).toMatchObject(launch);
     expect(view.send).not.toHaveBeenCalled();
+    expect(writes).toBeLessThan(80);
   });
 }
 

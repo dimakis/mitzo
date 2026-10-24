@@ -3,6 +3,7 @@ import {
   SourceSnapshotsSchema,
   SessionCollaborationIdSchema,
   CollaborationMessageInputSchema,
+  SessionRuntimeBindingV1Schema,
 } from '@mitzo/protocol';
 import { createBrowserId } from './browser-crypto';
 import { getDefaultAccountModel } from './account-preference';
@@ -46,6 +47,17 @@ export const ChatDraftSchema = z.object({
     launch: z
       .object({
         prompt: z.string(),
+        // Private reviewed UI evidence; never server admission or wire authority.
+        reviewedRoute: z
+          .strictObject({
+            inventoryRevision: z.string().min(1),
+            capabilityRevision: z.string().min(1),
+            account: SessionRuntimeBindingV1Schema.shape.account,
+            location: z.enum(['local', 'openshell']),
+            targetId: z.string().min(1),
+            harness: z.enum(['codex', 'responses', 'claude-sdk', 'gemini']),
+          })
+          .optional(),
         context: z.string(),
         contextBlocks: z.array(z.string()).optional(),
         sourceSnapshots: SourceSnapshotsSchema.optional(),
