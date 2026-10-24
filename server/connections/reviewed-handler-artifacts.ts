@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/owned-local-codex-command-start.test.ts':
+    '76ab0fcc2c7f20887935820001c8165c5f987838b3d62710ace46f1553a52ceb',
   '../__tests__/native-host-operator-lifetime.test.ts':
     '53afb3ec1fa0dbea6d748852a80c393c3132be58d8b14df99b906893cfc2450f',
   '../__tests__/owned-local-codex-chat-consumer.test.ts':
