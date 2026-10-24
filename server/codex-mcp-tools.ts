@@ -6,6 +6,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import type { ToolDefinition } from '@mitzo/harness';
 import type { McpServerConfig } from './mcp-config.js';
 import { normalizeMcpToolResult } from './codex-tool-result.js';
+import { CodexToolFailure, codexToolFailureResult } from './codex-tool-failure.js';
 import {
   mcpStdioEnvironment,
   snapshotMcpEnvironment,
@@ -24,6 +25,7 @@ interface Connection {
   close(): Promise<void>;
 }
 export interface McpToolsOptions {
+  projectTextOutput?: (wire: string, text: string) => string;
   assertRuntimeCurrent?: () => void;
   cwd: string;
   /** Private receipt-owned launch directory for an admitted source. */
@@ -109,6 +111,7 @@ export async function connectCodexMcpTools(
     string,
     { peer: Connection; name: string; canonical: string; grant?: McpSessionGrant }
   >();
+  const outputScopes = new Map<string, string>();
   const definitions: ToolDefinition[] = [];
   const discovered: {
     server: string;
@@ -123,11 +126,23 @@ export async function connectCodexMcpTools(
   const closePeer = (peer: Connection): Promise<void> => {
     let pending = peerShutdowns.get(peer);
     if (!pending) {
-      pending = Promise.resolve().then(() => peer.close());
+      let resolve!: () => void;
+      let reject!: (error: unknown) => void;
+      pending = new Promise<void>((accept, fail) => {
+        resolve = accept;
+        reject = fail;
+      });
       peerShutdowns.set(peer, pending);
       activePeerShutdowns.add(pending);
       const settled = () => activePeerShutdowns.delete(pending!);
       void pending.then(settled, settled);
+      // Retire the transport immediately, while retaining its actual shutdown
+      // promise and at-most-once ownership for concurrent/late cleanup.
+      try {
+        void Promise.resolve(peer.close()).then(resolve, reject);
+      } catch (error) {
+        reject(error);
+      }
     }
     return pending;
   };
@@ -167,13 +182,23 @@ export async function connectCodexMcpTools(
         if (config.execution === 'sandbox') return [];
         signal.throwIfAborted();
         options.assertRuntimeCurrent?.();
+        const peerOptions: McpToolsOptions = {
+          ...options,
+          signal,
+          env: snapshotMcpEnvironment(options.env),
+          cwd: options.cwdForSource?.(server) ?? options.cwd,
+        };
+        const launchIdentity = JSON.stringify({
+          command: config.command,
+          args: config.args,
+          cwd: peerOptions.cwd,
+          sourceId: config.librarySourceId,
+          env: config.librarySourceId
+            ? mcpStdioEnvironment(peerOptions.env, config.env)
+            : snapshotMcpEnvironment(peerOptions.env, config.env),
+        });
         const peer = await observeMcpStartup('connect', sourceIndex, () =>
-          (options.connect ?? connect)(config, {
-            ...options,
-            signal,
-            env: config.librarySourceId ? snapshotMcpEnvironment(options.env) : options.env,
-            cwd: options.cwdForSource?.(server) ?? options.cwd,
-          }),
+          (options.connect ?? connect)(config, peerOptions),
         );
         peers.push(peer);
         if (closed) {
@@ -185,6 +210,7 @@ export async function connectCodexMcpTools(
         const catalog: Array<{
           wire: string;
           canonical: string;
+          outputScope: string;
           peer: Connection;
           discovery: (typeof discovered)[number];
           grant?: McpSessionGrant;
@@ -231,6 +257,10 @@ export async function connectCodexMcpTools(
             catalog.push({
               wire,
               canonical,
+              outputScope: createHash('sha256')
+                .update(launchIdentity)
+                .update(JSON.stringify(tool))
+                .digest('hex'),
               peer,
               discovery,
               grant: config.librarySourceId
@@ -251,7 +281,8 @@ export async function connectCodexMcpTools(
     const catalogs = await Promise.race([discovery, interrupted]);
     cancelStartup = undefined;
     for (const catalog of catalogs) {
-      for (const { wire, canonical, peer, discovery, grant } of catalog) {
+      for (const { wire, canonical, outputScope, peer, discovery, grant } of catalog) {
+        outputScopes.set(wire, outputScope);
         mapping.set(wire, { peer, name: discovery.tool, canonical, grant });
         definitions.push(discovery.definition);
         discovered.push(discovery);
@@ -271,11 +302,22 @@ export async function connectCodexMcpTools(
     definitions,
     discovered,
     displayName: (wire: string) => mapping.get(wire)?.canonical ?? wire,
+    outputScope(wire: string): string {
+      options.signal.throwIfAborted();
+      options.assertRuntimeCurrent?.();
+      if (closed || !mapping.has(wire)) throw new CodexToolFailure('stale_owner');
+      return outputScopes.get(wire)!;
+    },
+    assertToolCurrent(wire: string) {
+      options.signal.throwIfAborted();
+      options.assertRuntimeCurrent?.();
+      if (closed || !mapping.has(wire)) throw new CodexToolFailure('stale_owner');
+    },
     close,
     async execute(wire: string, input: Input, permission: Permission, signal: AbortSignal) {
       const tool = mapping.get(wire);
-      if (!tool) throw new Error('Unknown MCP tool');
-      if (closed) throw new Error('MCP clients closed');
+      if (!tool) throw new CodexToolFailure('invalid_input');
+      if (closed) throw new CodexToolFailure('stale_owner');
       signal.throwIfAborted();
       // Skill policy and user-facing identity retain the existing canonical name.
       // Only retained approval scope uses the source/tool-specific grant key.
@@ -283,8 +325,24 @@ export async function connectCodexMcpTools(
         ? await permission(tool.canonical, input, signal, tool.grant)
         : await permission(tool.canonical, input, signal);
       signal.throwIfAborted();
-      if (decision.behavior !== 'allow')
-        return { content: decision.message || 'MCP tool permission denied', isError: true };
+      if (decision.behavior !== 'allow') {
+        const code =
+          decision.message === 'Session taken over by another device'
+            ? 'stale_owner'
+            : decision.message === 'User denied' ||
+                decision.message === 'Tool not allowed by active skill policy'
+              ? 'permission_denied'
+              : 'approval_unavailable';
+        const failure = codexToolFailureResult(new CodexToolFailure(code), false);
+        // Preserve the permission owner's existing public reason, never an executor exception.
+        return {
+          ...failure,
+          content: JSON.stringify({
+            ...JSON.parse(failure.content),
+            reason: decision.message ?? 'Execution was not approved',
+          }),
+        };
+      }
       options.assertRuntimeCurrent?.();
       const result = await tool.peer.callTool(
         { name: tool.name, arguments: decision.updatedInput ?? input },
@@ -293,7 +351,11 @@ export async function connectCodexMcpTools(
       signal.throwIfAborted();
       options.assertRuntimeCurrent?.();
       if (closed) throw new Error('MCP clients closed');
-      return normalizeMcpToolResult(result.content, !!result.isError);
+      return normalizeMcpToolResult(
+        result.content,
+        !!result.isError,
+        options.projectTextOutput ? (text) => options.projectTextOutput!(wire, text) : undefined,
+      );
     },
   };
 }

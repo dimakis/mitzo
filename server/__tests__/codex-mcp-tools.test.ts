@@ -558,7 +558,7 @@ it('denies unknown or disallowed calls and closes connected peers on discovery f
       async () => ({ behavior: 'allow' as const, updatedInput: {} }),
       new AbortController().signal,
     ),
-  ).rejects.toThrow('Unknown');
+  ).rejects.toThrow('invalid_input');
   expect(call).not.toHaveBeenCalled();
   await tools.close();
   const failedClose = vi.fn(async () => {});
@@ -603,14 +603,21 @@ it('preserves the actual approval failure reason instead of claiming the user de
       'Session taken over by another device',
       'User denied',
     ]) {
-      expect(
-        await tools.execute(
-          tools.definitions[0].name,
-          {},
-          async () => ({ behavior: 'deny', message }),
-          new AbortController().signal,
-        ),
-      ).toEqual({ content: message, isError: true });
+      const result = await tools.execute(
+        tools.definitions[0].name,
+        {},
+        async () => ({ behavior: 'deny', message }),
+        new AbortController().signal,
+      );
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content)).toMatchObject({
+        reason: message,
+        error: message.startsWith('Tool approval')
+          ? 'approval_unavailable'
+          : message.startsWith('Session')
+            ? 'stale_owner'
+            : 'permission_denied',
+      });
     }
     expect(call).not.toHaveBeenCalled();
   } finally {
@@ -894,7 +901,7 @@ it('preserves an existing skill allowlist after source opt-in and rechecks pendi
     grant?: { sessionGrantKey: string },
   ) =>
     buildPermissionHandler('skill', registry)(name, input, { ...grant, signal, toolUseID: name });
-  let pending: Promise<unknown> | undefined;
+  let pending: ReturnType<typeof tools.execute> | undefined;
   try {
     setSkillPolicy(registry, 'skill', ['mcp__docs__search']);
     const wire = tools.definitions[0].name;
@@ -908,9 +915,11 @@ it('preserves an existing skill allowlist after source opt-in and rechecks pendi
     expect(
       resolvePending(requests[0].permId as string, 'always', undefined, 'skill-conversation'),
     ).toBe(true);
-    expect(await pending).toMatchObject({
-      isError: true,
-      content: 'Tool not allowed by active skill policy',
+    const denied = await pending;
+    expect(denied.isError).toBe(true);
+    expect(JSON.parse(denied.content)).toMatchObject({
+      error: 'permission_denied',
+      reason: 'Tool not allowed by active skill policy',
     });
     expect(callTool).not.toHaveBeenCalled();
     expect(registry.get('skill')!.sessionAllowList.has(grantKey)).toBe(false);
@@ -1030,3 +1039,58 @@ it.each([
     }
   },
 );
+
+it('pins output scopes to the actual launch environment, receipt cwd, task arguments and descriptor across restart', async () => {
+  const peers: Awaited<ReturnType<typeof connectCodexMcpTools>>[] = [];
+  const connect = async (
+    args: string[],
+    cwd = '/receipt',
+    env = { FIXTURE: 'one' },
+    description = 'Task status',
+  ) => {
+    const peer = await connectCodexMcpTools(
+      { 'task-board': { command: 'fixture-peer', args } },
+      {
+        cwd: '/host',
+        cwdForSource: () => cwd,
+        env,
+        signal: new AbortController().signal,
+        connect: async () => ({
+          listTools: async () => ({
+            tools: [{ name: 'TaskStatus', description, inputSchema: { type: 'object' } }],
+          }),
+          callTool: async () => ({ content: [] }),
+          close: async () => {},
+        }),
+      },
+    );
+    peers.push(peer);
+    return peer;
+  };
+  try {
+    vi.stubEnv('HOME', '/offline/first-home');
+    const first = await connect(['--task-id', 'first']),
+      same = await connect(['--task-id', 'first']);
+    const wire = first.definitions[0].name,
+      scope = first.outputScope(wire);
+    expect(scope).toMatch(/^[a-f0-9]{64}$/);
+    expect(same.outputScope(wire)).toBe(scope);
+    for (const changed of [
+      await connect(['--task-id', 'second']),
+      await connect(['--task-id', 'first'], '/other'),
+      await connect(['--task-id', 'first'], '/receipt', { FIXTURE: 'rotated' }),
+      await connect(['--task-id', 'first'], '/receipt', { FIXTURE: 'one' }, 'Changed descriptor'),
+    ]) {
+      expect(changed.definitions[0].name).toBe(wire);
+      expect(changed.outputScope(wire)).not.toBe(scope);
+    }
+    vi.stubEnv('HOME', '/offline/second-home');
+    const inheritedChange = await connect(['--task-id', 'first']);
+    expect(inheritedChange.outputScope(wire)).not.toBe(scope);
+    await first.close();
+    expect(() => first.outputScope(wire)).toThrow('stale_owner');
+  } finally {
+    await Promise.all(peers.map((peer) => peer.close()));
+    vi.unstubAllEnvs();
+  }
+});

@@ -96,7 +96,7 @@ export async function connectSelectedTaskMcpTools(
 type McpPeer = Pick<
   Awaited<ReturnType<typeof connectCodexMcpTools>>,
   'definitions' | 'displayName' | 'execute' | 'close'
->;
+> & { assertToolCurrent?: (name: string) => void; outputScope?: (name: string) => string };
 /** Keep each original peer's executor, permission, cancellation and close owners. */
 export function combineMcpToolPeers(primary: McpPeer, task: McpPeer): McpPeer {
   const owners = new Map<string, McpPeer>();
@@ -108,6 +108,17 @@ export function combineMcpToolPeers(primary: McpPeer, task: McpPeer): McpPeer {
   return {
     definitions: [...primary.definitions, ...task.definitions],
     displayName: (name) => owners.get(name)?.displayName(name) ?? name,
+    outputScope: (name) => {
+      const owner = owners.get(name);
+      if (!owner?.outputScope) throw Error('Current MCP output scope unavailable');
+      owner.assertToolCurrent?.(name);
+      return owner.outputScope(name);
+    },
+    assertToolCurrent: (name) => {
+      const owner = owners.get(name);
+      if (!owner?.assertToolCurrent) throw Error('Current MCP output owner unavailable');
+      owner.assertToolCurrent(name);
+    },
     close: async () => {
       await Promise.allSettled([primary.close(), task.close()]);
     },
