@@ -793,7 +793,7 @@ try {
   // may already exist
 }
 export const taskStore = new TaskStore(join(mitzoDir, 'tasks.db'));
-setTaskStore(taskStore);
+const assertInstalledTelosChatOwners = setTaskStore(taskStore);
 export const workloadStore = new WorkloadStore(taskStore.getDatabase());
 setTokenStorePath(join(mitzoDir, 'device-tokens.json'));
 
@@ -2090,6 +2090,14 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
 
 const telosDatabasePath = () =>
   resolve(process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'));
+const lifecycleCanonicalSelection = telosDatabasePath();
+let lifecycleSelectionInvalidated = false;
+function assertInstalledTelosDeletionOwners() {
+  if (telosDatabasePath() !== lifecycleCanonicalSelection) lifecycleSelectionInvalidated = true;
+  if (lifecycleSelectionInvalidated || typeof assertInstalledTelosChatOwners !== 'function')
+    throw new Error('Actual selected Telos owners unavailable');
+  assertInstalledTelosChatOwners();
+}
 initializeTelosMainPublicationRuntime({
   registry,
   events: eventStore,
@@ -2439,7 +2447,29 @@ app.use(createOrdinaryWorkspacePreparationRouter());
 
 app.use(
   createTelosWorkRouter({
-    dbPath: telosDatabasePath,
+    dbPath: () => {
+      const selected = telosDatabasePath();
+      // Observe selection before constructing the request Store: a missing or
+      // rejected alternative cannot hide a change and later revive this App.
+      if (selected !== lifecycleCanonicalSelection) lifecycleSelectionInvalidated = true;
+      return selected;
+    },
+    assertLifecycleQuiescent: (itemId, original) => {
+      try {
+        original.retainLifecycleDeletionFence(
+          itemId,
+          lifecycleCanonicalSelection,
+          eventStore,
+          taskStore,
+          assertInstalledTelosDeletionOwners,
+        );
+      } catch {
+        throw new TelosWorkError(
+          'conflict',
+          'Verified host quiescence required for permanent deletion',
+        );
+      }
+    },
     operatorAuth: operatorAuthMiddleware,
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,

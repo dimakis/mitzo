@@ -1,0 +1,39 @@
+{
+  "recordedAt": "2026-10-20T08:37:40.437Z",
+  "status": "scope_correction_no_new_standalone_picker_requirement_or_design_defect",
+  "supersedesClassificationOf": {
+    "id": "d0f220128174fde659623d42e1a6811c",
+    "revision": 1,
+    "sha256": "4e5512af6fcd298f72a12213c2471f65d6591ee8ded84f8bf6004e17805abab0",
+    "preservedOriginal": true
+  },
+  "approvedSource": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/i-want-you-to-have-a-2/review-evidence/approved/acceptance-contract.md",
+      "sha256": "dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/i-want-you-to-have-a-2/review-evidence/approved/implementation-plan.md",
+      "sha256": "28d94dd9c633e9bf2f0753d63a905f0abaaf923b3ef810d853d399f30a0fa8d5"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/i-want-you-to-have-a-2/review-evidence/approved/approved-mock.html",
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  ],
+  "exactRequirements": {
+    "scenario2": "Origin inspection/return, ordinary lead choice and no execution from capture/setup/inspection.",
+    "scenario5": "Full normal advisor, source-material inspection, reviewed revision/child save, same exchange/backlink and no worker from draft save.",
+    "UX07": "Exact originating exchange, two-way item link and stable adopted context/revisions.",
+    "UX11": "Worker receives reviewed brief/parentcriteria/sources and item/lead returns.",
+    "plan99": "Save to Telos captures a new item or explicitly selected existing association from actual chat/Symposium, retaining reviewed message/block selection and material versions."
+  },
+  "interpretation": "These establish outcomes and preserved review boundaries. They do not establish a separate standalone picker, direct frontend preview/adopt API caller, or newly designed selection surface. The existing genuine operator-approved source-tool/permission flow may be the intended capture UI. Its absence from this measured ownedLocal inventory is a selected-route unexercised/unavailable operation contract, not by itself a proved approved-design defect or authority to add a picker. The actual advisor proposal save is genuine and its independently closed scope remains preserved.",
+  "retainedFacts": "Existing permission review component requires a real telos_source request; actual measuredownedLocal tools omit CreateOutcome/AdoptSource, and no standalone frontend caller was found. Stop this positive selection/adoption case without fabricating a request or rerunning already closed advisor saves. No new source-entry design/implementation work is assigned by this assessment.",
+  "nativeByteAccessP2": "Independent concrete selectedbyte delivery/read-contract P2 remains OPEN and separately owned; do not downgrade it or infer resolution from this scope correction.",
+  "nextBoundedCase": "Existing role-context material-integrity refusal: actual UI reviewed r1+originalsource-record input, explicit typedApp negative pairing revision1 with lateractualr2hash, no fakeownedresponse or UIpicker. APInegative scope must remain explicit.",
+  "browserPolicy": "Approved source read as immutable bytes only. Prior file:// browser rejection preserved; no alternate rendering/serving/workaround.",
+  "testsRunForOverlay": 0,
+  "productionEdits": false,
+  "fullUxAccepted": false
+}

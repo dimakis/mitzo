@@ -1,0 +1,146 @@
+{
+  "recordedAt": "2026-10-20T08:32:52.798669+00:00",
+  "status": "confirmed_missing_selected_owned_local_normal_chat_capture_adoption_caller",
+  "scope": "Read-only existing-source and frozen observed-inventory trace. Missing caller concerns arbitrary ordinary-chat selected-source/outcome capture/adoption/materialselection on this owned Local route. Actual advisor Refine/Addchild proposal source-save remains valid and already qualified within its bounded scope. No claim that all runtime/provider routes lack a UI.",
+  "approvedRows": [
+    "UX07",
+    "UX19"
+  ],
+  "approvedScenarios": [
+    2,
+    5
+  ],
+  "frozenSource": {
+    "executionHead": "472d5c538c86b506972fbd9b7a7356b46d7277ff",
+    "executionTree": "a83fc19a7271254ef68205bbace4d89004941e53",
+    "resultPath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-RESULT.json",
+    "resultSha256": "22ab66b19c7c2f3bd1b5771b2fd28ad8dc4c794dc37d81a8923ca4364c17bdae"
+  },
+  "actualSelectedThreadStartToolNames": [
+    "AskUserQuestion",
+    "Bash",
+    "GitHubRead",
+    "GitCommit",
+    "Read",
+    "Write",
+    "Edit",
+    "SymposiumProposeProfile",
+    "SymposiumReadProfiles",
+    "AgentReadTasks",
+    "AgentProposeTask",
+    "AgentCommunication",
+    "RequestGithubPublish"
+  ],
+  "sourceTrace": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/PermissionBanner.tsx",
+      "sha256": "4706f371b3cdf9f80ebe40b673d4ce326b3c09a4bc88f30954f5dc4a614f03d7",
+      "start": 65,
+      "end": 82,
+      "finding": "Source selection card is enabled only by an actual permission with reviewKind=telos_source."
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosSourceReview.tsx",
+      "sha256": "e501290f74a90903b94fdc3a3c0b81075e72be6ed3b30e60a68ed4f3d38479ee",
+      "start": 190,
+      "end": 218,
+      "finding": "Disabled review returns immediately; enabled review requires a genuine permId/sessionId and getSourcePermission owner response. It does not manufacture its own permission."
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosSourceReview.tsx",
+      "sha256": "e501290f74a90903b94fdc3a3c0b81075e72be6ed3b30e60a68ed4f3d38479ee",
+      "start": 580,
+      "end": 710,
+      "finding": "Existing operator message/material selector and source preview/approval UI; real implementation retained, not an absent component."
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosAdvisorDraft.tsx",
+      "sha256": "091127d326a458cecab4514ecfe4f9b3244998acc571fccf887479d4afa4dffe",
+      "start": 156,
+      "end": 209,
+      "finding": "Different REAL operator advisor save UI already covered: conversation_so_far plus reviewed role pins, actual preview/save. This does not expose arbitrary normal-chat selected-message/adoption picker."
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosItemRoleEntries.tsx",
+      "sha256": "d19a53f26f66a44a47520475e2c9f3ff69c1ae8801253767f0ad88045bb7a819",
+      "start": 120,
+      "end": 157,
+      "finding": "Actual item entries provide normal Refine/Addchild setup; no standalone source-selection/capture entry here."
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/hooks/useTelosRoleSetup.ts",
+      "sha256": "cbded6cb6136a45627de2b563b433cfc4b9f80c248035dcdbbfb05c79d9810d8",
+      "start": 345,
+      "end": 367,
+      "finding": "Role review defaults already selected retained sources and their artifact refs; it is not a source-selection/adoption picker."
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/packages/client/src/telos-work-api.ts",
+      "sha256": "3e51db24e9269fda0aaeaaf1087ff1b3a388692c98d463792941fdeff0761692",
+      "start": 326,
+      "end": 356,
+      "finding": "Typed preview/adopt/create methods exist; no non-test frontend caller of these standalone methods was found in the selected source search."
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/codex-chat-session.ts",
+      "sha256": "1bebc84590a319b5b8ba5d0a2b2c8718a48324b22b88e17bea13e2ac085f3386",
+      "start": 1106,
+      "end": 1120,
+      "finding": "CreateOutcome/AdoptSource direct definitions are connectedOpenShell-only."
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/codex-chat-session.ts",
+      "sha256": "1bebc84590a319b5b8ba5d0a2b2c8718a48324b22b88e17bea13e2ac085f3386",
+      "start": 2495,
+      "end": 2545,
+      "finding": "Their native executor requires real turn/call identity, current host and a host-injected reviewed source approval; ownedLocal does not enter this branch."
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/chat.ts",
+      "sha256": "23c01ecd59766bcffa208fc2dba866412d25f7b16443731bc1d54cee64df094c",
+      "start": 3542,
+      "end": 3553,
+      "finding": "Owned path supplies configured and conditional Task MCP, no automatic bundled Telos MCP."
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/agent-tool-catalog.ts",
+      "sha256": "fc8c343b61f73224b02c4d3d864a64e54eb269566f58b393573920002fd2c9a9",
+      "start": 77,
+      "end": 108,
+      "finding": "Current built-in Telos references have no native supported routes; choosing a profile cannot invent source capture authority."
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-tool.ts",
+      "sha256": "a21d66aaf087d882b78403d335453effa8e7411220d5537b71ff0c271cf9e824",
+      "start": 128,
+      "end": 170,
+      "finding": "Source execute requires a real host-injected approval receipt; no direct operator API or fake permission bubble can stand in for that native caller."
+    }
+  ],
+  "searchScope": "Production frontend/src plus packages/client/src; matches in tests excluded. Standalone previewSource/adoptSource/createOutcomeFromSource methods occur in typed client/tests, not a production UI caller. Permission review UI separately uses getSourcePermission/previewSourcePermission/approveSourcePermission only after a genuine request.",
+  "conclusion": "The existing selection/approval component is gated behind a genuine provider-owned source operation. Current selected ownedLocal normal chat has no automatic CreateOutcome/AdoptSource native registration/executor or standalone UI entry for that request. Starting a source-permission card, mounting all MCP, directly calling capture/adopt, or presenting the already-covered advisor save as arbitrary-source selection would fabricate the missing caller boundary. Record this selected-route integration gap and stop the positive source-selection case before fixture/design/runtime work. OpenShell/legacy/configured-MCP paths remain separate/unqualified; no generic host isolation claim.",
+  "existingOwners": {
+    "CoreNativeProducer": {
+      "slice": "c44884c370d26704",
+      "thread": "01a1510b-0f0a-7e52-8021-c5223e696019"
+    },
+    "BSourceArtifactOwner": {
+      "slice": "4f55b423d0731750",
+      "thread": "01a14bdc-a8cb-7ea3-a6c3-02aba2303dcc"
+    },
+    "S5bHostConsumer": {
+      "slice": "df0d5bb2ec46416b",
+      "thread": "01a14bd3-0257-7ab2-a373-a8ecc89ff99a"
+    },
+    "S7ExistingUiConsumer": {
+      "slice": "57b0894e0379ab95",
+      "thread": "01a14bd3-4565-7163-9701-ffa4c87ce495",
+      "scope": "Existing approved source-review/normal UI integration only after an accepted genuine operation; no new picker/design authority."
+    }
+  },
+  "nextBoundedCase": "Actual normal Refine UI produces valid nonempty role-review request after real Files r2. Replay that exact selected-source/material request through the real typed App boundary with acoustic artifact revision1 paired with r2 hash. Require existing material-integrity refusal/no returned content/no changed canonical work/source/allocation/tasks/native turns. This is an API negative using an actual UI-reviewed request, not a UI picker error or full source-selection/adoption proof.",
+  "runtimeTestsForThisAssessment": 0,
+  "productionEdits": false,
+  "newPickerOrNativeGrant": false,
+  "positiveCaptureCaseOpened": false
+}

@@ -24,6 +24,11 @@
       "types": "./dist/collaboration-forward-custody.d.ts",
       "import": "./dist/collaboration-forward-custody.js",
       "default": "./dist/collaboration-forward-custody.js"
+    },
+    "./telos-sqlite-owners": {
+      "types": "./dist/telos-sqlite-owners.d.ts",
+      "import": "./dist/telos-sqlite-owners.js",
+      "default": "./dist/telos-sqlite-owners.js"
     }
   },
   "files": [
@@ -35,7 +40,8 @@
   "dependencies": {
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5",
-    "zod": "4.3.6"
+    "zod": "4.3.6",
+    "@mitzo/sqlite-file-owner": "*"
   },
   "peerDependencies": {
     "better-sqlite3": "^13.0.3"

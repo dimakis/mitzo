@@ -1,0 +1,382 @@
+{
+  "outcome": "PASS bounded corrected-candidate evidence/source intake; broader gates remain open",
+  "productionSource": "72c20ef2b6eb70217953356f58be98619fac2d92",
+  "productionTree": "c2da367dc3eb0d0f6f8abf23996ecae238cb0235",
+  "productionParent": "b3d8e6935c2e27bd5c0145c90ecb36839d4ea83b",
+  "coreExecution": "e446b5d0f20d4579a5cdb6bcaf82a99b3a7961d1",
+  "coreTree": "41917a3c4f385094dee80e03b1eb0e7daea4539f",
+  "refreshExecution": "46c1106e37cba9aca5e77a8b9682b1a5bce78989",
+  "sourceProofHash": "118ecb60f30280b9b2b579ef134346730cafe6caf0704e2235aabf918ab58374",
+  "sourceProofHashMatches": true,
+  "sixSuccessorPaths": {
+    "frontend/src/components/TelosWorkControls.tsx": {
+      "hash": "6f1568aa0156c091bdc999d9384bdd03aeba17bafde40575294c92c5f29868dd",
+      "matchesProducer": true,
+      "matchesInventory": true
+    },
+    "frontend/src/components/__tests__/TelosWorkControls.freshness.test.tsx": {
+      "hash": "a05dfbea79944cb7e1815a48c3f89c1bb44cad108bd5f01e234743f53eaef88d",
+      "matchesProducer": true,
+      "matchesInventory": true
+    },
+    "frontend/src/components/__tests__/TelosWorkControls.test.tsx": {
+      "hash": "b09ba47beb3275c195734034609de11c4a4bf50bf239a1708c70c80c86b0ea28",
+      "matchesProducer": true,
+      "matchesInventory": true
+    },
+    "frontend/src/hooks/useTelosChatRoute.ts": {
+      "hash": "4152199fe96c045b8bec217ead5c913b7d708fffc8dd6281721a4b0d2b16e6a8",
+      "matchesProducer": true,
+      "matchesInventory": true
+    },
+    "frontend/src/hooks/useTelosChatWork.ts": {
+      "hash": "1daa58043c0b6f2bd837378b9c120de884381683dd9e4e680d5003c46d6ee62c",
+      "matchesProducer": true,
+      "matchesInventory": true
+    },
+    "server/connections/reviewed-handler-artifacts.ts": {
+      "hash": "29831c57e16c723ecc241bd60689de441a8feb26245fdbf55766bbd5c8fa6bbc",
+      "matchesProducer": true,
+      "matchesInventory": true
+    }
+  },
+  "prior15PathsPreservedExceptReviewedSuccessor": {
+    "docs/design/ui-design-system.md": true,
+    "frontend/src/components/TelosChatFrame.tsx": true,
+    "frontend/src/components/TelosWorkControls.css": true,
+    "frontend/src/components/TelosWorkControls.tsx": true,
+    "frontend/src/components/__tests__/TelosWorkControls.test.tsx": true,
+    "frontend/src/hooks/__tests__/useTelosWorkControls.test.tsx": true,
+    "frontend/src/hooks/useTelosWorkControls.ts": true,
+    "frontend/src/lib/telos-chat-tree-context.ts": true,
+    "frontend/src/pages/ChatView.tsx": true,
+    "frontend/src/pages/DesktopChatView.tsx": true,
+    "packages/client/src/__tests__/telos-work-controls-client.test.ts": true,
+    "packages/client/src/telos-work-api.ts": true,
+    "server/connections/reviewed-handler-artifacts.ts": true,
+    "tests/offline/telos-chat-routes.spec.ts": true,
+    "tests/offline/telos-coordinator-controls.spec.ts": true
+  },
+  "exceptionsByExecution": {
+    "e446b5d0f20d4579a5cdb6bcaf82a99b3a7961d1": {
+      "server/__tests__/agent-communication-nongit-app.test.ts": true,
+      "server/__tests__/agent-communication-nongit-native.test.ts": true,
+      "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts": true,
+      "server/__tests__/telos-coordinator-v2-native-journey.test.ts": true
+    },
+    "46c1106e37cba9aca5e77a8b9682b1a5bce78989": {
+      "server/__tests__/agent-communication-nongit-app.test.ts": true,
+      "server/__tests__/agent-communication-nongit-native.test.ts": true,
+      "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts": true,
+      "server/__tests__/telos-coordinator-v2-native-journey.test.ts": true
+    }
+  },
+  "caseHelperRunnerPlanHashes": {
+    "coordinator-refresh-browser.contract.ts": {
+      "sha256": "a9d9d4ba6307d65153a929ff77f63771be69ae3ae798b5e0f45627132e587356",
+      "matchesExpected": true
+    },
+    "vitest.coordinator-refresh.config.ts": {
+      "sha256": "359a7b3f08fe465719a5925b17e0a3b9b5d1e5b84a048b752705232b6dca8d21",
+      "matchesExpected": true
+    },
+    "coordinator-controls-browser.contract.ts": {
+      "sha256": "0aa5c6c1ae9805de414850b88bdbe53cf9d7ab8b283bcdff04ec248c5738183c",
+      "matchesExpected": true
+    },
+    "vitest.coordinator-controls.config.ts": {
+      "sha256": "2111a81073966bc73b9dbdc34ff6e20c2bff32205f6e8c17b2cc0d2b40974784",
+      "matchesExpected": true
+    },
+    "joined-ordinary-application.ts": {
+      "sha256": "33d5bf66c1e0767cd8f61c9950d00286c1d20e2e37d4c70fb5dfbe0989188539",
+      "matchesExpected": true
+    },
+    "run-joined-ci.mjs": {
+      "sha256": "a08dfd1eed9b735c27c989780b2b3b3d2f8e71f876e6a4411616774416c55476",
+      "matchesExpected": true
+    },
+    "s8-chooser-browser.contract.ts": {
+      "sha256": "0bec2bcba048f74280d905435dc7ddc9fe94bf73c56c68ebab3bb2db37a9cc67",
+      "matchesExpected": true
+    },
+    "coordinator-controls.acceptance-plan.json": {
+      "sha256": "df5a9e25d3c067c56bf7cd511ff074dbb5146889099413f0d82a808c3fc79543",
+      "matchesExpected": true
+    }
+  },
+  "sameTargetedCaseConfigAsOriginalRed": {
+    "coordinator-refresh-browser.contract.ts": true,
+    "vitest.coordinator-refresh.config.ts": true
+  },
+  "all33fcCoreLinesRetainedInOrderAfterTypeUnionNormalization": true,
+  "runnerUnchanged": true,
+  "nineCaseFilesUnchanged": {
+    "tests/integration/telos-s9/integrated-candidate/non-git-browser.contract.ts": true,
+    "tests/integration/telos-s9/integrated-candidate/repository-browser.contract.ts": true,
+    "tests/integration/telos-s9/integrated-candidate/lost-response-browser.contract.ts": true,
+    "tests/integration/telos-s9/integrated-candidate/tree-priority-browser.contract.ts": true,
+    "tests/integration/telos-s9/integrated-candidate/s8-chooser-browser.contract.ts": true,
+    "tests/integration/telos-s9/integrated-candidate/stop-isolation-browser.contract.ts": true,
+    "server/__tests__/telos-ordinary-canonical-journey.test.ts": true,
+    "server/__tests__/agent-communication-nongit-app.test.ts": true,
+    "server/__tests__/telos-coordinator-v2-native-journey.test.ts": true
+  },
+  "rawResults": {
+    "sameTargetedRefresh": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/same-refresh/run.json",
+      "sha256": "283a4bfcc74fec7e0ced9353f783c2a751476c987c2271a1d0ad80dac54f7318",
+      "matchesExpected": true,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "success": true,
+      "assertionFailureCount": 0,
+      "totalTests": 1,
+      "todoTests": 0,
+      "caseFiles": [
+        {
+          "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/coordinator-refresh-browser.contract.ts",
+          "assertionCount": 1
+        }
+      ]
+    },
+    "corePlusActualDesktop": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/desktop-receipt-check/run.json",
+      "sha256": "63238d3ba956eb60430679d205a1c4cadebd48dc3f95ee139335dea6dc410c22",
+      "matchesExpected": true,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "success": true,
+      "assertionFailureCount": 0,
+      "totalTests": 1,
+      "todoTests": 0,
+      "caseFiles": [
+        {
+          "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/coordinator-controls-browser.contract.ts",
+          "assertionCount": 1
+        }
+      ]
+    },
+    "prior72CoreNotExtraSelectedCase": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/core-plus-desktop/run.json",
+      "sha256": "979164be6ba90fdbd5c1756d85dea7c06555ddaebd3dd6714307b5fa033559fc",
+      "matchesExpected": true,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "success": true,
+      "assertionFailureCount": 0,
+      "totalTests": 1,
+      "todoTests": 0,
+      "caseFiles": [
+        {
+          "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/coordinator-controls-browser.contract.ts",
+          "assertionCount": 1
+        }
+      ]
+    },
+    "originalSameCase33fcRed": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-33FC-DIAGNOSTICS/refresh-vitest-observer/run.json",
+      "sha256": "eaf4ee62ade6a66dc5acad44d08dad709d7ec4ab48a87397107b8920788b6e50",
+      "matchesExpected": true,
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0,
+      "success": false,
+      "assertionFailureCount": 3,
+      "totalTests": 1,
+      "todoTests": 0,
+      "caseFiles": [
+        {
+          "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/coordinator-refresh-browser.contract.ts",
+          "assertionCount": 1
+        }
+      ]
+    }
+  },
+  "selectedCaseTotals": {
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0
+  },
+  "observationIntegrity": {
+    "refreshObservations": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/same-refresh/coordinator-refresh-observations.json",
+      "sha256": "aeb6426c7824dae0c8c544fd5cd30db5040dfcbb29318902d7bf619d56db2ba3",
+      "deepEqualsProof": true
+    },
+    "coreObservations": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/desktop-receipt-check/coordinator-observations.json",
+      "sha256": "1c355fcedc46494f00e45b3f2223aaff23b6ae1d9898ed054623eb02d537adea",
+      "deepEqualsProof": true
+    }
+  },
+  "captures": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/same-refresh/replacement-read-pending-no-release.png",
+      "sha256": "27bbc112d1d479cef6be50178e3af50f08d11202ac03063dfe136ada862c6cf1",
+      "matchesExpected": true
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/same-refresh/unrelated-failure-valid-attached-scope.png",
+      "sha256": "4ea630fa6a3d3acf5decd8b0bae4fd237092c1dc58e4e08db32d58eeb1dd12d3",
+      "matchesExpected": true
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/desktop-receipt-check/actual-native-ack-application-pending.png",
+      "sha256": "2eb9b2709acc96deeb784a33e0b3b971ca7aaaffe4008258a756ce648cc3085a",
+      "matchesExpected": true
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/desktop-receipt-check/coordinator-priority-and-scope.png",
+      "sha256": "36bb736807dbabbea104ec2d05bc3a371e067d0d3e79f3a184439d40f3880c15",
+      "matchesExpected": true
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/desktop-receipt-check/desktop-actual-dispatch-released.png",
+      "sha256": "8532d68938060f1ba1d49c447ff2f414bac1cc88fe3f55ea711f95dd38d17bc7",
+      "matchesExpected": true
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/desktop-receipt-check/desktop-actual-dispatch-request-read.png",
+      "sha256": "b7b5066bfff01431bf0138721798dbe36bfd9220ce37e70d43d6afcb465055e3",
+      "matchesExpected": true
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/desktop-receipt-check/desktop-retained-two-distinct-scope-releases.png",
+      "sha256": "34653c5f85102bdc05c5b8cb7bb17474f09d4af90c430beba0cd28b9742205d2",
+      "matchesExpected": true
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/desktop-receipt-check/publication-released-unvalidated.png",
+      "sha256": "7ce6cb4006ce17731b769da18b92d6d102a42ace4d366de092dccb8f8f1d92a9",
+      "matchesExpected": true
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/desktop-receipt-check/publication-requested-read-only.png",
+      "sha256": "a981c72c885e5cd0c5ee2dc75e92f11e315a794156e81ce6f4b1320f5e285da2",
+      "matchesExpected": true
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/desktop-receipt-check/real-host-applied-mixed-receipts.png",
+      "sha256": "2b3df979a5a226cdc8704a094bdcd0b287e22ebe1b36aa84dcde3549a11ccf90",
+      "matchesExpected": true
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS/desktop-receipt-check/unrelated-job-completed-reloaded.png",
+      "sha256": "aedb114953d664eef456cb06b7b9724e529ae336abc1796662d1835ab40b6ab8",
+      "matchesExpected": true
+    }
+  ],
+  "archives": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-SOURCE.zip",
+      "sha256": "b7f0cbc5775557fd3418aba8b1f1dfeed0fa093c1a98bdbbf4997c16accd517c",
+      "matchesExpected": true
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-COORDINATOR-72C-DIAGNOSTICS.zip",
+      "sha256": "372e15b503f8230a97b2cc0769c18e09790785a76617ea7eea759bc978b906af",
+      "matchesExpected": true
+    }
+  ],
+  "deliveryDelta": [
+    "docs/evidence/telos-s9/integrated-candidate/coordinator-controls-72c-retake.json",
+    "docs/evidence/telos-s9/integrated-candidate/coordinator-controls-72c-retake.md"
+  ],
+  "recordedCandidateChecks": {
+    "unrelatedFailuresRed": 1,
+    "unrelatedFailuresGreen": 0,
+    "priorityGreen": true,
+    "sendGreen": true,
+    "releaseWhileHeldRed": true,
+    "releaseWhileHeldGreen": false,
+    "heldReads": 1,
+    "relatedCompleted": [
+      "refresh-feature-0",
+      "refresh-feature-1",
+      "refresh-feature-2",
+      "refresh-feature-3",
+      "refresh-feature-4",
+      "refresh-feature-5"
+    ],
+    "pendingRelated": 0,
+    "refreshNativeLaunches": 0,
+    "coreNativeLaunches": 11,
+    "coreNativeStarts": [
+      {
+        "threadId": "offline-journey-thread-1",
+        "turns": 1,
+        "interrupts": 0
+      },
+      {
+        "threadId": "offline-journey-thread-2",
+        "turns": 1,
+        "interrupts": 0
+      },
+      {
+        "threadId": "offline-journey-thread-3",
+        "turns": 1,
+        "interrupts": 0
+      },
+      {
+        "threadId": "offline-journey-thread-4",
+        "turns": 1,
+        "interrupts": 0
+      },
+      {
+        "threadId": "offline-journey-thread-5",
+        "turns": 1,
+        "interrupts": 0
+      },
+      {
+        "threadId": "offline-journey-thread-6",
+        "turns": 1,
+        "interrupts": 0
+      },
+      {
+        "threadId": "offline-journey-thread-7",
+        "turns": 1,
+        "interrupts": 0
+      },
+      {
+        "threadId": "offline-journey-thread-8",
+        "turns": 1,
+        "interrupts": 0
+      },
+      {
+        "threadId": "offline-journey-thread-9",
+        "turns": 1,
+        "interrupts": 0
+      },
+      {
+        "threadId": "offline-journey-thread-10",
+        "turns": 1,
+        "interrupts": 0
+      },
+      {
+        "threadId": "offline-journey-thread-11",
+        "turns": 1,
+        "interrupts": 0
+      }
+    ],
+    "ackCallsIncludingDuplicate": 11,
+    "distinctAckRequests": 10,
+    "desktopRequestedHistory": [],
+    "desktopReleasedStage": "released",
+    "desktopReleasedHistory": [],
+    "desktopReleasedScope": "new_worker_dispatch"
+  },
+  "remaining": [
+    "Rootboundedfollowup/exactsourceintegration/currentrequiredCI/CentaurfinalLGTMmerge0/configuredAppgate andaccepted-main repeat; existing1048requiredninehostedadoption.",
+    "FullUX17/18/scenario6 shared-main publicationandcurrentworkrevision/currentmain validationowner unavailable; pendingseparatehumanapproval, notqualifiedbyprivateguard orreleasedUIreceipt.",
+    "FullUX22guardedreplacement/skills/context/access; UX07backlinks/UX19materialmetadata/recovery/coexistence/device/WebKitbreadth stillpending.",
+    "CT19 separatelyselectedauthorizedsingle-runtimeTelos/Symposiumlivewindow; no staging/productionfallback."
+  ],
+  "producerWebKitLimitation": "Prior source review retains one combined WebKit reload/access-control error and unchanged assertion/trace; diagnostic repeats do not make that whole campaign zero-failure. This independent selected Chromium evidence does not erase it.",
+  "testsRerun": false,
+  "networkModelsServicesBrowsersInvoked": false,
+  "acceptanceOwner": "S9; root retains accountability"
+}

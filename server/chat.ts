@@ -214,8 +214,23 @@ import type { TaskStore } from './task-store.js';
 import { loadAgentDef } from './agent-loader.js';
 
 let _taskStore: TaskStore | null = null;
-export function setTaskStore(store: TaskStore): void {
+let taskStoreInstallation = 0;
+/** Return a denial-only check for this actual installation. Even change-back
+ * advances the generation and cannot revive a previous App assembly. */
+export function setTaskStore(store: TaskStore): () => void {
   _taskStore = store;
+  const generation = ++taskStoreInstallation;
+  const installedEvents = eventStore;
+  let invalidated = false;
+  return () => {
+    if (
+      _taskStore !== store ||
+      taskStoreInstallation !== generation ||
+      eventStore !== installedEvents
+    )
+      invalidated = true;
+    if (invalidated) throw new Error('Actual installed Telos chat owners changed');
+  };
 }
 
 /** Existing ordinary admission calls this before effects and after awaits.

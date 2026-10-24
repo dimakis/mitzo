@@ -44,7 +44,9 @@ async function exerciseLibraryJourney(
 ) {
   // Each case keeps the entire task/profile/recovery journey and its state.
   // One appearance per case prevents the four layout branches exhausting it.
-  test.setTimeout(60_000);
+  // CI WebKit completed every assertion just beyond the aggregate 60s budget.
+  // Keep the full journey and its action deadlines, with allowance on WebKit only.
+  test.setTimeout(testInfo.project.name === 'mobile-webkit' ? 90_000 : 60_000);
   const definition = {
     name: 'Bob',
     descriptor: 'The architect',

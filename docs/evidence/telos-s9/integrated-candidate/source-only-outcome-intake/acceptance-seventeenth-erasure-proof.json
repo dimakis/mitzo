@@ -1,0 +1,13 @@
+{
+  "path": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+  "typescript": "5.9.3",
+  "from": "const cleanups: Array<() => unknown | Promise<unknown>> = [];",
+  "to": "const cleanups: Array<() => void | Promise<void>> = [];",
+  "originalSha256": "cb134d2c028b229a0f2c63f194508da486946c34b44e5d753a7cc24812141666",
+  "proposedSha256": "09c6f749f26b6917123394302c7943be280051fa0def05cb63062e4d6402e1ae",
+  "identicalJavaScript": true,
+  "javaScriptSha256": "9b4d5e2953bac82ee2b89ee4642c68d68747ad076ef7eb9158e1379725d735f8",
+  "fixtureEdited": true,
+  "reason": "Exact donor itself fails TS2345 against byteexact reused cleanup owner; only erased cleanup annotation proposed. No assertion or runtime change.",
+  "authorization": "Root independently verified exact one erased annotation; root S5B-1048-SEVENTEENTH-ROOT-ERASURE-PREFLIGHT.json"
+}

@@ -1,0 +1,546 @@
+{
+  "executionHead": "a33ec9e84fd4af302a61b210b51397ce2638141b",
+  "productionSource": "268482b5204399883de092fec99baa1f938e81b8",
+  "productionTree": "5e44e2c1a0758d9bde42385a83f008dc16a7c357",
+  "scope": "One actual-App bounded scenario1/UX01-UX03 case, two sequential viewport contexts320x900reduce and1280x900normal; not two selected cases, not full required9 or completeUX/device/main qualification.",
+  "result": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-NAVIGATION-268-DIAGNOSTICS/settled-departure/run.json",
+    "sha256": "9a1213c2395e70128d58a5198815c5965a704a5126062d7318a5c767315d85b5",
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 11556.463582999999
+  },
+  "sourceProof": {
+    "changedPaths": [
+      "docs/evidence/telos-s9/integrated-candidate/README.md",
+      "docs/evidence/telos-s9/integrated-candidate/acceptance-plan.json",
+      "docs/evidence/telos-s9/integrated-candidate/advisor-material-pin-red.md",
+      "docs/evidence/telos-s9/integrated-candidate/advisor-material-retest-84.json",
+      "docs/evidence/telos-s9/integrated-candidate/assembly-conflicts-manifest.json",
+      "docs/evidence/telos-s9/integrated-candidate/assembly-conflicts.zip",
+      "docs/evidence/telos-s9/integrated-candidate/ci-prerequisites.md",
+      "docs/evidence/telos-s9/integrated-candidate/coordinator-controls-preparation.md",
+      "docs/evidence/telos-s9/integrated-candidate/joined-first-path.md",
+      "docs/evidence/telos-s9/integrated-candidate/lost-response-recovery.md",
+      "docs/evidence/telos-s9/integrated-candidate/ordinary-parity-d525.json",
+      "docs/evidence/telos-s9/integrated-candidate/ordinary-parity-d525.md",
+      "docs/evidence/telos-s9/integrated-candidate/peer-actual-app-observation.json",
+      "docs/evidence/telos-s9/integrated-candidate/repository-prepared-first-red.md",
+      "docs/evidence/telos-s9/integrated-candidate/s8-268-retake.json",
+      "docs/evidence/telos-s9/integrated-candidate/s8-268-retake.md",
+      "docs/evidence/telos-s9/integrated-candidate/s8-538-ae2-retake.json",
+      "docs/evidence/telos-s9/integrated-candidate/s8-538-ae2-retake.md",
+      "docs/evidence/telos-s9/integrated-candidate/s8-actual-chooser.md",
+      "docs/evidence/telos-s9/integrated-candidate/s9-accepted-design-pins-results.json",
+      "docs/evidence/telos-s9/integrated-candidate/s9-accepted-design-pins-run.log",
+      "docs/evidence/telos-s9/integrated-candidate/s9-peer-required-results.json",
+      "docs/evidence/telos-s9/integrated-candidate/s9-peer-required-run.log",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s5b-candidate-reuse-results.json",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s5b-candidate-reuse-run.log",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s5b-owner-boundaries-results.json",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s5b-owner-boundaries-run.log",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s6-current-boundaries-results.json",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s6-current-boundaries-run.log",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s6-current-native-boundary-results.json",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s6-current-native-boundary-run.log",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s6-owner-boundaries-results.json",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s6-owner-boundaries-run.log",
+      "docs/evidence/telos-s9/integrated-candidate/source-manifest.json",
+      "docs/evidence/telos-s9/integrated-candidate/stop-isolation-d525.json",
+      "docs/evidence/telos-s9/integrated-candidate/stop-isolation-d525.md",
+      "docs/evidence/telos-s9/integrated-candidate/tree-priority-actual-app.md",
+      "docs/evidence/telos-s9/integrated-candidate/ux-conformance-d525.json",
+      "docs/evidence/telos-s9/integrated-candidate/ux-conformance-d525.md",
+      "docs/evidence/telos-s9/integrated-candidate/ux-owner-findings-d525.json",
+      "docs/evidence/telos-s9/integrated-candidate/voice-image-268-result.json",
+      "docs/evidence/telos-s9/integrated-candidate/voice-image-268.md",
+      "server/__tests__/agent-communication-nongit-app.test.ts",
+      "server/__tests__/agent-communication-nongit-native.test.ts",
+      "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "server/__tests__/telos-coordinator-v2-native-journey.test.ts",
+      "tests/integration/telos-s9/integrated-candidate/chooser-hydration-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/coordinator-controls.acceptance-plan.json",
+      "tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-cli-3077.json.gz",
+      "tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-cli-3077.manifest.json",
+      "tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-requirements.txt",
+      "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "tests/integration/telos-s9/integrated-candidate/joined-canonical-cli.ts",
+      "tests/integration/telos-s9/integrated-candidate/joined-fake-voice-effects.ts",
+      "tests/integration/telos-s9/integrated-candidate/joined-ordinary-application.ts",
+      "tests/integration/telos-s9/integrated-candidate/joined-repository-source.ts",
+      "tests/integration/telos-s9/integrated-candidate/lost-response-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/navigation-context-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/non-git-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/ordinary-parity-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/peer-messaging.required-contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/repository-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs",
+      "tests/integration/telos-s9/integrated-candidate/run-ux-composition.mjs",
+      "tests/integration/telos-s9/integrated-candidate/s8-chooser-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/stop-isolation-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/tree-priority-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/ux-composition-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.chooser-hydration.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.joined.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.navigation-context.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.ordinary-parity.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.recovery-joined.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.repository-joined.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.required.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.s6-app-owners.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.s8-joined.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.stop-isolation.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.tree-priority-joined.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.ux-composition.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.voice-image.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/voice-image-browser.contract.ts"
+    ],
+    "onlyDedicatedS9AndFourExactPublishedFaadTestExceptions": true,
+    "productionUnchangedFrom268": true,
+    "helperAndVoiceImageSourceUnchangedFrom3df81c": true,
+    "required9AndFrozen113UnchangedFrom453": true,
+    "coordinatorPreparedPlan43Unchanged": true
+  },
+  "fileSha256": {
+    "navigation-context-browser.contract.ts": "d84fe557dfef602138e8a4df2618e03af5f75bf169a0d99aad75927c37e8be2d",
+    "vitest.navigation-context.config.ts": "cb37b795610758a3a81358c614f21295d45a1e28c877a08336c8ca3d4b0b63f1",
+    "joined-ordinary-application.ts": "33d5bf66c1e0767cd8f61c9950d00286c1d20e2e37d4c70fb5dfbe0989188539",
+    "run-joined-ci.mjs": "a08dfd1eed9b735c27c989780b2b3b3d2f8e71f876e6a4411616774416c55476",
+    "s8-chooser-browser.contract.ts": "0bec2bcba048f74280d905435dc7ddc9fe94bf73c56c68ebab3bb2db37a9cc67",
+    "coordinator-controls.acceptance-plan.json": "df5a9e25d3c067c56bf7cd511ff074dbb5146889099413f0d82a808c3fc79543"
+  },
+  "observations": {
+    "observations": [
+      {
+        "profile": {
+          "name": "narrow",
+          "width": 320,
+          "height": 900,
+          "reducedMotion": "reduce"
+        },
+        "hierarchy": [
+          "Navigation target 24 \u00b7 nested review",
+          "Navigation target 24",
+          "Navigation programme"
+        ],
+        "itemBefore": {
+          "top": 3799,
+          "clientHeight": 592,
+          "scrollHeight": 4391
+        },
+        "itemAfter": {
+          "top": 3799,
+          "clientHeight": 592,
+          "scrollHeight": 4391
+        },
+        "chatBefore": {
+          "top": 3799,
+          "clientHeight": 592,
+          "scrollHeight": 4391
+        },
+        "chatAfter": {
+          "top": 3799,
+          "clientHeight": 592,
+          "scrollHeight": 4391
+        },
+        "leadId": "0aa52666-97a7-80f0-8dce-a84118c86e91",
+        "draft": "narrow navigation draft retained without execution.",
+        "ownNavigationPreferences": {
+          "query": "Navigation target",
+          "category": "Navigation lab",
+          "pins": ["Job", "Personal projects", "Mitzo", "Navigation lab"],
+          "expanded": [],
+          "filter": "All outcomes"
+        }
+      },
+      {
+        "profile": {
+          "name": "desktop",
+          "width": 1280,
+          "height": 900,
+          "reducedMotion": "no-preference"
+        },
+        "hierarchy": [
+          "Navigation target 24 \u00b7 nested review",
+          "Navigation target 24",
+          "Navigation programme"
+        ],
+        "itemBefore": {
+          "top": 2660,
+          "clientHeight": 768,
+          "scrollHeight": 3428
+        },
+        "itemAfter": {
+          "top": 2660,
+          "clientHeight": 768,
+          "scrollHeight": 3428
+        },
+        "chatBefore": {
+          "top": 2660,
+          "clientHeight": 768,
+          "scrollHeight": 3428
+        },
+        "chatAfter": {
+          "top": 2660,
+          "clientHeight": 768,
+          "scrollHeight": 3428
+        },
+        "leadId": "0aa52666-97a7-80f0-8dce-a84118c86e91",
+        "draft": "desktop navigation draft retained without execution.",
+        "ownNavigationPreferences": {
+          "query": "Navigation target",
+          "category": "Navigation lab",
+          "pins": ["Job", "Personal projects", "Mitzo", "Navigation lab"],
+          "expanded": [],
+          "filter": "All outcomes"
+        }
+      }
+    ],
+    "nativeLaunches": 0,
+    "sessionsBefore": 2,
+    "sessionsAfter": 2,
+    "beforeWork": {
+      "itemId": "navigation-24",
+      "kind": "outcome",
+      "parentId": "navigation-root",
+      "revision": "aff2a2579a753cb36590fbddb02c9b30453d5619e44364ba626bd141f7d09529",
+      "links": [
+        {
+          "version": 1,
+          "linkId": "e40348a9-4186-404e-9601-99ea72aca8ea",
+          "itemId": "navigation-24",
+          "linkedAt": "2026-10-20T03:10:15.672Z",
+          "linkedBy": "operator:7fb47272-7c90-424e-9567-cdd0c1e109e5",
+          "availability": "available",
+          "attemptId": null,
+          "role": "lead",
+          "conversation": {
+            "namespace": "mitzo",
+            "conversationId": "0aa52666-97a7-80f0-8dce-a84118c86e91"
+          }
+        }
+      ],
+      "assignments": [
+        {
+          "itemId": "navigation-24",
+          "role": "lead",
+          "conversation": {
+            "namespace": "mitzo",
+            "conversationId": "0aa52666-97a7-80f0-8dce-a84118c86e91"
+          },
+          "revision": 1,
+          "assignedAt": "2026-10-20T03:10:15.672Z",
+          "assignedBy": "operator:7fb47272-7c90-424e-9567-cdd0c1e109e5"
+        }
+      ],
+      "assignmentHistory": {
+        "lead": {
+          "complete": true,
+          "conversationIds": ["0aa52666-97a7-80f0-8dce-a84118c86e91"]
+        },
+        "worker": {
+          "complete": true,
+          "conversationIds": []
+        }
+      },
+      "sources": [],
+      "attempts": []
+    },
+    "afterWork": {
+      "itemId": "navigation-24",
+      "kind": "outcome",
+      "parentId": "navigation-root",
+      "revision": "aff2a2579a753cb36590fbddb02c9b30453d5619e44364ba626bd141f7d09529",
+      "links": [
+        {
+          "version": 1,
+          "linkId": "e40348a9-4186-404e-9601-99ea72aca8ea",
+          "itemId": "navigation-24",
+          "linkedAt": "2026-10-20T03:10:15.672Z",
+          "linkedBy": "operator:7fb47272-7c90-424e-9567-cdd0c1e109e5",
+          "availability": "available",
+          "attemptId": null,
+          "role": "lead",
+          "conversation": {
+            "namespace": "mitzo",
+            "conversationId": "0aa52666-97a7-80f0-8dce-a84118c86e91"
+          }
+        }
+      ],
+      "assignments": [
+        {
+          "itemId": "navigation-24",
+          "role": "lead",
+          "conversation": {
+            "namespace": "mitzo",
+            "conversationId": "0aa52666-97a7-80f0-8dce-a84118c86e91"
+          },
+          "revision": 1,
+          "assignedAt": "2026-10-20T03:10:15.672Z",
+          "assignedBy": "operator:7fb47272-7c90-424e-9567-cdd0c1e109e5"
+        }
+      ],
+      "assignmentHistory": {
+        "lead": {
+          "complete": true,
+          "conversationIds": ["0aa52666-97a7-80f0-8dce-a84118c86e91"]
+        },
+        "worker": {
+          "complete": true,
+          "conversationIds": []
+        }
+      },
+      "sources": [],
+      "attempts": []
+    },
+    "pageErrors": [],
+    "scope": "One bounded actual-App case across two viewport contexts. No API fulfilment, manual scroll repair after return, provider/native/model calls, source edits or fullUX/device/main claim."
+  },
+  "readiness": [
+    {
+      "stage": "narrow-before-departure",
+      "animations": [],
+      "scroll": {
+        "top": 0,
+        "clientHeight": 592,
+        "scrollHeight": 4391
+      }
+    },
+    {
+      "stage": "narrow-before-chat-departure",
+      "animations": [],
+      "scroll": {
+        "top": 3799,
+        "clientHeight": 592,
+        "scrollHeight": 4391
+      }
+    },
+    {
+      "stage": "desktop-before-departure",
+      "animations": [
+        {
+          "target": "",
+          "playState": "running",
+          "waited": true
+        },
+        {
+          "target": "",
+          "playState": "running",
+          "waited": true
+        },
+        {
+          "target": "",
+          "playState": "running",
+          "waited": true
+        },
+        {
+          "target": "",
+          "playState": "running",
+          "waited": true
+        },
+        {
+          "target": "",
+          "playState": "running",
+          "waited": true
+        },
+        {
+          "target": "",
+          "playState": "running",
+          "waited": true
+        },
+        {
+          "target": "",
+          "playState": "running",
+          "waited": true
+        },
+        {
+          "target": "",
+          "playState": "running",
+          "waited": true
+        },
+        {
+          "target": "",
+          "playState": "running",
+          "waited": true
+        },
+        {
+          "target": "",
+          "playState": "running",
+          "waited": true
+        },
+        {
+          "target": "motion-presence telos-category-browser",
+          "playState": "running",
+          "waited": true
+        }
+      ],
+      "scroll": {
+        "top": 0,
+        "clientHeight": 768,
+        "scrollHeight": 3428
+      }
+    },
+    {
+      "stage": "desktop-before-chat-departure",
+      "animations": [],
+      "scroll": {
+        "top": 2660,
+        "clientHeight": 768,
+        "scrollHeight": 3428
+      }
+    }
+  ],
+  "captures": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-NAVIGATION-268-DIAGNOSTICS/settled-departure/desktop-chat-return-restored.png",
+      "sha256": "483a70b2292de1ce81974a95517bde87e327a6e7f7d21e386a7e5e6cc1c45679"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-NAVIGATION-268-DIAGNOSTICS/settled-departure/desktop-item-return-restored.png",
+      "sha256": "483a70b2292de1ce81974a95517bde87e327a6e7f7d21e386a7e5e6cc1c45679"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-NAVIGATION-268-DIAGNOSTICS/settled-departure/desktop-job-filter.png",
+      "sha256": "1f4b9b49616ede60fa4bf53c22114b981c6808d772376553f8164ac9984f3bac"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-NAVIGATION-268-DIAGNOSTICS/settled-departure/desktop-nested-item.png",
+      "sha256": "15ca16d649a4fbf24b0fc4509a8497352d360ecf2670167f270fe98dd8180f8e"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-NAVIGATION-268-DIAGNOSTICS/settled-departure/desktop-ordinary-chat.png",
+      "sha256": "e118739a68eb4ba062b2b3ece365a780c517d42fb0dadb4b979a7c4a0ac36acf"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-NAVIGATION-268-DIAGNOSTICS/settled-departure/desktop-searched-nested-before-open.png",
+      "sha256": "b795c1941c54c9f80bce99239fa77b97dfe16e285400a43867faf4b2567bbf6a"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-NAVIGATION-268-DIAGNOSTICS/settled-departure/narrow-chat-return-restored.png",
+      "sha256": "e265f6b32cf43ec7d33c37834d7991f77fabab6e349ba9892702391483479757"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-NAVIGATION-268-DIAGNOSTICS/settled-departure/narrow-item-return-restored.png",
+      "sha256": "e265f6b32cf43ec7d33c37834d7991f77fabab6e349ba9892702391483479757"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-NAVIGATION-268-DIAGNOSTICS/settled-departure/narrow-job-filter.png",
+      "sha256": "480efb226002ea5c0413cced0e489e66064122e77409b720cd3b68faec8bb667"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-NAVIGATION-268-DIAGNOSTICS/settled-departure/narrow-nested-item.png",
+      "sha256": "f0ec9b90f4ef667a7f162ff513666625044b5efd3ab26978376f6f0680c3f756"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-NAVIGATION-268-DIAGNOSTICS/settled-departure/narrow-ordinary-chat.png",
+      "sha256": "6ae01c647ad4cf1e10e0bde85f0dd4fb38fea073737890041794e31a6f35287a"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-NAVIGATION-268-DIAGNOSTICS/settled-departure/narrow-searched-nested-before-open.png",
+      "sha256": "bba8b0dd4181e6071f7d50cab915346cdf86399119aa94946b47ad231ceed9d8"
+    }
+  ],
+  "initialDiagnostic": {
+    "executionHead": "367288a0",
+    "result": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-NAVIGATION-268-DIAGNOSTICS/first-case/run.json",
+      "sha256": "da08dac747737b6aea2a0d105f938730d077e982788de2e754b225d8f44e989f",
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0,
+      "durationMs": 15709.550459
+    },
+    "checkpoints": [
+      {
+        "name": "narrow-item-return-restored",
+        "expected": {
+          "top": 3799,
+          "clientHeight": 592,
+          "scrollHeight": 4391
+        },
+        "actual": {
+          "top": 3799,
+          "clientHeight": 592,
+          "scrollHeight": 4391
+        },
+        "url": "http://127.0.0.1:51655/todos",
+        "preferences": {
+          "query": "Navigation target",
+          "category": "Navigation lab",
+          "pins": ["Job", "Personal projects", "Mitzo", "Navigation lab"],
+          "expanded": [],
+          "filter": "All outcomes"
+        }
+      },
+      {
+        "name": "narrow-chat-return-restored",
+        "expected": {
+          "top": 3799,
+          "clientHeight": 592,
+          "scrollHeight": 4391
+        },
+        "actual": {
+          "top": 3799,
+          "clientHeight": 592,
+          "scrollHeight": 4391
+        },
+        "url": "http://127.0.0.1:51655/todos",
+        "preferences": {
+          "query": "Navigation target",
+          "category": "Navigation lab",
+          "pins": ["Job", "Personal projects", "Mitzo", "Navigation lab"],
+          "expanded": [],
+          "filter": "All outcomes"
+        }
+      },
+      {
+        "name": "desktop-item-return-restored",
+        "expected": {
+          "top": 2694,
+          "clientHeight": 768,
+          "scrollHeight": 3462
+        },
+        "actual": {
+          "top": 2660,
+          "clientHeight": 768,
+          "scrollHeight": 3428
+        },
+        "url": "http://127.0.0.1:51655/todos",
+        "preferences": {
+          "query": "Navigation target",
+          "category": "Navigation lab",
+          "pins": ["Job", "Personal projects", "Mitzo", "Navigation lab"],
+          "expanded": [],
+          "filter": "All outcomes"
+        }
+      }
+    ],
+    "classification": "Observer predeparture-readiness diagnostic, not a qualified product defect: narrowitem/chat exactrestore passed; desktop baseline was measured before screenshot and normal finite-motion/readiness settled (height3462/top2694). Return height3428/top2660, same visual bottom anchor in captures. Retake preserves strict <=1px restoration and all actions, but waits actualfonts/allconversationreads/visibleactivefinitemotion naturally and measures departure aftercapture; desktop probe observed11activeanimations includingcategorybrowser before stableheight3428. No production change/manual scroll repair/disabledoradvancedmotion/looserassertion. First rawfailure remainsretained."
+  },
+  "approvedReference": {
+    "contract": "c54d6f2479aab619b163187829b6bdff@r1",
+    "contractSha256": "dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255",
+    "rows": ["UX01", "UX03"],
+    "scenario": 1,
+    "mock": "9d0559132154b92d0bbb427a982a0002@r1",
+    "mockSha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab",
+    "mockPointers": ["pins():232", "list():233", "crumbs():234"]
+  },
+  "qualified": [
+    "Actual Alloutcomes -> Jobfilter (unrelated HomeStudioexcluded) -> discover/unpin-pinnewcategoryNavigationlab -> Escape restoresbrowsefocus -> categoryfilter -> nestedquery/hierarchy.",
+    "24outcomes+nestedwork in accepted syntheticcanonical DB; actualread/classify/setup routes, MGMT3077CLI collection and real React app; no ownedAPI fulfilment.",
+    "Before/after nesteditemBack list scroll exactly3799narrow/2660desktop; search/category/pins/Alloutcomes preserved.",
+    "Real existingLeadchat entry -> actual ordinarycomposer unsentdraft -> Backforcedchooser -> Backlist exactscroll/context; reopen samechat retains draft with no reassignment, providerturn or duplicate session.",
+    "Actual parentworkDTO exactlyunchanged; sessions2before/after, native0,pageErrors[]; no navigation effect becomes execution authority."
+  ],
+  "remaining": [
+    "Actual accepted-main finalrepeat and exactheadrequiredCI/CentaurApp mergegate.",
+    "UX17/18 preparedcontract43 stayspendingS8frozenconsumer and separateapprovedpublicationowner; no guessed interface or skippedtest.",
+    "FullUX22guardedreplacement/skills/context/access; UX07sourcebacklinks, UX19version/author/date matrix, UX21fullprocessrestart/revocation/repositoryloss, physicaliOS/WebKit/device coverage remainpending.",
+    "CT19 separately authorizedsingle-runtimeTelos/Symposium window; parent/S9 ACTIVE."
+  ],
+  "realProviderModelCalls": 0,
+  "outgoingMessages": false,
+  "noProducerEdits": true
+}
