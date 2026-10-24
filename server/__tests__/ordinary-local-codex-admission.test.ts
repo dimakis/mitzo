@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionRuntimeBindingV2Schema, type OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
@@ -372,6 +372,48 @@ describe('guarded local Codex coordinator', () => {
       store.close();
     }
   });
+  it.each(['consumed', 'uncertain'] as const)(
+    'preserves %s native image intent across restaging and rejects changed pixels without redispatch',
+    async (outcome) => {
+      const root = mkdtempSync(join(tmpdir(), 'native-image-restage-'));
+      const store = new EventStore(':memory:');
+      const f = fixture(store);
+      const firstPath = join(root, 'first.png'),
+        secondPath = join(root, 'second.png');
+      const pixels = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
+        'base64',
+      );
+      writeFileSync(firstPath, pixels);
+      writeFileSync(secondPath, pixels);
+      const request = (path: string) => ({
+        ...f.request,
+        payload: {
+          text: 'Inspect these pixels',
+          images: [{ data: readFileSync(path).toString('base64'), mediaType: 'image/png' }],
+        },
+      });
+      try {
+        if (outcome === 'uncertain')
+          f.effects.dispatch.mockRejectedValueOnce(Error('Lost native admission reply'));
+        const first = f.coordinator.admit(f.meta, request(firstPath), f.effects);
+        if (outcome === 'uncertain') await expect(first).rejects.toThrow('dispatch_uncertain');
+        else await first;
+        await f.coordinator.admit(f.meta, request(secondPath), f.effects);
+        expect(f.effects.prepareWorkspace).toHaveBeenCalledOnce();
+        expect(f.effects.dispatch).toHaveBeenCalledOnce();
+        expect(store.getOrdinaryLocalCommandAdmission('command')?.state).toBe(outcome);
+        writeFileSync(secondPath, Buffer.from('changed-pixels'));
+        await expect(f.coordinator.admit(f.meta, request(secondPath), f.effects)).rejects.toThrow(
+          'identity_conflict',
+        );
+        expect(f.effects.dispatch).toHaveBeenCalledOnce();
+      } finally {
+        store.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
   it('persists exact intent inside owning authority before resource effects', async () => {
     const f = fixture();
     await f.coordinator.admit(f.meta, f.request, f.effects);
