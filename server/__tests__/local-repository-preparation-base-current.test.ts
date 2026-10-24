@@ -5,6 +5,20 @@ import { captureLocalRepositoryAllocationFacts } from '../local-repository-alloc
 import { captureNativeLocalRepositoryReader } from '../local-repository-native-read.js';
 import { inspectLocalRepositoryGitMetadata } from '../local-repository-git-inspection.js';
 import { readLocalRepositoryPreparationBaseReferences } from '../local-repository-git-snapshot.js';
+import { captureLocalRepositoryPreparationAuthorization } from '../local-repository-preparation-authorization.js';
+import { captureLocalRepositoryPreparationObjectData } from '../local-repository-preparation-object-data.js';
+import {
+  executeLocalRepositoryPreparation,
+  withLocalRepositoryPreparationEnvelope,
+  type LocalRepositoryPreparationOwners,
+} from '../local-repository-preparation-operation.js';
+
+vi.mock('../local-repository-preparation-authorization.js', () => ({
+  captureLocalRepositoryPreparationAuthorization: vi.fn(),
+}));
+vi.mock('../local-repository-preparation-object-data.js', () => ({
+  captureLocalRepositoryPreparationObjectData: vi.fn(),
+}));
 
 vi.mock('../native-host-tool-context.js', () => ({
   captureNativeHostReadOwner: (context: NativeHostToolContext) => ({
@@ -42,7 +56,7 @@ vi.mock('../local-repository-read-access.js', () => ({
     }
   },
 }));
-afterEach(() => vi.clearAllMocks());
+afterEach(() => vi.resetAllMocks());
 async function fixture() {
   const context = {
     signal: new AbortController().signal,
@@ -80,8 +94,64 @@ async function fixture() {
     sourcePath: source.path,
     taskRoot: '/fixture/tasks',
   });
-  return { held, source, witness, dispose };
+  return { held, source, witness, dispose, context };
 }
+it('forwards the original operation deadline and parser witness through the actual native source qualifier', async () => {
+  const f = await fixture();
+  const intent = Object.freeze({
+    workspaceId: 'fixture',
+    sourcePath: f.source.path,
+    taskRoot: '/fixture/tasks',
+  });
+  const objects = Object.freeze({ dispose: vi.fn(async () => {}) });
+  const owners = {
+    context: f.context,
+    async qualifySource(path, context, input, options) {
+      expect(this).toBe(owners);
+      expect(path).toBe(f.source.path);
+      expect(context).toBe(f.context);
+      expect(input).toBe(intent);
+      expect(options).toEqual({ deadline });
+      const held = await captureNativeLocalRepositoryPreparationSource(context, input, options);
+      expect(held.publicationPackedRefs).toBe(f.witness);
+      await held.assertCurrent(options);
+      return held;
+    },
+  } as LocalRepositoryPreparationOwners;
+  let deadline = 0;
+  vi.mocked(captureLocalRepositoryPreparationAuthorization).mockImplementation(async (actual) => {
+    const held = await actual.qualifySource(f.source.path, f.context, intent);
+    return {
+      ...held,
+      request: { id: 'controlled-original-request' },
+      owner: f.context,
+      approve: vi.fn(async () => {}),
+      materialize: vi.fn(async (value) => {
+        expect(value).toBe(objects);
+        return { state: 'materialized' };
+      }),
+    } as never;
+  });
+  vi.mocked(captureLocalRepositoryPreparationObjectData).mockImplementation(async (...args) => {
+    expect(args[0]).toBe(f.context);
+    expect(args[4]).toBe(deadline);
+    expect(args[5]).toBe(f.witness);
+    return objects as never;
+  });
+  await withLocalRepositoryPreparationEnvelope(f.context.signal, async (envelope) => {
+    deadline = envelope.deadline;
+    await expect(
+      executeLocalRepositoryPreparation(owners, { path: f.source.path }, envelope),
+    ).resolves.toMatchObject({ state: 'materialized' });
+  });
+  expect(captureLocalRepositoryPreparationObjectData).toHaveBeenCalledOnce();
+  expect(objects.dispose).toHaveBeenCalledOnce();
+  // Controlled read/allocation ports qualify composition only, not SRT access,
+  // permission evidence, actual creation or a consumed decision owner.
+  for (const [, options] of vi.mocked(captureNativeLocalRepositoryReader).mock.calls)
+    expect(options.deadline).toBeLessThanOrEqual(deadline);
+  expect(f.dispose).toHaveBeenCalledTimes(3);
+});
 it.each([
   ['objectFormat', { objectFormat: 'sha256' }],
   ['core.fileMode', { comparisonConfig: { coreFileMode: false, coreAutocrlf: false } }],

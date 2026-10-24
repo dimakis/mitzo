@@ -661,6 +661,12 @@ it('adopts only its exact committed prepared child under the same lease and pres
       () => {},
     );
     expect(owner.canClaimCommand(reserved.childCommandId)).toBe(true);
+    expect(owner.nativeExecutionWorkspace(reserved.childCommandId)).toEqual({
+      workspaceId: 'prepared',
+      cwd: '/offline/prepared',
+    });
+    expect(() => owner.nativeExecutionWorkspace('command')).toThrow();
+    expect(() => owner.nativeExecutionWorkspace('unrelated')).toThrow();
     expect(() => owner.assertBeforeEnqueue(input)).toThrow();
     owner.assertBeforeDispatch(reserved.childCommandId);
     expect(() => owner.assertBeforeDispatch(reserved.childCommandId)).toThrow();
@@ -699,6 +705,10 @@ it('adopts only its exact committed prepared child under the same lease and pres
     });
     f.store.completeOrdinaryLocalCommand('followup');
     expect(() => owner.assertModelSelection(selection.model, selection.thinking)).not.toThrow();
+    expect(owner.nativeExecutionWorkspace('followup')).toEqual({
+      workspaceId: 'prepared',
+      cwd: '/offline/prepared',
+    });
     owner.close();
     expect(() => owner.canClaimCommand(reserved.childCommandId)).toThrow();
     expect(() => owner.assertBeforeEnqueue(input)).toThrow();

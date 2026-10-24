@@ -111,3 +111,75 @@ it.each(['external', 'private'] as const)(
     }
   },
 );
+
+it('shares the exact fresh policy projection with an actual workspace owner without manufacturing a ManagedSession', async () => {
+  const { composeOwnedLocalNativeExecutionPolicyForWorkspace } =
+    await import('../owned-local-codex-native-policy.js');
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-cold-native-policy-')));
+  try {
+    const cwd = join(root, 'task');
+    mkdirSync(cwd);
+    const binding = { accountId: 'fixture', profileRevision: 'revision' } as never;
+    const current = vi.fn();
+    const session = {
+      cwd,
+      mode: 'agent',
+      ownedLocalAuthSessionId: 'operator',
+      worktreePaths: new Map(),
+    } as ManagedSession;
+    const ordinary = composeOwnedLocalNativeExecutionPolicy({
+      session,
+      binding,
+      readableRoots: [root],
+      assertCurrentSync: current,
+    });
+    const actual = { binding, readableRoots: [root], assertCurrentSync: current };
+    const qualified = composeOwnedLocalNativeExecutionPolicyForWorkspace(actual, () => ({
+      cwd,
+      mode: 'agent',
+      workspaceRoots: [cwd],
+      authSessionId: 'operator',
+    }));
+    expect(qualified).toEqual(ordinary);
+    expect(current).toHaveBeenCalledTimes(4);
+    state.denied = [join(root, 'new-private')];
+    expect(
+      composeOwnedLocalNativeExecutionPolicyForWorkspace(actual, () => ({
+        cwd,
+        mode: 'agent',
+        workspaceRoots: [cwd],
+        authSessionId: 'operator',
+      })).deniedRoots,
+    ).toContain(state.denied[0]);
+  } finally {
+    state.denied = ['/offline/account'];
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it.each(['async', 'value', 'replace'] as const)(
+  'refuses malformed or replaced original %s current proof before projecting a cold policy',
+  async (phase) => {
+    const { composeOwnedLocalNativeExecutionPolicyForWorkspace } =
+      await import('../owned-local-codex-native-policy.js');
+    const capture = vi.fn(() => ({
+      cwd: '/tmp',
+      mode: 'agent' as const,
+      workspaceRoots: ['/tmp'],
+    }));
+    const input = {
+      binding: { accountId: 'fixture', profileRevision: 'revision' } as never,
+      assertCurrentSync: () => {},
+    };
+    input.assertCurrentSync =
+      phase === 'async'
+        ? async () => {}
+        : phase === 'value'
+          ? () => 42 as never
+          : () => {
+              input.assertCurrentSync = () => {};
+            };
+    expect(() => composeOwnedLocalNativeExecutionPolicyForWorkspace(input, capture)).toThrow();
+    expect(capture).not.toHaveBeenCalled();
+  },
+);

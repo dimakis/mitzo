@@ -70,7 +70,11 @@ import {
   createCodexNativeApprovalHandler,
   type ApprovePreparedWorkspaceGrant,
 } from './codex-native-approvals.js';
-import type { CodexNativeExecutionPolicy } from './codex-native-execution-policy.js';
+import {
+  assertNativeExecutionRefresh,
+  type CodexNativeExecutionPolicy,
+} from './codex-native-execution-policy.js';
+import { withPreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
 import {
   assertQualifiedNativeMacExecutionArtifact,
   NATIVE_MAC_ARTIFACT_UNAVAILABLE,
@@ -1812,6 +1816,29 @@ async function openCodexChatBound(
       readableRoots: options.nativeExecutionReadRoots,
       assertCurrentSync: assertHostCurrentSync,
     });
+  const originalNativePolicyCurrent = options.assertNativeExecutionCurrent;
+  const assertNativePolicyCurrent = (policy: CodexNativeExecutionPolicy, commandId: string) => {
+    assertHostCurrentSync();
+    if (
+      options.assertNativeExecutionCurrent !== originalNativePolicyCurrent ||
+      selectedNativePolicy().policyRevision !== policy.policyRevision
+    )
+      throw Error('Native execution policy changed during the active command');
+    const checked: unknown = originalNativePolicyCurrent
+      ? Reflect.apply(originalNativePolicyCurrent, options, [policy, commandId])
+      : undefined;
+    if (checked !== undefined) {
+      void Promise.resolve(checked).catch(() => {});
+      throw Error('Native execution policy owner must be synchronous');
+    }
+    assertHostCurrentSync();
+  };
+  const preparedRepositoryPolicyOwner = Object.freeze({
+    signal,
+    selectedPolicy: selectedNativePolicy,
+    assertCurrentSync: assertHostCurrentSync,
+    assertNativeExecutionCurrent: assertNativePolicyCurrent,
+  });
   try {
     if (nativeExecutionEnabled) {
       assertQualifiedNativeMacExecutionArtifact(
@@ -1973,23 +2000,67 @@ async function openCodexChatBound(
           nativeExecution,
           resolveNativeExecutionPolicy:
             options.resolveNativeExecutionPolicy ??
-            (async () => {
+            (async ({ commandId, signal }) => {
+              signal.throwIfAborted();
               await assertHostCurrent();
-              // The default owner admits the original frozen workspace. A new
-              // workspace requires its command-bound transition callback; a
-              // mutable session field cannot retarget already queued work.
+              signal.throwIfAborted();
+              const workspace = options.ownedLocal!.nativeExecutionWorkspace(commandId);
+              if (workspace.cwd !== nativeExecution!.cwd || workspace.cwd !== options.session.cwd)
+                throw Error('Original command workspace policy unavailable');
+              assertNativePolicyCurrent(nativeExecution!, commandId);
               return nativeExecution!;
             }),
-          assertNativeExecutionCurrent: (policy: CodexNativeExecutionPolicy, commandId: string) => {
-            assertHostCurrentSync();
-            if (selectedNativePolicy().policyRevision !== policy.policyRevision)
-              throw Error('Native execution policy changed during the active command');
-            const checked: unknown = options.assertNativeExecutionCurrent?.(policy, commandId);
-            if (checked !== undefined) {
-              void Promise.resolve(checked).catch(() => {});
-              throw Error('Native execution policy owner must be synchronous');
-            }
-          },
+          assertNativeExecutionCurrent: assertNativePolicyCurrent,
+          beforeRuntimeAdmission: Object.freeze({
+            kind: 'prepared-repository-primary' as const,
+            async admit(assertConversationCurrentSync: () => void): Promise<void> {
+              assertConversationCurrentSync();
+              assertHostCurrentSync();
+              const source = options.ownedLocal!.completedPreparedRepositorySourceTarget();
+              if (!source) return;
+              const adopted = await withPreparedRepositoryBarrierReadScope(
+                nativeExecution,
+                source.commandId,
+                {
+                  signal,
+                  selectedPolicy: selectedNativePolicy,
+                  assertCurrentSync: () => {
+                    assertConversationCurrentSync();
+                    assertHostCurrentSync();
+                  },
+                  revalidate: async () => {
+                    await assertHostCurrent();
+                    assertConversationCurrentSync();
+                  },
+                  assertNativeExecutionCurrent: assertNativePolicyCurrent,
+                },
+                (scope) =>
+                  options.ownedLocal!.adoptPreparedRepositoryAtBoundary(
+                    scope,
+                    source,
+                    assertConversationCurrentSync,
+                    preparedRepositoryPolicyOwner,
+                  ),
+              );
+              assertConversationCurrentSync();
+              assertHostCurrentSync();
+              if (!adopted) return;
+              if (
+                options.session.cwd !== adopted.directory ||
+                adopted.repositoryWorkspace.id !== adopted.id ||
+                adopted.repositoryWorkspace.directory !== adopted.directory
+              )
+                throw Error('Prepared repository primary handoff incomplete');
+              const policy = selectedNativePolicy();
+              assertNativeExecutionRefresh(nativeExecution!, policy);
+              options.repositoryWorkspace = structuredClone(adopted.repositoryWorkspace);
+              options.ordinaryWorkspace = undefined;
+              nativeExecution = policy;
+              runtimeOptions.nativeExecution = policy;
+              runtimeOptions.cwd = policy.cwd;
+              if (runtimeOptions.runtimeCwd !== undefined) runtimeOptions.runtimeCwd = policy.cwd;
+            },
+          }),
           requestNativeApproval: (
             method: string,
             params: Record<string, unknown>,
