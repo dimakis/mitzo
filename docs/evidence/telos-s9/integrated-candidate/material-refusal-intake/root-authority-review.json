@@ -1,0 +1,156 @@
+{
+  "review": "S9 material-refusal acceptance authority",
+  "outcome": "bounded_pass",
+  "findings": [],
+  "execution": {
+    "head": "07266938a17a87d13a886e4d7623fdccc96bb319",
+    "tree": "6471bac072e470e1d05cded031b5dca82135e300",
+    "baseline": "05292f463fc30d8bccf8dedee6db696270bfdac1",
+    "parent": "14d0196d13fe02010b6fe29e131cc3fbaffc54ac",
+    "accepted_main_qualification": false
+  },
+  "method": {
+    "complete_new_test_and_config_read": true,
+    "reused_472d_review_preserved": true,
+    "actual_route_client_role_review_presentation_transaction_and_http_observer_read": true,
+    "static_reads_only": true,
+    "tests_compiler_runtime_browser_services_models_network_run": false,
+    "candidate_index_edits": false,
+    "owner_messages": false
+  },
+  "source": {
+    "only_two_new_paths": true,
+    "prior_integration_files_exact": 98,
+    "all_other_tracked_paths_including_production_workflow_and_manifest_exact_baseline": true,
+    "source_pins_count": 667,
+    "protected_reference_count_from_retained_proof": 13,
+    "files_sha256": {
+      "advisor-material-refusal.contract.ts": "fe8748a0ea3192882553fb7fb3ff3a558a7e8ce5bf514004bb0f7fb96ff86915",
+      "vitest.advisor-material-refusal.config.ts": "798559a64c1c68404c06ebb65ef77e59efa16e57ee7f78bd71243f6a5920f694"
+    },
+    "reused_fixture_exact_472d_sha256": "1cc619f6204c55579d790100b4ed09bd09926ad2c3e930192ea94d3b6f79af7b",
+    "reused_child_app_exact_472d_sha256": "560d8c85d98b85db77415ae1f0bfa4e7918c764031890a5711f8209e3eb1c9be"
+  },
+  "qualified_boundary": {
+    "label": "Composite selected-material custody/integrity API refusal",
+    "request": "One typed-client request derived from actual successful UI role review; only parent-owned acoustic revision-1 SHA changed to actual later revision-2 SHA. Source selection and original source-record pin unchanged.",
+    "short_circuit": "server/telos-work-role-review.ts:64-97: studio-owned artifact differs from recording-slice target; hasReviewedCustody rejects the altered exact [id,revision,sha] key at line91 before later privacy/revision/hash/byte-hash predicates execute.",
+    "not_qualified": [
+      "direct byte-corruption detection",
+      "direct artifact.sha256 or calculated byte-hash branch coverage",
+      "visible UI error presentation",
+      "new picker/source adoption UI",
+      "runtime binding/profile/workspace recovery",
+      "native selected byte access or native/provider inference"
+    ]
+  },
+  "actual_owner_checks": [
+    {
+      "source": "server/telos-work-routes.ts:221-338",
+      "result": "Operator auth, same-origin JSON, retained signed auth/currentness and abort/revocation/expiry guards. Ordinary Error maps to actual 503/unavailable/generic error without selected packet."
+    },
+    {
+      "source": "server/telos-work-role-host.ts:63-104,360-384; server/telos-work-store.ts:303-341",
+      "result": "Actual operator and source/material owner; negative review throws from selection producer before retained presentation INSERT. Valid UI review before baseline can retain its presentation normally. No allocation/provider port in context reviewer."
+    },
+    {
+      "source": "advisor-material-process-fixture.ts:479-498; packages/client/src/telos-work-api.ts:168-174",
+      "result": "Real signed fetch and typed client, raw HTTP response observer only; no browser interception, owned reply fabrication or typed-only local schema rejection."
+    },
+    {
+      "source": "advisor-material-refusal.contract.ts",
+      "result": "Real UI Files r2 and valid review200; then single API negative; unchanged canonical work/record/source/parent/unrelated record, session identities, execution bindings, tasks, origin events, active inventory and effects. Explicit NULL origin workspace/preparation; exact post-refusal r1/r2 bytes/hash. No Start-chat/advisor save/native launch."
+    }
+  ],
+  "retained_observations": {
+    "selected_result": {
+      "cases": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 13560.102294921875
+    },
+    "single_failed_api_response": {
+      "path": "/api/telos/work/roles/review",
+      "method": "POST",
+      "contentType": "application/json",
+      "requestBody": "{\"itemId\":\"recording-slice\",\"role\":\"advisor\",\"sourceSnapshotIds\":[\"6121d269158df96af7e64356e35f64b4c59f3e9079c924a8bc7d41ecce1c668a\"],\"artifactRefs\":[{\"artifactId\":\"6d8e589baeeb4f928fe135831d8eb2fb\",\"revision\":1,\"sha256\":\"0f7b2381a6ad174bc551bf03bb505e9c40c3050f53f0c78667ae8cfa56100da9\"},{\"artifactId\":\"2d740ae27a5a4b34f30c27a1c32e708d\",\"revision\":1,\"sha256\":\"f9bff5830ab937d36fa99b0094b16a1a1e91135231c1b9b608561dc985afbb0d\"}],\"advisorPurpose\":\"refine\"}",
+      "status": 503,
+      "responseBody": "{\"code\":\"unavailable\",\"error\":\"Ordinary role setup unavailable\"}"
+    },
+    "raw_result": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/origin-observer/run.json",
+      "sha256": "48a11a33d0e4f2e734655f71d306bb425a3d380883473aaa85e820ccca86a271",
+      "size": 1220
+    },
+    "raw_http": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/origin-observer/actual-http-observations.json",
+      "sha256": "90a49d7b5a6de2b6dae51f0f25dd11ef9e7ee8b974d5d821356c6a077ef75f01",
+      "size": 23116
+    },
+    "raw_result_and_http_hash_size_checked": true,
+    "only_one_503_in_observed_http_log": true,
+    "mismatched_input_differs_only_acoustic_hash": true,
+    "before_after_asserted_fields_equal": true,
+    "origin_session": "planning",
+    "origin_workspace": null,
+    "origin_preparation": null,
+    "native_owner_observation": "native_ledger_not_observed",
+    "effects_before_equals_after": [
+      {
+        "kind": "preflight.close",
+        "generation": 1,
+        "pid": 23912,
+        "threadId": "restart-native-1-1"
+      }
+    ],
+    "native_launch_thread_turn_provider_notification_count": 0,
+    "session_runtime_or_full_profile_equality_claim": false,
+    "blank_ledger_invention": false,
+    "allocation_claim_boundary": "No new identity observed; no Start-chat request; readonly context reviewer has no allocation/provider port. No general allocator-invocation proof inferred from inventory alone."
+  },
+  "diagnostic_history": [
+    {
+      "stage": "initial",
+      "source": "51a42617",
+      "raw": {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/initial/run.json",
+        "sha256": "1fe667d4188e076b877f736b50cfd4775b59dd1c7b50c1f2e55dfbee2152cb9c",
+        "size": 1669
+      },
+      "disposition": "ActualFilesr2/validUIcontext reached. Readobserver triedfixture-preparedordinaryworkspace notresolvablebychildAppowner; failedbeforeAPInegative. Raw/source/screenshot/lifecycle retained; no productmaterialguardRED and no runtimebinding/initialworkspace assertion qualified."
+    },
+    {
+      "stage": "origin-observer",
+      "source": "07266938a17a87d13a886e4d7623fdccc96bb319",
+      "raw": {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/origin-observer/run.json",
+        "sha256": "48a11a33d0e4f2e734655f71d306bb425a3d380883473aaa85e820ccca86a271",
+        "size": 1220
+      },
+      "disposition": "Correctobserver usesactualretainedoriginplanning forinventory/events/tasks, explicitlynullworkspace/preparation and noruntimebindingproof. SAMEAPInegative passes1/0fail/0skip13.56s. Intermediate14dobserveredit scopedlint foundunusedf; removedat07266938 andscopedlint/formatpassed BEFOREthisexecution. No test ranat14d. Two diagnostics areoneacceptancecase."
+    }
+  ],
+  "scope_overlay": {
+    "source_capture_entry_scope_overlay_sha256": "3ba5306dbaaa008b253910377d8eda5f6f18251c388fe4d1b142cd930799ba20",
+    "original_gap_record_preserved": true,
+    "superseding_scope_read": true,
+    "no_new_standalone_picker_or_approved_design_defect_inferred": true,
+    "selected_route_actual_capture_operation_unexercised": true,
+    "native_byte_access_p2_remains_open": true
+  },
+  "custody": {
+    "result_sha256": "6cb37960c0d13215992f5c6bdb89394a24657299af07ba1d426b000be4caa725",
+    "source_proof_sha256": "2f7e658c30c0d77b0869551c56ed32dba2a55436c01e7943f992d314da8a4ef1",
+    "all_three_retained_overlay_hashes_checked": true,
+    "producer_original_bytes_edited": false,
+    "full_archive_raw_body_and_visible_capture_audit_owner": "Root separately audits full archive/raw/capture inventory; this review checks semantic source and selected raw observations."
+  },
+  "open_boundaries": [
+    "Full-row/current-main/hosted CI/trusted/full UX/device/live qualification.",
+    "UI negative/error taxonomy/recovery and source selection/adoption/creation; no new standalone picker requirement is inferred.",
+    "Direct byte-hash corruption branch, revocation/privacy/race/cross-account/stale-item/retry/coexistence/deeper-ancestor matrices.",
+    "Native selected content byte access remains a separate confirmed production gap."
+  ],
+  "stopping_point": "One frozen API refusal authority intake complete, no further execution."
+}

@@ -1,0 +1,33 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s6-candidate-acceptance
+
+ ✓ server/__tests__/telos-work-controls.test.ts (10 tests) 1342ms
+   ✓ CT12: real HTTP control commands derive the current conversation and reject forged actors, host proof and unrelated inbox reads  678ms
+ ✓ server/__tests__/telos-work-command-scope.test.ts (12 tests) 310ms
+{"level":30,"time":1792449824621,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-TABFPz/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824647,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-rM61HD/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824667,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-yzIEcU/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824677,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-yzIEcU/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824689,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-F7x0OY/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824708,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-DvG5tA/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824730,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-4uSlHR/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824743,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-4uSlHR/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824754,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-NpgnCj/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824773,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-YP25eF/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824793,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-kXMOKs/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824806,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-kXMOKs/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824818,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-xO14Pt/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824830,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-xO14Pt/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824841,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-1zn9In/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824855,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-1zn9In/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824866,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-wmhrPW/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824889,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-oRBi2S/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449824915,"pid":10750,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-command-scope-oRBi2S/tasks.db","msg":"TaskStore initialized"}
+ ✓ server/__tests__/telos-work-control-tools.test.ts (2 tests) 25ms
+
+ Test Files  3 passed (3)
+      Tests  24 passed (24)
+   Start at  23:43:42
+   Duration  2.76s (transform 673ms, setup 0ms, import 792ms, tests 1.68s, environment 0ms)
+
+JSON report written to /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S6-CURRENT-BOUNDARIES-RESULTS.json

@@ -1,0 +1,29 @@
+{
+  "scope": "Bounded actual-App Home-return P2 closure, not whole UX row or accepted-main acceptance",
+  "executionHead": "ab2c1f6617053f81364025cafe6d6116d6d16cce",
+  "executionTree": "1ed4db82b7e1613a8f5d70ae4290dbc7279ba151",
+  "closedSource": "2a6331969d46c8bda3dd69fa27c0b10c7f1b38ec",
+  "originalRed": "ab93e70571223d2f578fbe6e5cff95a472a90178",
+  "sameCaseHelperConfigAssertionsAnd109IntegrationFilesExact": true,
+  "reportedAppResult": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 16117.52490234375
+  },
+  "independentReview": "S9-HOME-RETURN-SAME-CASE-GREEN-REVIEW.md/.json COMPLETEPASS/no newfinding; rootreadfullreport/agrees",
+  "rootActualFourFullCaptureReview": "5122de4edfe7337ba528da991076384c@1",
+  "actualHomeBack": "/",
+  "unchangedExpectation": "/",
+  "draftRetained": true,
+  "newAllocationAssignmentOrdinaryTaskOrProviderEffectObserved": false,
+  "currentPins": 667,
+  "protectedReferences": 13,
+  "seedQualification": "SyntheticPRE-AppactualsourceCapturepreview/adopt+HomeStorepin only; notnative/usercreation/adoption/pinningUI acceptance",
+  "preservedOriginalRedAndInitialWrongTabDiagnostic": true,
+  "fullRowAccepted": false,
+  "acceptedMainQualified": false,
+  "nativeBytesAccessQualified": false,
+  "liveRuntimeQualified": false,
+  "next": "Appendrootclosuretonextguardedexisting44mapupdate; futureactualaccepted-baseS7selectiveintegrationandfinalcoherentacceptedmainUXrequired"
+}

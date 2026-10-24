@@ -1,0 +1,23 @@
+{
+  "donor": "ab2c1f6617053f81364025cafe6d6116d6d16cce",
+  "currentBase": "c5b32dde8d86e715bd417d6f1aeaaa3ed233202c",
+  "paths": [
+    "frontend/src/components/HomePins.tsx",
+    "frontend/src/components/ShareButton.tsx",
+    "frontend/src/components/TelosChatWorkTree.tsx",
+    "frontend/src/lib/telos-item-navigation.ts",
+    "frontend/src/pages/ChatView.tsx",
+    "frontend/src/pages/DesktopChatView.tsx",
+    "frontend/src/pages/TodoDetailView.tsx",
+    "frontend/src/styles/global.css",
+    "server/app.ts",
+    "server/connection-request-error.ts",
+    "server/connections/reviewed-handler-artifacts.ts",
+    "server/credential-connection-tools.ts",
+    "server/credential-connections.ts",
+    "server/credential-http.ts",
+    "server/credential-verification-error.ts"
+  ],
+  "currentRuntimePassTransferred": false,
+  "allCurrentProductionPreserved": true
+}

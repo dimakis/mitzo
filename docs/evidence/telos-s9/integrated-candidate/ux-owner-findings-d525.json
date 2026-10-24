@@ -1,0 +1,41 @@
+{
+  "source": "2f6e33a8054e7fcfda324846950c7e7d230a0366",
+  "productionSource": "d525a3647bc6470d29b4e0433826998b2a932d84",
+  "findings": [
+    {
+      "id": "S9-UX-COMPACT-TREE-01",
+      "classification": "confirmed approved-reference discrepancy",
+      "priority": "P2",
+      "owners": {
+        "S8": "b47a0c568f1d98ba",
+        "S7": "57b0894e0379ab95"
+      },
+      "rows": ["UX16", "UX24"],
+      "expected": "The approved narrow work panel uses a compact tree treatment; title and kind stay readable. Mock CSS lines99\u2013103 scopes compact styling to the work panel.",
+      "actual": "At1280px viewport the279px inner panel reuses full tree row-end controls. Recording programme wraps into4 lines with only56.5px dark/65.33px light allocated to title. Coordinator badge also fragments. At320px viewport the280px row gives169.36/187.23px title width and one title line.",
+      "reproduction": "Run run-ux-composition.mjs with privatePython and fresh S9_UX_OUTPUT_ROOT; inspect desktop-dark and desktop-light/chat-tree-open.png. All functional probes pass; this is a separate visual finding.",
+      "sourcePointers": [
+        "frontend/src/components/TelosChat.css:110",
+        "frontend/src/components/TelosWorkspace.css:298",
+        "frontend/src/components/TelosWorkspace.css:337"
+      ],
+      "ownerBoundary": "S8 owns compact panel composition; S7 owns shared tree styling. Preserve full workspace priority/role controls. S9 does not edit producer code/unit tests.",
+      "status": "open; batch for existing owners, accepted-main retake pending"
+    },
+    {
+      "id": "S9-UX-CHOOSER-METADATA-02",
+      "classification": "approved-reference comparison question; presentation delta observed",
+      "priority": "P2 candidate, owner assessment pending",
+      "owners": {
+        "S8": "b47a0c568f1d98ba"
+      },
+      "rows": ["UX12", "UX13", "UX23", "UX24"],
+      "expected": "Approved sessionList line239 presents role/account/model then profile/target/conversation-created date.",
+      "actual": "Current primary rows show Linked ISOtimestamp and raw operator:UUID. Linked metadata takes60px phone dark/56px phone light, versus15/14px desktop. It represents role-link time/actor, not conversation-created date.",
+      "reproduction": "Inspect chooser-ready.png and chooserRows in all four retained profiles. Role labels are correct; prior label defect remains corrected within its exact scope.",
+      "sourcePointers": ["frontend/src/components/TelosChatList.tsx:74"],
+      "ownerBoundary": "Assess approved presentation with S8 before a change. Preserve immutable link author/time in accessible provenance. Never relabel Linked as Created or fabricate friendly authors. If created/display data is unavailable, retain it as a named producer dependency rather than guess a contract.",
+      "status": "pending owner comparison; no unilateral redesign or provenance removal"
+    }
+  ]
+}
