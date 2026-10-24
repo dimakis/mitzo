@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.626-native-adapter-diagnostics-composition';
+  'v1.0.627-preparation-initial-primary-custody';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -28,7 +28,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-local-repository-preparation.test.ts':
     '6775351c0f46020825d2fb157a48d973bd1bc58088b92960d4b0c8de7100f1ac',
   '../__tests__/native-local-repository-preparation-custody.test.ts':
-    '4fdb7cb83dccd979458de0dbc38d959cc4ebb39f0e6e5f7e51a2e8651d7ca0a6',
+    '3d74ce849ee41be9569744ac0abbbe7153c6628c6bcd7486b598e1db618da332',
   '../__tests__/fixtures/materialized-prepared-repository.ts':
     '7697b26d28caee5aee91614d341bb14159ccec9db64c9b99b784200cd07b2f0d',
   '../__tests__/fixtures/preparation-attempt-diagnostics.ts':
@@ -102,7 +102,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/private-repository-checkout.test.ts':
     'a4858f3f9c76fa52246e2098fb51ed1532ad5d9419097f7f5a373a76c8f57718',
   '../__tests__/qualified-local-repository-materializer.test.ts':
-    '9e793833a4a2437772bb6e514cfa6324ca0c185aa329791e7dc31fd56be78dc6',
+    '466a057ec63f84845e632fa098a174af893e384533c51d70bd5ca3674c057f10',
   '../__tests__/qualified-local-repository-operation-owner.test.ts':
     'bb57e28f57cebdb183fcdb0253d86f45eff7a3ab6374e96a13b988c23359de2e',
   '../__tests__/qualified-local-repository-task.test.ts':
@@ -189,7 +189,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-repository-preparation-authorization.ts':
     '61b069e1e3feab9542adf82eaa6978fd18bcec9d3f0daecd742aafc39c9c0859',
   '../__tests__/fixtures/local-preparation-native.ts':
-    'e5e5a2a52b06198b8f1ade931233beadc828b24c88bac507e41add2fc356742c',
+    '874bd258deeed408ffa33ea3ed3d11f6b86507bf70a17eb2e62a950398b43815',
   '../__tests__/local-repository-preparation-authorization.test.ts':
     '3621d87762c222c8500b49b4e89ce5890e6fe6a6945208bbebfe85bcb9f897ee',
   '../__tests__/local-repository-preparation-artifacts.test.ts':

@@ -10,7 +10,10 @@ import { captureLocalRepositoryAllocationFacts } from '../local-repository-alloc
 import { preparedRepositoryResultSha256 } from '../codex-conversation-store.js';
 import { withPreparedRepositoryBarrierReadScope } from '../prepared-repository-barrier-read.js';
 import { composeOwnedLocalNativeExecutionPolicy } from '../owned-local-codex-native-policy.js';
-import { localPreparationNativeFixture } from './fixtures/local-preparation-native.js';
+import {
+  capturePreparationPrimaryCustody,
+  localPreparationNativeFixture,
+} from './fixtures/local-preparation-native.js';
 import { materializePreparedRepositoryFixture } from './fixtures/materialized-prepared-repository.js';
 import { fixtureReadAnchor } from './fixtures/local-repository-read-owner.js';
 import type { NativeHostToolContext } from '../native-host-tool-context.js';
@@ -244,6 +247,7 @@ it.each([false, true])(
       },
     });
     const canary = join(f.f.root, 'source', 'raw-adapter-source-canary');
+    const assertInitialPrimary = capturePreparationPrimaryCustody(f);
     await diagnostics.capture('fixture-setup', () => writeFile(canary, 'Retain disposable setup'));
     let recorded: ReturnType<typeof diagnostics.snapshot> | undefined;
     const response = await recordPreparationAttempt(
@@ -274,6 +278,44 @@ it.each([false, true])(
     expect(readerDispose).toHaveBeenCalledOnce();
     expect(approve).toHaveBeenCalledOnce();
     expect(materialize).toHaveBeenCalledOnce();
+    // SAME genuine default repository primary survives the signed adapter;
+    // a materialized candidate does not become primary before completion.
+    assertInitialPrimary(original.workspace);
+    // Actual SQLite pointer substitution BEFORE completion is rejected even
+    // when the candidate is already materialized. Restore the disposable rows
+    // before exercising the genuine completed-boundary producer below.
+    const Database = (await import('better-sqlite3')).default;
+    const primaryDb = new Database(join(f.f.root, 'repositories', 'workspaces.db'));
+    try {
+      const rows = primaryDb
+        .prepare('SELECT id, record, conversation_id FROM repository_workspaces')
+        .all() as Array<{ id: string; record: string; conversation_id: string | null }>;
+      primaryDb.transaction(() => {
+        const old = rows.find((row) => row.id === f.a.initial.workspace.id)!;
+        const next = rows.find((row) => row.id === candidate.record.id)!;
+        const oldRecord = JSON.parse(old.record);
+        delete oldRecord.conversationId;
+        primaryDb
+          .prepare('UPDATE repository_workspaces SET record=?, conversation_id=NULL WHERE id=?')
+          .run(JSON.stringify(oldRecord), old.id);
+        const nextRecord = JSON.parse(next.record);
+        nextRecord.conversationId = f.a.sessionId;
+        primaryDb
+          .prepare('UPDATE repository_workspaces SET record=?, conversation_id=? WHERE id=?')
+          .run(JSON.stringify(nextRecord), f.a.sessionId, next.id);
+      })();
+      expect(() => assertInitialPrimary()).toThrow();
+      primaryDb.transaction(() => {
+        primaryDb.prepare('UPDATE repository_workspaces SET conversation_id=NULL').run();
+        for (const row of rows)
+          primaryDb
+            .prepare('UPDATE repository_workspaces SET record=?, conversation_id=? WHERE id=?')
+            .run(row.record, row.conversation_id, row.id);
+      })();
+    } finally {
+      primaryDb.close();
+    }
+    assertInitialPrimary();
     expect(() => original.assertCurrentSync()).toThrow(); // callback context expired, never reused as authority
     const expectedDigest = preparedRepositoryResultSha256(returned);
     const source = original.nativeTarget!;

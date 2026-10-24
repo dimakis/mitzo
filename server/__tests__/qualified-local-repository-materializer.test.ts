@@ -31,7 +31,10 @@ import * as sandbox from '../sandboxed-command.js';
 import { OwnedLocalCodexChatAdmission } from '../owned-local-codex-chat-admission.js';
 import { EventStore } from '../event-store.js';
 import { setAuthRevocationStore } from '../auth.js';
-import { localPreparationNativeFixture } from './fixtures/local-preparation-native.js';
+import {
+  capturePreparationPrimaryCustody,
+  localPreparationNativeFixture,
+} from './fixtures/local-preparation-native.js';
 import { captureLocalRepositoryPreparationAuthorization } from '../local-repository-preparation-authorization.js';
 import { captureNativeLocalRepositoryPreparationSource } from '../local-repository-preparation-source.js';
 
@@ -538,14 +541,8 @@ actual(
         }
         await diagnostics.check('primary-custody', async () => {
           if (!originalContext) throw Error('Original preparation context unavailable');
-          return (
-            f.f.workspace.getOrdinaryWorkspaceForConversation(originalContext.conversationId)
-              ?.id === originalContext.workspace.id
-          );
-        });
-        await diagnostics.check('repository-primary', async () => {
-          if (!originalContext) throw Error('Original preparation context unavailable');
-          return f.f.workspace.getForConversation(originalContext.conversationId) === undefined;
+          assertInitialPrimary(originalContext.workspace);
+          return true;
         });
         await diagnostics.check(
           'task-linkage',
@@ -629,6 +626,7 @@ actual(
     const serviceState = observePreparationService(diagnostics, f.f.workspace, (value) => {
       observedReceipt = value;
     });
+    const assertInitialPrimary = capturePreparationPrimaryCustody(f);
     const finalize = f.f.workspace.finalizePendingHostTaskDecision;
     vi.spyOn(f.f.workspace, 'finalizePendingHostTaskDecision').mockImplementation((...args) => {
       const result = Reflect.apply(finalize, f.f.workspace, args);

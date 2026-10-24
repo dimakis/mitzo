@@ -391,3 +391,46 @@ export async function localPreparationNativeFixture(
     },
   };
 }
+
+/** Fixture-only preservation fence, captured before the original pending call. */
+export function capturePreparationPrimaryCustody(
+  fixture: Pick<Awaited<ReturnType<typeof localPreparationNativeFixture>>, 'f' | 'a' | 'native'>,
+) {
+  const { f, a, native } = fixture;
+  const primary = () => ({
+    ordinary: f.workspace.getOrdinaryWorkspaceForConversation(a.sessionId),
+    repository: f.workspace.getForConversation(a.sessionId),
+  });
+  const eventWorkspace = () => {
+    const meta = f.events.getSession(a.sessionId)!;
+    return {
+      ordinaryWorkspaceId: meta.ordinaryWorkspaceId,
+      repositoryWorkspaceId: meta.repositoryWorkspaceId,
+      cwd: meta.cwd,
+    };
+  };
+  const before = structuredClone(primary());
+  const eventBefore = structuredClone(eventWorkspace());
+  const current = before.ordinary ?? before.repository;
+  expect(current?.id).toBe(a.initial.workspace.id);
+  expect(Boolean(before.ordinary)).not.toBe(Boolean(before.repository));
+  expect(eventBefore.ordinaryWorkspaceId ?? eventBefore.repositoryWorkspaceId).toBe(current?.id);
+  const cwd = a.session.cwd;
+  const nativeCwd = native.read(a.sessionId, a.initial.lease.binding).cwd;
+  const custody = structuredClone(native.readHostCustody(a.sessionId, a.initial.lease.binding));
+  const client = a.initial.lease.client;
+  return (workspace?: NativeHostToolContext['workspace']) => {
+    if (workspace)
+      expect(workspace).toEqual({
+        kind: before.ordinary ? 'ordinary' : 'repository',
+        id: current!.id,
+        directory: current!.directory,
+      });
+    expect(primary()).toEqual(before); // exact original kind, ID and row facts
+    expect(eventWorkspace()).toEqual(eventBefore);
+    expect(a.session.cwd).toBe(cwd);
+    expect(native.read(a.sessionId, a.initial.lease.binding).cwd).toBe(nativeCwd);
+    expect(native.readHostCustody(a.sessionId, a.initial.lease.binding)).toEqual(custody);
+    expect(a.initial.lease.client).toBe(client);
+  };
+}
