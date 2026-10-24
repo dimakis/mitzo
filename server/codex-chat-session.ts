@@ -791,7 +791,7 @@ async function openCodexChatAdmitted(options: AdmittedOptions) {
     if (custodianControllerMode || !(options.ownedLocal instanceof OwnedLocalCodexChatAdmission))
       throw Error('Owned local Codex chat unavailable');
     options.ownedLocal.assertOptions(options);
-    await options.ownedLocal.assertCurrent();
+    // Bound entry checks current authority before any effect or await.
     return openCodexChatBound(options);
   }
   if (options.ownedOpenShell !== undefined) {

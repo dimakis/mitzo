@@ -3333,6 +3333,7 @@ it('uses the already verified owned client locally regardless of global OpenShel
   const f = ownedLocalOptions();
   try {
     const chat = await openCodexChat(f.opts);
+    expect(f.lease.assertCurrent).toHaveBeenCalledTimes(2);
     expect(hostLaunch).not.toHaveBeenCalled();
     expect(shellLaunch).not.toHaveBeenCalled();
     expect(mocks.reserveStartup).not.toHaveBeenCalled();
