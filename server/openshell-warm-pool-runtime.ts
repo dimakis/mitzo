@@ -115,15 +115,20 @@ export function createWarmPoolAdapter(
     signal: AbortSignal,
   ): Promise<WarmSandbox | undefined> => {
     assertAccess(record);
-    let raw: unknown;
-    try {
-      raw = JSON.parse(await run([...base, 'get', record.name, '--output', 'json'], signal));
-    } catch (e) {
+    // Both reads describe the same immutable physical target. Settle both so
+    // an absent sandbox keeps its authoritative absence result and a peer
+    // rejection is always observed.
+    const [physical, attachments] = await Promise.allSettled([
+      run([...base, 'get', record.name, '--output', 'json'], signal),
+      run([...base, 'provider', 'list', record.name], signal),
+    ]);
+    if (physical.status === 'rejected') {
+      const e: unknown = physical.reason;
       if (/not found|404|does not exist/i.test(e instanceof Error ? e.message : ''))
         return undefined;
       throw e;
     }
-    const s = Physical.parse(raw);
+    const s = Physical.parse(JSON.parse(physical.value));
     if (
       s.name !== record.name ||
       s.workspace !== config.workspace ||
@@ -134,10 +139,8 @@ export function createWarmPoolAdapter(
       !hasWarmPoolRuntimeAuthority(record, { scope, runtimeAuthority })
     )
       throw Error('Warm sandbox physical identity differs');
-    const providers = parseProviderAttachments(
-      await run([...base, 'provider', 'list', record.name], signal),
-      record.name,
-    );
+    if (attachments.status === 'rejected') throw attachments.reason;
+    const providers = parseProviderAttachments(attachments.value, record.name);
     return { id: s.id, name: s.name, phase: s.phase, poolId: record.id, providers };
   };
   const adapter: WarmPoolAdapter = {
@@ -274,6 +277,8 @@ export function createWarmPoolAdapter(
           desired.some((x) => !after.providers.includes(x))
         )
           throw Error('Claim provider attachment set differs');
+        assertCurrent();
+        return after;
       } finally {
         prepared.cleanup();
       }

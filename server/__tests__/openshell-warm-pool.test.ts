@@ -74,6 +74,35 @@ it('starts disabled and reads never provision; saves persist across stores', asy
   expect(other.pool.snapshot().settings.capacity).toBe(2);
   expect(f.adapter.prepare).not.toHaveBeenCalled();
 });
+it('uses the adapter final claim observation without fetching the same state again', async () => {
+  const f = fixture();
+  await f.pool.mutate(f.request('prepare'));
+  vi.mocked(f.adapter.inspect).mockClear();
+  vi.mocked(f.adapter.bind).mockImplementation(async (record, provider) => {
+    const physical = f.physical.get(record.name)!;
+    physical.providers = [provider];
+    return structuredClone(physical);
+  });
+  const result = await f.pool.claim('chat', 'work', new AbortController().signal);
+  expect(result?.state).toBe('claimed');
+  expect(f.adapter.inspect).toHaveBeenCalledTimes(1);
+});
+it('rejects a substituted final claim observation and retains uncertain ownership', async () => {
+  const f = fixture();
+  await f.pool.mutate(f.request('prepare'));
+  vi.mocked(f.adapter.bind).mockImplementation(async (record, provider) => ({
+    ...f.physical.get(record.name)!,
+    id: 'substituted',
+    providers: [provider],
+  }));
+  await expect(f.pool.claim('chat', 'work', new AbortController().signal)).rejects.toThrow(
+    /identity/,
+  );
+  expect(f.pool.lookup('chat', 'work')).toMatchObject({
+    state: 'uncertain',
+    conversationId: 'chat',
+  });
+});
 it('fills one or two slots and duplicate request never creates again', async () => {
   const f = fixture(),
     r = f.request('settings', {

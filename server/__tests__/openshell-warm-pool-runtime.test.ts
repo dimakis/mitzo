@@ -63,6 +63,22 @@ function fixture() {
   const adapter = createWarmPoolAdapter(config, run, seed);
   return { config, record, run, seed, cleanup, adapter };
 }
+it('overlaps independent physical and provider reads while retaining physical validation', async () => {
+  const f = fixture();
+  const original = f.run.getMockImplementation()!;
+  let resolvePhysical!: () => void;
+  const held = new Promise<void>((resolve) => {
+    resolvePhysical = resolve;
+  });
+  f.run.mockImplementation(async (args) => {
+    if (args.includes('get')) await held;
+    return original(args);
+  });
+  const pending = f.adapter.inspect(f.record, AbortSignal.timeout(5000));
+  expect(f.run.mock.calls.some(([args]) => args.includes('provider'))).toBe(true);
+  resolvePhysical();
+  await expect(pending).resolves.toMatchObject({ id: 'physical-one', providers: [] });
+});
 it('prepares with CPU/memory but no account/provider, and verifies seed before create', async () => {
   const f = fixture();
   await f.adapter.prepare(f.record, AbortSignal.timeout(5000));

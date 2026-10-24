@@ -59,7 +59,7 @@ export interface WarmPoolAdapter {
     seed?: string,
     providers?: readonly string[],
     recovering?: boolean,
-  ): Promise<void>;
+  ): Promise<WarmSandbox | void>;
 }
 /** Legacy rows without authority may only use their exact original recipe. Never
  * infer historical authority from the currently selected gateway or image. */
@@ -446,8 +446,8 @@ export class OpenShellWarmPool {
       signal.throwIfAborted();
       record.state = 'claiming';
       this.persist(s);
-      await this.adapter.bind(record, provider, signal, seed, providers, true);
-      const after = await this.adapter.inspect(record, signal);
+      const bound = await this.adapter.bind(record, provider, signal, seed, providers, true);
+      const after = bound ?? (await this.adapter.inspect(record, signal));
       this.assertPhysical(record, after, false);
       if (
         after?.phase !== 'Ready' ||
@@ -516,8 +516,10 @@ export class OpenShellWarmPool {
       record.provider = provider;
       record.connectionAccountId = connectionAccountId ?? null;
       this.persist(s);
-      await this.adapter.bind(record, provider, signal, seed, providers);
-      const after = await this.adapter.inspect(record, signal);
+      // The native adapter already performs a final physical/provider read.
+      // Validate that exact result here; older adapters retain the extra read.
+      const bound = await this.adapter.bind(record, provider, signal, seed, providers);
+      const after = bound ?? (await this.adapter.inspect(record, signal));
       this.assertPhysical(record, after, false);
       const desired = [...new Set([provider, ...(providers ?? [])])];
       if (
