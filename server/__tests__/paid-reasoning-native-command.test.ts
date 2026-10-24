@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelSession, ModelSessionConfig, CostRate } from '@mitzo/harness';
 import type { PaidReasoningPhaseSelection } from '@mitzo/protocol';
 import { EventStore } from '../event-store.js';
+import { GeminiSession } from '../gemini-session.js';
 import { NativeCommandRegistry } from '../native-commands.js';
 import { SkillRegistry } from '../skills.js';
 import { cancelDeliberation } from '../deliberate-admission.js';
@@ -132,7 +133,10 @@ describe('real native command selected reasoning entrance', () => {
       },
     }));
   });
-  afterEach(() => store.close());
+  afterEach(() => {
+    store.close();
+    vi.unstubAllGlobals();
+  });
   it('reaches selected scoped sessions, preserves model roster/account roles and observes accepted lost replies without repeating phases', async () => {
     const ctx = context();
     const result = await registry.execute('deliberate', 'Explain the tradeoffs', skills, ctx);
@@ -266,6 +270,63 @@ describe('real native command selected reasoning entrance', () => {
     expect(store.getProviderAttempts(receipt.token)).toHaveLength(1);
     expect(store.getProviderAttempts(receipt.token)[0].terminalReason).toBe('completed');
   });
+  it.each(['operator', 'account-route'] as const)(
+    'fences %s revocation while actual Gemini token acquisition awaits, before fetch',
+    async (revocation) => {
+      f.provider = 'google-vertex';
+      let release!: () => void, tokenRequested!: () => void;
+      const tokenPending = new Promise<void>((resolve) => {
+        tokenRequested = resolve;
+      });
+      const tokenGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const fetcher = vi.fn(async () =>
+        Response.json({
+          candidates: [
+            {
+              finishReason: 'STOP',
+              content: { role: 'model', parts: [{ text: 'Completed phase' }] },
+            },
+          ],
+          usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 },
+        }),
+      );
+      vi.stubGlobal('fetch', fetcher);
+      f.sessions.mockImplementation(
+        async (config: ModelSessionConfig) =>
+          new GeminiSession(config, {
+            accountId: 'proposer-account',
+            projectId: 'selected-project',
+            region: 'global',
+            textTranscript: true,
+            getAccessToken: async () => {
+              tokenRequested();
+              await tokenGate;
+              return 'fixture-private-token';
+            },
+          }),
+      );
+      const ctx = context();
+      ctx.paidReasoning.phaseSelections = selections.map((entry) => ({
+        ...entry,
+        model: 'gemini-2.5-pro',
+        binding: {
+          ...entry.binding,
+          account: { ...entry.binding.account, provider: 'google-vertex' },
+          harness: { implementation: 'gemini' },
+        },
+      }));
+      const pending = registry.execute('deliberate', 'Explain the tradeoffs', skills, ctx);
+      await tokenPending;
+      if (revocation === 'operator') f.authorized = false;
+      else f.revision = 'changed-during-token-await';
+      release();
+      expect((await pending)?.content).toContain('uncertain');
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(f.sessions).toHaveBeenCalledOnce();
+    },
+  );
   it('refuses unselected, unknown-price or unavailable exact-cap work before durable provider attempts or session allocation', async () => {
     for (const phaseSelections of [
       undefined,

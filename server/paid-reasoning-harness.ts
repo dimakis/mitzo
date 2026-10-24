@@ -225,6 +225,10 @@ export async function preparePaidReasoningHarness(
             maxTokens,
             tools: [],
             signal: options.signal,
+            beforeDispatch() {
+              options.signal?.throwIfAborted();
+              qualification.assertCurrent();
+            },
             ...(selection.thinking ? { reasoningEffort: selection.thinking } : {}),
           },
           request,
