@@ -1,0 +1,213 @@
+{
+  "status": "TWO_CONCRETE_OFFLINE_APP_SOURCE_COMPOSITIONS_WITH_PUBLICATION_AND_NEW_PROCESS_COLD_READBACK_NOT_EXECUTED",
+  "candidate": "7da7394fee293baea241aa0e4bb21ee9b726120e",
+  "candidateTree": "4b68782ebc73d8562bae3a5d484e410df520c2de",
+  "acceptedBaseline": "3f6c6aeac8a54acbd2eae2566eae7103051cecc1",
+  "candidateAccepted": false,
+  "finalCombinedSourcePending": true,
+  "nativeRuntime": "v1.0.495-telos-retained-file-owners",
+  "pins": 749,
+  "runnableCases": 2,
+  "skippedPlaceholderCases": 0,
+  "runtimeExecutions": 0,
+  "moduleEvaluation": false,
+  "realModelCalls": 0,
+  "sourcePreflight": "PENDING_ONE_WHOLE_NEW_SOURCE_SEAM_REVIEW",
+  "productionEdits": 0,
+  "newExportsRequested": 0,
+  "sourceHashes": {
+    "server/app.ts": "bc2679fc994a981fd47267144989ae4bd7a976858c71b7fdeb6195ec6dc4dbd1",
+    "server/chat.ts": "ded6b75d0c2f40e9d58e71842d9999dd1ef7a3b51b6456eb1d88442334b912df",
+    "server/task-store.ts": "32d060694421ed00f3e4f31a9ff0c861570d056fa5626681083f11eb0d3551bf",
+    "server/telos-item-store.ts": "e732525fc1d9212009c0718bfcf48c085678884d3b5a0a93d49a617e9c4ef471",
+    "server/telos-item-tools.ts": "6338abf7d20c0a7ee4f68de4c85e49a75acb8a76545822fba14246d86efe6abf",
+    "server/telos-item-routes.ts": "b600aaad3c66f6221d526c6a16d11d61d99f761e640f4cc4d9c14bef84b12789",
+    "server/telos-main-publication-runtime.ts": "77b1578af617f99b7cf83e6ce695834ae59b8653667f3d67c23f9e2cf8cf91f5",
+    "server/telos-main-publication-host.ts": "7403b776f8b4e7544c34f1b3f3b6da62a20130aa04720c539eadebe3979bbe7d",
+    "server/github-main-merge-selection.ts": "984cd9a21ee5b40cbe33a27ce732f7a99ee9c9c8593aef0f675121b054fb316e",
+    "server/symposium-publication-credentials.ts": "e1c578eec9297cf567c6ef31ac3443ad8a36a3fb40ccda2149ac18d18362346d",
+    "server/protected-sdk-command.ts": "e7c59a2ebfd3fde4b0c7c8cdf7f69f9d231e2e5f1819a61e0514cd707bc6c32f",
+    "packages/protocol/src/telos-sqlite-owners.ts": "7c469d8fe4cf5ce64864da712affa5b032c7fd25fedc6424e6642cf810d4e06c",
+    "packages/sqlite-file-owner/file_owner.c": "98266cf78269e7d89cef660bb9b58f2c5273ecb4361cc85dadf4a6224fa568e3",
+    "server/__tests__/fixtures/telos-canonical-3077b7b4/fresh.sql": "22b7c3804c8af317d0ea35d44af1913ff209fe6d8108bdecb7ff622cb388d403",
+    "server/__tests__/fixtures/owned-local-codex-runtime.ts": "857cc4f440358c11dfb572f1e98a4c1302c301cba102471dfb9ab2e315dd5be5",
+    "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts": "015e39f02b66d3e7cf58615c8512fc7f01cff67a036ce6c435efb3a7f9864b75",
+    "server/__tests__/fixtures/github-main-publication.ts": "efa8986ac433d54e01c59fcfebc248751fe504709d64986d9f522154bc419f42"
+  },
+  "s5b1048Dependency": {
+    "owner": "S5b LAST",
+    "sourceTree": "77ca8423c8d8df2a2f3deb7b33c5989004d64860",
+    "basis": "accepted3f6sourcepreparation, not merged1048/runtimequalification",
+    "sourceHashes": {
+      "server/__tests__/telos-canonical-journey.test.ts": "7c25a88bb1ed52f75eec66dee9097299e876149f6ee5d84bf435a11c55a06ebb",
+      "server/__tests__/telos-ordinary-canonical-journey.test.ts": "481c60b502784c096c278736b4c230674abc4693de9da8f217ba92064b810de4",
+      "server/__tests__/fixtures/telos-ordinary-work.ts": "7237dd304d3eca4af665226ad4429d839ffd03a88919f39b9ca93c18c3075312"
+    },
+    "integrationIntoCombinedCandidate": "SELECTED_EXTERNAL_TEST_FIXTURE_BYTEEXACT_AT_CURRENT_CANDIDATE; NO_PRODUCTION_OWNERS_OR_OTHERLANE_UNIT_EDITS"
+  },
+  "existingInterfaces": [
+    "createFreshTelosDatabaseFiles({canonical,events,tasks}) via @mitzo/protocol/telos-sqlite-owners",
+    "TelosGetItemInput/TelosUpdateItemInput and original lead native callback",
+    "GET /api/tasks/:id; operator POST /api/tasks/:id/approve; GET /api/telos/artifacts/:id?revision=",
+    "TelosMainPublicationRuntime/real registration-selection-custodian plus1048 external fixture.run only",
+    "TodoListResponse; actual All outcomes UI; real ProtectedSdkCommandRunner passthrough"
+  ],
+  "remaining": [
+    "Whole new source seam review of cases+helpers together",
+    "Core corrected native-owner source acceptance and mechanical port from immutable7da (correction lane currently blocked; no workaround by S9)",
+    "Exact corrected native source/binary custody and new official CI frontend/dependency graph qualification before any App execution; never relabel old2061 bundle",
+    "One exact-scope offline runtime admission and actual results, then independent semantic acceptance",
+    "Core/S5b owned final hosted gates/landing and final accepted-main qualification",
+    "Full44/UX/device remain open; Symposium paused; CT19 live remains separately authorized selected single-runtime window"
+  ],
+  "s9AndParent": "active",
+  "internalInitialCarrierTestsPerSelectedCase": 1,
+  "internalCarrierIsNotAnAdditionalAcceptanceRow": true,
+  "helperBaseline": {
+    "head": "4c9b3c37a0f068ddf28bc7862fd1d5626be61826",
+    "tree": "049ab21a0f48137a643b58f4d613df4e36a6c419",
+    "fiveTsHelpersUnchanged": [
+      "review-completion.ts",
+      "collection-entry.ts",
+      "private-command-diagnostics.ts",
+      "private-publication-runtime.ts",
+      "fresh-private-files.ts"
+    ]
+  },
+  "coreOwnerPacket": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-18/symposium-continue-where-this-chat-got/evidence/telos-host-owner-final-v42.json",
+    "sha256": "9930215db9bbaa8110825c1a97a372c0c03da43b57c09f021b9de45af5890514",
+    "sourceFilesVerified": 30,
+    "nativeAdmissionCorrection": "OWNER_CORRECTION_PENDING_NO_S9_NATIVE_EDITS_OR_RUNTIME_GRANT"
+  },
+  "byteExactTestSupport": [
+    {
+      "path": "joined-browser-target.ts",
+      "donor": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-3f6-lead-pending-control/tests/integration/telos-s9/j6-native-coordinator/joined-browser-target.ts",
+      "sha256": "66bf8c8a4cf2840ca92830acb43e1e4c8a500bfd2bc755b04639f8774d35d907",
+      "byteExact": true
+    },
+    {
+      "path": "joined-canonical-cli.ts",
+      "donor": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-3f6-lead-pending-control/tests/integration/telos-s9/j6-native-coordinator/joined-canonical-cli.ts",
+      "sha256": "75770f88a7bbcbedbfea6ca5399fdb6f663b9771789eb1098a1fd763e1cd7c1f",
+      "byteExact": true
+    },
+    {
+      "path": "fixtures/mgmt-read-requirements.txt",
+      "donor": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-3f6-lead-pending-control/tests/integration/telos-s9/j6-native-coordinator/fixtures/mgmt-read-requirements.txt",
+      "sha256": "2adbbebbfb01a2f6fde484e319d5fa76b8ec1d660b5f01bdb8d6b911bd35a15f",
+      "byteExact": true
+    },
+    {
+      "path": "fixtures/mgmt-read-cli-3077.json.gz",
+      "donor": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-3f6-lead-pending-control/tests/integration/telos-s9/j6-native-coordinator/fixtures/mgmt-read-cli-3077.json.gz",
+      "sha256": "cb0dc4b4a791163cadb5ea4953b02763f79cc399d5534b3235b1e576a6483342",
+      "byteExact": true
+    },
+    {
+      "path": "fixtures/mgmt-read-cli-3077.manifest.json",
+      "donor": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-3f6-lead-pending-control/tests/integration/telos-s9/j6-native-coordinator/fixtures/mgmt-read-cli-3077.manifest.json",
+      "sha256": "4b3ffbd04971720a8b6648d5266b688466e47dafa8b5128e5f562c855a5bbebf",
+      "byteExact": true
+    },
+    {
+      "path": "restart-child-loader.mjs",
+      "donor": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-3f6-worker-refusal-shape/tests/integration/telos-s9/final-worker-acceptance/restart-child-loader.mjs",
+      "sha256": "652fb56e7ad3b799420759a2569183c3166f615b43b060988d0698a7d08a64ee",
+      "byteExact": true
+    },
+    {
+      "path": "worker-restart-child-loader.mjs",
+      "donor": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-3f6-worker-refusal-shape/tests/integration/telos-s9/final-worker-acceptance/worker-restart-child-loader.mjs",
+      "sha256": "d5dfa4a214d1cd3a937183efde3b59fef5666611a032850c4e3ed6f47846cd9a",
+      "byteExact": true
+    }
+  ],
+  "selected1048ExternalFixture": {
+    "path": "server/__tests__/fixtures/github-main-publication.ts",
+    "sha256": "efa8986ac433d54e01c59fcfebc248751fe504709d64986d9f522154bc419f42",
+    "sourceTree": "77ca8423c8d8df2a2f3deb7b33c5989004d64860",
+    "consumed": ["run (external command effects)", "state (fake remote observations/effects)"],
+    "neverAuthority": ["pins", "adapter", "dispatchMerge", "permit"]
+  },
+  "cases": [
+    {
+      "id": "CT06-source-composition",
+      "test": "coherent-app.contract.ts",
+      "kind": "repository",
+      "timeoutMs": 120000,
+      "scope": "Real App/source review/advisor save exact retry/lead exact child/native worker/independent real Git roots/attributed output/Task pending_review/real operator bytes+Approve/real original lead canonical completion; separately reviewed replacement publication lead, real native context+selected capability+Once, hold at final fake effect boundary, release/current-main reread/lost external reply/uncertain then exact receipt recovery, real cold process owner readback/original worker command retry."
+    },
+    {
+      "id": "CT09-source-composition",
+      "test": "coherent-app.contract.ts",
+      "kind": "non-git",
+      "timeoutMs": 120000,
+      "scope": "Same coherent report and explicit completion chain with all task roots asserted non-Git, real new-process cold owner readback and original worker command retry; no repository publication."
+    }
+  ],
+  "executionTopology": {
+    "outerDriverMaxWorkers": 1,
+    "initialCarrierMaxWorkers": 1,
+    "maxSimultaneousExecutingAppCarriers": 1,
+    "initialCarrierTimeoutMs": 70000,
+    "initialProcessGroupWatchdogMs": 75000,
+    "coldReadyTimeoutMs": 35000,
+    "coldCloseWatchdogMs": 5000,
+    "nodeMaxOldSpaceMiB": 1024,
+    "retry": 0,
+    "initialOwnerCloseFence": "Successful entire private carrier OS process exit plus independent worker PID absence before cold process construction; manual store close is not claimed to close every App owner.",
+    "cleanup": "Initial root/PID marker transfers parent cleanup before any App import; finally awaits owned process reaping even on setup/oracle failure; unexpected surviving worker preserves root and ownership record and fails. Cold child close awaits OS close with bounded owned-child kill watchdog; teardown and original errors retained together."
+  },
+  "actualAuthority": "Original App role allocation/readiness, auth, library transport, workspace/credential/native context/permission/Task/canonical/publication owners. Passive method observers capture actual private publication records; runtime public result shape unchanged.",
+  "fakeEffects": [
+    "Synthetic login/account/native metadata and provider RPC responses",
+    "Private external worker file/Git output generation explicitly labelled",
+    "GitHub HTTP metadata and remote mutation replies, using real production parsers/validators/importer/selected credential custodian/final synchronous admit",
+    "Unrelated notification/naming/model hooks deny or inert external effects"
+  ],
+  "pending": [
+    "Whole new source seam review of cases+helpers together",
+    "Core corrected native-owner source acceptance and mechanical port from immutable7da (correction lane currently blocked; no workaround by S9)",
+    "Exact corrected native source/binary custody and new official CI frontend/dependency graph qualification before any App execution; never relabel old2061 bundle",
+    "One exact-scope offline runtime admission and actual results, then independent semantic acceptance",
+    "Core/S5b owned final hosted gates/landing and final accepted-main qualification",
+    "Full44/UX/device remain open; Symposium paused; CT19 live remains separately authorized selected single-runtime window"
+  ],
+  "executionAuthorizedNow": false,
+  "chargedAccount": null,
+  "newBuildsDownloads": 0,
+  "current13ProtectedHashExact": true,
+  "protectedScopeAmendment": {
+    "authorization": {
+      "id": "60241aaa7eae87370dd0c770d79a6f5e",
+      "revision": 1,
+      "sha256": "a14830f78c172ee58750da55fe051faab7c8ccd1288311b2101d5ba1c45ecc99"
+    },
+    "deltas": [
+      {
+        "path": "frontend/src/pages/__tests__/TodoPriorityOrdering.test.tsx",
+        "prior": "779365ef8c25b4fdfd90fb68839b0236fc06076b471b47012bc8251c85495970",
+        "current": "e05b65a34d4f4edb88e80c3fc059a006811dd6852b8b66819b7dee536c7fd824"
+      }
+    ],
+    "other12ProtectedPostimagesExact": true,
+    "allPriorLedgerRevisionsDeepEqualPrefix": true,
+    "prioritySVGAndInvariantSourcesChecksUnchanged": true,
+    "currentLedgerSHA256": "653971afd616cb4354041316e1459145fa4aa9a636ca7480f4734f766b0382db",
+    "originalAssertionAstOrderProof": {
+      "id": "703d40f043ffd83da1d9300a719001ec",
+      "revision": 1,
+      "sha256": "db1c3198aefdef393cd00bd3f2d22204bc28ab1c166ea71b1451e62505bfbdf8",
+      "originalWholeSourceRecoveredByTimingInverse": true,
+      "originalFourExpectASTsExact": true,
+      "reusedExistingPeerNoNewReview": true
+    },
+    "actualUserQuote": {
+      "id": "4b99c62d6f3b2842a7769722b9c540a4",
+      "revision": 1,
+      "sha256": "dbb19ba707e20762b3e91cbcd192627af6faa7f923fc1e648c5c1348fb13c04b"
+    }
+  }
+}

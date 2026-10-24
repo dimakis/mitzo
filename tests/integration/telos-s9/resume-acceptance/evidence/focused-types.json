@@ -1,0 +1,13 @@
+{
+  "sourceBase": "ce0190695aadf0d8fdac5b626cf6df118c6aca06",
+  "scope": "Syntactic and semantic diagnostics of four exact changed TypeScript roots, resolved against corrected source. Imported dependency diagnostics, global/options diagnostics and whole-project build are NOT checked. No module evaluation, native helper, App, browser or provider execution.",
+  "dependencies": "Generic mitzo-s9 node_modules used for static tooling only, not accepted runtime provenance.",
+  "roots": [
+    "tests/integration/telos-s9/coherent-final-preparation/actual-app.ts",
+    "tests/integration/telos-s9/resume-acceptance/purge-application.ts",
+    "tests/integration/telos-s9/resume-acceptance/positive-purge-recovery.contract.ts",
+    "tests/integration/telos-s9/resume-acceptance/vitest.resume.config.ts"
+  ],
+  "sourceFilesLoaded": 2033,
+  "diagnostics": []
+}
