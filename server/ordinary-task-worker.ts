@@ -12,6 +12,7 @@ import {
   withAgentLibraryRecoveryAuthorization,
 } from './agent-library-transport.js';
 import { retainAgentContextAuthority } from './agent-context-authority.js';
+import { isAuthSessionCurrent, type AuthSession } from './auth.js';
 import { ordinaryRepositoryRuntimeInventory } from './ordinary-local-codex-entry.js';
 import { nativeStartupSessionId } from './ordinary-repository-startup.js';
 import { dispatchOwnedOrdinaryCommand } from './ordinary-scoped-command.js';
@@ -39,7 +40,11 @@ interface WorkerDependencies {
 export function bindOrdinaryTaskWorkerSession(
   deps: WorkerDependencies,
   sourceClientId: string,
+  operatorAuth?: AuthSession,
 ): TaskWorkerSession {
+  // A selected source supplies execution choices, never somebody else's login.
+  if (!operatorAuth || !isAuthSessionCurrent(operatorAuth))
+    throw Error('An interactive initiating operator is required for new workers');
   const source = deps.source(sourceClientId);
   const sourceId = source?.sessionId;
   const sourceConnectionId = source?.ownerConnectionId;
@@ -47,6 +52,9 @@ export function bindOrdinaryTaskWorkerSession(
     throw Error('Select an active ordinary source conversation for workers');
   const authorization = captureAgentLibraryAuthorization(sourceConnectionId);
   authorization.assertCurrent();
+  if (authorization.auth.id !== operatorAuth.id)
+    throw Error('Selected worker source belongs to another operator');
+  const initiatingAuth = { ...operatorAuth };
   const sourceMeta = deps.events.getSession(sourceId);
   const raw =
     deps.events.getOrdinaryWorkspaceConversationSettings(sourceId) ??
@@ -95,7 +103,7 @@ export function bindOrdinaryTaskWorkerSession(
   };
   const original = structuredClone(sourceSnapshot());
   const runController = new AbortController();
-  const runAuthority = retainAgentContextAuthority({ ...authorization.auth }, runController);
+  const runAuthority = retainAgentContextAuthority(initiatingAuth, runController);
   const close = () => {
     try {
       runController.abort(Error('Worker run authority closed'));
@@ -152,7 +160,7 @@ export function bindOrdinaryTaskWorkerSession(
     };
     try {
       return await withAgentLibraryRecoveryAuthorization(
-        authorization.auth,
+        initiatingAuth,
         async (operatorConnectionId) => {
           if (!operatorConnectionId) throw Error('Original worker operator required');
           taskCurrent();
@@ -353,7 +361,7 @@ export function bindOrdinaryTaskWorkerSession(
             reservation,
             operatorConnectionId,
             ownerConnectionId: sourceConnectionId,
-            ownerAuthSessionId: authorization.auth.id,
+            ownerAuthSessionId: initiatingAuth.id,
             signal,
             continuation: false,
             existingOwner: false,
@@ -400,5 +408,10 @@ export function bindOrdinaryTaskWorkerSession(
     }
   };
   spawn.close = close;
+  spawn.authorize = (current) => {
+    if (!current || current.id !== initiatingAuth.id || !isAuthSessionCurrent(current))
+      throw Error('Original initiating operator is required to enable workers');
+    assertCurrent();
+  };
   return spawn;
 }

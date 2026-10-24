@@ -20,7 +20,10 @@ vi.mock('../agent-library-transport.js', () => ({
   captureAgentLibraryAuthorization: calls.capture,
   withAgentLibraryRecoveryAuthorization: calls.recovery,
 }));
-vi.mock('../auth.js', () => ({ registerAuthSession: () => () => {} }));
+vi.mock('../auth.js', () => ({
+  registerAuthSession: () => () => {},
+  isAuthSessionCurrent: (auth: { expiresAt: number }) => auth.expiresAt > Date.now(),
+}));
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   vi.clearAllMocks();
@@ -140,8 +143,9 @@ function fixture() {
     qualifyOrdinaryWorkspace: vi.fn(),
     getOrdinaryWorkspaceForOperation: vi.fn(() => undefined),
   };
+  const auth = { id: 'operator', expiresAt: Date.now() + 60000 };
   calls.capture.mockReturnValue({
-    auth: { id: 'operator', expiresAt: Date.now() + 60000 },
+    auth,
     assertCurrent: vi.fn(),
   });
   calls.recovery.mockImplementation((_auth, run) => run('retained-operator'));
@@ -161,6 +165,7 @@ function fixture() {
   return {
     tasks,
     task,
+    auth,
     settings,
     meta,
     account,
@@ -175,7 +180,7 @@ function fixture() {
 
 it('allocates and dispatches a worker through the exact selected ordinary owner with durable linkage before dispatch', async () => {
   const f = fixture();
-  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client');
+  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client', f.auth);
   calls.dispatch.mockImplementationOnce(async (input) => {
     expect(f.prepared).toHaveBeenCalledTimes(1);
     expect(f.tasks.get(f.task.id)?.sessionId).toBe(
@@ -224,6 +229,18 @@ it('allocates and dispatches a worker through the exact selected ordinary owner 
   );
 });
 
+it.each([undefined, { id: 'foreign-operator', expiresAt: Date.now() + 60_000 }])(
+  'rejects a missing or foreign initiating operator before worker allocation (%j)',
+  async (initiator) => {
+    const f = fixture();
+    expect(() =>
+      bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client', initiator),
+    ).toThrow();
+    expect(calls.reserve).not.toHaveBeenCalled();
+    expect(calls.dispatch).not.toHaveBeenCalled();
+  },
+);
+
 it('continues the same selected run across viewer disconnect and session driver rekey', async () => {
   const f = fixture();
   const sourceBySession = vi.fn(() => f.source);
@@ -232,7 +249,7 @@ it('continues the same selected run across viewer disconnect and session driver 
     sourceForSession: sourceBySession,
     source: vi.fn(() => f.source as typeof f.source | undefined),
   };
-  const spawn = bindOrdinaryTaskWorkerSession(deps as never, 'old-client');
+  const spawn = bindOrdinaryTaskWorkerSession(deps as never, 'old-client', f.auth);
   const captured = calls.capture.mock.results[0].value;
   captured.assertCurrent.mockImplementation(() => {
     throw Error('Old viewer disconnected');
@@ -251,7 +268,11 @@ it('continues the same selected run across viewer disconnect and session driver 
 it('cancels the retained worker conversation independently of a changed viewer driver key', async () => {
   const f = fixture();
   const stop = vi.fn();
-  const spawn = bindOrdinaryTaskWorkerSession({ ...f.deps, stop } as never, 'selected-client');
+  const spawn = bindOrdinaryTaskWorkerSession(
+    { ...f.deps, stop } as never,
+    'selected-client',
+    f.auth,
+  );
   const signal = new AbortController();
   await spawn(f.task.id, 'Reviewed task', 'goal', vi.fn(), {
     operationId: f.record.allocationOperationId,
@@ -266,7 +287,7 @@ it('cancels the retained worker conversation independently of a changed viewer d
 
 it('closes run authority on teardown and refuses future worker effects', async () => {
   const f = fixture();
-  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client');
+  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client', f.auth);
   expect(spawn.close).toBeTypeOf('function');
   spawn.close?.();
   await expect(
@@ -281,7 +302,7 @@ it('closes run authority on teardown and refuses future worker effects', async (
 
 it('rejects a superseded allocation even while retained history includes its old marker', async () => {
   const f = fixture();
-  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client');
+  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client', f.auth);
   const annotations = f.tasks.get(f.task.id)!.annotations;
   f.tasks.update(f.task.id, {
     annotations: [...annotations, 'worker_allocation: replacement-operation'],
@@ -302,7 +323,7 @@ it('qualifies a fresh child proof for a supported source model change while pres
   f.settings.selection.model = 'supported-new-model';
   f.source.model = 'supported-new-model';
   const original = structuredClone(f.settings);
-  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client');
+  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client', f.auth);
   await spawn(f.task.id, 'Reviewed task', 'goal', vi.fn(), {
     operationId: f.record.allocationOperationId,
     signal: new AbortController().signal,
@@ -334,7 +355,7 @@ it('qualifies a fresh child proof for a supported source model change while pres
 
 it('rejects changed account/model/target selection before allocating or dispatching', async () => {
   const f = fixture();
-  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client');
+  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client', f.auth);
   f.meta.selectedModel = 'changed-model';
   await expect(
     spawn(f.task.id, 'Reviewed task', 'goal', vi.fn(), {
@@ -348,7 +369,7 @@ it('rejects changed account/model/target selection before allocating or dispatch
 
 it('preserves operation and conversation evidence after uncertain dispatch without retrying', async () => {
   const f = fixture();
-  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client');
+  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client', f.auth);
   calls.dispatch.mockRejectedValueOnce(Error('uncertain'));
   await expect(
     spawn(f.task.id, 'Reviewed task', 'goal', vi.fn(), {

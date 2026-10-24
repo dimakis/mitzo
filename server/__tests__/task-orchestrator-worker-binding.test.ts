@@ -45,7 +45,7 @@ it('requires a selected source chat before worker admission and captures it once
   expect(f.capture).not.toHaveBeenCalled();
   f.loop.start(f.goal.id, { clientId: 'selected-source' });
   await vi.waitFor(() => expect(f.spawn).toHaveBeenCalledTimes(1));
-  expect(f.capture).toHaveBeenCalledExactlyOnceWith('selected-source');
+  expect(f.capture).toHaveBeenCalledExactlyOnceWith('selected-source', undefined);
   expect(f.spawn).toHaveBeenCalledWith(
     f.task.id,
     expect.any(String),
@@ -76,7 +76,7 @@ it('captures the selected source when spawning is enabled on a waiting workflow'
   expect(f.capture).not.toHaveBeenCalled();
   f.loop.setSpawnEnabled(true);
   await vi.waitFor(() => expect(f.spawn).toHaveBeenCalledTimes(1));
-  expect(f.capture).toHaveBeenCalledExactlyOnceWith('selected-source');
+  expect(f.capture).toHaveBeenCalledExactlyOnceWith('selected-source', undefined);
 });
 
 it('releases selected worker run authority when the workflow stops', () => {

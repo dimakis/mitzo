@@ -6,6 +6,7 @@ import type { WorkloadStore } from './workload-store.js';
 import { sendToChat } from './chat.js';
 import { createLogger } from './logger.js';
 import { randomUUID } from 'node:crypto';
+import type { AuthSession } from './auth.js';
 
 const log = createLogger('task-orchestrator');
 
@@ -24,6 +25,8 @@ export interface LoopStatus {
 export interface StartOptions {
   specMode?: boolean;
   clientId?: string;
+  /** Middleware-verified interactive login, never a request-body claim. */
+  operatorAuth?: AuthSession;
 }
 
 export interface OrchestratorDeps {
@@ -55,7 +58,7 @@ export interface OrchestratorDeps {
   ) => Promise<string | null>;
   /** Capture the selected ordinary conversation's immutable runtime choices.
    * The returned adapter uses the ordinary account/workspace/admission owners. */
-  bindWorkerSession?: (sourceClientId: string) => TaskWorkerSession;
+  bindWorkerSession?: (sourceClientId: string, operatorAuth?: AuthSession) => TaskWorkerSession;
 }
 
 export type TaskWorkerSession = ((
@@ -64,7 +67,10 @@ export type TaskWorkerSession = ((
   goalId: string,
   onEnded: (clientId: string, error?: Error) => void,
   scope: { operationId: string; signal: AbortSignal },
-) => Promise<string | null>) & { close?: () => void };
+) => Promise<string | null>) & {
+  close?: () => void;
+  authorize?: (operatorAuth?: AuthSession) => void;
+};
 
 export class TaskOrchestrator {
   /**
@@ -122,15 +128,12 @@ export class TaskOrchestrator {
     return this._spawnEnabled;
   }
 
-  setSpawnEnabled(enabled: boolean): void {
-    if (
-      enabled &&
-      this.state !== 'idle' &&
-      !this.boundWorkerSession &&
-      this.deps.bindWorkerSession &&
-      this.pinnedClientId
-    )
-      this.boundWorkerSession = this.deps.bindWorkerSession(this.pinnedClientId);
+  setSpawnEnabled(enabled: boolean, operatorAuth?: AuthSession): void {
+    if (enabled && this.state !== 'idle' && this.deps.bindWorkerSession) {
+      if (this.boundWorkerSession) this.boundWorkerSession.authorize?.(operatorAuth);
+      else if (this.pinnedClientId)
+        this.boundWorkerSession = this.deps.bindWorkerSession(this.pinnedClientId, operatorAuth);
+    }
     this._spawnEnabled = enabled;
     log.info('spawn enabled changed', { enabled });
     this.deps.broadcastStatus(this.getStatus());
@@ -281,7 +284,7 @@ export class TaskOrchestrator {
     // cannot turn a workflow into an admitted task or choose a fallback chat.
     const boundWorkerSession =
       this._spawnEnabled && this.deps.bindWorkerSession && pinnedClientId
-        ? this.deps.bindWorkerSession(pinnedClientId)
+        ? this.deps.bindWorkerSession(pinnedClientId, opts?.operatorAuth)
         : undefined;
 
     this.state = 'running';

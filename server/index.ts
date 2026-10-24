@@ -538,7 +538,7 @@ const orchestrator = new TaskOrchestrator({
     }
     return ids;
   },
-  bindWorkerSession: (sourceClientId) =>
+  bindWorkerSession: (sourceClientId, operatorAuth) =>
     bindOrdinaryTaskWorkerSession(
       {
         events: eventStore,
@@ -553,6 +553,7 @@ const orchestrator = new TaskOrchestrator({
           ),
       },
       sourceClientId,
+      operatorAuth,
     ),
 });
 orchestratorRef = orchestrator;

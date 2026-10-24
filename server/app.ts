@@ -2577,8 +2577,15 @@ app.post('/api/loop/spawn', (req, res) => {
     res.status(400).json({ error: 'enabled (boolean) is required' });
     return;
   }
-  orchestrator.setSpawnEnabled(enabled);
-  res.json(orchestrator.getStatus());
+  try {
+    orchestrator.setSpawnEnabled(enabled, res.locals.authSession as AuthSession | undefined);
+    res.json(orchestrator.getStatus());
+  } catch {
+    res.status(403).json({
+      code: 'work_scope_denied',
+      error: 'The initiating operator does not authorize new workers for this conversation',
+    });
+  }
 });
 
 app.post('/api/loop/start', (req, res) => {
@@ -2633,6 +2640,7 @@ app.post('/api/loop/start', (req, res) => {
     const result = orchestrator.start(body.data.goalId, {
       specMode: body.data.specMode,
       clientId,
+      operatorAuth: res.locals.authSession as AuthSession | undefined,
     });
     res.json(result);
   } catch {
