@@ -13,7 +13,7 @@ import {
 import { join, basename } from 'path';
 import { randomUUID } from 'node:crypto';
 import { createLogger } from './logger.js';
-import { isPrivateCodexPath } from './codex-private-path.js';
+import { isPrivateCodexPath, privateCodexPathSnapshot } from './codex-private-path.js';
 
 const log = createLogger('inbox');
 
@@ -74,8 +74,20 @@ function extractPreview(body: string, maxLen = 150): string {
 }
 
 export function listInboxItems(inboxPath: string): InboxItemSummary[] {
+  return scanInboxItems(inboxPath).map((item) => item.summary);
+}
+
+/** One synchronous scan shares its current privacy policy and source bytes.
+ * Do not retain this policy across requests or cache content behind it. */
+export function scanInboxItems(inboxPath: string): Array<{
+  summary: InboxItemSummary;
+  content: string;
+  meta: Record<string, string>;
+}> {
   let files: string[];
+  let policy: ReturnType<typeof privateCodexPathSnapshot>;
   try {
+    policy = privateCodexPathSnapshot();
     files = readdirSync(inboxPath).filter((f) => f.endsWith('.md'));
   } catch (err: unknown) {
     log.warn('failed to read inbox directory', {
@@ -85,19 +97,23 @@ export function listInboxItems(inboxPath: string): InboxItemSummary[] {
     return [];
   }
 
-  const items: InboxItemSummary[] = [];
+  const items: ReturnType<typeof scanInboxItems> = [];
   for (const filename of files) {
     try {
-      if (isPrivateCodexPath(join(inboxPath, filename))) continue;
+      if (policy.isPrivate(join(inboxPath, filename))) continue;
       const raw = readFileSync(join(inboxPath, filename), 'utf-8');
       const { meta, body } = parseFrontmatter(raw);
       items.push({
-        filename,
-        agent: meta.agent || 'unknown',
-        title: extractTitle(body),
-        tags: parseTags(meta.tags),
-        timestamp: meta.timestamp || '',
-        preview: extractPreview(body),
+        summary: {
+          filename,
+          agent: meta.agent || 'unknown',
+          title: extractTitle(body),
+          tags: parseTags(meta.tags),
+          timestamp: meta.timestamp || '',
+          preview: extractPreview(body),
+        },
+        content: raw,
+        meta,
       });
     } catch (err: unknown) {
       log.warn('failed to read inbox item', {
@@ -108,7 +124,7 @@ export function listInboxItems(inboxPath: string): InboxItemSummary[] {
   }
 
   // Sort newest first (filenames are timestamped)
-  items.sort((a, b) => b.filename.localeCompare(a.filename));
+  items.sort((a, b) => b.summary.filename.localeCompare(a.summary.filename));
   return items;
 }
 
