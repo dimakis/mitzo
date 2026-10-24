@@ -8,6 +8,13 @@ import {
 import { chmodSync, closeSync, openSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { ConversationMessage, ResponsesCheckpoint, ToolDefinition } from '@mitzo/harness';
+import type { LegacyNativeReview } from './legacy-native-continuation.js';
+
+export interface LegacyNativeLink {
+  review: LegacyNativeReview;
+  state: 'reviewed' | 'uncertain' | 'consumed';
+  createdAt: number;
+}
 
 export const OrdinaryResponsesCustodySchema = z
   .strictObject({
@@ -74,6 +81,106 @@ export class NativeResponsesStore {
       this.db.exec('ALTER TABLE native_responses ADD COLUMN custody TEXT');
     if (!columns.some((column) => column.name === 'ordinary_queue'))
       this.db.exec('ALTER TABLE native_responses ADD COLUMN ordinary_queue TEXT');
+  }
+  /** Retained lineage lives beside the old private history. It never changes a
+   * checkpoint, queue or source session ID. Claim precedes native dispatch. */
+  private ensureLegacyLinks() {
+    this.db.exec(`CREATE TABLE IF NOT EXISTS legacy_native_links (
+      review_hash TEXT PRIMARY KEY, source_id TEXT NOT NULL, native_id TEXT NOT NULL,
+      command_id TEXT NOT NULL, auth_id TEXT NOT NULL, review TEXT NOT NULL,
+      state TEXT NOT NULL, created_at INTEGER NOT NULL)`);
+    this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS legacy_native_link_command
+      ON legacy_native_links(command_id)`);
+  }
+  saveLegacyNativeReview(review: LegacyNativeReview, authId: string): void {
+    this.ensureLegacyLinks();
+    if (!authId || Buffer.byteLength(JSON.stringify(review)) > 1048576)
+      throw Error('Invalid linked native continuation');
+    this.db
+      .prepare(
+        `INSERT INTO legacy_native_links
+      (review_hash,source_id,native_id,command_id,auth_id,review,state,created_at)
+      VALUES (?,?,?,?,?,?,'reviewed',?) ON CONFLICT(review_hash) DO UPDATE
+        SET created_at=excluded.created_at
+        WHERE legacy_native_links.state='reviewed' AND legacy_native_links.auth_id=excluded.auth_id`,
+      )
+      .run(
+        review.reviewHash,
+        review.sourceSessionId,
+        review.nativeSessionId,
+        review.commandId,
+        authId,
+        JSON.stringify(review),
+        Date.now(),
+      );
+    // A command identity may never be rebound to a later review or another login.
+    this.readLegacyNativeLink(review.reviewHash, authId);
+  }
+  readLegacyNativeLink(reviewHash: string, authId: string): LegacyNativeLink {
+    this.ensureLegacyLinks();
+    const row = this.db
+      .prepare(
+        `SELECT auth_id,review,state,created_at FROM legacy_native_links
+      WHERE review_hash=?`,
+      )
+      .get(reviewHash) as
+      | { auth_id: string; review: string; state: LegacyNativeLink['state']; created_at: number }
+      | undefined;
+    if (!row || row.auth_id !== authId) throw Error('Original continuation reviewer required');
+    return { review: JSON.parse(row.review), state: row.state, createdAt: row.created_at };
+  }
+  listLegacyNativeLinks(sessionId: string, authId: string) {
+    this.ensureLegacyLinks();
+    return (
+      this.db
+        .prepare(
+          `SELECT review_hash,source_id,native_id,command_id,state,created_at
+      FROM legacy_native_links WHERE (source_id=? OR native_id=?) AND auth_id=?
+      ORDER BY created_at DESC`,
+        )
+        .all(sessionId, sessionId, authId) as Array<{
+        review_hash: string;
+        source_id: string;
+        native_id: string;
+        command_id: string;
+        state: LegacyNativeLink['state'];
+        created_at: number;
+      }>
+    ).map((row) => ({
+      reviewHash: row.review_hash,
+      sourceSessionId: row.source_id,
+      nativeSessionId: row.native_id,
+      commandId: row.command_id,
+      state: row.state,
+      createdAt: row.created_at,
+    }));
+  }
+  claimLegacyNativeLink(reviewHash: string, authId: string): boolean {
+    return this.db
+      .transaction(() => {
+        const link = this.readLegacyNativeLink(reviewHash, authId);
+        if (link.state !== 'reviewed') return false;
+        if (Date.now() - link.createdAt > 30 * 60_000)
+          throw Error('Native continuation review expired; review again');
+        return (
+          this.db
+            .prepare(
+              `UPDATE legacy_native_links SET state='uncertain'
+        WHERE review_hash=? AND auth_id=? AND state='reviewed'`,
+            )
+            .run(reviewHash, authId).changes === 1
+        );
+      })
+      .immediate();
+  }
+  completeLegacyNativeLink(reviewHash: string, authId: string): void {
+    this.readLegacyNativeLink(reviewHash, authId);
+    this.db
+      .prepare(
+        `UPDATE legacy_native_links SET state='consumed'
+      WHERE review_hash=? AND auth_id=? AND state='uncertain'`,
+      )
+      .run(reviewHash, authId);
   }
   /** Exact admitted definitions survive restart. Drift refuses resume rather than replacing tools. */
   bindAgentTools(

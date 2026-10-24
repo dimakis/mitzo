@@ -1287,6 +1287,25 @@ export async function startChat(
   try {
     if (options.ordinarySdkAuthority) {
       if (
+    const retainedBinding = options.resume
+      ? eventStore.getSession(options.resume)?.accountBinding
+      : undefined;
+    const profiles =
+      options.accountProfiles ??
+      (options.accountId || retainedBinding ? loadAccountProfiles() : undefined);
+    const selected = resolveAccountSelection(options, retainedBinding, !!options.resume, profiles);
+    if (
+      selected?.provider === 'openai' &&
+      (!(
+        (process.env.MITZO_OPENSHELL_ENABLED === '1' ||
+          !!process.env.MITZO_OPENSHELL_SANDBOX_NAME) &&
+        process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'
+      ) ||
+        (options.resume && getNativeResponsesStore().load(options.resume, selected)))
+    )
+      throw Error(
+        'Custom Responses execution is retired. Use native ordinary admission or review a linked native continuation.',
+      );
         !(options.ordinarySdkAuthority instanceof OrdinaryLocalVertexSdkAuthority) ||
         !options.ordinarySdkCommandOwner
       )
@@ -1467,6 +1486,13 @@ async function _startChatInner(
       accountBinding?.provider === 'openai-codex'
         ? openShellAvailable
           ? 'openshell'
+    if (
+      accountBinding?.provider === 'openai' &&
+      (!openShellAvailable || process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED === '0')
+    )
+      throw new Error(
+        'Custom Responses execution is retired. Use native ordinary admission or review a linked native continuation.',
+      );
           : 'codex'
         : accountBinding?.provider === 'openai' &&
             openShellAvailable &&
@@ -4124,6 +4150,8 @@ export async function sendToChat(
           ...(selectionReasoningEffort !== undefined
             ? { reasoningEffort: selectionReasoningEffort || null }
             : {}),
+    if (responses && session.accountBinding?.provider !== 'google-vertex')
+      throw Error('Custom Responses execution is retired; review a linked native continuation');
         });
       }
       if (model) {
@@ -4505,6 +4533,10 @@ export async function interruptChat(
     }
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
     const previews = imagePreviews(images);
+    if (responses && session.accountBinding?.provider !== 'google-vertex') {
+      await session.queryInstance.interrupt();
+      return false;
+    }
     // Store and echo the user message. A retried interrupt must still stop
     // the agent — only the echo/store is skipped on duplicate.
     let isDup = false;
@@ -4775,6 +4807,12 @@ function _closeoutSessionInner(clientId: string, episode: CloseoutEpisode): void
   }
 
   log.info('injecting closeout prompt', { clientId, wtId: session.wtId });
+  if (responses && session.accountBinding?.provider !== 'google-vertex') {
+    log.warn('retired Responses closeout requires explicit linked native continuation', {
+      sessionId: session.sessionId,
+    });
+    return;
+  }
 
   queueCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT, episode);
 
@@ -6425,7 +6463,7 @@ export function canResumeOwnedLocalResponsesDriver(
     if (
       !meta?.accountBinding ||
       !runtime ||
-      !['responses', 'gemini'].includes(runtime.harness.implementation) ||
+      runtime.harness.implementation !== 'gemini' ||
       (runtime.harness.implementation === 'gemini'
         ? process.env.MITZO_ORDINARY_LOCAL_GEMINI_ENABLED
         : process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED) !== '1' ||
@@ -6555,9 +6593,8 @@ export async function sendOwnedLocalResponsesCommand(input: {
     !session ||
     !owner ||
     owner.authSessionId !== captured.auth.id ||
-    !['responses', 'gemini'].includes(
-      eventStore.getSessionRuntimeBinding(input.sessionId)?.harness.implementation ?? '',
-    )
+    session.accountBinding?.provider !== 'google-vertex' ||
+    eventStore.getSessionRuntimeBinding(input.sessionId)?.harness.implementation !== 'gemini'
   )
     throw Error('Owned Local Responses unavailable');
   const result = await owner.admit(input.command, input.signal);
@@ -6697,6 +6734,8 @@ export async function startOwnedLocalResponsesCommand(
           if (result.dispatched) {
             echo((raw as { clientMsgId: string }).clientMsgId);
             void pump();
+  if (options.reservation.binding.provider !== 'google-vertex')
+    throw Error('Custom Responses execution is retired; review a linked native continuation');
           }
           return result;
         },

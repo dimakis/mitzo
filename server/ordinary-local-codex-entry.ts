@@ -309,7 +309,7 @@ function createOwnedCodexEntryRouter(
   ctx: Pick<V2HandlerContext, 'connRegistry' | 'sessionRegistry' | 'eventStore'>,
   general = false,
   ordinary = false,
-): Router {
+): { router: Router; firstCommand: import('express').RequestHandler } {
   const router = Router();
   const unavailable = general
     ? 'Conversation runtime unavailable'
@@ -1079,7 +1079,17 @@ function createOwnedCodexEntryRouter(
     sendCommand(false, true),
   );
   router.post('/continue/receipt', requireSameOriginJson, sendCommand(true, true));
-  return router;
+  return { router, firstCommand: sendCommand(false) };
+}
+
+/** Reuses the ordinary HTTP admission owner for explicitly reviewed linked
+ * native continuation. The caller supplies operator auth and same-origin JSON
+ * middleware; the handler still verifies current SSE ownership and capability. */
+export function createOwnedCodexFirstCommandHandler(
+  sse: SessionSseRegistry,
+  ctx: Pick<V2HandlerContext, 'connRegistry' | 'sessionRegistry' | 'eventStore'>,
+): import('express').RequestHandler {
+  return createOwnedCodexEntryRouter(sse, ctx, true).firstCommand;
 }
 
 export function createOwnedLocalCodexEntryRouter(
@@ -1087,12 +1097,12 @@ export function createOwnedLocalCodexEntryRouter(
   ctx: Pick<V2HandlerContext, 'connRegistry' | 'sessionRegistry' | 'eventStore'>,
   general = false,
 ): Router {
-  return createOwnedCodexEntryRouter(sse, ctx, general);
+  return createOwnedCodexEntryRouter(sse, ctx, general).router;
 }
 /** Explicit ordinary V2 wire; no repository or alternate-provider fallback. */
 export function createOwnedOrdinaryWorkspaceCommandRouter(
   sse: SessionSseRegistry,
   ctx: Pick<V2HandlerContext, 'connRegistry' | 'sessionRegistry' | 'eventStore'>,
 ): Router {
-  return createOwnedCodexEntryRouter(sse, ctx, false, true);
+  return createOwnedCodexEntryRouter(sse, ctx, false, true).router;
 }

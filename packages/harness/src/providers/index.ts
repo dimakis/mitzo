@@ -88,11 +88,9 @@ export type {
   ContentBlockStopEvent,
   MessageDeltaEvent,
 } from './session-types.js';
-export { AnthropicSession, createAnthropicSession } from './anthropic-session.js';
-export type { AnthropicSessionOptions } from './anthropic-session.js';
 
 // SDK adapter — bridges ModelSession to query-loop.ts event shapes
-export { sdkWrapperEmitter, runAgenticLoop } from './sdk-adapter.js';
+export { sdkWrapperEmitter, runDeferredGeminiLoop } from './sdk-adapter.js';
 export type {
   SdkWrapperEvent,
   SdkAssistantEvent,
@@ -106,5 +104,4 @@ export type {
   ToolResultBlock,
 } from './sdk-adapter.js';
 
-export { OpenAIResponsesRequestError, ResponsesSession } from './responses-session.js';
-export type { ResponsesSessionOptions, ResponsesCheckpoint } from './responses-session.js';
+export type { ResponsesCheckpoint } from './legacy-provider-checkpoint.js';

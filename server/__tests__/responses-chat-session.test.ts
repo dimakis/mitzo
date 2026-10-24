@@ -81,11 +81,19 @@ vi.mock('../native-responses-runner.js', () => ({
       if (prompt === 'provider-ack') {
         yield {
           type: 'stream_event',
-          event: { type: 'message_start', message: { id: 'resp_exact' } },
+          event: {
+            type: 'message_start',
+            message: { id: 'resp_exact' },
+            providerReceipt: { provider: 'google-vertex', responseId: 'resp_exact' },
+          },
         };
         yield {
           type: 'stream_event',
-          event: { type: 'message_start', message: { id: 'resp_tool_followup' } },
+          event: {
+            type: 'message_start',
+            message: { id: 'resp_tool_followup' },
+            providerReceipt: { provider: 'google-vertex', responseId: 'resp_tool_followup' },
+          },
         };
       }
       if (prompt === 'fail')
@@ -116,7 +124,27 @@ vi.mock('../codex-mcp-tools.js', () => ({
     displayName: (name: string) => name,
   })),
 }));
-import { openResponsesChat, trackResponsesProviderAdmission } from '../responses-chat-session.js';
+import {
+  openResponsesChat as openDeferredGeminiChat,
+  trackResponsesProviderAdmission,
+} from '../responses-chat-session.js';
+/** Shared transport/lifecycle fixtures now exercise the retained Gemini wrapper.
+ * Retired OpenAI ingress is covered by retired-responses-execution.test.ts. */
+function openResponsesChat(options: Parameters<typeof openDeferredGeminiChat>[0]) {
+  const { apiKey: _apiKey, getApiKey: _getApiKey, ...retained } = options;
+  void _apiKey;
+  void _getApiKey;
+  return openDeferredGeminiChat({
+    ...retained,
+    binding: { ...options.binding, provider: 'google-vertex' },
+    gemini: options.gemini ?? {
+      accountId: options.binding.accountId,
+      projectId: 'fixture-project',
+      region: 'global',
+      getAccessToken: async () => 'private-test-key',
+    },
+  });
+}
 import {
   CredentialConnections,
   CredentialConnectionStore,
@@ -145,7 +173,7 @@ it('runs successive user turns with a private credential and closes its input qu
     binding: {
       accountId: 'work',
       accountLabel: 'Work',
-      provider: 'openai',
+      provider: 'google-vertex',
       model: 'test',
       profileRevision: 'revision',
     },
@@ -164,8 +192,8 @@ it('runs successive user turns with a private credential and closes its input qu
   expect(calls.prompts).toEqual(['first', 'second']);
   expect(events[0]).toMatchObject({ type: 'system', session_id: 'app' });
   expect(JSON.stringify(events)).not.toContain('private-test-key');
-  expect(calls.options[0].apiKey).toBe('private-test-key');
-  expect(calls.options[0].getApiKey).toBe(getApiKey);
+  expect(calls.options[0].apiKey).toBeUndefined();
+  expect(calls.options[0].getApiKey).toBeUndefined();
   expect(calls.options[0].systemPrompt).toContain('Execution location: Local host');
   expect(calls.options[0].systemPrompt).toContain(`Operating system: ${process.platform}`);
   expect(calls.options[0].systemPrompt).toContain(`Architecture: ${process.arch}`);
@@ -216,7 +244,7 @@ it('does not start an API runner when a project startup hook fails', async () =>
         binding: {
           accountId: 'work',
           accountLabel: 'Work',
-          provider: 'openai',
+          provider: 'google-vertex',
           model: 'test',
           profileRevision: 'revision',
         },
@@ -243,7 +271,7 @@ it.each([
   [true, false],
   [false, true],
 ] as const)(
-  'limits host command networking to explicit enrolled API sessions (enabled=%s, owned=%s)',
+  'keeps deferred Gemini networking unavailable despite retired API flags (enabled=%s, owned=%s)',
   async (enabled, owned) => {
     vi.stubEnv('MITZO_ORDINARY_LOCAL_RESPONSES_NETWORK_ENABLED', enabled ? '1' : '0');
     const native = await import('../native-tool-executor.js');
@@ -273,7 +301,7 @@ it.each([
         binding: {
           accountId: 'work',
           accountLabel: 'Work',
-          provider: 'openai',
+          provider: 'google-vertex',
           model: 'offline',
           profileRevision: 'fixture',
         },
@@ -298,7 +326,7 @@ it.each([
       });
       const runner = calls.options.at(-1)!;
       const prompt = runner.systemPrompt as string;
-      const allowed = enabled && owned;
+      const allowed = false; // Deferred Gemini never inherits the retired OpenAI command-network flag.
       expect(prompt).toContain('Writable workspace roots: ["/tmp/mitzo-worktree"]');
       expect(prompt).toContain(
         allowed
@@ -331,62 +359,6 @@ it.each([
     }
   },
 );
-
-it('maps native OpenAI failures to the shared sanitized provider envelope', async () => {
-  const registry = new SessionRegistry();
-  const abort = new AbortController();
-  registry.register('client', {
-    transport: { send: () => {}, isOpen: () => true },
-    abortController: abort,
-    mode: 'agent',
-    sessionId: 'app',
-    cwd: '/tmp',
-    sessionAllowList: new Set(),
-  });
-  const input = new AsyncQueue<{
-    message: { content: string };
-    mitzoMessageId: string;
-  }>();
-  input.push({ message: { content: 'fail' }, mitzoMessageId: 'message-429' });
-  input.close();
-  const chat = await openResponsesChat({
-    conversationId: 'app',
-    binding: {
-      accountId: 'work',
-      accountLabel: 'Work',
-      provider: 'openai',
-      model: 'test',
-      profileRevision: 'revision',
-    },
-    apiKey: 'private-test-key',
-    session: registry.get('client')!,
-    registry,
-    input,
-    systemPrompt: 'context',
-    env: { PATH: '/usr/bin:/bin' },
-    mcpServers: {},
-    store: {} as never,
-  });
-  const events = [];
-  for await (const event of chat) events.push(event);
-  expect(events.at(-1)).toMatchObject({
-    type: 'result',
-    session_id: 'app',
-    is_error: true,
-    provider_failure: {
-      category: 'rate_limited',
-      code: 'rate_limit_error',
-      retryable: true,
-      ambiguous: true,
-      attempt: 1,
-      correlationId: 'message-429',
-      retryAfterMs: 7_000,
-    },
-  });
-  expect(JSON.stringify(events)).not.toContain('sk-secret');
-  expect(JSON.stringify(events)).not.toContain('private.invalid');
-  registry.dispose();
-});
 
 it('dispatches an exact admitted command once and terminalizes provider state first', async () => {
   const registry = new SessionRegistry();
@@ -435,7 +407,7 @@ it('dispatches an exact admitted command once and terminalizes provider state fi
       binding: {
         accountId: 'work',
         accountLabel: 'Work',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'test',
         profileRevision: 'revision',
       },
@@ -520,7 +492,7 @@ it('records an ambiguous provider failure before failing its execution', async (
       binding: {
         accountId: 'work',
         accountLabel: 'Work',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'test',
         profileRevision: 'revision',
       },
@@ -534,13 +506,14 @@ it('records an ambiguous provider failure before failing its execution', async (
       mcpServers: {},
       store: {} as never,
     });
-    for await (const event of chat) {
-      // Drain the sanitized failure result.
-      void event;
-    }
+    await expect(
+      (async () => {
+        for await (const event of chat) void event;
+      })(),
+    ).rejects.toThrow('API turn failed');
 
     expect(eventStore.getProviderAttempts(admission.token)).toMatchObject([
-      { phase: 'TERMINAL', terminalReason: 'ambiguous' },
+      { phase: 'TERMINAL', terminalReason: 'failed' },
     ]);
     expect(eventStore.getSession('app')).toMatchObject({
       executionPhase: 'TERMINAL',
@@ -587,7 +560,7 @@ it('terminalizes an admitted command that is aborted before provider dispatch', 
       binding: {
         accountId: 'work',
         accountLabel: 'Work',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'test',
         profileRevision: 'revision',
       },
@@ -651,7 +624,7 @@ it('waits for durable cancellation before interrupt resolves', async () => {
       binding: {
         accountId: 'work',
         accountLabel: 'Work',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'test',
         profileRevision: 'revision',
       },
@@ -719,7 +692,7 @@ it('cancels an admitted command when interrupted before dequeue', async () => {
       binding: {
         accountId: 'work',
         accountLabel: 'Work',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'test',
         profileRevision: 'revision',
       },
@@ -851,7 +824,7 @@ it('terminalizes an active provider attempt when its consumer closes the stream'
       binding: {
         accountId: 'work',
         accountLabel: 'Work',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'test',
         profileRevision: 'revision',
       },
@@ -917,7 +890,7 @@ it('terminalizes a queued execution when provider-attempt startup fails', async 
       binding: {
         accountId: 'work',
         accountLabel: 'Work',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'test',
         profileRevision: 'revision',
       },
@@ -984,7 +957,7 @@ it('releases interrupt waiters when durable terminalization throws', async () =>
       binding: {
         accountId: 'work',
         accountLabel: 'Work',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'test',
         profileRevision: 'revision',
       },
@@ -1071,7 +1044,7 @@ it('keeps provider completion but fails execution when the Stop hook fails', asy
       binding: {
         accountId: 'work',
         accountLabel: 'Work',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'test',
         profileRevision: 'revision',
       },
@@ -1085,7 +1058,11 @@ it('keeps provider completion but fails execution when the Stop hook fails', asy
       mcpServers: {},
       store: {} as never,
     });
-    for await (const event of chat) void event;
+    await expect(
+      (async () => {
+        for await (const event of chat) void event;
+      })(),
+    ).rejects.toThrow('API turn failed');
 
     expect(eventStore.getProviderAttempts(admission.token)).toMatchObject([
       { phase: 'TERMINAL', terminalReason: 'completed' },
@@ -1137,7 +1114,7 @@ it('records cancellation when the runner emits a result after interrupt', async 
       binding: {
         accountId: 'work',
         accountLabel: 'Work',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'test',
         profileRevision: 'revision',
       },
@@ -1228,7 +1205,7 @@ it.each(['interrupt', 'abort'] as const)(
         binding: {
           accountId: 'work',
           accountLabel: 'Work',
-          provider: 'openai',
+          provider: 'google-vertex',
           model: 'test',
           profileRevision: 'revision',
         },
@@ -1309,7 +1286,7 @@ it('interrupts the runtime even when queued cancellation persistence fails', asy
       binding: {
         accountId: 'work',
         accountLabel: 'Work',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'test',
         profileRevision: 'revision',
       },
@@ -1381,7 +1358,7 @@ it('keeps close no-throw when queued cancellation persistence fails', async () =
       binding: {
         accountId: 'work',
         accountLabel: 'Work',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'test',
         profileRevision: 'revision',
       },
@@ -1431,7 +1408,7 @@ it.each(['provider-ack', 'fail', 'stream-then-close'])(
       binding: {
         accountId: 'fixture',
         accountLabel: 'Fixture',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'offline',
         profileRevision: 'fixture',
       },
@@ -1449,9 +1426,13 @@ it.each(['provider-ack', 'fail', 'stream-then-close'])(
       const iterator = chat[Symbol.asyncIterator]();
       expect((await iterator.next()).value).toMatchObject({ type: 'system', subtype: 'init' });
       expect(accepted).not.toHaveBeenCalled();
-      while (!(await iterator.next()).done) {
-        /* Drain the mocked provider stream. */
-      }
+      const drain = async () => {
+        while (!(await iterator.next()).done) {
+          /* Drain provider events. */
+        }
+      };
+      if (prompt === 'fail') await expect(drain()).rejects.toThrow('API turn failed');
+      else await drain();
       if (prompt === 'provider-ack') {
         expect(accepted).toHaveBeenCalledOnce();
         expect(accepted).toHaveBeenCalledWith(
@@ -1560,7 +1541,7 @@ it('revalidates source authority on later queued API commands before starting th
     binding: {
       accountId: 'fixture',
       accountLabel: 'Fixture',
-      provider: 'openai',
+      provider: 'google-vertex',
       model: 'offline',
       profileRevision: 'fixture',
     },
@@ -1576,7 +1557,11 @@ it('revalidates source authority on later queued API commands before starting th
     onAgentContextAccepted: accepted,
   });
   try {
-    for await (const event of chat) expect(event).toHaveProperty('type');
+    await expect(
+      (async () => {
+        for await (const event of chat) expect(event).toHaveProperty('type');
+      })(),
+    ).rejects.toThrow('API turn failed');
     expect(calls.prompts.slice(prior)).toEqual(['provider-ack']);
     expect(authorize).toHaveBeenCalledTimes(2);
     expect(accepted).toHaveBeenCalledOnce();
@@ -1586,75 +1571,18 @@ it('revalidates source authority on later queued API commands before starting th
   }
 });
 
-it.each(['Describe this', ''])(
-  'converts image turns and image follow-ups into runner content (%j)',
-  async (prompt) => {
-    const registry = new SessionRegistry();
-    registry.register('image-client', {
-      transport: { send: () => {}, isOpen: () => true },
-      abortController: new AbortController(),
-      mode: 'agent',
-      sessionId: 'image-app',
-      cwd: '/tmp',
-      sessionAllowList: new Set(),
-    });
-    const input = new AsyncQueue<{
-      message: { content: string };
-      mitzoImages?: Array<{ data: string; mediaType: string }>;
-    }>();
-    const image = { data: 'aGk=', mediaType: 'image/png' };
-    input.push({ message: { content: prompt }, mitzoImages: [image] });
-    input.push({ message: { content: 'plain follow-up' } });
-    input.push({ message: { content: 'Compare again' }, mitzoImages: [image] });
-    input.close();
-    const prior = calls.prompts.length;
-    try {
-      const chat = await openResponsesChat({
-        conversationId: 'image-app',
-        binding: {
-          accountId: 'fixture',
-          accountLabel: 'Fixture',
-          provider: 'openai',
-          model: 'offline',
-          profileRevision: 'fixture',
-        },
-        apiKey: 'mock-only',
-        session: registry.get('image-client')!,
-        registry,
-        input,
-        systemPrompt: 'context',
-        env: { PATH: '/usr/bin:/bin' },
-        mcpServers: {},
-        store: {} as never,
-      });
-      for await (const event of chat) expect(event).toHaveProperty('type');
-      const block = {
-        type: 'image',
-        source: { type: 'base64', media_type: 'image/png', data: 'aGk=' },
-      };
-      expect(calls.prompts.slice(prior)).toEqual([
-        [...(prompt ? [{ type: 'text', text: prompt }] : []), block],
-        'plain follow-up',
-        [{ type: 'text', text: 'Compare again' }, block],
-      ]);
-    } finally {
-      registry.dispose();
-    }
-  },
-);
-
 it.each([
   {
-    provider: 'openai' as const,
+    provider: 'google-vertex' as const,
     content: [{ type: 'text', text: 'SDK content' }],
     images: undefined,
     error: /string/i,
   },
   {
-    provider: 'openai' as const,
+    provider: 'google-vertex' as const,
     content: '',
     images: [{ data: 'not base64', mediaType: 'image/png' }],
-    error: /base64/i,
+    error: /Vertex.*image/i,
   },
   {
     provider: 'google-vertex' as const,
@@ -1736,7 +1664,7 @@ it('API tool dispatch persists profile proposals with the provider call identity
       binding: {
         accountId: 'fixture',
         accountLabel: 'Offline fixture',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'fixture',
         profileRevision: 'r1',
       },
@@ -1803,7 +1731,7 @@ it('gives API chats a Jira connection route even when workspace context recommen
     binding: {
       accountId: 'offline',
       accountLabel: 'Offline',
-      provider: 'openai',
+      provider: 'google-vertex',
       model: 'offline',
       profileRevision: 'fixture',
     },
@@ -1889,7 +1817,7 @@ it.each(['agent', 'ask'] as const)(
       binding: {
         accountId: 'offline',
         accountLabel: 'Offline',
-        provider: 'openai',
+        provider: 'google-vertex',
         model: 'offline',
         profileRevision: 'fixture',
       },
@@ -1947,7 +1875,7 @@ it.each(['agent', 'ask'] as const)(
   },
 );
 
-it.each(['openai', 'google-vertex'] as const)(
+it.each(['google-vertex'] as const)(
   'enforces a published subset at exposure and every dispatch on %s without discovering unselected MCP servers',
   async (provider) => {
     const { bindAgentToolSelection } = await import('../agent-tool-selection.js');
@@ -2050,7 +1978,7 @@ it('retains a published tool selection through admitted metadata and cold restar
   const binding = {
     accountId: 'work',
     accountLabel: 'Work',
-    provider: 'openai' as const,
+    provider: 'google-vertex' as const,
     model: 'luna-fixture',
     profileRevision: 'r1',
   };
@@ -2147,8 +2075,8 @@ it('retains a published tool selection through admitted metadata and cold restar
   }
 });
 it.each([
-  { provider: 'openai' as const, tools: [] },
-  { provider: 'openai' as const, tools: [{ id: 'mitzo:Read', version: 1 }] },
+  { provider: 'google-vertex' as const, tools: [] },
+  { provider: 'google-vertex' as const, tools: [{ id: 'mitzo:Read', version: 1 }] },
   { provider: 'google-vertex' as const, tools: [] },
   { provider: 'google-vertex' as const, tools: [{ id: 'mitzo:Read', version: 1 }] },
 ])(
@@ -2282,7 +2210,7 @@ it.each([
   },
 );
 
-it.each(['openai', 'google-vertex'] as const)(
+it.each(['google-vertex'] as const)(
   'admits published API tools with exact dispatch and cold resume on %s',
   async (provider) => {
     const { ApiToolCatalog } = await import('../api-tool-catalog.js');
@@ -2586,7 +2514,7 @@ it.each([true, false])(
         binding: {
           accountId: 'fixture',
           accountLabel: 'Offline fixture',
-          provider: 'openai',
+          provider: 'google-vertex',
           model: 'offline-model',
           profileRevision: 'fixture-r1',
         },

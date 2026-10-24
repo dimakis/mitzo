@@ -118,18 +118,8 @@ export interface ModelSessionConfig {
 
 // ── ModelSession interface ───────────────────────────────────────
 
-/**
- * A provider-agnostic streaming model session.
- *
- * Each call to turn() sends the conversation history to the model and
- * streams back events. The caller (Mitzo's agentic loop) inspects the
- * response for tool_use blocks, executes them, appends tool_result
- * messages, and calls turn() again.
- *
- * Implementations:
- *   - AnthropicSession: calls Anthropic Messages API (direct or via praxis-proxy)
- *   - (future) ResponsesSession: calls OpenAI Responses API with server-side state
- */
+/** Provider streaming event contract. Native Codex/Claude sessions own their
+ * agent loop. Only deferred Gemini uses Mitzo's retained compatibility loop. */
 export interface ModelSession {
   /** Provider name for logging/tracing. */
   readonly provider: string;
