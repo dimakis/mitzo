@@ -141,6 +141,60 @@ it('authenticates the existing API account over private RPC without secrets in a
   expect(children[0].sent).toHaveLength(4);
 });
 
+it('uses synchronous ownership fences around qualified key resolution and retains both post-RPC checks', async () => {
+  const o = options();
+  const assertCurrentSync = vi.fn(() => undefined);
+  const result = await CodexAppServerClient.launchIsolatedApi({ ...o, assertCurrentSync });
+  closes.push(() => result.client.close());
+  expect(o.resolveKey).toHaveBeenCalledExactlyOnceWith(binding, o.signal);
+  expect(assertCurrentSync).toHaveBeenCalledTimes(2);
+  expect(o.assertCurrent).toHaveBeenCalledTimes(2);
+});
+
+it('rejects ownership changes during qualified key resolution before process launch', async () => {
+  const o = options();
+  let revoked = false;
+  o.resolveKey.mockImplementation(async () => {
+    revoked = true;
+    return 'SYNTHETIC_SELECTED_KEY';
+  });
+  await expect(
+    CodexAppServerClient.launchIsolatedApi({
+      ...o,
+      assertCurrentSync: () => {
+        if (revoked) throw Error('revoked');
+      },
+    }),
+  ).rejects.toThrow('API Codex authentication unavailable');
+  expect(processes.spawn).not.toHaveBeenCalled();
+});
+
+it.each([1, 2])(
+  'retains current credential validation after RPC boundary %i',
+  async (rejection) => {
+    const o = options();
+    if (rejection === 2) o.assertCurrent.mockResolvedValueOnce(undefined);
+    o.assertCurrent.mockRejectedValueOnce(Error('revoked after RPC'));
+    await expect(
+      CodexAppServerClient.launchIsolatedApi({ ...o, assertCurrentSync: () => undefined }),
+    ).rejects.toThrow('API Codex authentication unavailable');
+    expect(children[0].p.kill).toHaveBeenCalledOnce();
+    expect(children[0].sent.some((r) => r.method === 'account/login/start')).toBe(rejection === 2);
+  },
+);
+
+it('rejects a purported synchronous ownership fence that returns asynchronous work', async () => {
+  const o = options();
+  await expect(
+    CodexAppServerClient.launchIsolatedApi({
+      ...o,
+      assertCurrentSync: (() => Promise.resolve()) as never,
+    }),
+  ).rejects.toThrow('API Codex authentication unavailable');
+  expect(o.resolveKey).not.toHaveBeenCalled();
+  expect(processes.spawn).not.toHaveBeenCalled();
+});
+
 it.each(['openai-codex', 'google-vertex', 'unavailable'])(
   'rejects %s billing before credentials or process effects',
   async (provider) => {

@@ -3699,7 +3699,8 @@ export async function prepareOwnedCodexChat(
       prepareAgentContext: async (signal) => {
         signal.throwIfAborted();
         resolveOwnedTelosWorkCommandScope(sessionId);
-        await admission.assertCurrent();
+        // openCodexChat brackets this callback with fresh checks of this same
+        // admission. Keep the local scope fence without a third credential read.
         signal.throwIfAborted();
         admission.assertCurrentSync();
         resolveOwnedTelosWorkCommandScope(sessionId);

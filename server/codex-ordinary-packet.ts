@@ -23,6 +23,7 @@ export function codexThreadOptions(input: {
   disableProjectDocuments?: boolean;
   systemPrompt: string;
   nativeExecution?: CodexNativeExecutionPolicy;
+  skillContextTokens?: number;
 }) {
   return {
     model: input.model,
@@ -30,13 +31,26 @@ export function codexThreadOptions(input: {
     config: {
       model_reasoning_summary: 'auto',
       ...input.runtimeConfig,
+      ...(input.skillContextTokens
+        ? { 'skills.max_context_tokens': input.skillContextTokens }
+        : {}),
       web_search: input.webSearch,
       ...(input.disableProjectDocuments ? { project_doc_max_bytes: 0 } : {}),
     },
     ...(input.nativeExecution
       ? codexNativeExecutionParams(input.nativeExecution)
       : { cwd: input.cwd, approvalPolicy: 'never', sandbox: 'read-only' }),
-    developerInstructions: input.systemPrompt + codexResearchInstructions(input.webSearch),
+    developerInstructions:
+      input.systemPrompt +
+      (input.nativeExecution
+        ? `\nCurrent configured execution: ${JSON.stringify({
+            executionLocation: 'Local Mac',
+            workingDirectory: input.nativeExecution.cwd,
+            permissionProfile: input.nativeExecution.permissions,
+            networkAccess: input.nativeExecution.networkAccess,
+          })}\nUse this admitted workspace for local work. Another repository needs its own verified preparation and permissions; a source export alone does not establish Git/task custody.\n`
+        : '') +
+      codexResearchInstructions(input.webSearch),
   };
 }
 

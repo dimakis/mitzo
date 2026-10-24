@@ -75,6 +75,7 @@ it.each(['local', 'openshell'] as const)(
   'prepares the existing API key on %s without re-enrollment and rejects later key drift',
   async (runOn) => {
     const { f, binding, selection, authority } = await fixture(runOn);
+    state.key.mockClear();
     const proof = await authority.captureOrdinaryRepositoryPreparation(
       binding,
       selection,
@@ -82,6 +83,7 @@ it.each(['local', 'openshell'] as const)(
     );
     expect(proof.runtimeBinding.execution.location).toBe(runOn);
     expect(state.key).toHaveBeenCalledWith(f.configuration[0].credentialRef);
+    expect(state.key).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(proof)).not.toContain('offline-existing-key');
     await expect(
       authority.assertOrdinaryRepositoryPreparation(proof, binding, f.signal.signal),
@@ -112,6 +114,7 @@ it('keeps a managed legacy account inside its existing credential and mutation o
   expect(ready).not.toHaveBeenCalled();
   expect(mutate).toHaveBeenCalled();
   expect(resolveHostKey).toHaveBeenCalledWith(binding.accountId, f.signal.signal);
+  expect(resolveHostKey).toHaveBeenCalledTimes(1);
   expect(resolveKey).not.toHaveBeenCalled();
   expect(state.key).not.toHaveBeenCalled();
   resolveHostKey.mockRejectedValueOnce(Error('managed credential unavailable'));

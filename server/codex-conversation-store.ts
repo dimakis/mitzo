@@ -433,6 +433,12 @@ export class CodexConversationStore {
         PRIMARY KEY(conversation_id,call_id),
         FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
       CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_tool_outputs (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
+      output_id TEXT NOT NULL UNIQUE, tool_name TEXT NOT NULL, source_scope TEXT NOT NULL, content TEXT NOT NULL,
+      created_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS codex_tool_outputs_owner ON codex_tool_outputs(conversation_id,sequence);`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_thread_acceptances (
       conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
       command_id TEXT NOT NULL, attempt INTEGER NOT NULL,
@@ -3467,6 +3473,59 @@ export class CodexConversationStore {
         )
         .run(id);
     })();
+  }
+  retainToolOutput(
+    id: string,
+    binding: AccountBinding,
+    toolName: string,
+    content: string,
+    sourceScope: string,
+  ): string {
+    if (!/^[a-f0-9]{64}$/.test(sourceScope)) throw Error('Invalid retained output scope');
+    if (Buffer.byteLength(content) > 4 * 1024 * 1024) throw Error('Tool output retention bound');
+    return this.db
+      .transaction(() => {
+        this.read(id, binding);
+        const outputId = randomUUID();
+        this.db
+          .prepare('DELETE FROM codex_tool_outputs WHERE created_at<?')
+          .run(Date.now() - 86400000);
+        this.db
+          .prepare(
+            'INSERT INTO codex_tool_outputs(conversation_id,output_id,tool_name,source_scope,content,created_at) VALUES(?,?,?,?,?,?)',
+          )
+          .run(id, outputId, toolName, sourceScope, content, Date.now());
+        // At most eight retained outputs per conversation; expiration is explicit on read.
+        this.db
+          .prepare(
+            'DELETE FROM codex_tool_outputs WHERE conversation_id=? AND sequence NOT IN (SELECT sequence FROM codex_tool_outputs WHERE conversation_id=? ORDER BY sequence DESC LIMIT 8)',
+          )
+          .run(id, id);
+        // Sixteen outputs globally also bound cache bytes to at most 64 MiB.
+        this.db
+          .prepare(
+            'DELETE FROM codex_tool_outputs WHERE sequence NOT IN (SELECT sequence FROM codex_tool_outputs ORDER BY sequence DESC LIMIT 16)',
+          )
+          .run();
+        return outputId;
+      })
+      .immediate();
+  }
+  readToolOutput(
+    id: string,
+    binding: AccountBinding,
+    outputId: string,
+  ): { toolName: string; sourceScope: string; content: string } | undefined {
+    this.read(id, binding);
+    const row = this.db
+      .prepare(
+        'SELECT tool_name,source_scope,content FROM codex_tool_outputs WHERE conversation_id=? AND output_id=? AND created_at>=?',
+      )
+      .get(id, z.uuid().parse(outputId), Date.now() - 86400000) as
+      { tool_name: string; source_scope: string; content: string } | undefined;
+    return row
+      ? { toolName: row.tool_name, sourceScope: row.source_scope, content: row.content }
+      : undefined;
   }
   close() {
     this.db.close();

@@ -1,3 +1,5 @@
+import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
+import { summarizeToolInput } from '@mitzo/protocol';
 import { assembleSourceSnapshots } from '../source-snapshot-context.js';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
@@ -893,7 +895,7 @@ it('reports a provider-accepted turn only after the exact turn/start response', 
 });
 async function setup(
   existingStore?: CodexConversationStore,
-  displayToolName?: (name: string) => string,
+  displayToolCall?: CodexConversationOptions['displayToolCall'],
   beforeComplete?: (signal: AbortSignal) => Promise<void>,
   completionHookTimeoutMs?: number,
   verifyBinding?: () => Promise<AccountBinding>,
@@ -1029,7 +1031,7 @@ async function setup(
     getMode: () => 'agent',
     webSearchDeploymentRevision: 'test-deployment-1',
     systemPrompt: 'context',
-    displayToolName,
+    displayToolCall,
     beforeComplete,
     completionHookTimeoutMs,
     beforeReconnect,
@@ -3694,7 +3696,10 @@ it('maps known failed-turn provider diagnostics without exposing provider payloa
 });
 
 it('uses canonical display names while executing the original wire tool', async () => {
-  const { c, callbacks, events, execute } = await setup(undefined, () => 'mcp__work__read');
+  const { c, callbacks, events, execute } = await setup(undefined, (name, input) => ({
+    name: 'mcp__work__read',
+    input,
+  }));
   await c.send({ id: 'read', prompt: 'read' });
   await callbacks.onRequest(
     'item/tool/call',
@@ -3715,6 +3720,148 @@ it('uses canonical display names while executing the original wire tool', async 
       }),
     }),
   );
+});
+
+it.each([
+  ['mcp__task-board__TaskComplete', { summary: 'review complete' }, 'review complete'],
+  ['mcp__task-board__TaskBlock', { reason: 'needs source access' }, 'needs source access'],
+  [
+    'mcp__telos__TelosUpdateItem',
+    { itemId: 'item-42', status: 'done' },
+    'Update Telos item-42: done',
+  ],
+] as const)(
+  'projects integration activity arguments for %s without changing execution or replay identity',
+  async (name, input, summary) => {
+    const discovery = createIntegrationToolDiscovery({
+      tools: [
+        { name: 'wire_tool', description: 'Selected tool', input_schema: { type: 'object' } },
+      ],
+      displayName: () => name,
+      assertCurrent: () => {},
+      execute: async () => ({ content: 'ok', isError: false }),
+    });
+    const f = await setup(undefined, discovery.displayCall);
+    f.conversationOptions.tools = discovery.definitions;
+    const claim = vi.spyOn(f.store, 'claimTool');
+    await f.c.send({ id: 'activity', prompt: 'update progress' });
+    const detail = JSON.parse(
+      (
+        await discovery.execute(
+          'DescribeIntegrationTool',
+          { toolId: 'wire_tool' },
+          new AbortController().signal,
+        )
+      ).content,
+    );
+    const envelope = {
+      toolId: detail.toolId,
+      catalogRevision: detail.catalogRevision,
+      arguments: input,
+    };
+    await f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: 'provider-thread',
+        turnId: 'turn-1',
+        callId: 'tool',
+        tool: 'InvokeIntegrationTool',
+        arguments: envelope,
+      },
+      new AbortController().signal,
+    );
+    expect(f.events).toContainEqual(
+      expect.objectContaining({
+        type: 'stream_event',
+        event: expect.objectContaining({
+          delta: { type: 'input_json_delta', partial_json: JSON.stringify(input) },
+        }),
+      }),
+    );
+    const activity = f.events.find(
+      (event) =>
+        event.type === 'assistant' &&
+        (event.message as { content?: { name: string }[] })?.content?.[0]?.name === name,
+    );
+    const block = (
+      activity?.message as { content: { name: string; input: Record<string, unknown> }[] }
+    ).content[0];
+    expect(block).toMatchObject({ name, input });
+    expect(summarizeToolInput(block.name, block.input)).toBe(summary);
+    expect(f.execute).toHaveBeenCalledWith(
+      'InvokeIntegrationTool',
+      envelope,
+      expect.anything(),
+      expect.objectContaining({ callId: 'tool' }),
+    );
+    expect(claim).toHaveBeenCalledWith('app', expect.anything(), 'activity', 'tool', {
+      turnId: 'turn-1',
+      toolName: 'InvokeIntegrationTool',
+      requestHash: createHash('sha256').update(JSON.stringify(envelope)).digest('hex'),
+    });
+    f.c.close();
+  },
+);
+
+it('queries native skills only for the admitted cwd and rejects a revoked or cancelled metadata response', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'skills', prompt: 'Use a relevant skill' });
+  const response = {
+    data: [
+      {
+        cwd: '/workspace',
+        skills: [
+          {
+            name: 'jira',
+            description: 'Search Jira',
+            path: '/skills/jira/SKILL.md',
+            enabled: true,
+          },
+        ],
+        errors: [],
+      },
+    ],
+  };
+  const original = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'skills/list' ? response : original(method, params),
+  );
+  let current = true;
+  const assertCurrent = () => {
+    if (!current) throw Error('revoked');
+  };
+  expect(
+    await f.c.searchSkills(
+      { query: 'jira', offset: 0, limit: 5 },
+      new AbortController().signal,
+      assertCurrent,
+    ),
+  ).toMatchObject({ total: 1, skills: [{ name: 'jira' }] });
+  expect(f.rpc.request).toHaveBeenLastCalledWith('skills/list', {
+    cwds: ['/workspace'],
+    forceReload: false,
+  });
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'skills/list') {
+      current = false;
+      return response;
+    }
+    return original(method, params);
+  });
+  await expect(
+    f.c.searchSkills(
+      { query: '', offset: 0, limit: 5 },
+      new AbortController().signal,
+      assertCurrent,
+    ),
+  ).rejects.toThrow('revoked');
+  current = true;
+  const abort = new AbortController();
+  abort.abort();
+  await expect(
+    f.c.searchSkills({ query: '', offset: 0, limit: 5 }, abort.signal, assertCurrent),
+  ).rejects.toThrow();
+  f.c.close();
 });
 
 it('routes native user input with active thread/turn identity and abort lifetime', async () => {

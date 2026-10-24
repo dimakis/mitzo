@@ -40,6 +40,20 @@ function fixture() {
     },
   };
 }
+it('captures the key once and checks it afresh before any later launch', async () => {
+  const f = fixture();
+  const login = await FrozenHostCodexApiLogin.capture(binding, {
+    privateRoot: f.root,
+    bootstrapId: 'e'.repeat(64),
+    authority: f.authority,
+    signal: new AbortController().signal,
+  });
+  expect(f.authority.resolveKey).toHaveBeenCalledOnce();
+  f.rotate();
+  await expect(login.connect(f.launch)).rejects.toThrow('API Codex login unavailable');
+  expect(f.launch).not.toHaveBeenCalled();
+  expect(f.authority.resolveKey).toHaveBeenCalledTimes(2);
+});
 it('uses one controller-qualified key read for a host-tool fence without account/model discovery', async () => {
   const f = fixture();
   const login = await FrozenHostCodexApiLogin.capture(binding, {

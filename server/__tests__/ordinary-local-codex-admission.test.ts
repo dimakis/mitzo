@@ -663,12 +663,12 @@ describe('owned runtime bootstrap ordering', () => {
       'claim',
       'bootstrap',
       'verify',
-      'verify',
       'prepare',
       'verify',
       'dispatch',
       'complete',
     ]);
+    expect(f.lease.assertCurrent).toHaveBeenCalledTimes(2);
     const persisted = f.store.admitOrdinaryLocalCommand.mock.calls[0][2];
     expect(f.bootstrap.mock.calls[0][0].bootstrapId).toBe(
       ordinaryLocalCodexBootstrapId(f.meta.sessionId, persisted.requestFingerprint),
@@ -702,6 +702,19 @@ describe('owned runtime bootstrap ordering', () => {
     await expect(f.coordinator.admit(f.meta, f.request, f.effects)).resolves.toEqual({
       dispatched: false,
     });
+  });
+
+  it('rechecks bootstrap authority after workspace preparation before dispatch', async () => {
+    const f = bootstrapped();
+    f.effects.prepareWorkspace.mockImplementation(async () => {
+      f.lease.assertCurrent.mockRejectedValue(new Error('revoked during preparation'));
+    });
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).rejects.toThrow(
+      'dispatch_uncertain',
+    );
+    expect(f.effects.prepareWorkspace).toHaveBeenCalledOnce();
+    expect(f.effects.dispatch).not.toHaveBeenCalled();
+    expect(f.store.completeOrdinaryLocalCommand).not.toHaveBeenCalled();
   });
 
   it('rejects a bootstrap owner invoking effects without claiming or invoking twice', async () => {

@@ -8,9 +8,60 @@ const services = vi.hoisted(() => ({
   library: undefined as unknown,
   manager: { manages: () => true, resolveKey: vi.fn(async () => 'offline-exact-key') },
 }));
-vi.mock('../repository-workspace-runtime.js', async (original) => ({
-  ...(await original<object>()),
+// Model only the external free-space observation for these tiny fixtures. The
+// actual descriptor-relative copy, capacity guard, Git and owner stores execute.
+// The physical host is under disk pressure; this does not qualify its free space.
+vi.mock('node:child_process', async (original) => {
+  const actual = await original<typeof import('node:child_process')>();
+  const capacity = 'os.fstatvfs(parent).f_bavail * os.fstatvfs(parent).f_frsize';
+  return {
+    ...actual,
+    execFile: new Proxy(actual.execFile, {
+      apply(target, receiver, args) {
+        const [file, argv] = args;
+        if (
+          file === 'python3' &&
+          Array.isArray(argv) &&
+          argv[0] === '-I' &&
+          argv[1] === '-c' &&
+          typeof argv[2] === 'string' &&
+          argv[2].includes(capacity)
+        ) {
+          args[1] = [...argv];
+          args[1][2] = argv[2].replace(capacity, String(8 * 1024 ** 3));
+        }
+        return Reflect.apply(target, receiver, args);
+      },
+    }),
+  };
+});
+// Keep the real fixture owner without importing the process-global owner while
+// its mock is initializing: that import cycle can capture the global getter.
+vi.mock('../repository-workspace-runtime.js', () => ({
   getRepositoryWorkspaces: () => services.workspace,
+  repositoryWorkspaceBinding: () => {
+    throw Error('No new repository account selection in this metadata fixture');
+  },
+  repositoryWorkspaceCatalog: () => {
+    throw Error('No new repository catalog selection in this metadata fixture');
+  },
+  getOrdinaryWorkspaces: () => {
+    throw Error('No ordinary workspace selected by this repository fixture');
+  },
+  getLocalRepositoryWorkspaces: () => {
+    throw Error('No local source selected by this repository fixture');
+  },
+  readRepositoryWorkspaceForConversation: (
+    sessionId: string,
+    expectedWorkspaceId?: string | null,
+  ) => {
+    const record = (
+      services.workspace as import('../repository-workspaces.js').RepositoryWorkspaces
+    ).getForConversation(sessionId);
+    if (expectedWorkspaceId && record?.id !== expectedWorkspaceId)
+      throw Error('Repository claim ledger is unavailable or changed; preserve the conversation');
+    return record;
+  },
 }));
 vi.mock('../agent-library-runtime.js', async (original) => ({
   ...(await original<object>()),
