@@ -95,8 +95,9 @@ export class PendingHostTaskError extends Error {
       | 'pending_host_task_ownership_changed'
       | 'pending_host_task_uncertain'
       | 'pending_host_task_invalid_input',
+    options?: ErrorOptions,
   ) {
-    super(code);
+    super(code, options);
   }
 }
 export function freezePendingHostTaskData<T>(value: T): T {
