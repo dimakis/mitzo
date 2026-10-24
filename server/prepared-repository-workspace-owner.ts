@@ -134,7 +134,7 @@ export class PreparedRepositoryWorkspaceOwner {
       this.repository.assertPreparedRepositoryTransitionAdopted !== this.#adopted
     )
       throw unavailable();
-    sync(this.#current.call(this.owners));
+    sync(Reflect.apply(this.#current, this.owners, []));
     if (
       this.owners.assertCurrentSync !== this.#current ||
       this.owners.withReadAccess !== this.#physical ||
@@ -175,9 +175,6 @@ export class PreparedRepositoryWorkspaceOwner {
     for (const [path, retained, file] of [
       [task.directory, task.root, false],
       [join(task.directory, '.git'), task.git, true],
-      [source.path, source.root, false],
-      [source.commonDirectory, source.commonRoot, false],
-      [linked.directory, linked.identity, false],
     ] as const) {
       const actual = lstatSync(path);
       if (
@@ -195,17 +192,20 @@ export class PreparedRepositoryWorkspaceOwner {
     signal.throwIfAborted();
     this.assertCurrentSync(cwd);
     const record = this.get();
-    const checked: unknown = await this.#physical.call(this.owners, signal, async (access) => {
-      signal.throwIfAborted();
-      this.assertCurrentSync(cwd);
-      await assertPreparedRepositoryTaskTopology(
-        access,
-        this.facts.newWorkspace.taskIdentity,
-        record.qualifiedLocalPreparation!.allocationFacts.source.gitDirectory,
-      );
-      signal.throwIfAborted();
-      this.assertCurrentSync(cwd);
-    });
+    const checked: unknown = await Reflect.apply(this.#physical, this.owners, [
+      signal,
+      async (access) => {
+        signal.throwIfAborted();
+        this.assertCurrentSync(cwd);
+        await assertPreparedRepositoryTaskTopology(
+          access,
+          this.facts.newWorkspace.taskIdentity,
+          record.qualifiedLocalPreparation!.allocationFacts.source.gitDirectory,
+        );
+        signal.throwIfAborted();
+        this.assertCurrentSync(cwd);
+      },
+    ]);
     if (checked !== undefined) throw unavailable();
     signal.throwIfAborted();
     this.assertCurrentSync(cwd);

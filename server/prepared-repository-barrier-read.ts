@@ -61,10 +61,14 @@ export async function withPreparedRepositoryBarrierReadScope<T>(
       owners.revalidate !== originalRevalidate
     )
       unavailable();
-    assertSync(originalCurrent.call(owners));
-    const current = originalSelected.call(owners);
+    assertSync(Reflect.apply(originalCurrent, owners, []));
+    const current = Reflect.apply(originalSelected, owners, []);
     if (!Object.isFrozen(current) || !isDeepStrictEqual(current, policy)) unavailable();
-    assertSync(originalNativeCurrent?.call(owners, policy, sourceCommandId));
+    assertSync(
+      originalNativeCurrent
+        ? Reflect.apply(originalNativeCurrent, owners, [policy, sourceCommandId])
+        : undefined,
+    );
   };
   try {
     assertCurrentSync();
@@ -80,7 +84,7 @@ export async function withPreparedRepositoryBarrierReadScope<T>(
         assertCurrentSync,
         async revalidate() {
           assertCurrentSync();
-          const checked: unknown = await originalRevalidate.call(owners);
+          const checked: unknown = await Reflect.apply(originalRevalidate, owners, []);
           if (checked !== undefined) unavailable();
           assertCurrentSync();
         },

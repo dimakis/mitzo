@@ -90,7 +90,7 @@ export async function performPreparedRepositoryPrimaryTransition(
     const assertConversation = () => {
       if (owners.assertConversationCurrentSync !== originalConversationFence)
         throw Error('Original conversation fence changed');
-      sync(originalConversationFence.call(owners));
+      sync(Reflect.apply(originalConversationFence, owners, []));
     };
     primarySource =
       owners.preparedPrimarySource ??
@@ -146,11 +146,11 @@ export async function performPreparedRepositoryPrimaryTransition(
         throw Error('Original prepared repository proof changed');
       assertConversation();
       sync(owners.assertCurrentSync());
-      sync(assertProof.call(proof));
+      sync(Reflect.apply(assertProof, proof, []));
       assertNativeSource();
     };
     assertOriginal();
-    await settle(revalidate.call(proof));
+    await settle(Reflect.apply(revalidate, proof, []));
     assertOriginal();
     const reserved = owners.events.reservePreparedRepositoryContinuation(
       owners.conversationId,
@@ -171,7 +171,7 @@ export async function performPreparedRepositoryPrimaryTransition(
     );
     const handoff = owners.prepareWorkspaceHandoff(facts, expected, childCommandId);
     assertOriginal();
-    await settle(adopt.call(proof, childCommandId));
+    await settle(Reflect.apply(adopt, proof, [childCommandId]));
     // The repository effect invalidates the old owner. Only the unchanged
     // operator/lease, exact native source, and new physical custody apply here.
     assertConversation();

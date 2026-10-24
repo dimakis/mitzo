@@ -1175,3 +1175,169 @@ it('publishes the genuine physical read facet immutably at actual lease creation
     f.store.close();
   }
 });
+
+it.each([
+  'physical-false',
+  'physical-object',
+  'credential-false',
+  'credential-fallback-object',
+] as const)(
+  'refuses an unchanged original cold full-current callback resolving a malformed result: %s',
+  async (change) => {
+    const f = fixture();
+    let custody: import('../host-codex-custody.js').HostCodexCustody | undefined;
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      custody = {
+        version: 1,
+        authSessionId: 'offline',
+        bootstrapId: f.expected.bootstrapId,
+        ...lease.custodySnapshot!(),
+      };
+    });
+    f.authority.currentLease()!.close();
+    f.store.completeOrdinaryLocalCommand('command');
+    const dispatch = vi.fn(async () => {});
+    const malformed = change.endsWith('false') ? false : { current: true };
+    const physicalReceivers: unknown[] = [];
+    const physical = vi.fn(async function (this: unknown) {
+      physicalReceivers.push(this);
+      if (change.startsWith('physical')) return malformed as never;
+    });
+    const options = {
+      ...f.options,
+      retainedCustody: custody,
+      assertQualifiedColdSelectionBeforeBootstrapSync() {},
+      assertToolSelectionCurrent: physical,
+      launch: () => {
+        expect(f.store.getOrdinaryLocalCommandAdmission('cold-command')?.state).toBe('uncertain');
+        return f.rpc;
+      },
+    };
+    const connect = FrozenHostCodexLogin.prototype.connect;
+    let credential: import('vitest').Mock<() => Promise<void>> | undefined;
+    const capture = vi
+      .spyOn(FrozenHostCodexLogin.prototype, 'connect')
+      .mockImplementation(async function (this: FrozenHostCodexLogin, ...args) {
+        const login = await Reflect.apply(connect, this, args);
+        if (change.startsWith('credential')) {
+          const original = login.assertCurrent;
+          credential = vi.fn(async function (this: typeof login) {
+            expect(this).toBe(login);
+            await Reflect.apply(original, this, []);
+            return malformed as never;
+          });
+          if (change === 'credential-false') login.assertCredentialCurrent = credential;
+          else login.assertCurrent = credential;
+        }
+        return login;
+      });
+    const cold = new FrozenHostCodexBootstrapAuthority(options);
+    f.rpc.request.mockClear();
+    f.rpc.close.mockClear();
+    const claim = () => {
+      const retained = f.store.getSession('session')!;
+      f.store.admitOrdinaryLocalContinuation(
+        {
+          sessionId: 'session',
+          accountBinding: retained.accountBinding,
+          repositoryWorkspaceId: 'workspace',
+          cwd: f.expected.workspace.cwd,
+          agentProfile: retained.agentProfile,
+          agentContext: retained.agentContext,
+        },
+        f.expected.binding,
+        {
+          clientMsgId: 'cold-command',
+          requestFingerprint: 'cold-fingerprint',
+          selection: f.expected.selection,
+          payload: { text: 'cold' },
+        },
+      );
+      return f.store.claimOrdinaryLocalCommandDispatch('cold-command');
+    };
+    try {
+      await expect(
+        cold.withBootstrap({ ...f.expected, bootstrapId: 'b'.repeat(64) }, claim, dispatch),
+      ).rejects.toThrow();
+      expect(physical).toHaveBeenCalledOnce();
+      expect(physicalReceivers).toHaveLength(1);
+      expect(physicalReceivers[0]).toBe(options);
+      if (credential) expect(credential).toHaveBeenCalledOnce();
+      expect(f.rpc.request.mock.calls.map(([method]) => method)).not.toEqual(
+        expect.arrayContaining(['config/read']),
+      );
+      expect(f.rpc.request.mock.calls.map(([method]) => method)).not.toEqual(
+        expect.arrayContaining(['model/list']),
+      );
+      expect(f.rpc.request.mock.calls.map(([method]) => method)).not.toContain('thread/start');
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(f.rpc.close).toHaveBeenCalled();
+      expect(f.store.getOrdinaryLocalCommandAdmission('cold-command')?.state).toBe('uncertain');
+    } finally {
+      capture.mockRestore();
+      cold.currentLease()?.close();
+      f.store.close();
+    }
+  },
+);
+
+it('invokes the genuine original cold prebootstrap owner despite its poisoned call property', async () => {
+  const f = fixture();
+  let custody: import('../host-codex-custody.js').HostCodexCustody | undefined;
+  await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+    custody = {
+      version: 1,
+      authSessionId: 'offline',
+      bootstrapId: f.expected.bootstrapId,
+      ...lease.custodySnapshot!(),
+    };
+  });
+  f.authority.currentLease()!.close();
+  const poisoned = vi.fn(() => undefined);
+  const genuine = Object.assign(
+    function (this: unknown) {
+      expect(this).toBe(options);
+      throw Error('Original cold authority revoked');
+    },
+    { call: poisoned },
+  );
+  const options = {
+    ...f.options,
+    retainedCustody: custody,
+    assertQualifiedColdSelectionBeforeBootstrapSync: genuine,
+    assertToolSelectionCurrent: async () => {},
+  };
+  const cold = new FrozenHostCodexBootstrapAuthority(options);
+  const claim = vi.fn(() => true),
+    dispatch = vi.fn(async () => {});
+  f.rpc.request.mockClear();
+  try {
+    await expect(
+      cold.withBootstrap({ ...f.expected, bootstrapId: 'b'.repeat(64) }, claim, dispatch),
+    ).rejects.toThrow();
+    expect(poisoned).not.toHaveBeenCalled();
+    expect(claim).not.toHaveBeenCalled();
+    expect(f.rpc.request).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  } finally {
+    cold.currentLease()?.close();
+    f.store.close();
+  }
+});
+
+it('refuses a malformed original ordinary async full-current result before claiming or reopening', async () => {
+  const f = fixture();
+  f.options.assertSelectionCurrent.mockResolvedValue(false as never);
+  const claim = vi.fn(f.claim),
+    dispatch = vi.fn(async () => {});
+  try {
+    await expect(f.authority.withBootstrap(f.expected, claim, dispatch)).rejects.toThrow();
+    expect(claim).not.toHaveBeenCalled();
+    expect(f.launch).not.toHaveBeenCalled();
+    expect(f.rpc.request).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  } finally {
+    f.authority.currentLease()?.close();
+    f.store.close();
+  }
+});

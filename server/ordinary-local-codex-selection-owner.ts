@@ -89,7 +89,7 @@ export class OrdinaryLocalCodexSelectionOwner {
       throw unavailable();
     const assertBoundary = owners.assertCurrentSync,
       assertAdopted = owners.assertAdoptedSync;
-    this.sync(assertBoundary.call(owners));
+    this.sync(Reflect.apply(assertBoundary, owners, []));
     if (owners.assertCurrentSync !== assertBoundary || owners.assertAdoptedSync !== assertAdopted)
       throw unavailable();
     const originalAdmission = this.observeBootstrap(childCommandId, this.owners.commandId);
@@ -143,7 +143,7 @@ export class OrdinaryLocalCodexSelectionOwner {
     )
       return primary;
     if (child.state !== 'uncertain') throw unavailable();
-    this.sync(primary.assertBoundary.call(primary.owners));
+    this.sync(Reflect.apply(primary.assertBoundary, primary.owners, []));
     if (
       primary.previous &&
       current?.id === primary.transition.oldWorkspace.id &&
@@ -184,7 +184,7 @@ export class OrdinaryLocalCodexSelectionOwner {
       !isDeepStrictEqual(origin.workspace, expected.workspace)
     )
       throw unavailable();
-    this.sync(p.assertAdopted.call(p.owners));
+    this.sync(Reflect.apply(p.assertAdopted, p.owners, []));
     const session = this.owners.events.getSession(this.#reservation.conversationId);
     const old = p.transition.oldWorkspace,
       next = p.transition.newWorkspace;
@@ -208,7 +208,7 @@ export class OrdinaryLocalCodexSelectionOwner {
       !isDeepStrictEqual(session.agentContext ?? undefined, expected.agentContext ?? this.#context)
     )
       throw unavailable();
-    if (child.state === 'uncertain') this.sync(p.assertBoundary.call(p.owners));
+    if (child.state === 'uncertain') this.sync(Reflect.apply(p.assertBoundary, p.owners, []));
     p.workspace.assertCurrentSync(next.directory);
     const record = p.workspace.get();
     if (

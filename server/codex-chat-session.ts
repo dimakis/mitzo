@@ -1824,7 +1824,9 @@ async function openCodexChatBound(
       selectedNativePolicy().policyRevision !== policy.policyRevision
     )
       throw Error('Native execution policy changed during the active command');
-    const checked: unknown = originalNativePolicyCurrent?.call(options, policy, commandId);
+    const checked: unknown = originalNativePolicyCurrent
+      ? Reflect.apply(originalNativePolicyCurrent, options, [policy, commandId])
+      : undefined;
     if (checked !== undefined) {
       void Promise.resolve(checked).catch(() => {});
       throw Error('Native execution policy owner must be synchronous');

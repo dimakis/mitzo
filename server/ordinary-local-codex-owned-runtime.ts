@@ -228,7 +228,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         capturedBootstrap.currentLease !== capturedLeaseGetter
       )
         throw unavailable();
-      const lease = capturedLeaseGetter.call(capturedBootstrap);
+      const lease = Reflect.apply(capturedLeaseGetter, capturedBootstrap, []);
       if (bootstrap !== capturedBootstrap || capturedBootstrap.currentLease !== capturedLeaseGetter)
         throw unavailable();
       return lease;
@@ -449,8 +449,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                 const withReadOwner = lease.withQualifiedWorkspaceReadOwner;
                 if (!withReadOwner) throw unavailable();
                 let completed = false;
-                const result: unknown = await withReadOwner.call(
-                  lease,
+                const result: unknown = await Reflect.apply(withReadOwner, lease, [
                   AbortSignal.any([this.#signal, operationSignal]),
                   async (current) => {
                     const selectedPolicy = () =>
@@ -497,7 +496,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                     );
                     completed = true;
                   },
-                );
+                ]);
                 if (
                   result !== undefined ||
                   !completed ||
@@ -835,7 +834,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                       throw unavailable();
                     this.assertCurrent();
                     policySignal.throwIfAborted();
-                    strictSync(currentPolicyOwner.call(policyOwner));
+                    strictSync(Reflect.apply(currentPolicyOwner, policyOwner, []));
                   };
                   assertPolicyOwner();
                   const primarySource = admission.capturePreparedRepositoryPrimarySource(
@@ -925,20 +924,20 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                                 throw unavailable();
                               let started = false,
                                 completed = false;
-                              const checked: unknown = await withReadOwner.call(
-                                lease,
+                              const checked: unknown = await Reflect.apply(withReadOwner, lease, [
                                 AbortSignal.any([this.#signal, policySignal, operationSignal]),
                                 async (current) => {
                                   if (started) throw unavailable();
                                   started = true;
                                   assertPolicyOwner();
-                                  const policy = selectedPolicy.call(policyOwner);
+                                  const policy = Reflect.apply(selectedPolicy, policyOwner, []);
                                   await withPreparedRepositoryBarrierReadScope(
                                     policy,
                                     childId,
                                     {
                                       signal: current.signal,
-                                      selectedPolicy: () => selectedPolicy.call(policyOwner),
+                                      selectedPolicy: () =>
+                                        Reflect.apply(selectedPolicy, policyOwner, []),
                                       assertCurrentSync: () => {
                                         current.assertCurrentSync();
                                         assertPolicyOwner();
@@ -950,7 +949,10 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                                       assertNativeExecutionCurrent:
                                         nativeCurrent &&
                                         ((policy, commandId) =>
-                                          nativeCurrent.call(policyOwner, policy, commandId)),
+                                          Reflect.apply(nativeCurrent, policyOwner, [
+                                            policy,
+                                            commandId,
+                                          ])),
                                     },
                                     async (readScope) => {
                                       const reader = await capturePreparedRepositoryReader(
@@ -973,7 +975,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                                   );
                                   completed = true;
                                 },
-                              );
+                              ]);
                               if (
                                 !completed ||
                                 checked !== undefined ||

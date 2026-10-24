@@ -47,7 +47,7 @@ export function composeOwnedLocalNativeExecutionPolicyForWorkspace(
   const current = () => {
     if (input.assertCurrentSync !== originalCurrent)
       throw Error('Original native policy owner unavailable');
-    const checked: unknown = originalCurrent.call(input);
+    const checked: unknown = Reflect.apply(originalCurrent, input, []);
     if (checked !== undefined) {
       void Promise.resolve(checked).catch(() => {});
       throw Error('Native policy owner must provide synchronous proof');

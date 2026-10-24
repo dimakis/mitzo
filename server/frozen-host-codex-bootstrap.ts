@@ -255,7 +255,11 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
     executable?: FrozenHostCodexExecutable,
   ) {
     this.assertSync(expected, login, executable);
-    await this.owners.assertSelectionCurrent(structuredClone(expected));
+    strictVoid(
+      await Reflect.apply(this.owners.assertSelectionCurrent, this.owners, [
+        structuredClone(expected),
+      ]),
+    );
     this.assertSync(expected, login, executable);
     const runtime = Runtime.parse(await this.owners.observeRuntime());
     this.assertSync(expected, login, executable);
@@ -326,7 +330,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       referencesCurrent();
     };
     current();
-    strictVoid(original.call(owners, structuredClone(expected)));
+    strictVoid(Reflect.apply(original, owners, [structuredClone(expected)]));
     current();
     const runtime = Runtime.parse(await owners.observeRuntime());
     current();
@@ -515,20 +519,47 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       let qualifiedModels: Array<{ id: string; reasoningEfforts?: string[] }> = [];
       const assertToolCurrent = async (signal: AbortSignal = this.owners.signal) => {
         try {
-          signal.throwIfAborted();
-          assertCurrentSync();
-          await observeLocalCodexPhase('workspace_check', () =>
-            (this.owners.assertToolSelectionCurrent ?? this.owners.assertSelectionCurrent)(
-              expected,
+          const workspaceCurrent =
+            this.owners.assertToolSelectionCurrent ?? this.owners.assertSelectionCurrent;
+          const current = () => {
+            signal.throwIfAborted();
+            assertCurrentSync();
+            if (
+              (this.owners.assertToolSelectionCurrent ?? this.owners.assertSelectionCurrent) !==
+              workspaceCurrent
+            )
+              throw unavailable();
+            for (const [key, original] of Object.entries(loginReferences)) {
+              const actual = Object.getOwnPropertyDescriptor(ownedLogin, key);
+              if (
+                original
+                  ? !('value' in original) ||
+                    !actual ||
+                    !('value' in actual) ||
+                    actual.value !== original.value
+                  : actual !== undefined
+              )
+                throw unavailable();
+            }
+          };
+          current();
+          strictVoid(
+            await observeLocalCodexPhase('workspace_check', () =>
+              Reflect.apply(workspaceCurrent, this.owners, [expected]),
             ),
           );
-          await observeLocalCodexPhase('credential_check', () =>
-            ownedLogin.assertCredentialCurrent
-              ? ownedLogin.assertCredentialCurrent(signal)
-              : ownedLogin.assertCurrent(),
+          current();
+          if (!full || !('value' in full) || typeof full.value !== 'function') throw unavailable();
+          strictVoid(
+            await observeLocalCodexPhase('credential_check', () =>
+              Reflect.apply(
+                full.value,
+                ownedLogin,
+                loginReferences.assertCredentialCurrent ? [signal] : [],
+              ),
+            ),
           );
-          signal.throwIfAborted();
-          assertCurrentSync();
+          current();
         } catch {
           closeLease();
           throw unavailable();

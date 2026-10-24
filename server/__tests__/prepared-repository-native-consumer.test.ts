@@ -1160,3 +1160,90 @@ it.each(['native-custody', 'bootstrap-lease'] as const)(
     }
   },
 );
+
+it.each(['physical-facet', 'lease-getter'] as const)(
+  'enforces genuine async credential revocation despite a poisoned original %s call property',
+  async (kind) => {
+    const f = await fixture(),
+      result = await f.adopt();
+    f.setCwd(result!.directory);
+    f.runtime.close();
+    const prototype = FrozenHostCodexBootstrapAuthority.prototype;
+    const originalGetter = prototype.currentLease;
+    const previousCall = Object.getOwnPropertyDescriptor(originalGetter, 'call');
+    const poisoned = vi.fn(
+      async (
+        _receiver: unknown,
+        signal: AbortSignal,
+        action: (owner: unknown) => Promise<void>,
+      ) => {
+        if (kind === 'lease-getter') return undefined;
+        await action({
+          signal,
+          client: f.rpc,
+          binding: f.first.lease.binding,
+          assertCurrentSync() {},
+          async revalidate() {},
+        });
+      },
+    );
+    let getter: ReturnType<typeof vi.spyOn> | undefined;
+    if (kind === 'lease-getter') {
+      Object.defineProperty(originalGetter, 'call', { value: poisoned, configurable: true });
+    } else {
+      getter = vi.spyOn(prototype, 'currentLease').mockImplementation(function (
+        this: FrozenHostCodexBootstrapAuthority,
+      ) {
+        const lease = Reflect.apply(originalGetter, this, []);
+        if (lease?.withQualifiedWorkspaceReadOwner)
+          Object.defineProperty(lease.withQualifiedWorkspaceReadOwner, 'call', {
+            value: poisoned,
+            configurable: true,
+          });
+        return lease;
+      });
+    }
+    const originalRpc = f.rpc.request.getMockImplementation()!;
+    let reads = 0;
+    f.rpc.request.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === 'account/read' && ++reads > 1)
+        return {
+          account: { type: 'chatgpt', email: 'revoked@example.invalid', planType: 'plus' },
+        } as never;
+      return Reflect.apply(originalRpc, f.rpc, [method, params]);
+    });
+    const before = physical.reader.mock.calls.length;
+    const request = {
+      ...structuredClone(f.request),
+      clientMsgId: `cold-call-poison-${kind}`,
+      payload: { text: 'Continue saved work' },
+    };
+    const dispatch = vi.fn(async () => {});
+    const cold = new OrdinaryLocalCodexOwnedRuntime({
+      ...f.dependencies,
+      nativeStore: f.native,
+      commandId: request.clientMsgId,
+      reservation: { ...f.reservation, id: result!.id },
+      launch: () => ({ ...f.rpc, close: vi.fn() }),
+      dispatch,
+    });
+    cleanups.push(() => cold.close());
+    f.rpc.request.mockClear();
+    try {
+      await expect(cold.admitResume(request)).rejects.toThrow();
+      expect(poisoned).not.toHaveBeenCalled();
+      expect(reads).toBeGreaterThan(1);
+      expect(physical.reader.mock.calls.length).toBe(before);
+      expect(f.rpc.request.mock.calls.map(([method]) => method)).not.toContain('config/read');
+      expect(f.rpc.request.mock.calls.map(([method]) => method)).not.toContain('model/list');
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(f.events.getOrdinaryLocalCommandAdmission(request.clientMsgId)?.state).toBe(
+        'uncertain',
+      );
+    } finally {
+      getter?.mockRestore();
+      if (previousCall) Object.defineProperty(originalGetter, 'call', previousCall);
+      else Reflect.deleteProperty(originalGetter, 'call');
+    }
+  },
+);
