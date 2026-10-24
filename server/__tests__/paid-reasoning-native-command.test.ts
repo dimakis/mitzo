@@ -40,7 +40,11 @@ vi.mock('../account-profiles.js', () => ({
 vi.mock('../ordinary-local-codex-entry.js', () => ({
   ordinaryRepositoryRuntimeInventory: () => ({
     catalog: {
-      resolve: (runtime) => ({
+      resolve: (runtime: {
+        account: PaidReasoningPhaseSelection['binding']['account'];
+        harness: PaidReasoningPhaseSelection['binding']['harness']['implementation'];
+        targetId: string;
+      }) => ({
         status: 'compatible',
         binding: {
           version: 2,

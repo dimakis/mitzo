@@ -59,7 +59,15 @@ it('constrains SDK settings and every tool effect, including apparently safe rea
   expect(settings.settingSources).toEqual([]);
   expect(settings.mcpServers).toEqual({});
   expect(settings.hooks).toEqual({});
-  expect(await settings.canUseTool('Read', { file_path: '/private' })).toMatchObject({
+  const canUseTool = settings.canUseTool;
+  if (!canUseTool) throw Error('Scoped SDK tool guard required');
+  expect(
+    await canUseTool(
+      'Read',
+      { file_path: '/private' },
+      { signal: new AbortController().signal, toolUseID: 'scope-test-tool' },
+    ),
+  ).toMatchObject({
     behavior: 'deny',
   });
 });

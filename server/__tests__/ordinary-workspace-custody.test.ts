@@ -73,10 +73,10 @@ const agentProfile = {
   definition,
   contentHash: contextDigest(definition),
 };
-async function fixture(
+async function fixture<P extends 'openai' | 'openai-codex' | 'anthropic-vertex' = 'openai-codex'>(
   options: {
     location?: 'local' | 'openshell';
-    provider?: 'openai' | 'openai-codex' | 'anthropic-vertex';
+    provider?: P;
   } = {},
 ) {
   const selectedBinding = { ...binding, provider: options.provider ?? binding.provider };

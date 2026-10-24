@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ModelSession } from '@mitzo/harness';
 import type { PaidReasoningPhaseSelection } from '@mitzo/protocol';
-import { preparePaidReasoningHarness } from '../paid-reasoning-harness.js';
+import {
+  preparePaidReasoningHarness,
+  type PaidReasoningHarnessDependencies,
+} from '../paid-reasoning-harness.js';
 const phase = (
   role: PaidReasoningPhaseSelection['role'],
   accountId = 'selected-work',
@@ -25,30 +28,32 @@ function fixtures() {
       if (!current) throw Error('changed');
     },
   }));
-  const createSession = vi.fn(async (_config, request): Promise<ModelSession> => ({
-    provider: 'claude-sdk',
-    async *turn() {
-      yield {
-        type: 'message_start',
-        message: {
-          id: 'actual',
-          model: request.model,
-          role: 'assistant',
-          usage: { input_tokens: 120, output_tokens: 0 },
-        },
-      };
-      yield {
-        type: 'content_block_delta',
-        index: 0,
-        delta: { type: 'text_delta', text: 'Selected phase answer' },
-      };
-      yield {
-        type: 'message_delta',
-        delta: { stop_reason: 'end_turn', stop_sequence: null },
-        usage: { input_tokens: 120, output_tokens: 45 },
-      };
-    },
-  }));
+  const createSession = vi.fn<PaidReasoningHarnessDependencies['createSession']>(
+    async (_config, request): Promise<ModelSession> => ({
+      provider: 'claude-sdk',
+      async *turn() {
+        yield {
+          type: 'message_start',
+          message: {
+            id: 'actual',
+            model: request.model,
+            role: 'assistant',
+            usage: { input_tokens: 120, output_tokens: 0 },
+          },
+        };
+        yield {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'Selected phase answer' },
+        };
+        yield {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn', stop_sequence: null },
+          usage: { input_tokens: 120, output_tokens: 45 },
+        };
+      },
+    }),
+  );
   return {
     qualify,
     createSession,

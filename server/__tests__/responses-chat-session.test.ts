@@ -1904,7 +1904,7 @@ it.each(['google-vertex'] as const)(
         model: 'luna-fixture',
         profileRevision: 'r1',
       },
-      apiKey: provider === 'openai' ? 'fake-key' : undefined,
+      apiKey: undefined,
       session,
       registry,
       input,

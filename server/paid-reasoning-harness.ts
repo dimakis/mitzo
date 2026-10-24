@@ -225,7 +225,7 @@ export async function preparePaidReasoningHarness(
             maxTokens,
             tools: [],
             signal: options.signal,
-            beforeDispatch() {
+            async beforeDispatch() {
               options.signal?.throwIfAborted();
               qualification.assertCurrent();
             },
