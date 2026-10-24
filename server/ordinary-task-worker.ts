@@ -154,7 +154,12 @@ export function bindOrdinaryTaskWorkerSession(
             sourceSettings.selection.model,
             sourceSettings.selection.thinking,
           );
-          if (!isDeepStrictEqual(binding, originalAccount))
+          if (
+            !isDeepStrictEqual(binding, {
+              ...originalAccount,
+              model: sourceSettings.selection.model,
+            })
+          )
             throw Error('Selected worker account changed');
           const selection = {
             ...structuredClone(sourceSettings.selection),
@@ -166,11 +171,35 @@ export function bindOrdinaryTaskWorkerSession(
           let workspaceKind: 'ordinary' | 'repository';
           if ('workspace' in sourceSettings) {
             workspaceKind = 'ordinary';
+            const retained = deps.workspaces.getOrdinaryWorkspaceForOperation(scope.operationId);
+            // A source can have changed its supported per-turn model. Its
+            // original preparation remains creation-time evidence; qualify the
+            // independent child against the current explicit selection instead.
+            const fresh = retained
+              ? undefined
+              : await deps.workspaces.prepareOrdinaryWorkspace({
+                  binding,
+                  selection: {
+                    runOn: 'local',
+                    runtime: {
+                      account: runtime.account,
+                      harness: 'codex',
+                      targetId: runtime.targetId,
+                    },
+                  },
+                  signal,
+                });
+            taskCurrent();
+            if (fresh && !isDeepStrictEqual(fresh.runtimeBinding, sourceSettings.binding))
+              throw Error('Original worker runtime target required');
             const workerSettings = OrdinaryWorkspaceSettingsSchema.parse({
               ...sourceSettings,
               selection,
+              workspace: {
+                kind: 'ordinary',
+                preparationId: retained?.preparationId ?? fresh!.preparationId,
+              },
             });
-            const retained = deps.workspaces.getOrdinaryWorkspaceForOperation(scope.operationId);
             const record =
               retained ??
               (await deps.workspaces.reserveOrdinaryWorkspace({

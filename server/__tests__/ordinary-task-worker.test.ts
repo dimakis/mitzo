@@ -126,7 +126,17 @@ function fixture() {
     prepareOrdinaryWorkspaceSession: prepared,
   };
   const workspaces = {
-    reserveOrdinaryWorkspace: calls.reserve.mockResolvedValue(record),
+    reserveOrdinaryWorkspace: calls.reserve.mockImplementation(async (input) => ({
+      ...record,
+      binding: input.binding,
+      settings: input.settings,
+    })),
+    prepareOrdinaryWorkspace: vi
+      .fn()
+      .mockResolvedValue({
+        preparationId: '4dd560bc-44c5-4de8-95bc-9e65469f7880',
+        runtimeBinding: binding,
+      }),
     qualifyOrdinaryWorkspace: vi.fn(),
     getOrdinaryWorkspaceForOperation: vi.fn(() => undefined),
   };
@@ -136,7 +146,10 @@ function fixture() {
   });
   calls.recovery.mockImplementation((_auth, run) => run('retained-operator'));
   calls.inventory.mockReturnValue({
-    profiles: { resolve: () => account, validateModelSelection: vi.fn() },
+    profiles: {
+      resolve: (_id: string, model: string) => ({ ...account, model }),
+      validateModelSelection: vi.fn(),
+    },
     catalog: { resolve: () => ({ status: 'compatible', binding }) },
     result: {
       capabilityRevision: 'cap-r1',
@@ -183,11 +196,50 @@ it('allocates and dispatches a worker through the exact selected ordinary owner 
   ).toBe('task-worker:7aa6a744-d27c-4eca-a49c-bde6c305ab10');
   expect(calls.reserve).toHaveBeenCalledWith(
     expect.objectContaining({
-      settings: f.settings,
+      settings: {
+        ...f.settings,
+        workspace: { kind: 'ordinary', preparationId: '4dd560bc-44c5-4de8-95bc-9e65469f7880' },
+      },
       binding: f.account,
       allocationOperationId: f.record.allocationOperationId,
     }),
   );
+});
+
+it('qualifies a fresh child proof for a supported source model change while preserving the original source preparation', async () => {
+  const f = fixture();
+  f.meta.selectedModel = 'supported-new-model';
+  f.settings.selection.model = 'supported-new-model';
+  f.source.model = 'supported-new-model';
+  const original = structuredClone(f.settings);
+  const spawn = bindOrdinaryTaskWorkerSession(f.deps as never, 'selected-client');
+  await spawn(f.task.id, 'Reviewed task', 'goal', vi.fn(), {
+    operationId: f.record.allocationOperationId,
+    signal: new AbortController().signal,
+  });
+  expect(f.workspaces.prepareOrdinaryWorkspace).toHaveBeenCalledWith(
+    expect.objectContaining({
+      binding: { ...f.account, model: 'supported-new-model' },
+      selection: {
+        runOn: 'local',
+        runtime: {
+          account: f.settings.binding.account,
+          harness: 'codex',
+          targetId: 'selected-target',
+        },
+      },
+    }),
+  );
+  expect(calls.reserve).toHaveBeenCalledWith(
+    expect.objectContaining({
+      settings: expect.objectContaining({
+        workspace: { kind: 'ordinary', preparationId: '4dd560bc-44c5-4de8-95bc-9e65469f7880' },
+        selection: expect.objectContaining({ model: 'supported-new-model' }),
+      }),
+    }),
+  );
+  expect(f.settings).toEqual(original);
+  expect(f.meta.accountBinding.model).toBe('selected-model');
 });
 
 it('rejects changed account/model/target selection before allocating or dispatching', async () => {
