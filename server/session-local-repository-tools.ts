@@ -1,3 +1,4 @@
+import { codexToolFailureResult, CodexToolFailure } from './codex-tool-failure.js';
 import {
   freezeNativeReadExclusions,
   type NativeAnchoredReadRequest,
@@ -122,10 +123,7 @@ function assertSynchronous(assertion: () => unknown) {
   void Promise.resolve(result).catch(() => {});
   throw Error('Current local repository owner required');
 }
-const unavailable = () => ({
-  content: 'Local repository reads are unavailable under the current native call and read policy.',
-  isError: true,
-});
+const unavailable = () => codexToolFailureResult(new CodexToolFailure('stale_owner'), false);
 
 /** Private read adapter only. Runtime registration supplies existing owners;
  * neither request JSON nor successful discovery can change workspace custody. */

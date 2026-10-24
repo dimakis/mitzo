@@ -21,6 +21,18 @@ type RetainedMessage = z.infer<typeof Retained>;
  * Public reads expose only messages involving the authenticated conversation.
  */
 export class AgentCommunicationStore {
+  private readonly listeners = new Map<string, Set<() => void>>();
+  /** A wakeup only. Callers must re-read durable state and current authorization. */
+  subscribe(conversationId: string, listener: () => void): () => void {
+    id.parse(conversationId);
+    const listeners = this.listeners.get(conversationId) ?? new Set<() => void>();
+    listeners.add(listener);
+    this.listeners.set(conversationId, listeners);
+    return () => {
+      listeners.delete(listener);
+      if (!listeners.size) this.listeners.delete(conversationId);
+    };
+  }
   constructor(private readonly db: Database.Database) {
     db.exec(`CREATE TABLE IF NOT EXISTS agent_communication_messages (
       sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,6 +128,22 @@ export class AgentCommunicationStore {
     this.db
       .prepare('UPDATE agent_communication_messages SET data=? WHERE message_id=?')
       .run(JSON.stringify(parsed), parsed.message.messageId);
+    for (const participant of new Set([
+      parsed.message.senderConversationId,
+      parsed.message.recipientConversationId,
+    ])) {
+      const listeners = this.listeners.get(participant);
+      for (const listener of listeners ?? [])
+        queueMicrotask(() => {
+          if (listeners?.has(listener)) {
+            try {
+              listener();
+            } catch {
+              /* Wakeups do not own the committed receipt. */
+            }
+          }
+        });
+    }
   }
   read(conversationId: string, messageId: string): AgentMessage {
     const { message } = this.retained(messageId);

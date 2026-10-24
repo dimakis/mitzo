@@ -23,6 +23,7 @@ export function codexThreadOptions(input: {
   disableProjectDocuments?: boolean;
   systemPrompt: string;
   nativeExecution?: CodexNativeExecutionPolicy;
+  skillContextTokens?: number;
 }) {
   return {
     model: input.model,
@@ -30,6 +31,9 @@ export function codexThreadOptions(input: {
     config: {
       model_reasoning_summary: 'auto',
       ...input.runtimeConfig,
+      ...(input.skillContextTokens
+        ? { 'skills.max_context_tokens': input.skillContextTokens }
+        : {}),
       web_search: input.webSearch,
       ...(input.disableProjectDocuments ? { project_doc_max_bytes: 0 } : {}),
     },
