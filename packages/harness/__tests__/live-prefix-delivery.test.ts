@@ -114,3 +114,16 @@ it('does not confuse a failed write with a forwarded prefix', () => {
     f.registry.dispose();
   }
 });
+
+it('keeps contiguous live deltas streaming while a catch-up batch awaits HTTP acknowledgement', () => {
+  const f = fixture(51);
+  try {
+    f.registry.broadcast('chat', { type: 'block_delta', sessionId: 'chat', seq: 50 });
+    expect(f.cursor()).toBe(50);
+    f.registry.broadcast('chat', { type: 'block_delta', sessionId: 'chat', seq: 51 });
+    expect(f.cursor()).toBe(51);
+  } finally {
+    f.client.clearPending();
+    f.registry.dispose();
+  }
+});

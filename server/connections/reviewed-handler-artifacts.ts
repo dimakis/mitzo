@@ -1415,7 +1415,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/applied-event-acks.ts':
     'cb9629e1da426916dbecd3bc0e924e45cf460799e94f1e49cbf7544abecf764d',
   '../../packages/harness/src/connection-registry.ts':
-    'c4ace1b88cbd3485856dfcc483ce35ae36617634a85bf3ad3ff19990190a840f',
+    'c12650cb5912de809c99070c109c43cfda8dbf9e495c4c35d164ca057d33393d',
   '../../packages/protocol/src/ws-schemas-v2.ts':
     'a44c078500d72ccec00da10c082dae5d5081c3cc1d54428ff61cd473e59cf565',
   '../auth-route-boundary.ts': '9b853baf795f6c65a7cf956311787d049c961291cf4817ad53ad9e22ec62dd4c',

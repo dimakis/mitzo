@@ -185,8 +185,6 @@ export class ConnectionRegistry {
       // The snapshot replaces this backlog. Resume durable delivery from its
       // confirmed cursor once the client has applied it.
       if (seq !== undefined && this.snapshotOffers.get(connectionId)?.has(sessionId)) continue;
-      const pendingBoundary = this.retryBoundaries.get(connectionId)?.get(sessionId);
-      if (seq !== undefined && pendingBoundary !== undefined && seq > pendingBoundary) continue;
       const previous = outgoing.prevSessionSeq;
       const forwarded = this.forwarded.get(connectionId)?.get(sessionId) ?? 0;
       if (
@@ -194,6 +192,7 @@ export class ConnectionRegistry {
         typeof previous === 'number' &&
         previous > forwarded
       ) {
+        if (this.retryBoundaries.get(connectionId)?.has(sessionId)) continue;
         // Internal durable events need not have their own live broadcast.
         // Forward their redacted prefix now, rather than making the client
         // buffer the first response until the five-second retry interval.
