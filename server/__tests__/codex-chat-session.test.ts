@@ -5959,3 +5959,349 @@ it('projects large GitHub reads after hooks and refuses output from a former nat
     factory.mockRestore();
   }
 });
+
+/** Synthetic provider/physical RPC; no sandbox, credentials or model calls. */
+async function openOwnedOpenShellEfficiencyFixture() {
+  vi.clearAllMocks();
+  const { OwnedOpenShellCodexChatAdmission } =
+    await import('../owned-openshell-codex-chat-admission.js');
+  const { CodexConversationStore } = await import('../codex-conversation-store.js');
+  const { SessionRegistry } = await import('@mitzo/harness');
+  const f = ownedOpenShellAdapterFixture();
+  const owner = Object.assign(Object.create(OwnedOpenShellCodexChatAdmission.prototype), {
+    assertOptions: vi.fn(),
+    assertCurrent: vi.fn(async () => {}),
+    assertCurrentSync: vi.fn(),
+    configuration: () => f.config,
+    adoptPhysicalRuntime: vi.fn(),
+    assertBeforeEnqueue: vi.fn(),
+    assertBeforeDispatch: vi.fn(),
+    assertModelSelection: vi.fn(),
+    persistNativeCustody: vi.fn(),
+    canClaimCommand: vi.fn(() => false),
+  });
+  const registry = new SessionRegistry();
+  registry.register('openshell-client', {
+    ...f.opts.session,
+    sessionId: f.opts.conversationId,
+    sessionAllowList: new Set<string>(),
+    transport: { send: () => {}, isOpen: () => true },
+  });
+  f.opts.session = registry.get('openshell-client')!;
+  f.opts.registry = registry;
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.permissionHandler.mockImplementation(async (_name, input) => ({
+    behavior: 'allow',
+    updatedInput: input,
+  }));
+  const retained = vi
+    .spyOn(CodexConversationStore.prototype, 'readArtifactRuntime')
+    .mockReturnValue({
+      runtime: f.physical,
+      route: { kind: 'api', provider: 'selected-provider', model: 'original-model' },
+    });
+  const ensure = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
+    .mockResolvedValue(f.physical);
+  const verify = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'verifyKnowledgeRuntime')
+    .mockResolvedValue({});
+  const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext').mockResolvedValue({
+    type: 'boot_context',
+    scope: 'sandbox',
+    sourceCount: 0,
+    tokenCount: 0,
+    tokenBudget: 12000,
+    sources: [],
+    included: [],
+    trimmed: [],
+    fullMarkdown: '',
+  });
+  const query = await openCodexChat({ ...f.opts, ownedOpenShell: owner });
+  return {
+    ...f,
+    owner,
+    registry,
+    captured: mocks.conversationOptions!,
+    cleanup: () => {
+      query.close();
+      retained.mockRestore();
+      ensure.mockRestore();
+      verify.mockRestore();
+      compile.mockRestore();
+      registry.dispose();
+      f.cleanup();
+    },
+  };
+}
+
+it('defers owned OpenShell host contracts while preserving original direct execution and native sandbox ownership', async () => {
+  const itemTools = await import('../telos-item-tools.js');
+  const item = vi
+    .spyOn(itemTools, 'executeTelosItemTool')
+    .mockResolvedValue({ content: 'exact-read', isError: false });
+  const f = await openOwnedOpenShellEfficiencyFixture();
+  try {
+    const tools = f.captured.tools as import('@mitzo/harness').ToolDefinition[];
+    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(tools.find((t) => t.name === 'TelosGetItem')?.input_schema).toEqual({
+      type: 'object',
+      additionalProperties: true,
+    });
+    expect(tools.some((t) => t.name === 'ListIntegrationTools')).toBe(true);
+    expect(tools.some((t) => t.name === 'InvokeIntegrationTool')).toBe(false);
+    expect(f.captured.skillContextTokens).toBe(1500);
+    expect(f.captured.onToolObservation).toBeTypeOf('function');
+    expect(f.captured.systemPrompt).toContain('Use SearchSkills');
+    expect(f.captured.systemPrompt).not.toContain('AgentCommunication wait');
+    const execute = f.captured
+      .executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    const signal = new AbortController().signal;
+    const call = { turnId: 'sandbox-turn', callId: 'original-call', assertCurrentSync: vi.fn() };
+    const contract = await execute(
+      'DescribeIntegrationTool',
+      { toolId: 'TelosGetItem' },
+      signal,
+      call,
+    );
+    expect(JSON.parse(contract.content)).toMatchObject({
+      invocation: 'direct',
+      inputSchema: { required: ['itemId'] },
+    });
+    expect(await execute('TelosGetItem', { itemId: 'existing' }, signal, call)).toEqual({
+      content: 'exact-read',
+      isError: false,
+    });
+    expect(item).toHaveBeenCalledWith(
+      expect.any(String),
+      'openshell-client',
+      expect.any(String),
+      'TelosGetItem',
+      { itemId: 'existing' },
+      signal,
+    );
+    expect(mocks.permissionHandler).toHaveBeenCalledWith(
+      'TelosGetItem',
+      { itemId: 'existing' },
+      expect.any(Object),
+    );
+    f.owner.assertCurrentSync.mockImplementation(() => {
+      throw Error('revoked OpenShell owner');
+    });
+    await expect(
+      execute('DescribeIntegrationTool', { toolId: 'TelosGetItem' }, signal, call),
+    ).rejects.toThrow();
+  } finally {
+    f.cleanup();
+    item.mockRestore();
+  }
+});
+
+it('enforces the current Read skill ceiling for owned OpenShell metadata without querying the host workspace', async () => {
+  const { setSkillPolicy } = await import('@mitzo/harness');
+  const f = await openOwnedOpenShellEfficiencyFixture();
+  try {
+    const execute = f.captured
+      .executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    const call = () =>
+      execute('SearchSkills', {}, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'skills',
+      });
+    setSkillPolicy(f.registry, 'openshell-client', []);
+    await expect(call()).rejects.toThrow('permission_denied');
+    expect(mocks.searchSkills).not.toHaveBeenCalled();
+    setSkillPolicy(f.registry, 'openshell-client', ['Read']);
+    mocks.searchSkills.mockResolvedValueOnce({ total: 0, skills: [], nextOffset: null });
+    await expect(call()).resolves.toMatchObject({ isError: false });
+    mocks.searchSkills.mockImplementationOnce(async () => {
+      setSkillPolicy(f.registry, 'openshell-client', []);
+      return { total: 1, skills: [{ name: 'withheld' }] };
+    });
+    await expect(call()).rejects.toThrow('permission_denied');
+  } finally {
+    f.cleanup();
+  }
+});
+
+it('projects owned OpenShell Telos reads and reauthorizes retained pages against the original read and current sandbox', async () => {
+  const itemTools = await import('../telos-item-tools.js');
+  const full = 'item progress '.repeat(2000) + 'unique-evidence-tail';
+  const item = vi
+    .spyOn(itemTools, 'executeTelosItemTool')
+    .mockResolvedValue({ content: full, isError: false });
+  const f = await openOwnedOpenShellEfficiencyFixture();
+  try {
+    const outputId = '22222222-2222-4222-8222-222222222222';
+    mocks.retainToolOutput.mockReturnValue(outputId);
+    const execute = f.captured
+      .executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    const signal = new AbortController().signal;
+    const call = { turnId: 'turn', callId: 'original-read', assertCurrentSync: vi.fn() };
+    const projected = await execute('TelosGetItem', { itemId: 'existing' }, signal, call);
+    expect(Buffer.byteLength(projected.content)).toBeLessThanOrEqual(8192);
+    expect(JSON.parse(projected.content)).toMatchObject({ complete: false, outputId });
+    const retained = mocks.retainToolOutput.mock.calls.at(-1)!;
+    expect(retained.slice(0, 4)).toEqual([f.opts.conversationId, f.binding, 'TelosGetItem', full]);
+    mocks.readToolOutput.mockReturnValue({
+      toolName: 'TelosGetItem',
+      content: full,
+      sourceScope: retained[4],
+    });
+    mocks.permissionHandler.mockClear();
+    const page = await execute(
+      'ReadToolOutput',
+      { outputId, query: 'unique-evidence-tail' },
+      signal,
+      call,
+    );
+    expect(JSON.parse(page.content).content).toContain('unique-evidence-tail');
+    expect(mocks.permissionHandler).toHaveBeenCalledWith(
+      'TelosGetItem',
+      { itemId: 'existing' },
+      expect.any(Object),
+    );
+    expect(item).toHaveBeenCalledTimes(1);
+    const { setSkillPolicy } = await import('@mitzo/harness');
+    mocks.permissionHandler.mockImplementationOnce(async (_name, input) => {
+      setSkillPolicy(f.registry, 'openshell-client', []);
+      return { behavior: 'allow', updatedInput: input };
+    });
+    await expect(execute('ReadToolOutput', { outputId }, signal, call)).rejects.toThrow(
+      'permission_denied',
+    );
+    setSkillPolicy(f.registry, 'openshell-client', ['TelosGetItem']);
+    mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'revoked' });
+    await expect(execute('ReadToolOutput', { outputId }, signal, call)).rejects.toThrow(
+      'permission_denied',
+    );
+    mocks.readToolOutput.mockReturnValue({
+      toolName: 'TelosGetItem',
+      content: full,
+      sourceScope: 'f'.repeat(64),
+    });
+    await expect(execute('ReadToolOutput', { outputId }, signal, call)).rejects.toThrow(
+      'stale_owner',
+    );
+    mocks.readToolOutput.mockReturnValue({
+      toolName: 'TelosGetItem',
+      content: full,
+      sourceScope: retained[4],
+    });
+    f.owner.assertCurrentSync.mockImplementation(() => {
+      throw Error('owner replaced');
+    });
+    await expect(execute('ReadToolOutput', { outputId }, signal, call)).rejects.toThrow();
+  } finally {
+    f.cleanup();
+    item.mockRestore();
+  }
+});
+
+it('keeps owned OpenShell write receipts exact and withholds reads when the original provider call ends', async () => {
+  const itemTools = await import('../telos-item-tools.js');
+  const full = 'exact-write-receipt '.repeat(1000);
+  const item = vi
+    .spyOn(itemTools, 'executeTelosItemTool')
+    .mockResolvedValue({ content: full, isError: false });
+  const f = await openOwnedOpenShellEfficiencyFixture();
+  try {
+    const execute = f.captured
+      .executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    const signal = new AbortController().signal;
+    const current = vi.fn();
+    const call = { turnId: 'turn', callId: 'write', assertCurrentSync: current };
+    expect(
+      await execute(
+        'TelosUpdateItem',
+        {
+          itemId: 'existing',
+          requestId: 'request',
+          expectedRevision: 'a'.repeat(64),
+          note: 'Evidence',
+        },
+        signal,
+        call,
+      ),
+    ).toEqual({ content: full, isError: false });
+    expect(mocks.retainToolOutput).not.toHaveBeenCalled();
+    item.mockImplementationOnce(async () => {
+      current.mockImplementation(() => {
+        throw Error('original call ended');
+      });
+      return { content: full, isError: false };
+    });
+    await expect(execute('TelosGetItem', { itemId: 'existing' }, signal, call)).rejects.toThrow(
+      'original call ended',
+    );
+    expect(mocks.retainToolOutput).not.toHaveBeenCalled();
+  } finally {
+    f.cleanup();
+    item.mockRestore();
+  }
+});
+
+it('measures owned OpenShell host schema and producer output delivery separately from Local Mac', async () => {
+  mocks.retainToolOutput.mockReturnValue('22222222-2222-4222-8222-222222222222');
+  const itemTools = await import('../telos-item-tools.js');
+  const full = JSON.stringify({
+    records: Array.from({ length: 1000 }, (_, index) => ({
+      index,
+      note: '日本語 progress and evidence '.repeat(4),
+    })),
+  });
+  const item = vi
+    .spyOn(itemTools, 'executeTelosItemTool')
+    .mockResolvedValue({ content: full, isError: false });
+  const f = await openOwnedOpenShellEfficiencyFixture();
+  try {
+    const execute = f.captured
+      .executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    const signal = new AbortController().signal;
+    const call = { turnId: 'turn', callId: 'measure' };
+    const baseline = [];
+    let offset: number | null = 0;
+    while (offset !== null) {
+      const page = JSON.parse(
+        (await execute('ListIntegrationTools', { offset, limit: 20 }, signal, call)).content,
+      );
+      for (const { toolId } of page.tools) {
+        const contract = JSON.parse(
+          (await execute('DescribeIntegrationTool', { toolId }, signal, call)).content,
+        );
+        baseline.push({
+          name: toolId,
+          description: contract.description,
+          input_schema: contract.inputSchema,
+        });
+      }
+      offset = page.nextOffset;
+    }
+    const rawSchemaBytes = Buffer.byteLength(JSON.stringify(baseline));
+    const deliveredSchemaBytes = Buffer.byteLength(JSON.stringify(f.captured.tools));
+    expect(deliveredSchemaBytes).toBeLessThan(rawSchemaBytes * 0.5);
+    const projected = await execute('TelosGetItem', { itemId: 'existing' }, signal, call);
+    expect(Buffer.byteLength(projected.content)).toBeLessThanOrEqual(8192);
+    expect(JSON.parse(projected.content).outputId).toBe('22222222-2222-4222-8222-222222222222');
+    const metrics = {
+      scope: 'owned OpenShell Mitzo host dynamic tools; native sandbox MCP excluded',
+      originalHostToolCount: baseline.length,
+      rawSchemaBytes,
+      deliveredSchemaBytes,
+      schemaByteReduction: 1 - deliveredSchemaBytes / rawSchemaBytes,
+      rawOutputBytes: Buffer.byteLength(full),
+      deliveredOutputBytes: Buffer.byteLength(projected.content),
+      outputByteReduction: 1 - Buffer.byteLength(projected.content) / Buffer.byteLength(full),
+      nativeSkillContextTokens: f.captured.skillContextTokens,
+    };
+    if (process.env.MITZO_OPENSHELL_EFFICIENCY_METRICS_FILE)
+      writeFileSync(
+        process.env.MITZO_OPENSHELL_EFFICIENCY_METRICS_FILE,
+        JSON.stringify(metrics, null, 2),
+      );
+  } finally {
+    f.cleanup();
+    item.mockRestore();
+  }
+});

@@ -643,7 +643,7 @@ export class CodexConversation {
     const active = this.active;
     const client = this.client;
     const generation = this.transportGeneration;
-    const cwd = this.opts.cwd;
+    const cwd = this.opts.runtimeCwd ?? this.opts.cwd;
     const current = () => {
       signal.throwIfAborted();
       assertCurrent();
@@ -653,7 +653,7 @@ export class CodexConversation {
         this.closed ||
         this.client !== client ||
         this.transportGeneration !== generation ||
-        this.opts.cwd !== cwd
+        (this.opts.runtimeCwd ?? this.opts.cwd) !== cwd
       )
         throw Error('Current native skill owner unavailable');
     };
