@@ -32,6 +32,11 @@ import {
 const hash = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const requestKey = (operation: string, actorId: string, requestId: string) =>
   hash(JSON.stringify([operation, actorId, requestId]));
+export interface TelosSourceMaterialGuard {
+  sha256: string;
+  assertCurrent(): void;
+  assertPin(pin: CollaborationSnapshotSelection['artifacts'][number]): void;
+}
 export function advisorDraftTargetId(
   input: TelosWorkAdvisorDraftPreviewRequest,
   actorId: string,
@@ -152,7 +157,11 @@ export class TelosSourceCapture {
     return preview;
   }
 
-  async preview(raw: unknown, actor: TelosWorkActor): Promise<TelosSourcePreview> {
+  async preview(
+    raw: unknown,
+    actor: TelosWorkActor,
+    materialGuard?: TelosSourceMaterialGuard,
+  ): Promise<TelosSourcePreview> {
     this.operator(actor);
     const input = TelosSourcePreviewRequestSchema.parse(raw);
     const target = this.options.work.readSourceTarget(input.itemId, actor);
@@ -168,12 +177,18 @@ export class TelosSourceCapture {
       profile: target.record.profile,
       contextHints: target.record.contextHints,
     });
-    const preview = await this.compilePreview(input.selection, actor, {
-      itemId: input.itemId,
-      workRevision: target.work.revision,
-      briefText,
-    });
+    const preview = await this.compilePreview(
+      input.selection,
+      actor,
+      {
+        itemId: input.itemId,
+        workRevision: target.work.revision,
+        briefText,
+      },
+      materialGuard,
+    );
     this.operator(actor);
+    materialGuard?.assertCurrent();
     if (this.options.work.read(input.itemId, actor).revision !== target.work.revision) conflict();
     return preview;
   }
@@ -187,6 +202,7 @@ export class TelosSourceCapture {
       briefText: string;
       creation?: TelosSourcePacket['creation'];
     },
+    materialGuard?: TelosSourceMaterialGuard,
   ): Promise<TelosSourcePreview> {
     const actorId = this.operator(actor);
     const source = createTelosConversationSource({
@@ -194,6 +210,8 @@ export class TelosSourceCapture {
       artifacts: this.options.artifacts,
       authorize: (id) => this.options.authorizeSource(actor, id),
       authorizeArtifact: (_pin, id) => this.options.authorizeArtifact(actor, id),
+      assertArtifact: materialGuard?.assertPin,
+      assertCurrent: materialGuard?.assertCurrent,
     });
     let opened: Awaited<ReturnType<typeof source.openConversation>> | undefined;
     const context = await compileCollaborationSourceContext(
@@ -209,6 +227,7 @@ export class TelosSourceCapture {
       },
     );
     this.operator(actor);
+    materialGuard?.assertCurrent();
     if (!context.messages.length)
       throw new TelosWorkError('invalid', 'Select at least one completed public message');
     if (!opened) conflict();
@@ -219,6 +238,7 @@ export class TelosSourceCapture {
       actorId,
       itemId: target.itemId,
       workRevision: target.workRevision,
+      ...(materialGuard ? { materialScopeSha256: materialGuard.sha256 } : {}),
       selection,
       brief: { sha256: hash(target.briefText), text: target.briefText },
       context,
