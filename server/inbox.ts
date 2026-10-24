@@ -88,7 +88,7 @@ export function scanInboxItems(inboxPath: string): Array<{
   let policy: ReturnType<typeof privateCodexPathSnapshot>;
   try {
     policy = privateCodexPathSnapshot();
-    files = readdirSync(inboxPath).filter((f) => f.endsWith('.md'));
+    files = readdirSync(inboxPath).filter(isSafeFilename);
   } catch (err: unknown) {
     log.warn('failed to read inbox directory', {
       path: inboxPath,

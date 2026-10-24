@@ -34,3 +34,15 @@ it('reads each active and archived source once per reconciliation', () => {
   expect(store.inboxFeed(InboxQuery.parse({ view: 'all' })).total).toBe(2);
   expect(store.feed('archived').items).toHaveLength(1);
 });
+
+it('retains the filename validation used by individual source reads', () => {
+  const root = mkdtempSync(join(tmpdir(), 'inbox-source-name-'));
+  cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(root, 'unsafe..md'), '# Excluded source');
+  const store = new NotificationStore(':memory:');
+  cleanup.push(() => store.close());
+  const sync = vi.spyOn(store, 'syncInbox');
+  new UnifiedInbox(store, () => root).reconcile();
+  expect(sync).not.toHaveBeenCalled();
+  expect(store.get('inbox:unsafe..md')).toBeUndefined();
+});
