@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.637-telos-sqlite-app-owner-integration';
+  'v1.0.638-telos-regression-fixture-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -68,7 +68,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-workspace-owner.test.ts':
     '17e2ce4a8d505778fec6899ff47e79557bed0be6f71269bb0e92adf9f30ad432',
   '../__tests__/prepared-repository-native-consumer.test.ts':
-    '4846347c0b9dd30fca9849a04d2611ecb1847803eff3e9b9083b4d2770b7f0fb',
+    '5bd6ac16150047cefc80889699f00ec8c86c273ef98b5f8eb4970fd8958bea54',
   '../__tests__/prepared-repository-workspace-owner-sync.test.ts':
     '17b2eec3c51f317450914a1bbd786ecd511c0a6eb5be9a49b10ad7bd2485ddb3',
   '../local-repository-preparation-packed-refs.ts':
