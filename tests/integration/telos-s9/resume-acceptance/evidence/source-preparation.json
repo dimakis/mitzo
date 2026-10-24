@@ -70,9 +70,14 @@
     "tests/integration/telos-s9/coherent-final-preparation/vitest.coherent.config.ts": "fadb93ab598881c854a003c03c9a4f25d34db12be36c5d10280c73df13f28139",
     "tests/integration/telos-s9/coherent-final-preparation/vitest.initial.config.ts": "c9f4a1e0a17a5341c1e92a12e8b5adf7e53ce6d6b0c63fcad80e38efc8313aa6",
     "tests/integration/telos-s9/coherent-final-preparation/worker-restart-child-loader.mjs": "d5dfa4a214d1cd3a937183efde3b59fef5666611a032850c4e3ed6f47846cd9a",
-    "tests/integration/telos-s9/resume-acceptance/positive-purge-recovery.contract.ts": "dc8b9bc788b705143494e1c29ee7b463fcc9bf8252d69784085923643f903b2f",
+    "tests/integration/telos-s9/resume-acceptance/positive-purge-recovery.contract.ts": "0ae9f25a751da9b0aac297a5652420c97e7f427433ff90eff126efebf1bc245f",
     "tests/integration/telos-s9/resume-acceptance/purge-application.ts": "cce9f3ea151e3a79f1e9f589cbd10346cccca8e176c594607982635fe829efb6",
     "tests/integration/telos-s9/resume-acceptance/purge-child.mjs": "f4b2adedf8eba020ebac3381ad34d4d2dbbcbf8c7b7a004a1a0408d4788b913f",
     "tests/integration/telos-s9/resume-acceptance/vitest.resume.config.ts": "ce35e9f43b7e82f8d78698b36d4ea5e3183a1efdae94ab93d6c2198c272f6add"
+  },
+  "sourceFollowup": {
+    "retainedInitialPreparation": "d4014d9c7811a4470403b1388cb21e1603f80f81",
+    "reason": "Production confirmation intentionally stays open after lost delivery. Explicitly dismiss it after actual uncertainty before reading underlying retry controls. After exact cold receipt, require actual UI navigation and journal clearing before final capture/cleanup.",
+    "checks": "All four changed TS roots rechecked:0 syntactic/semantic diagnostics; scoped lint and formatting pass. No App/browser execution."
   }
 }

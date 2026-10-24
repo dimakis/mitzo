@@ -102,6 +102,10 @@ it('positive eligible-leaf purge preserves unrelated work and recovers the commi
     await confirm.getByRole('textbox').fill('DELETE PERMANENTLY');
     await confirm.getByRole('button', { name: 'Delete permanently', exact: true }).click();
     await expect.poll(() => lost).toBe(true);
+    await browserExpect(confirm.getByRole('alert')).toContainText('Delivery is not confirmed.');
+    // The production confirmation stays open on uncertain delivery. Dismiss it
+    // explicitly before inspecting the underlying retained-request controls.
+    await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
     await browserExpect(
       lifecycle.getByRole('button', { name: 'Retry original request', exact: true }),
     ).toBeVisible();
@@ -140,6 +144,8 @@ it('positive eligible-leaf purge preserves unrelated work and recovers the commi
     ]);
     expect(recovered.status()).toBe(200);
     expect(await recovered.json()).toEqual(receipt);
+    await browserExpect(page).toHaveURL(h.origin + '/todos');
+    expect(await journal()).toEqual([]);
     expect(posted.at(-1)).toEqual(original);
     expect(posted).toHaveLength(beforeMountPosts + 1);
     expect(observePrivateReceipt()).toEqual(actual);
