@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "status": "review-required",
+  "scope": "canonical-staging-3190",
+  "referenceSnapshot": "awaiting-independent-public-record",
+  "profiles": [
+    {
+      "referenceId": "personal-chatgpt",
+      "proposedProfileId": "stage-personal-chatgpt",
+      "provider": "openai-codex",
+      "ordinaryRuntime": "local-codex",
+      "nativeRuntime": "openshell-codex",
+      "authorization": "pending-fresh-staging-login",
+      "testModel": "pending-supported-luna-discovery",
+      "runtimeParity": "pending-public-reference"
+    },
+    {
+      "referenceId": "work-openai-api",
+      "proposedProfileId": "stage-work-openai-api",
+      "provider": "openai",
+      "ordinaryRuntime": "local-responses",
+      "nativeRuntime": "openshell-codex",
+      "authorization": "pending-fresh-staging-key",
+      "testModel": "pending-supported-luna-discovery",
+      "runtimeParity": "pending-public-reference"
+    },
+    {
+      "referenceId": "work-vertex",
+      "proposedProfileId": "stage-work-vertex",
+      "provider": "anthropic-vertex",
+      "ordinaryRuntime": "local-claude-sdk",
+      "nativeRuntime": "openshell-claude-sdk",
+      "authorization": "pending-fresh-staging-adc-project-region",
+      "testModel": "pending-explicit-alternate-model-approval",
+      "runtimeParity": "pending-public-reference"
+    }
+  ],
+  "futureProfiles": "exact-complete-public-reference-set-with-distinct-stage-mapping-and-reviewed-feature-adapter",
+  "nativeResources": { "sharedVm": 1, "memoryMiB": 4096, "cpus": 2, "featureRunners": 1 },
+  "execution": "pending-canonical-owner-recovery-and-reviewed-runtime-enrollment",
+  "liveFeatureValidation": "not-live-proven",
+  "providerMutations": 0,
+  "modelCalls": 0,
+  "productionActions": 0
+}
