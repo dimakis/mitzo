@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.623-qualified-preparation-cold-integration';
+  'v1.0.624-private-native-preparation-composition';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -28,7 +28,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-workspace-owner.test.ts':
     '17e2ce4a8d505778fec6899ff47e79557bed0be6f71269bb0e92adf9f30ad432',
   '../__tests__/prepared-repository-native-consumer.test.ts':
-    '07b95e8e633c1b61e3fa7c6cc78026eee408850a281c905f5a84cafbdfa78504',
+    'ced29bd2d8b4ffd44b46697a72e30213fa6fc53f3f93c9e52d0aff2c6538577b',
   '../__tests__/prepared-repository-workspace-owner-sync.test.ts':
     '17b2eec3c51f317450914a1bbd786ecd511c0a6eb5be9a49b10ad7bd2485ddb3',
   '../local-repository-preparation-packed-refs.ts':
@@ -171,7 +171,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-repository-preparation-authorization.ts':
     '61b069e1e3feab9542adf82eaa6978fd18bcec9d3f0daecd742aafc39c9c0859',
   '../__tests__/fixtures/local-preparation-native.ts':
-    'd7655ad143af5df27a3b81ca2fcbddaf0dc6319120fa6a5014ccc6071b891a11',
+    'b4a38bf4d75fd4f189468cb3c9f6c5e1c5438cb223cc3dcb275bed49d0c2abc1',
   '../__tests__/local-repository-preparation-authorization.test.ts':
     '3621d87762c222c8500b49b4e89ce5890e6fe6a6945208bbebfe85bcb9f897ee',
   '../__tests__/local-repository-preparation-artifacts.test.ts':
@@ -205,7 +205,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     '7555886ca804a5e9fccaa2e06d93fbbb4cdac5d81d6032372d007c025403dd9c',
   '../__tests__/codex-conversation.test.ts':
-    '3c7aff8059d42fbc12e5d28dc4eb2caf7a56748563c63f150e3e3d901ed15e3a',
+    '3c4f1db17ac0d82c4ff1fb31f79e9bb8bb0b4d8b6590f210c304118ca005a5f3',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -1001,7 +1001,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '2bb28f73ab9325ee880164b5b20761afb63f57cd996645f2a8ead07bd2dbefff',
+  '../codex-conversation.ts': 'fd069a3c8e742780790513835465204e4437757c1b2ffa77ae6bb35a3afe8e5d',
   '../codex-conversation-store.ts':
     '888ece3535ec53213a058bee7acc944b86d89587dfcc8e2dc8ffad49ead79b58',
   '../symposium-custodian-ipc.ts':
@@ -1169,7 +1169,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '3e9734030dea1237f60f274bca7c2a3e68f31ded5d60cca3419df7c84617145f',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '69f73e581ec39f909db2d177e78afb6c318991cab855abcb753fae602d6dde13',
+  '../codex-chat-session.ts': '360007406df717469c64a4a95207913cded9742375fcc228b771a4a82f2fdaed',
   '../connections-runtime.ts': '0793e87975e59fc74dc4306802f2633d7d8cd7bca4a42af5bc1a5a2a04c22424',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
@@ -1651,4 +1651,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'b628ecd466b1f7b28c5c77f7dcd1751629f9318be5d1b4f472663db272f5cf8c',
   '../__tests__/native-local-repository-read-tools.test.ts':
     'a75414d44906ede0855d2bc592f738081f171ed22ba8aaf5b23560118f82d4fd',
+  '../native-local-repository-preparation.ts':
+    '9ccc78aa713b57cfcf72e9ac5ab1187362c3370400bdc63060114349f3682d53',
+  '../__tests__/native-local-repository-preparation.test.ts':
+    '6775351c0f46020825d2fb157a48d973bd1bc58088b92960d4b0c8de7100f1ac',
+  '../__tests__/native-local-repository-preparation-custody.test.ts':
+    'f8998e983a98a644a6a10ba6f6bd6518d16fd31f5ef7e223a82310af8d608ba2',
+  '../__tests__/fixtures/materialized-prepared-repository.ts':
+    '7697b26d28caee5aee91614d341bb14159ccec9db64c9b99b784200cd07b2f0d',
 });

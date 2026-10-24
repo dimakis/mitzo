@@ -2032,7 +2032,9 @@ export class CodexConversation {
           };
           try {
             assertBoundaryCurrentSync();
-            const admitted: unknown = await admit.call(boundary, assertBoundaryCurrentSync);
+            const admitted: unknown = await Reflect.apply(admit, boundary, [
+              assertBoundaryCurrentSync,
+            ]);
             if (admitted !== undefined)
               throw Error('Retained primary admission must settle without a value');
             assertBoundaryCurrentSync();
@@ -3133,11 +3135,10 @@ export class CodexConversation {
           this.opts.assertNativeExecutionCurrent !== assertNativePolicyCurrent
         )
           throw Error('Original native base read policy owner changed');
-        const checked: unknown = assertNativePolicyCurrent.call(
-          this.opts,
+        const checked: unknown = Reflect.apply(assertNativePolicyCurrent, this.opts, [
           nativePolicy,
           active.command.id,
-        );
+        ]);
         if (checked !== undefined) {
           void Promise.resolve(checked).catch(() => {});
           throw Error('Native base read policy owner must be synchronous');

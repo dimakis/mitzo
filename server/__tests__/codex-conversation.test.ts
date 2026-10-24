@@ -6992,3 +6992,75 @@ it('bounds timing spans on duplicate/failed enqueue, queued cancel/close and pre
   await Promise.allSettled([sending]);
   for (const span of timings) expect(span.end).toHaveBeenCalledOnce();
 });
+
+it('invokes the genuine native base-scope owner despite a poisoned original call property', async () => {
+  const f = await setup();
+  const policy = codexNativeExecutionPolicy({
+    bindingRevision: 'owner',
+    mode: 'agent',
+    cwd: '/workspace',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace'],
+    deniedRoots: ['/private/auth'],
+  });
+  let revoked = false,
+    captured = false;
+  const poisoned = vi.fn(() => undefined);
+  const current = Object.assign(
+    function (this: unknown) {
+      expect(this).toBe(f.conversationOptions);
+      if (revoked) throw Error('Original base-scope owner revoked');
+    },
+    { call: poisoned },
+  );
+  f.conversationOptions.nativeExecution = policy;
+  f.conversationOptions.assertNativeExecutionCurrent = current;
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+  await f.c.send({ id: 'base-scope-poison', prompt: 'Read current workspace' });
+  f.conversationOptions.executeTool = async (_name, _input, _signal, invocation) => {
+    revoked = true;
+    invocation.captureNativeBaseReadScope!();
+    captured = true;
+    return { content: 'unsafe', isError: false };
+  };
+  const result = await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'poisoned-base',
+      tool: 'Read',
+      arguments: { file_path: '/workspace/a' },
+    },
+    new AbortController().signal,
+  );
+  expect(result.success).toBe(false);
+  expect(captured).toBe(false);
+  expect(poisoned).not.toHaveBeenCalled();
+});
+
+it('invokes the genuine retained prepared admission despite its poisoned original call property', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'before-poisoned-boundary', prompt: 'Original task' });
+  const admit = vi.fn(async function (this: unknown) {
+    expect(this).toBe(boundary);
+    throw Error('Original prepared owner refuses');
+  });
+  const poisoned = vi.fn(async () => {
+    f.c.enqueue({ id: 'counterfeit-child', prompt: 'Unauthorized continuation' });
+  });
+  Object.defineProperty(admit, 'call', { value: poisoned });
+  const boundary = { kind: 'prepared-repository-primary' as const, admit };
+  f.conversationOptions.beforeRuntimeAdmission = boundary;
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() =>
+    expect(admit.mock.calls.length + poisoned.mock.calls.length).toBeGreaterThan(0),
+  );
+  expect(admit).toHaveBeenCalledOnce();
+  expect(poisoned).not.toHaveBeenCalled();
+  expect(f.c.queue().some((c) => c.id === 'counterfeit-child')).toBe(false);
+  expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+});

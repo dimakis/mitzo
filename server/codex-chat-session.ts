@@ -1,3 +1,4 @@
+import { executeNativeLocalRepositoryPreparation } from './native-local-repository-preparation.js';
 import {
   sessionLocalRepositoryTools,
   nativeRepositoryReadRootUnion,
@@ -2519,7 +2520,7 @@ async function openCodexChatBound(
       // Refuse an unqualified helper before any owner await, approval or effect.
       if (ownedToolNames && !ownedToolNames.has(name))
         throw Error('Tool unavailable for owned local Codex chat');
-      const captureNativeContext = () => {
+      const captureNativeContext = (executionSignal: AbortSignal = signal) => {
         if (!options.ownedLocal || !options.assertAgentContextAuthorization)
           throw Error('Original native Telos host unavailable');
         const workspace = options.ordinaryWorkspace
@@ -2555,7 +2556,7 @@ async function openCodexChatBound(
           toolName: name,
           input,
           call: callContext,
-          signal,
+          signal: executionSignal,
         });
       };
       const captureSignedContext = () => {
@@ -2568,6 +2569,20 @@ async function openCodexChatBound(
           throw error;
         }
       };
+      // Latent private composition only: the unchanged ownedToolNames gate
+      // above and public definitions deliberately do not admit Prepare yet.
+      if (name === 'PrepareLocalRepository' && options.ownedLocal && nativeExecution) {
+        return executeNativeLocalRepositoryPreparation(
+          Object.freeze({
+            capture: (executionSignal: AbortSignal) => captureNativeContext(executionSignal),
+            events: options.eventStore,
+            registry: options.registry,
+            workspaces: getRepositoryWorkspaces(true),
+          }),
+          input,
+          signal,
+        );
+      }
       if (localRepositoryReadDefinitions.some((tool) => tool.name === name)) {
         const context = captureNativeContext();
         try {
