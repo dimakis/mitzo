@@ -215,6 +215,8 @@ export function createWarmPoolAdapter(
       }
       if (!observed || observed.phase !== 'Ready')
         throw Error('Warm sandbox readiness is unverified');
+      signal.throwIfAborted();
+      assertCurrent();
       return observed;
     },
     async remove(record, signal) {

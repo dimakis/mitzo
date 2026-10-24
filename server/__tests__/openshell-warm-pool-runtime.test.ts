@@ -151,6 +151,18 @@ it('policy changes invalidate the compatibility identity', () => {
   writeFileSync(f.config.policy, 'changed');
   expect(warmPoolScope(f.config)).not.toBe(before);
 });
+it('does not publish a Ready spare if its recipe changes during physical creation', async () => {
+  const f = fixture();
+  const original = f.run.getMockImplementation()!;
+  f.run.mockImplementation(async (args) => {
+    const result = await original(args);
+    if (args.includes('create')) writeFileSync(f.config.policy, 'changed during create');
+    return result;
+  });
+  await expect(f.adapter.prepare(f.record, new AbortController().signal)).rejects.toThrow(
+    /configuration changed/,
+  );
+});
 it('waits for observed Ready after detached creation rather than treating Pending as ready', async () => {
   const f = fixture(),
     original = f.run.getMockImplementation()!;

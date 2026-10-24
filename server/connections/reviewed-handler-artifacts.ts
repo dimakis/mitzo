@@ -703,7 +703,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '77f66ceaffb019038fe06479459505dbb37480b7791c596c8e869bef14c2b456',
   '../openshell-warm-pool.ts': '41865d7c3836454cae17bd55f409140989c95054f9f9250045f60efdf4b9b649',
   '../openshell-warm-pool-runtime.ts':
-    'c632f3fe01522a90b99b82a381042dc64c47cbc4d6329bd860b8e97b18ab3827',
+    'b9da1ccc2af62fb9afc57fc214039f8208af424bd7aabef583084d0929df633a',
   '../openshell-warm-pool-binding.ts':
     '498030ec01afaa475f3e869974ec1eba1465eb537e14c06221e2c217a1e11583',
   '../openshell-warm-pool-router.ts':
