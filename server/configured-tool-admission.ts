@@ -80,6 +80,16 @@ export async function admitConfiguredTools(
         };
       }),
       admitted,
+      outputScope: (name: string) => {
+        if (!names.has(name)) throw Error('Configured tool is not selected');
+        assertCurrent();
+        return peers.outputScope(name);
+      },
+      assertToolCurrent: (name: string) => {
+        if (!names.has(name)) throw Error('Configured tool is not selected');
+        assertCurrent();
+        peers.assertToolCurrent(name);
+      },
       execute: (...args: Parameters<typeof peers.execute>) => {
         if (!names.has(args[0])) throw Error('Configured tool is not selected');
         assertCurrent();
