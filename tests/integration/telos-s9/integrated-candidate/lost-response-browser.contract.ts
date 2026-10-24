@@ -1,7 +1,6 @@
 import { afterAll, afterEach, expect, it as platformTest, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { installPrivateCanonicalReadCli } from './joined-canonical-cli';
-import { openChatSetting } from '../../../support/chat-settings';
 import {
   installJoinedChatTransport,
   createJoinedFrontend,
@@ -426,7 +425,17 @@ it('CT18 actual browser: consumed first-command response loss, document reload a
   await page.goto(front.origin + '/chat?draft=s9-joined-advisor&' + advisorSearch);
   await browserExpect(page.getByRole('button', { name: 'Start chat', exact: true })).toBeEnabled();
   expect(nativeSessions).toHaveLength(0);
-  await page.getByRole('button', { name: 'Start chat', exact: true }).click();
+  await Promise.all([
+    page
+      .waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname === '/api/telos/work/roles/ordinary/setup-reviewed',
+        { timeout: 10000 },
+      )
+      .then((response) => expect(response.status()).toBe(200)),
+    page.getByRole('button', { name: 'Start chat', exact: true }).click(),
+  ]);
   await vi.waitFor(async () =>
     expect((await api.read('studio')).links.find((l) => l.role === 'advisor')).toBeTruthy(),
   );
@@ -450,13 +459,33 @@ it('CT18 actual browser: consumed first-command response loss, document reload a
       await route.abort('failed');
     } else await route.continue();
   });
+  // Preserve the manual exact-replay branch when both delivery observations
+  // lose their responses. The actual receipt owner still runs and proves no dispatch.
+  const lostReceiptReads: Array<{ status: number; body: Record<string, unknown> }> = [];
+  await page.route('**/api/ordinary/workspaces/commands/first/receipt', async (route) => {
+    if (route.request().postDataJSON().clientMsgId !== requests[0]?.clientMsgId) {
+      await route.continue();
+      return;
+    }
+    const actual = await route.fetch();
+    lostReceiptReads.push({ status: actual.status(), body: await actual.json() });
+    await route.abort('failed');
+  });
   const originalPrompt = 'Inspect only the reviewed acoustic plan; retain the exact source.';
   const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
   await composer.fill(originalPrompt);
   await browserExpect(
     page.getByRole('button', { name: 'Send message', exact: true }),
   ).toBeEnabled();
-  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await Promise.all([
+    page.waitForEvent('requestfailed', {
+      predicate: (request) =>
+        request.method() === 'POST' &&
+        new URL(request.url()).pathname === '/api/ordinary/workspaces/commands/first',
+      timeout: 10000,
+    }),
+    page.getByRole('button', { name: 'Send message', exact: true }).click(),
+  ]);
   await vi.waitFor(() => expect(committedReceipts).toHaveLength(1));
   const command = requests[0];
   expect(committedReceipts[0]).toMatchObject({
@@ -517,8 +546,23 @@ it('CT18 actual browser: consumed first-command response loss, document reload a
   expect(nativeSessions).toHaveLength(1);
   expect(turns()).toBe(1);
   await browserExpect(page.getByText(reply, { exact: true })).toBeVisible();
-  await openChatSetting(page, 'more');
-  const recover = page.getByRole('button', { name: 'Recover original Local command', exact: true });
+  await vi.waitFor(
+    () =>
+      expect(
+        lostReceiptReads.some(
+          (read) =>
+            read.status === 202 &&
+            read.body.clientMsgId === requests[0].clientMsgId &&
+            read.body.sessionId === requests[0].sessionId &&
+            read.body.state === 'consumed' &&
+            read.body.dispatched === false,
+        ),
+      ).toBe(true),
+    { timeout: 10000 },
+  );
+  const settings = page.getByRole('button', { name: /^Workspace controls/ });
+  if ((await settings.getAttribute('aria-expanded')) === 'true') await settings.click();
+  const recover = page.getByRole('button', { name: 'Retry', exact: true });
   await browserExpect(recover).toBeEnabled();
   const [recovered] = await Promise.all([
     page.waitForResponse(
@@ -538,8 +582,8 @@ it('CT18 actual browser: consumed first-command response loss, document reload a
     dispatched: false,
   });
   expect(requests).toEqual([command, command]);
-  await browserExpect(recover).toBeDisabled();
-  await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await browserExpect(recover).toHaveCount(0);
+  if ((await settings.getAttribute('aria-expanded')) === 'true') await settings.click();
   await browserExpect(composer).toHaveValue(laterDraft);
   expect(nativeSessions).toHaveLength(1);
   expect(turns()).toBe(1);

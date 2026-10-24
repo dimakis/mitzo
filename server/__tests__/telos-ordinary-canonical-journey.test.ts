@@ -13,11 +13,6 @@ import type { ConnectionRegistry } from '@mitzo/harness';
 // Required macOS CI runs it completely; Linux separately proves fail-closed refusal.
 const it = platformTest.runIf(process.platform === 'darwin');
 
-const services = vi.hoisted(() => ({ workspace: undefined as unknown }));
-vi.mock('../repository-workspace-runtime.js', async (original) => ({
-  ...(await original<object>()),
-  getOrdinaryWorkspaces: () => services.workspace,
-}));
 vi.mock('../internal-token.js', () => ({
   INTERNAL_TOKEN: 'synthetic-only-ordinary-native-token',
   isValidInternalToken: (value: unknown) => value === 'synthetic-only-ordinary-native-token',
@@ -127,7 +122,6 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     chatRoute: true,
     separateConfiguredWorkspace: true,
   });
-  services.workspace = f.workspaces;
   const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
   const canonical = createTelosCanonicalData('fresh');
   cleanup.push(() => canonical.close());
@@ -402,6 +396,16 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
   ).toEqual([{ old_status: null, new_status: 'active' }]);
   const leadId = await role('lead');
   const leadCommand = command(leadId);
+  const { getOrdinaryWorkspaces } = await import('../repository-workspace-runtime.js');
+  const actualWorkspaces = getOrdinaryWorkspaces(true);
+  cleanup.push(() => actualWorkspaces.close());
+  const leadMeta = chat.eventStore.getSession(leadId)!;
+  expect(actualWorkspaces).not.toBe(f.workspaces);
+  expect(actualWorkspaces.getOrdinaryWorkspace(leadMeta.ordinaryWorkspaceId!)).toMatchObject({
+    id: leadMeta.ordinaryWorkspaceId,
+    conversationId: leadId,
+    directory: leadMeta.cwd,
+  });
   expect(await ordinary.firstCommand(leadCommand)).toMatchObject({
     state: 'consumed',
     dispatched: true,
@@ -624,7 +628,6 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
   });
   expect(f.legacyLookup).not.toHaveBeenCalled();
   f.reopenWorkspaceOwner();
-  services.workspace = f.workspaces;
   expect(f.workspaces.getOrdinaryWorkspace(workerCommand.workspace.workspaceId).state).toBe(
     'claimed',
   );

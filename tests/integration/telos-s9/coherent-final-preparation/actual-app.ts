@@ -1,9 +1,18 @@
 import { afterEach, expect, vi } from 'vitest';
 import request from 'supertest';
 import { randomUUID, createHash } from 'node:crypto';
-import { mkdtemp, realpath, mkdir, writeFile, rm } from 'node:fs/promises';
+import {
+  mkdtemp,
+  realpath,
+  mkdir,
+  writeFile,
+  rm,
+  copyFile,
+  chmod,
+  readFile,
+} from 'node:fs/promises';
 import { tmpdir, hostname } from 'node:os';
-import { join } from 'node:path';
+import { join, isAbsolute } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { installPrivatePublicationTransport } from './private-publication-runtime.js';
@@ -240,17 +249,39 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
   const executablePath = join(root, 'codex'),
     nativePath = join(root, 'native.json'),
     targetPath = join(root, 'target.json');
-  const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
-  const sha256 = createHash('sha256').update(bytes).digest('hex');
-  await writeFile(executablePath, bytes, { mode: 0o755 });
-  await writeFile(join(root, 'codex-code-mode-host'), bytes, { mode: 0o755 });
+  const selectedArtifact = process.env.S9_CODEX_NATIVE_FIXTURE;
+  if (!selectedArtifact || !isAbsolute(selectedArtifact))
+    throw Error(
+      'Explicit absolute S9_CODEX_NATIVE_FIXTURE required for the qualified offline artifact',
+    );
+  await copyFile(selectedArtifact, executablePath);
+  await chmod(executablePath, 0o755);
+  const sha256 = createHash('sha256')
+    .update(await readFile(executablePath))
+    .digest('hex');
+  const { assertQualifiedNativeMacExecutionArtifact } =
+    await import('../../../../server/codex-native-artifact-qualification.js');
+  assertQualifiedNativeMacExecutionArtifact(sha256);
+  // The companion belongs only to the deterministic fake RPC boundary. It has
+  // its own measured identity and is never qualified or executed as native code.
+  const companion = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
+  await writeFile(join(root, 'codex-code-mode-host'), companion, { mode: 0o755 });
+  const codeModeHostSha256 = createHash('sha256').update(companion).digest('hex');
+  await record('qualified-offline-native-artifact-private-copy', {
+    selectedArtifact,
+    executablePath,
+    executableSha256: sha256,
+    codeModeHostSha256,
+    companionQualified: false,
+    providerRpc: 'deterministic fake; no model/account/provider calls',
+  });
   await writeFile(
     nativePath,
     JSON.stringify({
       version: 2,
       executablePath,
       executableSha256: sha256,
-      codeModeHostSha256: sha256,
+      codeModeHostSha256,
     }),
     { mode: 0o600 },
   );
@@ -263,7 +294,7 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
       targetId: 'ordinary-fixture-local',
       label: 'Offline local',
       hostId: hostname(),
-      runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256, sha256),
+      runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256, codeModeHostSha256),
     }),
     { mode: 0o600 },
   );

@@ -98,10 +98,20 @@ export async function createTaskReviewProcessFixture() {
   await mkdir(evidence, { recursive: true });
   const { ownedOrdinaryRuntimeFixture } =
     await import('../../../../server/__tests__/fixtures/owned-ordinary-workspace-runtime');
+  // These two cases qualify the supported dynamic host Write/task protocol,
+  // including real require_approval. Full native file-change coverage is separate.
+  const fileTaskTools = ['Read', 'Write', 'TaskStatus', 'TaskArtifact', 'TaskComplete'].map(
+    (id) => ({
+      id: `mitzo:${id}`,
+      version: 1,
+    }),
+  );
   const f = await ownedOrdinaryRuntimeFixture(cleanups, {
     chatRoute: true,
     separateConfiguredWorkspace: true,
+    tools: fileTaskTools,
   });
+  expect(f.agentProfile.definition.tools).toEqual(fileTaskTools);
   const { createTelosCanonicalData } =
     await import('../../../../server/__tests__/fixtures/telos-canonical-advisor');
   const seed = createTelosCanonicalData();

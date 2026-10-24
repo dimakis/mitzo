@@ -425,7 +425,17 @@ it('CT07/09 joined candidate: actual advisor, lead and worker pages retain sourc
   await page.goto(front.origin + '/chat?draft=s9-joined-advisor&' + advisorSearch);
   await browserExpect(page.getByRole('button', { name: 'Start chat', exact: true })).toBeEnabled();
   expect(nativeSessions).toHaveLength(0);
-  await page.getByRole('button', { name: 'Start chat', exact: true }).click();
+  await Promise.all([
+    page
+      .waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname === '/api/telos/work/roles/ordinary/setup-reviewed',
+        { timeout: 10000 },
+      )
+      .then((response) => expect(response.status()).toBe(200)),
+    page.getByRole('button', { name: 'Start chat', exact: true }).click(),
+  ]);
   await vi.waitFor(async () =>
     expect((await api.read('studio')).links.find((l) => l.role === 'advisor')).toBeTruthy(),
   );
@@ -451,6 +461,14 @@ it('CT07/09 joined candidate: actual advisor, lead and worker pages retain sourc
   expect(chat.eventStore.listSessions()).toHaveLength(before + 1);
   await vi.waitFor(() => expect(nativeSessions).toHaveLength(1));
   const advisorNative = nativeSessions[0];
+  // A simulated provider may produce this turn's output only after turn/start.
+  await vi.waitFor(
+    () =>
+      expect(
+        advisorNative.rpc.request.mock.calls.filter(([method]) => method === 'turn/start'),
+      ).toHaveLength(1),
+    { timeout: 10000 },
+  );
   const advisorReply = 'Retain this reviewed acoustic plan; execution is a separate decision.';
   advisorNative.lifecycle.onNotification('item/agentMessage/delta', {
     threadId: advisorNative.threadId,
@@ -550,7 +568,17 @@ it('CT07/09 joined candidate: actual advisor, lead and worker pages retain sourc
     page.getByRole('button', { name: 'Assign lead & open chat', exact: true }),
   ).toBeEnabled();
   expect(nativeSessions).toHaveLength(1);
-  await page.getByRole('button', { name: 'Assign lead & open chat', exact: true }).click();
+  await Promise.all([
+    page
+      .waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname === '/api/telos/work/roles/ordinary/setup-reviewed',
+        { timeout: 10000 },
+      )
+      .then((response) => expect(response.status()).toBe(200)),
+    page.getByRole('button', { name: 'Assign lead & open chat', exact: true }).click(),
+  ]);
   await vi.waitFor(async () =>
     expect(
       (await api.read('studio')).assignments.find((a) => a.role === 'lead')?.conversation

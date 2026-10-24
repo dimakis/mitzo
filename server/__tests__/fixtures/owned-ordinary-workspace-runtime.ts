@@ -1,9 +1,11 @@
 import { expect, vi } from 'vitest';
 import type { AgentToolReference } from '@mitzo/protocol';
 import { randomUUID, createHash } from 'node:crypto';
-import { mkdtemp, realpath, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, mkdir, writeFile, rm, copyFile, chmod } from 'node:fs/promises';
+import { constants, createReadStream } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
+import { assertQualifiedNativeMacExecutionArtifact } from '../../codex-native-artifact-qualification.js';
 import { EventStore } from '../../event-store.js';
 import { AgentLibraryStore } from '../../agent-library-store.js';
 import { RepositoryWorkspaces } from '../../repository-workspaces.js';
@@ -73,8 +75,21 @@ export async function ownedOrdinaryRuntimeFixture(
     nativePath = join(root, 'native.json'),
     targetPath = join(root, 'target.json');
   const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
-  const sha256 = createHash('sha256').update(bytes).digest('hex');
-  await writeFile(executablePath, bytes, { mode: 0o755 });
+  const codeModeHostSha256 = createHash('sha256').update(bytes).digest('hex');
+  const nativeFixture = process.env.S9_CODEX_NATIVE_FIXTURE;
+  let sha256 = codeModeHostSha256;
+  if (nativeFixture) {
+    if (!isAbsolute(nativeFixture)) throw Error('Select an absolute offline Codex fixture');
+    await copyFile(nativeFixture, executablePath, constants.COPYFILE_FICLONE);
+    await chmod(executablePath, 0o755);
+    const digest = createHash('sha256');
+    for await (const chunk of createReadStream(executablePath)) digest.update(chunk);
+    sha256 = digest.digest('hex');
+    assertQualifiedNativeMacExecutionArtifact(sha256);
+  } else {
+    await writeFile(executablePath, bytes, { mode: 0o755 });
+  }
+  // This unused companion is external RPC fixture data; it never supplies an execution permit.
   await writeFile(join(root, 'codex-code-mode-host'), bytes, { mode: 0o755 });
   await writeFile(
     nativePath,
@@ -82,7 +97,7 @@ export async function ownedOrdinaryRuntimeFixture(
       version: 2,
       executablePath,
       executableSha256: sha256,
-      codeModeHostSha256: sha256,
+      codeModeHostSha256,
     }),
     { mode: 0o600 },
   );
@@ -93,7 +108,7 @@ export async function ownedOrdinaryRuntimeFixture(
       targetId: 'ordinary-fixture-local',
       label: 'Offline local',
       hostId: hostname(),
-      runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256, sha256),
+      runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256, codeModeHostSha256),
     }),
     { mode: 0o600 },
   );
@@ -164,16 +179,19 @@ export async function ownedOrdinaryRuntimeFixture(
     throw Error('No repository authority or Git source is available');
   });
   const openWorkspaces = () =>
-    new RepositoryWorkspaces(join(root, 'workspace-owner'), {
-      authorize: forbidden,
-      inspect: forbidden,
-      prepare: forbidden,
-      verify: forbidden,
-      ordinaryPreparation: {
-        capture: captureOrdinaryRepositoryPreparation,
-        assert: assertOrdinaryRepositoryPreparation,
+    new RepositoryWorkspaces(
+      options.chatRoute ? join(privateRoot, 'repository-sources') : join(root, 'workspace-owner'),
+      {
+        authorize: forbidden,
+        inspect: forbidden,
+        prepare: forbidden,
+        verify: forbidden,
+        ordinaryPreparation: {
+          capture: captureOrdinaryRepositoryPreparation,
+          assert: assertOrdinaryRepositoryPreparation,
+        },
       },
-    });
+    );
   let workspaces = openWorkspaces();
   cleanups.push(() => workspaces.close());
   let legacyLookup = vi.spyOn(workspaces, 'getHostReservation');

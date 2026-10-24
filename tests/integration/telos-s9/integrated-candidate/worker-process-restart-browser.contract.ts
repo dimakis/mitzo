@@ -7,7 +7,6 @@ import { expect as browserExpect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { openChatSetting } from '../../../support/chat-settings';
 import { createWorkerRestartFixture } from './worker-process-restart-fixture';
 
 it('recovers the original delegated worker, bound execution task, attempt and admitted native command after actual App process death without replacement inference', async () => {
@@ -160,11 +159,31 @@ it('recovers the original delegated worker, bound execution task, attempt and ad
         await route.abort('failed');
       } else await route.continue();
     });
+    // Preserve the manual exact-replay branch when both delivery observations
+    // lose their responses. The actual receipt owner still runs and proves no dispatch.
+    const lostReceiptReads: Array<{ status: number; body: Record<string, unknown> }> = [];
+    await page.route('**/api/ordinary/workspaces/commands/first/receipt', async (route) => {
+      if (route.request().postDataJSON().clientMsgId !== requests[0]?.clientMsgId) {
+        await route.continue();
+        return;
+      }
+      const actual = await route.fetch();
+      lostReceiptReads.push({ status: actual.status(), body: await actual.json() });
+      await route.abort('failed');
+    });
     await page.goto(front.origin + '/chat/' + sessionId);
     const prompt =
       'Perform only the reviewed recording slice; retain uncertainty until a result exists.';
     await composer.fill(prompt);
-    await page.getByRole('button', { name: 'Send message', exact: true }).click();
+    await Promise.all([
+      page.waitForEvent('requestfailed', {
+        predicate: (request) =>
+          request.method() === 'POST' &&
+          new URL(request.url()).pathname === '/api/ordinary/workspaces/commands/first',
+        timeout: 10000,
+      }),
+      page.getByRole('button', { name: 'Send message', exact: true }).click(),
+    ]);
     await vi.waitFor(() => expect(committed).toHaveLength(1));
     const original = requests[0];
     await record('actual-worker-first-command-response', {
@@ -283,9 +302,11 @@ it('recovers the original delegated worker, bound execution task, attempt and ad
     expect((await h.effects()).filter((e) => e.kind === 'native.launch')).toHaveLength(1);
     expect((await h.effects()).filter((e) => e.kind === 'turn/start')).toHaveLength(1);
     await capture('fresh-app-real-ui-retains-uncertainty');
-    await openChatSetting(page, 'more');
+    await record('receipt-read-response-loss-if-requested', { lostReceiptReads });
+    const settings = page.getByRole('button', { name: /^Workspace controls/ });
+    if ((await settings.getAttribute('aria-expanded')) === 'true') await settings.click();
     const recover = page.getByRole('button', {
-      name: 'Recover original Local command',
+      name: 'Retry',
       exact: true,
     });
     await browserExpect(recover).toBeEnabled();
@@ -317,7 +338,7 @@ it('recovers the original delegated worker, bound execution task, attempt and ad
         state: 'consumed',
         dispatched: false,
       });
-      await browserExpect(recover).toBeDisabled();
+      await browserExpect(recover).toHaveCount(0);
     } else {
       expect(recovery).toMatchObject({
         sessionId,
@@ -330,7 +351,7 @@ it('recovers the original delegated worker, bound execution task, attempt and ad
       ).toBe(true);
     }
     await capture('exact-ui-retry-retained-owner-proof');
-    await page.getByRole('button', { name: /^Workspace controls/ }).click();
+    if ((await settings.getAttribute('aria-expanded')) === 'true') await settings.click();
     await browserExpect(composer).toHaveValue(laterDraft);
     const after = await h.snapshot(sessionId, original.clientMsgId);
     await record('read-only-native-owner-recovery-identities', { before, cold, after });

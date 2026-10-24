@@ -111,6 +111,7 @@ it('retains readable real task review and the exact attempt-associated worker ch
         .then(() => ({ kind: 'approval' as const })),
     ]);
     const approvalShown = first.kind === 'approval';
+    if (name === 'Write' && args.require_approval === true) expect(approvalShown).toBe(true);
     if (approvalShown) {
       await capture('native-permission-' + name.replace(/[^a-zA-Z0-9]/g, '-'));
       await allow.click();
@@ -243,6 +244,9 @@ it('retains readable real task review and the exact attempt-associated worker ch
     const allocated = await h.snapshot(workerId, command.clientMsgId),
       workBefore = await api.read('recording-slice'),
       peerBefore = await api.read('quiet-job');
+    expect(allocated.session.agentProfile?.definition.tools).toEqual(
+      f.agentProfile.definition.tools,
+    );
     expect(allocated.executionBindings[0]).toMatchObject({
       taskId,
       binding: {

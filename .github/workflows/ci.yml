@@ -313,6 +313,22 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
+      - name: Prepare hash-qualified offline native Codex fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          PROVENANCE=server/__tests__/fixtures/codex-native-permission-protocol-0.160.0.json
+          VERSION=$(node -p "require('./$PROVENANCE').provenance.version")
+          BINARY=$(node -p "require('./$PROVENANCE').provenance.binary")
+          EXPECTED_SHA=$(node -p "require('./$PROVENANCE').provenance.binarySha256")
+          FIXTURE_DIR="$RUNNER_TEMP/telos-s9-native"
+          mkdir -p "$FIXTURE_DIR"
+          gh release download "rust-v$VERSION" --repo openai/codex \
+            --pattern "$BINARY.tar.gz" --dir "$FIXTURE_DIR"
+          tar -xzf "$FIXTURE_DIR/$BINARY.tar.gz" -C "$FIXTURE_DIR"
+          echo "$EXPECTED_SHA  $FIXTURE_DIR/$BINARY" | shasum -a 256 -c -
+          echo "S9_CODEX_NATIVE_FIXTURE=$FIXTURE_DIR/$BINARY" >> "$GITHUB_ENV"
       - name: Prepare isolated canonical CLI and browser dependencies
         shell: bash
         run: |
@@ -424,6 +440,29 @@ jobs:
         if: ${{ !cancelled() }}
         run: cd frontend && npx tsc -b
 
+      - name: Build
+        id: build
+        if: ${{ !cancelled() }}
+        env:
+          MITZO_BUILD_EVIDENCE_DIR: ${{ runner.temp }}/mitzo-production-bundle
+        run: npm run build
+
+      - name: Retain exact production frontend
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          MITZO_BUILD_EVIDENCE_DIR: ${{ runner.temp }}/mitzo-production-bundle
+          MITZO_PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          MITZO_PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/retain-production-bundle.mjs
+
+      - name: Upload exact production frontend
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: production-frontend-${{ github.sha }}
+          path: ${{ runner.temp }}/mitzo-production-bundle
+          if-no-files-found: error
+
       - name: Test
         shell: bash
         id: test
@@ -458,29 +497,6 @@ jobs:
         id: build-mcp
         if: ${{ !cancelled() }}
         run: cd mcp-server && npm ci && npm run build
-
-      - name: Build
-        id: build
-        if: ${{ !cancelled() }}
-        env:
-          MITZO_BUILD_EVIDENCE_DIR: ${{ runner.temp }}/mitzo-production-bundle
-        run: npm run build
-
-      - name: Retain exact production frontend
-        if: ${{ steps.build.outcome == 'success' }}
-        env:
-          MITZO_BUILD_EVIDENCE_DIR: ${{ runner.temp }}/mitzo-production-bundle
-          MITZO_PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          MITZO_PR_BASE: ${{ github.event.pull_request.base.sha }}
-        run: node scripts/retain-production-bundle.mjs
-
-      - name: Upload exact production frontend
-        if: ${{ steps.build.outcome == 'success' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: production-frontend-${{ github.sha }}
-          path: ${{ runner.temp }}/mitzo-production-bundle
-          if-no-files-found: error
 
       - name: Bundle size
         id: bundle-size
