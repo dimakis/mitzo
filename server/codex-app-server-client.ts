@@ -15,6 +15,7 @@ import {
 import { JIRA_API_ENDPOINT } from './connections-gateway.js';
 import { applicationVersion } from './application-version.js';
 import { spawn, spawnSync } from 'node:child_process';
+import { observeLocalCodexSyncPhase } from './local-codex-observation.js';
 import { z } from 'zod';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import type { EventEmitter } from 'node:events';
@@ -698,7 +699,9 @@ export class CodexAppServerClient {
         : undefined;
     const env = codexEnvironment(credentialRef, base);
     const executablePath = executable?.path ?? preflightExecutable;
-    assertHostCodexRuntimeVersion(isolated ? env : base, executablePath);
+    observeLocalCodexSyncPhase('native_version_check', () =>
+      assertHostCodexRuntimeVersion(isolated ? env : base, executablePath),
+    );
     executable?.assertCurrent();
     return new CodexAppServerClient(
       spawn(

@@ -11,6 +11,7 @@ import {
 } from './connections/reviewed-handler-artifacts.js';
 import { OrdinaryLocalCodexTarget } from './ordinary-local-codex-capabilities.js';
 import { measureHostCodexExecutable } from './frozen-host-codex-executable.js';
+import { observeLocalCodexSyncPhase } from './local-codex-observation.js';
 import type { FrozenHostCodexRuntimeObservation } from './frozen-host-codex-bootstrap.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
 import {
@@ -117,9 +118,15 @@ export class OrdinaryLocalCodexHostRuntime {
       this.#target = new OrdinaryLocalCodexTarget(
         readPrivateRuntimeSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE),
       );
-      this.#measurement = measureHostCodexExecutable(this.#native.executablePath);
-      this.#codeModeHost = measureHostCodexExecutable(
-        join(dirname(this.#native.executablePath), 'codex-code-mode-host'),
+      [this.#measurement, this.#codeModeHost] = observeLocalCodexSyncPhase(
+        'native_measurement',
+        () =>
+          [
+            measureHostCodexExecutable(this.#native.executablePath),
+            measureHostCodexExecutable(
+              join(dirname(this.#native.executablePath), 'codex-code-mode-host'),
+            ),
+          ] as const,
       );
       this.assertCurrentSync();
       const selectors = [
