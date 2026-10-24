@@ -794,7 +794,10 @@ describe('runQueryLoop', () => {
         {
           type: 'user',
           message: {
-            content: [{ type: 'tool_result', tool_use_id: 'request', content: 'response' }],
+            content: [
+              { type: 'tool_result', tool_use_id: 'request', content: 'response' },
+              { type: 'tool_result', tool_use_id: 'unobserved', content: 'legacy result' },
+            ],
           },
         },
         { type: 'result', session_id: 'sess-tool' },
@@ -805,6 +808,10 @@ describe('runQueryLoop', () => {
     );
     expect(transport.sent).toContainEqual(
       v2msg('tool_result', { messageId: 'call', toolId: 'request', result: 'response' }),
+    );
+    // Preserve the existing attribution contract for calls absent from this loop.
+    expect(transport.sent).toContainEqual(
+      v2msg('tool_result', { messageId: 'thinking', toolId: 'unobserved' }),
     );
   });
 

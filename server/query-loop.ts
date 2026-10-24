@@ -1832,7 +1832,7 @@ async function _runQueryLoopInner(
 
                 emit(
                   v2('tool_result', {
-                    messageId: toolIdToMessageId.get(block.tool_use_id) ?? null,
+                    messageId: toolIdToMessageId.get(block.tool_use_id) ?? currentMessageId,
                     toolId: block.tool_use_id || '',
                     result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
                     isError: block.is_error === true,

@@ -982,7 +982,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-app-exit.ts': '6129588f968e7ae2cca592104fc0975081f112c9cfa8ef475c7b12c3a7af7d1d',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
   '../chat-rest-handler.ts': '3e511081210d3ccd59755d28eb9a4d74c91bdac8a4c21a2dd3882080f89e072e',
-  '../query-loop.ts': 'fd20ab3f3a85c7e15a38b293816da715fea314d616be25189d6195d653fa2c2a',
+  '../query-loop.ts': '4da62835b98c5d2ee8407b497f38cafae52493424274b1c96cf85bd1e6501dc8',
   '../account-profiles.ts': 'cbacdf2c442d47190066fb5ec0841454cd6dafdb3b5478d712e0bd520836bb6c',
   '../ordinary-turn-lifecycle.ts':
     'a138e83ba1a2ec8ceaef967858fb926d5de83658d21f555f32c98174afd4064b',
