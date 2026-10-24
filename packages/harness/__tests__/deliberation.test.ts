@@ -1,3 +1,4 @@
+import { createProvider } from '../src/providers/index.js';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   DeliberationOrchestrator,
@@ -77,7 +78,7 @@ describe('DeliberationOrchestrator', () => {
       onEvent: (e) => events.push(e),
     };
 
-    const orchestrator = new DeliberationOrchestrator(config);
+    const orchestrator = new DeliberationOrchestrator(config, { createProvider });
     const result = await orchestrator.run(
       'Design a caching layer',
       'We have a REST API with 1000 req/s.',
@@ -119,7 +120,7 @@ describe('DeliberationOrchestrator — edge cases', () => {
       onEvent: () => {},
     };
 
-    const orchestrator = new DeliberationOrchestrator(config);
+    const orchestrator = new DeliberationOrchestrator(config, { createProvider });
     const result = await orchestrator.run('Design a system', 'Context here');
 
     expect(result.final).toBe(result.proposal);
@@ -140,7 +141,7 @@ describe('DeliberationOrchestrator — edge cases', () => {
       onEvent: () => {},
     };
 
-    const orchestrator = new DeliberationOrchestrator(config);
+    const orchestrator = new DeliberationOrchestrator(config, { createProvider });
     const result = await orchestrator.run('Test task', 'Test context');
 
     // Verify the response was parsed (our mock returns valid JSON with position_changed: true)
@@ -156,7 +157,7 @@ describe('DeliberationOrchestrator — edge cases', () => {
       onEvent: () => {},
     };
 
-    const orchestrator = new DeliberationOrchestrator(config);
+    const orchestrator = new DeliberationOrchestrator(config, { createProvider });
 
     // First run
     const result1 = await orchestrator.run('Task 1', 'Context 1');

@@ -46,7 +46,12 @@ export interface MessageStartEvent {
     id: string;
     model: string;
     role: 'assistant';
-    usage: { input_tokens: number; output_tokens: number };
+    usage: {
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    };
   };
 }
 
@@ -83,7 +88,12 @@ export interface MessageDeltaEvent {
     stop_reason: 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | null;
     stop_sequence?: string | null;
   };
-  usage: { output_tokens: number; input_tokens?: number };
+  usage: {
+    output_tokens: number;
+    input_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
 }
 
 /** Union of all streaming events from a single turn. */

@@ -95,3 +95,21 @@ it('refuses foreign session output, failed/missing terminal, cancellation and ov
     }),
   ).rejects.toThrow('limit');
 });
+
+it('preserves real cache usage without inventing absent counts', async () => {
+  const result = await runScopedAdviser(makeScope(), async (owner) => {
+    text(owner, 'actual');
+    owner.onQueryEvent({
+      type: 'session_end',
+      sessionId: 'task',
+      usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 50, cacheCreationTokens: 20 },
+    });
+    return { close() {} };
+  });
+  expect(result.usage).toEqual({
+    inputTokens: 10,
+    outputTokens: 5,
+    cacheReadTokens: 50,
+    cacheCreationTokens: 20,
+  });
+});

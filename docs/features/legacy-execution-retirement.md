@@ -76,26 +76,64 @@ consumed existing ordinary command receipt may settle the link as consumed;
 otherwise it stays uncertain for inspection. No checkpoint is renamed, no tool
 is replayed and no source worktree is reset or deleted.
 
+## Selected paid reasoning
+
+`/deliberate` and `/fuse` retain their existing phase algorithms, durable attempt
+records, cancellation and post-call budget accounting. An account/model prefix
+no longer chooses a direct SDK or credentials. Each role requires a reviewed
+`phaseSelections` entry with its exact version-2 account/profile, native harness,
+execution target, model, thinking and output policy. Deliberation has `proposer`
+and `challenger`; fusion has `panel-0` through the selected panel size, `judge`
+and `synthesizer`. Identical models in separate roles can select separate accounts.
+
+The supported selected entry is the existing `/api/chat/send` action (or its
+existing v2 send transport) with the original slash command, stable `clientMsgId`
+and structured `phaseSelections`. Native command admission freezes these choices
+into its existing request fingerprint. Retrying a lost reply with that same ID
+observes its receipt; changing a phase requires a separately reviewed command.
+Modern ordinary command endpoints report `paid_reasoning_entry_required` with
+this entry action before accepting a new paid slash command, preserving its draft.
+An old unselected command is unavailable until its roles have explicit selections.
+
+`native-default` output policy explicitly acknowledges provider defaults. A
+required exact token ceiling is rejected before inference if the selected native
+capability cannot enforce it. The deferred Gemini capability retains its explicit
+upstream ceiling. Native sampling defaults may differ from the old direct SDK;
+role instructions, output validation and phase order remain feature owned.
+
+Each scoped phase returns genuine owner-observed token usage. USD budget values
+are configured usage-cost estimates, not claims about a subscription or API bill.
+Known qualified model rates or optional private account-profile
+`paidReasoningRates` supply USD per million tokens for the exact selected model.
+Actual cache read/creation counts remain separate from uncached input. Positive
+cached usage requires its own qualified cache rate; missing cache pricing leaves
+an explicit unknown-cost outcome requiring inspection. No input-rate guess is
+used for cache creation. Unknown pricing never means zero-cost work. Rate changes invalidate the selected
+profile revision before effects. There is no new pricing or account registry.
+Budget checks retain their existing post-call behavior and can exceed the budget
+by an in-flight phase; they do not promise a hard preflight spend limit.
+
 ## Caller and retention inventory
 
 The source inventory uses actual imports/call sites rather than the word
 “Responses” alone:
 
-| Source/caller                                                                                                    | Disposition and evidence                                                                                                                                                                                                                                                               |
-| ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `terminal-adviser-model.ts`, `terminal-plan-adviser.ts`; app wiring into TerminalAdviser and AgentLibraryAdviser | Migrated to the selected scoped native harness owner. The former direct OpenAI/Vertex constructors are removed by the adviser slice. Output/tool/context policy remains feature owned.                                                                                                 |
-| `ordinary-task-worker.ts`, `ordinary-scoped-command.ts`, `task-orchestrator.ts`, `session-spawn-handler.ts`      | Worker slice uses ordinary runtime owners and explicit inherited/reviewed selection. Selection-free spawn is unavailable rather than a billing/account fallback.                                                                                                                       |
-| `chat.ts:startChat/_startChatInner`                                                                              | Local unguarded OpenAI execution rejects before credentials or preparation. Supported OpenShell API Codex routing remains intact. Retained local private history cannot be adopted in place as a native checkpoint.                                                                    |
-| `chat.ts:start/sendOwnedLocalResponsesCommand`, cold queue continuation and `canResumeOwnedLocalResponsesDriver` | Gemini-only execution. Legacy OpenAI cold/queue continuations refuse; cancellation and historical reads remain available.                                                                                                                                                              |
-| `responses-chat-session.ts -> native-responses-runner.ts -> sdk-adapter.ts`                                      | Runtime-discriminated deferred Gemini compatibility only. No OpenAI constructor, credential fallback or custom OpenAI loop remains.                                                                                                                                                    |
-| `packages/harness/src/providers/responses-session.ts`, `anthropic-session.ts`                                    | Removed unused/custom engines and public runtime exports after consumer migration. Claude SDK integration remains.                                                                                                                                                                     |
-| `legacy-provider-checkpoint.ts`, `native-responses-store.ts`, historical admission/ack/queue readers             | Retained historical data, exact binding, private checkpoints, queue receipts and never-replay semantics. Linked lineage is stored beside retained history.                                                                                                                             |
-| `native-tool-executor.ts`, host hooks, owned Responses capability/custody helpers                                | Retained for genuine deferred Gemini tools, policies and saved data. They are not reachable as a supported OpenAI execution fallback.                                                                                                                                                  |
-| `web-search-adapters.ts:searchOpenAI`                                                                            | Removed unused direct Responses search after its only wrapper caller became Gemini-only. Codex owns supported OpenAI native search. Approved account-bound Claude SDK search and deferred Gemini grounding remain.                                                                     |
-| `account-session-name.ts`, `auto-rename.ts`                                                                      | Account-bound conversations use deterministic naming fallback; they do not send task text to an implicit naming account. Legacy unbound naming inference remains a separate metadata consumer, not an agent loop.                                                                      |
-| `account-profiles.ts`, model catalog, credential resolution and key-management helpers                           | Retained provider configuration/catalog/authentication. Names containing Responses do not make them agent execution.                                                                                                                                                                   |
-| `openai-key-gateway.ts:validateOpenAIKey`                                                                        | Retained **diagnostic inference**, not non-inference metadata: attended credential save discloses the bounded `gpt-6-luna` check and billing account. It is not a conversation/tool loop and was not run during implementation.                                                        |
-| `native-commands.ts -> deliberate-admission.ts/fusion-admission.ts -> reasoning/*`                               | Paid-reasoning consumers were audited separately; their selected phase/account/model/target and real usage/budget migration is a coordinated remaining slice until its final regression evidence is recorded. No claim of completed full retirement is made from this inventory alone. |
+| Source/caller                                                                                                    | Disposition and evidence                                                                                                                                                                                                                                                                                                          |
+| ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `terminal-adviser-model.ts`, `terminal-plan-adviser.ts`; app wiring into TerminalAdviser and AgentLibraryAdviser | Migrated to the selected scoped native harness owner. The former direct OpenAI/Vertex constructors are removed by the adviser slice. Output/tool/context policy remains feature owned.                                                                                                                                            |
+| `ordinary-task-worker.ts`, `ordinary-scoped-command.ts`, `task-orchestrator.ts`, `session-spawn-handler.ts`      | Worker slice uses ordinary runtime owners and explicit inherited/reviewed selection. Selection-free spawn is unavailable rather than a billing/account fallback.                                                                                                                                                                  |
+| `chat.ts:startChat/_startChatInner`                                                                              | Local unguarded OpenAI execution rejects before credentials or preparation. Supported OpenShell API Codex routing remains intact. Retained local private history cannot be adopted in place as a native checkpoint.                                                                                                               |
+| `chat.ts:start/sendOwnedLocalResponsesCommand`, cold queue continuation and `canResumeOwnedLocalResponsesDriver` | Gemini-only execution. Legacy OpenAI cold/queue continuations refuse; cancellation and historical reads remain available.                                                                                                                                                                                                         |
+| `responses-chat-session.ts -> native-responses-runner.ts -> sdk-adapter.ts`                                      | Runtime-discriminated deferred Gemini compatibility only. No OpenAI constructor, credential fallback or custom OpenAI loop remains.                                                                                                                                                                                               |
+| `packages/harness/src/providers/responses-session.ts`, `anthropic-session.ts`                                    | Removed unused/custom engines and public runtime exports after consumer migration. Claude SDK integration remains.                                                                                                                                                                                                                |
+| `packages/harness/src/providers/anthropic-vertex.ts`, `google-vertex.ts`, prefix-based `createProvider`          | Direct reasoning-only SDK implementations removed after explicit adapter injection. The compatibility factory refuses execution; Gemini's separately owned retained session is unaffected.                                                                                                                                        |
+| `legacy-provider-checkpoint.ts`, `native-responses-store.ts`, historical admission/ack/queue readers             | Retained historical data, exact binding, private checkpoints, queue receipts and never-replay semantics. Linked lineage is stored beside retained history.                                                                                                                                                                        |
+| `native-tool-executor.ts`, host hooks, owned Responses capability/custody helpers                                | Retained for genuine deferred Gemini tools, policies and saved data. They are not reachable as a supported OpenAI execution fallback.                                                                                                                                                                                             |
+| `web-search-adapters.ts:searchOpenAI`                                                                            | Removed unused direct Responses search after its only wrapper caller became Gemini-only. Codex owns supported OpenAI native search. Approved account-bound Claude SDK search and deferred Gemini grounding remain.                                                                                                                |
+| `account-session-name.ts`, `auto-rename.ts`                                                                      | Account-bound conversations use deterministic naming fallback; they do not send task text to an implicit naming account. Legacy unbound naming inference remains a separate metadata consumer, not an agent loop.                                                                                                                 |
+| `account-profiles.ts`, model catalog, credential resolution and key-management helpers                           | Retained provider configuration/catalog/authentication. Names containing Responses do not make them agent execution.                                                                                                                                                                                                              |
+| `openai-key-gateway.ts:validateOpenAIKey`                                                                        | Retained **diagnostic inference**, not non-inference metadata: attended credential save discloses the bounded `gpt-6-luna` check and billing account. It is not a conversation/tool loop and was not run during implementation.                                                                                                   |
+| `native-commands.ts -> deliberate-admission.ts/fusion-admission.ts -> reasoning/*`                               | Selected per-role native adapters replace direct provider factories. Missing selections, unknown rates and unsupported exact output ceilings refuse before paid attempts. Existing phase stores, uncertainty, cancellation, real usage and post-call budgets remain the owners; focused evidence is recorded with the paid slice. |
 
 ## Offline regression evidence and moved coverage
 
@@ -118,7 +156,7 @@ uncertainty and no effect replay. Shared wrapper lifecycle tests use explicit
 Gemini fixtures. Their conservative networking policy stays unavailable; Gemini
 failures keep their retained failure behavior. OpenAI image and sanitized-error
 behavior belongs to existing native Codex owner regressions; old direct-engine
-response parsing/tracing tests were retired with the removed implementations.
+response parsing/tracing tests were retired with the removed implementations. The removed direct OpenAI search error suite moved its HTTP/body/credential sanitization and failed-result assertions to the active deferred Gemini approved-search boundary, retaining grounding-receipt and citation requirements.
 
 No live model test, staging operation, deployment or production configuration
 change is part of this evidence. Local checks use one worker and a 1 GiB heap;

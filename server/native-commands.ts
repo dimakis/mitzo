@@ -1,3 +1,10 @@
+import { createHash } from 'node:crypto';
+import {
+  preparePaidReasoningHarness,
+  PaidReasoningSelectionError,
+} from './paid-reasoning-harness.js';
+import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
+import type { PaidReasoningPhaseSelection } from '@mitzo/protocol';
 import { startFusion, parseFusionInput, type FusionRequest } from './fusion-admission.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import type { SkillRegistry } from './skills.js';
@@ -27,6 +34,7 @@ export interface NativeCommandResult {
 /** Context available to async native commands. */
 export interface NativeCommandContext {
   transport?: SessionTransport;
+  paidReasoning?: { operatorConnectionId: string; phaseSelections?: PaidReasoningPhaseSelection[] };
   fusion?: { store: EventStore; request: FusionRequest; onAdmitted: () => void };
   deliberation?: { store: EventStore; request: DeliberationRequest; onAdmitted: () => void };
 }
@@ -134,6 +142,28 @@ function closeCommand(): NativeCommandResult {
   };
 }
 
+async function selectedReasoningRuntime(
+  ctx: NativeCommandContext,
+  roles: string[],
+  commandId: string,
+) {
+  if (!ctx.paidReasoning)
+    throw new PaidReasoningSelectionError(
+      'Choose explicit account, model, target and output policy selections for every reasoning role using the paid reasoning action.',
+    );
+  const authorization = captureAgentLibraryAuthorization(ctx.paidReasoning.operatorConnectionId);
+  authorization.assertCurrent();
+  return preparePaidReasoningHarness({
+    roles,
+    selections: ctx.paidReasoning.phaseSelections,
+    owner: {
+      authSessionId: authorization.auth.id,
+      operatorConnectionId: ctx.paidReasoning.operatorConnectionId,
+    },
+    phasePrefix: createHash('sha256').update(commandId).digest('hex').slice(0, 32),
+  });
+}
+
 // --- /deliberate command ---
 
 async function deliberateCommand(
@@ -147,26 +177,48 @@ async function deliberateCommand(
       command: 'deliberate',
       content:
         '**Usage:** `/deliberate <task>`\n\nRuns adversarial multi-model deliberation. ' +
-        'Opus proposes, Gemini challenges, tracked mind-changes.\n\n' +
+        'Select accounts, models and output policy for proposer and challenger; tracked mind-changes.\n\n' +
         'Example: `/deliberate Should we use Redis or Memcached for our session cache?`',
     };
   }
 
   if (!ctx.deliberation) throw new Error('Durable deliberation context is required');
   let admitted;
+  let config = structuredClone(DEFAULT_DELIBERATION_CONFIG);
   try {
+    const runtime = await selectedReasoningRuntime(
+      ctx,
+      ['proposer', 'challenger'],
+      ctx.deliberation.request.clientMsgId,
+    );
+    config = {
+      ...config,
+      proposer: {
+        ...config.proposer,
+        model: runtime.selections.find((phase) => phase.role === 'proposer')!.model,
+      },
+      challenger: {
+        ...config.challenger,
+        model: runtime.selections.find((phase) => phase.role === 'challenger')!.model,
+      },
+    };
     admitted = startDeliberation({
+      config,
+      createProvider: runtime.createProvider,
+      routeRevision: runtime.routeRevision,
       store: ctx.deliberation.store,
       request: {
         ...ctx.deliberation.request,
         task: input.task,
+        selection: { ...ctx.deliberation.request.selection, phaseSelections: runtime.selections },
         confirmAmbiguous: input.confirmAmbiguous || ctx.deliberation.request.confirmAmbiguous,
       },
       onEvent: buildEventEmitter(ctx.transport, 'deliberation'),
       onAdmitted: ctx.deliberation.onAdmitted,
     });
   } catch (error) {
-    if (error instanceof ExecutionAdmissionError) throw error;
+    if (error instanceof ExecutionAdmissionError || error instanceof PaidReasoningSelectionError)
+      throw error;
     if (error instanceof Error && error.message.startsWith('Explicit confirmation required'))
       throw error;
     // Storage/provider errors can contain private paths or credential material.
@@ -199,9 +251,9 @@ async function deliberateCommand(
       `## Deliberation Result`,
       '',
       `**Task:** ${input.task}`,
-      `**Proposer:** ${DEFAULT_DELIBERATION_CONFIG.proposer.name} (${DEFAULT_DELIBERATION_CONFIG.proposer.model})`,
-      `**Challenger:** ${DEFAULT_DELIBERATION_CONFIG.challenger.name} (${DEFAULT_DELIBERATION_CONFIG.challenger.model})`,
-      `**Rounds:** ${result.rounds.length} | **Mind changes:** ${result.mindChanges} | **Cost:** $${result.totalCost.toFixed(4)}`,
+      `**Proposer:** ${config.proposer.name} (${config.proposer.model})`,
+      `**Challenger:** ${config.challenger.name} (${config.challenger.model})`,
+      `**Rounds:** ${result.rounds.length} | **Mind changes:** ${result.mindChanges} | **Estimated usage cost:** $${result.totalCost.toFixed(4)}`,
       '',
       '### Debate',
       roundsSummary || '_No rounds completed_',
@@ -227,7 +279,8 @@ const FUSE_USAGE: NativeCommandResult = {
   content:
     '**Usage:** `/fuse <task>`\n\nRuns parallel multi-model fusion. ' +
     'Fan-out to 3 models, judge analyzes consensus/contradictions, synthesizer writes final answer.\n\n' +
-    'Options:\n- `/fuse --self <task>` — self-fusion (same model x2, cheapest)\n\n' +
+    'Select an account, model and output policy for each panel, judge and synthesizer role.\n\n' +
+    'Options:\n- `/fuse --self <task>` — self-fusion (same selected model x2)\n\n' +
     'Example: `/fuse What are the tradeoffs of event sourcing vs CRUD for our order system?`',
 };
 
@@ -241,20 +294,46 @@ async function fuseCommand(
   if (!task) return FUSE_USAGE;
   if (!ctx.fusion) throw new Error('Durable fusion context is required');
   let admitted;
+  const baseline = input.self ? SELF_FUSION_CONFIG : DEFAULT_FUSION_CONFIG;
+  let config = structuredClone(baseline);
   try {
+    const roles = [
+      ...config.panelModels.map((_panel, index) => `panel-${index}`),
+      'judge',
+      'synthesizer',
+    ];
+    const runtime = await selectedReasoningRuntime(ctx, roles, ctx.fusion.request.clientMsgId);
+    const model = (role: string) => runtime.selections.find((phase) => phase.role === role)!.model;
+    if (input.self && model('panel-0') !== model('panel-1'))
+      throw new PaidReasoningSelectionError(
+        'Self-fusion requires the same explicitly selected model in both panel roles; their selected accounts may differ.',
+      );
+    config = {
+      ...config,
+      panelModels: config.panelModels.map((panel, index) => ({
+        ...panel,
+        model: model(`panel-${index}`),
+      })),
+      judgeModel: { ...config.judgeModel, model: model('judge') },
+      synthesizerModel: { ...config.synthesizerModel, model: model('synthesizer') },
+    };
     admitted = startFusion({
+      createProvider: runtime.createProvider,
+      routeRevision: runtime.routeRevision,
       store: ctx.fusion.store,
       request: {
         ...ctx.fusion.request,
         task,
+        selection: { ...ctx.fusion.request.selection, phaseSelections: runtime.selections },
         confirmAmbiguous: input.confirmAmbiguous || ctx.fusion.request.confirmAmbiguous,
       },
-      config: input.self ? SELF_FUSION_CONFIG : DEFAULT_FUSION_CONFIG,
+      config,
       onEvent: buildEventEmitter(ctx.transport, 'fusion'),
       onAdmitted: ctx.fusion.onAdmitted,
     });
   } catch (error) {
-    if (error instanceof ExecutionAdmissionError) throw error;
+    if (error instanceof ExecutionAdmissionError || error instanceof PaidReasoningSelectionError)
+      throw error;
     if (error instanceof Error && error.message.startsWith('Explicit confirmation required'))
       throw error;
     // eslint-disable-next-line preserve-caught-error
@@ -301,7 +380,7 @@ async function fuseCommand(
       '',
       `**Task:** ${task}`,
       `**Panel:** ${result.panelResponses.map((r) => r.model).join(', ')}`,
-      `**Cost:** $${result.totalCost.toFixed(4)}`,
+      `**Estimated usage cost:** $${result.totalCost.toFixed(4)}`,
       '',
       '### Judge Analysis',
       analysisSummary || '_No analysis available_',

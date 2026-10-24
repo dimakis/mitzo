@@ -499,6 +499,19 @@ function createOwnedCodexEntryRouter(
           error: general ? 'Invalid conversation command' : 'Invalid local first command',
         });
       let input = structuredClone(parsed.data);
+      if (
+        /^\s*\/(?:deliberate|fuse)(?:\s|$)/.test(input.payload.text) &&
+        !ctx.eventStore.getSendCommand(input.clientMsgId)
+      )
+        return res.status(409).json({
+          ok: false,
+          code: 'paid_reasoning_entry_required',
+          error:
+            'Choose the account, model, target and output policy for every reasoning role, then use the paid reasoning action. Your ordinary draft has not been dispatched.',
+          action: { endpoint: '/api/chat/send', selection: 'phaseSelections', preserveDraft: true },
+          clientMsgId: input.clientMsgId,
+        });
+
       const automaticLocalRepository =
         !ordinary &&
         !continuation &&

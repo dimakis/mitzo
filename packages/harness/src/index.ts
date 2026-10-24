@@ -110,6 +110,7 @@ export { createLogger } from './logger.js';
 export { createProvider, createProviders } from './providers/index.js';
 export type {
   ModelProvider,
+  CostRate,
   ProviderMessage,
   ProviderResponse,
   CallOptions,

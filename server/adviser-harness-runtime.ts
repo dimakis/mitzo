@@ -21,7 +21,15 @@ export async function runScopedAdviser(scope: AdviserTaskScope, dispatch: TaskDi
     settled = false;
   let messageId: string | undefined;
   const blocks = new Set<string>();
-  let usage: { inputTokens: number; outputTokens: number; totalCostUsd?: number } | undefined;
+  let usage:
+    | {
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens?: number;
+        cacheCreationTokens?: number;
+        totalCostUsd?: number;
+      }
+    | undefined;
   let resolve!: () => void, reject!: (error: unknown) => void;
   const terminal = new Promise<void>((yes, no) => {
     resolve = yes;
@@ -70,11 +78,19 @@ export async function runScopedAdviser(scope: AdviserTaskScope, dispatch: TaskDi
           }
           if (event.type === 'session_end' && !settled) {
             const measured = event.usage as Record<string, unknown> | undefined;
+            for (const key of ['cacheReadTokens', 'cacheCreationTokens'])
+              if (
+                measured?.[key] !== undefined &&
+                (typeof measured[key] !== 'number' ||
+                  !Number.isSafeInteger(measured[key]) ||
+                  (measured[key] as number) < 0)
+              )
+                throw Error('Adviser cache usage is invalid');
             if (
               measured &&
               typeof measured.inputTokens === 'number' &&
               Number.isSafeInteger(measured.inputTokens) &&
-              measured.inputTokens > 0 &&
+              measured.inputTokens >= 0 &&
               typeof measured.outputTokens === 'number' &&
               Number.isSafeInteger(measured.outputTokens) &&
               measured.outputTokens > 0
@@ -82,6 +98,16 @@ export async function runScopedAdviser(scope: AdviserTaskScope, dispatch: TaskDi
               usage = {
                 inputTokens: measured.inputTokens,
                 outputTokens: measured.outputTokens,
+                ...(typeof measured.cacheReadTokens === 'number' &&
+                Number.isSafeInteger(measured.cacheReadTokens) &&
+                measured.cacheReadTokens >= 0
+                  ? { cacheReadTokens: measured.cacheReadTokens }
+                  : {}),
+                ...(typeof measured.cacheCreationTokens === 'number' &&
+                Number.isSafeInteger(measured.cacheCreationTokens) &&
+                measured.cacheCreationTokens >= 0
+                  ? { cacheCreationTokens: measured.cacheCreationTokens }
+                  : {}),
                 ...(typeof measured.totalCostUsd === 'number' &&
                 Number.isFinite(measured.totalCostUsd) &&
                 measured.totalCostUsd >= 0
@@ -369,6 +395,12 @@ export async function createNativeAdviserSession(
             usage: {
               input_tokens: result.usage.inputTokens,
               output_tokens: result.usage.outputTokens,
+              ...(result.usage.cacheReadTokens !== undefined
+                ? { cache_read_input_tokens: result.usage.cacheReadTokens }
+                : {}),
+              ...(result.usage.cacheCreationTokens !== undefined
+                ? { cache_creation_input_tokens: result.usage.cacheCreationTokens }
+                : {}),
             },
           },
         };
@@ -384,6 +416,12 @@ export async function createNativeAdviserSession(
           usage: {
             input_tokens: result.usage.inputTokens,
             output_tokens: result.usage.outputTokens,
+            ...(result.usage.cacheReadTokens !== undefined
+              ? { cache_read_input_tokens: result.usage.cacheReadTokens }
+              : {}),
+            ...(result.usage.cacheCreationTokens !== undefined
+              ? { cache_creation_input_tokens: result.usage.cacheCreationTokens }
+              : {}),
           },
         };
     },

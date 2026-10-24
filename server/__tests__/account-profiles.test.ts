@@ -92,6 +92,38 @@ describe('explicit account binding', () => {
     expect(JSON.stringify(catalog)).not.toContain('/server/credentials');
     expect(JSON.stringify(catalog)).not.toContain('work-project');
   });
+  it('binds private operator-qualified paid reasoning rates to exact model and profile revision', () => {
+    const paidReasoningRates = { 'claude-sonnet-4-6': { inputPerMillion: 2, outputPerMillion: 8 } };
+    const configured = new AccountProfiles([{ ...profile, paidReasoningRates }]);
+    const binding = configured.resolve('work', 'claude-sonnet-4-6');
+    expect(configured.paidReasoningRate(binding)).toEqual(paidReasoningRates['claude-sonnet-4-6']);
+    expect(JSON.stringify(configured.catalog())).not.toContain('paidReasoningRates');
+    expect(binding.profileRevision).not.toBe(
+      new AccountProfiles([profile]).resolve('work', 'claude-sonnet-4-6').profileRevision,
+    );
+    const changed = new AccountProfiles([
+      {
+        ...profile,
+        paidReasoningRates: { 'claude-sonnet-4-6': { inputPerMillion: 2, outputPerMillion: 9 } },
+      },
+    ]);
+    expect(() => changed.paidReasoningRate(binding)).toThrow(/changed/i);
+    expect(
+      new AccountProfiles([profile]).paidReasoningRate(
+        new AccountProfiles([profile]).resolve('work', 'claude-sonnet-4-6'),
+      ),
+    ).toBeUndefined();
+    for (const rate of [
+      { inputPerMillion: -1, outputPerMillion: 2 },
+      { inputPerMillion: 0, outputPerMillion: 0 },
+      { inputPerMillion: Infinity, outputPerMillion: 2 },
+      { inputPerMillion: 2, outputPerMillion: 8, credential: 'secret' },
+    ])
+      expect(
+        () =>
+          new AccountProfiles([{ ...profile, paidReasoningRates: { 'claude-sonnet-4-6': rate } }]),
+      ).toThrow();
+  });
   it('validates account and model without fallback', () => {
     const profiles = new AccountProfiles([profile]);
     expect(() => profiles.resolve('personal', 'claude-sonnet-4-6')).toThrow(/account/i);

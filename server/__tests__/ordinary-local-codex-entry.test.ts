@@ -1513,3 +1513,18 @@ it('observes an unknown default OpenShell receipt without preparing or allocatin
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it('redirects paid reasoning slash intent to the selected product action before workspace or provider effects', async () => {
+  const request = input();
+  request.payload.text = '/deliberate Explain the tradeoffs';
+  const result = await send(request);
+  expect(result).toMatchObject({
+    status: 409,
+    body: {
+      code: 'paid_reasoning_entry_required',
+      action: { endpoint: '/api/chat/send', selection: 'phaseSelections', preserveDraft: true },
+    },
+  });
+  expect(fixtures.start).not.toHaveBeenCalled();
+  expect(fixtures.reserve).not.toHaveBeenCalled();
+});

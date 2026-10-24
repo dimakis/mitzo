@@ -1,3 +1,4 @@
+import { createProvider } from '../src/providers/index.js';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   FusionOrchestrator,
@@ -71,7 +72,7 @@ describe('FusionOrchestrator', () => {
       onEvent: (e) => events.push(e),
     };
 
-    const orchestrator = new FusionOrchestrator(config);
+    const orchestrator = new FusionOrchestrator(config, { createProvider });
     const result = await orchestrator.run(
       'Best caching strategy for our API',
       'REST API with 1000 req/s, 50ms p99 target.',
@@ -117,7 +118,7 @@ describe('FusionOrchestrator — edge cases', () => {
       onEvent: () => {},
     };
 
-    const orchestrator = new FusionOrchestrator(config);
+    const orchestrator = new FusionOrchestrator(config, { createProvider });
     const result = await orchestrator.run('Test task', 'Test context');
 
     // Should return the longest panel response as fallback
@@ -135,7 +136,7 @@ describe('FusionOrchestrator — edge cases', () => {
       onEvent: () => {},
     };
 
-    const orchestrator = new FusionOrchestrator(config);
+    const orchestrator = new FusionOrchestrator(config, { createProvider });
     const result = await orchestrator.run('Test task', 'Test context');
 
     // Judge analysis should have the expected shape (parsed or empty fallback)
@@ -153,7 +154,7 @@ describe('FusionOrchestrator — edge cases', () => {
       onEvent: () => {},
     };
 
-    const orchestrator = new FusionOrchestrator(config);
+    const orchestrator = new FusionOrchestrator(config, { createProvider });
 
     // First run
     const result1 = await orchestrator.run('Task 1', 'Context 1');
