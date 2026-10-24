@@ -1,6 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { lstat, readFile } from 'node:fs/promises';
+import { captureLocalRepositoryAllocationFacts } from '../../local-repository-allocation-facts.js';
 import { AccountBindingSchema } from '@mitzo/protocol';
 import type { ownedRuntimeFixture } from './owned-local-codex-runtime.js';
 import {
@@ -38,6 +41,7 @@ export async function materializePreparedRepositoryFixture(
   first: import('../../ordinary-local-codex-owned-runtime.js').OrdinaryLocalCodexOwnedDispatch,
   source: import('../../codex-conversation-store.js').CodexNativeTurnTarget,
   original?: import('../../native-host-tool-context.js').NativeHostToolContext,
+  options: { physicalReadSeed?: boolean } = {},
 ) {
   const binding = AccountBindingSchema.parse(first.lease.binding);
   const privateCloses: Array<() => void> = [];
@@ -48,6 +52,19 @@ export async function materializePreparedRepositoryFixture(
     taskRoot = f.reservation.taskRoot,
     directory = join(taskRoot, `repo-${record.id}`),
     featureBranch = `mitzo/repo-${record.id}`;
+  // Explicit host TEST reader for controlled seed DATA only. The later
+  // completed-turn probe uses its genuine fresh native authority/transport.
+  const physical = options.physicalReadSeed
+    ? await captureLocalRepositoryAllocationFacts(
+        {
+          deniedRoots: [],
+          deadline: Date.now() + 30000,
+          captureReadAnchor: fixtureReadAnchor,
+          assertReadable: async () => {},
+        },
+        { workspaceId: record.id, sourcePath, taskRoot },
+      )
+    : undefined;
   git(sourcePath, 'worktree', 'add', '-qb', featureBranch, directory);
   const sourceIdentity = {
     selection: 'existing' as const,
@@ -153,6 +170,10 @@ export async function materializePreparedRepositoryFixture(
     taskRoot: await fixtureReadAnchor(taskRoot),
   };
   qualified.allocationFactsSha256 = pendingHostTaskDecisionHash(qualified.allocationFacts);
+  if (physical) {
+    qualified.allocationFacts = physical.facts;
+    qualified.allocationFactsSha256 = physical.factsSha256;
+  }
   record.sourceDigest = record.pendingHostTask!.sourceDigest = qualified.allocationFactsSha256;
   const decision = record.pendingHostTaskDecision!;
   decision.scope = PendingHostTaskDecisionScopeSchema.parse({
@@ -165,6 +186,40 @@ export async function materializePreparedRepositoryFixture(
   decision.evidence.input = pendingHostTaskDecisionPayload(request, decision.scope);
   decision.evidence.inputSha256 = pendingHostTaskDecisionHash(decision.evidence.input);
   record.qualifiedLocalPreparation!.publication = { version: 1, directories: [], files: [] };
+  if (physical) {
+    const admin = taskIdentity.linkedGit!.directory;
+    const identity = async (path: string) => {
+      const info = await lstat(path, { bigint: true });
+      return { dev: String(info.dev), ino: String(info.ino) };
+    };
+    const paths = [
+      join(admin, 'HEAD'),
+      join(admin, 'commondir'),
+      join(admin, 'gitdir'),
+      join(admin, 'index'),
+      join(sourcePath, '.git', 'refs', 'heads', featureBranch),
+      join(directory, '.git'),
+    ];
+    qualified.publication = {
+      version: 1,
+      directories: await Promise.all(
+        [...physical.facts.directories.map((step) => step.directory), admin].map(
+          async (directory) => ({ directory, identity: await identity(directory) }),
+        ),
+      ),
+      files: await Promise.all(
+        paths.map(async (file_path) => {
+          const bytes = await readFile(file_path);
+          return {
+            file_path,
+            identity: await identity(file_path),
+            byteLength: bytes.length,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+          };
+        }),
+      ),
+    };
+  }
   const db = new Database(join(f.root, 'repositories', 'workspaces.db'));
   cleanups.push(() => {
     db.close();

@@ -767,7 +767,7 @@ actual(
               () => {
                 if (!boundarySettled) throw Error('Waiting for original completed boundary');
               },
-              { timeout: 60000 },
+              { timeout: 120000 },
             ); // harness wait only; original authority deadlines remain unchanged
             if (boundaryError) throw boundaryError;
             await vi.waitFor(
@@ -889,9 +889,10 @@ actual(
     expect(f.permissions).toHaveLength(1);
   },
   // Test-harness budget for consecutive stages only: unchanged preparation
-  // envelope (300s), fresh boundary wait (60s), child RPC wait (10s), and setup/
-  // evidence cleanup. No approval/read/helper/native authority is extended.
-  420000,
+  // envelope (300s), THREE independently30s fresh phases plus joined owner/
+  // cleanup work (120s boundary wait), child RPC (10s), setup/evidence (50s).
+  // No approval/read/helper/native authority is extended.
+  480000,
 );
 
 it('refuses a fabricated operation in the actual signed callback before allocation or source effects', async () => {

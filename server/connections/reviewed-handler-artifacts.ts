@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.628-native-preparation-registration-integration';
+  'v1.0.629-prepared-physical-boundary-controlled-seed';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/prepared-repository-physical-boundary.test.ts':
+    'ce296c29e289397b8d52c0c1a876c76a6aa85a0f185de8790ba496dce6c6b749',
   '../local-repository-preparation-tool.ts':
     'f4f4db06528f0e287397bd45c51952685321e7e4f7e48a1b83062b4f68b5531e',
   '../__tests__/local-repository-preparation-registration.test.ts':
@@ -38,7 +40,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-local-repository-preparation-custody.test.ts':
     '3d74ce849ee41be9569744ac0abbbe7153c6628c6bcd7486b598e1db618da332',
   '../__tests__/fixtures/materialized-prepared-repository.ts':
-    '7697b26d28caee5aee91614d341bb14159ccec9db64c9b99b784200cd07b2f0d',
+    '4db550b99366022ab922172459a1dad125df059bc1dafc7cf916d1d7fb190deb',
   '../__tests__/fixtures/preparation-attempt-diagnostics.ts':
     '7b91914ab31a83d027f3e6f81dcd7695a49cbc15987d5da42a445f2b41f7a257',
   '../__tests__/fixtures/preparation-service-diagnostics.ts':
@@ -110,7 +112,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/private-repository-checkout.test.ts':
     'a4858f3f9c76fa52246e2098fb51ed1532ad5d9419097f7f5a373a76c8f57718',
   '../__tests__/qualified-local-repository-materializer.test.ts':
-    '466a057ec63f84845e632fa098a174af893e384533c51d70bd5ca3674c057f10',
+    'ce51867c30e5dc4bac1eb88d85822e8be25e172ccec35d8cbc60669ad54c5811',
   '../__tests__/qualified-local-repository-operation-owner.test.ts':
     'bb57e28f57cebdb183fcdb0253d86f45eff7a3ab6374e96a13b988c23359de2e',
   '../__tests__/qualified-local-repository-task.test.ts':
