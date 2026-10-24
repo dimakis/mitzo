@@ -10,7 +10,11 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import type { AccountBinding, AgentLibraryVersion, AgentContextSnapshot } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
-import type { CodexConversationStore } from './codex-conversation-store.js';
+import type {
+  CodexConversationStore,
+  CodexCommand,
+  PreparedRepositoryPrimarySourceFence,
+} from './codex-conversation-store.js';
 import { HostCodexCustodySchema, type HostCodexCustody } from './host-codex-custody.js';
 import type { FrozenHostCodexBootstrapLease } from './frozen-host-codex-bootstrap.js';
 import type { OwnedCodexLifecycleBridge } from './owned-codex-lifecycle-bridge.js';
@@ -18,6 +22,11 @@ import type { OrdinaryLocalCodexAdmissionExpectation } from './ordinary-local-co
 import type { CodexAccountProfile } from './codex-account.js';
 import type { CodexCommandInput } from './codex-conversation-store.js';
 import type { CodexLifecycleTransport } from './codex-app-server-client.js';
+import type { PreparedRepositoryTransition } from '@mitzo/protocol';
+import type { PreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
+import type { CodexNativeTurnTarget } from './codex-conversation-store.js';
+import type { PreparedRepositoryNativePolicyOwner } from './prepared-repository-workspace-owner.js';
+import type { PreparedRepositoryTransitionFacts } from './prepared-repository-transition.js';
 const unavailable = () => new Error('Owned local Codex chat unavailable');
 const Images = z
   .array(z.strictObject({ data: z.string().min(1), mediaType: z.string().min(1).max(128) }))
@@ -48,6 +57,10 @@ export interface OwnedLocalCodexChatOptions {
   resume?: boolean;
   reattachOnly?: boolean;
 }
+export interface CapturedPreparedRepositoryPrimarySource extends PreparedRepositoryPrimarySourceFence {
+  bindOutgoing(childCommandId: string): void;
+  dispose(): void;
+}
 interface Owner {
   workspaceKind?: 'repository' | 'ordinary';
   eventStore: EventStore;
@@ -58,7 +71,23 @@ interface Owner {
   bridge: OwnedCodexLifecycleBridge;
   authSessionId?: string;
   custody?: HostCodexCustody;
+  /** Current actual private cold workspace owner; never reconstructed live delegation. */
+  qualifiedColdPrimary?: Readonly<{ commandId: string; assertCurrentSync(): void }>;
   nativeStore?: CodexConversationStore;
+  preparedRepositoryBoundary?: {
+    assertCurrentSync(): void;
+    adopt(
+      scope: PreparedRepositoryBarrierReadScope,
+      source: Readonly<CodexNativeTurnTarget>,
+      assertConversationCurrentSync: () => void,
+      policyOwner: PreparedRepositoryNativePolicyOwner,
+    ): Promise<
+      | (PreparedRepositoryTransitionFacts['newWorkspace'] & {
+          repositoryWorkspace: import('./repository-workspaces.js').RepositoryWorkspace;
+        })
+      | undefined
+    >;
+  };
 }
 /** A server-internal first-command capability built from the existing durable
  * uncertain receipt and actual bootstrap lease. Request JSON cannot forge a class
@@ -67,6 +96,8 @@ interface Owner {
  * payloads refuse.
  */
 export class OwnedLocalCodexChatAdmission {
+  #primary?: OwnedLocalCodexChatAdmission;
+  #adoptedPrimary = false;
   readonly #continuations = new Map<string, OwnedLocalCodexChatAdmission>();
   #continuation = false;
   #resume = false;
@@ -211,11 +242,12 @@ export class OwnedLocalCodexChatAdmission {
     commandId: string,
     expectedInput: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
   ): void {
+    if (this.#primary) return this.#primary.admitContinuation(commandId, expectedInput);
     try {
       this.assertCurrentSync();
       if (
         !this.#opened ||
-        (this.#continuation && !this.#resume) ||
+        (this.#continuation && !this.#resume && !this.#adoptedPrimary) ||
         this.#continuations.has(commandId) ||
         commandId === this.owner.commandId ||
         this.owner.eventStore.getOrdinaryLocalCommandAdmission(this.owner.commandId)?.state !==
@@ -245,6 +277,297 @@ export class OwnedLocalCodexChatAdmission {
     } catch {
       throw unavailable();
     }
+  }
+  /** Capture the exact old owner before the cross-store effect. The returned
+   * synchronous handoff is usable only after the guarded repository CAS and
+   * exact EventStore commit; it never authorizes either effect itself. Original
+   * expected/payload remain intact; the live owner delegates to its new primary. */
+  /** Capture only this live adopted primary, before repository lookup awaits.
+   * The stack-scoped fence follows one exact UNCERTAIN outgoing handoff and
+   * expires in the barrier's finally; it is neither a grant nor cold recovery. */
+  capturePreparedRepositoryPrimarySource(
+    target: Readonly<CodexNativeTurnTarget>,
+    assertConversationCurrentSync: () => void,
+  ): CapturedPreparedRepositoryPrimarySource | undefined {
+    if (this.#primary)
+      return this.#primary.capturePreparedRepositoryPrimarySource(
+        target,
+        assertConversationCurrentSync,
+      );
+    if (!this.#adoptedPrimary || target.commandId !== this.owner.commandId) return undefined;
+    const owner = this.owner,
+      expected = this.#expected,
+      session = this.#session,
+      lease = owner.lease,
+      assertLease = lease.assertCurrentSync,
+      events = owner.eventStore,
+      sessionId = owner.sessionId,
+      ownerExpected = owner.expected,
+      nativeStore = owner.nativeStore,
+      bridge = owner.bridge;
+    const receipt = events.getOrdinaryLocalCommandAdmission(owner.commandId);
+    if (!session || receipt?.state !== 'consumed' || !receipt.preparedRepositoryTransition)
+      throw unavailable();
+    const sourceTarget = structuredClone(target),
+      commandId = owner.commandId;
+    if (
+      !nativeStore ||
+      !isDeepStrictEqual(
+        nativeStore.completedNativeTurnTarget(sessionId, this.#binding),
+        sourceTarget,
+      )
+    )
+      throw unavailable();
+    let live = true,
+      outgoing: { id: string; receipt: NonNullable<typeof receipt> } | undefined;
+    const sync = (value: unknown) => {
+      if (value === undefined) return;
+      void Promise.resolve(value).catch(() => {});
+      throw unavailable();
+    };
+    const validateContext = () => {
+      if (
+        !live ||
+        this.#closed ||
+        this.owner !== owner ||
+        this.#expected !== expected ||
+        this.#session !== session ||
+        owner.commandId !== commandId ||
+        owner.sessionId !== sessionId ||
+        owner.expected !== ownerExpected ||
+        owner.nativeStore !== nativeStore ||
+        owner.bridge !== bridge ||
+        owner.lease !== lease ||
+        owner.eventStore !== events ||
+        lease.assertCurrentSync !== assertLease ||
+        session.mode !== expected.selection.permission.mode ||
+        !isDeepStrictEqual(
+          nativeStore.completedNativeTurnTarget(sessionId, this.#binding),
+          sourceTarget,
+        )
+      )
+        throw unavailable();
+      const meta = events.getSession(sessionId),
+        send = events.getSendCommand(commandId);
+      if (
+        !this.#opened ||
+        !send ||
+        send.error ||
+        send.sessionId !== sessionId ||
+        !isDeepStrictEqual(Payload.parse(send.payload), this.#payload) ||
+        !isDeepStrictEqual(meta?.accountBinding, this.#binding) ||
+        meta?.mode !== expected.selection.permission.mode ||
+        !isDeepStrictEqual(meta.agentProfile ?? undefined, expected.agentProfile) ||
+        !isDeepStrictEqual(meta.agentContext ?? undefined, expected.agentContext)
+      )
+        throw unavailable();
+      return meta;
+    };
+    const assert = (command?: Readonly<CodexCommand>) => {
+      validateContext();
+      sync(assertConversationCurrentSync());
+      validateContext();
+      sync(assertLease.call(lease));
+      validateContext();
+      sync(assertConversationCurrentSync());
+      const meta = validateContext();
+      if (
+        nativeStore
+          .commands(sessionId, this.#binding)
+          .some(
+            (command) =>
+              command.status === 'running' ||
+              (command.status === 'queued' && command.id !== outgoing?.id),
+          )
+      )
+        throw unavailable();
+      if (
+        command &&
+        (command.id !== commandId ||
+          command.status !== 'completed' ||
+          command.allowedTools ||
+          command.prompt !== this.#payload.text ||
+          command.intent !== this.#payload.intent ||
+          !isDeepStrictEqual(command.environmentContinuation, {
+            sourceCommandId: receipt.preparedRepositoryTransition!.source.commandId,
+            sourceTurnId: receipt.preparedRepositoryTransition!.source.turnId,
+            sourceThreadId: receipt.preparedRepositoryTransition!.source.threadId,
+            sourceGeneration: receipt.preparedRepositoryTransition!.source.generation,
+          }))
+      )
+        throw unavailable();
+      if (!outgoing) {
+        if (
+          this.#primary ||
+          session.cwd !== expected.workspace.cwd ||
+          !isDeepStrictEqual(events.getOrdinaryLocalCommandAdmission(commandId), receipt)
+        )
+          throw unavailable();
+      } else {
+        const child = events.observePreparedRepositoryContinuation(outgoing.id);
+        if (
+          child.state !== 'uncertain' ||
+          !isDeepStrictEqual(child, outgoing.receipt) ||
+          (this.#primary &&
+            (this.#primary.owner.commandId !== outgoing.id ||
+              this.#primary.owner.lease !== lease ||
+              this.#primary.#session !== session))
+        )
+          throw unavailable();
+        const next = child.preparedRepositoryTransition!.newWorkspace;
+        if (
+          typeof session.cwd !== 'string' ||
+          ![expected.workspace.cwd, next.directory].includes(session.cwd)
+        )
+          throw unavailable();
+        const oldMeta =
+          meta?.cwd === expected.workspace.cwd &&
+          meta.repositoryWorkspaceId === expected.workspace.workspaceId;
+        const newMeta =
+          meta?.cwd === next.directory &&
+          meta.repositoryWorkspaceId === next.id &&
+          meta.ordinaryWorkspaceId == null;
+        if (!oldMeta && !newMeta) throw unavailable();
+        const retained = oldMeta
+          ? events.getOrdinaryLocalCommandAdmission(commandId)
+          : events.getPreparedRepositorySourceAdmission(outgoing.id);
+        if (!isDeepStrictEqual(retained, receipt)) throw unavailable();
+      }
+    };
+    assert();
+    return Object.freeze({
+      commandId,
+      assertCurrentSync: assert,
+      bindOutgoing: (id: string) => {
+        assert();
+        if (outgoing) throw unavailable();
+        const child = events.observePreparedRepositoryContinuation(id),
+          transition = child.preparedRepositoryTransition;
+        if (
+          child.state !== 'uncertain' ||
+          !transition ||
+          transition.priorPrimaryCommandId !== commandId ||
+          transition.source.commandId !== commandId ||
+          !isDeepStrictEqual(
+            {
+              commandId: transition.source.commandId,
+              attempt: transition.source.attempt,
+              threadId: transition.source.threadId,
+              turnId: transition.source.turnId,
+              generation: transition.source.generation,
+            },
+            sourceTarget,
+          ) ||
+          transition.oldWorkspace.id !== expected.workspace.workspaceId ||
+          transition.oldWorkspace.directory !== expected.workspace.cwd
+        )
+          throw unavailable();
+        outgoing = { id, receipt: child };
+        assert();
+      },
+      dispose: () => {
+        live = false;
+      },
+    });
+  }
+  currentPreparedRepositoryPrimaryCommandId(): string | undefined {
+    if (this.#primary) return this.#primary.currentPreparedRepositoryPrimaryCommandId();
+    this.assertCurrentSync();
+    if (!this.#adoptedPrimary) {
+      const cold = this.owner.qualifiedColdPrimary;
+      if (!this.#resume || !cold) return undefined;
+      const result: unknown = cold.assertCurrentSync();
+      if (result !== undefined) {
+        void Promise.resolve(result).catch(() => {});
+        throw unavailable();
+      }
+      const receipt = this.owner.eventStore.getOrdinaryLocalCommandAdmission(this.owner.commandId);
+      if (
+        receipt?.state !== 'consumed' ||
+        receipt.preparedRepositoryPrimaryCommandId !== cold.commandId
+      )
+        throw unavailable();
+      return cold.commandId;
+    }
+    const receipt = this.owner.eventStore.getOrdinaryLocalCommandAdmission(this.owner.commandId);
+    if (receipt?.state !== 'consumed' || !receipt.preparedRepositoryTransition) throw unavailable();
+    return this.owner.commandId;
+  }
+  preparePreparedRepositoryPrimary(
+    commandId: string,
+    expectedInput: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+    transition: PreparedRepositoryTransition,
+  ): () => void {
+    if (this.#primary)
+      return this.#primary.preparePreparedRepositoryPrimary(commandId, expectedInput, transition);
+    this.assertCurrentSync();
+    if (!this.#opened || !this.#session) throw unavailable();
+    const expected = structuredClone(expectedInput);
+    const original = this.#expected;
+    const session = this.#session;
+    const receipt = this.owner.eventStore.observePreparedRepositoryContinuation(commandId);
+    const frozenTransition = structuredClone(transition);
+    if (
+      transition.priorPrimaryCommandId !== this.currentPreparedRepositoryPrimaryCommandId() ||
+      receipt.state !== 'uncertain' ||
+      !isDeepStrictEqual(receipt.preparedRepositoryTransition, frozenTransition) ||
+      !isDeepStrictEqual(receipt.binding, original.binding) ||
+      !isDeepStrictEqual(receipt.workspace, expected.workspace) ||
+      !isDeepStrictEqual(receipt.selection, expected.selection) ||
+      transition.oldWorkspace.id !== original.workspace.workspaceId ||
+      transition.oldWorkspace.directory !== original.workspace.cwd ||
+      transition.oldWorkspace.kind !== (this.owner.workspaceKind ?? 'repository') ||
+      !isDeepStrictEqual(expected.binding, original.binding) ||
+      !isDeepStrictEqual(expected.agentProfile, original.agentProfile) ||
+      !isDeepStrictEqual(expected.agentContext, original.agentContext) ||
+      !isDeepStrictEqual(expected.selection.agent, original.selection.agent) ||
+      !isDeepStrictEqual(expected.selection.context, original.selection.context) ||
+      !isDeepStrictEqual(expected.selection.permission, original.selection.permission) ||
+      expected.hostId !== original.hostId ||
+      expected.runtimeContractRevision !== original.runtimeContractRevision
+    )
+      throw unavailable();
+    const child = new OwnedLocalCodexChatAdmission({
+      ...this.owner,
+      commandId,
+      expected,
+      workspaceKind: 'repository',
+    });
+    if (child.#payload.systemPrompt !== this.#payload.systemPrompt) throw unavailable();
+    child.#continuation = true;
+    child.#adoptedPrimary = true;
+    child.#opened = true;
+    child.#session = session;
+    let committed = false;
+    return () => {
+      if (
+        committed ||
+        this.#closed ||
+        this.#primary ||
+        this.#expected !== original ||
+        this.#session !== session ||
+        session.cwd !== original.workspace.cwd ||
+        session.mode !== original.selection.permission.mode
+      )
+        throw unavailable();
+      this.owner.lease.assertCurrentSync();
+      const current = this.owner.eventStore.getOrdinaryLocalCommandAdmission(commandId);
+      if (
+        !current ||
+        !['uncertain', 'consumed'].includes(current.state) ||
+        !isDeepStrictEqual(current.preparedRepositoryTransition, frozenTransition) ||
+        !isDeepStrictEqual(
+          this.owner.eventStore.getPreparedRepositorySourceAdmission(commandId).workspace,
+          original.workspace,
+        )
+      )
+        throw unavailable();
+      child.assertReceipt();
+      session.cwd = expected.workspace.cwd;
+      this.#primary = child;
+      committed = true;
+      child.assertCurrentSync();
+    };
   }
   assertConsumerOwner(eventStore: EventStore, sessionId: string, commandId: string): void {
     if (
@@ -321,6 +644,7 @@ export class OwnedLocalCodexChatAdmission {
   assertCurrentSync(): void {
     try {
       if (this.#closed) throw unavailable();
+      if (this.#primary) return this.#primary.assertCurrentSync();
       if (this.owner.nativeStore) {
         for (const commandId of this.#continuations.keys()) {
           const status = this.owner.nativeStore.commandStatus(
@@ -365,7 +689,38 @@ export class OwnedLocalCodexChatAdmission {
     this.assertCurrentSync();
     return this.owner.lease.executableSha256;
   }
+  /** Current operator, selected native lease and physical workspace authority,
+   * supplied by the existing actual runtime owner, never a completed tool scope. */
+  assertPreparedRepositoryBoundaryCurrentSync(): void {
+    this.assertCurrentSync();
+    const owner = this.owner.preparedRepositoryBoundary;
+    if (!owner) throw unavailable();
+    const result: unknown = owner.assertCurrentSync();
+    if (result !== undefined) {
+      void Promise.resolve(result).catch(() => {});
+      throw unavailable();
+    }
+  }
+  completedPreparedRepositorySourceTarget(): Readonly<CodexNativeTurnTarget> | undefined {
+    this.assertPreparedRepositoryBoundaryCurrentSync();
+    return this.owner.nativeStore?.completedNativeTurnTarget(this.owner.sessionId, this.#binding);
+  }
+  async adoptPreparedRepositoryAtBoundary(
+    scope: PreparedRepositoryBarrierReadScope,
+    source: Readonly<CodexNativeTurnTarget>,
+    assertConversationCurrentSync: () => void,
+    policyOwner: PreparedRepositoryNativePolicyOwner,
+  ) {
+    this.assertPreparedRepositoryBoundaryCurrentSync();
+    return this.owner.preparedRepositoryBoundary!.adopt(
+      scope,
+      source,
+      assertConversationCurrentSync,
+      policyOwner,
+    );
+  }
   assertBeforeEnqueue(input: CodexCommandInput): void {
+    if (this.#primary) return this.#primary.assertBeforeEnqueue(input);
     this.assertCurrentSync();
     const continuation = this.#continuations.get(input.id);
     if (continuation) {
@@ -374,7 +729,7 @@ export class OwnedLocalCodexChatAdmission {
       return;
     }
     this.assertCurrentSync();
-    this.assertReceipt(true);
+    this.assertReceipt(!this.#adoptedPrimary);
     if (
       this.#enqueued ||
       input.id !== this.owner.commandId ||
@@ -392,7 +747,20 @@ export class OwnedLocalCodexChatAdmission {
     );
     this.#enqueued = true;
   }
+  /** Command-frozen existing admission workspace, never inferred from mutable
+   * chat fields or a prior native grant. Unknown/old queued commands refuse. */
+  nativeExecutionWorkspace(
+    commandId: string,
+  ): Readonly<OrdinaryLocalCodexAdmissionExpectation['workspace']> {
+    if (this.#primary) return this.#primary.nativeExecutionWorkspace(commandId);
+    this.assertCurrentSync();
+    const command = commandId === this.owner.commandId ? this : this.#continuations.get(commandId);
+    if (!command || !command.canClaimCommand(commandId)) throw unavailable();
+    command.assertCurrentSync();
+    return Object.freeze({ ...command.#expected.workspace });
+  }
   canClaimCommand(commandId: string): boolean {
+    if (this.#primary) return this.#primary.canClaimCommand(commandId);
     this.assertCurrentSync();
     if (commandId === this.owner.commandId)
       return (
@@ -404,6 +772,7 @@ export class OwnedLocalCodexChatAdmission {
     return this.owner.eventStore.getOrdinaryLocalCommandAdmission(commandId)?.state === 'consumed';
   }
   assertBeforeDispatch(commandId: string): void {
+    if (this.#primary) return this.#primary.assertBeforeDispatch(commandId);
     this.assertCurrentSync();
     const continuation = this.#continuations.get(commandId);
     if (continuation) {
@@ -424,9 +793,10 @@ export class OwnedLocalCodexChatAdmission {
     this.#dispatched = true;
   }
   assertModelSelection(model: string, thinking?: string | null): void {
+    if (this.#primary) return this.#primary.assertModelSelection(model, thinking);
     this.assertCurrentSync();
     if (
-      (!this.#continuation || this.#resume) &&
+      (!this.#continuation || this.#resume || this.#adoptedPrimary) &&
       [...this.#continuations.values()].some(
         (continuation) =>
           continuation.#enqueued &&
@@ -467,6 +837,10 @@ export class OwnedLocalCodexChatAdmission {
     if (this.#closed) return;
     this.#closed = true;
     this.#continuations.clear();
+    if (this.#primary) {
+      this.#primary.close();
+      return;
+    }
     this.owner.lease.close();
   }
 }

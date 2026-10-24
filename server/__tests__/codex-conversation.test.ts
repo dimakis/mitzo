@@ -4239,6 +4239,121 @@ it('keeps an undefined startup rejection fail-closed', async () => {
   await expect(c.initialize()).rejects.toThrow('permanently vetoed');
 });
 
+it('runs retained-primary admission only after completed cleanup and before claiming its automatic child', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'original-workspace', prompt: 'Original task' });
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const guard = vi.fn(async () => {
+    throw Error('Owned transport reconnect forbidden');
+  });
+  f.conversationOptions.reconnectGuard = guard;
+  const admit = vi.fn(async () => {
+    expect(f.c.queue()).toMatchObject([{ id: 'original-workspace', status: 'completed' }]);
+    await waiting;
+    f.c.enqueue({ id: 'owned-child', prompt: 'Continue original task' });
+  });
+  f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(admit).toHaveBeenCalledOnce());
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  release();
+  await vi.waitFor(() =>
+    expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2),
+  );
+  expect(guard).not.toHaveBeenCalled();
+  expect(f.rpc.close).not.toHaveBeenCalled();
+  expect(f.requests.filter((request) => request.method === 'thread/start')).toHaveLength(1);
+});
+
+it('pauses a failed retained-primary boundary before claiming queued old-workspace work', async () => {
+  const f = await setup();
+  f.conversationOptions.beforeRuntimeAdmission = {
+    kind: 'prepared-repository-primary',
+    admit: async () => {
+      throw Error('Transition requires reconciliation');
+    },
+  };
+  await expect(f.c.send({ id: 'queued-old', prompt: 'Original task' })).rejects.toThrow(
+    'reconciliation',
+  );
+  expect(f.c.queue()).toMatchObject([{ id: 'queued-old', status: 'queued' }]);
+  expect(f.c.isPaused()).toBe(true);
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+});
+
+it('invalidates the original retained boundary while admission awaits transport closure', async () => {
+  const f = await setup();
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let fence!: () => void;
+  const admit = vi.fn(async (assertCurrentSync: () => void) => {
+    fence = assertCurrentSync;
+    await waiting;
+  });
+  f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+  const sent = f.c
+    .send({ id: 'closed-before-claim', prompt: 'Original task' })
+    .catch((error: unknown) => error);
+  await vi.waitFor(() => expect(admit).toHaveBeenCalledOnce());
+  expect(typeof fence).toBe('function');
+  expect(() => fence()).not.toThrow();
+  f.c.close();
+  expect(() => fence()).toThrow();
+  release();
+  expect(await sent).toBeInstanceOf(Error);
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+});
+
+it.each(['initial verification', 'admission', 'final verification'] as const)(
+  'retains the original startup cancellation through %s, including signal replacement',
+  async (phase) => {
+    const f = await setup();
+    const controller = new AbortController();
+    f.conversationOptions.startupSignal = controller.signal;
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let atGate = false;
+    let verified = 0;
+    f.conversationOptions.verifyBinding = async () => {
+      verified++;
+      if (
+        (phase === 'initial verification' && verified === 1) ||
+        (phase === 'final verification' && verified === 2)
+      ) {
+        atGate = true;
+        await waiting;
+      }
+      return f.getBinding();
+    };
+    const admit = vi.fn(async () => {
+      if (phase === 'admission') {
+        atGate = true;
+        await waiting;
+      }
+    });
+    f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+    const sent = f.c
+      .send({ id: 'cancelled-at-boundary', prompt: 'Original task' })
+      .catch((error: unknown) => error);
+    await vi.waitFor(() => expect(atGate).toBe(true));
+    controller.abort(Error('Original startup revoked'));
+    f.conversationOptions.startupSignal = new AbortController().signal;
+    release();
+    expect(await sent).toBeInstanceOf(Error);
+    expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+  },
+);
+
 it('pauses admission failure before claim and resumes the preserved FIFO on explicit send', async () => {
   let blocked = true;
   const admission = vi.fn(async (close: () => Promise<void>) => {
@@ -6831,4 +6946,121 @@ it('does not drain further saved commands if the automatic follow-up loses its t
   expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
   expect(f.c.queue().find(({ id }) => id === 'preserved')?.status).toBe('queued');
   expect(f.c.isRecovering()).toBe(false);
+});
+
+it('bounds timing spans on duplicate/failed enqueue, queued cancel/close and preparation refusal/close', async () => {
+  const timings: Array<{
+    name: string;
+    end: ReturnType<typeof vi.fn>;
+    setAttribute: ReturnType<typeof vi.fn>;
+  }> = [];
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, parent) => {
+    if (!name.startsWith('codex.command.')) return original(name, options, parent);
+    const span = { name, end: vi.fn(), setAttribute: vi.fn() };
+    timings.push(span);
+    return span as unknown as Span;
+  });
+  const f = await setup();
+  expect(() => f.c.enqueue({ id: 'invalid', prompt: 'offline', model: 'not-admitted' })).toThrow();
+  expect(timings).toHaveLength(0);
+  f.c.enqueue({ id: 'cancelled', prompt: 'offline' });
+  f.c.enqueue({ id: 'cancelled', prompt: 'offline' });
+  expect(timings).toHaveLength(1);
+  expect(f.c.cancelQueued('cancelled')).toBe('cancelled');
+  expect(timings[0].setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'cancelled');
+  f.c.enqueue({ id: 'closed', prompt: 'offline' });
+  f.c.close();
+  expect(timings[1].setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'closed');
+  const refused = await setup();
+  refused.conversationOptions.prepareSystemPrompt = async () => {
+    throw Error('Private refusal');
+  };
+  await expect(refused.c.send({ id: 'refused', prompt: 'offline' })).rejects.toThrow();
+  expect(timings.at(-1)?.setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'stopped');
+  const closed = await setup();
+  let release!: () => void;
+  closed.conversationOptions.prepareSystemPrompt = () =>
+    new Promise((resolve) => {
+      release = () => resolve(undefined);
+    });
+  const sending = closed.c.send({ id: 'preparing-close', prompt: 'offline' });
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  closed.c.close();
+  expect(timings.at(-1)?.setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'closed');
+  release();
+  await Promise.allSettled([sending]);
+  for (const span of timings) expect(span.end).toHaveBeenCalledOnce();
+});
+
+it('invokes the genuine native base-scope owner despite a poisoned original call property', async () => {
+  const f = await setup();
+  const policy = codexNativeExecutionPolicy({
+    bindingRevision: 'owner',
+    mode: 'agent',
+    cwd: '/workspace',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace'],
+    deniedRoots: ['/private/auth'],
+  });
+  let revoked = false,
+    captured = false;
+  const poisoned = vi.fn(() => undefined);
+  const current = Object.assign(
+    function (this: unknown) {
+      expect(this).toBe(f.conversationOptions);
+      if (revoked) throw Error('Original base-scope owner revoked');
+    },
+    { call: poisoned },
+  );
+  f.conversationOptions.nativeExecution = policy;
+  f.conversationOptions.assertNativeExecutionCurrent = current;
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+  await f.c.send({ id: 'base-scope-poison', prompt: 'Read current workspace' });
+  f.conversationOptions.executeTool = async (_name, _input, _signal, invocation) => {
+    revoked = true;
+    invocation.captureNativeBaseReadScope!();
+    captured = true;
+    return { content: 'unsafe', isError: false };
+  };
+  const result = await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'poisoned-base',
+      tool: 'Read',
+      arguments: { file_path: '/workspace/a' },
+    },
+    new AbortController().signal,
+  );
+  expect(result.success).toBe(false);
+  expect(captured).toBe(false);
+  expect(poisoned).not.toHaveBeenCalled();
+});
+
+it('invokes the genuine retained prepared admission despite its poisoned original call property', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'before-poisoned-boundary', prompt: 'Original task' });
+  const admit = vi.fn(async function (this: unknown) {
+    expect(this).toBe(boundary);
+    throw Error('Original prepared owner refuses');
+  });
+  const poisoned = vi.fn(async () => {
+    f.c.enqueue({ id: 'counterfeit-child', prompt: 'Unauthorized continuation' });
+  });
+  Object.defineProperty(admit, 'call', { value: poisoned });
+  const boundary = { kind: 'prepared-repository-primary' as const, admit };
+  f.conversationOptions.beforeRuntimeAdmission = boundary;
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() =>
+    expect(admit.mock.calls.length + poisoned.mock.calls.length).toBeGreaterThan(0),
+  );
+  expect(admit).toHaveBeenCalledOnce();
+  expect(poisoned).not.toHaveBeenCalled();
+  expect(f.c.queue().some((c) => c.id === 'counterfeit-child')).toBe(false);
+  expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
 });
