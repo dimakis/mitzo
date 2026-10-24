@@ -11,7 +11,7 @@ import {
   LocalRepositoryGitInspectionError,
   localRepositoryReadDirectoryExclusions,
 } from './local-repository-git-inspection.js';
-import { captureNativeReaderPathAuthorization } from './local-repository-native-read.js';
+import { captureNativeReaderPathAuthorization } from './local-repository-native-reader.js';
 
 import {
   freezeNativePreparationObservationData,

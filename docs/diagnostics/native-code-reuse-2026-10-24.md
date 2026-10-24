@@ -106,5 +106,27 @@ helper spawn/result and final cached-fact verification fences are unchanged.
 Scratch-only regressions verify two checks for the actual factory reader and
 three for generic copies, including mutations during both ceiling waits and
 before entry. Signed CI retains all 17 required cases and the same deadlines;
-successful reads also report elapsed time, helper count and admission metrics.
+reads report timing profiles on both success and failure.
 The reduction in duplicate work does not establish end-to-end startup latency.
+
+## Separating reader construction and measuring the remaining cost
+
+The reader implementation and its private provenance registry live in a module
+that does not import runtime context or authentication wiring. Context-specific
+wrappers retain their original scope and owner callbacks. This removes an import
+cycle introduced by the provenance lookup; that cycle bypassed the controlled
+prepared-reader fixture on Linux. A regression selects Linux only during fixture
+adoption and verifies the intended reader and creation callbacks are used.
+The physical factory, guards, helper boundaries and provenance checks are moved
+without changing their behavior; there is no arbitrary registry insertion API.
+
+The signed read suite now installs test-only synchronous stage counters before
+constructing owners. It reports call counts, inclusive and exclusive time,
+recursion, setup separately from dispatch, and reader-deadline/helper windows.
+Wrappers retain the original receiver, arguments, result, exception and Promise
+identity. One bounded numeric aggregate is emitted on success or failure; it
+contains no source paths, credentials or tool input/output. Required assertions,
+all 17 signed cases and their deadlines remain unchanged. Nested inclusive,
+async-admission and helper timings overlap and must not be added together.
+These diagnostics identify the remaining cost; they do not establish subsecond
+startup or justify reusing an earlier authorization result.
