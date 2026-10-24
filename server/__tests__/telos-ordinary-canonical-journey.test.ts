@@ -80,6 +80,38 @@ const nativeSessions: Array<{
   turnId: string;
   tools: Array<{ name: string; description: string }>;
 }> = [];
+const ct09PhaseLabels = [
+  'test-start',
+  'fixture-import-start',
+  'fixture-imported',
+  'fixture-constructed',
+  'app-chat-imported',
+  'owners-ready',
+  'workspace-prepared',
+  'advisor-setup-start',
+  'advisor-setup-complete',
+  'advisor-draft-retained',
+  'lead-setup-start',
+  'lead-setup-complete',
+  'lead-dispatch-complete',
+  'delegation-start',
+  'delegation-complete',
+  'worker-dispatch-start',
+  'worker-dispatch-complete',
+  'artifact-save-start',
+  'artifact-save-complete',
+  'task-artifact-start',
+  'task-artifact-complete',
+  'task-complete-complete',
+  'verified-complete',
+  'journey-complete',
+] as const;
+let ct09PhaseProfile:
+  { start: number; marks: Array<[(typeof ct09PhaseLabels)[number], number]> } | undefined;
+function markCt09Phase(phase: (typeof ct09PhaseLabels)[number]) {
+  if (ct09PhaseProfile && ct09PhaseProfile.marks.length < ct09PhaseLabels.length)
+    ct09PhaseProfile.marks.push([phase, Math.round(performance.now() - ct09PhaseProfile.start)]);
+}
 const startup = await vi.hoisted(async () => {
   const fs = await import('node:fs'),
     os = await import('node:os'),
@@ -93,6 +125,17 @@ const startup = await vi.hoisted(async () => {
 });
 afterAll(() => startup.remove());
 afterEach(async () => {
+  if (ct09PhaseProfile) {
+    const profile = ct09PhaseProfile;
+    ct09PhaseProfile = undefined;
+    process.stdout.write(
+      JSON.stringify({
+        profile: 'ct09-phases',
+        elapsedMs: Math.round(performance.now() - profile.start),
+        phases: profile.marks,
+      }) + '\n',
+    );
+  }
   if (chat && f) {
     auth.revokeAuthSession(f.auth);
     await vi.waitFor(() => expect(chat.registry.getActiveSessions()).toHaveLength(0));
@@ -108,6 +151,8 @@ afterEach(async () => {
 });
 
 it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes, review and verified completion', async () => {
+  ct09PhaseProfile = { start: performance.now(), marks: [] };
+  markCt09Phase('test-start');
   vi.resetModules();
   vi.stubEnv('MITZO_KNOWLEDGE_LIBRARY_CONFIG', undefined);
   vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', undefined);
@@ -117,18 +162,22 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
       throw Error('No external network or model calls');
     }),
   );
+  markCt09Phase('fixture-import-start');
   const { ownedOrdinaryRuntimeFixture } =
     await import('./fixtures/owned-ordinary-workspace-runtime.js');
+  markCt09Phase('fixture-imported');
   f = await ownedOrdinaryRuntimeFixture(cleanup, {
     chatRoute: true,
     separateConfiguredWorkspace: true,
   });
+  markCt09Phase('fixture-constructed');
   const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
   const canonical = createTelosCanonicalData('fresh');
   cleanup.push(() => canonical.close());
   vi.stubEnv('TELOS_DB_PATH', canonical.dbPath);
   application = await import('../app.js');
   chat = await import('../chat.js');
+  markCt09Phase('app-chat-imported');
   auth = await import('../auth.js');
   transportAuth = await import('../transport-auth-ownership.js');
   const native = await import('../codex-app-server-client.js');
@@ -225,6 +274,7 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
   const { OrdinaryWorkspaceApiClient, TelosWorkApiClient } = await import('@mitzo/client');
   const ordinary = new OrdinaryWorkspaceApiClient(http),
     api = new TelosWorkApiClient(http);
+  markCt09Phase('owners-ready');
   const prepared = await ordinary.prepare({
     version: 1,
     model: f.binding.model,
@@ -235,6 +285,7 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
       targetId: f.first.request.runtime.targetId,
     },
   });
+  markCt09Phase('workspace-prepared');
   expect(prepared.capabilities).toEqual([
     'ordinary_conversation',
     'writable_files',
@@ -305,7 +356,9 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     },
   });
   const before = chat.eventStore.listSessions().length;
+  markCt09Phase('advisor-setup-start');
   const advisorId = await role('advisor');
+  markCt09Phase('advisor-setup-complete');
   expect(chat.eventStore.listSessions()).toHaveLength(before + 1);
   expect(nativeSessions).toHaveLength(0);
   const sequence = chat.eventStore.append(advisorId, 'user_message', {
@@ -388,6 +441,7 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     expect(createHash('sha256').update(retainedMaterial.bytes).digest('hex')).toBe(material.sha256);
   };
   await assertOriginalSource();
+  markCt09Phase('advisor-draft-retained');
 
   expect(
     canonical.db.prepare('SELECT first_seen,last_seen FROM items WHERE id=?').get(childId),
@@ -395,7 +449,9 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
   expect(
     canonical.db.prepare('SELECT old_status,new_status FROM history WHERE item_id=?').all(childId),
   ).toEqual([{ old_status: null, new_status: 'active' }]);
+  markCt09Phase('lead-setup-start');
   const leadId = await role('lead');
+  markCt09Phase('lead-setup-complete');
   const leadCommand = command(leadId);
   const { getOrdinaryWorkspaces } = await import('../repository-workspace-runtime.js');
   const actualWorkspaces = getOrdinaryWorkspaces(true);
@@ -411,6 +467,7 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     state: 'consumed',
     dispatched: true,
   });
+  markCt09Phase('lead-dispatch-complete');
   const leadClientId = chat.registry.findBySessionId(leadId)!.clientId;
   const { TaskOrchestrator } = await import('../task-orchestrator.js');
   const getClientId = vi.fn(() => {
@@ -448,6 +505,7 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
       sessionId: leadId,
       input,
     });
+  markCt09Phase('delegation-start');
   const allocation = await delegate();
   expect(allocation.status).toBe(200);
   const receipt = await allocation.json();
@@ -461,6 +519,7 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
       Promise.all(rs.map((r) => r.json())),
     ),
   ).toEqual([receipt, receipt]);
+  markCt09Phase('delegation-complete');
   expect(application.taskStore.getTree()).toHaveLength(1);
   expect(nativeSessions).toHaveLength(1);
   expect(chat.eventStore.getOrdinaryInitialCommandId(workerId)).toBeUndefined();
@@ -489,10 +548,12 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
   expect(workerContext!.sources).toEqual([originalSource]);
   expect(workerContext!.artifacts).toContainEqual(material);
   const workerCommand = command(workerId);
+  markCt09Phase('worker-dispatch-start');
   expect(await ordinary.firstCommand(workerCommand)).toMatchObject({
     state: 'consumed',
     dispatched: true,
   });
+  markCt09Phase('worker-dispatch-complete');
   const worker = chat.registry.findBySessionId(workerId)!;
   const workerNative = nativeSessions[1];
   const workerTurnStarts = () =>
@@ -521,6 +582,7 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     turnId: workerNative.turnId,
     item: { type: 'agentMessage', id: 'report', text: 'Saved recording-report.md for review.' },
   });
+  markCt09Phase('artifact-save-start');
   const outputResponse = await internal(worker.clientId, '/api/internal/telos/artifacts/save', {
     requestId: 'worker-output',
     itemId: childId,
@@ -528,6 +590,7 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     title: 'Reviewed recording report',
     path: 'recording-report.md',
   });
+  markCt09Phase('artifact-save-complete');
   expect(outputResponse.status).toBe(200);
   const output = (await outputResponse.json()).artifact;
   const retained = canonical.artifacts.read(output.id, output.revision);
@@ -563,15 +626,18 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     expect(resolvePending(permission.permId as string, 'once', undefined, workerId)).toBe(true);
     return pending;
   };
+  markCt09Phase('task-artifact-start');
   const artifactResult = await nativeTool('mcp__task-board__TaskArtifact', {
     key: 'report',
     value: `artifact:${output.id}@${output.revision}`,
   });
+  markCt09Phase('task-artifact-complete');
   expect(artifactResult.success).toBe(true);
   expect(artifactResult.contentItems.map((item) => item.text).join('')).not.toMatch(/Error:/);
   const completion = await nativeTool('mcp__task-board__TaskComplete', {
     summary: 'Saved report; awaiting explicit verification.',
   });
+  markCt09Phase('task-complete-complete');
   expect(completion.success).toBe(true);
   expect(completion.contentItems.map((item) => item.text).join('')).toContain('pending_review');
   expect(application.taskStore.get(taskId)?.status).toBe('pending_review');
@@ -601,6 +667,7 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
   expect(verified.status).toBe(200);
   expect(items.read(childId).status).toBe('completed');
   expect(items.read('studio').status).toBe('active');
+  markCt09Phase('verified-complete');
   for (const session of nativeSessions)
     session.lifecycle.onNotification('turn/completed', {
       threadId: session.threadId,
@@ -661,4 +728,5 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
   expect(f.forbidden).not.toHaveBeenCalled();
   expect(f.legacyLookup).not.toHaveBeenCalled();
   expect(getClientId).not.toHaveBeenCalled();
+  markCt09Phase('journey-complete');
 }, 60_000);

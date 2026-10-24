@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.664-native-reader-module-and-profiling';
+  'v1.0.665-prepared-native-store-reads';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/codex-conversation-store-statements.test.ts':
+    'f4e9d9ff8edcc9016d442157347049c875812e3cd47c5bbcb7217bd1d4a32d84',
+  '../__tests__/telos-ordinary-canonical-journey.test.ts':
+    'eb283f488ea40182916830829c1d2efb77c89065027fdcc5a9f5f29ac3072fea',
   '../local-repository-native-reader.ts':
     '1c777253d01b2d429e4168dfcd34ad934ba929d4ff78febb13ea192de5530507',
   '../__tests__/fixtures/synchronous-stage-profiler.ts':
@@ -1070,7 +1074,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
   '../codex-conversation.ts': '8c389c95b5fb62cdf9a0ac67f71f8186e7287334576f79ce9f3a111a2d82ea10',
   '../codex-conversation-store.ts':
-    'eaf078a2dde4b270a06935a3c46fe3e8c1f8e61ecad7bad72c00ca79f47c5dc0',
+    '423b1df654fb48d1e44d7e6428e61cb81b53e520af3b61ab19482ade41e68979',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':

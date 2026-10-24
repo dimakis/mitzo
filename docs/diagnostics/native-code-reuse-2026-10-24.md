@@ -130,3 +130,26 @@ all 17 signed cases and their deadlines remain unchanged. Nested inclusive,
 async-admission and helper timings overlap and must not be added together.
 These diagnostics identify the remaining cost; they do not establish subsecond
 startup or justify reusing an earlier authorization result.
+
+## Reusing query programs while reading current state
+
+The native conversation store lazily prepares six fixed read statements once
+per store/database. Every call still executes its original SQL with current
+parameters, reads fresh rows, and applies the same binding, thread, attempt,
+status, custody and pending-tool checks in the same order and transactions.
+No row, account binding or successful authorization is retained. Independent
+stores own independent statements; preparation failures can be retried and
+closed stores still reject reads.
+
+A synthetic 2,000-round fresh-read loop measured median elapsed time of
+660.955 ms before and 175.409 ms after, about 73.5% lower for that component.
+This does not establish whole-admission or end-to-end startup timing. Tests
+count actual executions as well as preparations and mutate ownership/status
+rows between reads to prove that statement reuse does not reuse results.
+
+The required Mac journey also records bounded numeric milestones, including
+its dynamic imports and fixture setup, before existing teardown. Its 60-second
+deadline and all assertions remain unchanged. Independent joined and signed
+acceptance steps now continue after an earlier failure unless cancelled, so
+all required coverage and timing diagnostics can be collected in one run.
+An earlier failed step still fails the job and final CI gate.
