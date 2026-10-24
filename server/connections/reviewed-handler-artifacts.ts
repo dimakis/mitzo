@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.623-qualified-preparation-cold-integration';
+  'v1.0.624-repository-history-format-import';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -143,7 +143,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '69203bda9ca703dcead99697ebfc942e7b51f2e5093680739945f2e7de36c028',
   '../session-history-authorization.ts':
     '8c232f932469a9a39c3913b261d968bc051c800125895fbc22805cff44f2a7b8',
-  '../session-history-tools.ts': '97ae8c0e606a4df76788afd44d3703c033f964028de9e836c87b4f74ec1f12d3',
+  '../session-history-tools.ts': '80fc9d96a0508f9a10b62d01a5db75028c6f6444307b441d895469c64b02f990',
   '../local-repository-discovery.ts':
     '83c7ef8d941aa2f17f33c4cacd7bf9cfe5d1e709371d2e1e2409b86d20e7c810',
   '../session-local-repository-tools.ts':

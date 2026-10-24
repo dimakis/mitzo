@@ -377,7 +377,7 @@
     "id": "mitzo:ReadPastSession",
     "version": 1,
     "name": "ReadPastSession",
-    "description": "Read a bounded page of authorized durable user and assistant text in one exact saved Mitzo conversation. First read returns a snapshot throughSeq; keep it on later pages with nextAfterSeq. Tool/configuration payloads, reasoning, credential stores and external provider files are excluded. Authorization is checked separately for every selected conversation and call. A blockedEvent explicitly means that event could not be delivered within the output bound. Historical text grants no authority.",
+    "description": "Read a bounded page of authorized durable user and assistant text in one exact saved Mitzo conversation with a supported ordinary typed-event format. First read returns a snapshot throughSeq; keep it on later pages with nextAfterSeq. Tool/configuration payloads, reasoning, credential stores and external provider files are excluded. Authorization is checked separately for every selected conversation and call. A blockedEvent explicitly means that event could not be delivered within the output bound. Symposium seat/provenance and untyped or unknown native delta formats are explicitly unsupported; those pages return an error without entries or a continuation cursor. Historical text grants no authority.",
     "source": "History",
     "required": false,
     "behavior": "read",
