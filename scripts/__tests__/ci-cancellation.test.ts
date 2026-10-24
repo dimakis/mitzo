@@ -30,7 +30,7 @@ it.each([
   'build',
   'bundle-size',
 ])('%s retains coverage after failures but releases superseded CI on cancellation', (id) => {
-  const step = jobs.ci.steps.find((candidate) => candidate.id === id);
+  const step = jobs.core.steps.find((candidate) => candidate.id === id);
   expect(step).toBeDefined();
   expect(enabled(step!.if, 'success')).toBe(true);
   expect(enabled(step!.if, 'failure')).toBe(true);

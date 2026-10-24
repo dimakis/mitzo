@@ -1,0 +1,77 @@
+{
+  "scope": "Independent bounded historical source/evidence intake. Not execution against this composed candidate. Original diagnostics and RED results remain at referenced custody paths.",
+  "entries": [
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-COORDINATOR-72C-INTAKE-REVIEW.md",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/closed-intake/S9-COORDINATOR-72C-INTAKE-REVIEW.md",
+      "sha256": "30a8f21081af98dea41389a3aa7bbc0af4a8088e5273397d48e5b36423cabca1",
+      "bytes": 5327
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-COORDINATOR-72C-INTAKE.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/closed-intake/S9-COORDINATOR-72C-INTAKE.json",
+      "sha256": "dc70fa86f32f139228bb7b32559f86b31074bfd33a426fabb78f605757699a9c",
+      "bytes": 17113
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-ORIGIN-MATERIAL-F47E-INTAKE-REVIEW.md",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/closed-intake/S9-ORIGIN-MATERIAL-F47E-INTAKE-REVIEW.md",
+      "sha256": "9f921447a10cb79b325e99d0634e2818015905157b6abdd89263de09cf9894dc",
+      "bytes": 3835
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-ORIGIN-MATERIAL-F47E-INTAKE.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/closed-intake/S9-ORIGIN-MATERIAL-F47E-INTAKE.json",
+      "sha256": "ce932fa503cf0554bcb1edf6e984897d3e3feb91d8aa49d9035328253bd3e283",
+      "bytes": 16148
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-UX21-PROCESS-RESTART-INTAKE-REVIEW.md",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/closed-intake/S9-UX21-PROCESS-RESTART-INTAKE-REVIEW.md",
+      "sha256": "176129e58521f34142c811e0b302dd3cdb59ac6b38c8eeaee6d046bb71947a53",
+      "bytes": 6646
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-UX21-PROCESS-RESTART-INTAKE.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/closed-intake/S9-UX21-PROCESS-RESTART-INTAKE.json",
+      "sha256": "19b2fb8aa7e20b2516e5291390a4da3f0a7f212c5884cd624f945d716799c40e",
+      "bytes": 24704
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-UX21-WORKER-RESTART-INTAKE-REVIEW.md",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/closed-intake/S9-UX21-WORKER-RESTART-INTAKE-REVIEW.md",
+      "sha256": "572ad1f7cb3958def2f0e9ffdd13b21d9f03e128070505b45e666b007ad44f90",
+      "bytes": 6539
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-UX21-WORKER-RESTART-INTAKE.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/closed-intake/S9-UX21-WORKER-RESTART-INTAKE.json",
+      "sha256": "3b28f47d789cc74acea0c803044903f4c3e315356f6e749154344989323f6010",
+      "bytes": 23312
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-TASK-REVIEW-PROCESS-INTAKE-REVIEW.md",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/closed-intake/S9-TASK-REVIEW-PROCESS-INTAKE-REVIEW.md",
+      "sha256": "d97d48e0f486adf85e98c23a83470a8020b8c39c7cf27f551a0bdefb2dc6b047",
+      "bytes": 6433
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-TASK-REVIEW-PROCESS-INTAKE.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/closed-intake/S9-TASK-REVIEW-PROCESS-INTAKE.json",
+      "sha256": "1f10115a0b7f930949bc37b8671ebbe9fa48c45ca5fd9d59912ff9b7052f7a7a",
+      "bytes": 21737
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-LEGACY-BACKUP-INTAKE-REVIEW.md",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/closed-intake/S9-LEGACY-BACKUP-INTAKE-REVIEW.md",
+      "sha256": "6d2de0955226a7c1678014f68356f2243f5db4ad36566e8cb3ff76eb4c949796",
+      "bytes": 5703
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-LEGACY-BACKUP-INTAKE.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/closed-intake/S9-LEGACY-BACKUP-INTAKE.json",
+      "sha256": "a540135459076e0e7f1ae5ae6001552c682c4e4e86e55333e8c7788c3af22535",
+      "bytes": 9003
+    }
+  ]
+}

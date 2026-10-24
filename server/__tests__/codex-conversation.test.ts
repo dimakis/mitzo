@@ -3803,6 +3803,67 @@ it.each([
   },
 );
 
+it('queries native skills only for the admitted cwd and rejects a revoked or cancelled metadata response', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'skills', prompt: 'Use a relevant skill' });
+  const response = {
+    data: [
+      {
+        cwd: '/workspace',
+        skills: [
+          {
+            name: 'jira',
+            description: 'Search Jira',
+            path: '/skills/jira/SKILL.md',
+            enabled: true,
+          },
+        ],
+        errors: [],
+      },
+    ],
+  };
+  const original = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'skills/list' ? response : original(method, params),
+  );
+  let current = true;
+  const assertCurrent = () => {
+    if (!current) throw Error('revoked');
+  };
+  expect(
+    await f.c.searchSkills(
+      { query: 'jira', offset: 0, limit: 5 },
+      new AbortController().signal,
+      assertCurrent,
+    ),
+  ).toMatchObject({ total: 1, skills: [{ name: 'jira' }] });
+  expect(f.rpc.request).toHaveBeenLastCalledWith('skills/list', {
+    cwds: ['/workspace'],
+    forceReload: false,
+  });
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'skills/list') {
+      current = false;
+      return response;
+    }
+    return original(method, params);
+  });
+  await expect(
+    f.c.searchSkills(
+      { query: '', offset: 0, limit: 5 },
+      new AbortController().signal,
+      assertCurrent,
+    ),
+  ).rejects.toThrow('revoked');
+  current = true;
+  const abort = new AbortController();
+  abort.abort();
+  await expect(
+    f.c.searchSkills({ query: '', offset: 0, limit: 5 }, abort.signal, assertCurrent),
+  ).rejects.toThrow();
+  f.c.close();
+});
+
 it('routes native user input with active thread/turn identity and abort lifetime', async () => {
   const { c, callbacks, requestUserInput } = await setup();
   await c.send({ id: 'question', prompt: 'ask' });

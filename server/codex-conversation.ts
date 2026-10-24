@@ -19,6 +19,8 @@ import { context, trace, SpanStatusCode, type Span, type Context } from '@opente
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { performance } from 'node:perf_hooks';
+import { SearchSkillsInput, searchNativeSkills } from './local-agent-efficiency.js';
+import { codexToolFailureResult } from './codex-tool-failure.js';
 import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
 import type { ToolDefinition } from '@mitzo/harness';
@@ -205,6 +207,8 @@ export interface CodexConversationOptions {
   ) => Promise<ObjectValue>;
   validateModel?: (model: string, reasoningEffort?: string) => void;
   displayToolCall?: (name: string, input: ObjectValue) => { name: string; input: ObjectValue };
+  onToolObservation?: (observation: Record<string, unknown>) => void;
+  skillContextTokens?: number;
   /** Resolve control-plane prerequisites before the prompt reaches the provider. */
   prepareTurn?: (
     turn: { providerPrompt: string; userIntent?: string; turnId: string },
@@ -630,6 +634,33 @@ export class CodexConversation {
         throw error;
       }
     }
+  }
+  async searchSkills(
+    input: z.infer<typeof SearchSkillsInput>,
+    signal: AbortSignal,
+    assertCurrent: () => void,
+  ) {
+    const active = this.active;
+    const client = this.client;
+    const generation = this.transportGeneration;
+    const cwd = this.opts.cwd;
+    const current = () => {
+      signal.throwIfAborted();
+      assertCurrent();
+      if (
+        !active ||
+        this.active !== active ||
+        this.closed ||
+        this.client !== client ||
+        this.transportGeneration !== generation ||
+        this.opts.cwd !== cwd
+      )
+        throw Error('Current native skill owner unavailable');
+    };
+    current();
+    const value = await client!.request('skills/list', { cwds: [cwd], forceReload: false });
+    current();
+    return searchNativeSkills(value, SearchSkillsInput.parse(input), cwd);
   }
   async initialize() {
     if (this.startupObserverVetoed) throw new Error('Startup observer permanently vetoed');
@@ -1563,6 +1594,7 @@ export class CodexConversation {
       modelProvider,
       cwd: this.opts.runtimeCwd ?? this.opts.cwd,
       runtimeConfig,
+      skillContextTokens: this.opts.skillContextTokens,
       webSearch: policy.effective,
       disableProjectDocuments: this.disableProjectDocuments,
       systemPrompt: this.opts.systemPrompt,
@@ -3164,15 +3196,20 @@ export class CodexConversation {
       });
     }
     Object.freeze(invocation);
+    const toolStarted = performance.now();
     try {
       result = normalizeCodexToolResult(
         await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation),
       );
-    } catch {
-      result = {
-        content: 'Tool failed or was interrupted. Inspect current state before retrying.',
-        isError: true,
-      };
+    } catch (error) {
+      result = codexToolFailureResult(error, toolSignal.aborted);
+      const diagnostic = JSON.parse(result.content) as { diagnosticId: string; error: string };
+      log.warn('Dynamic tool failed', {
+        diagnosticId: diagnostic.diagnosticId,
+        toolFailureCode: diagnostic.error,
+        conversationId: this.opts.conversationId,
+        callId: call.callId,
+      });
     } finally {
       // No retained closure can outlive the original executor, including a
       // subsequent durable-result write failure while the native turn stays live.
@@ -3268,6 +3305,17 @@ export class CodexConversation {
       );
     }
     this.mapper!.toolResult(publicId, result.content, result.isError, result.contentItems);
+    try {
+      this.opts.onToolObservation?.({
+        toolName: call.tool,
+        inputBytes: Buffer.byteLength(JSON.stringify(call.arguments)),
+        outputBytes: Buffer.byteLength(result.content),
+        isError: result.isError,
+        durationMs: Math.round(performance.now() - toolStarted),
+      });
+    } catch {
+      /* Observability cannot change an executed result. */
+    }
     return {
       success: !result.isError,
       contentItems: codexToolResultContentItems(result),

@@ -1,0 +1,51 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s5b-candidate-acceptance
+
+{"level":30,"time":1792449570255,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-RDYFYu/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449570356,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-YCZTFy/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449570422,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-YCZTFy/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449570499,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-jqc5hD/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449570554,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-zS3hdh/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449570573,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-zS3hdh/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449570644,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-FbBbXG/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449570749,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-AhaCUw/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449570767,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-AhaCUw/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449570845,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-oEMXYt/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449570900,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-hBqZOc/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449570954,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-YIOZlz/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449571045,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-lzalcd/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449571139,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-oesZ6F/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449571168,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-oesZ6F/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449571241,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-MkgNYu/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449571271,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-MkgNYu/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449571350,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-qljlIB/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449571378,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-qljlIB/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449571446,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-kKuvrl/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449571474,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-kKuvrl/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449571545,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-51hP7j/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449571624,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-H5ATeN/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449571727,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-S9rW9c/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449571832,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-TdQJXs/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449571926,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-exuubj/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449572025,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-nqj8qu/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449572111,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-8PhRna/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449572206,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-HWTMrW/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449572291,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-zJGXLo/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449572380,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-8YbdNR/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449572480,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-C5JDQ5/execution-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449572559,"pid":2897,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-iFsKyg/execution-tasks.db","msg":"TaskStore initialized"}
+ ✓ server/__tests__/telos-ordinary-work-delegation.test.ts (26 tests) 2484ms
+{"level":30,"time":1792449573910,"pid":3021,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-owned-driver-eD2Efh/telos-tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449575092,"pid":3021,"hostname":"Dimitris-MacBook-Pro","module":"task-orchestrator","taskId":"177ec1ee-4d2f-43c8-83c4-84abf9e8ceee","msg":"task approved"}
+ ✓ server/__tests__/telos-canonical-journey.test.ts (1 test) 1711ms
+   ✓ CT06: canonical advisor save through real ordinary dispatch retains output, pending review and explicit verified completion  1710ms
+ ✓ server/__tests__/ordinary-workspace-preparation-http.test.ts (6 tests) 204ms
+ ✓ server/__tests__/telos-canonical-advisor-http.test.ts (4 tests) 179ms
+ ✓ server/__tests__/telos-canonical-schema-fixtures.test.ts (2 tests) 5ms
+
+ Test Files  5 passed (5)
+      Tests  39 passed (39)
+   Start at  23:39:28
+   Duration  8.73s (transform 1.43s, setup 0ms, import 3.69s, tests 4.58s, environment 0ms)
+
+JSON report written to /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S5B-OWNER-BOUNDARIES-RESULTS.json

@@ -1,0 +1,62 @@
+[
+  {
+    "path": "frontend/src/components/ShareButton.tsx",
+    "currentEntry": "100644 blob 96af05fa1e888389a2d8e054ead1bda278444fb5",
+    "donorEntry": "100644 blob c0f26be9e1adb77c192d6b6f617bf5c1b5e9d20b"
+  },
+  {
+    "path": "frontend/src/components/TelosChatWorkTree.tsx",
+    "currentEntry": "100644 blob 83c7e3b829d06b38dde5428f5de2123ac46614dd",
+    "donorEntry": "100644 blob bc22d348536c52bbbdf3e115e578c37e6c35cc15"
+  },
+  {
+    "path": "frontend/src/pages/ChatView.tsx",
+    "currentEntry": "100644 blob 9ab51139ba6cfd8151fcc7b7624f9ac0a0291370",
+    "donorEntry": "100644 blob 751881deeef8248436bbc8d0057595d046b1f1a9"
+  },
+  {
+    "path": "frontend/src/pages/DesktopChatView.tsx",
+    "currentEntry": "100644 blob fbe59e1b497a737882d4e276c985c3e79440c8ac",
+    "donorEntry": "100644 blob 6809ba1fcdc53860b0822238bf9a19a223218628"
+  },
+  {
+    "path": "frontend/src/styles/global.css",
+    "currentEntry": "100644 blob f49f1c91747980e2d9cf0203b17101acc1df9a9a",
+    "donorEntry": "100644 blob cc1b7f7eeccba1001a0a435d92ea0c9482315856"
+  },
+  {
+    "path": "server/app.ts",
+    "currentEntry": "100644 blob d73654c2e99cd4995794d04d11358edcaf912cac",
+    "donorEntry": "100644 blob 32f89f70299c60a9b8b18419618d121efb1e9f5e"
+  },
+  {
+    "path": "server/connection-request-error.ts",
+    "currentEntry": "100644 blob 04c84a40be9e00fbb550ca50642bd9eeff59fb7f",
+    "donorEntry": null
+  },
+  {
+    "path": "server/connections/reviewed-handler-artifacts.ts",
+    "currentEntry": "100644 blob 1a1e4e598282a603fd12d8efb111e9dd4c922a91",
+    "donorEntry": "100644 blob 67d179313ac08846e0c2a743733d1cb120c36417"
+  },
+  {
+    "path": "server/credential-connection-tools.ts",
+    "currentEntry": "100644 blob b7da5defe761b7d51a06caa4256d45acac61fd8c",
+    "donorEntry": "100644 blob f9a245be9e9fc67260043b7e9bef9e8132973698"
+  },
+  {
+    "path": "server/credential-connections.ts",
+    "currentEntry": "100644 blob 6b1041f03fd9000cf43bc3805b2ac44083042f35",
+    "donorEntry": "100644 blob 4d1e21396af5c8e4a314e0c34324ee99da392971"
+  },
+  {
+    "path": "server/credential-http.ts",
+    "currentEntry": "100644 blob ddb0f8402d2ac5c72603d7656254a3c37f195371",
+    "donorEntry": "100644 blob 7c47884d3ecde8c5a620592bebc11d17f24d7718"
+  },
+  {
+    "path": "server/credential-verification-error.ts",
+    "currentEntry": "100644 blob 14a8672f97b645209cca93184016e1cdd0f65107",
+    "donorEntry": "100644 blob 230aaec3cef194ef80f156807360fe99c1c776bb"
+  }
+]

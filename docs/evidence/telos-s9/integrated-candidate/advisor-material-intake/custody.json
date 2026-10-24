@@ -1,0 +1,80 @@
+{
+  "frozenExecution": "472d5c538c86b506972fbd9b7a7356b46d7277ff",
+  "baseline": "5b3e98569f8e25e9dfdeadd19e6dacfa87e83bf2",
+  "entries": [
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-ADVISOR-MATERIAL-AUTHORITY-REVIEW.md",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-material-intake/root-authority-review.md",
+      "sha256": "59b57bea8fd259c06f27f9da2d25e43eb582e554946fcef47847af652a5c3c1e",
+      "bytes": 6175
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-ADVISOR-MATERIAL-AUTHORITY-REVIEW.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-material-intake/root-authority-review.json",
+      "sha256": "c6cddd5f12abf77fbd3fcc6f1a3ca533b1e099959ec2af866b6acf2784620f14",
+      "bytes": 8026
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-ADVISOR-MATERIAL-EVIDENCE-REVIEW.md",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-material-intake/root-evidence-review.md",
+      "sha256": "c7755d34a094d7a515e28df163fe92d804d6bb45b67380980c481e4a4fcb6850",
+      "bytes": 3581
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-ADVISOR-MATERIAL-EVIDENCE-REVIEW.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-material-intake/root-evidence-review.json",
+      "sha256": "f063873d2413c82a155edff493c676133112ba731978eea2001bfea8f26d277e",
+      "bytes": 3273
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-RESULT.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-material-intake/original-producer-result-472d.json",
+      "sha256": "22ab66b19c7c2f3bd1b5771b2fd28ad8dc4c794dc37d81a8923ca4364c17bdae",
+      "bytes": 446157
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-SOURCE-PROOF.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-material-intake/original-source-proof-472d.json",
+      "sha256": "73b4d15f3ed7f249b9b19ba2e906ff8857316261ee0bc27a90b187f47a942b29",
+      "bytes": 10314
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/foundation-evidence/acceptance-advisor-material-erased-proof.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-material-intake/erased-type-proof.json",
+      "sha256": "850346fb928b81a88007c6988fd2948bea5b08d73f7a3a4c81c65e8de3e6512d",
+      "bytes": 1231
+    }
+  ],
+  "archivesAndRaw": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-SOURCE.zip",
+      "sha256": "9449b1b42be36226486f8e49f6746e4403dca5ed34ff598858d2a920a0f03567",
+      "size": 3259656,
+      "copied": false,
+      "custody": "Original producer retained archive/raw; independent root review verified members"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-DIAGNOSTICS.zip",
+      "sha256": "ba8a356385b587dce2a2de417959e61b3d1b2cb302299d1bc5764d3715739e7e",
+      "size": 552262,
+      "copied": false,
+      "custody": "Original producer retained archive/raw; independent root review verified members"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-DIAGNOSTICS/initial/run.json",
+      "sha256": "97a2115c85dbdf4c6c890e7a2351b1ce94062833d1119948ee95aff8cb507da1",
+      "size": 1961,
+      "copied": false,
+      "custody": "Original producer retained archive/raw; independent root review verified members"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-DIAGNOSTICS/source-record-pin/run.json",
+      "sha256": "84d9119fa7de05fe5ca932075da2138902516e20b5aa618c07e4cb3df22e7fb1",
+      "size": 1225,
+      "copied": false,
+      "custody": "Original producer retained archive/raw; independent root review verified members"
+    }
+  ],
+  "closedScope": "One retained private nonempty-material1PASS0skip; synthetic starting capture/adoption, actual UI r1 download and packet pin/byte retention/restart. No native byte access, UI selection/adoption, main/live/full UX claim.",
+  "diagnosticChronology": "Original initial97a2 raw is seed-only expectation failure, not productRED or second browser acceptance. Original pending-review wording and archives preserved; separate root reviews close bounded authority/evidence."
+}

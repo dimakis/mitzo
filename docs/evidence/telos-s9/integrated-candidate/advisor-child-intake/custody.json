@@ -1,0 +1,65 @@
+{
+  "frozenExecution": "3df776dd16f7f7f2f56955696a53b8838a63f5b9",
+  "baseline": "15291f6f40119a9fae72f6d3463ea9fb1a27880e",
+  "entries": [
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-ADVISOR-CHILD-AUTHORITY-REVIEW.md",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-child-intake/root-authority-review.md",
+      "sha256": "bc26eb3c38525db3633efde2e1e9c7592411baa606739d2e50e0160156fd1f6d",
+      "bytes": 9247
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-ADVISOR-CHILD-AUTHORITY-REVIEW.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-child-intake/root-authority-review.json",
+      "sha256": "bd296adb5e698b901e47956b397dc5d218e6f8a8157bbb4a49632bfa94cb6346",
+      "bytes": 22682
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-ADVISOR-CHILD-EVIDENCE-REVIEW.md",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-child-intake/root-evidence-review.md",
+      "sha256": "51b0ff2147f21fc89db418ccbe2bf56ea9083e6a4374c25ac5d91d54ff530a3e",
+      "bytes": 6213
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-ADVISOR-CHILD-EVIDENCE-REVIEW.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-child-intake/root-evidence-review.json",
+      "sha256": "2cd830f0781c90698ade4efbee5325e6415e44b74e98a90f7c926f723363cf46",
+      "bytes": 8929
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-RESULT.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-child-intake/original-producer-result-3df7.json",
+      "sha256": "21ad228bcf10a93f19406050e070c3a74aa423dc81967cc20e0c57c8c4e8a4f0",
+      "bytes": 238834
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-SOURCE-PROOF.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-child-intake/original-source-proof-3df7.json",
+      "sha256": "33e4c77f4527ab8fdb6e1527dcffe45fff233851ba47821c15474b9b3cac307b",
+      "bytes": 7700
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/foundation-evidence/acceptance-advisor-child-erased-proof.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-child-intake/erased-type-proof.json",
+      "sha256": "19e3846a4cce2a9417a615fe864447956e923b53e19c2904142eaf6a40cc4bad",
+      "bytes": 1228
+    }
+  ],
+  "archives": [
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-SOURCE.zip",
+      "sha256": "3e878748c798de2fa28561061153fcbec3226c7f81e5bb16e53c28e88a5dbc7b",
+      "bytes": 3155411,
+      "copied": false,
+      "custody": "Original producer retained archive; independent root reviews verified members"
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-CHILD-DIAGNOSTICS.zip",
+      "sha256": "322dafa1aa399a3af35a5fecf21f66237692bd85c42f5d5ae5e5c79d5e8025e9",
+      "bytes": 646373,
+      "copied": false,
+      "custody": "Original producer retained archive; independent root reviews verified members"
+    }
+  ],
+  "closedScope": "One retained private Add-child functional journey1PASS0skip; no new composed-source runtime retest, Refine/material inheritance/pin/native canonical output or full UX/main/live qualification"
+}

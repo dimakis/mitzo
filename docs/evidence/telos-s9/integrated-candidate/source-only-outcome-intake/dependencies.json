@@ -1,0 +1,783 @@
+{
+  "donor": "ab2c1f6617053f81364025cafe6d6116d6d16cce",
+  "currentBase": "c5b32dde8d86e715bd417d6f1aeaaa3ed233202c",
+  "exactThreeNewFiles": [
+    "tests/integration/telos-s9/integrated-candidate/source-only-outcome-browser.contract.ts",
+    "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+    "tests/integration/telos-s9/integrated-candidate/vitest.source-only-outcome.config.ts"
+  ],
+  "files": [
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/source-only-outcome-browser.contract.ts",
+      "donorSha256": "36b235a0fcf5e151f6b80a25c7153dabbb787abdf98954f3aa7756689d565e48",
+      "currentSha256": null,
+      "exact": false,
+      "newImport": true,
+      "bytes": 15400
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "donorSha256": "cb134d2c028b229a0f2c63f194508da486946c34b44e5d753a7cc24812141666",
+      "currentSha256": null,
+      "exact": false,
+      "newImport": true,
+      "bytes": 22523
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/vitest.source-only-outcome.config.ts",
+      "donorSha256": "fd057f545f04ce4e584e5db0d8f74c3ab6df0ab72309ed9305d5998581d855d5",
+      "currentSha256": null,
+      "exact": false,
+      "newImport": true,
+      "bytes": 311
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/task-chat-tree-geometry.ts",
+      "donorSha256": "bd72de1b8ba7afe8565118f111b142fdc049d65062b9efd85bbaaeed467dad18",
+      "currentSha256": "bd72de1b8ba7afe8565118f111b142fdc049d65062b9efd85bbaaeed467dad18",
+      "exact": true,
+      "newImport": false,
+      "bytes": 6824
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "donorSha256": "95e4ec1b903a6419ff357cdfbd743a49c86a92efe0336ea860ba8ea337c51e66",
+      "currentSha256": "95e4ec1b903a6419ff357cdfbd743a49c86a92efe0336ea860ba8ea337c51e66",
+      "exact": true,
+      "newImport": false,
+      "bytes": 6501
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/joined-canonical-cli.ts",
+      "donorSha256": "75770f88a7bbcbedbfea6ca5399fdb6f663b9771789eb1098a1fd763e1cd7c1f",
+      "currentSha256": "75770f88a7bbcbedbfea6ca5399fdb6f663b9771789eb1098a1fd763e1cd7c1f",
+      "exact": true,
+      "newImport": false,
+      "bytes": 4806
+    },
+    {
+      "path": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "donorSha256": "32f7430bfe25aa9c6ebe03e6cc8fc4952e92b32618891255bd743e2332bb11c5",
+      "currentSha256": "32f7430bfe25aa9c6ebe03e6cc8fc4952e92b32618891255bd743e2332bb11c5",
+      "exact": true,
+      "newImport": false,
+      "bytes": 14624
+    },
+    {
+      "path": "server/__tests__/fixtures/telos-canonical-advisor.ts",
+      "donorSha256": "81026a8705f60f56facf3272e617b3820a805d3219c02abf946ee323756526f9",
+      "currentSha256": "81026a8705f60f56facf3272e617b3820a805d3219c02abf946ee323756526f9",
+      "exact": true,
+      "newImport": false,
+      "bytes": 6132
+    },
+    {
+      "path": "server/__tests__/fixtures/empty-model-limits.json",
+      "donorSha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+      "currentSha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+      "exact": true,
+      "newImport": false,
+      "bytes": 3
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "donorSha256": "560d8c85d98b85db77415ae1f0bfa4e7918c764031890a5711f8209e3eb1c9be",
+      "currentSha256": "560d8c85d98b85db77415ae1f0bfa4e7918c764031890a5711f8209e3eb1c9be",
+      "exact": true,
+      "newImport": false,
+      "bytes": 13260
+    },
+    {
+      "path": "vitest.config.ts",
+      "donorSha256": "317dd2e81b06574464010ab4a3ca8447af6120ee6f1ab5978171bf8254bced94",
+      "currentSha256": "317dd2e81b06574464010ab4a3ca8447af6120ee6f1ab5978171bf8254bced94",
+      "exact": true,
+      "newImport": false,
+      "bytes": 2383
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-cli-3077.manifest.json",
+      "donorSha256": "4b3ffbd04971720a8b6648d5266b688466e47dafa8b5128e5f562c855a5bbebf",
+      "currentSha256": "4b3ffbd04971720a8b6648d5266b688466e47dafa8b5128e5f562c855a5bbebf",
+      "exact": true,
+      "newImport": false,
+      "bytes": 5410
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-cli-3077.json.gz",
+      "donorSha256": "cb0dc4b4a791163cadb5ea4953b02763f79cc399d5534b3235b1e576a6483342",
+      "currentSha256": "cb0dc4b4a791163cadb5ea4953b02763f79cc399d5534b3235b1e576a6483342",
+      "exact": true,
+      "newImport": false,
+      "bytes": 106782
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/worker-restart-child-loader.mjs",
+      "donorSha256": "d5dfa4a214d1cd3a937183efde3b59fef5666611a032850c4e3ed6f47846cd9a",
+      "currentSha256": "d5dfa4a214d1cd3a937183efde3b59fef5666611a032850c4e3ed6f47846cd9a",
+      "exact": true,
+      "newImport": false,
+      "bytes": 1351
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs",
+      "donorSha256": "652fb56e7ad3b799420759a2569183c3166f615b43b060988d0698a7d08a64ee",
+      "currentSha256": "652fb56e7ad3b799420759a2569183c3166f615b43b060988d0698a7d08a64ee",
+      "exact": true,
+      "newImport": false,
+      "bytes": 2292
+    }
+  ],
+  "edges": [
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-outcome-browser.contract.ts",
+      "literal": "./source-only-process-fixture",
+      "to": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-outcome-browser.contract.ts",
+      "literal": "./task-chat-tree-geometry",
+      "to": "tests/integration/telos-s9/integrated-candidate/task-chat-tree-geometry.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "literal": "../../../../server/event-store",
+      "to": "server/event-store.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "literal": "../../../../server/repository-workspaces",
+      "to": "server/repository-workspaces.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "literal": "../../../../server/task-store",
+      "to": "server/task-store.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "literal": "../../../../server/telos-work-role-context",
+      "to": "server/telos-work-role-context.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "literal": "./joined-browser-target",
+      "to": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "literal": "./joined-canonical-cli",
+      "to": "tests/integration/telos-s9/integrated-candidate/joined-canonical-cli.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "literal": "../../../../server/mcp-config.js",
+      "to": "server/mcp-config.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "literal": "../../../../server/__tests__/fixtures/owned-ordinary-workspace-runtime",
+      "to": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "literal": "../../../../server/__tests__/fixtures/telos-canonical-advisor",
+      "to": "server/__tests__/fixtures/telos-canonical-advisor.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "literal": "../../../../server/auth.js",
+      "to": "server/auth.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "literal": "../../../../server/telos-source-capture",
+      "to": "server/telos-source-capture.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "literal": "../../../../server/home-store",
+      "to": "server/home-store.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "literal": "server/__tests__/fixtures/empty-model-limits.json",
+      "to": "server/__tests__/fixtures/empty-model-limits.json"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts",
+      "literal": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "to": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/vitest.source-only-outcome.config.ts",
+      "literal": "../../../../vitest.config",
+      "to": "vitest.config.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/vitest.source-only-outcome.config.ts",
+      "literal": "tests/integration/telos-s9/integrated-candidate/source-only-outcome-browser.contract.ts",
+      "to": "tests/integration/telos-s9/integrated-candidate/source-only-outcome-browser.contract.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "literal": "../../../../server/session-sse-registry.js",
+      "to": "server/session-sse-registry.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "literal": "../../../../server/auth.js",
+      "to": "server/auth.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "literal": "../../../../server/chat.js",
+      "to": "server/chat.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "literal": "../../../../server/native-commands.js",
+      "to": "server/native-commands.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "literal": "../../../../server/sse-transport.js",
+      "to": "server/sse-transport.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "literal": "../../../../server/chat-rest-handler.js",
+      "to": "server/chat-rest-handler.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "literal": "../../../../server/ordinary-local-codex-entry.js",
+      "to": "server/ordinary-local-codex-entry.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "literal": "../../../../server/agent-library-transport.js",
+      "to": "server/agent-library-transport.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "literal": "../../../../server/transport-auth-ownership.js",
+      "to": "server/transport-auth-ownership.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "literal": "../../../../server/auth.js",
+      "to": "server/auth.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "literal": "packages/client/src/hooks/index.ts",
+      "to": "packages/client/src/hooks/index.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "literal": "packages/client/src/index.ts",
+      "to": "packages/client/src/index.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "literal": "packages/protocol/src/index.ts",
+      "to": "packages/protocol/src/index.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-canonical-cli.ts",
+      "literal": "./fixtures/mgmt-read-cli-3077.manifest.json",
+      "to": "tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-cli-3077.manifest.json"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/joined-canonical-cli.ts",
+      "literal": "./fixtures/mgmt-read-cli-3077.json.gz",
+      "to": "tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-cli-3077.json.gz"
+    },
+    {
+      "from": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "literal": "../../event-store.js",
+      "to": "server/event-store.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "literal": "../../agent-library-store.js",
+      "to": "server/agent-library-store.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "literal": "../../repository-workspaces.js",
+      "to": "server/repository-workspaces.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "literal": "../../account-profiles.js",
+      "to": "server/account-profiles.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "literal": "../../ordinary-repository-preparation-authority.js",
+      "to": "server/ordinary-repository-preparation-authority.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "literal": "../../ordinary-local-codex-host-runtime.js",
+      "to": "server/ordinary-local-codex-host-runtime.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "literal": "../../ordinary-local-codex-capabilities.js",
+      "to": "server/ordinary-local-codex-capabilities.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "literal": "../../ordinary-local-codex-owned-runtime.js",
+      "to": "server/ordinary-local-codex-owned-runtime.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "literal": "../../owned-local-codex-chat-admission.js",
+      "to": "server/owned-local-codex-chat-admission.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "literal": "../../agent-library-transport.js",
+      "to": "server/agent-library-transport.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "literal": "../../auth.js",
+      "to": "server/auth.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/telos-canonical-advisor.ts",
+      "literal": "../../event-store.js",
+      "to": "server/event-store.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/telos-canonical-advisor.ts",
+      "literal": "../../telos-work-store.js",
+      "to": "server/telos-work-store.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/telos-canonical-advisor.ts",
+      "literal": "../../telos-artifact-store.js",
+      "to": "server/telos-artifact-store.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/telos-canonical-advisor.ts",
+      "literal": "../../telos-work-advisor-draft.js",
+      "to": "server/telos-work-advisor-draft.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/telos-canonical-advisor.ts",
+      "literal": "../../telos-work-role-review.js",
+      "to": "server/telos-work-role-review.ts"
+    },
+    {
+      "from": "server/__tests__/fixtures/telos-canonical-advisor.ts",
+      "literal": "../../telos-work-role-context.js",
+      "to": "server/telos-work-role-context.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "literal": "./worker-restart-child-loader.mjs",
+      "to": "tests/integration/telos-s9/integrated-candidate/worker-restart-child-loader.mjs"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "literal": "server/codex-app-server-client.ts",
+      "to": "server/codex-app-server-client.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "literal": "server/account-profiles.ts",
+      "to": "server/account-profiles.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "literal": "server/app.ts",
+      "to": "server/app.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "literal": "server/chat.ts",
+      "to": "server/chat.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "literal": "server/auth.ts",
+      "to": "server/auth.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "literal": "./joined-browser-target.ts",
+      "to": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "literal": "server/task-orchestrator.ts",
+      "to": "server/task-orchestrator.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "literal": "server/codex-chat-session.ts",
+      "to": "server/codex-chat-session.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "literal": "server/protected-sdk-command.ts",
+      "to": "server/protected-sdk-command.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "literal": "server/repository-workspace-runtime.ts",
+      "to": "server/repository-workspace-runtime.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs",
+      "literal": "server/telos-work-role-context.ts",
+      "to": "server/telos-work-role-context.ts"
+    },
+    {
+      "from": "vitest.config.ts",
+      "literal": "packages/protocol/src/database-backup.ts",
+      "to": "packages/protocol/src/database-backup.ts"
+    },
+    {
+      "from": "vitest.config.ts",
+      "literal": "packages/protocol/src/event-store.ts",
+      "to": "packages/protocol/src/event-store.ts"
+    },
+    {
+      "from": "vitest.config.ts",
+      "literal": "packages/protocol/src/collaboration-forward-custody.ts",
+      "to": "packages/protocol/src/collaboration-forward-custody.ts"
+    },
+    {
+      "from": "vitest.config.ts",
+      "literal": "packages/protocol/src/index.ts",
+      "to": "packages/protocol/src/index.ts"
+    },
+    {
+      "from": "vitest.config.ts",
+      "literal": "packages/client/src/hooks/index.ts",
+      "to": "packages/client/src/hooks/index.ts"
+    },
+    {
+      "from": "vitest.config.ts",
+      "literal": "packages/client/src/index.ts",
+      "to": "packages/client/src/index.ts"
+    },
+    {
+      "from": "vitest.config.ts",
+      "literal": "packages/harness/src/index.ts",
+      "to": "packages/harness/src/index.ts"
+    },
+    {
+      "from": "vitest.config.ts",
+      "literal": "server/__tests__/fixtures/empty-model-limits.json",
+      "to": "server/__tests__/fixtures/empty-model-limits.json"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/worker-restart-child-loader.mjs",
+      "literal": "./restart-child-loader.mjs",
+      "to": "tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/worker-restart-child-loader.mjs",
+      "literal": "server/mcp-entrypoint.ts",
+      "to": "server/mcp-entrypoint.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs",
+      "literal": "packages/protocol/src/index.ts",
+      "to": "packages/protocol/src/index.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs",
+      "literal": "packages/protocol/src/event-store.ts",
+      "to": "packages/protocol/src/event-store.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs",
+      "literal": "packages/protocol/src/database-backup.ts",
+      "to": "packages/protocol/src/database-backup.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs",
+      "literal": "packages/protocol/src/collaboration-forward-custody.ts",
+      "to": "packages/protocol/src/collaboration-forward-custody.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs",
+      "literal": "packages/harness/src/index.ts",
+      "to": "packages/harness/src/index.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs",
+      "literal": "packages/client/src/index.ts",
+      "to": "packages/client/src/index.ts"
+    },
+    {
+      "from": "tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs",
+      "literal": "server",
+      "to": "server/index.ts"
+    }
+  ],
+  "productionBoundary": [
+    {
+      "path": "server/event-store.ts",
+      "donorSha256": "1df87f0cead75f33568aaf6deefb61abc473c26c01575725f03e98f0570759ac",
+      "currentSha256": "1df87f0cead75f33568aaf6deefb61abc473c26c01575725f03e98f0570759ac",
+      "exact": true
+    },
+    {
+      "path": "server/repository-workspaces.ts",
+      "donorSha256": "ea8cef52fd53d54e5475ccc66ff62560fed68b24a6281796062b3e54fd697d3c",
+      "currentSha256": "ea8cef52fd53d54e5475ccc66ff62560fed68b24a6281796062b3e54fd697d3c",
+      "exact": true
+    },
+    {
+      "path": "server/task-store.ts",
+      "donorSha256": "d8db46138a28be13c612601c1e1435352c1e05b1d6c47deb785804ab397cbbc0",
+      "currentSha256": "d8db46138a28be13c612601c1e1435352c1e05b1d6c47deb785804ab397cbbc0",
+      "exact": true
+    },
+    {
+      "path": "server/telos-work-role-context.ts",
+      "donorSha256": "d21fb6e7b3ae8e46f7c4fc2022a6278d7262acf949272893f91271f6590dfdbd",
+      "currentSha256": "d21fb6e7b3ae8e46f7c4fc2022a6278d7262acf949272893f91271f6590dfdbd",
+      "exact": true
+    },
+    {
+      "path": "server/mcp-config.ts",
+      "donorSha256": "6b7edecfee8c64bdd230338dc88f5ddd99e901098673d65bdb8e22ab6978171b",
+      "currentSha256": "6b7edecfee8c64bdd230338dc88f5ddd99e901098673d65bdb8e22ab6978171b",
+      "exact": true
+    },
+    {
+      "path": "server/auth.ts",
+      "donorSha256": "87920c89768d613ce00f84bf20ab405d95e139d96a168595e7a8c6431d80e963",
+      "currentSha256": "87920c89768d613ce00f84bf20ab405d95e139d96a168595e7a8c6431d80e963",
+      "exact": true
+    },
+    {
+      "path": "server/telos-source-capture.ts",
+      "donorSha256": "9b42d3f627e7923a29b0b22fb44e6b46eea5e9b2466a5faa95ae835f9b91b641",
+      "currentSha256": "9b42d3f627e7923a29b0b22fb44e6b46eea5e9b2466a5faa95ae835f9b91b641",
+      "exact": true
+    },
+    {
+      "path": "server/home-store.ts",
+      "donorSha256": "007b897df7db541f253e2f530851f8f56528fb99f1ceba67510056993828b12b",
+      "currentSha256": "007b897df7db541f253e2f530851f8f56528fb99f1ceba67510056993828b12b",
+      "exact": true
+    },
+    {
+      "path": "server/session-sse-registry.ts",
+      "donorSha256": "27709aba5866e805640f1d59f230b2c2ff4889c54acdb4688ec63c12969ad0b4",
+      "currentSha256": "27709aba5866e805640f1d59f230b2c2ff4889c54acdb4688ec63c12969ad0b4",
+      "exact": true
+    },
+    {
+      "path": "server/chat.ts",
+      "donorSha256": "23c01ecd59766bcffa208fc2dba866412d25f7b16443731bc1d54cee64df094c",
+      "currentSha256": "23c01ecd59766bcffa208fc2dba866412d25f7b16443731bc1d54cee64df094c",
+      "exact": true
+    },
+    {
+      "path": "server/native-commands.ts",
+      "donorSha256": "e4386b5195650cfd6f34689ff615a6bf2b7691b53e7ebcd47ce2c5aa6477f75c",
+      "currentSha256": "e4386b5195650cfd6f34689ff615a6bf2b7691b53e7ebcd47ce2c5aa6477f75c",
+      "exact": true
+    },
+    {
+      "path": "server/sse-transport.ts",
+      "donorSha256": "0a459af20dfe8e08f7cf217834c7a154e176d48accc3f82a1114e0088364f9de",
+      "currentSha256": "0a459af20dfe8e08f7cf217834c7a154e176d48accc3f82a1114e0088364f9de",
+      "exact": true
+    },
+    {
+      "path": "server/chat-rest-handler.ts",
+      "donorSha256": "eb68cca698b3621d1aedf2108ae5ad99234ce9ad2256377e356c41370bc6626d",
+      "currentSha256": "eb68cca698b3621d1aedf2108ae5ad99234ce9ad2256377e356c41370bc6626d",
+      "exact": true
+    },
+    {
+      "path": "server/ordinary-local-codex-entry.ts",
+      "donorSha256": "c7accc3efc53e64874c79c03217ba8bf356834d4477b6c98a38d85923a95e411",
+      "currentSha256": "c7accc3efc53e64874c79c03217ba8bf356834d4477b6c98a38d85923a95e411",
+      "exact": true
+    },
+    {
+      "path": "server/agent-library-transport.ts",
+      "donorSha256": "f532d75cf524bbe6f2e499ccdb045c2e84dca83ed44c6606b8a70fe4d3c7f3a3",
+      "currentSha256": "f532d75cf524bbe6f2e499ccdb045c2e84dca83ed44c6606b8a70fe4d3c7f3a3",
+      "exact": true
+    },
+    {
+      "path": "server/transport-auth-ownership.ts",
+      "donorSha256": "945d7eb8ffc97d53d16dc280698ad4dfacae8cb063cc974c269235058b5f7d14",
+      "currentSha256": "945d7eb8ffc97d53d16dc280698ad4dfacae8cb063cc974c269235058b5f7d14",
+      "exact": true
+    },
+    {
+      "path": "packages/client/src/hooks/index.ts",
+      "donorSha256": "de58ad5674f1ec9c9c0baba262bc37c15307e1143e7251a53e9770cc49bac0a9",
+      "currentSha256": "de58ad5674f1ec9c9c0baba262bc37c15307e1143e7251a53e9770cc49bac0a9",
+      "exact": true
+    },
+    {
+      "path": "packages/client/src/index.ts",
+      "donorSha256": "0cf62447cb182a9943c919aeaba30c149ccf033bd97cdcebc5f7dc3aea652727",
+      "currentSha256": "0cf62447cb182a9943c919aeaba30c149ccf033bd97cdcebc5f7dc3aea652727",
+      "exact": true
+    },
+    {
+      "path": "packages/protocol/src/index.ts",
+      "donorSha256": "054626c2a961d0dfacd2dd0d941ae65bfb75a6d4d16e2cf8b6f879df000b879b",
+      "currentSha256": "054626c2a961d0dfacd2dd0d941ae65bfb75a6d4d16e2cf8b6f879df000b879b",
+      "exact": true
+    },
+    {
+      "path": "server/agent-library-store.ts",
+      "donorSha256": "fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7",
+      "currentSha256": "fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7",
+      "exact": true
+    },
+    {
+      "path": "server/account-profiles.ts",
+      "donorSha256": "e8b8e659ba11b9d3d28abbb47542929d103dde5c1f2f347d1b6361c547cec759",
+      "currentSha256": "e8b8e659ba11b9d3d28abbb47542929d103dde5c1f2f347d1b6361c547cec759",
+      "exact": true
+    },
+    {
+      "path": "server/ordinary-repository-preparation-authority.ts",
+      "donorSha256": "54b65da2a861e974bd8846a12549460293ee6a4d7c585f1c7560976fb3d178fc",
+      "currentSha256": "54b65da2a861e974bd8846a12549460293ee6a4d7c585f1c7560976fb3d178fc",
+      "exact": true
+    },
+    {
+      "path": "server/ordinary-local-codex-host-runtime.ts",
+      "donorSha256": "5b152f654f029ad43dc1ded3808ea9fe2765b02c753b3a4a414867cbb37e078a",
+      "currentSha256": "5b152f654f029ad43dc1ded3808ea9fe2765b02c753b3a4a414867cbb37e078a",
+      "exact": true
+    },
+    {
+      "path": "server/ordinary-local-codex-capabilities.ts",
+      "donorSha256": "bea6fe896ae2956aca4d8b7ec62077ef2d35d0753a94ca78e888a721a26815ea",
+      "currentSha256": "bea6fe896ae2956aca4d8b7ec62077ef2d35d0753a94ca78e888a721a26815ea",
+      "exact": true
+    },
+    {
+      "path": "server/ordinary-local-codex-owned-runtime.ts",
+      "donorSha256": "56935fc386d88f4871431423e073a2100175b648aa0badc44dfb69ea234be709",
+      "currentSha256": "56935fc386d88f4871431423e073a2100175b648aa0badc44dfb69ea234be709",
+      "exact": true
+    },
+    {
+      "path": "server/owned-local-codex-chat-admission.ts",
+      "donorSha256": "8f610e04aed917d7d41f550344bb2837e7c77959a0e973fb01858a00297e06e4",
+      "currentSha256": "8f610e04aed917d7d41f550344bb2837e7c77959a0e973fb01858a00297e06e4",
+      "exact": true
+    },
+    {
+      "path": "server/telos-work-store.ts",
+      "donorSha256": "0aa5ff7956c122b3b898d0366e9eabb662f31c9aefdce9b140b1e1137264f408",
+      "currentSha256": "0aa5ff7956c122b3b898d0366e9eabb662f31c9aefdce9b140b1e1137264f408",
+      "exact": true
+    },
+    {
+      "path": "server/telos-artifact-store.ts",
+      "donorSha256": "df5f1bc68bf16822e3e4c6a0d998c1bc32dd460e19ad9e995bf71c94905a1865",
+      "currentSha256": "df5f1bc68bf16822e3e4c6a0d998c1bc32dd460e19ad9e995bf71c94905a1865",
+      "exact": true
+    },
+    {
+      "path": "server/telos-work-advisor-draft.ts",
+      "donorSha256": "a572995682705f98c47fffbdb11aff5eb0621f08d826e8584db542f8d89a28bb",
+      "currentSha256": "a572995682705f98c47fffbdb11aff5eb0621f08d826e8584db542f8d89a28bb",
+      "exact": true
+    },
+    {
+      "path": "server/telos-work-role-review.ts",
+      "donorSha256": "badfdb971c6f67d4dc0f6d7fa6fe2b2dfced3e70590c9cf1f4fa3d8bfe62cacd",
+      "currentSha256": "badfdb971c6f67d4dc0f6d7fa6fe2b2dfced3e70590c9cf1f4fa3d8bfe62cacd",
+      "exact": true
+    },
+    {
+      "path": "server/codex-app-server-client.ts",
+      "donorSha256": "02068ca656f91ff525bdec2b1ca25c1e5733e929b8b66c821ec98b3d0643a766",
+      "currentSha256": "02068ca656f91ff525bdec2b1ca25c1e5733e929b8b66c821ec98b3d0643a766",
+      "exact": true
+    },
+    {
+      "path": "server/app.ts",
+      "donorSha256": "6c03db0e00aa800acc01b65f6ef1c6434134d95aac260a34961585fe40abb4de",
+      "currentSha256": "b694cc3dd54988ce665bd4a5ef7cd5663770a4ccc32c27288329e8bf57f91042",
+      "exact": false
+    },
+    {
+      "path": "server/task-orchestrator.ts",
+      "donorSha256": "0c25385bc6ace3c9ef225b336379e41d47ecc99ba9f383dcf4f1cdd705c2fff7",
+      "currentSha256": "0c25385bc6ace3c9ef225b336379e41d47ecc99ba9f383dcf4f1cdd705c2fff7",
+      "exact": true
+    },
+    {
+      "path": "server/codex-chat-session.ts",
+      "donorSha256": "1bebc84590a319b5b8ba5d0a2b2c8718a48324b22b88e17bea13e2ac085f3386",
+      "currentSha256": "1bebc84590a319b5b8ba5d0a2b2c8718a48324b22b88e17bea13e2ac085f3386",
+      "exact": true
+    },
+    {
+      "path": "server/protected-sdk-command.ts",
+      "donorSha256": "e7c59a2ebfd3fde4b0c7c8cdf7f69f9d231e2e5f1819a61e0514cd707bc6c32f",
+      "currentSha256": "e7c59a2ebfd3fde4b0c7c8cdf7f69f9d231e2e5f1819a61e0514cd707bc6c32f",
+      "exact": true
+    },
+    {
+      "path": "server/repository-workspace-runtime.ts",
+      "donorSha256": "5f840bd1d8074b6e63c21c12f88b7e966a28d6cd6cfb83b5dcb9cd01a1ade414",
+      "currentSha256": "5f840bd1d8074b6e63c21c12f88b7e966a28d6cd6cfb83b5dcb9cd01a1ade414",
+      "exact": true
+    },
+    {
+      "path": "packages/protocol/src/database-backup.ts",
+      "donorSha256": "7e60e400fab54ad79fbb031dc5aca979b62f8e4ad467a7c8a50f09e97425b2f8",
+      "currentSha256": "7e60e400fab54ad79fbb031dc5aca979b62f8e4ad467a7c8a50f09e97425b2f8",
+      "exact": true
+    },
+    {
+      "path": "packages/protocol/src/event-store.ts",
+      "donorSha256": "b5c585e4934cb6faa5a646ba094f77709d1364a233b54b7bb06a07402b312fc8",
+      "currentSha256": "b5c585e4934cb6faa5a646ba094f77709d1364a233b54b7bb06a07402b312fc8",
+      "exact": true
+    },
+    {
+      "path": "packages/protocol/src/collaboration-forward-custody.ts",
+      "donorSha256": "63368fb15184ad9424eb91ef60a6bf8d37fd9ae67a6305eea46cef8e34d56d95",
+      "currentSha256": "63368fb15184ad9424eb91ef60a6bf8d37fd9ae67a6305eea46cef8e34d56d95",
+      "exact": true
+    },
+    {
+      "path": "packages/harness/src/index.ts",
+      "donorSha256": "847a8c68636cc6cfdaa65b8903180aa179930063bb6828410ff6f66bad9bf1a3",
+      "currentSha256": "847a8c68636cc6cfdaa65b8903180aa179930063bb6828410ff6f66bad9bf1a3",
+      "exact": true
+    },
+    {
+      "path": "server/mcp-entrypoint.ts",
+      "donorSha256": "28443053db17400d86243417723e61c4caf8abf01adcdaa2f7635a4063815590",
+      "currentSha256": "28443053db17400d86243417723e61c4caf8abf01adcdaa2f7635a4063815590",
+      "exact": true
+    },
+    {
+      "path": "server/index.ts",
+      "donorSha256": "aceb35153909bd9b09fe7151eded0e04374eed2d1f9e98bdb79f330a764b04dd",
+      "currentSha256": "aceb35153909bd9b09fe7151eded0e04374eed2d1f9e98bdb79f330a764b04dd",
+      "exact": true
+    }
+  ],
+  "reusedDifferences": []
+}

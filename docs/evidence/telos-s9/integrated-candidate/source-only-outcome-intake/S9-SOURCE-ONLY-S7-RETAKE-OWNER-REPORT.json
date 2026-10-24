@@ -1,0 +1,67 @@
+{
+  "recordedAt": "2026-10-20T11:37:54.918658+00:00",
+  "scope": "S7 Home Back P2 same-case actual-App retake GREEN; independent GREEN closure pending",
+  "originalRedReport": {
+    "id": "30921653c4428cbfae3e1cf8d9540990",
+    "itemId": "b896d14d79d52682",
+    "revision": 1,
+    "sha256": "10e5c2a5b2880d966c6f3a279f3fab8eab7be55412d1f9a5d4b00e981803faeb",
+    "filename": "s9-source-only-home-direct-result-2026-10-20.json",
+    "size": 123397,
+    "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-RESULT.json"
+  },
+  "report": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-RESULT.json",
+    "sha256": "20278f9a5d98dae196c8751a6791d6dfdf6f65aaf7606d199f88595658893ef0",
+    "size": 119997
+  },
+  "sourceProof": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-SOURCE-PROOF.json",
+    "sha256": "6765875470e41067c1d4a0e2fd17960e382dd27371420f162b23c192a4189912",
+    "size": 13727
+  },
+  "archives": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-SOURCE.zip",
+      "sha256": "001386752010877a28a8db7a5ac411a77da6bd231901a0df828c1ff65ee6ae63",
+      "size": 3604272
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS.zip",
+      "sha256": "e4e7e0e45108aeb6db019e42f4cf0d2bfcd47c1a70b0d718ac8a5e60910031c4",
+      "size": 487249
+    }
+  ],
+  "executionHead": "ab2c1f6617053f81364025cafe6d6116d6d16cce",
+  "executionTree": "1ed4db82b7e1613a8f5d70ae4290dbc7279ba151",
+  "selectedResult": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 16117.52490234375,
+    "disposition": "GREEN_same_case_Home_workspace_Back_returns_Home_origin_draft_retained"
+  },
+  "designGuards": {
+    "passed": 108,
+    "failed": 0,
+    "existingSkipped": 1,
+    "files": 6,
+    "raw": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS/design-guards/run.json",
+      "sha256": "11db2d42c4f140f46f7471aceff79b9b719f8eef486a78a326adc3a2d75fc72b",
+      "size": 41045
+    },
+    "notAdditionalAppCases": true
+  },
+  "soleOwner": {
+    "slice": "57b0894e0379ab95",
+    "thread": "01a14bd3-4565-7163-9701-ffa4c87ce495"
+  },
+  "expectedHomeReturnUnchanged": "/",
+  "observedWorkspaceBack": "/",
+  "independentBoundedReviewPending": true,
+  "fullRowAccepted": false,
+  "acceptedMainQualified": false,
+  "liveRuntimeQualified": false
+}

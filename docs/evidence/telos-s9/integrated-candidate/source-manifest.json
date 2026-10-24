@@ -1,0 +1,138 @@
+{
+  "sourceObservation": {
+    "observedAt": "2026-10-19T22:33:03.613683+00:00",
+    "main": {
+      "parents": ["3882cd217daad3e61e3642f84f7377c1d2caef52"],
+      "sha": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "tree": "f9b901cc43eef7de90f2e0cd8729dcb4a987cf67"
+    },
+    "pullRequests": [
+      {
+        "baseRefOid": "8cf2d007d196ba30037002c5bda4fe99bda74e88",
+        "headRefName": "feat/telos-s5b-non-code-journey",
+        "headRefOid": "688d9a57e756939b001ce41d7f3838997b3e1688",
+        "isDraft": true,
+        "mergeCommit": null,
+        "number": 1048,
+        "state": "OPEN",
+        "title": "test(telos): qualify the canonical non-Git work journey",
+        "url": "https://github.com/dimakis/mitzo/pull/1048"
+      },
+      {
+        "baseRefOid": "a43f53987a165370d40158a709961c169df388e6",
+        "headRefName": "feat/telos-s5b-ordinary-chat",
+        "headRefOid": "63c2679b4bc76ad464dead5c590e3fea8e08f892",
+        "isDraft": true,
+        "mergeCommit": null,
+        "number": 1046,
+        "state": "OPEN",
+        "title": "feat(telos): connect ordinary bound chats to durable commands",
+        "url": "https://github.com/dimakis/mitzo/pull/1046"
+      },
+      {
+        "baseRefOid": "3882cd217daad3e61e3642f84f7377c1d2caef52",
+        "headRefName": "codex/telos-s6-coordinator-controls",
+        "headRefOid": "aaaa006fcd5897e844e1b264bd21d5d5aba491be",
+        "isDraft": true,
+        "mergeCommit": null,
+        "number": 1051,
+        "state": "OPEN",
+        "title": "feat(telos): build S6 control receipts and authority fences",
+        "url": "https://github.com/dimakis/mitzo/pull/1051"
+      },
+      {
+        "baseRefOid": "4bac7e8fc0e9582aa56ba3c3583bfffdce76cb21",
+        "headRefName": "feat/telos-s8-chat-experience",
+        "headRefOid": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1",
+        "isDraft": true,
+        "mergeCommit": null,
+        "number": 1050,
+        "state": "OPEN",
+        "title": "feat(telos): start S8 chat chooser and collapsible work tree",
+        "url": "https://github.com/dimakis/mitzo/pull/1050"
+      },
+      {
+        "baseRefOid": "6537a5d6af5516e94872933205a9bcdd5dadfc29",
+        "headRefName": "fix/telos-offline-reload-readiness",
+        "headRefOid": "cb56f6c43ab32ebd347dfe9251b42eb72059854c",
+        "isDraft": true,
+        "mergeCommit": null,
+        "number": 1052,
+        "state": "OPEN",
+        "title": "test(telos): settle departing item reads before document reload",
+        "url": "https://github.com/dimakis/mitzo/pull/1052"
+      }
+    ]
+  },
+  "scope": "Selected source fingerprints and actual test results; no complete-source/runtime acceptance claim",
+  "sources": {
+    "accepted-main": {
+      "head": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "tree": "f9b901cc43eef7de90f2e0cd8729dcb4a987cf67",
+      "files": {
+        "server/app.ts": "e830711096c029d8962acc5acbfc7d09289cdc4ac967658118fdb5c8645a78f4",
+        "server/session-collaboration-router.ts": "32e8788aa3c8c932d4f2641bec8889e7c6dd742e51cde56c6fc7cf9a79eef7ab",
+        "server/agent-tool-catalog.ts": "893e84845e1eb70c0cd3cdb9f76481f258e66da488652665a7f0c0d6037530fe",
+        "server/session-messages-route.ts": "9564ae2343dbce4297e6bdea7a183daa2b63e6df8d747e143d9439f5cd4f998d",
+        "server/__tests__/fixtures/symposium-application-http.ts": "01f2b056b65055b3eb07c51cbdf0fcc5b626b102cd226b2263ad1f704f987711",
+        "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda",
+        "tests/integration/telos-s9/integrated-candidate/peer-messaging.required-contract.ts": "b7f8b3cbccd5269b21e8a3d089d039809bfdc8a76dd72d299b63e256a0da0fae",
+        "tests/integration/telos-s9/integrated-candidate/vitest.required.config.ts": "7688c8811fe3593072f4c0d968910205741ef9f0025c18f6cdb957d9b0e7a9c2"
+      }
+    },
+    "S5b1048": {
+      "head": "688d9a57e756939b001ce41d7f3838997b3e1688",
+      "tree": "dee09b8758f8034ffbdcea741230c4a0ef930d26",
+      "files": {
+        "server/__tests__/telos-ordinary-canonical-journey.test.ts": "481c60b502784c096c278736b4c230674abc4693de9da8f217ba92064b810de4",
+        "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts": "015e39f02b66d3e7cf58615c8512fc7f01cff67a036ce6c435efb3a7f9864b75",
+        "server/__tests__/telos-canonical-advisor-http.test.ts": "21ac107e11ab9083dd092f37b73f7e98447e2d3e08225e2986676e07f8e02ab5",
+        "server/__tests__/telos-canonical-schema-fixtures.test.ts": "15cf5e6570c6f12b9dbcd43dbe5727addb3d9002cc2b9efa5040a7c46dae1679",
+        "server/__tests__/telos-canonical-journey.test.ts": "7c25a88bb1ed52f75eec66dee9097299e876149f6ee5d84bf435a11c55a06ebb",
+        "server/__tests__/ordinary-workspace-preparation-http.test.ts": "ed5805bdbd9fe033155e09f9cbc3b55056ad67d20f9f4d2927233a7d0d1f6a34",
+        "server/__tests__/telos-ordinary-work-delegation.test.ts": "4f82a4ef4a491fefe46bbad0db9e2fe64c56150161fc3d567e6b4f6c7eea9800",
+        "tests/integration/telos-s9/accepted-foundations/vertical.contract.ts": "05826988a9474044e757617b7ccbfd6019f5dd63177b1cf578c942cea7ad2b84",
+        "tests/integration/telos-s9/accepted-foundations/recovery.contract.tsx": "49a3e250aec4732c076bf79d3a9fad04480fb293209d686eb718a8e727d50390",
+        "tests/integration/telos-s9/accepted-foundations/fixture.ts": "1c30c49eac43c463490167d48a352e27aa72650012b9e4d5b5e4f2f1a7f0f4f7",
+        "vitest.config.ts": "b2f7e989da777a6118b677221d4be67e386e90b99647674c7ed81fcac2a9e53e"
+      }
+    },
+    "S6-1051": {
+      "head": "00ff34da2ec7fae19e9f6c2cc951abe149642252",
+      "tree": "82c7fbc96fa554f4cbde3234ac4e3c12be35ced3",
+      "files": {
+        "server/__tests__/telos-work-controls.test.ts": "2cb992ec3fc1c6c062236cf905d7002d1dc812524b8d3bda79028f8bfb3e4bfa",
+        "server/__tests__/telos-work-command-scope.test.ts": "f169ba32cdd8e1305ca96179d51176f9b960ee675e7eeda55c1ded972f770ce7",
+        "server/__tests__/telos-work-control-tools.test.ts": "7f4d031b028a6b442d183e01f06efddde0813e3b61ac5da9a0f0f0e692863db4",
+        "server/telos-work-controls.ts": "2fc2b2894eca7ab3457734acdc44772bd6de406d3b322939a488e762f0c92c29",
+        "server/telos-work-routes.ts": "d96bd1b495c8b127909725b51328a0af378144ccfa2b3749a7a423b092a4b371",
+        "server/telos-work-command-scope.ts": "b42386e1f385f4d92ea73042a89e7b69575f4d7d7f58139c2b83b0a2662eb2d1",
+        "vitest.config.ts": "317dd2e81b06574464010ab4a3ca8447af6120ee6f1ab5978171bf8254bced94",
+        "server/codex-chat-session.ts": "61492e5f44732baa872bc9b05cd84deb700c97d157315ba3d88587fef4c79895",
+        "server/__tests__/codex-chat-session.test.ts": "f77221717c30116082f02f432b203c5b64ecaa0cd5a969d2009a0f3bba28d5d1",
+        "server/codex-conversation-store.ts": "0308642ada4c95ab32806685d80ba8be0d01f81a4cbbebedcff946a0b312d864"
+      }
+    },
+    "S6-1051-aaaa-historical": {
+      "head": "aaaa006fcd5897e844e1b264bd21d5d5aba491be",
+      "tree": "70ab82b48121677f6690c9e10065895e3fa70ee3",
+      "files": {
+        "server/__tests__/telos-work-controls.test.ts": "185626bcbea7cd9d0b5cb9d10263b6e3e424ea3b6bf2670608b074358ad0c956",
+        "server/__tests__/telos-work-command-scope.test.ts": "a886751c7c5b048dcb0b1354c35528b88af6dee3e7c3adb61df2250e6ae047fd",
+        "server/__tests__/telos-work-control-tools.test.ts": "7f4d031b028a6b442d183e01f06efddde0813e3b61ac5da9a0f0f0e692863db4",
+        "server/telos-work-controls.ts": "91413804155784dd73b1344cd242888580e4a2841175cb3771a6293b898aab2a",
+        "server/telos-work-routes.ts": "d96bd1b495c8b127909725b51328a0af378144ccfa2b3749a7a423b092a4b371",
+        "server/telos-work-command-scope.ts": "7d37cabaf1ffd901f6b982756936b0e6be55f445ab4beb282ff731941310c60e",
+        "vitest.config.ts": "317dd2e81b06574464010ab4a3ca8447af6120ee6f1ab5978171bf8254bced94"
+      }
+    }
+  },
+  "laterSourceObservations": {
+    "observedAt": "2026-10-19T22:44:16.519612+00:00",
+    "S6-1051": "00ff34da2ec7fae19e9f6c2cc951abe149642252",
+    "S7-1052": "bfb26e39562407daf960480bbd0ab4ae5c49d7a9",
+    "both": "open draft; S6 selected materially changed boundaries requalified, S7 not newly tested",
+    "S5b1048": "688d9a57e756939b001ce41d7f3838997b3e1688",
+    "S8-1050": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1"
+  }
+}

@@ -2,6 +2,7 @@ import { materializePreparedRepositoryFixture } from './fixtures/materialized-pr
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { nativeToolDefinitions } from '../native-tool-executor.js';
+import { localEfficiencyToolDefinitions } from '../local-agent-efficiency.js';
 import { CodexAppServerClient } from '../codex-app-server-client.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { codexDynamicToolsOption } from '../codex-ordinary-packet.js';
@@ -162,7 +163,10 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
         JSON.stringify(
           codexDynamicToolsOption(
             chatRoute
-              ? nativeToolDefinitions.filter((tool) => tool.name === 'AskUserQuestion')
+              ? [
+                  ...nativeToolDefinitions.filter((tool) => tool.name === 'AskUserQuestion'),
+                  ...localEfficiencyToolDefinitions.filter((tool) => tool.name === 'SearchSkills'),
+                ]
               : [],
           ),
         ),
@@ -838,11 +842,17 @@ it('reaches fresh qualified cold admission through the actual public owned entry
     payload: { text: 'Continue the same saved task' },
   };
   const underlying = f.rpc.request.getMockImplementation()!;
+  let signalNativeTurnStarted!: () => void;
+  const nativeTurnStarted = new Promise<void>((resolve) => {
+    signalNativeTurnStarted = resolve;
+  });
   f.rpc.request.mockImplementation(async (method, params?: Record<string, unknown>) => {
     if (method === 'thread/resume')
       return { thread: { id: 'thread' }, model: 'fixture-model', modelProvider: 'openai' };
-    if (method === 'turn/start')
+    if (method === 'turn/start') {
+      signalNativeTurnStarted();
       return { turn: { id: `public-cold-${String(params?.clientUserMessageId)}` } };
+    }
     return underlying(method);
   });
   const launch = vi
@@ -917,9 +927,14 @@ it('reaches fresh qualified cold admission through the actual public owned entry
       threadId: 'thread',
       cwd: result!.directory,
       permissions: 'mitzo-native-agent',
+      config: expect.objectContaining({ 'skills.max_context_tokens': 1500 }),
     });
     expect(packets.some(([method]) => method === 'thread/start')).toBe(false);
     expect(native.getCodexRuntime(registered.session)).toBeDefined();
+    // Cold requalification performs real physical checks before dispatch. Await
+    // the provider boundary within this journey's existing 420-second limit;
+    // the receipt poll below bounds projection after that actual turn/start.
+    await nativeTurnStarted;
     await vi.waitFor(
       () => {
         const command = f.native

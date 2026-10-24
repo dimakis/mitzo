@@ -1,0 +1,2333 @@
+{
+  "schemaVersion": 1,
+  "parent": "85e8444019a4ae4a",
+  "slice": "b896d14d79d52682",
+  "status": "offline acceptance in progress; candidate sources unaccepted",
+  "sourceObservation": {
+    "observedAt": "2026-10-19T22:33:03.613683+00:00",
+    "main": {
+      "parents": ["3882cd217daad3e61e3642f84f7377c1d2caef52"],
+      "sha": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "tree": "f9b901cc43eef7de90f2e0cd8729dcb4a987cf67"
+    },
+    "pullRequests": [
+      {
+        "baseRefOid": "8cf2d007d196ba30037002c5bda4fe99bda74e88",
+        "headRefName": "feat/telos-s5b-non-code-journey",
+        "headRefOid": "688d9a57e756939b001ce41d7f3838997b3e1688",
+        "isDraft": true,
+        "mergeCommit": null,
+        "number": 1048,
+        "state": "OPEN",
+        "title": "test(telos): qualify the canonical non-Git work journey",
+        "url": "https://github.com/dimakis/mitzo/pull/1048"
+      },
+      {
+        "baseRefOid": "a43f53987a165370d40158a709961c169df388e6",
+        "headRefName": "feat/telos-s5b-ordinary-chat",
+        "headRefOid": "63c2679b4bc76ad464dead5c590e3fea8e08f892",
+        "isDraft": true,
+        "mergeCommit": null,
+        "number": 1046,
+        "state": "OPEN",
+        "title": "feat(telos): connect ordinary bound chats to durable commands",
+        "url": "https://github.com/dimakis/mitzo/pull/1046"
+      },
+      {
+        "baseRefOid": "3882cd217daad3e61e3642f84f7377c1d2caef52",
+        "headRefName": "codex/telos-s6-coordinator-controls",
+        "headRefOid": "aaaa006fcd5897e844e1b264bd21d5d5aba491be",
+        "isDraft": true,
+        "mergeCommit": null,
+        "number": 1051,
+        "state": "OPEN",
+        "title": "feat(telos): build S6 control receipts and authority fences",
+        "url": "https://github.com/dimakis/mitzo/pull/1051"
+      },
+      {
+        "baseRefOid": "4bac7e8fc0e9582aa56ba3c3583bfffdce76cb21",
+        "headRefName": "feat/telos-s8-chat-experience",
+        "headRefOid": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1",
+        "isDraft": true,
+        "mergeCommit": null,
+        "number": 1050,
+        "state": "OPEN",
+        "title": "feat(telos): start S8 chat chooser and collapsible work tree",
+        "url": "https://github.com/dimakis/mitzo/pull/1050"
+      },
+      {
+        "baseRefOid": "6537a5d6af5516e94872933205a9bcdd5dadfc29",
+        "headRefName": "fix/telos-offline-reload-readiness",
+        "headRefOid": "cb56f6c43ab32ebd347dfe9251b42eb72059854c",
+        "isDraft": true,
+        "mergeCommit": null,
+        "number": 1052,
+        "state": "OPEN",
+        "title": "test(telos): settle departing item reads before document reload",
+        "url": "https://github.com/dimakis/mitzo/pull/1052"
+      }
+    ]
+  },
+  "historicalLedger": {
+    "id": "94677289bff9efacb03a9b55369a4d36",
+    "revision": 22,
+    "sha256": "1f4b67d1497aa1a19bb5eda1a9af823b1c8e4e495b98f4345fd5defa44487a10",
+    "frozen44RowsNotRewritten": true
+  },
+  "ux": [
+    {
+      "id": "UX01",
+      "requirement": "Work first opens All outcomes with pinned category filters, discovery and search.",
+      "slices": ["S7"],
+      "sliceOwners": ["57b0894e0379ab95"],
+      "boundaryOwner": "a4d34a98b4d20bbc",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX01",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+          "file": "tests/offline/telos-outcomes-workspace.spec.ts",
+          "scope": "existing intercepted UI owner evidence, not executed by this increment"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1052,
+            "head": "bfb26e39562407daf960480bbd0ab4ae5c49d7a9"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "frontend/src/pages/__tests__/TodoView.test.tsx"
+    },
+    {
+      "id": "UX02",
+      "requirement": "Explicit recursive tree distinguishes Coordinator, Outcome and Work item; selecting opens the right workspace.",
+      "slices": ["S2", "S7"],
+      "sliceOwners": ["847cb038d1e46d16", "57b0894e0379ab95"],
+      "boundaryOwner": "b5cd51ac8a56007f",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX02",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+          "file": "tests/offline/telos-outcomes-workspace.spec.ts",
+          "scope": "existing intercepted UI owner evidence, not executed by this increment"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1052,
+            "head": "bfb26e39562407daf960480bbd0ab4ae5c49d7a9"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "server/__tests__/telos-work-store.test.ts"
+    },
+    {
+      "id": "UX03",
+      "requirement": "One minimal back chevron plus optional breadcrumbs; back restores the previous item/list/chat context.",
+      "slices": ["S7", "S8"],
+      "sliceOwners": ["57b0894e0379ab95", "b47a0c568f1d98ba"],
+      "boundaryOwner": "a4d34a98b4d20bbc",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX03",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+          "file": "tests/offline/telos-outcomes-workspace.spec.ts",
+          "scope": "existing intercepted UI owner evidence, not executed by this increment"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1052,
+            "head": "bfb26e39562407daf960480bbd0ab4ae5c49d7a9"
+          },
+          {
+            "pr": 1050,
+            "head": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "frontend/src/pages/__tests__/TodoDetailView.test.tsx"
+    },
+    {
+      "id": "UX04",
+      "requirement": "Overview retains outcome, why it matters, done when, task hint, context and origin/dates.",
+      "slices": ["S3", "S7"],
+      "sliceOwners": ["d4e0bf084cd61139", "57b0894e0379ab95"],
+      "boundaryOwner": "4f55b423d0731750",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX04",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+          "file": "tests/offline/telos-outcomes-workspace.spec.ts",
+          "scope": "existing intercepted UI owner evidence, not executed by this increment"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1052,
+            "head": "bfb26e39562407daf960480bbd0ab4ae5c49d7a9"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "frontend/src/pages/__tests__/TodoDetailView.test.tsx"
+    },
+    {
+      "id": "UX05",
+      "requirement": "Lead assignment reuses ordinary Agent, Account, Model, Thinking, Run on and derived Runs with controls.",
+      "slices": ["S4", "S8"],
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "boundaryOwner": "2f58567a6c487079",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX05",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "tests/offline/telos-ordinary-role.spec.ts",
+          "scope": "existing intercepted role/composer evidence; not joined to backend"
+        },
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "server/__tests__/telos-ordinary-canonical-journey.test.ts",
+          "scope": "actual-app/native-fake/MCP backend journey passed separately"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1050,
+            "head": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1"
+          },
+          {
+            "pr": 1048,
+            "head": "688d9a57e756939b001ce41d7f3838997b3e1688"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "frontend/src/components/__tests__/ChatExecutionPicker.test.tsx"
+    },
+    {
+      "id": "UX06",
+      "requirement": "Originating chat is separate from an assigned lead. Home studio can be source-only and unassigned.",
+      "slices": ["S3", "S4"],
+      "sliceOwners": ["d4e0bf084cd61139", "4cd96f8d0f5a5f3f"],
+      "boundaryOwner": "b5cd51ac8a56007f",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX06",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "tests/offline/telos-ordinary-role.spec.ts",
+          "scope": "existing intercepted role/composer evidence; not joined to backend"
+        },
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "server/__tests__/telos-ordinary-canonical-journey.test.ts",
+          "scope": "actual-app/native-fake/MCP backend journey passed separately"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1048,
+            "head": "688d9a57e756939b001ce41d7f3838997b3e1688"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "server/__tests__/telos-work-tools.test.ts"
+    },
+    {
+      "id": "UX07",
+      "requirement": "Item opens exact originating conversation/exchange; original conversation links back to the created item; adopted context/revisions remain stable.",
+      "slices": ["S2", "S3"],
+      "sliceOwners": ["847cb038d1e46d16", "d4e0bf084cd61139"],
+      "boundaryOwner": "4f55b423d0731750",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX07",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "tests/offline/telos-ordinary-role.spec.ts",
+          "scope": "existing intercepted role/composer evidence; not joined to backend"
+        },
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "server/__tests__/telos-ordinary-canonical-journey.test.ts",
+          "scope": "actual-app/native-fake/MCP backend journey passed separately"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "server/__tests__/telos-work-source.test.ts"
+    },
+    {
+      "id": "UX08",
+      "requirement": "Refine and Add child use full normal advisor chats with item, parent and overall goal context.",
+      "slices": ["S4", "S8"],
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "boundaryOwner": "c0851ba23fcc5d04",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX08",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "tests/offline/telos-ordinary-role.spec.ts",
+          "scope": "existing intercepted role/composer evidence; not joined to backend"
+        },
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "server/__tests__/telos-ordinary-canonical-journey.test.ts",
+          "scope": "actual-app/native-fake/MCP backend journey passed separately"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1050,
+            "head": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1"
+          },
+          {
+            "pr": 1048,
+            "head": "688d9a57e756939b001ce41d7f3838997b3e1688"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "frontend/src/components/__tests__/TelosAdvisor.test.tsx"
+    },
+    {
+      "id": "UX09",
+      "requirement": "Lead has an explicit collaboration/delegation/review mandate and corresponding scoped host behavior.",
+      "slices": ["S4", "S5"],
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "cf8dc85a4b6afaad"],
+      "boundaryOwner": "86255ad3cd29fcf1",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX09",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "tests/offline/telos-ordinary-role.spec.ts",
+          "scope": "existing intercepted role/composer evidence; not joined to backend"
+        },
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "server/__tests__/telos-ordinary-canonical-journey.test.ts",
+          "scope": "actual-app/native-fake/MCP backend journey passed separately"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1048,
+            "head": "688d9a57e756939b001ce41d7f3838997b3e1688"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "server/__tests__/telos-work-tools.test.ts"
+    },
+    {
+      "id": "UX10",
+      "requirement": "\u201cStart slice one\u201d creates one ordinary worker chat for exactly that item, returns a worker link and keeps the user in the lead chat.",
+      "slices": ["S5"],
+      "sliceOwners": ["cf8dc85a4b6afaad"],
+      "boundaryOwner": "2d80ca5c140bac5f",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX10",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "tests/offline/telos-ordinary-role.spec.ts",
+          "scope": "existing intercepted role/composer evidence; not joined to backend"
+        },
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "server/__tests__/telos-ordinary-canonical-journey.test.ts",
+          "scope": "actual-app/native-fake/MCP backend journey passed separately"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1048,
+            "head": "688d9a57e756939b001ce41d7f3838997b3e1688"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "server/__tests__/telos-work-delegation.test.ts"
+    },
+    {
+      "id": "UX11",
+      "requirement": "Worker receives reviewed brief/parent criteria/sources and links back to item and lead.",
+      "slices": ["S2", "S4", "S5"],
+      "sliceOwners": ["847cb038d1e46d16", "4cd96f8d0f5a5f3f", "cf8dc85a4b6afaad"],
+      "boundaryOwner": "86255ad3cd29fcf1",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX11",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "tests/offline/telos-ordinary-role.spec.ts",
+          "scope": "existing intercepted role/composer evidence; not joined to backend"
+        },
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "server/__tests__/telos-ordinary-canonical-journey.test.ts",
+          "scope": "actual-app/native-fake/MCP backend journey passed separately"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1048,
+            "head": "688d9a57e756939b001ce41d7f3838997b3e1688"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "server/__tests__/telos-work-delegation.test.ts"
+    },
+    {
+      "id": "UX12",
+      "requirement": "Multiple chats for a smallest item are listed immediately on the item's Chat tab with no default selection. Selecting opens full chat; Back returns to list.",
+      "slices": ["S8"],
+      "sliceOwners": ["b47a0c568f1d98ba"],
+      "boundaryOwner": "a4d34a98b4d20bbc",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX12",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1",
+          "file": "tests/offline/telos-chat-selection.spec.ts",
+          "scope": "published component fixture only; production adoption/real joined UI still pending"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1050,
+            "head": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "frontend/src/components/__tests__/TelosChatList.test.tsx"
+    },
+    {
+      "id": "UX13",
+      "requirement": "One non-origin chat can open directly; source-only items expose origin and lead assignment. Counts match the actual unique linked conversations.",
+      "slices": ["S4", "S8"],
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "boundaryOwner": "a4d34a98b4d20bbc",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX13",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1",
+          "file": "tests/offline/telos-chat-selection.spec.ts",
+          "scope": "published component fixture only; production adoption/real joined UI still pending"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1050,
+            "head": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1"
+          },
+          {
+            "pr": 1048,
+            "head": "688d9a57e756939b001ce41d7f3838997b3e1688"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "frontend/src/components/__tests__/TelosChatList.test.tsx"
+    },
+    {
+      "id": "UX14",
+      "requirement": "New chat creates another conversation for the same item; Change worker explicitly replaces current assignment. Both preserve prior chats.",
+      "slices": ["S2", "S4", "S8"],
+      "sliceOwners": ["847cb038d1e46d16", "4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "boundaryOwner": "b5cd51ac8a56007f",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX14",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1",
+          "file": "tests/offline/telos-chat-selection.spec.ts",
+          "scope": "published component fixture only; production adoption/real joined UI still pending"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1050,
+            "head": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1"
+          },
+          {
+            "pr": 1048,
+            "head": "688d9a57e756939b001ce41d7f3838997b3e1688"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "server/__tests__/telos-work-store.test.ts"
+    },
+    {
+      "id": "UX15",
+      "requirement": "Each chat keeps its own drafts, history, account/model/runtime/workspace and attributed outputs across navigation/restart.",
+      "slices": ["S2", "S4", "S8"],
+      "sliceOwners": ["847cb038d1e46d16", "4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "boundaryOwner": "2f58567a6c487079",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX15",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1",
+          "file": "tests/offline/telos-chat-selection.spec.ts",
+          "scope": "published component fixture only; production adoption/real joined UI still pending"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1050,
+            "head": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1"
+          },
+          {
+            "pr": 1048,
+            "head": "688d9a57e756939b001ce41d7f3838997b3e1688"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "frontend/src/components/__tests__/TelosChatList.test.tsx"
+    },
+    {
+      "id": "UX16",
+      "requirement": "Chat has compact standard controls plus one slim item/chats/work row; work tree is closed by default and collapsible.",
+      "slices": ["S8"],
+      "sliceOwners": ["b47a0c568f1d98ba"],
+      "boundaryOwner": "a4d34a98b4d20bbc",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX16",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1",
+          "file": "tests/offline/telos-chat-selection.spec.ts",
+          "scope": "published component fixture only; production adoption/real joined UI still pending"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1050,
+            "head": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "frontend/src/components/__tests__/TelosChatList.test.tsx"
+    },
+    {
+      "id": "UX17",
+      "requirement": "Coordinator asks priority and routes scoped controls through child leads; requested/acknowledged/applied/released are distinct and retained.",
+      "slices": ["S6"],
+      "sliceOwners": ["335551581dbf1e93"],
+      "boundaryOwner": "86255ad3cd29fcf1",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX17",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "00ff34da2ec7fae19e9f6c2cc951abe149642252",
+          "file": "server/__tests__/telos-work-controls.test.ts",
+          "scope": "current selected store/HTTP control contracts passed; no queue/UI join"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1051,
+            "head": "00ff34da2ec7fae19e9f6c2cc951abe149642252"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "server/__tests__/telos-work-coordination.test.ts"
+    },
+    {
+      "id": "UX18",
+      "requirement": "Unrelated outcomes remain unaffected; release requires appropriate upstream revalidation.",
+      "slices": ["S6"],
+      "sliceOwners": ["335551581dbf1e93"],
+      "boundaryOwner": "86255ad3cd29fcf1",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX18",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "00ff34da2ec7fae19e9f6c2cc951abe149642252",
+          "file": "server/__tests__/telos-work-controls.test.ts",
+          "scope": "current selected store/HTTP control contracts passed; no queue/UI join"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1051,
+            "head": "00ff34da2ec7fae19e9f6c2cc951abe149642252"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "server/__tests__/telos-work-coordination.test.ts"
+    },
+    {
+      "id": "UX19",
+      "requirement": "Materials retain document revision/hash, author, source, created/added/updated dates; Outputs, Sources and Links stay distinct.",
+      "slices": ["S3", "S7"],
+      "sliceOwners": ["d4e0bf084cd61139", "57b0894e0379ab95"],
+      "boundaryOwner": "4f55b423d0731750",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX19",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+          "file": "tests/offline/telos-outcomes-workspace.spec.ts",
+          "scope": "existing intercepted UI owner evidence, not executed by this increment"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1052,
+            "head": "bfb26e39562407daf960480bbd0ab4ae5c49d7a9"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "server/__tests__/telos-work-source.test.ts"
+    },
+    {
+      "id": "UX20",
+      "requirement": "Legacy items retain IDs, hierarchy, original fields/status/profile/links/context and explicit references; unknown provenance stays unknown.",
+      "slices": ["S2", "S3"],
+      "sliceOwners": ["847cb038d1e46d16", "d4e0bf084cd61139"],
+      "boundaryOwner": "b5cd51ac8a56007f",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX20",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+          "file": "tests/offline/telos-outcomes-workspace.spec.ts",
+          "scope": "existing intercepted UI owner evidence, not executed by this increment"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "server/__tests__/telos-work-migration.test.ts"
+    },
+    {
+      "id": "UX21",
+      "requirement": "Requests/retries/restart cannot duplicate item links, current assignments or worker allocations; uncertain results stay uncertain.",
+      "slices": ["S2", "S5"],
+      "sliceOwners": ["847cb038d1e46d16", "cf8dc85a4b6afaad"],
+      "boundaryOwner": "2d80ca5c140bac5f",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX21",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "tests/offline/telos-ordinary-role.spec.ts",
+          "scope": "existing intercepted role/composer evidence; not joined to backend"
+        },
+        {
+          "source": "688d9a57e756939b001ce41d7f3838997b3e1688",
+          "file": "server/__tests__/telos-ordinary-canonical-journey.test.ts",
+          "scope": "actual-app/native-fake/MCP backend journey passed separately"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1048,
+            "head": "688d9a57e756939b001ce41d7f3838997b3e1688"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "server/__tests__/telos-work-delegation.test.ts"
+    },
+    {
+      "id": "UX22",
+      "requirement": "Ordinary chat controls retain full parity, including Resources, context, Access, voice, skills, attachments, queued turns and stop/interrupt.",
+      "slices": ["S4", "S8"],
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "boundaryOwner": "c44884c370d26704",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX22",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1",
+          "file": "tests/offline/telos-chat-selection.spec.ts",
+          "scope": "published component fixture only; production adoption/real joined UI still pending"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1050,
+            "head": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1"
+          },
+          {
+            "pr": 1048,
+            "head": "688d9a57e756939b001ce41d7f3838997b3e1688"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "tests/browser/telos-workspaces.spec.ts"
+    },
+    {
+      "id": "UX23",
+      "requirement": "Exact final mock remains retained and retrievable by artifact ID, revision and hash. Any product-facing deviation needs explicit approval.",
+      "slices": ["S1", "S9"],
+      "sliceOwners": ["accd3d6f834c164d", "b896d14d79d52682"],
+      "boundaryOwner": "4f55b423d0731750",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX23",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+          "file": "frontend/src/styles/__tests__/approved-designs.test.ts",
+          "scope": "ledger integrity1pass1existinglocal skip; no visual acceptance"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "tests/browser/telos-workspaces.spec.ts"
+    },
+    {
+      "id": "UX24",
+      "requirement": "Desktop and mobile conform, including narrow layout, full-width transcript after closing tree, keyboard and touch navigation.",
+      "slices": ["S7", "S8", "S9"],
+      "sliceOwners": ["57b0894e0379ab95", "b47a0c568f1d98ba", "b896d14d79d52682"],
+      "boundaryOwner": "a4d34a98b4d20bbc",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX24",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "acceptedMainResult": "pending new final combination",
+      "candidateJoinedResult": "pending",
+      "sourceHead": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "test": [
+        {
+          "source": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+          "file": "frontend/src/styles/__tests__/approved-designs.test.ts",
+          "scope": "ledger integrity1pass1existinglocal skip; no visual acceptance"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "final joined visual comparison pending; separate retained owner captures are not promoted"
+      },
+      "exception": "Existing producer/component/intercepted-browser evidence retained separately; joined path and final visual acceptance outstanding.",
+      "source": {
+        "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+        "producerCandidates": [
+          {
+            "pr": 1052,
+            "head": "bfb26e39562407daf960480bbd0ab4ae5c49d7a9"
+          },
+          {
+            "pr": 1050,
+            "head": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1"
+          }
+        ],
+        "finalCombinedSource": null,
+        "exception": "No source pin here implies candidate acceptance or execution of an unrun browser suite."
+      },
+      "historicalPlannedOwnerTest": "tests/browser/telos-workspaces.spec.ts"
+    }
+  ],
+  "corrective": [
+    {
+      "id": "CT01",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Advisor refine and child creation on canonical schemas",
+      "assertions": "Use the actual MGMT schema/migrations with synthetic rows: fresh and pre-change upgrade fixtures. No test-only categories column. Required first_seen/last_seen and creation/history semantics hold. Save/refine round-trip all fields through real Mitzo routes and canonical read paths.",
+      "boundary": "MGMT persistence -> Telos work store/routes -> typed client projection",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT01",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": ["server/__tests__/telos-canonical-advisor.test.ts"],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "ownedAcceptance": "S5a CT01\u201306 separately ratified at634; this additive join does not reopen that historical owner acceptance.",
+      "sourceHead": "688d9a57e756939b001ce41d7f3838997b3e1688",
+      "lowerLevelResult": "focused source-pinned owner contracts passed; actual-app CT09 passed separately; no joined browser claim"
+    },
+    {
+      "id": "CT02",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Atomic advisor save and replay",
+      "assertions": "Inject failure after item, source and receipt writes; roll back or recover according to the owning transaction contract. Repeat identical request returns original identities; changed input under the same request identity fails without mutation. No orphan source or false receipt.",
+      "boundary": "Canonical items/sources/history and material/receipt owners",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT02",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": ["server/__tests__/telos-canonical-advisor.test.ts"],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "ownedAcceptance": "S5a CT01\u201306 separately ratified at634; this additive join does not reopen that historical owner acceptance.",
+      "sourceHead": "688d9a57e756939b001ce41d7f3838997b3e1688",
+      "lowerLevelResult": "focused source-pinned owner contracts passed; actual-app CT09 passed separately; no joined browser claim"
+    },
+    {
+      "id": "CT03",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Stale review rejected before allocation",
+      "assertions": "Change the item after review. Definite rejection permits fresh context review while preserving user draft/settings; retry uses the new revision; reload cannot trap the draft. Assert no allocator/model call on rejected request.",
+      "boundary": "Actual HTTP error contract -> useTelosRoleSetup -> setup UI",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT03",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": ["tests/integration/telos-s9/accepted-foundations/recovery.contract.tsx"],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "ownedAcceptance": "S5a CT01\u201306 separately ratified at634; this additive join does not reopen that historical owner acceptance.",
+      "sourceHead": "688d9a57e756939b001ce41d7f3838997b3e1688",
+      "lowerLevelResult": "real hook/HTTP/store recovery passed on688; no rendered full-page/app-process restart claim"
+    },
+    {
+      "id": "CT04",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Unknown allocation/commit outcome and reload",
+      "assertions": "Drop response after allocation and after durable commit; restart/reload then retry. Preserve original request identity, chat and assignment, with no duplicate allocation. Do not indiscriminately unlock every 409; prove pre-allocation rejection differs from uncertain/post-allocation outcomes.",
+      "boundary": "Role setup host/store receipts -> frontend persistence",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT04",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": ["tests/integration/telos-s9/accepted-foundations/recovery.contract.tsx"],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "ownedAcceptance": "S5a CT01\u201306 separately ratified at634; this additive join does not reopen that historical owner acceptance.",
+      "sourceHead": "688d9a57e756939b001ce41d7f3838997b3e1688",
+      "lowerLevelResult": "real hook/HTTP/store recovery passed on688; no rendered full-page/app-process restart claim"
+    },
+    {
+      "id": "CT05",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Readable approved linked context",
+      "assertions": "Render overall goal, parent outcome, this item, done when and readable source/revision labels from actual DTOs. Keep immutable IDs/hashes correct without making them the primary explanation. Compare desktop/mobile light/dark and narrow width with frozen approval; preserve approved settings sheet.",
+      "boundary": "Real projection -> TelosLinkedContext and offline intercepted browser",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT05",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": ["frontend/src/components/__tests__/TelosLinkedContext.test.tsx"],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "ownedAcceptance": "S5a CT01\u201306 separately ratified at634; this additive join does not reopen that historical owner acceptance.",
+      "sourceHead": "688d9a57e756939b001ce41d7f3838997b3e1688"
+    },
+    {
+      "id": "CT06",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Early repository-backed vertical journey",
+      "assertions": "Synthetic origin/material -> advisor save -> lead setup -> exact child delegation -> ordinary worker/task -> saved output -> pending_review -> explicit verified completion. Use real stores/routes/dispatcher boundaries with fake provider/external side effects. Assert independent worker workspace and pinned revision, no sibling dispatch, no implicit model turn, no readiness-as-completion.",
+      "boundary": "Accepted S5 + S5a combined integration, no live backend/model",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT06",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": ["server/__tests__/telos-canonical-journey.test.ts"],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "ownedAcceptance": "S5a CT01\u201306 separately ratified at634; this additive join does not reopen that historical owner acceptance.",
+      "sourceHead": "688d9a57e756939b001ce41d7f3838997b3e1688",
+      "lowerLevelResult": "focused source-pinned owner contracts passed; actual-app CT09 passed separately; no joined browser claim"
+    },
+    {
+      "id": "CT07",
+      "owner": "df0d5bb2ec46416b",
+      "scenario": "Ordinary non-code workspace admission",
+      "assertions": "Home studio/people-work item can review context and create applicable advisor/lead/worker without repository selection. Stable workspace identity and capability contract reuse ordinary runtime owners. Unsupported operations fail before allocation with an actionable reason; never fabricate a repository.",
+      "boundary": "Repository-free admission -> ordinary allocator -> role/work bindings",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT07",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": ["server/__tests__/ordinary-workspace-preparation-http.test.ts"],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "sourceHead": "688d9a57e756939b001ce41d7f3838997b3e1688",
+      "lowerLevelResult": "focused source-pinned owner contracts passed; actual-app CT09 passed separately; no joined browser claim"
+    },
+    {
+      "id": "CT08",
+      "owner": "df0d5bb2ec46416b",
+      "scenario": "Repository-free exact delegation and recovery",
+      "assertions": "Exactly one requested child gets its own ordinary workspace/chat/task. Retry, concurrent duplicate requests and restart preserve original identities and draft/settings/history; no workspace sharing by accident. Repository-backed revision pinning remains unchanged.",
+      "boundary": "S5 delegation receipts + new non-code workspace capability",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT08",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": ["server/__tests__/telos-ordinary-work-delegation.test.ts"],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "sourceHead": "688d9a57e756939b001ce41d7f3838997b3e1688",
+      "lowerLevelResult": "focused source-pinned owner contracts passed; actual-app CT09 passed separately; no joined browser claim"
+    },
+    {
+      "id": "CT09",
+      "owner": "df0d5bb2ec46416b",
+      "scenario": "Non-code vertical journey",
+      "assertions": "Origin -> item -> advisor/lead -> worker -> retained material/output -> pending_review -> verified completion using synthetic persistence and fake provider. Ordinary chat resources and drafts survive navigation and reattach. No repository is secretly supplied by fixtures.",
+      "boundary": "Actual stores/routes/client contract and offline browser",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT09",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": ["server/__tests__/telos-ordinary-canonical-journey.test.ts"],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "sourceHead": "688d9a57e756939b001ce41d7f3838997b3e1688",
+      "lowerLevelResult": "focused source-pinned owner contracts passed; actual-app CT09 passed separately; no joined browser claim"
+    },
+    {
+      "id": "CT10",
+      "owner": "335551581dbf1e93",
+      "scenario": "Brief changes during queued/running work",
+      "assertions": "Specify adoption boundary before coding. Running attempt retains its immutable reviewed context; a later eligible command explicitly adopts a new revision under the chosen contract. No silent rewriting of history or stale queued dispatch. Test change before dispatch, during execution and after restart.",
+      "boundary": "Context snapshots -> command admission -> task dispatcher",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT10",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": ["server/__tests__/telos-work-command-scope.test.ts"],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "sourceHead": "00ff34da2ec7fae19e9f6c2cc951abe149642252",
+      "lowerLevelResult": "24 selected S6 store/HTTP/tool/scope cases passed at00ff; separately executed two directly affected native callback cases. No V2/S5b or full UI claim.",
+      "historicalSourceHead": "aaaa006fcd5897e844e1b264bd21d5d5aba491be"
+    },
+    {
+      "id": "CT11",
+      "owner": "335551581dbf1e93",
+      "scenario": "Lead replacement and superseded worker authority",
+      "assertions": "Define current routing/control separately from historical attribution. Replace lead during pending control and after worker launch; replace worker before late completion. Reject stale authority/receipts; retain original outputs and ownership; do not route new control to retired role holders.",
+      "boundary": "Role assignment history -> scoped controls -> completion callbacks",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT11",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": ["server/__tests__/telos-work-controls.test.ts"],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "sourceHead": "00ff34da2ec7fae19e9f6c2cc951abe149642252",
+      "lowerLevelResult": "24 selected S6 store/HTTP/tool/scope cases passed at00ff; separately executed two directly affected native callback cases. No V2/S5b or full UI claim.",
+      "historicalSourceHead": "aaaa006fcd5897e844e1b264bd21d5d5aba491be"
+    },
+    {
+      "id": "CT12",
+      "owner": "335551581dbf1e93",
+      "scenario": "Scoped hold/release with delayed acknowledgement",
+      "assertions": "Exact attached leads/workers only; unrelated outcomes continue; pending/acknowledged/applied remain distinct. Duplicate, delayed and out-of-order acknowledgements and restart cannot falsely hold/release unknown workers. Nested coordinator cannot broaden scope or create cycles.",
+      "boundary": "Existing coordination owner and ordinary command queue",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT12",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": ["server/__tests__/telos-work-controls.test.ts"],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "sourceHead": "00ff34da2ec7fae19e9f6c2cc951abe149642252",
+      "lowerLevelResult": "24 selected S6 store/HTTP/tool/scope cases passed at00ff; separately executed two directly affected native callback cases. No V2/S5b or full UI claim.",
+      "historicalSourceHead": "aaaa006fcd5897e844e1b264bd21d5d5aba491be"
+    },
+    {
+      "id": "CT13",
+      "owner": "57b0894e0379ab95",
+      "scenario": "Tree/workspace projection against canonical DTO",
+      "assertions": "Preserve tree kinds, categories/pins, original fields, dated provenance and separate material/source/external links. Empty, unavailable and stale states stay truthful; recursive navigation and reload preserve selection. Include repository-backed and non-code fixtures.",
+      "boundary": "Canonical persistence -> API/client -> actual outcomes/workspace UI",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT13",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": [],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "sourceHead": null
+    },
+    {
+      "id": "CT14",
+      "owner": "57b0894e0379ab95",
+      "scenario": "Approved priority 1\u201310 amendment",
+      "assertions": "After authoritative priority changes are accepted, round-trip every allowed priority through schema/API/client/UI; selector and P<n> badge agree after reload. Preserve migration/default behavior and reject invalid values. Reference that amendment, not a unilateral frozen-mock rewrite.",
+      "boundary": "MGMT priority owner + Mitzo projection + approved selector/badge",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT14",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": [],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "sourceHead": null
+    },
+    {
+      "id": "CT15",
+      "owner": "b47a0c568f1d98ba",
+      "scenario": "Chat chooser and independent ordinary chat state",
+      "assertions": "Multiple chats list first with no preselection; single-chat entry remains direct. New chat and Change worker differ; Back returns correctly; drafts/settings/history/resources remain per chat. Compact header and collapsed tree match approved mobile/desktop behavior.",
+      "boundary": "Role/work links -> router/client state -> actual ordinary chat screen",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT15",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": [],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "sourceHead": null
+    },
+    {
+      "id": "CT16",
+      "owner": "b47a0c568f1d98ba",
+      "scenario": "Truthful status and priority in chat/work tree",
+      "assertions": "Readiness, queued/running, saved output, worker-reported done pending review and verified completion remain separate after reconnect. Preserve historical role attribution and current assignment. Display accepted priority projection consistently wherever the approved UI calls for it.",
+      "boundary": "Execution/work events -> work tree/header/chat projection",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT16",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": [],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "sourceHead": null
+    },
+    {
+      "id": "CT17",
+      "owner": "b896d14d79d52682",
+      "scenario": "Combined accepted-main offline acceptance",
+      "assertions": "Run both complete journeys and recovery cases against the final combined accepted branch, including current Symposium changes affecting shared owners. No mocks that bypass the actual persistence/route/projection contracts being tested. Link every UX01\u2013UX24 row to owner, exact commit, test and visual evidence.",
+      "boundary": "Canonical data + accepted shared session/task/material/context owners",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT17",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": [],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "sourceHead": null
+    },
+    {
+      "id": "CT18",
+      "owner": "b896d14d79d52682",
+      "scenario": "Telos/Symposium isolation and coexistence offline",
+      "assertions": "Use existing Symposium source guide/contracts to construct synthetic sessions/commands. Exercise shared context, queue, task, artifact and session owners; prove no cross-session role/control/receipt/output leakage and no cancellation or completion misattribution. Reuse existing tests where they prove the boundary.",
+      "boundary": "Shared owners only; no new Symposium parent or superseded phase work",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT18",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": [],
+      "newJoinedResult": "two actual-app read/auth checks passed; directed message prerequisite failed503; full peer native chain pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "sourceHead": null
+    },
+    {
+      "id": "CT19",
+      "owner": "b896d14d79d52682",
+      "scenario": "Single-runtime live qualification gate",
+      "assertions": "Pending separately selected and explicitly authorized target/window: exercise Telos and Symposium sequentially on one feasible runtime. Record exact accepted revisions, workspace/runtime identity, observed dispatch/recovery/output behavior and cross-feature isolation. No per-feature staging stacks, retired staging revival or automatic production fallback. Offline green cannot satisfy this row.",
+      "boundary": "Actual Podman/OpenShell runtime; NOT AUTHORIZED OR RUN by this amendment",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT19",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": [],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "sourceHead": null
+    },
+    {
+      "id": "CT20",
+      "owner": "b896d14d79d52682",
+      "scenario": "Final visual and lifecycle acceptance",
+      "assertions": "Compare final implementation with frozen approved artifacts plus explicit approved amendments at desktop/mobile widths and themes. Preserve settings/resources/navigation and lifecycle recovery. Record code merged, offline integration verified, UX accepted and live runtime qualified separately. Any unresolved required evidence keeps parent acceptance open.",
+      "boundary": "Final combined branch and acceptance evidence ledger",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT20",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "reuseCandidates": [],
+      "newJoinedResult": "pending",
+      "visualEvidence": null,
+      "acceptedMainQualified": false,
+      "candidateQualified": false,
+      "exception": "Final joined UI/backend/native-owner evidence remains pending. CT19 requires separate selected/authorized live window.",
+      "sourceHead": null
+    }
+  ],
+  "peerMessaging": [
+    {
+      "id": "PEER01",
+      "requirement": "Discover/select/read an independent ordinary Codex peer",
+      "status": "pending published native discovery/authorization contract",
+      "ownerSlice": "335551581dbf1e93"
+    },
+    {
+      "id": "PEER02",
+      "requirement": "Send and attributed reverse reply between unrelated and sibling items",
+      "status": "actual-app message prerequisite red; native sender/ACK/reply contract not available",
+      "ownerSlice": "335551581dbf1e93"
+    },
+    {
+      "id": "PEER03",
+      "requirement": "Idle and busy recipients use existing ordinary queue/safe-point",
+      "status": "pending production peer delivery; no synthetic busy-label substitute",
+      "ownerSlice": "335551581dbf1e93"
+    },
+    {
+      "id": "PEER04",
+      "requirement": "Stable IDs, unknown/lost outcome, retry/restart/reconnect without duplicate delivery",
+      "status": "pending actual peer command/delivery owner; do not infer from helper replay",
+      "ownerSlice": "335551581dbf1e93"
+    },
+    {
+      "id": "PEER05",
+      "requirement": "Messages convey no merge/publication/credential/deployment authority",
+      "status": "actual app auth/internal-token boundary passes, broader peer permission chain pending",
+      "ownerSlice": "335551581dbf1e93"
+    },
+    {
+      "id": "PEER06",
+      "requirement": "Missing/revoked/stale/unsupported recipients refuse without fallback",
+      "status": "pending actual peer transport; no guessed APIs",
+      "ownerSlice": "335551581dbf1e93"
+    }
+  ],
+  "assemblyBlockers": [
+    "accepted-main8a7 + S5b688 conflicts5 production files",
+    "S5b688 + S6aaaa conflicts8 production files; both merges aborted with original bytes retained"
+  ],
+  "executionOrder": [
+    "reuse scoped owner CT01\u201312/source-pinned contracts",
+    "join actual UI/auth/server/V2 outbox/native-fake/MCP/Files non-Git path",
+    "reuse CT06 repository counterpart",
+    "decisive recovery/brief/replacement/hold/peer variants",
+    "final approved desktop/mobile/lifecycle comparison",
+    "accepted-main repeat after source landing",
+    "CT19 separate selected authorized window"
+  ],
+  "forbiddenSubstitutes": [
+    "route.fulfill for owned APIs in joined acceptance",
+    "direct helper calls presented as native peer messaging",
+    "operator sender relabelled agent sender",
+    "fake status labels used as queue/ACK proof",
+    "guessed future contracts or permanent skipped acceptance"
+  ],
+  "constraints": {
+    "workers": 1,
+    "nodeHeapMiB": 1024,
+    "providerEffects": "deterministic fake only",
+    "live": false,
+    "staging": false,
+    "deployment": false,
+    "fullSliceAccepted": false,
+    "fullParentAccepted": false
+  },
+  "observedRuns": {
+    "S9-PEER-REQUIRED-RESULTS": {
+      "passed": 2,
+      "failed": 1,
+      "skipped": 0,
+      "tests": [
+        {
+          "file": "peer-messaging.required-contract.ts",
+          "status": "failed",
+          "cases": [
+            {
+              "name": "actual app: authenticated durable reads preserve separate ordinary histories and redact private fields",
+              "status": "passed"
+            },
+            {
+              "name": "actual app: message text cannot replace interactive or internal authority",
+              "status": "passed"
+            },
+            {
+              "name": "REQUIRED RED: the actual app admits an explicitly directed message instead of its unconditional unavailable response",
+              "status": "failed"
+            }
+          ]
+        }
+      ]
+    },
+    "S9-S5B-CANDIDATE-REUSE-RESULTS": {
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "tests": [
+        {
+          "file": "telos-ordinary-canonical-journey.test.ts",
+          "status": "passed",
+          "cases": [
+            {
+              "name": "CT09: actual canonical non-Git advisor-to-worker journey retains file bytes, review and verified completion",
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "file": "recovery.test.tsx",
+          "status": "passed",
+          "cases": [
+            {
+              "name": "CT03 accepted-source full boundary: definite real HTTP stale rejection permits fresh review of the same retained draft after reload",
+              "status": "passed"
+            },
+            {
+              "name": "CT04 real committed response loss stays uncertain until exact hook/client/HTTP replay recovers the original allocation",
+              "status": "passed"
+            },
+            {
+              "name": "CT04 post-intent HTTP conflict retains the original request across reload and cannot start a fresh review",
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "file": "vertical.test.ts",
+          "status": "passed",
+          "cases": [
+            {
+              "name": "CT06/17/18 partial: origin and actual advisor-created child reach accepted delegation, retained result and explicit task review without pre-seeding the child",
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    "S9-S5B-OWNER-BOUNDARIES-RESULTS": {
+      "passed": 39,
+      "failed": 0,
+      "skipped": 0,
+      "tests": [
+        {
+          "file": "ordinary-workspace-preparation-http.test.ts",
+          "status": "passed",
+          "cases": [
+            {
+              "name": "prepares through authenticated real readiness while Git enrollment stays off and creates no extra session or native command",
+              "status": "passed"
+            },
+            {
+              "name": "gives an actionable unsupported target denial before touching preparation or allocation",
+              "status": "passed"
+            },
+            {
+              "name": "refuses forged account scope, unknown client grants and physical paths without a session or command effect",
+              "status": "passed"
+            },
+            {
+              "name": "rejects internal/absent auth and cross-origin JSON through the actual operator and origin middleware",
+              "status": "passed"
+            },
+            {
+              "name": "rechecks private persistent operator revocation after actual readiness and does not return preparation authority",
+              "status": "passed"
+            },
+            {
+              "name": "uses the existing global workspace owner for ordinary preparation without enabling repository enrollment",
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "file": "telos-canonical-advisor-http.test.ts",
+          "status": "passed",
+          "cases": [
+            {
+              "name": "CT01: fresh advisor refine round-trips all canonical fields through HTTP and the typed client",
+              "status": "passed"
+            },
+            {
+              "name": "CT01: fresh advisor child round-trips all canonical fields through HTTP and the typed client",
+              "status": "passed"
+            },
+            {
+              "name": "CT01: upgraded advisor refine round-trips all canonical fields through HTTP and the typed client",
+              "status": "passed"
+            },
+            {
+              "name": "CT01: upgraded advisor child round-trips all canonical fields through HTTP and the typed client",
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "file": "telos-canonical-journey.test.ts",
+          "status": "passed",
+          "cases": [
+            {
+              "name": "CT06: canonical advisor save through real ordinary dispatch retains output, pending review and explicit verified completion",
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "file": "telos-canonical-schema-fixtures.test.ts",
+          "status": "passed",
+          "cases": [
+            {
+              "name": "retains actual MGMT fresh schema invariants",
+              "status": "passed"
+            },
+            {
+              "name": "retains actual MGMT upgraded schema invariants",
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "file": "telos-ordinary-work-delegation.test.ts",
+          "status": "passed",
+          "cases": [
+            {
+              "name": "delegates only the selected canonical child to one independent non-Git workspace, chat and real task without a turn",
+              "status": "passed"
+            },
+            {
+              "name": "concurrent duplicate and canonical/task-owner restart recover the exact original V2 child identities",
+              "status": "passed"
+            },
+            {
+              "name": "refuses unsupported requirements before the V2 exact-child attempt/allocation journal or any session/task effects",
+              "status": "passed"
+            },
+            {
+              "name": "recovers the exact V2 worker after a lost committed ordinary preparation response and all owners reopen",
+              "status": "passed"
+            },
+            {
+              "name": "requires explicit predecessor retry and retains earlier ordinary workers, output and attempt history",
+              "status": "passed"
+            },
+            {
+              "name": "retains a cancelled V2 reservation and recovers only its original allocation under renewed request authority",
+              "status": "passed"
+            },
+            {
+              "name": "refuses revoked actual operator authority before retaining a V2 child intent or allocating",
+              "status": "passed"
+            },
+            {
+              "name": "rejects invalid thinking before a V2 child attempt or reservation using the same real account authority",
+              "status": "passed"
+            },
+            {
+              "name": "refuses a hidden original V2 worker on replay while retaining its task and workspace identity",
+              "status": "passed"
+            },
+            {
+              "name": "fails closed when the existing task-binding inventory cannot be read and preserves the original ready attempt",
+              "status": "passed"
+            },
+            {
+              "name": "refuses committed replay with readable missing_binding inventory without creating a replacement task",
+              "status": "passed"
+            },
+            {
+              "name": "refuses committed replay with readable empty_restored_database inventory without creating a replacement task",
+              "status": "passed"
+            },
+            {
+              "name": "refuses committed replay with readable mismatched_binding inventory without creating a replacement task",
+              "status": "passed"
+            },
+            {
+              "name": "refuses committed replay with readable mismatched_task_session inventory without creating a replacement task",
+              "status": "passed"
+            },
+            {
+              "name": "requires the owning original-task verifier even when the canonical delegation receipt is already committed",
+              "status": "passed"
+            },
+            {
+              "name": "refuses committed delegation replay with claiming while retaining original allocation",
+              "status": "passed"
+            },
+            {
+              "name": "refuses committed delegation replay with replaced-directory while retaining original allocation",
+              "status": "passed"
+            },
+            {
+              "name": "refuses committed delegation replay with symlink-directory while retaining original allocation",
+              "status": "passed"
+            },
+            {
+              "name": "refuses committed delegation replay with replaced-root while retaining original allocation",
+              "status": "passed"
+            },
+            {
+              "name": "refuses committed delegation replay with symlink-root while retaining original allocation",
+              "status": "passed"
+            },
+            {
+              "name": "replays the same claimed delegation workspace while preserving legitimate files",
+              "status": "passed"
+            },
+            {
+              "name": "rechecks delegation authority after custody readiness: abort",
+              "status": "passed"
+            },
+            {
+              "name": "rechecks delegation authority after custody readiness: revoke",
+              "status": "passed"
+            },
+            {
+              "name": "recovers the canonical default-start attempt when a new request selects another genuinely valid account, model and task root",
+              "status": "passed"
+            },
+            {
+              "name": "refuses changed V2 preparation-attempt authority before any command without changing the task or receipt",
+              "status": "passed"
+            },
+            {
+              "name": "refuses changed V2 work-allocation authority before any command without changing the task or receipt",
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    "S9-S6-OWNER-BOUNDARIES-RESULTS": {
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0,
+      "tests": [
+        {
+          "file": "telos-work-command-scope.test.ts",
+          "status": "passed",
+          "cases": [
+            {
+              "name": "keeps unbound ordinary chats lazy and preserves S4 standalone worker admission",
+              "status": "passed"
+            },
+            {
+              "name": "refuses incomplete S5 linkage before real ordinary command admission without repairing it",
+              "status": "passed"
+            },
+            {
+              "name": "refuses a marked S5 allocation before role retention or task linkage, including after restart",
+              "status": "passed"
+            },
+            {
+              "name": "refuses a delegation marker for another attempt or allocation before command admission",
+              "status": "passed"
+            },
+            {
+              "name": "proves exact first and continuation scope from both durable owners across restart",
+              "status": "passed"
+            },
+            {
+              "name": "refuses mismatched durable mapping or account without admitting a command",
+              "status": "passed"
+            },
+            {
+              "name": "uses the proven worker task for TaskStatus and leaves TaskComplete pending independent review",
+              "status": "passed"
+            },
+            {
+              "name": "CT11: a replaced worker loses command and completion authority while its original attempt remains attributable after restart",
+              "status": "passed"
+            },
+            {
+              "name": "CT11: replacing a lead changes current routing without rewriting or revoking an already delegated worker",
+              "status": "passed"
+            },
+            {
+              "name": "CT10: a queued command cannot dispatch changed scope; running context and completion retain the original reviewed revision after restart",
+              "status": "passed"
+            },
+            {
+              "name": "CT10: parent brief changes also fence future dispatch without rewriting the retained worker packet",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: a dispatch hold also fences an already allocated but unstarted worker, while leaving previously dispatched workers continuing under their captured context",
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "file": "telos-work-control-tools.test.ts",
+          "status": "passed",
+          "cases": [
+            {
+              "name": "CT12: transports an exact current-session control command and refuses authority/application fields",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: uncertainty stays an error and returned receipts must match the selected operation",
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "file": "telos-work-controls.test.ts",
+          "status": "passed",
+          "cases": [
+            {
+              "name": "CT12: holds only five selected attached outcomes, keeps requested distinct from applied, and retains release across restart",
+              "status": "passed"
+            },
+            {
+              "name": "CT11/CT12: lead replacement reroutes pending evidence, rejects retired holders and preserves historical acknowledgements",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: nested coordinators cannot select siblings, unrelated work or broaden/reuse a control identity",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: only verified host evidence applies a worker hold, duplicates stay monotonic, and release requires exact current-main validation",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: real HTTP control commands derive the current conversation and reject forged actors, host proof and unrelated inbox reads",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: the actual host denial boundary records only its exact recipient applied, while other workers remain pending",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: a new dispatch consumes the coordinator hold before any allocation intent, and does not block an existing receipt lookup",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: a nested coordinator cannot claim an applied subtree before its attached outcome lead and worker have host evidence",
+              "status": "passed"
+            },
+            {
+              "name": "CT11/CT12: operator reparenting removes former coordinator control authority without routing a hold into unrelated Job work",
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    "S9-S6-CURRENT-BOUNDARIES": {
+      "passed": 24,
+      "failed": 0,
+      "pendingOrFiltered": 0,
+      "selection": "all cases in three selected files",
+      "testFiles": [
+        {
+          "file": "telos-work-command-scope.test.ts",
+          "executed": [
+            {
+              "name": "keeps unbound ordinary chats lazy and preserves S4 standalone worker admission",
+              "status": "passed"
+            },
+            {
+              "name": "refuses incomplete S5 linkage before real ordinary command admission without repairing it",
+              "status": "passed"
+            },
+            {
+              "name": "refuses a marked S5 allocation before role retention or task linkage, including after restart",
+              "status": "passed"
+            },
+            {
+              "name": "refuses a delegation marker for another attempt or allocation before command admission",
+              "status": "passed"
+            },
+            {
+              "name": "proves exact first and continuation scope from both durable owners across restart",
+              "status": "passed"
+            },
+            {
+              "name": "refuses mismatched durable mapping or account without admitting a command",
+              "status": "passed"
+            },
+            {
+              "name": "uses the proven worker task for TaskStatus and leaves TaskComplete pending independent review",
+              "status": "passed"
+            },
+            {
+              "name": "CT11: a replaced worker loses command and completion authority while its original attempt remains attributable after restart",
+              "status": "passed"
+            },
+            {
+              "name": "CT11: replacing a lead changes current routing without rewriting or revoking an already delegated worker",
+              "status": "passed"
+            },
+            {
+              "name": "CT10: a queued command cannot dispatch changed scope; running context and completion retain the original reviewed revision after restart",
+              "status": "passed"
+            },
+            {
+              "name": "CT10: parent brief changes also fence future dispatch without rewriting the retained worker packet",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: a dispatch hold also fences an already allocated but unstarted worker, while leaving previously dispatched workers continuing under their captured context",
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "file": "telos-work-control-tools.test.ts",
+          "executed": [
+            {
+              "name": "CT12: transports an exact current-session control command and refuses authority/application fields",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: uncertainty stays an error and returned receipts must match the selected operation",
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "file": "telos-work-controls.test.ts",
+          "executed": [
+            {
+              "name": "CT12: holds only five selected attached outcomes, keeps requested distinct from applied, and retains release across restart",
+              "status": "passed"
+            },
+            {
+              "name": "CT11/CT12: lead replacement reroutes pending evidence, rejects retired holders and preserves historical acknowledgements",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: nested coordinators cannot select siblings, unrelated work or broaden/reuse a control identity",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: only verified host evidence applies a worker hold, duplicates stay monotonic, and release requires exact current-main validation",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: real HTTP control commands derive the current conversation and reject forged actors, host proof and unrelated inbox reads",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: the actual host denial boundary records only its exact recipient applied, while other workers remain pending",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: a new dispatch consumes the coordinator hold before any allocation intent, and does not block an existing receipt lookup",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: a nested coordinator cannot claim an applied subtree before its attached outcome lead and worker have host evidence",
+              "status": "passed"
+            },
+            {
+              "name": "CT11/CT12: operator reparenting removes former coordinator control authority without routing a hold into unrelated Job work",
+              "status": "passed"
+            },
+            {
+              "name": "CT12: acknowledgement and its durable replay retain only the authenticated recipient view",
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    "S9-S6-CURRENT-NATIVE-BOUNDARY": {
+      "passed": 2,
+      "failed": 0,
+      "pendingOrFiltered": 99,
+      "selection": "two exact changed native cases selected by name; remaining99 excluded",
+      "testFiles": [
+        {
+          "file": "codex-chat-session.test.ts",
+          "executed": [
+            {
+              "name": "rechecks owned command authority immediately before native enqueue and provider dispatch",
+              "status": "passed"
+            },
+            {
+              "name": "uses the already verified owned client locally regardless of global OpenShell settings",
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "laterSourceObservation": {
+    "S6": "00ff34da2ec7fae19e9f6c2cc951abe149642252",
+    "S7": "bfb26e39562407daf960480bbd0ab4ae5c49d7a9; not newly executed",
+    "S6MaterialDelta": "recipient ACK replay scope, per-target attachment and actual durable provider dispatch/native ACK history; current focused run24passed"
+  }
+}

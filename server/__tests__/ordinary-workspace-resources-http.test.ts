@@ -314,7 +314,7 @@ it.each([
   async (damage) => {
     const record = f.workspaces.getOrdinaryWorkspace(first.reserved.id);
     if (damage === 'claiming') {
-      const db = new Database(join(f.root, 'workspace-owner', 'workspaces.db'));
+      const db = new Database(join(f.privateRoot, 'repository-sources', 'workspaces.db'));
       try {
         db.prepare('UPDATE ordinary_workspaces SET record=? WHERE id=?').run(
           JSON.stringify({ ...record, state: 'claiming' }),
@@ -324,7 +324,7 @@ it.each([
         db.close();
       }
     } else if (damage === 'missing-record') {
-      const db = new Database(join(f.root, 'workspace-owner', 'workspaces.db'));
+      const db = new Database(join(f.privateRoot, 'repository-sources', 'workspaces.db'));
       try {
         db.prepare('DELETE FROM ordinary_workspaces WHERE id=?').run(record.id);
       } finally {
