@@ -36,6 +36,8 @@ export async function ownedRuntimeFixture(
   cleanups: Array<() => void | Promise<void>>,
   options: {
     tools?: AgentToolReference[];
+    /** Synthetic operator lifetime for multi-operation offline journeys only. */
+    operatorLifetimeMs?: number;
     workspaceId?: string;
     contextRecipe?: boolean | 'workspace';
     chatRoute?: boolean;
@@ -322,8 +324,11 @@ export async function ownedRuntimeFixture(
     };
   if (!options.silentPreparation)
     reserved = await workspace.reserveHostTask({ ...reservation, signal: signal.signal });
-  const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 },
-    operatorConnectionId = randomUUID();
+  const auth: import('../../auth.js').AuthSession = {
+    id: randomUUID(),
+    expiresAt: Date.now() + (options.operatorLifetimeMs ?? 60000),
+  };
+  const operatorConnectionId = randomUUID();
   const detach = bindAgentLibraryTransport(operatorConnectionId, auth);
   cleanups.push(detach);
   const commandId = randomUUID();

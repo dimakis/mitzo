@@ -218,6 +218,21 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
     preparationOperationId?: string,
   ): Promise<{ dispatched: boolean }> {
     let bootstrap: FrozenHostCodexBootstrapAuthority | undefined;
+    let capturedBootstrap: FrozenHostCodexBootstrapAuthority | undefined;
+    let capturedLeaseGetter: FrozenHostCodexBootstrapAuthority['currentLease'] | undefined;
+    const coldCurrentLease = () => {
+      if (
+        !capturedBootstrap ||
+        bootstrap !== capturedBootstrap ||
+        !capturedLeaseGetter ||
+        capturedBootstrap.currentLease !== capturedLeaseGetter
+      )
+        throw unavailable();
+      const lease = capturedLeaseGetter.call(capturedBootstrap);
+      if (bootstrap !== capturedBootstrap || capturedBootstrap.currentLease !== capturedLeaseGetter)
+        throw unavailable();
+      return lease;
+    };
     const retainedLease = this.#lease;
     try {
       this.assertCurrent();
@@ -278,6 +293,56 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         )
           throw unavailable();
       }
+      const coldServices = {
+        workspace: this.owners.workspace,
+        eventStore: this.owners.eventStore,
+        nativeStore: this.owners.nativeStore,
+      };
+      const coldSources = [
+        {
+          owner: this.owners.workspace,
+          names: ['getForConversation', 'assertPreparedRepositoryTransitionAdopted'],
+        },
+        {
+          owner: this.owners.eventStore,
+          names: [
+            'getOrdinaryLocalCommandAdmission',
+            'getSendCommand',
+            'getSession',
+            'observePreparedRepositoryContinuation',
+            'observePreparedRepositoryBootstrapAdmission',
+          ],
+        },
+        ...(this.owners.nativeStore
+          ? [
+              {
+                owner: this.owners.nativeStore,
+                names: [
+                  'read',
+                  'readHostCustody',
+                  'commands',
+                  'assertNoPendingThreadDispatch',
+                  'assertNoPendingThreadOwnership',
+                ],
+              },
+            ]
+          : []),
+      ].map(({ owner, names }) => ({
+        owner,
+        references: Object.fromEntries(names.map((name) => [name, Reflect.get(owner, name)])),
+      }));
+      const assertColdSources = () => {
+        if (
+          this.owners.workspace !== coldServices.workspace ||
+          this.owners.eventStore !== coldServices.eventStore ||
+          this.owners.nativeStore !== coldServices.nativeStore
+        )
+          throw unavailable();
+        for (const { owner, references } of coldSources)
+          for (const [name, original] of Object.entries(references))
+            if (typeof original !== 'function' || Reflect.get(owner, name) !== original)
+              throw unavailable();
+      };
       const qualified =
         resume && this.#workspaceOwner.kind === 'repository'
           ? this.owners.workspace.getForConversation(this.#reservation.conversationId)
@@ -291,9 +356,11 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       const coldNative =
         coldFacts &&
         this.owners.nativeStore!.read(this.#reservation.conversationId, this.#reservation.binding);
-      const coldCustody = custody && structuredClone(custody);
+      const coldCustody = custody && freezePendingHostTaskData(structuredClone(custody));
       const assertColdEvidence = () => {
+        assertColdSources();
         this.assertCurrent();
+        assertColdSources();
         if (!coldFacts || !coldPrimary || !coldNative || !coldCustody) throw unavailable();
         const native = this.owners.nativeStore!;
         strictSync(
@@ -370,13 +437,14 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           this.#reservation.conversationId,
           this.#reservation.binding,
         );
+        assertColdSources();
       };
       const coldWorkspace =
         coldFacts && coldPrimary
           ? new PreparedRepositoryWorkspaceOwner(this.owners.workspace, coldFacts, coldPrimary, {
               assertCurrentSync: assertColdEvidence,
               withReadAccess: async (operationSignal, action) => {
-                const lease = bootstrap?.currentLease();
+                const lease = coldCurrentLease();
                 if (!lease || (this.#lease && this.#lease !== lease)) throw unavailable();
                 const withReadOwner = lease.withQualifiedWorkspaceReadOwner;
                 if (!withReadOwner) throw unavailable();
@@ -433,7 +501,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                 if (
                   result !== undefined ||
                   !completed ||
-                  lease !== bootstrap?.currentLease() ||
+                  lease !== coldCurrentLease() ||
                   lease.withQualifiedWorkspaceReadOwner !== withReadOwner
                 )
                   throw unavailable();
@@ -517,7 +585,9 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           coldWorkspace && Object.freeze({ commandId: coldPrimary!, workspace: coldWorkspace }),
         preparationOperationId,
       });
-      const bridge = new OwnedCodexLifecycleBridge(() => bootstrap?.currentLease());
+      const bridge = new OwnedCodexLifecycleBridge(() =>
+        coldWorkspace ? coldCurrentLease() : bootstrap?.currentLease(),
+      );
       const originalCustody = custody;
       bootstrap = new FrozenHostCodexBootstrapAuthority({
         loadProfiles: loadAccountProfiles,
@@ -607,6 +677,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         launch: this.owners.launch,
         launchApi: this.owners.launchApi,
       });
+      capturedBootstrap = bootstrap;
+      capturedLeaseGetter = bootstrap.currentLease;
       const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
         enabled: this.owners.enabled,
         store: coldPrimary

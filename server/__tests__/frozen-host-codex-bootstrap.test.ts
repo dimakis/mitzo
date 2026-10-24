@@ -1116,3 +1116,62 @@ it.each(['value', 'async', 'replace', 'physical-owner', 'abort'] as const)(
     }
   },
 );
+
+it('retains the ORIGINAL cold physical owner across credential/client reopening before the first physical check', async () => {
+  const f = fixture();
+  let custody: import('../host-codex-custody.js').HostCodexCustody | undefined;
+  await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+    custody = {
+      version: 1,
+      authSessionId: 'offline',
+      bootstrapId: f.expected.bootstrapId,
+      ...lease.custodySnapshot!(),
+    };
+  });
+  f.authority.currentLease()!.close();
+  const original = f.rpc.request.getMockImplementation()!;
+  const physical = vi.fn(async (): Promise<void> => {
+    throw Error('Original physical authority refuses');
+  });
+  const options = {
+    ...f.options,
+    retainedCustody: custody,
+    assertQualifiedColdSelectionBeforeBootstrapSync: () => {},
+    assertToolSelectionCurrent: physical,
+    launch: () => f.rpc,
+  };
+  f.rpc.request.mockClear();
+  f.rpc.request.mockImplementation(async (method) => {
+    if (method === 'account/read') options.assertToolSelectionCurrent = vi.fn(async () => {});
+    return original(method, {});
+  });
+  const cold = new FrozenHostCodexBootstrapAuthority(options);
+  try {
+    await expect(
+      cold.withBootstrap(
+        { ...f.expected, bootstrapId: 'b'.repeat(64) },
+        () => true,
+        async () => {},
+      ),
+    ).rejects.toThrow();
+    expect(f.rpc.request.mock.calls.map(([method]) => method)).not.toContain('config/read');
+    expect(f.rpc.request.mock.calls.map(([method]) => method)).not.toContain('model/list');
+    expect(f.rpc.close).toHaveBeenCalled();
+  } finally {
+    cold.currentLease()?.close();
+    f.store.close();
+  }
+});
+it('publishes the genuine physical read facet immutably at actual lease creation', async () => {
+  const f = fixture();
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      expect(
+        Object.getOwnPropertyDescriptor(lease, 'withQualifiedWorkspaceReadOwner'),
+      ).toMatchObject({ writable: false, configurable: false });
+    });
+  } finally {
+    f.authority.currentLease()?.close();
+    f.store.close();
+  }
+});

@@ -89,6 +89,12 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
   #lease?: FrozenHostCodexBootstrapLease;
   #attempted = false;
   #routingBinding?: AccountBinding;
+  readonly #coldOwner?: {
+    signal: AbortSignal;
+    custody?: HostCodexCustody;
+    snapshot?: HostCodexCustody;
+    references: Record<string, PropertyDescriptor | undefined>;
+  };
   constructor(
     private readonly owners: {
       loadProfiles(): AccountProfiles;
@@ -129,7 +135,57 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         connection?: ApiHarnessConnection,
       ) => Promise<FrozenHostCodexClient>;
     },
-  ) {}
+  ) {
+    if ('assertQualifiedColdSelectionBeforeBootstrapSync' in owners) {
+      this.#coldOwner = {
+        signal: owners.signal,
+        custody: owners.retainedCustody,
+        snapshot: owners.retainedCustody && structuredClone(owners.retainedCustody),
+        references: Object.fromEntries(
+          [
+            'loadProfiles',
+            'observeRuntime',
+            'assertRuntimeCurrentSync',
+            'assertSelectionCurrentSync',
+            'assertSelectionCurrent',
+            'assertToolSelectionCurrent',
+            'assertQualifiedColdSelectionBeforeBootstrapSync',
+            'isSelectionPending',
+            'pendingSelections',
+            'launch',
+            'launchApi',
+            'completeRetainedRuntimeBundle',
+          ].map((key) => [key, Object.getOwnPropertyDescriptor(owners, key)]),
+        ),
+      };
+    }
+  }
+  private assertColdOwnerIdentity(): void {
+    const original = this.#coldOwner;
+    if (!original) {
+      if ('assertQualifiedColdSelectionBeforeBootstrapSync' in this.owners) throw unavailable();
+      return;
+    }
+    original.signal.throwIfAborted();
+    if (
+      this.owners.signal !== original.signal ||
+      this.owners.retainedCustody !== original.custody ||
+      !isDeepStrictEqual(this.owners.retainedCustody, original.snapshot)
+    )
+      throw unavailable();
+    for (const [key, descriptor] of Object.entries(original.references)) {
+      const current = Object.getOwnPropertyDescriptor(this.owners, key);
+      if (
+        descriptor
+          ? !('value' in descriptor) ||
+            !current ||
+            !('value' in current) ||
+            descriptor.value !== current.value
+          : current !== undefined
+      )
+        throw unavailable();
+    }
+  }
   currentLease(): FrozenHostCodexBootstrapLease | undefined {
     return this.#lease;
   }
@@ -174,6 +230,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
     login?: FrozenHostCodexLoginLease<FrozenHostCodexClient>,
     executable?: FrozenHostCodexExecutable,
   ): void {
+    this.assertColdOwnerIdentity();
     this.owners.signal.throwIfAborted();
     strictVoid(this.owners.assertRuntimeCurrentSync());
     this.profile(expected);
@@ -190,6 +247,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
     strictVoid(this.owners.assertSelectionCurrentSync(structuredClone(expected)));
     strictVoid(login?.assertCurrentSync());
     strictVoid(executable?.assertCurrent());
+    this.assertColdOwnerIdentity();
   }
   private async observe(
     expected: Expected,
@@ -694,6 +752,11 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           ),
         assertCurrentSync,
       };
+      Object.defineProperty(this.#lease, 'withQualifiedWorkspaceReadOwner', {
+        value: withQualifiedWorkspaceReadOwner,
+        writable: false,
+        configurable: false,
+      });
       await observeLocalCodexPhase('model_qualification', () =>
         qualifyModels(this.selections(expected)),
       );
