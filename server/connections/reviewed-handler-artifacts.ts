@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.652-batched-source-capture';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.653-reviewed-startup-regressions';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -230,7 +231,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     'ca56ac179cfc28efc71e68a4c88d99b323d9f44aa515f11b26109523d515aba8',
   '../__tests__/codex-chat-session.test.ts':
-    '397a7ed0539ce6f206e9478c552b0e84a98560e7512a5118cd801f847e7ffb28',
+    '8d4ee2794140c9d11c7a44c315e3d035104a04b6661d1501af6501da118799ba',
   '../__tests__/codex-conversation.test.ts':
     '3c4f1db17ac0d82c4ff1fb31f79e9bb8bb0b4d8b6590f210c304118ca005a5f3',
   '../__tests__/codex-native-approvals.test.ts':
