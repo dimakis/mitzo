@@ -1843,7 +1843,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-ordinary-packet.test.ts':
     '4fad18a7659e7ce1ed8b0011729af60c40747b287b7481b00ee88615634ac959',
   '../__tests__/configured-tool-admission.test.ts':
-    'fe22a792f09a7586398133228b31a391c18ede9c92687bd28e47c1c736875337',
+    '8304686c8a3c76a2d355ab455ece64f53322016dc28a56d72082f04eb58ac6d6',
   '../__tests__/custodian-ordinary-chat.test.ts':
     '3e0d986bd344a162852d515762568d67572e81a404b52e706f5d56a9fadfe2bf',
   '../__tests__/frozen-host-codex-api-login.test.ts':
@@ -1871,7 +1871,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/responses-image-artifacts.test.ts':
     'd4aaebc58e4669ec6b45924eb5dcd0f5fd0dd4cbeae04a5a6c0e70eb9cd3e2cf',
   '../__tests__/tool-builder-responses.test.ts':
-    'f9281c8038a4a77f19e2720b335e8e957cc5e054b58ef9627da6589aa34fa9ac',
+    'e0a65e497a1461c2d694e3d469391c02eadc9951dfe74b2e5a825caf84357801',
   '../__tests__/unified-inbox-routes.test.ts':
     '79f3e40810f0b1da926d177164ca6e7ec8c3c7fb0ace6ac0a1da23bc8ea88fc5',
   '../__tests__/worktree-fetch-observation.test.ts':

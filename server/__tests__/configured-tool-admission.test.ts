@@ -168,7 +168,14 @@ it.each(['codex', 'google-vertex'] as const)(
         provider === 'codex'
           ? await openCodexChat({
               ...shared,
-              profile: { planType: 'plus', credentialRef: '/synthetic/never-read' },
+              profile: {
+                accountId: shared.binding.accountId,
+                accountLabel: shared.binding.accountLabel,
+                email: 'fixture@example.test',
+                model: shared.binding.model,
+                planType: 'plus',
+                credentialRef: '/synthetic/never-read',
+              },
               messageId: 'offline-command',
               prompt: 'Inspect selected tools',
             })

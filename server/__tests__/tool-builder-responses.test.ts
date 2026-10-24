@@ -166,7 +166,14 @@ it.each([
             openCodexChat({
               ...options,
               binding: { ...options.binding, provider: 'openai-codex' },
-              profile: { planType: 'plus', credentialRef: '/synthetic/never-read' },
+              profile: {
+                accountId: options.binding.accountId,
+                accountLabel: options.binding.accountLabel,
+                email: 'fixture@example.test',
+                model: options.binding.model,
+                planType: 'plus',
+                credentialRef: '/synthetic/never-read',
+              },
               messageId: 'offline-command',
               prompt: 'Inspect installed publication',
             }),
