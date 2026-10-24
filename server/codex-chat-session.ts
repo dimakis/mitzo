@@ -145,6 +145,7 @@ import { sessionHistoryTools, sessionHistoryToolDefinitions } from './session-hi
 import { captureSessionHistoryAuthorization } from './session-history-authorization.js';
 import { createWebAccessTool } from './web-access-tool.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
+import { createIntegrationToolDiscovery } from './integration-tool-discovery.js';
 import {
   combineMcpToolPeers,
   connectSelectedTaskMcpTools,
@@ -1724,6 +1725,48 @@ async function openCodexChatBound(
         ].map((tool) => tool.name),
       )
     : undefined;
+  const executeMcpTool = async (
+    name: string,
+    input: Record<string, unknown>,
+    callSignal: AbortSignal,
+  ) => {
+    assertAgentToolSelected(options.session, name);
+    if (ownedToolNames && !ownedToolNames.has(name))
+      throw Error('Tool unavailable for owned local Codex chat');
+    assertMcpCurrent();
+    if (!hooks) throw Error('Host tools are unavailable inside OpenShell');
+    return hooks.executeTool(
+      mcp.displayName(name),
+      input,
+      callSignal,
+      async (args, forcePrompt) => {
+        const owner = options.registry.findBySessionId(options.conversationId);
+        if (!owner || owner.session !== options.session) throw Error('Codex session unavailable');
+        return mcp.execute(
+          name,
+          args,
+          async (canonical, approvedArgs, s, grant) =>
+            buildPermissionHandler(owner.clientId, options.registry, {
+              onDemandCreate: options.onDemandCreate,
+            })(canonical, approvedArgs, {
+              ...grant,
+              signal: s,
+              toolUseID: randomUUID(),
+              forcePrompt,
+            }),
+          callSignal,
+        );
+      },
+    );
+  };
+  const integrationDiscovery = options.ownedLocal
+    ? createIntegrationToolDiscovery({
+        tools: filterAgentTools(options.session, mcp.definitions),
+        displayName: mcp.displayName,
+        assertCurrent: assertMcpCurrent,
+        execute: executeMcpTool,
+      })
+    : undefined;
   const connectionTools = sessionCredentialTools(
     options.conversationId,
     options.session,
@@ -1893,6 +1936,7 @@ async function openCodexChatBound(
         : '');
   const persistentSystemPrompt =
     baseSystemPrompt +
+    (integrationDiscovery?.instructions ?? '') +
     // Owned routes supply only their frozen profile prompt, bypassing chat.ts's
     // application guidance. Add capabilities here without changing that receipt.
     (options.ownedLocal || options.ownedOpenShell ? buildClientCapabilitiesPrompt() : '') +
@@ -1956,7 +2000,7 @@ async function openCodexChatBound(
         ),
     );
   };
-  const selectedToolDefinitions = filterAgentTools(
+  const selectedDirectToolDefinitions = filterAgentTools(
     options.session,
     options.ownedLocal
       ? [
@@ -1992,6 +2036,13 @@ async function openCodexChatBound(
             githubPublishingDefinition,
           ],
   );
+  const deferredMcpNames = new Set(
+    integrationDiscovery ? mcp.definitions.map(({ name }) => name) : [],
+  );
+  const selectedToolDefinitions = [
+    ...selectedDirectToolDefinitions.filter(({ name }) => !deferredMcpNames.has(name)),
+    ...(integrationDiscovery?.definitions ?? []),
+  ];
   const nativeHostRuntimeId = randomUUID();
   const runtimeOptions: CodexConversationOptions = {
     conversationId: options.conversationId,
@@ -2394,7 +2445,10 @@ async function openCodexChatBound(
     !agentToolAllowed(options.session, REQUEST_WEB_ACCESS)
       ? { disableWebSearch: true }
       : {}),
-    displayToolName: mcp.displayName,
+    displayToolCall: (name, input) =>
+      integrationDiscovery?.handles(name)
+        ? integrationDiscovery.displayCall(name, input)
+        : { name: mcp.displayName(name), input },
     createClient: (callbacks) => {
       try {
         if (options.ownedLocal) return options.ownedLocal.attach(callbacks);
@@ -2530,6 +2584,12 @@ async function openCodexChatBound(
         }
       : {}),
     executeTool: async (name, input, signal, callContext) => {
+      if (integrationDiscovery?.handles(name)) {
+        callContext.assertCurrentSync?.();
+        const result = await integrationDiscovery.execute(name, input, signal);
+        callContext.assertCurrentSync?.();
+        return result;
+      }
       assertAgentToolSelected(options.session, name);
       // Refuse an unqualified helper before any owner await, approval or effect.
       if (ownedToolNames && !ownedToolNames.has(name))
@@ -3122,25 +3182,12 @@ async function openCodexChatBound(
           ownedHost ? assertHostCurrent : undefined,
         )(input, signal);
       }
+      if (mcp.definitions.some((tool) => tool.name === name))
+        return executeMcpTool(name, input, signal);
       return (
         hooks?.executeTool(mcp.displayName(name), input, signal, async (input, forcePrompt) => {
           const owner = options.registry.findBySessionId(options.conversationId);
           if (!owner) throw new Error('Codex session unavailable');
-          if (mcp.definitions.some((t) => t.name === name))
-            return mcp.execute(
-              name,
-              input,
-              async (canonical, args, s, grant) =>
-                buildPermissionHandler(owner.clientId, options.registry, {
-                  onDemandCreate: options.onDemandCreate,
-                })(canonical, args, {
-                  ...grant,
-                  signal: s,
-                  toolUseID: randomUUID(),
-                  forcePrompt,
-                }),
-              signal,
-            );
           const execute = createNativeToolExecutor(owner.clientId, options.registry, {
             assertRuntimeCurrent: options.ownedLocal
               ? () => options.ownedLocal!.assertCurrentSync()
