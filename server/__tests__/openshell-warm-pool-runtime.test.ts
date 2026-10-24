@@ -79,7 +79,7 @@ it('overlaps independent physical and provider reads while retaining physical va
   resolvePhysical();
   await expect(pending).resolves.toMatchObject({ id: 'physical-one', providers: [] });
 });
-it('prepares with CPU/memory but no account/provider, and verifies seed before create', async () => {
+it('prepares with CPU/memory but no account, provider or task data', async () => {
   const f = fixture();
   await f.adapter.prepare(f.record, AbortSignal.timeout(5000));
   const args = f.run.mock.calls[0][0];
@@ -89,9 +89,30 @@ it('prepares with CPU/memory but no account/provider, and verifies seed before c
   expect(args).not.toContain('--provider');
   expect(args).not.toContain('--inference-provider');
   expect(args).not.toContain('--disk');
-  expect(args.join(' ')).toContain('/sandbox/pool-knowledge');
-  expect(f.seed).toHaveBeenCalledOnce();
-  expect(f.cleanup).toHaveBeenCalledOnce();
+  expect(args).not.toContain('--upload');
+  expect(f.seed).not.toHaveBeenCalled();
+  expect(f.cleanup).not.toHaveBeenCalled();
+});
+it('warms only the neutral runtime without waiting for knowledge that claim must select afresh', async () => {
+  const f = fixture();
+  f.seed.mockRejectedValue(Error('publisher unavailable'));
+  await expect(f.adapter.prepare(f.record, new AbortController().signal)).resolves.toMatchObject({
+    phase: 'Ready',
+    providers: [],
+  });
+  expect(f.seed).not.toHaveBeenCalled();
+  expect(f.run.mock.calls[0][0]).not.toContain('--upload');
+  f.record.physicalId = 'physical-one';
+  f.record.state = 'claiming';
+  f.record.conversationId = 'chat';
+  f.record.provider = 'work';
+  f.run.mockClear();
+  await expect(f.adapter.bind(f.record, 'work', new AbortController().signal)).rejects.toThrow(
+    'publisher unavailable',
+  );
+  expect(
+    f.run.mock.calls.some(([args]) => args.includes('upload') || args.includes('attach')),
+  ).toBe(false);
 });
 it('selects fresh seed and confirms exact provider set only after a durable claim', async () => {
   const f = fixture();
@@ -144,7 +165,7 @@ it('waits for observed Ready after detached creation rather than treating Pendin
   expect(result.phase).toBe('Ready');
   expect(reads).toBeGreaterThan(1);
 });
-it('records dispatch after seed preparation and before the native create can run', async () => {
+it('records dispatch before the neutral native create can run', async () => {
   const f = fixture(),
     dispatched = vi.fn();
   const original = f.run.getMockImplementation()!;
@@ -155,13 +176,14 @@ it('records dispatch after seed preparation and before the native create can run
   await f.adapter.prepare(f.record, AbortSignal.timeout(5000), undefined, dispatched);
   expect(dispatched).toHaveBeenCalledOnce();
 });
-it('does not record native dispatch when seed preparation fails', async () => {
+it('does not record native dispatch or perform reads for a cancelled preparation', async () => {
   const f = fixture(),
     dispatched = vi.fn();
-  f.seed.mockRejectedValueOnce(Error('publication unavailable'));
+  const controller = new AbortController();
+  controller.abort(Error('cancelled'));
   await expect(
-    f.adapter.prepare(f.record, AbortSignal.timeout(5000), undefined, dispatched),
-  ).rejects.toThrow(/publication/);
+    f.adapter.prepare(f.record, controller.signal, undefined, dispatched),
+  ).rejects.toThrow(/cancelled/);
   expect(dispatched).not.toHaveBeenCalled();
   expect(f.run).not.toHaveBeenCalled();
 });

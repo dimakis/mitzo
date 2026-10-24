@@ -163,64 +163,59 @@ export function createWarmPoolAdapter(
       if (record.scope !== scope || !hasWarmPoolRuntimeAuthority(record, adapter))
         throw Error('Warm sandbox preparation recipe differs');
       if (!adapter.available) throw Error(adapter.reason!);
-      const prepared = await prepareSeed(config, signal);
-      try {
-        signal.throwIfAborted();
-        dispatched?.();
-        const output = Physical.parse(
-          JSON.parse(
-            await run(
-              [
-                ...base,
-                'create',
-                '--name',
-                record.name,
-                '--from',
-                config.image,
-                '--policy',
-                config.policy,
-                '--cpu',
-                String(record.resources.cpu),
-                '--memory',
-                record.resources.memoryGiB + 'Gi',
-                '--upload',
-                prepared.seed + ':/sandbox/pool-knowledge',
-                '--label',
-                'mitzo.warm_pool=' + record.id,
-                '--no-auto-providers',
-                '--detach',
-                '--output',
-                'json',
-              ],
-              signal,
-            ),
+      // Neutral warming needs no task knowledge. Claim selects and verifies
+      // fresh knowledge; an unused warm-up copy only duplicates that work.
+      signal.throwIfAborted();
+      dispatched?.();
+      const output = Physical.parse(
+        JSON.parse(
+          await run(
+            [
+              ...base,
+              'create',
+              '--name',
+              record.name,
+              '--from',
+              config.image,
+              '--policy',
+              config.policy,
+              '--cpu',
+              String(record.resources.cpu),
+              '--memory',
+              record.resources.memoryGiB + 'Gi',
+              '--label',
+              'mitzo.warm_pool=' + record.id,
+              '--no-auto-providers',
+              '--detach',
+              '--output',
+              'json',
+            ],
+            signal,
           ),
-        );
-        if (
-          output.name !== record.name ||
-          output.workspace !== config.workspace ||
-          output.labels['mitzo.warm_pool'] !== record.id ||
-          output.labels['mitzo.conversation'] ||
-          output.labels['mitzo.account_provider']
-        )
-          throw Error('Warm sandbox create identity differs');
-        created?.(output.id);
-        let observed = await inspect({ ...record, physicalId: output.id }, signal);
-        const deadline = Date.now() + 90000;
-        while (
-          observed &&
-          ['Pending', 'Creating', 'Starting'].includes(observed.phase) &&
-          Date.now() < deadline
-        ) {
-          await delay(250, undefined, { signal });
-          observed = await inspect({ ...record, physicalId: output.id }, signal);
-        }
-        if (!observed || observed.phase !== 'Ready')
-          throw Error('Warm sandbox readiness is unverified');
-        return observed;
-      } finally {
-        prepared.cleanup();
+        ),
+      );
+      if (
+        output.name !== record.name ||
+        output.workspace !== config.workspace ||
+        output.labels['mitzo.warm_pool'] !== record.id ||
+        output.labels['mitzo.conversation'] ||
+        output.labels['mitzo.account_provider']
+      )
+        throw Error('Warm sandbox create identity differs');
+      created?.(output.id);
+      let observed = await inspect({ ...record, physicalId: output.id }, signal);
+      const deadline = Date.now() + 90000;
+      while (
+        observed &&
+        ['Pending', 'Creating', 'Starting'].includes(observed.phase) &&
+        Date.now() < deadline
+      ) {
+        await delay(250, undefined, { signal });
+        observed = await inspect({ ...record, physicalId: output.id }, signal);
       }
+      if (!observed || observed.phase !== 'Ready')
+        throw Error('Warm sandbox readiness is unverified');
+      return observed;
     },
     async remove(record, signal) {
       const before = await inspect(record, signal);

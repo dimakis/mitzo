@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.661-live-prefix-delivery';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.662-neutral-warm-preparation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -703,7 +703,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '77f66ceaffb019038fe06479459505dbb37480b7791c596c8e869bef14c2b456',
   '../openshell-warm-pool.ts': '41865d7c3836454cae17bd55f409140989c95054f9f9250045f60efdf4b9b649',
   '../openshell-warm-pool-runtime.ts':
-    'ac93f117572a341220e645297a80c9c2afbff81e21a4e3897e6d82891cd60dad',
+    'c632f3fe01522a90b99b82a381042dc64c47cbc4d6329bd860b8e97b18ab3827',
   '../openshell-warm-pool-binding.ts':
     '498030ec01afaa475f3e869974ec1eba1465eb537e14c06221e2c217a1e11583',
   '../openshell-warm-pool-router.ts':
