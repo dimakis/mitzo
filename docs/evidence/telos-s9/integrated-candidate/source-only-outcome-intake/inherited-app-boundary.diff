@@ -1,0 +1,74 @@
+--- ab2c1f6617053f81364025cafe6d6116d6d16cce
++++ c5b32dde8d86e715bd417d6f1aeaaa3ed233202c
+@@ -3492,6 +3492,35 @@
+     res.status(503).json({ error: 'Work conversation context unavailable' });
+     return;
+   }
++  let repositoryContext: { workspaceId: string; repository: string } | undefined;
++  if (
++    meta.sessionId === req.params.id &&
++    typeof meta.repositoryWorkspaceId === 'string' &&
++    /^\S{1,200}$/.test(meta.repositoryWorkspaceId) &&
++    meta.accountBinding
++  ) {
++    try {
++      const current = eventStore.getSession(meta.sessionId);
++      const workspace = getRepositoryWorkspaces(true).get(meta.repositoryWorkspaceId);
++      if (
++        current?.repositoryWorkspaceId === meta.repositoryWorkspaceId &&
++        isDeepStrictEqual(current.accountBinding, meta.accountBinding) &&
++        workspace.id === meta.repositoryWorkspaceId &&
++        workspace.state === 'claimed' &&
++        workspace.conversationId === meta.sessionId &&
++        isDeepStrictEqual(workspace.binding, meta.accountBinding) &&
++        typeof workspace.repository === 'string' &&
++        workspace.repository.length <= 201 &&
++        canonicalRepositorySelection(workspace.repository) === workspace.repository
++      )
++        repositoryContext = {
++          workspaceId: workspace.id,
++          repository: workspace.repository,
++        };
++    } catch {
++      // Repository presentation is optional; preserve ordinary metadata on read failure.
++    }
++  }
+   const preparedController = new AbortController();
+   const abortPreparedStatus = () => preparedController.abort();
+   res.once('close', abortPreparedStatus);
+@@ -3539,35 +3568,6 @@
+     res.removeListener('close', abortPreparedStatus);
+   }
+   if (res.destroyed) return;
+-  let repositoryContext: { workspaceId: string; repository: string } | undefined;
+-  if (
+-    meta.sessionId === req.params.id &&
+-    typeof meta.repositoryWorkspaceId === 'string' &&
+-    /^\S{1,200}$/.test(meta.repositoryWorkspaceId) &&
+-    meta.accountBinding
+-  ) {
+-    try {
+-      const current = eventStore.getSession(meta.sessionId);
+-      const workspace = getRepositoryWorkspaces(true).get(meta.repositoryWorkspaceId);
+-      if (
+-        current?.repositoryWorkspaceId === meta.repositoryWorkspaceId &&
+-        isDeepStrictEqual(current.accountBinding, meta.accountBinding) &&
+-        workspace.id === meta.repositoryWorkspaceId &&
+-        workspace.state === 'claimed' &&
+-        workspace.conversationId === meta.sessionId &&
+-        isDeepStrictEqual(workspace.binding, meta.accountBinding) &&
+-        typeof workspace.repository === 'string' &&
+-        workspace.repository.length <= 201 &&
+-        canonicalRepositorySelection(workspace.repository) === workspace.repository
+-      )
+-        repositoryContext = {
+-          workspaceId: workspace.id,
+-          repository: workspace.repository,
+-        };
+-    } catch {
+-      // Repository presentation is optional; preserve ordinary metadata on read failure.
+-    }
+-  }
+   res.json({
+     sessionId: meta.sessionId,
+     ...(Number.isSafeInteger(meta.createdAt) &&

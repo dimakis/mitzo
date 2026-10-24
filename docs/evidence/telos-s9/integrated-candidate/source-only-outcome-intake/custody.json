@@ -1,0 +1,89 @@
+{
+  "retained": [
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-OWNER-REPORT.json",
+      "retained": "S9-SOURCE-ONLY-S7-RETAKE-OWNER-REPORT.json",
+      "bytes": 2719,
+      "sha256": "78d6b1f3820b29e9e3d5e1cac9a43e729d3863e5500103ae640ef706d5efb583"
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-SOURCE-PROOF.json",
+      "retained": "S9-SOURCE-ONLY-S7-RETAKE-SOURCE-PROOF.json",
+      "bytes": 13727,
+      "sha256": "6765875470e41067c1d4a0e2fd17960e382dd27371420f162b23c192a4189912"
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-RESULT.json",
+      "retained": "S9-SOURCE-ONLY-S7-RETAKE-RESULT.json",
+      "bytes": 119997,
+      "sha256": "20278f9a5d98dae196c8751a6791d6dfdf6f65aaf7606d199f88595658893ef0"
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-RESULT.json",
+      "retained": "S9-SOURCE-ONLY-RESULT.json",
+      "bytes": 123397,
+      "sha256": "10e5c2a5b2880d966c6f3a279f3fab8eab7be55412d1f9a5d4b00e981803faeb"
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-HOME-RETURN-GREEN-ROOT-CLOSURE.json",
+      "retained": "S9-HOME-RETURN-GREEN-ROOT-CLOSURE.json",
+      "bytes": 1438,
+      "sha256": "366ff80b430dd00e463404e3d98f1e7b3b425f0f57b7e1651491ee3498a6857e"
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-HOME-RETURN-SAME-CASE-GREEN-REVIEW.md",
+      "retained": "S9-HOME-RETURN-SAME-CASE-GREEN-REVIEW.md",
+      "bytes": 5826,
+      "sha256": "dbb48c0568e39398da1b6dcfe9d659f6e22693e52da8c049676f0c7538571266"
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-HOME-RETURN-SAME-CASE-GREEN-REVIEW.json",
+      "retained": "S9-HOME-RETURN-SAME-CASE-GREEN-REVIEW.json",
+      "bytes": 114544,
+      "sha256": "e97d6a420a770a561bcfaa43dd588b8861054e8252ed227656a7621c88a7c01a"
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-HOME-RETURN-GREEN-ROOT-VISUAL-REVIEW.json",
+      "retained": "S9-HOME-RETURN-GREEN-ROOT-VISUAL-REVIEW.json",
+      "bytes": 2820,
+      "sha256": "3c402ee1e12b892aada1511dbb9fbf8d02a6211853317bb13c97e274c112a790"
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/foundation-evidence/acceptance-seventeenth-original-types-TS2345.log",
+      "retained": "acceptance-seventeenth-original-types-TS2345.log",
+      "bytes": 359,
+      "sha256": "89ea75aea9c49114293154927be9bc60e2fa299ea18545236a35d919ddf77d02"
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/foundation-evidence/acceptance-seventeenth-erasure-proof.json",
+      "retained": "acceptance-seventeenth-erasure-proof.json",
+      "bytes": 877,
+      "sha256": "c299d144e344c3aeea38ae65ab31b94bef3ef053e53a0739dc93742c7d447081"
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/foundation-evidence/seventeenth-original-source-only-process-fixture.ts.txt",
+      "retained": "seventeenth-original-source-only-process-fixture.ts.txt",
+      "bytes": 22523,
+      "sha256": "cb134d2c028b229a0f2c63f194508da486946c34b44e5d753a7cc24812141666"
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/foundation-evidence/root-S5B-1048-SEVENTEENTH-ROOT-ERASURE-PREFLIGHT.json",
+      "retained": "root-S5B-1048-SEVENTEENTH-ROOT-ERASURE-PREFLIGHT.json",
+      "bytes": 881,
+      "sha256": "3c144e202948b02ec5ed05e7823dbf9887f45e92b3eff6909c35d35c99dd107c"
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/foundation-evidence/acceptance-seventeenth-canonical-payload-proof.json",
+      "retained": "acceptance-seventeenth-canonical-payload-proof.json",
+      "bytes": 341,
+      "sha256": "9cb61dd84a24167e767ebe1f2faee2be7fda03d21463ae78abc7e13551ce3066"
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/foundation-evidence/acceptance-seventeenth-all-production-differences.json",
+      "retained": "acceptance-seventeenth-all-production-differences.json",
+      "bytes": 864,
+      "sha256": "7db3b9a9425730b377f3d30f0a2b5aecfb1e48106a582d945633612688e0c14a"
+    }
+  ],
+  "archivesRetainedAtSourceAndHashPinnedInOwnerReport": true
+}

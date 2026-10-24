@@ -1,0 +1,528 @@
+{
+  "scope": "Bounded independent complete new five-file delegated-worker process-restart harness and retained evidence review; no executions",
+  "outcome": "PASS",
+  "head": "bf0be93cd0cd83a916d349175afdbaf6761e14f5",
+  "tree": "b8d25470e8830e3e2763994de60831388c497179",
+  "baseline": "ff2525d1e0e6411af9036caa6f68e5f663a1d568",
+  "checks": {
+    "five_new_files_plus_one_additive_claim_document": true,
+    "exact_tree": true,
+    "nested_source_proof_equal": true,
+    "all_twenty_source_inventory_hashes": true,
+    "all_prior_71_integration_files_exact": true,
+    "workflow_and_manifest_unchanged": true,
+    "all_667_actual_pins": true,
+    "all_thirteen_protected_hashes": true,
+    "raw_http_probe_teardown_six_capture_two_archive_hashes": true,
+    "one_selected_PASS_zero_FAIL_SKIP_TODO": true,
+    "observations_and_lifecycle_deep_equal_report": true,
+    "two_actual_App_generations_same_paths_auth_reaped": true,
+    "one_selected_native_launch_thread_turn_two_metadata_closes": true,
+    "nineteen_actual_dynamic_definitions_include_TaskStatus": true,
+    "real_allocation_precedes_any_native_launch": true,
+    "actual_initial202_consumed_dispatchedtrue": true,
+    "actual_recovery202_consumed_dispatchedfalse": true,
+    "native_recovery_only_status_changes_and_no_completed_turn": true,
+    "exact_allocation_receipt_replay200_no_new_identities": true,
+    "original_workspace_preparation_admission_role_binding_retained": true,
+    "real_task_attempt_allocation_context_worker_mapping": true,
+    "same_pending_task_no_completion_result_and_one_user_no_assistant": true,
+    "unrelated_item_unchanged_no_pageerrors": true,
+    "two_canonical_GET200_and_two_delegation_POST200": true,
+    "two_historical_raw_results_retained_initial_failure_finalpass": true,
+    "all_two_attempt_effect_totals_disclosed": true,
+    "bare_loader_failure_absolute_control_no_surviving_sourceMCP": true,
+    "all_source_archive_tracked_members_exact_execution": true,
+    "all_six_custody_members_exact_originals": true,
+    "all_27_diagnostic_archive_members_exact_retained": true,
+    "previous_root_review_hashes_retained": true,
+    "accepted_main_reference_receipt_hash_only": true
+  },
+  "sourceInventory": [
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/worker-process-restart-fixture.ts",
+      "sha256": "20804b5e6292850c1eb3d9336c6e3fbbb55fe70999bb1a52e751f54a81121843"
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/worker-restart-child-app.mjs",
+      "sha256": "c0fd0552b9abd1f7f794ad5ee0c398f685fc5176a1ce9eebdcacc21c9b0e524d"
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/worker-restart-child-loader.mjs",
+      "sha256": "d5dfa4a214d1cd3a937183efde3b59fef5666611a032850c4e3ed6f47846cd9a"
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/worker-process-restart-browser.contract.ts",
+      "sha256": "a46c6ed846824db5163f135a6b85c2c1694b78038107a3c03eddd694b0705c5e"
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/vitest.worker-process-restart.config.ts",
+      "sha256": "0ae20aa63614808c89b5028a109b5dd69b4ed441d8930c6e55a13d72edc6f0c2"
+    },
+    {
+      "path": "server/app.ts",
+      "sha256": "6c03db0e00aa800acc01b65f6ef1c6434134d95aac260a34961585fe40abb4de"
+    },
+    {
+      "path": "server/task-orchestrator.ts",
+      "sha256": "0c25385bc6ace3c9ef225b336379e41d47ecc99ba9f383dcf4f1cdd705c2fff7"
+    },
+    {
+      "path": "server/telos-work-delegation-host.ts",
+      "sha256": "f80204bc86526b806ae42d144bcffacc07aba609925698d300a6ebeeb20aa9ee"
+    },
+    {
+      "path": "server/telos-work-delegation.ts",
+      "sha256": "dc881b3ccb8335a4becd1c45dda8c612ae056639365193caad0cc09b896156ee"
+    },
+    {
+      "path": "server/telos-work-store.ts",
+      "sha256": "0aa5ff7956c122b3b898d0366e9eabb662f31c9aefdce9b140b1e1137264f408"
+    },
+    {
+      "path": "server/telos-work-execution-authority.ts",
+      "sha256": "50e9126e67121fd28e1d00f225cf90310addafe9d3caa0f2ada25cd3394ca146"
+    },
+    {
+      "path": "server/codex-chat-session.ts",
+      "sha256": "1bebc84590a319b5b8ba5d0a2b2c8718a48324b22b88e17bea13e2ac085f3386"
+    },
+    {
+      "path": "server/codex-conversation-store.ts",
+      "sha256": "95a04cadca100de9b781b80dfdd2e73ba442d6a1805015bba51d647aa8c03779"
+    },
+    {
+      "path": "server/ordinary-local-codex-entry.ts",
+      "sha256": "c7accc3efc53e64874c79c03217ba8bf356834d4477b6c98a38d85923a95e411"
+    },
+    {
+      "path": "server/task-store.ts",
+      "sha256": "d8db46138a28be13c612601c1e1435352c1e05b1d6c47deb785804ab397cbbc0"
+    },
+    {
+      "path": "server/telos-work-role-context.ts",
+      "sha256": "d21fb6e7b3ae8e46f7c4fc2022a6278d7262acf949272893f91271f6590dfdbd"
+    },
+    {
+      "path": "server/codex-mcp-tools.ts",
+      "sha256": "ad82004d216382a911fbc1f089e4aeb8b22b2e833d6ced51fa6c37682a901206"
+    },
+    {
+      "path": "server/mcp-entrypoint.ts",
+      "sha256": "28443053db17400d86243417723e61c4caf8abf01adcdaa2f7635a4063815590"
+    },
+    {
+      "path": "server/task-mcp-server.ts",
+      "sha256": "79180e917cd7acd3680df90607c8e480e7349297bf7fb890418d650b79d46b9a"
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs",
+      "sha256": "652fb56e7ad3b799420759a2569183c3166f615b43b060988d0698a7d08a64ee"
+    }
+  ],
+  "pinCount": 667,
+  "pinMismatches": [],
+  "protectedCount": 13,
+  "evidence": [
+    {
+      "kind": "rawResult",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS/absolute-mcp-loader/run.json",
+      "sha256": "6600aeb7fabaa627f9f7dc737f69ddf0348b1432b2a072e483c312c753c37313",
+      "bytes": 1238,
+      "match": true
+    },
+    {
+      "kind": "rawHttp",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS/absolute-mcp-loader/actual-http-observations.json",
+      "sha256": "9ef7fbef2e7d152e2d8b91577919721a7277649b543b9b4a94290bae205f62ec",
+      "bytes": 37312,
+      "match": true
+    },
+    {
+      "kind": "loaderProbe",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-MCP-LOADER-PROBE.json",
+      "sha256": "1646b13f48a49316e36c6c977bb1dfd5903c1c694b09688d56790c9cb7534409",
+      "bytes": 1647,
+      "match": true
+    },
+    {
+      "kind": "teardownCheck",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-MCP-TEARDOWN-CHECK.json",
+      "sha256": "ad13b95768233aadac1701ee1afca9b075df6ca4a9306b675e3ff26133f80641",
+      "bytes": 348,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS/absolute-mcp-loader/actual-delegated-task-progress-after-recovery.png",
+      "sha256": "f079dc27973f87ed9a4807f4497be21a818bb33082798fe75e9193a24d28cd3f",
+      "bytes": 22788,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS/absolute-mcp-loader/before-crash-retained-command.png",
+      "sha256": "bb4e7958d109cb0c7c403e9fcb936ab9ebedef09993a1e88775bb821da123d28",
+      "bytes": 46577,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS/absolute-mcp-loader/exact-ui-retry-retained-owner-proof.png",
+      "sha256": "96d6cfce84346dbcdca76c3201b10e1a3f62948141dc0f99a034a17028a90f5f",
+      "bytes": 49101,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS/absolute-mcp-loader/fresh-app-real-ui-retains-uncertainty.png",
+      "sha256": "0ff376506846ae891f5d645fe5c09e1a4b3d77be6ade8c8b2d8392c8016517cc",
+      "bytes": 41948,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS/absolute-mcp-loader/lead-remains-after-real-child-allocation.png",
+      "sha256": "5c65baa5d780d154d26bc60f7fcc2c1fc6e20f8f4a2d1d45588af872883c3718",
+      "bytes": 30440,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS/absolute-mcp-loader/unrelated-job-draft-after-real-process-restart.png",
+      "sha256": "4ce948c27d73f8a9a51e7a8a290035dd3928794bac9233d4fb7c9d6ba3ae6922",
+      "bytes": 30759,
+      "match": true
+    },
+    {
+      "kind": "archive",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-SOURCE.zip",
+      "sha256": "1b55ef033982a8f4de0e6e84bd8afd018e1b66768e199ba71e01b921b7e3e458",
+      "bytes": 2970852,
+      "match": true
+    },
+    {
+      "kind": "archive",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS.zip",
+      "sha256": "a090f30a4e8afc0f55762b8845be60412a1384b68830332f44008efb4a5abb41",
+      "bytes": 288615,
+      "match": true
+    }
+  ],
+  "selectedResult": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 21918.0888671875
+  },
+  "selectedEffects": {
+    "preflight.close": 2,
+    "native.launch": 1,
+    "thread/start": 1,
+    "turn/start": 1
+  },
+  "allDiagnosticEffects": {
+    "preflight.close": 3,
+    "native.launch": 2,
+    "native.close": 1,
+    "thread/start": 1,
+    "turn/start": 1
+  },
+  "dynamicToolCount": 19,
+  "dynamicToolNames": [
+    "AskUserQuestion",
+    "Bash",
+    "GitHubRead",
+    "GitCommit",
+    "Read",
+    "Write",
+    "Edit",
+    "mitzo_mcp_8950011e19a38ecc1c4b8fe22099fa7b",
+    "mitzo_mcp_8a00e0a611b6cd0d521732264edfeadd",
+    "mitzo_mcp_694021dc0021157364ce4c8a1bb48f9b",
+    "mitzo_mcp_146cc5b4883c11466b674d5fd655a03e",
+    "mitzo_mcp_71fa540af3c4815daddfb28c06755a34",
+    "SymposiumProposeProfile",
+    "SymposiumReadProfiles",
+    "AgentReadTasks",
+    "AgentProposeTask",
+    "AgentCommunication",
+    "RequestGithubPublish",
+    "TelosWorkControl"
+  ],
+  "lifecycle": [
+    {
+      "event": "ready",
+      "type": "ready",
+      "pid": 81207,
+      "generation": 1,
+      "port": 63987,
+      "authId": "0a0bf0f4-fecc-44a6-ba61-6163f7b31a4e",
+      "statePaths": {
+        "repo": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-H8feXf/controller-workspace",
+        "canonicalDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-worker-restart-canonical-NKb7wx/canonical-retained.db",
+        "nativeCustody": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-H8feXf/native-custody",
+        "accountProfiles": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-H8feXf/profiles.json",
+        "taskDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-H8feXf/controller-workspace/.mitzo/tasks.db"
+      },
+      "startupRecovery": {
+        "stale": 0,
+        "orphaned": 0
+      },
+      "owners": [
+        "App/REST",
+        "EventStore",
+        "TaskStore/WorkloadStore",
+        "SessionRegistry",
+        "ConnectionRegistry",
+        "SSE",
+        "auth revocations",
+        "ordinary workspace custody",
+        "native conversation/command ledger",
+        "native driver (lazy on explicit command)"
+      ],
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
+    },
+    {
+      "event": "exit",
+      "pid": 81207,
+      "generation": 1,
+      "code": null,
+      "signal": "SIGKILL"
+    },
+    {
+      "event": "ready",
+      "type": "ready",
+      "pid": 81358,
+      "generation": 2,
+      "port": 64132,
+      "authId": "0a0bf0f4-fecc-44a6-ba61-6163f7b31a4e",
+      "statePaths": {
+        "repo": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-H8feXf/controller-workspace",
+        "canonicalDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-worker-restart-canonical-NKb7wx/canonical-retained.db",
+        "nativeCustody": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-H8feXf/native-custody",
+        "accountProfiles": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-H8feXf/profiles.json",
+        "taskDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-H8feXf/controller-workspace/.mitzo/tasks.db"
+      },
+      "startupRecovery": {
+        "stale": 1,
+        "orphaned": 0
+      },
+      "owners": [
+        "App/REST",
+        "EventStore",
+        "TaskStore/WorkloadStore",
+        "SessionRegistry",
+        "ConnectionRegistry",
+        "SSE",
+        "auth revocations",
+        "ordinary workspace custody",
+        "native conversation/command ledger",
+        "native driver (lazy on explicit command)"
+      ],
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
+    },
+    {
+      "event": "exit",
+      "pid": 81358,
+      "generation": 2,
+      "code": null,
+      "signal": "SIGKILL"
+    }
+  ],
+  "historicalDiagnostics": [
+    {
+      "stage": "initial",
+      "source": "7309b558",
+      "sha256": "da1fd63cf73cfbe9a60a6d8dec509d485d86da68b640aa91e33ec113b2a0d8a4",
+      "match": true,
+      "counts": [
+        0,
+        1,
+        0
+      ],
+      "effects": {
+        "preflight.close": 1,
+        "native.launch": 1,
+        "native.close": 1
+      }
+    },
+    {
+      "stage": "absolute-mcp-loader",
+      "source": "bf0be93cd0cd83a916d349175afdbaf6761e14f5",
+      "sha256": "6600aeb7fabaa627f9f7dc737f69ddf0348b1432b2a072e483c312c753c37313",
+      "match": true,
+      "counts": [
+        1,
+        0,
+        0
+      ],
+      "effects": {
+        "preflight.close": 2,
+        "native.launch": 1,
+        "thread/start": 1,
+        "turn/start": 1
+      }
+    }
+  ],
+  "archiveTrackedMembers": 251,
+  "sourceArchiveMismatches": [],
+  "custody": [
+    {
+      "path": "custody/S9-UX21-WORKER-PROCESS-RESTART-SOURCE-PROOF.json",
+      "sha256": "8f2c608ae23f3934fb4c9021edc5ea25e80c02abfc1610fffb1829099b61ee8a",
+      "match": true
+    },
+    {
+      "path": "custody/S9-UX21-WORKER-PROCESS-RESTART-PREPARATION.json",
+      "sha256": "9c6ecd18fff3e8550b0429c494a5c7cb55a8cbacba06bca12859233278d34dd1",
+      "match": true
+    },
+    {
+      "path": "custody/S9-UX21-WORKER-MCP-LOADER-PROBE.json",
+      "sha256": "1646b13f48a49316e36c6c977bb1dfd5903c1c694b09688d56790c9cb7534409",
+      "match": true
+    },
+    {
+      "path": "custody/S9-UX21-WORKER-MCP-TEARDOWN-CHECK.json",
+      "sha256": "ad13b95768233aadac1701ee1afca9b075df6ca4a9306b675e3ff26133f80641",
+      "match": true
+    },
+    {
+      "path": "custody/S9-UX21-PROCESS-RESTART-CLAIM-QUALIFICATIONS.json",
+      "sha256": "e059521c3d7255cee9b9e7f51fddf3844eacfda6847fa0c002954ad5729d9551",
+      "match": true
+    },
+    {
+      "path": "custody/initial-worker-source.patch",
+      "sha256": "b4dc61ea0836400d6af4550017019221752d1922e9fd073efbbc749b5603b15e",
+      "match": true
+    }
+  ],
+  "diagnosticArchiveMembers": 27,
+  "diagnosticArchiveMismatches": [],
+  "taskRetained": {
+    "id": "a55d97db-95e1-4ec7-a6c5-3ecd46ef5ee9",
+    "parentId": null,
+    "title": "Record one acoustic sample",
+    "description": "{\"summary\":\"Record one acoustic sample\",\"intent\":\"Retain one reviewed sample\",\"rationale\":\"Exact smallest child only\",\"acceptanceCriteria\":[\"Retain sample evidence\"],\"taskHint\":\"\"}",
+    "status": "pending",
+    "sessionId": null,
+    "sessionPolicy": "reuse",
+    "priority": 0,
+    "depth": 0,
+    "annotations": [],
+    "summary": null,
+    "requiresApproval": true,
+    "tokenUsage": 0,
+    "claimedBy": null,
+    "claimedAt": null,
+    "createdAt": 1792472325067,
+    "updatedAt": 1792472325067,
+    "completedAt": null,
+    "stageType": null,
+    "gateConfig": null,
+    "artifacts": null,
+    "retryCount": 0,
+    "maxRetries": 0,
+    "templateId": null,
+    "children": []
+  },
+  "bindingRetained": {
+    "attemptId": "2e4ee23f-e5a5-4a16-b7a0-5225c1d373c5",
+    "childItemId": "recording-slice",
+    "leadConversationId": "c771b135-e90a-8573-b943-200d5b191bac",
+    "workerConversationId": "f81cf624-b94f-8381-b96a-9fc582836ccb",
+    "contextSnapshotId": "delegation:6470b74587a442b726175a3d36872f2e0b94406084f7d5c2fdb09edc2b7057fd",
+    "contextHash": "6470b74587a442b726175a3d36872f2e0b94406084f7d5c2fdb09edc2b7057fd"
+  },
+  "limits": [
+    "Root independent bounded review of frozen new five-file worker composition/case/proof and actual observations.",
+    "Actual accepted-main source integration/CI/exact-head CentaurApp gate and owner PR/workflow adoption; no private candidate PR/push/merge.",
+    "Actual worker tool progress writes, produced output/result/pending_review/explicit verified completion across restart remain pending; this journey deliberately has no terminal/output/result to manufacture recovery.",
+    "Running unrelated native peer, revoked/account/runtime/repository-loss/backup/other recovery variants, desktop/device/WebKit/fullUX/coexistence and separately authorized CT19 runtime/window remain open.",
+    "Real native/provider process/inference or cancellation/terminal proof, index host lifecycle and production bundle are excluded.",
+    "All71priorintegrationfiles including original accepted five-file process case/strict9/default helper unchanged; S9 and parentACTIVE."
+  ],
+  "claimQualifications": [
+    "postDataJSON() and deep equality prove exact DECODED JSON request-value equality. No independently captured raw wire-byte identity claim. Original byte-identical wording is narrowed by this additive clarification.",
+    "The specific frozen f428 execution proves actual202 consumed/dispatchedfalse. Its409 branch is an honest alternative assertion path, not executed evidence or a universal202 guarantee.",
+    "interrupted/recovery1 is local native command recovery. It does not prove provider terminal, cancellation, completion or resumed inference.",
+    "All nine diagnostics and six native fake launch/turn totals remain disclosed. Only one selected final case1PASS0FAIL0SKIP16.86s.",
+    "Prior five-file fixture/case and66 older integration files remain frozen. Index/production bundle/realprovider/fullworker/main/device/live boundaries remain open."
+  ],
+  "acceptedMainReferenceOnly": {
+    "commit": "e1f31608e02f9f6cd4f1dc148df6ff5dab58dccb",
+    "tree": "d1e403e0a8544039ba3e0d4ea40894f56c6c0abd",
+    "receiptPath": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/PR1042-ACCEPTED-RECEIPT.json",
+    "receiptSha256": "d3b7e3ca779fbe464a4b393c0d97ef1116bafb64f0b504f38b38e6c910f93b4e",
+    "qualification": "Root accepted1042 reference only; this case ran on the explicitly labelled72c+f47e candidate, not this accepted main."
+  },
+  "reviewerNewExecutions": 0,
+  "additionalEvidenceHashes": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS/absolute-mcp-loader/worker-process-restart-observations.json",
+      "sha256": "904a8e3fcdf1d967d60afd3cb23bf19d121bd891b1fd07d70cd879f807dae20c",
+      "bytes": 270120
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS/absolute-mcp-loader/child-lifecycle.json",
+      "sha256": "900a317fb0d4d4b3457981ab11db42ba2ffcd933b9725529f883196842987957",
+      "bytes": 2936
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS/absolute-mcp-loader/external-native-effects.jsonl",
+      "sha256": "1113a973c52a7c3d08336fa9720913d0095d9943f49853d6a23db7a6f4a5f7c2",
+      "bytes": 5338
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS/absolute-mcp-loader/canonical-cli-1.json",
+      "sha256": "d9d1456d30fc4bf8323aa6f7a0d64b26010c844130a792005af57005fb5e8e5b",
+      "bytes": 61
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS/absolute-mcp-loader/canonical-cli-2.json",
+      "sha256": "d9d1456d30fc4bf8323aa6f7a0d64b26010c844130a792005af57005fb5e8e5b",
+      "bytes": 61
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-DIAGNOSTICS/absolute-mcp-loader/mgmt-cli-pins.json",
+      "sha256": "6462880c84fd8aaa843bd50ea6974d0ff0633424bca2a08b5ed14487c6130cc8",
+      "bytes": 5001
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-RESULT.json",
+      "sha256": "d364c7cee46db52223acdd017c9dd4d57f9d513c78734860d5241af2d9a776e2",
+      "bytes": 306303
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-WORKER-PROCESS-RESTART-SOURCE-PROOF.json",
+      "sha256": "8f2c608ae23f3934fb4c9021edc5ea25e80c02abfc1610fffb1829099b61ee8a",
+      "bytes": 8286
+    }
+  ],
+  "sourceReview": {
+    "allFiveNewFilesReadCompletely": true,
+    "newLoaderEffect": "Wraps actual server/mcp-entrypoint.ts, replacing node/bare tsx with process.execPath/absolute installed tsx only; actual query import, other exports and selected server args preserved.",
+    "reusedActualMcpOwners": [
+      "server/mcp-entrypoint.ts",
+      "server/codex-mcp-tools.ts",
+      "server/task-mcp-server.ts",
+      "server/chat.ts buildTaskMcpServer"
+    ],
+    "McpCurrentness": "Actual cancellation/currentness before/after real stdio connect and listTools; actual host task/session/client/token config unchanged. Discovery only; no authenticated tool operation was exercised.",
+    "orchestrator": "Actual provision-only TaskOrchestrator.delegateSlice -> actual canonical delegation owner; legacy scheduling callbacks fail closed and no legacy loop is started.",
+    "stateFakes": "No test substitution of owned HTTP, receipt, host ACK persistence, terminal result, admission or state transition. Native external RPC responses remain simulated.",
+    "restart": "Once-only synthetic canonical backup/initial profiles/auth/executable; no reseed; SIGKILL/wait/reap followed by fresh fork over retained state.",
+    "claimPrecision": "Exact decoded JSON retry; selected202 readback with explicit unexercised retained409 alternative; historical provision receipt not a current execution-state assertion."
+  }
+}

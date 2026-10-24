@@ -1,0 +1,126 @@
+{
+  "review": "S9 advisor material authority intake",
+  "outcome": "bounded_pass",
+  "findings": [],
+  "execution": {
+    "head": "472d5c538c86b506972fbd9b7a7356b46d7277ff",
+    "tree": "a83fc19a7271254ef68205bbace4d89004941e53",
+    "baseline": "5b3e98569f8e25e9dfdeadd19e6dacfa87e83bf2",
+    "accepted_main_qualification": false
+  },
+  "method": {
+    "static_read_only": true,
+    "complete_new_files_read": [
+      "advisor-material-browser.contract.ts",
+      "advisor-material-process-fixture.ts",
+      "vitest.advisor-material.config.ts"
+    ],
+    "prior_integration_files_unchanged": 95,
+    "only_three_new_paths": true,
+    "tests_or_compilers_run": false,
+    "browser_or_services_started": false,
+    "model_or_network_calls": false,
+    "candidate_or_index_edits": false,
+    "owner_messages": false
+  },
+  "source_sha256": {
+    "advisor-material-browser.contract.ts": "338b0e40986573679297c40a8fb5a0a8882ed314fce985d0a178cf685d998f78",
+    "advisor-material-process-fixture.ts": "1cc619f6204c55579d790100b4ed09bd09926ad2c3e930192ea94d3b6f79af7b",
+    "vitest.advisor-material.config.ts": "f8623df6e422473dac548b289b37aefe96d92fbeee0a5e05f0b6db43c687521b"
+  },
+  "reused_seams": {
+    "advisor-child-process-app.mjs": "560d8c85d98b85db77415ae1f0bfa4e7918c764031890a5711f8209e3eb1c9be",
+    "advisor-child-process-fixture.ts": "b6658e7f05d3c91ff35db2958da7c40b5e756251c132ab87d19526c25056b916",
+    "worker-restart-child-loader.mjs": "d5dfa4a214d1cd3a937183efde3b59fef5666611a032850c4e3ed6f47846cd9a",
+    "all_equal_baseline": true
+  },
+  "authority_checks": [
+    {
+      "source": "advisor-material-process-fixture.ts:142-269",
+      "result": "Preexisting synthetic starting state only. Real signed current auth/persistent revocation owner, operator-bound exact planning source/account and allowed manual item scopes; actual SourceCapture preview/adopt/read retains two pins and exact source-record bytes. No UI adoption asserted."
+    },
+    {
+      "source": "advisor-material-process-fixture.ts:269-287,330-452",
+      "result": "Seed authority disabled; actual database backup and seed handles closed before App startup; no reseeding on restart. Parent proxy forwards actual App HTTP; SSE obtains real connection ID; no owned route fulfillment."
+    },
+    {
+      "source": "advisor-material-browser.contract.ts:64-104,122-234",
+      "result": "Actual Files PUT creates distinct r2. Role UI authenticated exact-r1 download is hashed and byte-compared; submitted context equals actual retained role context, with both original pins."
+    },
+    {
+      "source": "server/telos-work-role-review.ts:55-99; server/telos-work-role-host.ts:85-104,143-185,208-317",
+      "result": "Current selected-item source proof, exact artifact revision/hash/bytes, reviewed custody and item privacy rechecked. Existing signed actor/settings/workspace/profile and across-await currentness fences retained."
+    },
+    {
+      "source": "advisor-child-process-app.mjs:184-217,294-307; advisor-material-browser.contract.ts:262-309",
+      "result": "Provider fixture emits three external protocol notifications through actual native lifecycle after real first-command admission. No direct owned completion/ACK/state write. Snapshot reads actual runtime binding; full fixture agent profile and nonnull runtime asserted."
+    },
+    {
+      "source": "frontend/src/components/TelosAdvisorDraft.tsx:156-209; server/telos-work-advisor-draft.ts:26-181; server/telos-source-capture.ts:114-152,181-244",
+      "result": "Real completed transcript boundary and reviewed refs feed actual preview/save; source/operator/private-material/parent revisions and exact packet hashes/bytes are checked before and after awaits and at canonical transaction fences."
+    },
+    {
+      "source": "advisor-material-browser.contract.ts:352-573",
+      "result": "Operator Refine preserves canonical identity and untouched fields, original source and two original pins/bytes; new source adds its own third pin. Actual source return/backlink and cold App readback preserve both sources, revisions, profile/runtime, no tasks, unchanged parent/unrelated records, and original event prefix."
+    }
+  ],
+  "retained_evidence": {
+    "selected_result": {
+      "cases": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 20147.31103515625
+    },
+    "raw_result": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-DIAGNOSTICS/source-record-pin/run.json",
+      "sha256": "84d9119fa7de05fe5ca932075da2138902516e20b5aa618c07e4cb3df22e7fb1",
+      "size": 1225
+    },
+    "baseline": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-DIAGNOSTICS/source-record-pin/preexisting-reviewed-source-baseline.json",
+      "sha256": "8f66818448ca5e8696557b50b4c5db257710a8e935d7bb6e5ea7498b1808a492",
+      "size": 15963
+    },
+    "actual_ui_r1_download": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-DIAGNOSTICS/source-record-pin/actual-ui-reviewed-r1-download.md",
+      "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+      "size": 26
+    },
+    "selected_raw_baseline_download_hashes_independently_checked": true,
+    "packet_material_and_source_record_base64_sha256_verified": true,
+    "runtime_and_full_profile_nonnull_and_equal_initial_after_save_restart": true,
+    "selected_pids": [
+      11890,
+      12000
+    ],
+    "same_private_state_paths": true,
+    "selected_external_effect_counts": {
+      "native.launch": 1,
+      "thread/start": 1,
+      "turn/start": 1,
+      "preflight.close": 2,
+      "provider.notification.input": 3
+    },
+    "archive_and_capture_full_integrity_owner": "Root performs separate archive/raw/capture integrity verification; this report does not duplicate that claim."
+  },
+  "diagnostic_history": {
+    "initial": "Seed-only one-pin expectation failed before App startup; actual capture correctly retained selected material plus source-record pin. No product RED and no acceptance execution in that attempt. Full initial baseline absent and early cleanup omission disclosed. Original raw/source retained.",
+    "correction": "Two/three-pin and payload assertions, Acoustic plan button scope and early seed cleanup corrected; one final selected PASS. No production change or assertion waiver."
+  },
+  "producer_custody": {
+    "result_sha256": "22ab66b19c7c2f3bd1b5771b2fd28ad8dc4c794dc37d81a8923ca4364c17bdae",
+    "source_proof_sha256": "73b4d15f3ed7f249b9b19ba2e906ff8857316261ee0bc27a90b187f47a942b29",
+    "original_producer_bytes_edited": false,
+    "producer_pending_review_chronology_preserved": true,
+    "pin_protection_claim": "Producer reports 667 pins/13 references; three-path-only immutable delta preserves baseline manifest/protected bytes. Root owns complete pin/tree audit."
+  },
+  "open_boundaries": [
+    "Native input JSON references are not native material byte access. This review establishes UI download, canonical retention and backend packet bytes; s8_route_review separately assesses actual production port. No model inference/material read capability qualified.",
+    "Starting source/adoption/classification are synthetic pre-App state through real owners, not actual UI source selection/adoption/creation evidence.",
+    "Negative stale/revoked/privacy/race/cross-account/retry/deeper-ancestor/material deselection matrix is not exercised by this positive case. Static guards remain unchanged.",
+    "Simulated external provider completion is not real native provider/model qualification; native ledger is explicitly unobserved.",
+    "Full UX, devices, desktop/WebKit, accessibility, main/hosted CI/trusted gates, live and final product/source intake remain open."
+  ],
+  "stopping_point": "Bounded new material variant source/authority intake complete; no further execution or production work authorized here."
+}
