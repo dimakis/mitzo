@@ -16,6 +16,8 @@ import { dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
 
 export interface PreparedKeychainHelper {
   readonly file: string;
+  /** Fresh metadata fences for reusing already verified code, never credentials. */
+  assertCurrent?(): void;
   dispose(): void;
 }
 
@@ -56,6 +58,7 @@ export function prepareKeychainHelper(
   if (!isAbsolute(source)) throw new Error('Helper path must be absolute');
   source = join(trustedDirectory(dirname(source)), parse(source).base);
   const original = lstatSync(source);
+  const sourceIdentity = lstatSync(source, { bigint: true });
   if (
     !original.isFile() ||
     original.nlink !== 1 ||
@@ -103,7 +106,43 @@ export function prepareKeychainHelper(
     } finally {
       closeSync(fd);
     }
-    return { file, dispose: () => rmSync(directory, { recursive: true, force: true }) };
+    const ownedIdentity = lstatSync(file, { bigint: true });
+    const directoryIdentity = lstatSync(directory, { bigint: true });
+    const assertCurrent = () => {
+      // Validate ancestry and canonical names again; an inode fence alone does
+      // not protect an executable reached through a replaced parent directory.
+      if (
+        trustedDirectory(dirname(source)) !== dirname(source) ||
+        trustedDirectory(directory) !== directory
+      )
+        throw new Error('Helper ancestry changed');
+      const currentDirectory = lstatSync(directory, { bigint: true });
+      for (const key of ['dev', 'ino', 'uid', 'mode'] as const)
+        if (currentDirectory[key] !== directoryIdentity[key])
+          throw new Error('Helper directory changed');
+      for (const [path, expected] of [
+        [source, sourceIdentity],
+        [file, ownedIdentity],
+      ] as const) {
+        const actual = lstatSync(path, { bigint: true });
+        for (const key of [
+          'dev',
+          'ino',
+          'size',
+          'mtimeNs',
+          'ctimeNs',
+          'uid',
+          'mode',
+          'nlink',
+        ] as const)
+          if (actual[key] !== expected[key]) throw new Error('Helper code changed');
+      }
+    };
+    return {
+      file,
+      assertCurrent,
+      dispose: () => rmSync(directory, { recursive: true, force: true }),
+    };
   } catch (error) {
     rmSync(directory, { recursive: true, force: true });
     throw error;
