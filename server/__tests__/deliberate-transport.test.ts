@@ -35,7 +35,7 @@ vi.mock('../paid-reasoning-harness.js', async (original) => ({
 vi.mock('../agent-library-transport.js', async (original) => ({
   ...(await original<object>()),
   captureAgentLibraryAuthorization: () => ({
-    auth: { id: 'verified-fixture' },
+    auth: { id: 'verified-fixture', expiresAt: Date.now() + 60000 },
     assertCurrent() {},
   }),
 }));

@@ -3,7 +3,11 @@ import {
   preparePaidReasoningHarness,
   PaidReasoningSelectionError,
 } from './paid-reasoning-harness.js';
-import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
+import {
+  captureAgentLibraryAuthorization,
+  withAgentLibraryRecoveryAuthorization,
+} from './agent-library-transport.js';
+import { retainAgentContextAuthority } from './agent-context-authority.js';
 import type { PaidReasoningPhaseSelection } from '@mitzo/protocol';
 import { startFusion, parseFusionInput, type FusionRequest } from './fusion-admission.js';
 import { loadAccountProfiles } from './account-profiles.js';
@@ -34,7 +38,11 @@ export interface NativeCommandResult {
 /** Context available to async native commands. */
 export interface NativeCommandContext {
   transport?: SessionTransport;
-  paidReasoning?: { operatorConnectionId: string; phaseSelections?: PaidReasoningPhaseSelection[] };
+  paidReasoning?: {
+    operatorConnectionId: string;
+    phaseSelections?: PaidReasoningPhaseSelection[];
+    signal?: AbortSignal;
+  };
   fusion?: { store: EventStore; request: FusionRequest; onAdmitted: () => void };
   deliberation?: { store: EventStore; request: DeliberationRequest; onAdmitted: () => void };
 }
@@ -80,7 +88,35 @@ export class NativeCommandRegistry {
   ): Promise<NativeCommandResult | undefined> {
     const handler = this.commands.get(name);
     if (!handler) return undefined;
-    return handler(args, skillRegistry, ctx);
+    const paid =
+      (name === 'deliberate' && parseDeliberationInput(args).task) ||
+      (name === 'fuse' && parseFusionInput(args).task);
+    if (!paid || !ctx.paidReasoning) return handler(args, skillRegistry, ctx);
+    const authorization = captureAgentLibraryAuthorization(ctx.paidReasoning.operatorConnectionId);
+    authorization.assertCurrent();
+    const controller = new AbortController();
+    const authority = retainAgentContextAuthority(authorization.auth, controller);
+    try {
+      authority.assertCurrent();
+      return await withAgentLibraryRecoveryAuthorization(
+        authorization.auth,
+        async (operatorConnectionId) => {
+          if (!operatorConnectionId)
+            throw new PaidReasoningSelectionError('The original reasoning operator is required.');
+          authority.assertCurrent();
+          return handler(args, skillRegistry, {
+            ...ctx,
+            paidReasoning: {
+              ...ctx.paidReasoning,
+              operatorConnectionId,
+              signal: controller.signal,
+            },
+          });
+        },
+      );
+    } finally {
+      authority.release();
+    }
   }
 }
 
@@ -160,6 +196,7 @@ async function selectedReasoningRuntime(
       authSessionId: authorization.auth.id,
       operatorConnectionId: ctx.paidReasoning.operatorConnectionId,
     },
+    signal: ctx.paidReasoning.signal,
     phasePrefix: createHash('sha256').update(commandId).digest('hex').slice(0, 32),
   });
 }

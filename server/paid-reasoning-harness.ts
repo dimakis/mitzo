@@ -107,6 +107,7 @@ export async function preparePaidReasoningHarness(
     selections: unknown;
     owner: Omit<AdviserFeatureOwner, 'feature'>;
     phasePrefix?: string;
+    signal?: AbortSignal;
   },
   deps: PaidReasoningHarnessDependencies = production,
 ) {
@@ -184,7 +185,11 @@ export async function preparePaidReasoningHarness(
     return {
       name: selection.binding.account.provider,
       async call(messages, options = {}) {
-        options.signal?.throwIfAborted();
+        const signal =
+          input.signal && options.signal
+            ? AbortSignal.any([input.signal, options.signal])
+            : (input.signal ?? options.signal);
+        signal?.throwIfAborted();
         qualification.assertCurrent();
         const native = selection.binding.account.provider !== 'google-vertex';
         if (native && options.maxTokens !== undefined)
@@ -224,9 +229,9 @@ export async function preparePaidReasoningHarness(
               (options.responseFormat === 'json' ? '\nReturn only the requested JSON object.' : ''),
             maxTokens,
             tools: [],
-            signal: options.signal,
+            signal,
             async beforeDispatch() {
-              options.signal?.throwIfAborted();
+              signal?.throwIfAborted();
               qualification.assertCurrent();
             },
             ...(selection.thinking ? { reasoningEffort: selection.thinking } : {}),
@@ -243,14 +248,14 @@ export async function preparePaidReasoningHarness(
           },
         );
         qualification.assertCurrent();
-        options.signal?.throwIfAborted();
+        signal?.throwIfAborted();
         let content = '',
           inputTokens: number | undefined,
           outputTokens: number | undefined,
           cacheReadTokens: number | undefined,
           cacheCreationTokens: number | undefined;
         for await (const event of session.turn(conversation)) {
-          options.signal?.throwIfAborted();
+          signal?.throwIfAborted();
           qualification.assertCurrent();
           if (
             (event.type === 'content_block_start' && event.content_block.type === 'tool_use') ||

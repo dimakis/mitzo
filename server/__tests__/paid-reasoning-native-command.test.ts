@@ -14,9 +14,10 @@ const f = vi.hoisted(() => ({
   authorized: true,
   rate: undefined as CostRate | undefined,
 }));
-vi.mock('../agent-library-transport.js', () => ({
+vi.mock('../agent-library-transport.js', async (original) => ({
+  ...(await original<typeof import('../agent-library-transport.js')>()),
   captureAgentLibraryAuthorization: () => ({
-    auth: { id: 'operator' },
+    auth: { id: 'operator', expiresAt: Date.now() + 60000 },
     assertCurrent() {
       if (!f.authorized) throw Error('Operator revoked');
     },
