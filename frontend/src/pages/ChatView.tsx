@@ -1,3 +1,4 @@
+import { LegacyNativeContinuation } from '../components/LegacyNativeContinuation';
 import { reviewedBriefingLaunch } from '../lib/launch-draft-delivery';
 import { localCommandSessionId } from '@mitzo/client';
 import { useTelosChatRoute } from '../hooks/useTelosChatRoute';
@@ -1717,6 +1718,17 @@ export function ChatView() {
                 </div>
               )}
 
+              {activeSessionId && !isSymposium && (
+                <LegacyNativeContinuation
+                  sourceSessionId={activeSessionId}
+                  binding={localRuntime.binding}
+                  model={localRuntime.intent.account?.model ?? accountSelection?.model ?? ''}
+                  thinking={localRuntime.intent.account?.reasoningEffort ?? null}
+                  mode={localRuntime.mode ?? mode}
+                  beforeOpenNative={() => repositoryDraftControl.current?.flush?.() === true}
+                  onStop={handleStop}
+                />
+              )}
               <CodexQueueStatus
                 sessionId={controlsBlocked ? null : activeSessionId}
                 deliveryStatus={
@@ -1823,9 +1835,7 @@ export function ChatView() {
                 onInterrupt={localBound ? undefined : handleInterrupt}
                 running={repositoryHandoff.present ? false : messages.running}
                 initialText={initialPrompt}
-                draftControl={
-                  repositoryHandoff.present || roleIntent ? repositoryDraftControl : undefined
-                }
+                draftControl={repositoryDraftControl}
                 draftStorageKey={
                   repositoryHandoff.present
                     ? repositoryPromptDraftKey(repositoryHandoff.id ?? '')
