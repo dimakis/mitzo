@@ -26,19 +26,28 @@ const Native = z.strictObject({
   executableSha256: z.string().regex(/^[a-f0-9]{64}$/),
   codeModeHostSha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
+// Only the frozen, in-memory code manifest is reusable. Mutable test manifests,
+// filesystem observations, settings and native executable identities stay fresh.
+const immutableCodeClosures = new WeakMap<object, string>();
 export function ordinaryLocalCodexHostContractRevision(
   executableSha256: string,
   codeModeHostSha256: string,
 ): string {
-  const codeClosure = createHash('sha256')
-    .update(
-      JSON.stringify(
-        Object.entries(reviewedHandlerSourceArtifacts).sort(([left], [right]) =>
-          left < right ? -1 : left > right ? 1 : 0,
+  const artifacts = reviewedHandlerSourceArtifacts;
+  const immutable = Object.isFrozen(artifacts);
+  let codeClosure = immutable ? immutableCodeClosures.get(artifacts) : undefined;
+  if (codeClosure === undefined) {
+    codeClosure = createHash('sha256')
+      .update(
+        JSON.stringify(
+          Object.entries(artifacts).sort(([left], [right]) =>
+            left < right ? -1 : left > right ? 1 : 0,
+          ),
         ),
-      ),
-    )
-    .digest('hex');
+      )
+      .digest('hex');
+    if (immutable) immutableCodeClosures.set(artifacts, codeClosure);
+  }
   return createHash('sha256')
     .update(
       JSON.stringify([

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.644-direct-developer-git';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.645-immutable-code-closure';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -901,7 +901,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-codex-capabilities.ts':
     '6aa1d7edd2466719bd8766209dd6a6786b37436fc381c672ad4b42e260ad0d03',
   '../ordinary-local-codex-host-runtime.ts':
-    'bd5c43d070f2acc3783914677270a4bf38aa0d90e02635276fe79c0e8906decb',
+    'a74e6570792bbbf0ba83c9e2ef0c848c36e4820df5a654666fc4111d0d3801d6',
   '../ordinary-local-codex-selection-owner.ts':
     '0939e37fa7d6fb72c8fb122d19104a5fca7ff0f26d78ee408aafc43a919ec15b',
   '../ordinary-local-codex-owned-runtime.ts':
