@@ -351,6 +351,28 @@ jobs:
           NODE
       - name: Run all required joined Telos acceptance cases
         run: node tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs
+      - name: Verify signed native operator lifetime and repository tools
+        run: |
+          npx vitest run server/__tests__/native-host-operator-lifetime.test.ts server/__tests__/native-local-repository-preparation-registration-dispatch.test.ts server/__tests__/native-local-repository-read-tools.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/native-host-authorization.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const result = JSON.parse(readFileSync('test-results/native-host-authorization.json', 'utf8'));
+          if (!result.success) throw new Error('Signed native operator qualification failed');
+          const required = [
+            ['native-host-operator-lifetime.test.ts', 5],
+            ['native-local-repository-preparation-registration-dispatch.test.ts', 4],
+            ['native-local-repository-read-tools.test.ts', 8],
+          ];
+          for (const [file, count] of required) {
+            const suite = result.testResults.find(test => test.name.endsWith('/' + file));
+            const cases = suite?.assertionResults.filter(test =>
+              file !== 'native-local-repository-read-tools.test.ts' ||
+              test.fullName !== 'source-mode signed Inspect positive diagnostic');
+            if (cases?.length !== count || cases.some(test => test.status !== 'passed')) {
+              throw new Error('Complete signed native coverage is required for ' + file);
+            }
+          }
+          NODE
       - name: Retain exact offline journey result
         if: always()
         uses: actions/upload-artifact@v7
@@ -358,6 +380,7 @@ jobs:
           name: telos-ordinary-journey-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/ordinary-journey.json
+            test-results/native-host-authorization.json
             test-results/telos-s9-joined/
             test-results/telos-s9-supplemental/
           if-no-files-found: error

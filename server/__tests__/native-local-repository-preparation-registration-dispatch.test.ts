@@ -33,6 +33,12 @@ vi.mock('../codex-native-artifact-qualification.js', async (original) => ({
   ...(await original<typeof import('../codex-native-artifact-qualification.js')>()),
   assertQualifiedNativeMacExecutionArtifact: vi.fn(),
 }));
+vi.mock('../openai-account-key-authority.js', () => ({
+  openAIAccountKeyAuthority: () => ({
+    assertReady: async () => {},
+    resolveKey: async () => 'synthetic-api-key',
+  }),
+}));
 const cleanup: Array<() => void | Promise<void>> = [];
 const revocations = new EventStore(':memory:');
 setAuthRevocationStore(revocations);
@@ -74,7 +80,7 @@ function controlledReceipt(context: NativeHostToolContext, events: EventStore, t
   };
 }
 it.runIf(process.platform === 'darwin')(
-  'candidate actually registers and dispatches Prepare through the ORIGINAL signed native adapter without accepting JSON owners',
+  'registers and dispatches API Prepare after viewer detach through the signed native adapter without accepting JSON owners',
   async () => {
     vi.stubGlobal(
       'fetch',
@@ -93,7 +99,7 @@ it.runIf(process.platform === 'darwin')(
       async () => {
         throw Error('Public registration must own dispatch');
       },
-      { registeredExecutablePath: executable },
+      { registeredExecutablePath: executable, api: true, separateViewer: true },
     );
     // Existing fixture owns a separate real SQLite service. Bind the server
     // lookup to that EXACT original runtime owner; no product injection option.
@@ -151,6 +157,9 @@ it.runIf(process.platform === 'darwin')(
     );
     expect(bad.response.success).toBe(false);
     expect(captureNativeLocalRepositoryPreparationSource).not.toHaveBeenCalled();
+    // The HTTP startup operator and the phone's event connection are distinct.
+    // Detaching the phone must not end an admitted native tool operation.
+    f.detachViewer();
     const good = await f.a.call(
       { path: join(f.f.root, 'source') },
       { tool: 'PrepareLocalRepository' },
