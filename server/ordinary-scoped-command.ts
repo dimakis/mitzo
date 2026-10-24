@@ -39,6 +39,7 @@ export interface OwnedOrdinaryDispatchInput {
   onSessionPrepared?: LocalOptions['onSessionPrepared'];
   onQueryEvent?: LocalOptions['onQueryEvent'];
   onTerminalOutcome?: LocalOptions['onTerminalOutcome'];
+  onEnded?: LocalOptions['onEnded'];
   adviserScope?: LocalOptions['adviserScope'];
 }
 
@@ -68,10 +69,19 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
     !isDeepStrictEqual(runtime?.account, binding.account) ||
     runtime?.harness !== binding.harness.implementation ||
     runtime.targetId !== binding.execution.targetId ||
-    selection?.model !== reservation.binding.model ||
+    (!input.continuation && selection?.model !== reservation.binding.model) ||
     (!input.continuation && runtime.harness !== sessionHarnessForProvider(binding.account.provider))
   )
     throw Error('Exact ordinary dispatch selection required');
+  if (
+    (input.adviserScope ||
+      input.onSessionPrepared ||
+      input.onQueryEvent ||
+      input.onTerminalOutcome ||
+      input.onEnded) &&
+    (binding.harness.implementation !== 'codex' || binding.execution.location !== 'local')
+  )
+    throw Error('Scoped callbacks are unavailable on this execution target');
   const continuation = input.continuation;
   const existing = input.existingOwner;
   const common = { sessionId, command, operatorConnectionId, signal };
@@ -152,6 +162,7 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
             ...(input.onSessionPrepared ? { onSessionPrepared: input.onSessionPrepared } : {}),
             ...(input.onQueryEvent ? { onQueryEvent: input.onQueryEvent } : {}),
             ...(input.onTerminalOutcome ? { onTerminalOutcome: input.onTerminalOutcome } : {}),
+            ...(input.onEnded ? { onEnded: input.onEnded } : {}),
             ...(input.adviserScope ? { adviserScope: input.adviserScope } : {}),
           });
   }

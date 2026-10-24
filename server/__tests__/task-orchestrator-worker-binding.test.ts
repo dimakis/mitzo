@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TaskStore } from '../task-store.js';
-import { TaskOrchestrator } from '../task-orchestrator.js';
+import { TaskOrchestrator, type TaskWorkerSession } from '../task-orchestrator.js';
 vi.mock('../chat.js', () => ({ sendToChat: vi.fn() }));
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -22,7 +22,7 @@ function fixture() {
     parentId: goal.id,
     sessionPolicy: 'spawn',
   });
-  const spawn = vi.fn(async () => 'worker-client');
+  const spawn = vi.fn<TaskWorkerSession>(async () => 'worker-client');
   const capture = vi.fn(() => spawn);
   const loop = new TaskOrchestrator({
     store,

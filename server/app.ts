@@ -2601,7 +2601,7 @@ app.post('/api/loop/start', (req, res) => {
       code: 'client_id_required',
       error: 'This workflow needs an explicitly selected existing chat',
       requiredField: 'sessionId',
-      hint: 'Pass the selected chat sessionId. Dedicated spawn tasks can start without one when spawning is enabled.',
+      hint: 'Pass the selected ordinary chat sessionId so workers retain its account, model and execution target.',
     });
     return;
   }
