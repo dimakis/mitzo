@@ -11,6 +11,7 @@ import {
   LocalRepositoryGitInspectionError,
   localRepositoryReadDirectoryExclusions,
 } from './local-repository-git-inspection.js';
+import { captureNativeReaderPathAuthorization } from './local-repository-native-read.js';
 
 import {
   freezeNativePreparationObservationData,
@@ -224,6 +225,9 @@ export class LocalRepositoryReadAccess {
     revalidate: LocalRepositoryReadCeiling['revalidate'];
     originalCurrentSync: () => void;
   }>;
+  private readonly nativePathAuthorization?: ReturnType<
+    typeof captureNativeReaderPathAuthorization
+  >;
   constructor(
     private readonly authority: LocalRepositoryReadAuthority,
     ceiling?: LocalRepositoryReadCeiling,
@@ -252,6 +256,9 @@ export class LocalRepositoryReadAccess {
         originalCurrentSync: originalCurrent.value,
       });
     }
+    this.nativePathAuthorization = ceiling
+      ? captureNativeReaderPathAuthorization(authority)
+      : undefined;
     this.deniedRoots = freezeNativeReadExclusions(authority.deniedRoots);
   }
   private check() {
@@ -267,8 +274,15 @@ export class LocalRepositoryReadAccess {
     if (this.deniedRoots.some((root) => contains(path, root)))
       throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
     try {
-      await this.assertCeiling(path);
-      await this.authority.assertReadable(path);
+      const native = this.nativePathAuthorization;
+      // Only this exact factory reader starts its original entry with fresh
+      // currentness before any effect or await. Enter it immediately after the
+      // first ceiling instead of checking the same owner twice at that boundary.
+      await this.assertCeiling(path, !native);
+      if (native) {
+        const result: unknown = await Reflect.apply(native.assertReadable, native.reader, [path]);
+        if (result !== undefined) throw unavailable();
+      } else await this.authority.assertReadable(path);
       this.check();
       await this.assertCeiling(path);
     } catch (error) {
@@ -278,13 +292,13 @@ export class LocalRepositoryReadAccess {
     }
     this.check();
   }
-  private async assertCeiling(path: string) {
+  private async assertCeiling(path: string, originalCurrent = true) {
     if (
       this.ceiling &&
       (await Reflect.apply(this.ceiling.assertReadable, this.ceiling.owner, [path])) !== undefined
     )
       throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
-    this.assertOriginalCurrentSync();
+    if (originalCurrent) this.assertOriginalCurrentSync();
     this.check();
   }
   private assertOriginalCurrentSync() {

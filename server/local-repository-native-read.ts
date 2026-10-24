@@ -34,6 +34,38 @@ import {
 export const preparedRepositoryValidationReadMs = 60000;
 
 const unavailable = () => Error('Local repository native reads unavailable');
+type NativeReaderPathAuthorization = Readonly<{
+  reader: LocalRepositoryReadAuthority;
+  assertReadable: LocalRepositoryReadAuthority['assertReadable'];
+  assertCurrentSync: NonNullable<LocalRepositoryReadAuthority['assertCurrentSync']>;
+}>;
+// Provenance only, never a retained authorization result. The registered entry
+// starts with the full fresh original-owner fence before any path effect/await.
+const nativePathAuthorizations = new WeakMap<object, NativeReaderPathAuthorization>();
+export function captureNativeReaderPathAuthorization(
+  reader: LocalRepositoryReadAuthority,
+): NativeReaderPathAuthorization | undefined {
+  const captured = nativePathAuthorizations.get(reader);
+  if (!captured) return;
+  if (!Object.isFrozen(reader)) throw unavailable();
+  for (const [key, original] of [
+    ['assertReadable', captured.assertReadable],
+    ['assertCurrentSync', captured.assertCurrentSync],
+  ] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(reader, key);
+    if (
+      !descriptor ||
+      !('value' in descriptor) ||
+      descriptor.value !== original ||
+      descriptor.enumerable ||
+      descriptor.configurable ||
+      descriptor.writable ||
+      !Object.isFrozen(original)
+    )
+      throw unavailable();
+  }
+  return captured;
+}
 const contains = (root: string, path: string) => {
   const child = relative(root, path);
   return child === '' || (!isAbsolute(child) && child !== '..' && !child.startsWith(`..${sep}`));
@@ -189,7 +221,7 @@ async function captureReader(
     signal,
     deadline,
     assertCurrentSync: Object.freeze(current),
-    assertReadable: authorize,
+    assertReadable: Object.freeze(authorize),
     revalidate: async () => {
       current();
       await revalidate();
@@ -359,5 +391,14 @@ async function captureReader(
   // accidental JSON/spread projection into a model result or prompt.
   for (const name of Object.keys(reader))
     Object.defineProperty(reader, name, { enumerable: false });
-  return Object.freeze(reader);
+  Object.freeze(reader);
+  nativePathAuthorizations.set(
+    reader,
+    Object.freeze({
+      reader,
+      assertReadable: reader.assertReadable,
+      assertCurrentSync: current,
+    }),
+  );
+  return reader;
 }

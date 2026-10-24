@@ -88,3 +88,23 @@ validation. A synthetic one-account fixture measured a median of 158.183 ms
 before and 126.017 ms after per 1,000 fences, with profile loads reduced from
 2,000 to 1,000. This roughly 20.3% component improvement does not establish
 whole-admission, CI discovery or end-to-end startup timing.
+
+## Avoiding a duplicate native-reader entry check
+
+Logical path authorization previously performed three fresh compound owner
+checks: after its first additional ceiling, at native-reader entry, and after
+its final ceiling. The real reader performs its entry check synchronously before
+any path lookup or effect. A factory-private identity registry now proves that
+exact frozen reader and its retained entry callback, allowing its fresh entry
+check to replace the first duplicate. Both ceiling callbacks and the final
+post-await owner check remain. The registry stores implementation provenance,
+never a successful authorization or filesystem observation.
+
+Generic, copied and proxied readers retain all three checks. Physical owner
+changes, revocation, abort, disposal and expiry still fail fresh checks; native
+helper spawn/result and final cached-fact verification fences are unchanged.
+Scratch-only regressions verify two checks for the actual factory reader and
+three for generic copies, including mutations during both ceiling waits and
+before entry. Signed CI retains all 17 required cases and the same deadlines;
+successful reads also report elapsed time, helper count and admission metrics.
+The reduction in duplicate work does not establish end-to-end startup latency.

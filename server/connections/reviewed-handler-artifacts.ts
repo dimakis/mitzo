@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.662-sync-profile-observation';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.663-native-reader-entry-currentness';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -181,7 +182,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-domain-read.test.ts':
     '114efb143794b10fe69dfaae07c38d981320dab347a147a2ac2e0a1666422768',
   '../local-repository-native-read.ts':
-    'b4da2c70d74dcd79f702223ee214dc416a31ea27102931d71056d837bf183415',
+    '6427919f63485ee7c172ce72d726e396a373281e3b88727087e17699c1e283c6',
+  '../__tests__/native-reader-path-authorization.test.ts':
+    '1c5bb59f30e9c4b81725ecf1f46057aebebc88be7c55dfcf4e257cf4ffe4fcd9',
   '../__tests__/native-helper-transport.test.ts':
     '2bc4c7907353b8a13b71d6d7b02dd03f7f0357e2e4878a54e1c62846155adbb9',
   '../__tests__/native-read-anchor-capture.test.ts':
@@ -214,7 +217,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-repository-git-snapshot.ts':
     'c112760dae4e91da92112c3dac2176bccb8a09ed3366f1e05cbe61f485dcbee7',
   '../local-repository-read-access.ts':
-    'b9b1883e0943f2ef69d4504822d0f2f81374c633296dae7a0c38737aafc8338c',
+    '2711d6ac0ec3c16d62063ddd36ec23d127294767c571a8ee4d0d8a0d6ec91424',
   '../__tests__/native-anchored-read.test.ts':
     '7322ab8566b3649a90876e253f5d66a8cc631ac7148ee47602c71eaed5123628',
   '../__tests__/local-repository-read-security.test.ts':
@@ -1709,7 +1712,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-local-repository-read-registration.test.ts':
     'b628ecd466b1f7b28c5c77f7dcd1751629f9318be5d1b4f472663db272f5cf8c',
   '../__tests__/native-local-repository-read-tools.test.ts':
-    'f1645b946522060b13da6ea1890c40146a129eebe04f808c3a66fef6cbc64025',
+    '588002521d3c6f7d88b0752ea8bba20f91304ed3d5e82b00d51efc4e01df29cc',
   '../__tests__/owned-local-codex-command-start.test.ts':
     '76ab0fcc2c7f20887935820001c8165c5f987838b3d62710ace46f1553a52ceb',
   '../__tests__/native-host-operator-lifetime.test.ts':

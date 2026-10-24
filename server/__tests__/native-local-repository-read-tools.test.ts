@@ -143,7 +143,9 @@ async function signedReadPositive(
   git('add', '.');
   git('commit', '-qm', 'fixture');
   if (detachedViewer) f.detachViewer();
+  const started = performance.now();
   const result = await f.a.call({ path: source }, { tool });
+  const elapsedMs = performance.now() - started;
   expect(original?.nativeBaseReadScope).toBeDefined();
   expect(
     result.response.success,
@@ -183,6 +185,15 @@ async function signedReadPositive(
   for (const scratch of new Set(runs.map((r) => r.cwd)))
     await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' });
   expect(f.a.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  // Retain successful offline timings as well as assertion-failure diagnostics.
+  // Async timings include nested synchronous fences; these are not additive.
+  console.info('Signed native repository read', {
+    tool,
+    detachedViewer,
+    elapsedMs: Number(elapsedMs.toFixed(3)),
+    helpers: runs.length,
+    metrics: f.a.metrics,
+  });
 }
 it.runIf(process.platform === 'darwin')(
   'uses the actual signed native reader for discovery and joins cleanup before returning facts',
