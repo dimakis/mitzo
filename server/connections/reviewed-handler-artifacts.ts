@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.655-startup-tool-discovery-integration';
+  'v1.0.656-native-host-operator-lifetime';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/native-host-operator-lifetime.test.ts':
+    '53afb3ec1fa0dbea6d748852a80c393c3132be58d8b14df99b906893cfc2450f',
+  '../__tests__/owned-local-codex-chat-consumer.test.ts':
+    'a234a9db26bb77ac0bf814a0062f1a834e926efb6433df786744d1951aa19943',
   '../__tests__/integration-tool-discovery.test.ts':
     '5a82a553e7e23759aa2dac0a0c310cb30e57110ac35a3b001547d8e1df5c742b',
   '../integration-tool-discovery.ts':
@@ -36,7 +40,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-local-repository-preparation-approval-modes.test.ts':
     '52a067210d22faeef80a8fa7cd45b73f4ebf346e751363ca30401d6813531a6b',
   '../__tests__/native-local-repository-preparation-registration-dispatch.test.ts':
-    '8ff8546333b01eb5454b8f73bf0b415f79dcf2e3256aeb08a60c3c2924901c91',
+    '41b16beaf0cf06a3bad9cab410f50fbdac79d30b7c3973e8d5123b4b072373ef',
   '../native-local-repository-preparation.ts':
     '9ccc78aa713b57cfcf72e9ac5ab1187362c3370400bdc63060114349f3682d53',
   '../__tests__/native-local-repository-preparation.test.ts':
@@ -997,7 +1001,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '3f4224669028c81768cebb5c43211e4754c699b56767a8abfd4e670bd986bede',
+  '../chat.ts': '4482cdcf1d91e0cdb9b2a60450e43d647a0615a7a08c774aca02839fa2e5005b',
   '../../packages/harness/src/session-registry.ts':
     'af896f917aca74debf5f02bdbf87904a0037fda31a259d62a047c7b15f3586c8',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -1556,7 +1560,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1116a555e86fbd95a99c4addd1d00c55480928d4d277d9c33bb11e7b430465af',
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../native-host-tool-context.ts':
-    '588067a924ac32a1b56b29edff05e8fd23c35451b1ee8b8d70ebafe82af4445e',
+    '4f6a7110ee8d2680b65070aaac0085eae19f7f401a3831bddd87447d346f571e',
   '../symposium-publication-credentials.ts':
     'e1c578eec9297cf567c6ef31ac3443ad8a36a3fb40ccda2149ac18d18362346d',
   '../openshell-artifact-reader.ts':
@@ -1678,11 +1682,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-initial-directory-batch.test.ts':
     '0b4359329a52ff0878bef702eb3748cab2288502fbe6f55ed68c2b57040e95e1',
   '../__tests__/fixtures/local-repository-native-tools.ts':
-    '7823a1694011217e191bb52716c8176dc34a51ddad39a3825b2703dcf5f8fcc1',
+    '13453db6c9ead63895fb6264e9d7eda6c9b50985d305ed15c0c6325193f1ae6d',
   '../__tests__/native-local-repository-read-projection.test.ts':
     'e78286f66f12951fd228c86e7044e17d3e5023294087aa0b4b16ec0b6af44571',
   '../__tests__/native-local-repository-read-registration.test.ts':
     'b628ecd466b1f7b28c5c77f7dcd1751629f9318be5d1b4f472663db272f5cf8c',
   '../__tests__/native-local-repository-read-tools.test.ts':
-    'a75414d44906ede0855d2bc592f738081f171ed22ba8aaf5b23560118f82d4fd',
+    'f1645b946522060b13da6ea1890c40146a129eebe04f808c3a66fef6cbc64025',
 });
