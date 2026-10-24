@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.642-complete-startup-phase-hierarchy';
+  'v1.0.643-batched-local-git-checks';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1149,7 +1149,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '02e1a872e4f24c7fd42ddd4c9a1e535be847f3e1c16ab34593e3511a22003fe5',
   '../worktree.ts': 'd10f602bd857fb94c380eb84119b2b10dadc4cbae95fd641541308a934b0634a',
   '../local-repository-worktree.ts':
-    '50cf4cf31ca4a767bc4d3ebe64b1d5598f5436b98644a864768ba1750c6660c7',
+    'd3121012706c0f536ae81b4fceeb292681bfa1311774394c9df217144432d095',
   '../repository-task-checkout.ts':
     'b0b651d3b866577188d51b45cc414d45039e941b29cf7ad7f103237a0dc3e1f5',
   '../workspace-runtime-private-paths.ts':
