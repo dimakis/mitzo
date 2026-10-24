@@ -312,6 +312,8 @@ async function _runQueryLoopInner(
 
   // Persistent map: toolId → blockId (for subagent parent lookup)
   const toolIdToBlockId = new Map<string, string>();
+  // Results may arrive after a newer assistant message has started thinking.
+  const toolIdToMessageId = new Map<string, string>();
 
   let blockCounter = 0;
   let caughtError = false;
@@ -1327,6 +1329,7 @@ async function _runQueryLoopInner(
               const toolId = contentBlock!.id as string;
               toolInputBuffers.set(index, { name: toolName, id: toolId, inputBuf: '', blockId });
               toolIdToBlockId.set(toolId, blockId); // Track toolId → blockId for subagent lookup
+              if (currentMessageId) toolIdToMessageId.set(toolId, currentMessageId);
               const snapshotBlock: SnapshotBlock = {
                 blockId,
                 blockType: 'tool_use',
@@ -1829,7 +1832,7 @@ async function _runQueryLoopInner(
 
                 emit(
                   v2('tool_result', {
-                    messageId: currentMessageId,
+                    messageId: toolIdToMessageId.get(block.tool_use_id) ?? null,
                     toolId: block.tool_use_id || '',
                     result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
                     isError: block.is_error === true,
