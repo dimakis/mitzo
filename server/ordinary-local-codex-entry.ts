@@ -1,3 +1,4 @@
+import { dispatchOwnedOrdinaryCommand } from './ordinary-scoped-command.js';
 import { context, trace } from '@opentelemetry/api';
 import { contextFromTraceparent } from './trace-context.js';
 import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
@@ -14,11 +15,7 @@ import {
   OrdinaryLocalVertexTarget,
   localVertexCapabilities,
 } from './ordinary-local-vertex-capabilities.js';
-import {
-  startOwnedLocalVertexCommand,
-  sendOwnedLocalVertexCommand,
-  canResumeOwnedLocalVertexDriver,
-} from './ordinary-local-vertex-entry.js';
+import { canResumeOwnedLocalVertexDriver } from './ordinary-local-vertex-entry.js';
 import { assertOrdinaryCodexContextIdentity } from './ordinary-codex-agent-context.js';
 import {
   readOrdinaryCodexAgentProfile,
@@ -31,11 +28,7 @@ import {
   localResponsesCapabilities,
   newLocalResponsesCapabilities,
 } from './ordinary-local-responses-capabilities.js';
-import {
-  startOwnedLocalResponsesCommand,
-  sendOwnedLocalResponsesCommand,
-  canResumeOwnedLocalResponsesDriver,
-} from './chat.js';
+import { canResumeOwnedLocalResponsesDriver } from './chat.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { join, isAbsolute } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -72,21 +65,11 @@ import {
   loadOrdinaryLocalCodexTarget,
 } from './ordinary-local-codex-capabilities.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
-import {
-  BASE_REPO,
-  detachChatIfCurrentTransport,
-  startOwnedLocalCodexCommand,
-  sendOwnedLocalCodexCommand,
-  canResumeOwnedLocalCodexDriver,
-} from './chat.js';
+import { BASE_REPO, detachChatIfCurrentTransport, canResumeOwnedLocalCodexDriver } from './chat.js';
 import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-entry-owner.js';
 import { projectOrdinaryOpenShellCodexCapabilities } from './ordinary-openshell-codex-route.js';
 import { resolveOrdinarySessionRuntime } from './ordinary-session-runtime.js';
-import {
-  startOwnedOpenShellCodexCommand,
-  sendOwnedOpenShellCodexCommand,
-  canResumeOwnedOpenShellCodexDriver,
-} from './ordinary-openshell-codex-entry.js';
+import { canResumeOwnedOpenShellCodexDriver } from './ordinary-openshell-codex-entry.js';
 import { createLogger } from './logger.js';
 import { nativeStartupSessionId, reserveRepositoryStartup } from './ordinary-repository-startup.js';
 import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
@@ -1004,98 +987,30 @@ function createOwnedCodexEntryRouter(
           selection: input.selection,
           payload: input.payload,
         };
-        const resultCommand =
-          input.runtime.harness === 'claude-sdk'
-            ? continuation && existingOwner
-              ? await sendOwnedLocalVertexCommand({
-                  sessionId,
-                  command,
-                  operatorConnectionId,
-                  signal: controller.signal,
-                })
-              : await startOwnedLocalVertexCommand(transport, `${connectionId}:${sessionId}`, {
-                  command,
-                  reservation,
-                  operatorConnectionId,
-                  ownerConnectionId: connectionId,
-                  ownerAuthSessionId: auth.id,
-                  signal: controller.signal,
-                  resume: continuation,
-                })
-            : ['responses', 'gemini'].includes(input.runtime.harness)
-              ? continuation && existingOwner
-                ? await sendOwnedLocalResponsesCommand({
-                    sessionId,
-                    command,
-                    operatorConnectionId,
-                    signal: controller.signal,
-                  })
-                : await startOwnedLocalResponsesCommand(transport, `${connectionId}:${sessionId}`, {
-                    command,
-                    reservation,
-                    operatorConnectionId,
-                    ownerConnectionId: connectionId,
-                    ownerAuthSessionId: auth.id,
-                    signal: controller.signal,
-                    resume: continuation,
-                  })
-              : input.runOn === 'openshell'
-                ? continuation && existingOwner
-                  ? await sendOwnedOpenShellCodexCommand({
-                      signal: controller.signal,
-                      sessionId,
-                      command,
-                      operatorConnectionId,
-                    })
-                  : await startOwnedOpenShellCodexCommand(
-                      transport,
-                      `${connectionId}:${sessionId}`,
-                      {
-                        command,
-                        meta: {
-                          sessionId,
-                          ...(ordinaryWorkspace
-                            ? { ordinaryWorkspaceId: ordinaryWorkspace.id }
-                            : { repositoryWorkspaceId: repositoryWorkspaceId! }),
-                          accountBinding: reservation.binding,
-                          agentProfile: profile,
-                          cwd: loadOrdinaryOpenShellCodexTarget()!.config.workdir,
-                          selectedModel: input.selection.model,
-                          reasoningEffort: input.selection.thinking,
-                          mode: input.selection.permission.mode,
-                        },
-                        ...(!continuation && ordinaryWorkspace
-                          ? { preparationOperationId: ordinaryWorkspace.allocationOperationId }
-                          : {}),
-                        taskRoot: reservation.taskRoot,
-                        operatorConnectionId,
-                        ownerConnectionId: connectionId,
-                        signal: controller.signal,
-                        resume: continuation,
-                      },
-                    )
-                : continuation && existingOwner
-                  ? await sendOwnedLocalCodexCommand({
-                      sessionId,
-                      command,
-                      operatorConnectionId,
-                      signal: controller.signal,
-                    })
-                  : await startOwnedLocalCodexCommand(transport, `${connectionId}:${sessionId}`, {
-                      workspaceKind: ordinaryInput ? 'ordinary' : 'repository',
-                      ...(!continuation && ordinaryWorkspace
-                        ? { preparationOperationId: ordinaryWorkspace.allocationOperationId }
-                        : preparedRepository
-                          ? { preparationOperationId: preparedRepository.allocationOperationId }
-                          : {}),
-                      command,
-                      reservation,
-                      commandId: input.clientMsgId,
-                      operatorConnectionId,
-                      ownerConnectionId: connectionId,
-                      signal: controller.signal,
-                      resume: continuation,
-                    });
+        const resultCommand = await dispatchOwnedOrdinaryCommand({
+          transport,
+          clientId: `${connectionId}:${sessionId}`,
+          sessionId,
+          commandId: input.clientMsgId,
+          command,
+          reservation,
+          operatorConnectionId,
+          ownerConnectionId: connectionId,
+          ownerAuthSessionId: auth.id,
+          signal: controller.signal,
+          continuation,
+          existingOwner: Boolean(existingOwner),
+          workspaceKind: ordinaryInput ? 'ordinary' : 'repository',
+          ...(!continuation && ordinaryWorkspace
+            ? { preparationOperationId: ordinaryWorkspace.allocationOperationId }
+            : preparedRepository
+              ? { preparationOperationId: preparedRepository.allocationOperationId }
+              : {}),
+          profile,
+          ...(input.runOn === 'openshell'
+            ? { sandboxWorkdir: loadOrdinaryOpenShellCodexTarget()!.config.workdir }
+            : {}),
+        });
         authority.assertCurrent();
         const receipt = ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId);
         if (!receipt || ctx.eventStore.getSendCommand(input.clientMsgId)?.sessionId !== sessionId)
