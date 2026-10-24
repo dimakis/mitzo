@@ -55,13 +55,20 @@ export async function captureLocalRepository(
 ) {
   signal.throwIfAborted();
   const root = directory(path);
-  if (git(path, 'rev-parse', '--show-toplevel') !== path) throw unavailable();
-  const commonDirectory = git(path, 'rev-parse', '--path-format=absolute', '--git-common-dir');
+  const identity = git(
+    path,
+    'rev-parse',
+    '--show-toplevel',
+    '--path-format=absolute',
+    '--git-common-dir',
+  ).split('\n');
+  if (identity.length !== 2 || identity[0] !== path) throw unavailable();
+  const commonDirectory = identity[1];
   const commonRoot = directory(commonDirectory);
   const selectedRef = startPoint ?? detectDefaultBranch(path);
   const baseOid =
     startPoint === undefined
-      ? await fetchWorktreeBase(path, signal)
+      ? await fetchWorktreeBase(path, signal, selectedRef)
       : git(path, 'rev-parse', '--verify', '--end-of-options', `${startPoint}^{commit}`);
   signal.throwIfAborted();
   if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(baseOid)) throw unavailable();

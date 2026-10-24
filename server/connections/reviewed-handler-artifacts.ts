@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.651-qualified-key-resolution-fences';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.652-batched-source-capture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1148,10 +1147,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../github-repository-source.ts':
     '02e1a872e4f24c7fd42ddd4c9a1e535be847f3e1c16ab34593e3511a22003fe5',
-  '../worktree.ts': '18376390c6f18b6960d89a4ba3b8942d03194865dbb607fb442488409b3f9e41',
+  '../worktree.ts': 'e8a7431e47530a804feaea890bb2e679f435d7b7676ee73575d88aca50f6a6b3',
   '../read-only-git.ts': 'b1a5c01474cba24137b3a7eb5bb4dcbd4d593ee0a25230977de6ff272fdbebab',
   '../local-repository-worktree.ts':
-    '54ab654b21a4468d61ea0bddf6e64a503b528403cce476d65cc43633e6544f71',
+    'dfdcb8754a1aee2c41ffa5c677ce97ee2e9bb1231480eb977e1418bc1031fb48',
   '../repository-task-checkout.ts':
     'f7b4440e35924fbcb4d1b5cb5ed20221300e9f33a7328ff308d6c553723453db',
   '../workspace-runtime-private-paths.ts':

@@ -63,6 +63,30 @@ it('checks source identity and commit type in one process without dropping missi
   expect(() => assertLocalRepository(f.localSource, f.repo, '0'.repeat(40))).toThrow();
 });
 
+it('captures top-level and common-directory identity in one process', async () => {
+  const f = await fixture();
+  const captured = await captureLocalRepository(
+    'primary',
+    f.repo,
+    new AbortController().signal,
+    'main',
+  );
+  expect(execFileSync).toHaveBeenCalledTimes(2);
+  expect(captured.localSource).toEqual(f.localSource);
+  expect(captured.baseOid).toBe(f.baseOid);
+});
+
+it('selects the default branch once while retaining fresh base selection', async () => {
+  const f = await fixture();
+  const captured = await captureLocalRepository('primary', f.repo, new AbortController().signal);
+  const defaults = vi
+    .mocked(execFileSync)
+    .mock.calls.filter(([, args]) => args?.includes('symbolic-ref'));
+  expect(defaults).toHaveLength(1);
+  expect(captured.baseBranch).toBe('main');
+  expect(captured.baseOid).toBe(f.baseOid);
+});
+
 it('checks linked identity, branch and commit type in one process and rejects a non-commit HEAD', async () => {
   const f = await fixture();
   const linked = inspectLocalRepositoryWorktree(f.checkout, f.localSource, 'mitzo/test');
