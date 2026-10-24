@@ -71,3 +71,20 @@ measurement and full launch hashing still cost time. Total live startup with
 parallel setup and code reuse remains unmeasured; subsecond cold startup is not
 established by these results. No service restart, deployment or staging operation
 is included.
+
+## Fresh profile observations within authorization fences
+
+Signed-native CI discovery exposed the cost of repeated authorization fences.
+Each synchronous bootstrap fence previously loaded the account-profile view
+twice. It now captures the existing selection observers in their existing order,
+then loads one fresh view for routing and every pending model validation. No
+view survives another fence, await or native effect. Account/provider/revision,
+selection, login, executable and physical ownership checks remain; discovery
+deadlines and required coverage are unchanged.
+
+Regression tests cover profile mutations by both selection observers, changes
+between fences and across an awaited workspace check, and pending model
+validation. A synthetic one-account fixture measured a median of 158.183 ms
+before and 126.017 ms after per 1,000 fences, with profile loads reduced from
+2,000 to 1,000. This roughly 20.3% component improvement does not establish
+whole-admission, CI discovery or end-to-end startup timing.

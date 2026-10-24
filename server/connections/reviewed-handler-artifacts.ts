@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.661-combined-startup-telos-auth-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.662-sync-profile-observation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -944,7 +943,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../frozen-host-codex-executable.ts':
     '54106826add4062d7e29d1f2249856629c1afe89a15d148aea497ef9858480fb',
   '../frozen-host-codex-bootstrap.ts':
-    '014b450bab7eaf3e5d02b666eb409bdbcd0ad01a69941f5ed21513e14d973c4c',
+    'c3f3647bfde4a279cc54d67c6c0e126c0207b98d9edc61f6f17d9d4ca9422003',
   '../owned-codex-lifecycle-bridge.ts':
     'b76d973b736e98d2b140b87e0bcd767449539a1bf8fa5f6d41d95e3839408a96',
   '../owned-local-codex-chat-admission.ts':

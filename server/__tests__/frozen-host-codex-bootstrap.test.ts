@@ -221,6 +221,131 @@ it('qualifies config/models once and keeps repeated current-authority checks fre
     f.store.close();
   }
 });
+
+it('uses one fresh profile view per synchronous fence after both selection observers', async () => {
+  const f = fixture();
+  const observed: string[] = [];
+  const load = f.options.loadProfiles;
+  const profiles = vi.spyOn(f.options, 'loadProfiles').mockImplementation(() => {
+    observed.push('profiles');
+    return load();
+  });
+  const pending = vi.fn(() => {
+    observed.push('pending-status');
+    return true;
+  });
+  const selections = vi.fn(() => {
+    observed.push('pending-selections');
+    return [];
+  });
+  Object.assign(f.options, { isSelectionPending: pending, pendingSelections: selections });
+  let measured: unknown;
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      observed.length = 0;
+      profiles.mockClear();
+      pending.mockClear();
+      selections.mockClear();
+      lease.assertCurrentSync!();
+      measured = {
+        loads: profiles.mock.calls.length,
+        pending: pending.mock.calls.length,
+        selections: selections.mock.calls.length,
+        order: [...observed],
+      };
+      f.configuration[0].email = 'changed@example.test';
+      expect(() => lease.assertCurrentSync!()).toThrow('Host Codex bootstrap unavailable');
+    });
+    expect(measured).toEqual({
+      loads: 1,
+      pending: 2,
+      selections: 1,
+      order: ['pending-status', 'pending-status', 'pending-selections', 'profiles'],
+    });
+    expect(profiles).toHaveBeenCalledTimes(2);
+  } finally {
+    f.authority.currentLease()?.close();
+    f.store.close();
+  }
+});
+
+it.each(['isSelectionPending', 'pendingSelections'] as const)(
+  'observes profile mutations made synchronously by %s before validating the fresh view',
+  async (observer) => {
+    const f = fixture();
+    let mutate = false;
+    let rejected = false;
+    const change = () => {
+      if (mutate) {
+        mutate = false;
+        f.configuration[0].email = 'changed@example.test';
+      }
+    };
+    Object.assign(f.options, {
+      isSelectionPending: () => {
+        if (observer === 'isSelectionPending') change();
+        return true;
+      },
+      pendingSelections: () => {
+        if (observer === 'pendingSelections') change();
+        return [];
+      },
+    });
+    try {
+      await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+        mutate = true;
+        try {
+          lease.assertCurrentSync!();
+        } catch {
+          rejected = true;
+        }
+      });
+      expect(rejected).toBe(true);
+      expect(f.rpc.close).toHaveBeenCalled();
+    } finally {
+      f.authority.currentLease()?.close();
+      f.store.close();
+    }
+  },
+);
+
+it('loads a new profile view after an awaited workspace check and rejects changes before returning authority', async () => {
+  const f = fixture();
+  let mutate = false;
+  f.options.assertSelectionCurrent.mockImplementation(async () => {
+    if (mutate) {
+      mutate = false;
+      f.configuration[0].email = 'changed@example.test';
+    }
+  });
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      mutate = true;
+      await expect(lease.assertCurrent()).rejects.toThrow('Host Codex bootstrap unavailable');
+      expect(f.rpc.close).toHaveBeenCalled();
+    });
+  } finally {
+    f.authority.currentLease()?.close();
+    f.store.close();
+  }
+});
+
+it('continues to validate every pending model against the same fresh profile view', async () => {
+  const f = fixture();
+  let extra = false;
+  Object.assign(f.options, {
+    pendingSelections: () => (extra ? [{ model: 'not-configured', thinking: null }] : []),
+  });
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      extra = true;
+      expect(() => lease.assertCurrentSync!()).toThrow('Host Codex bootstrap unavailable');
+    });
+  } finally {
+    f.authority.currentLease()?.close();
+    f.store.close();
+  }
+});
 it('claims SQLite uncertainty before custody/launch and supplies the same verified native client', async () => {
   const f = fixture();
   try {
