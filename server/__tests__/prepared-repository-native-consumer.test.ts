@@ -7,7 +7,8 @@ import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { codexDynamicToolsOption } from '../codex-ordinary-packet.js';
 import { CodexConversation } from '../codex-conversation.js';
 import { FrozenHostCodexBootstrapAuthority } from '../frozen-host-codex-bootstrap.js';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, expect, it, vi } from 'vitest';
+import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { writeFile, readFile } from 'node:fs/promises';
@@ -45,13 +46,20 @@ vi.mock('../qualified-local-repository-task.js', async (original) => ({
   captureQualifiedLocalRepositoryTask: physical.creation,
 }));
 const cleanups: Array<() => void | Promise<void>> = [];
+// Authentication retains ONE immutable persistent store. Keep the real public
+// chat store AND its owning scratch fixture alive until the file finishes;
+// later cases must not inherit a closed store or replace its genuine owner.
+const publicAuthCleanups: Array<() => void | Promise<void>> = [];
+afterAll(async () => {
+  for (const close of publicAuthCleanups.splice(0).reverse()) await close();
+});
 afterEach(async () => {
   for (const close of cleanups.splice(0).reverse()) await close();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
-vi.setConfig({ testTimeout: 90000 }); // Multiple independent 30s physical validations plus setup/cleanup.
+vi.setConfig({ testTimeout: 90000 }); // Default focused-case bound; compound journeys map their full phases below.
 const git = (cwd: string, ...args: string[]) =>
   execFileSync(
     '/usr/bin/git',
@@ -78,7 +86,7 @@ async function materializePreparation(
  * Creation actor is synthetic and physical read transport is the controlled
  * descriptor fixture, NOT SRT/native actor qualification or a real model call. */
 async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
-  const f = await ownedRuntimeFixture(cleanups, {
+  const f = await ownedRuntimeFixture(chatRoute ? publicAuthCleanups : cleanups, {
     localRepository: true,
     chatRoute,
     operatorLifetimeMs,
@@ -106,7 +114,7 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
     const auth = (await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!))!;
     cleanups.push(bindAgentLibraryTransport(f.dependencies.operatorConnectionId, auth));
     f.auth = auth;
-    cleanups.push(() => chat.eventStore.close());
+    publicAuthCleanups.push(() => chat.eventStore.close());
   }
   const native = chatRoute
     ? (await import('../codex-chat-session.js')).getCodexConversationStore()
@@ -643,7 +651,11 @@ it('cold-resumes a consumed qualified primary through a new genuine bootstrap, p
   expect(f.native.readHostCustody(sessionId, binding)).toEqual(originalCustody);
   expect(f.native.read(sessionId, binding).threadId).toBe(originalThread);
   expect(await readFile(later, 'utf8')).toBe('Uncommitted task data remains');
-}, 180000);
+  // Two preparations plus a fresh cold bootstrap retain EVERY full check
+  // (15 fresh workspace checks in the baseline). The two existing 300s real
+  // operator lifetimes still bound authority; this finite whole-test envelope
+  // also allows setup, FIFO/receipt assertions and joined cleanup.
+}, 720000);
 
 it('refuses partial, mismatched and revoked qualified cold owners before effects, and requires fresh physical validation before config', async () => {
   const f = await fixture();
@@ -803,6 +815,12 @@ it('reaches fresh qualified cold admission through the actual public owned entry
     'pre-public-turn',
   );
   f.runtime.close();
+  // The real HOST SQLite, chat and native stores were initialized above. Only
+  // now select the synthetic Mac route whose artifact/physical/RPC ports this
+  // offline positive controls; loading native addons under a spoof would pick
+  // the wrong host binary on Linux. afterEach restores the original process.
+  // platform is a data property, so use the existing controller stub pattern.
+  vi.stubGlobal('process', Object.create(process, { platform: { value: 'darwin' } }));
   const chat = await import('../chat.js'),
     native = await import('../codex-chat-session.js');
   const workspaceRuntime = await import('../repository-workspace-runtime.js'),
@@ -861,7 +879,7 @@ it('reaches fresh qualified cold admission through the actual public owned entry
       resume: true,
     },
   );
-  const evidencePath = `/private/tmp/qualified-cold-public-${Date.now()}.json`;
+  const evidencePath = join(tmpdir(), `qualified-cold-public-${Date.now()}.json`);
   try {
     await expect(attempt).resolves.toMatchObject({ dispatched: true, sessionId });
   } finally {
@@ -953,7 +971,9 @@ it('reaches fresh qualified cold admission through the actual public owned entry
       ),
     );
   }
-}, 300000);
+  // Initial adoption, fresh cold admission and outgoing child physical checks
+  // retain independent production deadlines; allow the full joined test.
+}, 420000);
 
 it.each(['native-custody', 'bootstrap-lease'] as const)(
   'rejects original %s owner method replacement during cold reopening before any physical read',

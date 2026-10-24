@@ -5563,7 +5563,7 @@ it.each([
       if (test.eligible) {
         expect(mocks.conversationOptions!.systemPrompt).toMatch(/PrepareLocalRepository/);
         const native = mocks.conversationOptions!.nativeExecution as { writableRoots: string[] };
-        expect(native.writableRoots).toEqual(test.mode === 'ask' ? [] : ['/private/tmp']);
+        expect(native.writableRoots).toEqual(test.mode === 'ask' ? [] : [realpathSync('/tmp')]);
       }
       if (!test.eligible) {
         const execute = mocks.conversationOptions!.executeTool as (

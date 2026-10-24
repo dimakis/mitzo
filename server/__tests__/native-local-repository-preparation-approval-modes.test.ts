@@ -30,6 +30,34 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
+// Observe the actual permission event or a completed call, rather than racing
+// genuine asynchronous authority checks against a second, arbitrary 10s clock.
+// The existing whole-test 30s bound remains unchanged.
+function permissionRendezvous(f: Awaited<ReturnType<typeof localPreparationNativeFixture>>) {
+  let report!: (event: Record<string, unknown>) => void;
+  const card = new Promise<Record<string, unknown>>((resolve) => {
+    report = resolve;
+  });
+  f.setPermissionAction(report);
+  return <T>(pending: Promise<T>) =>
+    Promise.race([
+      card,
+      pending.then(() => {
+        throw Error('Native call settled before permission request');
+      }),
+    ]);
+}
+function joinOriginalCall<T>(
+  f: Awaited<ReturnType<typeof localPreparationNativeFixture>>,
+  pending: Promise<T>,
+) {
+  // Registered AFTER the fixture so Stop and the ORIGINAL call settle before
+  // registry/SQLite disposal, including when an assertion fails before approval.
+  cleanup.push(async () => {
+    f.a.session.abortController.abort(Error('Offline approval control finished'));
+    await pending.catch(() => undefined);
+  });
+}
 async function descriptor(request: NativeAnchoredReadRequest, signal: AbortSignal) {
   signal.throwIfAborted();
   const stat = await lstat(request.file_path, { bigint: true });
@@ -174,10 +202,7 @@ it.each([
       },
     });
     cleanup.push(() => service.close());
-    let card: Record<string, unknown> | undefined;
-    f.setPermissionAction((event) => {
-      card = event;
-    });
+    const awaitCard = permissionRendezvous(f);
     const source = join(f.f.root, 'source');
     const sourceFiles = ['.git/HEAD', '.git/index', 'task.txt'].map((path) => join(source, path));
     const witness = async () =>
@@ -189,7 +214,9 @@ it.each([
     const pending = f.a.call({ path: source }).finally(() => {
       settled = true;
     });
-    await vi.waitFor(() => expect(card).toBeDefined(), { timeout: 10000 });
+    joinOriginalCall(f, pending);
+    const card = await awaitCard(pending);
+    expect(card).toBeDefined();
     expect(settled).toBe(false);
     expect(f.permissions).toHaveLength(1);
     expect(f.a.session.sessionAllowList.size).toBe(0);
@@ -229,3 +256,16 @@ it.each([
     expect(f.permissions).toHaveLength(1);
   },
 );
+
+it('fails immediately when the genuine call returns without a permission card', async () => {
+  const f = await localPreparationNativeFixture(cleanup, async () => {
+    throw Error('Original callback refused before approval');
+  });
+  const awaitCard = permissionRendezvous(f);
+  const pending = f.a.call({ path: join(f.f.root, 'source') });
+  joinOriginalCall(f, pending);
+  await expect(awaitCard(pending)).rejects.toThrow('Native call settled before permission request');
+  expect((await pending).response.success).toBe(false);
+  expect(f.permissions).toHaveLength(0);
+  expect(f.native.read(f.a.sessionId, f.a.initial.lease.binding).threadId).toBeTruthy();
+});
