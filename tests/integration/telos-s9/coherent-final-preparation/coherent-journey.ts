@@ -401,7 +401,7 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
     sha256: hash(report),
     bytes: report.length,
   });
-  const retainedOutput = await nativeJson(workerId, 'mcp__telos__TelosSaveArtifact', {
+  const retainedOutput = await nativeJson(workerId, 'TelosSaveArtifact', {
     requestId: 'coherent-output',
     itemId: childId,
     filename: 'recording-report.md',
@@ -417,7 +417,7 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
   expect(output.sessionId).toBe(workerId);
   expect(output.sha256).toBe(hash(report));
   expect(
-    await nativeJson(workerId, 'mcp__telos__TelosSaveArtifact', {
+    await nativeJson(workerId, 'TelosSaveArtifact', {
       requestId: 'coherent-output',
       itemId: childId,
       filename: 'recording-report.md',
@@ -425,7 +425,7 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
       path: 'recording-report.md',
     }),
   ).toEqual(retainedOutput);
-  const nativeRead = await nativeJson(workerId, 'mcp__telos__TelosReadArtifact', {
+  const nativeRead = await nativeJson(workerId, 'TelosReadArtifact', {
     id: output.id,
     revision: output.revision,
   });
