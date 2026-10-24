@@ -1,8 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  readlink,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import type { NativeAnchoredReadRequest } from '../native-file-operation.js';
 import {
   discoverLocalRepository as discoverRepository,
   inspectLocalRepository as inspectRepository,
@@ -26,10 +39,117 @@ const inspectLocalRepository = (request: Parameters<typeof inspectRepository>[0]
     ...request,
   });
 
-// Descriptor-relative fixture I/O launches the isolated existing Python helper.
+// Selected instruction controls use synthetic transports over disposable data
+// with virtual/empty host ancestors. Unselected legacy cases retain their
+// original native-helper defaults and are not run in this focused correction.
 vi.setConfig({ testTimeout: 30000 });
 
 let root: string;
+async function syntheticRead(request: NativeAnchoredReadRequest, signal: AbortSignal) {
+  signal.throwIfAborted();
+  if (request.file_path !== root && !request.file_path.startsWith(root + '/')) {
+    if (request.operation !== 'ListDirectory') throw Error('Unexpected ambient fixture read');
+    return {
+      content: JSON.stringify({
+        identity: request.identity,
+        entries: [],
+        truncated: false,
+        incomplete: false,
+      }),
+      is_error: false,
+    };
+  }
+  for (const [path, expected] of [
+    [request.rootAnchor.rootPath, request.rootAnchor.identity],
+    [request.file_path, request.identity],
+    [
+      request.file_path === request.rootAnchor.rootPath
+        ? request.file_path
+        : dirname(request.file_path),
+      request.parentIdentity,
+    ],
+  ] as const) {
+    const info = await lstat(path, { bigint: true });
+    if (String(info.dev) !== expected.dev || String(info.ino) !== expected.ino)
+      throw Error('Synthetic identity changed');
+  }
+  if (request.operation === 'ReadBytes' || request.operation === 'ReadLink') {
+    const before = await lstat(request.file_path, { bigint: true });
+    if (
+      before.nlink !== 1n ||
+      (request.operation === 'ReadBytes' ? !before.isFile() : !before.isSymbolicLink()) ||
+      (request.expectedState &&
+        (Number(before.size) !== request.expectedState.size ||
+          String(before.mtimeNs) !== request.expectedState.mtimeNs ||
+          String(before.ctimeNs) !== request.expectedState.ctimeNs))
+    )
+      throw Error('Synthetic byte/link state changed');
+    const bytes =
+      request.operation === 'ReadLink'
+        ? Buffer.from(await readlink(request.file_path))
+        : await readFile(request.file_path);
+    if (bytes.length > request.limit && !request.prefix)
+      return { content: 'Anchored read limit exceeded', is_error: true };
+    return {
+      content: bytes.subarray(0, request.limit).toString('base64'),
+      is_error: false,
+      ...(request.prefix ? { truncated: bytes.length > request.limit } : {}),
+    };
+  }
+  if (request.operation !== 'ListDirectory') throw Error('Unexpected synthetic operation');
+  const entries = [];
+  let incomplete = false;
+  for (const name of await readdir(request.file_path)) {
+    const path = join(request.file_path, name);
+    if (request.deniedRoots.some((denied) => path === denied || path.startsWith(denied + '/'))) {
+      incomplete = true;
+      continue;
+    }
+    const info = await lstat(path, { bigint: true });
+    entries.push({
+      name,
+      identity: { dev: String(info.dev), ino: String(info.ino) },
+      kind: info.isDirectory() ? 'directory' : info.isFile() ? 'file' : 'unsupported',
+      size: Number(info.size),
+      mode: Number(info.mode),
+      nlink: Number(info.nlink),
+      mtimeNs: String(info.mtimeNs),
+      ctimeNs: String(info.ctimeNs),
+    });
+  }
+  signal.throwIfAborted();
+  return {
+    content: JSON.stringify({ identity: request.identity, entries, truncated: false, incomplete }),
+    is_error: false,
+  };
+}
+function ancestorChurn() {
+  let observations = 0;
+  return {
+    count: () => observations,
+    read: async (request: NativeAnchoredReadRequest, signal: AbortSignal) => {
+      const result = await syntheticRead(request, signal);
+      if (request.operation === 'ListDirectory' && request.file_path === '/') {
+        observations++;
+        if (observations > 1) {
+          const value = JSON.parse(result.content);
+          value.entries.push({
+            name: 'unrelated-fixture',
+            identity: { dev: '1', ino: '2' },
+            kind: 'file',
+            size: 0,
+            mode: 32768,
+            nlink: 1,
+            mtimeNs: '0',
+            ctimeNs: '0',
+          });
+          return { content: JSON.stringify(value), is_error: false };
+        }
+      }
+      return result;
+    },
+  };
+}
 const statusReads = vi.hoisted(() => vi.fn());
 vi.mock('../local-repository-git-inspection.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../local-repository-git-inspection.js')>();
@@ -162,7 +282,19 @@ describe.each(['roots', 'host-wide'] as const)('effective denied roots with %s a
     await writeFile(join(denied, 'rules.md'), 'DENIED INSTRUCTION CONTENT\n');
     await symlink(join(denied, 'rules.md'), join(selected, 'AGENTS.md'));
     await writeFile(join(selected, 'CLAUDE.md'), 'Readable repository guidance\n');
-    const result = await inspectLocalRepository({ path: selected, accessScope: scope([denied]) });
+    const churn = ancestorChurn();
+    const requested: string[] = [];
+    const result = await inspectLocalRepository({
+      path: selected,
+      accessScope: scope([denied]),
+      // This unit checks repository instruction aliases, not ambient host
+      // ancestry. Shared CI ancestor churn has its own strict-refusal control.
+      limits: { maxInstructionDirectories: 1 },
+      executeReadOperation: async (request, signal) => {
+        requested.push(request.file_path);
+        return churn.read(request, signal);
+      },
+    });
     expect(result.instructions.files.map((file) => file.content).join('\n')).not.toContain(
       'DENIED INSTRUCTION CONTENT',
     );
@@ -173,6 +305,9 @@ describe.each(['roots', 'host-wide'] as const)('effective denied roots with %s a
       path: join(selected, 'AGENTS.md'),
       reason: 'symlink',
     });
+    expect(requested.every((path) => path !== denied && !path.startsWith(denied + '/'))).toBe(true);
+    expect(churn.count()).toBe(0);
+    expect(requested.filter((path) => path === selected).length).toBeGreaterThanOrEqual(2);
   });
 
   it('reports unknown dirty state instead of scanning denied repository content', async () => {
@@ -188,4 +323,17 @@ describe.each(['roots', 'host-wide'] as const)('effective denied roots with %s a
     });
     expect(statusReads).not.toHaveBeenCalled();
   });
+});
+
+it('refuses changed unrelated ancestor listings during full host-wide verification', async () => {
+  const selected = await repository(join(root, 'target'));
+  const churn = ancestorChurn();
+  await expect(
+    inspectLocalRepository({
+      path: selected,
+      accessScope: { kind: 'host-wide' },
+      executeReadOperation: churn.read,
+    }),
+  ).rejects.toMatchObject({ kind: 'unsafe', reason: 'anchored-read-unavailable' });
+  expect(churn.count()).toBe(2);
 });
