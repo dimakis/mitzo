@@ -1,4 +1,5 @@
 import type { LocalRepositoryPreparationObjectData } from './local-repository-preparation-object-data.js';
+import { retainPreparationPackedRefs } from './local-repository-preparation-packed-refs.js';
 import { capturePreparedRepositoryTransition } from './prepared-repository-transition-capture.js';
 import { materializeQualifiedLocalRepositoryTask } from './qualified-local-repository-actor.js';
 import type { QualifiedLocalRepositoryPublication } from './qualified-local-repository-task.js';
@@ -405,6 +406,7 @@ class PendingHostTaskDecisionOperation {
     private readonly currentAsync: () => Promise<void>,
     private readonly originalContext: NativeHostToolContext,
     readonly expiresAt: number,
+    private readonly originalPackedRefs?: unknown,
   ) {
     Object.freeze(this);
   }
@@ -420,6 +422,10 @@ class PendingHostTaskDecisionOperation {
   contextFor(service: object, request: PendingHostTaskRequest) {
     this.assertFor(service, request);
     return this.originalContext;
+  }
+  packedRefsFor(service: object, request: PendingHostTaskRequest) {
+    this.assertFor(service, request);
+    return retainPreparationPackedRefs(this.originalPackedRefs);
   }
   completePublication() {
     this.#closed = true;
@@ -2722,6 +2728,7 @@ export class RepositoryWorkspaces {
       },
       owner.context,
       consumed.evidence.expiresAt,
+      Object.getOwnPropertyDescriptor(owner, 'publicationPackedRefs')?.value,
     );
   }
   private assertPendingCurrent(request: PendingHostTaskRequest, signal: AbortSignal) {
@@ -2887,6 +2894,7 @@ export class RepositoryWorkspaces {
     const request = this.snapshotPendingInput(input);
     operation.assertFor(this, request);
     const context = operation.contextFor(this, request);
+    const publicationPackedRefs = operation.packedRefsFor(this, request);
     const record = this.pendingRecord(request),
       qualified = record.qualifiedLocalPreparation;
     if (
@@ -2909,6 +2917,7 @@ export class RepositoryWorkspaces {
       const result = await materializeQualifiedLocalRepositoryTask({
         context,
         objects,
+        publicationPackedRefs,
         facts: freezePendingHostTaskData(structuredClone(qualified.allocationFacts)),
         factsSha256: qualified.allocationFactsSha256,
         requestSha256: pendingHostTaskDecisionHash(request),

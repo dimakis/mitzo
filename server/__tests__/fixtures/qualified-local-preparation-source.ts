@@ -37,7 +37,11 @@ export async function fixtureQualifiedLocalPreparationSource(
     );
     controls.assertCurrentSync();
     // Data only: no closed ReadAccess/verification closure is retained.
-    return { facts: held.facts, factsSha256: held.factsSha256 };
+    return {
+      facts: held.facts,
+      factsSha256: held.factsSha256,
+      publicationPackedRefs: held.publicationPackedRefs,
+    };
   };
   const initial = await capture();
   return {
@@ -45,6 +49,7 @@ export async function fixtureQualifiedLocalPreparationSource(
     referenceCoverage: 'preparation-head-and-namespace-v1',
     allocationFacts: initial.facts,
     allocationFactsSha256: initial.factsSha256,
+    publicationPackedRefs: initial.publicationPackedRefs,
     assertCurrentSync: () => controls.assertCurrentSync(),
     assertCurrent: async () => controls.assertCurrent(),
     async revalidateAllocationFacts() {

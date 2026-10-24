@@ -1,4 +1,5 @@
 import type { LocalRepositoryPreparationObjectData } from './local-repository-preparation-object-data.js';
+import { retainPreparationPackedRefs } from './local-repository-preparation-packed-refs.js';
 import { buildPermissionHandler, type SessionRegistry } from '@mitzo/harness';
 import { AccountBindingSchema, SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -204,6 +205,13 @@ export async function captureLocalRepositoryPreparationAuthorization(
     .literal('preparation-head-and-namespace-v1')
     .parse(qualified.referenceCoverage);
   const allocationFacts = qualified.allocationFacts;
+  const originalWitness = () => {
+    const descriptor = Object.getOwnPropertyDescriptor(qualified, 'publicationPackedRefs');
+    if (!descriptor || !('value' in descriptor))
+      throw new PendingHostTaskError('pending_host_task_access_required');
+    return retainPreparationPackedRefs(descriptor.value);
+  };
+  const publicationPackedRefs = originalWitness();
   const allocationFactsSha256 = z
     .string()
     .regex(/^[a-f0-9]{64}$/)
@@ -218,6 +226,7 @@ export async function captureLocalRepositoryPreparationAuthorization(
       qualified.anchorsSha256 !== anchorsSha256 ||
       qualified.referenceCoverage !== referenceCoverage ||
       qualified.allocationFacts !== allocationFacts ||
+      originalWitness() !== publicationPackedRefs ||
       qualified.allocationFactsSha256 !== allocationFactsSha256 ||
       !isDeepStrictEqual(qualified.source, source)
     )
@@ -320,7 +329,7 @@ export async function captureLocalRepositoryPreparationAuthorization(
     )
       throw new PendingHostTaskError('pending_host_task_ownership_changed');
   };
-  const owner: PendingHostTaskDecisionOwner = Object.freeze({
+  const owner: PendingHostTaskDecisionOwner = {
     context,
     assertCurrentSync,
     async assertCurrent() {
@@ -339,7 +348,9 @@ export async function captureLocalRepositoryPreparationAuthorization(
       // inspection cannot substitute for either current authority.
       assertCurrentSync();
     },
-  });
+  };
+  Object.defineProperty(owner, 'publicationPackedRefs', { value: publicationPackedRefs });
+  Object.freeze(owner);
   await owner.assertCurrent();
   let approvalStarted = false;
   return Object.freeze({
@@ -349,6 +360,7 @@ export async function captureLocalRepositoryPreparationAuthorization(
     owner,
     allocationFacts,
     allocationFactsSha256,
+    publicationPackedRefs,
     async materialize(objects?: LocalRepositoryPreparationObjectData) {
       owner.assertCurrentSync();
       const operation = owners.workspaces.beginPendingHostTaskDecisionMaterialization(

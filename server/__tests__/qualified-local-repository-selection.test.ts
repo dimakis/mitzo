@@ -108,6 +108,7 @@ function fixture() {
     referenceCoverage: 'preparation-head-and-namespace-v1',
     allocationFacts: initial.facts,
     allocationFactsSha256: initial.factsSha256,
+    publicationPackedRefs: initial.publicationPackedRefs,
     assertCurrentSync: current,
     assertCurrent: vi.fn(async () => {
       current();

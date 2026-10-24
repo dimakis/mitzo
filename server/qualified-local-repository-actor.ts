@@ -7,10 +7,11 @@ import {
   type NativeHostToolContext,
 } from './native-host-tool-context.js';
 import { captureNativeLocalRepositoryReader } from './local-repository-native-read.js';
+import type { LocalRepositoryAllocationFacts } from './local-repository-allocation-facts.js';
 import {
-  captureLocalRepositoryAllocationFacts,
-  type LocalRepositoryAllocationFacts,
-} from './local-repository-allocation-facts.js';
+  retainPreparationPackedRefs,
+  type PreparationPackedRefs,
+} from './local-repository-preparation-packed-refs.js';
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import { preparationReadDeadline } from './local-repository-preparation-read-policy.js';
 import {
@@ -54,6 +55,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
   readonly scopeSha256: string;
   readonly expiresAt: number;
   readonly objects?: LocalRepositoryPreparationObjectData;
+  readonly publicationPackedRefs?: PreparationPackedRefs;
   assertCurrentSync(): void;
   assertCurrent(): Promise<void>;
 }) {
@@ -125,23 +127,20 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
   const denied = freezeNativeReadExclusions(owner.scope.deniedRoots);
   let publication: Readonly<QualifiedLocalRepositoryPublication> | undefined;
   try {
-    // Original namespace/source/common/base absence facts are freshly recaptured
-    // AFTER approval. No pre-approval reader or cached permission is reused.
-    await read(async (_access, reader) => {
-      const fresh = await captureLocalRepositoryAllocationFacts(reader, {
-        workspaceId: facts.workspaceId,
-        sourcePath: facts.source.path,
-        taskRoot: facts.taskRoot.rootPath,
-      });
-      if (fresh.factsSha256 !== factsSha256) throw unavailable();
-      packedRefs = fresh.publicationPackedRefs;
-    });
+    // This is the INITIAL parser's historical witness, never a new baseline or
+    // current success. The fixed helper's complete preflight checks it freshly
+    // alongside every original root/parent/edge/absence BEFORE the first write.
+    packedRefs = retainPreparationPackedRefs(operation.publicationPackedRefs);
+    // Relocate (do not remove) the original allocation-reader disposal fence to
+    // this actual artifact-use boundary. Source metadata/base is freshly checked.
+    await full();
     const view = await verifyLocalRepositoryPreparationObjectData(
       artifact,
       context,
       operation.requestSha256,
       facts,
       factsSha256,
+      packedRefs,
     );
     // Preserve the genuine consumed object-stage fence even though its READ
     // capture/disposal already completed before human source-effect approval.
@@ -157,6 +156,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       operation.requestSha256,
       facts,
       factsSha256,
+      packedRefs,
     );
     await mkdir(join(scratch, 'checkout'), { mode: 0o700 });
     current();

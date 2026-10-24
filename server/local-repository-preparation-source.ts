@@ -16,6 +16,10 @@ import { inspectLocalRepositoryGitMetadata } from './local-repository-git-inspec
 import { readLocalRepositoryPreparationBaseReferences } from './local-repository-git-snapshot.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
 import type { NativeReadIdentity } from './native-file-operation.js';
+import {
+  retainPreparationPackedRefs,
+  type PreparationPackedRefs,
+} from './local-repository-preparation-packed-refs.js';
 
 export interface NativeQualifiedLocalRepositoryPreparationSource extends QualifiedLocalRepositoryPreparationSource {
   readonly referenceCoverage: 'preparation-head-and-namespace-v1';
@@ -23,6 +27,7 @@ export interface NativeQualifiedLocalRepositoryPreparationSource extends Qualifi
   readonly baseOid: string;
   readonly allocationFacts: AllocationFacts;
   readonly allocationFactsSha256: string;
+  readonly publicationPackedRefs: PreparationPackedRefs;
   /** Original absence facts only, before effects. After owned creation, the
    * materializer must validate its phase-specific actual owned identities. */
   revalidateAllocationFacts(): Promise<void>;
@@ -112,7 +117,11 @@ export async function captureNativeLocalRepositoryPreparationSource(
     read(async (reader) => {
       const held = await captureLocalRepositoryAllocationFacts(reader, intent);
       // Retain data only, never the expired initial reader/verify closure.
-      return { facts: held.facts, factsSha256: held.factsSha256 };
+      return {
+        facts: held.facts,
+        factsSha256: held.factsSha256,
+        publicationPackedRefs: retainPreparationPackedRefs(held.publicationPackedRefs),
+      };
     });
   const initial = await captureAllocation();
   const original = localRepositoryPreparationSourceFacts(initial.facts);
@@ -120,6 +129,8 @@ export async function captureNativeLocalRepositoryPreparationSource(
     source: original.source,
     baseBranch: original.baseBranch,
     baseOid: original.baseOid,
+    objectFormat: initial.facts.source.objectFormat,
+    comparisonConfig: initial.facts.source.comparisonConfig ?? {},
   });
   const baseCurrent = (earlierDeadline: number) =>
     read(async (reader) => {
@@ -146,9 +157,8 @@ export async function captureNativeLocalRepositoryPreparationSource(
         timeoutMs: Math.max(1, reader.deadline - Date.now()),
       });
       await access.verify();
-      // This phase freshly qualifies base identity/paths/branch/OID only. The
-      // original namespace/absence digest remains historical; complete fresh
-      // allocation checks occur separately BEFORE effects.
+      // Fresh original metadata/base predicates; namespace/absence stays
+      // historical until the fixed publication helper's whole preflight.
       const actual = {
         source: {
           path: metadata.path,
@@ -159,6 +169,8 @@ export async function captureNativeLocalRepositoryPreparationSource(
         },
         baseBranch: branch ?? head,
         baseOid: head,
+        objectFormat: metadata.objectFormat,
+        comparisonConfig: metadata.comparisonConfig ?? {},
       };
       if (hash(actual) !== originalBaseHash) throw unavailable();
     }, earlierDeadline);
@@ -166,6 +178,7 @@ export async function captureNativeLocalRepositoryPreparationSource(
     ...original,
     allocationFacts: initial.facts,
     allocationFactsSha256: initial.factsSha256,
+    publicationPackedRefs: initial.publicationPackedRefs,
     assertCurrentSync: current,
     async assertCurrent(options?: Readonly<{ deadline: number }>) {
       current();

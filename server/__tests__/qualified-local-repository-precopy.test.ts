@@ -73,6 +73,7 @@ function fixture() {
     scopeSha256: 's'.repeat(64),
     expiresAt: Date.now() + 120000,
     objects,
+    publicationPackedRefs: Object.freeze({ kind: 'absent' as const }),
     assertCurrentSync: vi.fn(),
     assertCurrent: vi.fn(async () => {}),
   };
@@ -88,7 +89,15 @@ it('uses the original bound private data verifier without a second source-object
   expect(captureLocalRepositoryPreparationObjects).not.toHaveBeenCalled();
   expect(executePrivateRepositoryStagingCheckout).not.toHaveBeenCalled();
   expect(f.objects.dispose).toHaveBeenCalledOnce();
-  expect(f.reader.dispose).toHaveBeenCalledOnce();
+  expect(captureLocalRepositoryAllocationFacts).not.toHaveBeenCalled();
+  expect(captureNativeLocalRepositoryReader).not.toHaveBeenCalled();
+  expect(f.operation.assertCurrent).toHaveBeenCalledTimes(3);
+  expect(f.operation.assertCurrent.mock.invocationCallOrder[1]).toBeLessThan(
+    vi.mocked(verifyLocalRepositoryPreparationObjectData).mock.invocationCallOrder[0],
+  );
+  expect(vi.mocked(verifyLocalRepositoryPreparationObjectData).mock.calls[0][5]).toBe(
+    f.operation.publicationPackedRefs,
+  );
 });
 it('retains the genuine consumed full callback at the former object-reader boundary', async () => {
   const f = fixture();

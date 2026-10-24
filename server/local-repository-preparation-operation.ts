@@ -105,6 +105,7 @@ export async function executeLocalRepositoryPreparation(
       held.allocationFacts,
       held.allocationFactsSha256,
       envelope.deadline,
+      held.publicationPackedRefs,
     );
     objects = await creation;
     await held.owner.assertCurrent();

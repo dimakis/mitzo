@@ -118,6 +118,7 @@ async function fixture() {
     artifact,
     deadline: Date.now() + 300000,
     hash: pendingHostTaskDecisionHash(facts),
+    witness: Object.freeze({ kind: 'absent' as const }),
   };
 }
 it('closes the original read owner before exposing only bound object data and scratch custody', async () => {
@@ -128,6 +129,7 @@ it('closes the original read owner before exposing only bound object data and sc
     f.facts,
     f.hash,
     f.deadline,
+    f.witness,
   );
   expect(f.reader.dispose).toHaveBeenCalledOnce();
   expect(Object.keys(result)).toEqual([]);
@@ -140,6 +142,7 @@ it('closes the original read owner before exposing only bound object data and sc
       pendingHostTaskDecisionHash(f.request),
       f.facts,
       f.hash,
+      f.witness,
     ),
   ).toEqual(f.artifact.view);
   await result.dispose();
@@ -159,6 +162,7 @@ it('joins capture after cancellation even before the disposer assignment can com
     f.facts,
     f.hash,
     f.deadline,
+    f.witness,
   ).finally(() => {
     done = true;
   });
@@ -177,7 +181,14 @@ it('disposes assigned scratch when read-owner cleanup refuses outward delivery',
   const f = await fixture();
   f.reader.dispose.mockRejectedValue(Error('synthetic reader cleanup failure'));
   await expect(
-    captureLocalRepositoryPreparationObjectData(f.context, f.request, f.facts, f.hash, f.deadline),
+    captureLocalRepositoryPreparationObjectData(
+      f.context,
+      f.request,
+      f.facts,
+      f.hash,
+      f.deadline,
+      f.witness,
+    ),
   ).rejects.toThrow();
   expect(f.artifact.dispose).toHaveBeenCalledOnce();
 });
@@ -189,6 +200,7 @@ it('joins both private root and parent observations before refusing use', async 
     f.facts,
     f.hash,
     f.deadline,
+    f.witness,
   );
   const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
   let release!: () => void;
@@ -211,6 +223,7 @@ it('joins both private root and parent observations before refusing use', async 
     pendingHostTaskDecisionHash(f.request),
     f.facts,
     f.hash,
+    f.witness,
   ).finally(() => {
     done = true;
   });
@@ -234,6 +247,7 @@ it.each(['config', 'object'])(
       f.facts,
       f.hash,
       f.deadline,
+      f.witness,
     );
     await writeFile(join(f.artifact.view.gitDirectory, name), 'CHANGED');
     await expect(
@@ -243,6 +257,7 @@ it.each(['config', 'object'])(
         pendingHostTaskDecisionHash(f.request),
         f.facts,
         f.hash,
+        f.witness,
       ),
     ).rejects.toThrow();
   },
@@ -255,6 +270,7 @@ it('rejects foreign scratch replacement and preserves its canary', async () => {
     f.facts,
     f.hash,
     f.deadline,
+    f.witness,
   );
   await rename(scratch, scratch + '-retained');
   await mkdir(scratch);
@@ -266,6 +282,7 @@ it('rejects foreign scratch replacement and preserves its canary', async () => {
       pendingHostTaskDecisionHash(f.request),
       f.facts,
       f.hash,
+      f.witness,
     ),
   ).rejects.toThrow();
   expect(await readFile(join(scratch, 'FOREIGN'), 'utf8')).toBe('KEEP');
@@ -280,6 +297,7 @@ it.each(['context', 'request', 'facts', 'base'])(
       f.facts,
       f.hash,
       f.deadline,
+      f.witness,
     );
     await expect(
       verifyLocalRepositoryPreparationObjectData(
@@ -288,7 +306,113 @@ it.each(['context', 'request', 'facts', 'base'])(
         kind === 'request' ? '0'.repeat(64) : pendingHostTaskDecisionHash(f.request),
         kind === 'base' ? { ...f.facts, baseOid: '3'.repeat(40) } : f.facts,
         kind === 'facts' ? '0'.repeat(64) : f.hash,
+        f.witness,
       ),
     ).rejects.toThrow();
   },
 );
+
+it('refuses a missing original parser witness before opening a new source reader', async () => {
+  const f = await fixture();
+  await expect(
+    captureLocalRepositoryPreparationObjectData(
+      f.context,
+      f.request,
+      f.facts,
+      f.hash,
+      f.deadline,
+      undefined,
+    ),
+  ).rejects.toThrow();
+  expect(captureNativeLocalRepositoryReader).not.toHaveBeenCalled();
+});
+it('refuses a substituted immutable witness even when its descriptive bytes are identical', async () => {
+  const f = await fixture();
+  const data = await captureLocalRepositoryPreparationObjectData(
+    f.context,
+    f.request,
+    f.facts,
+    f.hash,
+    f.deadline,
+    f.witness,
+  );
+  await expect(
+    verifyLocalRepositoryPreparationObjectData(
+      data,
+      f.context,
+      pendingHostTaskDecisionHash(f.request),
+      f.facts,
+      f.hash,
+      Object.freeze({ kind: 'absent' }),
+    ),
+  ).rejects.toThrow();
+});
+it.each([
+  { kind: 'absent' },
+  Object.freeze({ kind: 'absent', unexpected: 'excluded' }),
+  Object.freeze({
+    kind: 'file',
+    identity: Object.freeze({ dev: '1', ino: '2' }),
+    size: 16 * 1024 * 1024 + 1,
+    sha256: 'a'.repeat(64),
+  }),
+])('refuses malformed historical witness before any source reader', async (witness) => {
+  const f = await fixture();
+  await expect(
+    captureLocalRepositoryPreparationObjectData(
+      f.context,
+      f.request,
+      f.facts,
+      f.hash,
+      f.deadline,
+      witness,
+    ),
+  ).rejects.toThrow('Original preparation packed-ref witness unavailable');
+  expect(captureNativeLocalRepositoryReader).not.toHaveBeenCalled();
+});
+it('rejects an accessor witness without invoking its getter', async () => {
+  const f = await fixture();
+  const getter = vi.fn(() => 'absent');
+  const witness = Object.freeze(Object.defineProperty({}, 'kind', { get: getter }));
+  await expect(
+    captureLocalRepositoryPreparationObjectData(
+      f.context,
+      f.request,
+      f.facts,
+      f.hash,
+      f.deadline,
+      witness,
+    ),
+  ).rejects.toThrow('Original preparation packed-ref witness unavailable');
+  expect(getter).not.toHaveBeenCalled();
+  expect(captureNativeLocalRepositoryReader).not.toHaveBeenCalled();
+});
+it('retains the exact bounded file witness outside the existing facts hash', async () => {
+  const f = await fixture();
+  const witness = Object.freeze({
+    kind: 'file' as const,
+    identity: Object.freeze({ dev: '1', ino: '2' }),
+    size: 16 * 1024 * 1024,
+    sha256: 'a'.repeat(64),
+  });
+  const data = await captureLocalRepositoryPreparationObjectData(
+    f.context,
+    f.request,
+    f.facts,
+    f.hash,
+    f.deadline,
+    witness,
+  );
+  expect(data.publicationPackedRefs).toBe(witness);
+  expect(pendingHostTaskDecisionHash(f.facts)).toBe(f.hash);
+  await expect(
+    verifyLocalRepositoryPreparationObjectData(
+      data,
+      f.context,
+      pendingHostTaskDecisionHash(f.request),
+      f.facts,
+      f.hash,
+      witness,
+    ),
+  ).resolves.toEqual(f.artifact.view);
+});

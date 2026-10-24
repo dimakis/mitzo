@@ -40,6 +40,7 @@ function fixture() {
     owner: { context, assertCurrentSync: vi.fn(), assertCurrent: vi.fn(async () => {}) },
     allocationFacts: {},
     allocationFactsSha256: 'f'.repeat(64),
+    publicationPackedRefs: Object.freeze({ kind: 'absent' as const }),
     approve: vi.fn(async () => {
       order.push('approve');
     }),
@@ -73,6 +74,9 @@ it('joins object copy before approval and keeps its cleanup inside the original 
   expect(f.order).toEqual(['copy-and-close-reader', 'approve', 'materialize', 'dispose']);
   expect(f.held.approve).toHaveBeenCalledOnce();
   expect(f.objects.dispose).toHaveBeenCalledOnce();
+  expect(vi.mocked(captureLocalRepositoryPreparationObjectData).mock.calls[0][5]).toBe(
+    f.held.publicationPackedRefs,
+  );
 });
 it('denial disposes copied data without entering consumed materialization', async () => {
   const f = fixture();

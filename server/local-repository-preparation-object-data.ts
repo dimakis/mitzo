@@ -9,6 +9,10 @@ import {
 import { captureNativeLocalRepositoryReader } from './local-repository-native-read.js';
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import {
+  retainPreparationPackedRefs,
+  type PreparationPackedRefs,
+} from './local-repository-preparation-packed-refs.js';
+import {
   preparationReadDeadline,
   preparationReadStageMs,
 } from './local-repository-preparation-read-policy.js';
@@ -33,6 +37,7 @@ export interface LocalRepositoryPreparationObjectData {
   readonly objectFormat: string;
   readonly deadline: number;
   readonly view: LocalRepositoryPreparationObjectView;
+  readonly publicationPackedRefs: PreparationPackedRefs;
   dispose(): Promise<void>;
 }
 function ownedDisposer(
@@ -59,7 +64,9 @@ export async function captureLocalRepositoryPreparationObjectData(
   facts: LocalRepositoryAllocationFacts,
   factsSha256: string,
   deadline: number,
+  originalPackedRefs: unknown,
 ): Promise<Readonly<LocalRepositoryPreparationObjectData>> {
+  const publicationPackedRefs = retainPreparationPackedRefs(originalPackedRefs);
   const originalFacts = freezePendingHostTaskData(structuredClone(facts));
   const requestSha256 = pendingHostTaskDecisionHash(request);
   const owner = captureNativeHostReadOwner(context);
@@ -134,6 +141,7 @@ export async function captureLocalRepositoryPreparationObjectData(
       objectFormat: originalFacts.source.objectFormat,
       deadline,
       view,
+      publicationPackedRefs,
       dispose: ownedDisposer(artifact),
     };
     current();
@@ -179,8 +187,10 @@ export async function verifyLocalRepositoryPreparationObjectData(
   requestSha256: string,
   facts: LocalRepositoryAllocationFacts,
   factsSha256: string,
+  originalPackedRefs: unknown,
 ): Promise<LocalRepositoryPreparationObjectView> {
   if (
+    property(input, 'publicationPackedRefs') !== retainPreparationPackedRefs(originalPackedRefs) ||
     property(input, 'context') !== context ||
     property(input, 'requestSha256') !== requestSha256 ||
     property(input, 'factsSha256') !== factsSha256 ||
@@ -204,6 +214,7 @@ export async function verifyLocalRepositoryPreparationObjectData(
     'deadline',
     'view',
     'dispose',
+    'publicationPackedRefs',
   ];
   if (
     Reflect.ownKeys(input as object).length !== keys.length ||
