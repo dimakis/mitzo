@@ -1802,10 +1802,12 @@ async function openCodexChatBound(
         }
       },
     );
+    // Producer projection is local-only; preserve other adapters' existing result contract.
+    if (!options.ownedLocal) return result;
     callSignal.throwIfAborted();
     assertMcpCurrent();
     mcp.assertToolCurrent?.(name);
-    if (!options.ownedLocal || result.contentItems) return result;
+    if (result.contentItems) return result;
     const content = projectToolOutput(result.content, (full) =>
       privateStorage.retainToolOutput(
         options.conversationId,

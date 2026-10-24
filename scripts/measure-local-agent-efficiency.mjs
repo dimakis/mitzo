@@ -13,6 +13,8 @@ const suites = [
   'local-agent-efficiency-budget',
   'local-agent-efficiency',
   'wait-for-change',
+  'agent-tool-catalog',
+  'codex-chat-selected-tools',
   'codex-chat-session',
   'codex-conversation',
   'codex-tool-result',
@@ -52,6 +54,36 @@ const run = spawnSync(
   },
 );
 writeFileSync(join(directory, 'run.log'), (run.stdout ?? '') + (run.stderr ?? ''));
+// Keep the real public cold consumer in this proof without running unrelated long compound journeys.
+const coldResultFile = join(directory, 'cold-tests.json');
+const cold =
+  run.status === 0
+    ? spawnSync(
+        process.execPath,
+        [
+          join(root, 'node_modules/vitest/vitest.mjs'),
+          'run',
+          'server/__tests__/prepared-repository-native-consumer.test.ts',
+          '--testNamePattern',
+          'reaches fresh qualified cold admission through the actual public owned entry',
+          '--maxWorkers=1',
+          '--reporter=json',
+          `--outputFile=${coldResultFile}`,
+        ],
+        {
+          cwd: root,
+          env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=1024' },
+          encoding: 'utf8',
+          maxBuffer: 16 * 1024 * 1024,
+          timeout: 10 * 60 * 1000,
+        },
+      )
+    : undefined;
+writeFileSync(join(directory, 'cold.log'), (cold?.stdout ?? '') + (cold?.stderr ?? ''));
+let coldTests = {};
+try {
+  coldTests = JSON.parse(readFileSync(coldResultFile, 'utf8'));
+} catch {}
 let tests = {},
   metrics = {};
 try {
@@ -60,16 +92,22 @@ try {
 } catch {}
 const report = {
   ...metrics,
-  success: run.status === 0,
+  success: run.status === 0 && cold?.status === 0 && coldTests.numPassedTests === 1,
   durationMs: Math.round(performance.now() - start),
-  testCount: tests.numPassedTests ?? 0,
-  failedTests: tests.numFailedTests ?? null,
+  testCount: (tests.numPassedTests ?? 0) + (coldTests.numPassedTests ?? 0),
+  failedTests:
+    tests.numFailedTests === undefined || coldTests.numFailedTests === undefined
+      ? null
+      : tests.numFailedTests + coldTests.numFailedTests,
   suites,
+  targetedCases: ['prepared-repository-native-consumer: public qualified cold admission'],
   platform: process.platform,
   logFile: join(directory, 'run.log'),
   testsFile: resultFile,
+  targetedTestsFile: coldResultFile,
+  targetedLogFile: join(directory, 'cold.log'),
 };
 const reportFile = join(directory, 'report.json');
 writeFileSync(reportFile, JSON.stringify(report, null, 2));
 console.log(JSON.stringify({ ...report, reportFile }, null, 2));
-process.exit(run.status ?? 1);
+process.exit(run.status === 0 && cold?.status === 0 && coldTests.numPassedTests === 1 ? 0 : 1);

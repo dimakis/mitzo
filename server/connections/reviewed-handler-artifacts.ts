@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.657-local-agent-efficiency';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.658-local-agent-efficiency';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/measure-local-agent-efficiency.mjs':
-    '307d7ba00999a15161addd00cded33214ea1e2d52b15e8c6c40e8f746f1facbe',
+    'e7cb7e9c7e78ae185fc5608ed58afdbd8d5a0117a2e19ebba0b4ab47d774e66d',
   '../__tests__/wait-for-change.test.ts':
     '8a6354d5ebe1fd0a02d2483b5f5641e18892f5c21a61ceea0f8fbe0ff135177e',
   '../__tests__/local-agent-efficiency-budget.test.ts':
@@ -73,7 +73,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-workspace-owner.test.ts':
     '17e2ce4a8d505778fec6899ff47e79557bed0be6f71269bb0e92adf9f30ad432',
   '../__tests__/prepared-repository-native-consumer.test.ts':
-    '4846347c0b9dd30fca9849a04d2611ecb1847803eff3e9b9083b4d2770b7f0fb',
+    '0126e0a7d455c76622c3b67b7a86dfc23d7d697172e48d9ef862fde4cb8c083d',
   '../__tests__/prepared-repository-workspace-owner-sync.test.ts':
     '17b2eec3c51f317450914a1bbd786ecd511c0a6eb5be9a49b10ad7bd2485ddb3',
   '../local-repository-preparation-packed-refs.ts':
@@ -1216,7 +1216,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '3e9734030dea1237f60f274bca7c2a3e68f31ded5d60cca3419df7c84617145f',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': 'a5f4f42e6cb2d286d125878d7069e883c5a105cba3c46a3888c5a651ad2c478e',
+  '../codex-chat-session.ts': 'eb1d4fa367222a65e07eb4ccc5a815fce692c22deb78578f5dba36e2efedbbe2',
   '../connections-runtime.ts': '0793e87975e59fc74dc4306802f2633d7d8cd7bca4a42af5bc1a5a2a04c22424',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

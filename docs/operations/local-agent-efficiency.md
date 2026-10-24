@@ -89,7 +89,7 @@ used. All provider RPC is synthetic.
 The proof combines byte-budget regressions with the existing signed repository
 preparation, dirty/stale/cancelled custody, workspace handoff, native edits,
 trusted commits, publishing validation and source-scope suites. It exercises the
-real owners rather than inventing a second preparation implementation. Passing
+real owners rather than inventing a second preparation implementation. It also checks authoritative catalogue alignment, selected-source revocation, and the actual public qualified cold-admission case on its current tool registry. The cold case runs in a separate sequential stage with its own retained diagnostics; both stages use one worker and a 1 GiB heap. Passing
 these component journeys does not claim a live autonomous end-to-end success
 rate, model context peak, compaction latency or a production rollout. Those need
 separately authorized live targets, explicit supported Luna and a named charged
