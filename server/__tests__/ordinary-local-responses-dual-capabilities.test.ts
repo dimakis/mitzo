@@ -14,7 +14,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
 });
-it('rejects new Responses work without disabling the exact retained legacy route', async () => {
+it('projects retained Responses as history-only while new native entry remains separate', async () => {
   const f = await ownedResponsesRuntimeFixture(cleanups);
   const profiles = loadAccountProfiles();
   const target = new OrdinaryLocalResponsesTarget(f.dependencies.env);
@@ -26,9 +26,11 @@ it('rejects new Responses work without disabling the exact retained legacy route
     status: 'rejected',
     code: 'new_work_harness_unsupported',
   });
+  expect(retained.inventory().routes).toEqual([]);
+  expect(retained.inventory().accounts[0].account).toEqual(f.request.runtime.account);
   expect(retained.resolve(f.request.runtime)).toMatchObject({
-    status: 'compatible',
-    binding: { account: f.request.runtime.account, harness: { implementation: 'responses' } },
+    status: 'rejected',
+    code: 'new_work_harness_unsupported',
   });
 });
 it('keeps deferred Gemini available without borrowing an OpenAI route', async () => {
@@ -52,7 +54,7 @@ it('offers an existing configured API account locally without managed re-enrollm
     new OrdinaryLocalResponsesTarget(f.dependencies.env),
   ).inventory();
   expect(local.accounts).toHaveLength(1);
-  expect(local.routes).toHaveLength(1);
+  expect(local.routes).toHaveLength(0);
   expect(local.accounts[0].account).toMatchObject({ accountId: 'personal', provider: 'openai' });
 });
 it('projects one enrolled API account through actual owning catalog resolvers for Local Responses and OpenShell Codex', async () => {
@@ -76,11 +78,11 @@ it('projects one enrolled API account through actual owning catalog resolvers fo
   });
   const merged = composeOrdinaryRuntimeCapabilities([local.inventory(), shell.inventory]);
   expect(merged.accounts).toHaveLength(1);
-  expect(merged.routes.map((route) => route.harness)).toEqual(['responses', 'codex']);
+  expect(merged.routes.map((route) => route.harness)).toEqual(['codex']);
   const account = merged.accounts[0].account;
   expect(
     local.resolve({ account, harness: 'responses', targetId: f.target.targetId, mode: 'agent' }),
-  ).toMatchObject({ status: 'compatible', binding: { account, execution: { location: 'local' } } });
+  ).toMatchObject({ status: 'rejected', code: 'new_work_harness_unsupported' });
   const shellResolution = (
     await import('../ordinary-session-runtime.js')
   ).resolveOrdinarySessionRuntime(

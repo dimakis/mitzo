@@ -18,6 +18,8 @@ export interface ProviderMessage {
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
 }
 
 /** Response from a single model call. */
@@ -53,6 +55,8 @@ export interface ModelProvider {
 export interface CostRate {
   inputPerMillion: number;
   outputPerMillion: number;
+  cacheReadPerMillion?: number;
+  cacheCreationPerMillion?: number;
 }
 
 /** Known model cost rates (USD per million tokens). */

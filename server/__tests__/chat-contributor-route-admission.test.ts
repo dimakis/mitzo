@@ -151,7 +151,7 @@ it.each(['disabled', 'unconfigured', 'API disabled', 'named sandbox', 'Gemini', 
       if (route === 'API disabled') vi.stubEnv('MITZO_OPENSHELL_OPENAI_API_ENABLED', '0');
       if (route === 'named sandbox') vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'legacy');
       if (route === 'unbound SDK') vi.stubEnv('MITZO_OPENSHELL_ENABLED', '0');
-      await f.chat.startChat(
+      const starting = f.chat.startChat(
         f.transport,
         'rejected-contributor',
         'Review',
@@ -159,7 +159,27 @@ it.each(['disabled', 'unconfigured', 'API disabled', 'named sandbox', 'Gemini', 
           ? { ...f.options, accountId: undefined, accountProfiles: undefined }
           : f.options,
       );
-      expectRejected(f);
+      if (route === 'disabled' || route === 'API disabled') {
+        await expect(starting).rejects.toThrow(/Responses execution is retired/);
+        expect(f.admission).toHaveBeenCalledWith(
+          expect.objectContaining({
+            message: expect.stringMatching(/Responses execution is retired/),
+          }),
+        );
+        for (const effect of [
+          f.resolve,
+          f.openResponses,
+          f.openCodex,
+          f.launch,
+          f.query,
+          f.googleToken,
+          f.lifecycle.beforeDispatch,
+        ])
+          expect(effect).not.toHaveBeenCalled();
+      } else {
+        await starting;
+        expectRejected(f);
+      }
     } finally {
       await f.cleanup();
     }
@@ -191,12 +211,28 @@ it.each([true, false])(
           contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
         };
       });
-      await f.chat.startChat(f.transport, 'changed-route', 'Review', {
+      const starting = f.chat.startChat(f.transport, 'changed-route', 'Review', {
         ...f.options,
         agentProfile: { profileId: 'reviewer', revision: 1 },
         operatorConnectionId: 'offline-operator',
       });
-      expectRejected(f);
+      if (!initiallyEnabled) {
+        await expect(starting).rejects.toThrow(/Responses execution is retired/);
+        expect(library.readAgentLibraryProfile).not.toHaveBeenCalled();
+        for (const effect of [
+          f.resolve,
+          f.openResponses,
+          f.openCodex,
+          f.launch,
+          f.query,
+          f.googleToken,
+          f.lifecycle.beforeDispatch,
+        ])
+          expect(effect).not.toHaveBeenCalled();
+      } else {
+        await starting;
+        expectRejected(f);
+      }
     } finally {
       await f.cleanup();
     }
@@ -217,16 +253,18 @@ it('passes an enabled dedicated API binding and lifecycle unchanged to existing 
     await f.cleanup();
   }
 });
-it('preserves ordinary Responses startup without contributor lifecycle', async () => {
+it('rejects retired ordinary Responses startup before credentials or contributor lifecycle', async () => {
   const f = await setup();
   try {
     vi.stubEnv('MITZO_OPENSHELL_ENABLED', '0');
-    await f.chat.startChat(f.transport, 'ordinary-responses', 'Review', {
-      ...f.options,
-      ordinaryTurnLifecycle: undefined,
-    });
-    expect(f.resolve).toHaveBeenCalledOnce();
-    expect(f.openResponses).toHaveBeenCalledOnce();
+    await expect(
+      f.chat.startChat(f.transport, 'ordinary-responses', 'Review', {
+        ...f.options,
+        ordinaryTurnLifecycle: undefined,
+      }),
+    ).rejects.toThrow(/Responses execution is retired/);
+    expect(f.resolve).not.toHaveBeenCalled();
+    expect(f.openResponses).not.toHaveBeenCalled();
     expect(f.openCodex).not.toHaveBeenCalled();
     expect(f.query).not.toHaveBeenCalled();
   } finally {

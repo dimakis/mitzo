@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -36,7 +36,10 @@ vi.mock('../prompt-compare.js', () => ({
   capturePromptComparison: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
-vi.mock('../responses-chat-session.js', () => ({ openResponsesChat: vi.fn() }));
+vi.mock('../responses-chat-session.js', () => ({
+  openResponsesChat: vi.fn(),
+  getNativeResponsesStore: () => ({ load: () => null }),
+}));
 vi.mock('../credentials.js', async (original) => ({
   ...(await original<object>()),
   credentials: { resolve: vi.fn(async () => 'private-work-key') },
@@ -54,7 +57,15 @@ vi.mock('../codex-app-server-client.js', async (original) => ({
   },
   codexEnvironment: () => ({ PATH: '/bin' }),
 }));
-afterEach(() => {
+const fixturePrivateRoots: string[] = [];
+beforeEach(async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-dispatch-private-'));
+  fixturePrivateRoots.push(root);
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', root);
+});
+afterEach(async () => {
+  for (const root of fixturePrivateRoots.splice(0))
+    await rm(root, { recursive: true, force: true });
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -280,8 +291,9 @@ it('connects trusted contributor observers to the real ordinary query loop and e
   }
 });
 
-it('routes API accounts through the referenced secret store without passing keys to child environments', async () => {
+it('rejects retired API startup before referenced or ambient keys can reach child environments', async () => {
   vi.resetModules();
+  vi.clearAllMocks();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-api-dispatch-'));
   await writeFile(
     join(root, '.mitzo.json'),
@@ -306,24 +318,21 @@ it('routes API accounts through the referenced secret store without passing keys
   ]);
   vi.mocked(openResponsesChat).mockRejectedValue(new Error('simulated API startup failure'));
   try {
-    await chat.startChat({ send: () => {}, isOpen: () => true }, 'api-test', 'hello', {
-      cwd: root,
-      isolation: false,
-      accountId: 'work-api',
-      model: 'test',
-      accountProfiles: profiles,
-      initialSessionId: 'test-api-app',
-    });
-    expect(credentials.resolve).toHaveBeenCalledWith(ref);
-    expect(openResponsesChat).toHaveBeenCalledOnce();
-    const options = vi.mocked(openResponsesChat).mock.calls[0][0];
-    expect(options.apiKey).toBe('private-work-key');
-    expect(JSON.stringify(options.env)).not.toContain('private-work-key');
-    expect(options.env).not.toHaveProperty('OPENAI_API_KEY');
-    expect(options.env.PATH).toBe(`${join(root, 'notebooks/.venv/bin')}:${process.env.PATH}`);
-    expect(options.conversationId).toBe('test-api-app');
-    await expect(chat.renameSessionById('test-api-app', 'Work task')).resolves.toBeUndefined();
-    expect(chat.eventStore.getSession('test-api-app')?.summary).toBe('Work task');
+    await expect(
+      chat.startChat({ send: () => {}, isOpen: () => true }, 'api-test', 'hello', {
+        cwd: root,
+        isolation: false,
+        accountId: 'work-api',
+        model: 'test',
+        accountProfiles: profiles,
+        initialSessionId: 'test-api-app',
+      }),
+    ).rejects.toThrow(/Responses execution is retired/);
+    expect(credentials.resolve).not.toHaveBeenCalled();
+    expect(openResponsesChat).not.toHaveBeenCalled();
+    expect(openCodexChat).not.toHaveBeenCalled();
+    expect(hostFetch).not.toHaveBeenCalled();
+    expect(chat.eventStore.getSession('test-api-app')).toBeNull();
     expect(query).not.toHaveBeenCalled();
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -336,6 +345,8 @@ it('rejects an unsupported initial native reasoning level before opening the pro
   const root = await mkdtemp(join(tmpdir(), 'mitzo-api-effort-'));
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_OPENAI_API_ENABLED', '1');
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
   const chat = await import('../chat.js');
   const profiles = new AccountProfiles([
@@ -343,6 +354,7 @@ it('rejects an unsupported initial native reasoning level before opening the pro
       id: 'work-api',
       label: 'Work',
       provider: 'openai',
+      sandboxProvider: 'openai-work',
       credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
       models: [{ id: 'test', label: 'Test', reasoningEfforts: ['low'] }],
     },
@@ -367,7 +379,7 @@ it('rejects an unsupported initial native reasoning level before opening the pro
       expect.objectContaining({ type: 'error', error: expect.stringMatching(/thinking/i) }),
     );
     expect(credentials.resolve).not.toHaveBeenCalled();
-    expect(openResponsesChat).not.toHaveBeenCalled();
+    expect(openCodexChat).not.toHaveBeenCalled();
   } finally {
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });
@@ -380,6 +392,8 @@ it('restores the persisted native model and reasoning level on a field-less cold
   const root = await mkdtemp(join(tmpdir(), 'mitzo-api-resume-selection-'));
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_OPENAI_API_ENABLED', '1');
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
   const chat = await import('../chat.js');
   const profiles = new AccountProfiles([
@@ -387,6 +401,7 @@ it('restores the persisted native model and reasoning level on a field-less cold
       id: 'work-api',
       label: 'Work',
       provider: 'openai',
+      sandboxProvider: 'openai-work',
       credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
       models: [
         { id: 'original', label: 'Original', reasoningEfforts: ['low'] },
@@ -403,7 +418,7 @@ it('restores the persisted native model and reasoning level on a field-less cold
     selectedModel: 'selected',
     reasoningEffort: 'high',
   });
-  vi.mocked(openResponsesChat).mockRejectedValue(new Error('stop after selection capture'));
+  vi.mocked(openCodexChat).mockRejectedValue(new Error('stop after selection capture'));
   try {
     await chat.startChat({ send: () => {}, isOpen: () => true }, 'resume-selection', 'continue', {
       resume: sessionId,
@@ -411,9 +426,9 @@ it('restores the persisted native model and reasoning level on a field-less cold
       isolation: false,
       accountProfiles: profiles,
     });
-    expect(openResponsesChat).toHaveBeenCalledOnce();
-    expect(vi.mocked(openResponsesChat).mock.calls[0][0]).toMatchObject({
-      selectedModel: 'selected',
+    expect(openCodexChat).toHaveBeenCalledOnce();
+    expect(vi.mocked(openCodexChat).mock.calls[0][0]).toMatchObject({
+      model: 'selected',
       reasoningEffort: 'high',
     });
   } finally {
@@ -428,6 +443,8 @@ it('clears persisted reasoning when a cold resume explicitly changes native mode
   const root = await mkdtemp(join(tmpdir(), 'mitzo-api-resume-model-switch-'));
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_OPENAI_API_ENABLED', '1');
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
   const chat = await import('../chat.js');
   const profiles = new AccountProfiles([
@@ -435,6 +452,7 @@ it('clears persisted reasoning when a cold resume explicitly changes native mode
       id: 'work-api',
       label: 'Work',
       provider: 'openai',
+      sandboxProvider: 'openai-work',
       credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
       models: [
         { id: 'reasoning-model', label: 'Reasoning', reasoningEfforts: ['high'] },
@@ -451,7 +469,7 @@ it('clears persisted reasoning when a cold resume explicitly changes native mode
     selectedModel: 'reasoning-model',
     reasoningEffort: 'high',
   });
-  vi.mocked(openResponsesChat).mockRejectedValue(new Error('stop after selection capture'));
+  vi.mocked(openCodexChat).mockRejectedValue(new Error('stop after selection capture'));
   try {
     await chat.startChat(
       { send: () => {}, isOpen: () => true },
@@ -466,12 +484,85 @@ it('clears persisted reasoning when a cold resume explicitly changes native mode
         accountProfiles: profiles,
       },
     );
-    expect(openResponsesChat).toHaveBeenCalledOnce();
-    expect(vi.mocked(openResponsesChat).mock.calls[0][0]).toMatchObject({
-      selectedModel: 'plain-model',
+    expect(openCodexChat).toHaveBeenCalledOnce();
+    expect(vi.mocked(openCodexChat).mock.calls[0][0]).toMatchObject({
+      model: 'plain-model',
       reasoningEffort: null,
     });
   } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('sanitizes private bootstrap failures on supported API Codex startup and ends its undispatched driver', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-codex-private-startup-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_OPENAI_API_ENABLED', '1');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response('{}')),
+  );
+  const codex = await import('../codex-chat-session.js');
+  const actual = await vi.importActual<typeof import('../codex-chat-session.js')>(
+    '../codex-chat-session.js',
+  );
+  const sanitize = vi
+    .spyOn(codex, 'publicCodexStartupError')
+    .mockImplementation(actual.publicCodexStartupError);
+  const privateFailure = new Error(
+    'Command failed: ssh PRIVATE_BOOTSTRAP\ncheckpoint: unsupported provider state: .sqlite-maintenance.lock\n',
+  );
+  vi.mocked(openCodexChat).mockRejectedValueOnce(privateFailure);
+  const profiles = new AccountProfiles([
+    {
+      id: 'work-api',
+      label: 'Work',
+      provider: 'openai',
+      sandboxProvider: 'openai-work',
+      credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+      models: [{ id: 'test', label: 'Test' }],
+    },
+  ]);
+  const chat = await import('../chat.js');
+  const send = vi.fn(),
+    onStartupAdmission = vi.fn();
+  try {
+    await chat.startChat({ send, isOpen: () => true }, 'private-codex-startup', 'Do not replay', {
+      cwd: root,
+      isolation: false,
+      accountId: 'work-api',
+      model: 'test',
+      accountProfiles: profiles,
+      initialSessionId: 'private-codex-startup-app',
+      clientMsgId: 'private-codex-command',
+      onStartupAdmission,
+    });
+    const message =
+      'Retained sandbox migration is blocked. The source runtime or provider layout is not supported. Its task files and provider thread are preserved.';
+    expect(sanitize).toHaveBeenCalledWith(privateFailure);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'error', error: message }));
+    expect(onStartupAdmission).toHaveBeenCalledWith(expect.objectContaining({ message }));
+    expect(JSON.stringify(send.mock.calls)).not.toMatch(/PRIVATE_BOOTSTRAP|sqlite-maintenance/);
+    expect(chat.eventStore.getSession('private-codex-startup-app')).toMatchObject({
+      state: 'ENDED',
+      accountBinding: { accountId: 'work-api', provider: 'openai' },
+    });
+    expect(chat.registry.get('private-codex-startup')).toBeUndefined();
+    expect(
+      chat.eventStore.getExecutionAdmission('private-codex-startup-app', 'private-codex-command'),
+    ).toBeUndefined();
+    expect(credentials.resolve).not.toHaveBeenCalled();
+    expect(codexLaunch).not.toHaveBeenCalled();
+    expect(openResponsesChat).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+  } finally {
+    sanitize.mockRestore();
+    chat.registry.dispose();
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });
   }
@@ -657,7 +748,7 @@ it('keeps Vertex on its native route when OpenShell is enabled', async () => {
   }
 });
 
-it('can bypass OpenShell for API accounts during a proxy incident', async () => {
+it('refuses the retired Responses bypass when the API native route is disabled', async () => {
   vi.resetModules();
   vi.clearAllMocks();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-api-bypass-'));
@@ -679,16 +770,17 @@ it('can bypass OpenShell for API accounts during a proxy incident', async () => 
   ]);
   vi.mocked(openResponsesChat).mockRejectedValue(new Error('stop after native routing'));
   try {
-    await chat.startChat({ send: () => {}, isOpen: () => true }, 'api-native', 'hello', {
-      cwd: root,
-      isolation: false,
-      accountId: 'work-api',
-      model: 'test',
-      accountProfiles: profiles,
-    });
-    expect(credentials.resolve).toHaveBeenCalledOnce();
-    expect(openResponsesChat).toHaveBeenCalledOnce();
-    expect(vi.mocked(openResponsesChat).mock.calls[0][0].apiKey).toBe('private-work-key');
+    await expect(
+      chat.startChat({ send: () => {}, isOpen: () => true }, 'api-native', 'hello', {
+        cwd: root,
+        isolation: false,
+        accountId: 'work-api',
+        model: 'test',
+        accountProfiles: profiles,
+      }),
+    ).rejects.toThrow(/Responses execution is retired/);
+    expect(credentials.resolve).not.toHaveBeenCalled();
+    expect(openResponsesChat).not.toHaveBeenCalled();
     expect(openCodexChat).not.toHaveBeenCalled();
   } finally {
     chat.eventStore.close();
@@ -830,7 +922,7 @@ it('routes a Gemini account to native chat with its own token source and resumab
 });
 
 it.each(['contexgin', 'slow-contexgin', 'slow-fallback'] as const)(
-  'delivers %s boot context to Work API instructions and persists the same bundle on startup and cold resume',
+  'delivers %s boot context to selected Gemini instructions and persists the same bundle on startup and cold resume',
   async (source) => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -866,9 +958,11 @@ it.each(['contexgin', 'slow-contexgin', 'slow-fallback'] as const)(
     const profiles = new AccountProfiles([
       {
         id: 'work-api',
-        label: 'Work API',
-        provider: 'openai',
-        credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+        label: 'Deferred Gemini',
+        provider: 'google-vertex',
+        projectId: 'fixture-project',
+        region: 'global',
+        credentialRef: '/fixture/google-adc.json',
         models: [{ id: 'test', label: 'Offline test' }],
       },
     ]);
@@ -966,7 +1060,7 @@ it.each(['work-api', 'codex', 'gemini'] as const)(
     vi.mocked(openCodexChat).mockRejectedValue(new Error('offline native boundary'));
     const chat = await import('../chat.js');
     try {
-      await chat.startChat(
+      const starting = chat.startChat(
         { send: () => {}, isOpen: () => true },
         `protected-${provider}`,
         'hello',
@@ -979,6 +1073,16 @@ it.each(['work-api', 'codex', 'gemini'] as const)(
           initialSessionId: `protected-boot-${provider}`,
         },
       );
+      if (provider === 'work-api') {
+        await expect(starting).rejects.toThrow(/Responses execution is retired/);
+        expect(factory).not.toHaveBeenCalled();
+        expect(runner).not.toHaveBeenCalled();
+        expect(sdkFactory).not.toHaveBeenCalled();
+        expect(openResponsesChat).not.toHaveBeenCalled();
+        expect(openCodexChat).not.toHaveBeenCalled();
+        return;
+      }
+      await starting;
       expect(factory).toHaveBeenCalled();
       expect(sdkFactory).not.toHaveBeenCalled();
       expect(runner).toHaveBeenCalledWith(

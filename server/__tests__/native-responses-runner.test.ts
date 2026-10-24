@@ -1,75 +1,60 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { AccountBinding } from '@mitzo/protocol';
-import { SessionRegistry } from '@mitzo/harness';
-import { createNativeToolExecutor, nativeToolDefinitions } from '../native-tool-executor.js';
 import { NativeResponsesRunner } from '../native-responses-runner.js';
 import { NativeResponsesStore } from '../native-responses-store.js';
-
 const binding: AccountBinding = {
   accountId: 'personal',
-  accountLabel: 'Personal API',
-  provider: 'openai',
-  model: 'test-model',
+  accountLabel: 'Deferred Gemini',
+  provider: 'google-vertex',
+  model: 'gemini-3.8-flash',
   profileRevision: 'ref-digest',
 };
-function response(tool: boolean | number = false) {
-  const output: Record<string, unknown>[] = tool
-    ? Array.from({ length: Number(tool) }, (_, i) => ({
-        type: 'function_call',
-        call_id: `call-${i + 1}`,
-        name: 'Write',
-        arguments: '{"file_path":"note","content":"hello"}',
-      }))
-    : [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'done' }] }];
-  const events = [
-    { type: 'response.created', response: { id: 'resp-provider-only', model: 'test-model' } },
-    ...(tool
-      ? output.flatMap((item, output_index) => [
-          { type: 'response.output_item.added', output_index, item },
-          {
-            type: 'response.function_call_arguments.delta',
-            output_index,
-            delta: item.arguments,
-          },
-          { type: 'response.output_item.done', output_index, item },
-        ])
-      : [
-          {
-            type: 'response.content_part.added',
-            output_index: 0,
-            content_index: 0,
-            part: { type: 'output_text' },
-          },
-          { type: 'response.output_text.delta', output_index: 0, content_index: 0, delta: 'done' },
-          { type: 'response.content_part.done', output_index: 0, content_index: 0 },
-        ]),
-    {
-      type: 'response.completed',
-      response: {
-        output: [...output, { type: 'reasoning', encrypted_content: 'opaque-continuation' }],
-        usage: { input_tokens: 10, output_tokens: 2 },
+const gemini = {
+  accountId: binding.accountId,
+  projectId: 'fixture-project',
+  region: 'global',
+  getAccessToken: async () => 'private-google-token',
+};
+const toolName = `tool_${createHash('sha256').update('Write').digest('hex').slice(0, 40)}`;
+function response(tools = 0) {
+  return Response.json({
+    responseId: 'fixture-provider-id',
+    candidates: [
+      {
+        finishReason: 'STOP',
+        content: {
+          role: 'model',
+          parts: tools
+            ? Array.from({ length: tools }, (_, i) => ({
+                functionCall: {
+                  name: toolName,
+                  args: { file_path: `note-${i}`, content: 'hello' },
+                },
+                thoughtSignature: 'private-signed-part',
+              }))
+            : [{ text: 'done' }],
+        },
       },
-    },
-  ];
-  return new Response(events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(''));
+    ],
+  });
 }
 async function collect(source: AsyncIterable<unknown>) {
   const events = [];
   for await (const event of source) events.push(event);
   return events;
 }
-
-describe('durable native Responses turns', () => {
+describe('deferred Gemini durable compatibility', () => {
   let root: string;
   let store: NativeResponsesStore;
   let fetchMock: ReturnType<typeof vi.fn>;
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'mitzo-responses-'));
+    root = await mkdtemp(join(tmpdir(), 'mitzo-gemini-'));
     store = new NativeResponsesStore(join(root, 'continuation.db'));
-    fetchMock = vi.fn().mockImplementation(() => Promise.resolve(response()));
+    fetchMock = vi.fn(async () => response());
     vi.stubGlobal('fetch', fetchMock);
   });
   afterEach(async () => {
@@ -77,136 +62,155 @@ describe('durable native Responses turns', () => {
     vi.unstubAllGlobals();
     await rm(root, { recursive: true, force: true });
   });
-  function runner(
-    executeTool = vi
-      .fn()
-      .mockResolvedValue({ type: 'tool_result', tool_use_id: 'call-1', content: 'written' }),
-    selection: { selectedModel?: string; reasoningEffort?: string | null } = {},
-  ) {
-    return new NativeResponsesRunner({
-      conversationId: 'app-id',
-      binding,
-      apiKey: 'test-only-credential',
-      systemPrompt: 'boot context and worktree instructions',
-      maxTokens: 100,
-      store,
-      executeTool,
-      ...selection,
-    });
-  }
-  it('supplies HTML authoring capabilities at the owned provider boundary without changing the frozen profile prompt', async () => {
-    const options = {
-      conversationId: 'owned-capabilities',
-      binding,
-      getApiKey: async () => 'offline-test-credential',
-      systemPrompt: 'Frozen profile instructions',
-      maxTokens: 100,
-      store,
-      executeTool: vi.fn(),
-      commandAuthority: {
-        assertPrepare: vi.fn(),
-        assertStart: vi.fn(),
-        assertEffect: vi.fn(async () => {}),
-      },
-    };
-    const native = new NativeResponsesRunner(options);
-    native.prepare('mockup-command', 'Explore a clickable mockup');
-    await collect(native.run('Explore a clickable mockup', undefined, 'mockup-command'));
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.instructions).toContain('Frozen profile instructions');
-    expect(body.instructions).toContain('<mitzo_capabilities>');
-    expect(body.instructions).toContain('clickable mockup');
-    expect(options.systemPrompt).toBe('Frozen profile instructions');
+  const options = () => ({
+    conversationId: 'app-id',
+    binding,
+    gemini,
+    store,
+    systemPrompt: 'Pinned execution context',
+    maxTokens: 100,
+    tools: [{ name: 'Write', description: 'Write fixture', input_schema: { type: 'object' } }],
+    executeTool: vi.fn(async (block: import('@mitzo/harness').ToolUseBlock) => ({
+      type: 'tool_result' as const,
+      tool_use_id: block.id,
+      content: 'written',
+    })),
   });
-  it.each(['openai', 'google-vertex'] as const)(
-    'revalidates source grants after credentials resolve before HTTP dispatch (%s)',
-    async (provider) => {
-      let current = true;
-      const credential = async () => {
-        await Promise.resolve();
-        current = false;
-        return 'offline-only-token';
-      };
-      const authorize = vi.fn(async () => {
-        if (!current) throw Error('Source grant revoked');
-      });
-      const selectedBinding = {
-        ...binding,
-        provider,
-        model: provider === 'google-vertex' ? 'gemini-3.8-flash' : binding.model,
-      };
-      const opts = {
-        conversationId: 'blocked-after-credential',
-        binding: selectedBinding,
-        store,
-        systemPrompt: 'Pinned context',
-        maxTokens: 100,
-        executeTool: vi.fn(),
-        prepareAgentContext: authorize,
-      };
-      const selected = new NativeResponsesRunner(
-        provider === 'google-vertex'
-          ? {
-              ...opts,
-              gemini: {
-                accountId: binding.accountId,
-                projectId: 'fixture',
-                region: 'global',
-                getAccessToken: credential,
-              },
-            }
-          : { ...opts, apiKey: 'offline-only', getApiKey: credential },
-      );
-      await expect(collect(selected.run('blocked'))).rejects.toThrow();
-      expect(authorize).toHaveBeenCalledOnce();
-      expect(fetchMock).not.toHaveBeenCalled();
-    },
-  );
-  it('persists image input and accepts an equal reconstructed prepared payload after restart', async () => {
-    const content = [
-      { type: 'text' as const, text: 'Inspect this screenshot' },
-      {
-        type: 'image' as const,
-        source: { type: 'base64' as const, media_type: 'image/png', data: 'cG5n' },
-      },
-    ];
-    await collect(runner().run(content));
+  it('persists signed history and tool outcomes before another request, without exposing credentials', async () => {
+    fetchMock.mockResolvedValueOnce(response(1));
+    const opts = options();
+    opts.executeTool.mockImplementationOnce(async (block) => {
+      expect(store.load('app-id', binding)?.checkpoint?.history.at(-1)?.role).toBe('assistant');
+      return { type: 'tool_result', tool_use_id: block.id, content: 'written' };
+    });
+    const events = await collect(new NativeResponsesRunner(opts).run('write'));
+    expect(opts.executeTool).toHaveBeenCalledOnce();
+    expect(store.load('app-id', binding)?.status).toBe('idle');
+    expect(JSON.stringify(events)).not.toContain('private-signed-part');
     store.close();
     store = new NativeResponsesStore(join(root, 'continuation.db'));
-    const instance = runner();
-    instance.prepare('image-followup', content);
-    await collect(instance.run(structuredClone(content), undefined, 'image-followup'));
-    const input = JSON.parse(fetchMock.mock.calls[1][1].body).input;
-    expect(input.filter((item: { role?: string }) => item.role === 'user')).toHaveLength(2);
-    expect(input[0].content[1]).toEqual({
-      type: 'input_image',
-      image_url: 'data:image/png;base64,cG5n',
-      detail: 'auto',
-    });
-    expect(store.load('app-id', binding)?.history[0].content).toEqual(content);
+    await collect(new NativeResponsesRunner(options()).run('inspect'));
+    const body = JSON.parse(fetchMock.mock.calls.at(-1)![1].body);
+    expect(JSON.stringify(body.contents)).toContain('private-signed-part');
+    expect(JSON.stringify(body.contents)).toContain('written');
+    expect(
+      (await readFile(join(root, 'continuation.db'))).includes(Buffer.from('private-google-token')),
+    ).toBe(false);
+    expect((await stat(join(root, 'continuation.db'))).mode & 0o777).toBe(0o600);
   });
-
-  it('rejects changed prepared image bytes before provider dispatch', async () => {
-    const content = [
-      {
-        type: 'image' as const,
-        source: {
-          type: 'base64' as const,
-          media_type: 'image/png',
-          data: 'cG5n',
+  it('never replays an uncertain tool after cancellation and restart', async () => {
+    fetchMock.mockResolvedValueOnce(response(1));
+    const opts = options();
+    const native = new NativeResponsesRunner(opts);
+    opts.executeTool.mockImplementationOnce(async () => {
+      native.interrupt();
+      throw Error('unknown effect');
+    });
+    await expect(collect(native.run('write'))).rejects.toThrow(/interrupt/i);
+    const old = store.load('app-id', binding)!;
+    store.close();
+    store = new NativeResponsesStore(join(root, 'continuation.db'));
+    store.recoverAtStartup();
+    const next = options();
+    await collect(new NativeResponsesRunner(next).run('inspect current state'));
+    expect(opts.executeTool).toHaveBeenCalledOnce();
+    expect(next.executeTool).not.toHaveBeenCalled();
+    expect(old.status).toBe('interrupted');
+    expect(JSON.stringify(fetchMock.mock.calls.at(-1)![1].body)).toMatch(/interrupt|unknown/i);
+  });
+  it('fills unanswered crash tool calls with uncertainty instead of rerunning them', async () => {
+    fetchMock.mockResolvedValueOnce(response(1));
+    const opts = { ...options(), maxTurns: 1 };
+    await expect(collect(new NativeResponsesRunner(opts).run('write'))).rejects.toThrow(/limit/i);
+    const state = store.load('app-id', binding)!;
+    store.save('app-id', binding, {
+      ...state,
+      status: 'running',
+      history: state.checkpoint!.history,
+    });
+    store.recoverAtStartup();
+    const next = options();
+    await collect(new NativeResponsesRunner(next).run('inspect pending work'));
+    expect(next.executeTool).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.at(-1)![1].body).toContain('Outcome unknown');
+  });
+  it('keeps prepared or abandoned work out of durable history until actual consumption', async () => {
+    const native = new NativeResponsesRunner(options());
+    native.prepare('abandoned', 'Never dispatched');
+    store.recoverAtStartup();
+    expect(store.load('app-id', binding)).toBeUndefined();
+    native.abandon('abandoned');
+    native.prepare('next', 'Explicit follow-up');
+    await collect(native.run('Explicit follow-up', undefined, 'next'));
+    expect(fetchMock.mock.calls[0][1].body).not.toContain('Never dispatched');
+  });
+  it('rejects account/model/credential-reference drift and preserves old history', async () => {
+    await collect(new NativeResponsesRunner(options()).run('hello'));
+    for (const change of [
+      { accountId: 'other' },
+      { model: 'other' },
+      { profileRevision: 'changed' },
+      { provider: 'other' },
+    ]) {
+      expect(() => store.load('app-id', { ...binding, ...change })).toThrow(/binding/i);
+      expect(() =>
+        store.save('app-id', { ...binding, ...change }, { status: 'idle', history: [] }),
+      ).toThrow(/binding/i);
+    }
+    expect(store.load('app-id', binding)?.history.length).toBeGreaterThan(0);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it('rejects overlapping turns and cancels without claiming success', async () => {
+    fetchMock.mockImplementationOnce(
+      (_url, opts) =>
+        new Promise((_resolve, reject) =>
+          opts.signal.addEventListener('abort', () => reject(Error('aborted'))),
+        ),
+    );
+    const native = new NativeResponsesRunner(options());
+    const first = collect(native.run('first'));
+    const rejection = expect(first).rejects.toThrow(/interrupt/i);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await expect(collect(new NativeResponsesRunner(options()).run('second'))).rejects.toThrow(
+      /running/i,
+    );
+    native.interrupt();
+    await rejection;
+    expect(store.load('app-id', binding)?.status).toBe('interrupted');
+  });
+  it('revalidates context after credentials and before a provider request', async () => {
+    let current = true;
+    const opts = {
+      ...options(),
+      gemini: {
+        ...gemini,
+        getAccessToken: async () => {
+          current = false;
+          return 'fixture-token';
         },
       },
-    ];
-    const instance = runner();
-    instance.prepare('image-identity', content);
-    content[0].source.data = 'bmV3';
-    await expect(collect(instance.run(content, undefined, 'image-identity'))).rejects.toThrow(
-      /identity/,
+      prepareAgentContext: async () => {
+        if (!current) throw Error('Revoked source');
+      },
+    };
+    await expect(collect(new NativeResponsesRunner(opts).run('blocked'))).rejects.toThrow(
+      'Revoked source',
     );
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(store.load('app-id', binding)).toBeUndefined();
   });
-
+  it('stops before side effects if checkpoint persistence fails', async () => {
+    fetchMock.mockResolvedValueOnce(response(1));
+    const original = store.save.bind(store);
+    vi.spyOn(store, 'save').mockImplementation((id, account, state) => {
+      if (state.checkpoint) throw Error('disk full');
+      original(id, account, state);
+    });
+    const opts = options();
+    await expect(collect(new NativeResponsesRunner(opts).run('write'))).rejects.toThrow(
+      'disk full',
+    );
+    expect(opts.executeTool).not.toHaveBeenCalled();
+  });
   it('runs and resumes Gemini tool turns with the same durable native tool loop', async () => {
     const googleBinding = { ...binding, provider: 'google-vertex', model: 'gemini-3.8-flash' };
     let turn = 0;
@@ -229,7 +233,7 @@ describe('durable native Responses turns', () => {
         candidates: [{ finishReason: 'STOP', content: { role: 'model', parts } }],
       });
     });
-    const executeTool = vi.fn(async (block) => ({
+    const executeTool = vi.fn(async (block: import('@mitzo/harness').ToolUseBlock) => ({
       type: 'tool_result' as const,
       tool_use_id: block.id,
       content: 'contents',
@@ -266,335 +270,5 @@ describe('durable native Responses turns', () => {
     await collect(new NativeResponsesRunner(opts).run('continue'));
     expect(executeTool).toHaveBeenCalledTimes(1);
     expect(store.load('gemini-app', googleBinding)?.history.at(-1)?.role).toBe('assistant');
-  });
-  it('persists tool outcomes before the next request and resumes with opaque reasoning after restart', async () => {
-    fetchMock.mockResolvedValueOnce(response(true)).mockResolvedValueOnce(response());
-    const execute = vi.fn().mockImplementation(async () => {
-      expect(store.load('app-id', binding)?.checkpoint?.history.at(-1)?.role).toBe('assistant');
-      return { type: 'tool_result', tool_use_id: 'call-1', content: 'written' };
-    });
-    const events = await collect(runner(execute).run('write a note'));
-    expect(execute).toHaveBeenCalledTimes(1);
-    expect(events).toContainEqual(
-      expect.objectContaining({ type: 'result', session_id: 'app-id' }),
-    );
-    expect(store.load('app-id', binding)?.status).toBe('idle');
-    store.close();
-    store = new NativeResponsesStore(join(root, 'continuation.db'));
-    await collect(runner().run('follow-up'));
-    const request = JSON.parse(fetchMock.mock.calls[2][1].body);
-    expect(request.instructions).toBe('boot context and worktree instructions');
-    expect(request.store).toBe(false);
-    expect(request.input).toContainEqual({
-      type: 'function_call_output',
-      call_id: 'call-1',
-      output: 'written',
-    });
-    expect(request.input).toContainEqual({
-      type: 'reasoning',
-      encrypted_content: 'opaque-continuation',
-    });
-    expect(
-      (await readFile(join(root, 'continuation.db'))).includes(Buffer.from('test-only-credential')),
-    ).toBe(false);
-    expect((await stat(join(root, 'continuation.db'))).mode & 0o777).toBe(0o600);
-  });
-  it('rejects changed account, model or credential reference binding before a request', async () => {
-    await collect(runner().run('hello'));
-    for (const change of [
-      { accountId: 'other' },
-      { model: 'other' },
-      { profileRevision: 'changed' },
-      { provider: 'other' },
-    ]) {
-      expect(() => store.load('app-id', { ...binding, ...change })).toThrow(/binding/i);
-      expect(() =>
-        store.save('app-id', { ...binding, ...change }, { status: 'idle', history: [] }),
-      ).toThrow(/binding/i);
-      expect(store.load('app-id', binding)?.history.length).toBeGreaterThan(0);
-    }
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-  it('rejects concurrent turns and leaves cancelled work explicitly interrupted', async () => {
-    fetchMock.mockImplementationOnce(
-      (_url, opts) =>
-        new Promise((_resolve, reject) =>
-          opts.signal.addEventListener('abort', () => reject(new Error('aborted'))),
-        ),
-    );
-    const instance = runner();
-    const first = collect(instance.run('first'));
-    const rejection = expect(first).rejects.toThrow(/interrupt/i);
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    await expect(collect(runner().run('second'))).rejects.toThrow(/running/i);
-    instance.interrupt();
-    await rejection;
-    expect(store.load('app-id', binding)?.status).toBe('interrupted');
-  });
-  it('keeps a prepared follow-up out of durable history until its generator is consumed', async () => {
-    const instance = runner();
-    instance.prepare('message-1', 'durable follow-up');
-    expect(store.load('app-id', binding)).toBeUndefined();
-    expect(fetchMock).not.toHaveBeenCalled();
-    await collect(instance.run('durable follow-up', undefined, 'message-1'));
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(store.load('app-id', binding)?.status).toBe('idle');
-  });
-  it('does not expose a prepared follow-up to startup recovery before provider dispatch', () => {
-    const instance = runner();
-    instance.prepare('message-crash', 'never dispatched');
-
-    store.recoverAtStartup();
-
-    expect(store.load('app-id', binding)).toBeUndefined();
-  });
-  it('abandons a prepared follow-up without leaking it into later history', async () => {
-    const instance = runner();
-    instance.prepare('message-rejected', 'rejected follow-up');
-
-    instance.abandon('message-rejected');
-    expect(store.load('app-id', binding)).toBeUndefined();
-
-    await collect(instance.run('later accepted turn'));
-    const request = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(request.input).not.toContainEqual(
-      expect.objectContaining({ role: 'user', content: 'rejected follow-up' }),
-    );
-  });
-  it('applies a changed model and thinking effort without losing the conversation', async () => {
-    const instance = runner();
-    await collect(instance.run('first'));
-    instance.prepare('message-2', 'second', {
-      model: 'other-model',
-      reasoningEffort: 'high',
-    });
-    await collect(instance.run('second', undefined, 'message-2'));
-
-    const request = JSON.parse(fetchMock.mock.calls[1][1].body);
-    expect(request.model).toBe('other-model');
-    expect(request.reasoning).toEqual({ effort: 'high', summary: 'auto' });
-    expect(request.input).toContainEqual(expect.objectContaining({ role: 'assistant' }));
-  });
-  it('clears a prior thinking override when the model default is selected', async () => {
-    const instance = runner();
-    instance.prepare('message-high', 'first', {
-      model: 'test-model',
-      reasoningEffort: 'high',
-    });
-    await collect(instance.run('first', undefined, 'message-high'));
-    instance.prepare('message-default', 'second', {
-      model: 'test-model',
-      reasoningEffort: null,
-    });
-    await collect(instance.run('second', undefined, 'message-default'));
-
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning).toEqual({
-      effort: 'high',
-      summary: 'auto',
-    });
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).not.toHaveProperty('reasoning');
-  });
-  it('clears the prior thinking override when a changed model omits thinking options', async () => {
-    const instance = runner(undefined, { reasoningEffort: 'high' });
-    await collect(instance.run('first'));
-    instance.prepare('message-other-model', 'second', { model: 'other-model' });
-    await collect(instance.run('second', undefined, 'message-other-model'));
-
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning).toEqual({
-      effort: 'high',
-      summary: 'auto',
-    });
-    const changedRequest = JSON.parse(fetchMock.mock.calls[1][1].body);
-    expect(changedRequest.model).toBe('other-model');
-    expect(changedRequest).not.toHaveProperty('reasoning');
-  });
-  it('retains a changed thinking effort for a field-less internal follow-up', async () => {
-    const instance = runner();
-    instance.prepare('message-high', 'first', {
-      model: 'test-model',
-      reasoningEffort: 'high',
-    });
-    await collect(instance.run('first', undefined, 'message-high'));
-    instance.prepare('message-closeout', 'second');
-    await collect(instance.run('second', undefined, 'message-closeout'));
-
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning).toEqual({
-      effort: 'high',
-      summary: 'auto',
-    });
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body).reasoning).toEqual({
-      effort: 'high',
-      summary: 'auto',
-    });
-  });
-  it('never replays an uncertain side effect after interruption', async () => {
-    fetchMock.mockResolvedValueOnce(response(true));
-    const execute = vi.fn().mockImplementation(async () => {
-      instance.interrupt();
-      throw new Error('effect may have occurred');
-    });
-    const instance = runner(execute);
-    await expect(collect(instance.run('write'))).rejects.toThrow(/interrupt/i);
-    await collect(runner(execute).run('inspect the result'));
-    expect(execute).toHaveBeenCalledTimes(1);
-    const request = JSON.parse(fetchMock.mock.calls[1][1].body);
-    expect(request.input).toContainEqual(
-      expect.objectContaining({
-        type: 'function_call_output',
-        call_id: 'call-1',
-        output: expect.stringMatching(/interrupt|unknown/i),
-      }),
-    );
-  });
-  it('marks a crashed running turn interrupted only through explicit startup recovery', async () => {
-    store.begin('app-id', binding);
-    expect(() => store.begin('app-id', binding)).toThrow(/running/i);
-    store.recoverAtStartup();
-    expect(store.load('app-id', binding)?.status).toBe('interrupted');
-    await collect(runner().run('continue explicitly'));
-  });
-  it('does not report success after exhausting the tool loop limit', async () => {
-    fetchMock.mockResolvedValueOnce(response(true));
-    const instance = new NativeResponsesRunner({
-      conversationId: 'app-id',
-      binding,
-      apiKey: 'test-only',
-      systemPrompt: '',
-      maxTokens: 100,
-      maxTurns: 1,
-      store,
-      executeTool: vi
-        .fn()
-        .mockResolvedValue({ type: 'tool_result', tool_use_id: 'call-1', content: 'written' }),
-    });
-    await expect(collect(instance.run('write'))).rejects.toThrow(/limit/i);
-    expect(store.load('app-id', binding)?.status).toBe('interrupted');
-  });
-  it('runs a streamed Responses function call through the real native executor', async () => {
-    const registry = new SessionRegistry();
-    registry.register('client', {
-      cwd: root,
-      sessionId: 'app-id',
-      mode: 'agent',
-      sessionAllowList: new Set(),
-      abortController: new AbortController(),
-      transport: { send: () => {}, isOpen: () => true },
-    });
-    fetchMock.mockResolvedValueOnce(response(true)).mockResolvedValueOnce(response());
-    try {
-      const instance = new NativeResponsesRunner({
-        conversationId: 'app-id',
-        binding,
-        apiKey: 'test-only',
-        systemPrompt: 'ContexGin boot payload',
-        tools: nativeToolDefinitions,
-        maxTokens: 100,
-        store,
-        executeTool: createNativeToolExecutor('client', registry, { env: {} }),
-      });
-      await collect(instance.run('write hello'));
-      expect(await readFile(join(root, 'note'), 'utf8')).toBe('hello');
-      expect(JSON.parse(fetchMock.mock.calls[0][1].body).tools).toContainEqual(
-        expect.objectContaining({ name: 'Write' }),
-      );
-    } finally {
-      registry.dispose();
-    }
-  });
-  it('recovers a crash checkpoint with an unanswered function call without replay', async () => {
-    fetchMock.mockResolvedValueOnce(response(true));
-    const instance = new NativeResponsesRunner({
-      conversationId: 'app-id',
-      binding,
-      apiKey: 'test-only',
-      systemPrompt: '',
-      maxTokens: 100,
-      maxTurns: 1,
-      store,
-      executeTool: vi
-        .fn()
-        .mockResolvedValue({ type: 'tool_result', tool_use_id: 'call-1', content: 'written' }),
-    });
-    await expect(collect(instance.run('write'))).rejects.toThrow(/limit/i);
-    const state = store.load('app-id', binding)!;
-    // A crash after model persistence but before the tool outcome was committed.
-    store.save('app-id', binding, {
-      ...state,
-      status: 'running',
-      history: state.checkpoint!.history,
-    });
-    store.close();
-    store = new NativeResponsesStore(join(root, 'continuation.db'));
-    store.recoverAtStartup();
-    const execute = vi.fn();
-    await collect(runner(execute).run('inspect before retrying'));
-    expect(execute).not.toHaveBeenCalled();
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body).input).toContainEqual(
-      expect.objectContaining({
-        type: 'function_call_output',
-        call_id: 'call-1',
-        output: expect.stringContaining('Outcome unknown'),
-      }),
-    );
-  });
-  it('recovers a partial multi-tool batch without replaying the completed tool', async () => {
-    fetchMock.mockResolvedValueOnce(response(2));
-    const controller = new AbortController();
-    const execute = vi.fn(async () => {
-      controller.abort();
-      return { type: 'tool_result', tool_use_id: 'call-1', content: 'A persisted' };
-    });
-    await collect(runner(execute).run('two writes', controller.signal)).catch(() => {});
-    expect(execute).toHaveBeenCalledTimes(1);
-    const partial = store.load('app-id', binding)!;
-    expect(partial.history.at(-1)?.content).toContainEqual(
-      expect.objectContaining({ tool_use_id: 'call-1', content: 'A persisted' }),
-    );
-    // Recreate process loss at this durable boundary, before B has any recorded outcome.
-    store.save('app-id', binding, { ...partial, status: 'running' });
-    store.close();
-    store = new NativeResponsesStore(join(root, 'continuation.db'));
-    store.recoverAtStartup();
-    const resumedExecute = vi.fn();
-    await collect(runner(resumedExecute).run('inspect pending work'));
-    expect(resumedExecute).not.toHaveBeenCalled();
-    const input = JSON.parse(fetchMock.mock.calls[1][1].body).input;
-    expect(input).toContainEqual({
-      type: 'function_call_output',
-      call_id: 'call-1',
-      output: 'A persisted',
-    });
-    expect(input).toContainEqual(
-      expect.objectContaining({
-        call_id: 'call-2',
-        output: expect.stringContaining('Outcome unknown'),
-      }),
-    );
-  });
-  it('stops before side effects if checkpoint persistence fails', async () => {
-    fetchMock.mockResolvedValueOnce(response(true));
-    const original = store.save.bind(store);
-    vi.spyOn(store, 'save').mockImplementation((id, account, state) => {
-      if (state.checkpoint) throw new Error('disk full');
-      original(id, account, state);
-    });
-    const execute = vi.fn();
-    await expect(collect(runner(execute).run('write'))).rejects.toThrow('disk full');
-    expect(execute).not.toHaveBeenCalled();
-    expect(store.load('app-id', binding)?.status).toBe('running');
-    store.recoverAtStartup();
-    expect(store.load('app-id', binding)?.status).toBe('interrupted');
-  });
-  it('preserves the original provider failure when interruption persistence also fails', async () => {
-    fetchMock.mockRejectedValueOnce(new Error('provider unavailable'));
-    const save = store.save.bind(store);
-    vi.spyOn(store, 'save').mockImplementation((id, account, state) => {
-      if (state.status === 'interrupted') throw new Error('database locked');
-      save(id, account, state);
-    });
-    await expect(collect(runner().run('hello'))).rejects.toThrow('provider unavailable');
-    expect(store.load('app-id', binding)?.status).toBe('running');
-    store.recoverAtStartup();
-    expect(store.load('app-id', binding)?.status).toBe('interrupted');
   });
 });

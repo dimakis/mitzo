@@ -118,6 +118,7 @@ function workspaceOwner(readOnly = false, ordinary = false, local = false) {
       ? !localRepositoryWorkspacesEnabled()
       : ordinary
         ? process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' &&
+          process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED !== '1' &&
           process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED !== '1'
         : !repositoryWorkspacesEnabled())
   )

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { PaidReasoningUsageCostUnknownError } from './paid-reasoning-harness.js';
 import {
   FusionOrchestrator,
   DEFAULT_FUSION_CONFIG,
@@ -108,15 +109,18 @@ export function startFusion(options: {
   request: FusionRequest;
   config?: Omit<FusionConfig, 'onEvent'>;
   routeRevision?: () => string;
-  createProvider?: (model: string) => ModelProvider;
+  createProvider?: (model: string, role?: string) => ModelProvider;
   onEvent?: ReasoningEventHandler;
   onAdmitted?: () => void;
 }): { token: ExecutionToken; duplicate: boolean; completion: Promise<FusionOutcome> } {
   const { store, request } = options;
   if (!request.task.trim()) throw new Error('Fusion requires a task');
+  if (!options.createProvider)
+    throw Error('Select an account, model, target and output policy for every reasoning role');
   const config = structuredClone(options.config ?? DEFAULT_FUSION_CONFIG);
   if (!config.panelModels.length) throw new Error('Fusion requires a panel');
-  const routeRevision = options.routeRevision ?? fusionRouteRevision;
+  const routeRevision =
+    options.routeRevision ?? (() => fusionRouteRevision(request.selection ?? null));
   const route = routeRevision();
   const fingerprint = `fusion-v1:${hash({
     command: 'fuse',
@@ -125,7 +129,7 @@ export function startFusion(options: {
     selection: request.selection ?? null,
     route,
     orchestrationRevision: 1,
-    trustDomainRevision: 'host-direct-v1',
+    trustDomainRevision: 'selected-native-harness-v2',
   })}`;
   const prior = store.getExecutionAdmission(request.sessionId, request.clientMsgId);
   if (prior) {
@@ -209,8 +213,19 @@ export function startFusion(options: {
               );
               if (!terminal.applied) throw new Error('Provider attempt no longer active');
               return result;
-            } catch {
+            } catch (error) {
+              if (error instanceof PaidReasoningUsageCostUnknownError)
+                store.append(request.sessionId, 'error', {
+                  v: 2,
+                  type: 'error',
+                  sessionId: request.sessionId,
+                  clientMsgId: request.clientMsgId,
+                  code: error.code,
+                  error: error.message,
+                });
               store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'ambiguous');
+              // Provider causes may contain credentials or private response bodies.
+              // eslint-disable-next-line preserve-caught-error
               throw new Error('Fusion provider outcome is uncertain');
             }
           },

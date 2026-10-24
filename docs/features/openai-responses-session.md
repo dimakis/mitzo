@@ -1,5 +1,9 @@
 # OpenAI Responses session adapter
 
+> Historical implementation record. Custom OpenAI execution is retired. See
+> [the current retirement and linked-continuation contract](legacy-execution-retirement.md).
+> Retained private checkpoint data remains readable; it is not a native Codex thread.
+
 `ResponsesSession` implements the existing `ModelSession.turn()` boundary using the direct OpenAI Responses API. The server supplies an explicit account ID and API credential. It makes no environment, account, provider, or billing fallback.
 
 The adapter translates streamed text/refusals, visible reasoning summaries, and function calls into the events consumed by `sdkWrapperEmitter` and `runAgenticLoop`. Native execution remains the caller's `executeTool` responsibility. The adapter never executes model-generated commands itself.

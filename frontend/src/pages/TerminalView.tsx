@@ -435,7 +435,8 @@ export function TerminalView() {
               )}
             </div>
             <p className="workspace-muted terminal-adviser-boundary">
-              Suggestions only. You run commands. Choose a connected adviser account.
+              Advice uses the selected account and reviewed text on Local Mac. You run commands.
+              Choose a connected adviser account.
             </p>
             {reply && (
               <div className="terminal-adviser-response">

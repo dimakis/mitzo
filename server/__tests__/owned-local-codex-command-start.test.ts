@@ -803,3 +803,76 @@ it.each(['local', 'openshell'] as const)(
     }
   },
 );
+
+it('pins ordinary worker task MCP callbacks and reconstructs only its current allocation after reconnect', async () => {
+  const f = request();
+  const { retainTaskWorkerAllocation } = await import('../task-worker-authority.js');
+  const task = tasks.create({ title: 'Current ordinary worker', sessionPolicy: 'spawn' });
+  const operationId = `allocation-${f.clientId}`;
+  const logicalClientId = `task-worker:${operationId}`;
+  tasks.update(task.id, {
+    status: 'active',
+    annotations: [
+      `worker_allocation: ${operationId}`,
+      `worker_conversation: ${f.args.reservation.conversationId}`,
+    ],
+  });
+  tasks.setSessionId(task.id, logicalClientId);
+  await chat.startOwnedLocalCodexCommand(f.transport, f.clientId, {
+    ...f.args,
+    onSessionPrepared(session) {
+      retainTaskWorkerAllocation(chat.eventStore, {
+        version: 1,
+        taskId: task.id,
+        goalId: task.id,
+        operationId,
+        workerClientId: logicalClientId,
+        conversationId: f.args.reservation.conversationId,
+      });
+      session.taskContext = {
+        currentTaskId: task.id,
+        goalId: task.id,
+        workerAllocationId: operationId,
+      };
+    },
+  });
+  const options = vi.mocked(openCodexChat).mock.calls.at(-1)![0];
+  expect(options.mcpServers!['task-board'].args).toEqual(
+    expect.arrayContaining([
+      '--session-id',
+      f.args.reservation.conversationId,
+      '--task-id',
+      task.id,
+    ]),
+  );
+  await vi.waitFor(() => expect(runtime.instances[0].close).toHaveBeenCalled());
+  const restoredClientId = `restored:${f.clientId}`;
+  chat.registry.register(restoredClientId, {
+    sessionId: f.args.reservation.conversationId,
+    mode: 'ask',
+    abortController: new AbortController(),
+    transport: f.transport,
+    sessionAllowList: new Set(),
+  });
+  try {
+    expect(chat.resolveOwnedTelosWorkCommandScope(f.args.reservation.conversationId)).toEqual({
+      currentTaskId: task.id,
+      goalId: task.id,
+      workerAllocationId: operationId,
+    });
+    expect(chat.registry.get(restoredClientId)?.taskContext).toEqual({
+      currentTaskId: task.id,
+      goalId: task.id,
+      workerAllocationId: operationId,
+    });
+    tasks.update(task.id, {
+      annotations: [...tasks.get(task.id)!.annotations, 'worker_allocation: replacement'],
+    });
+    tasks.setSessionId(task.id, 'task-worker:replacement');
+    expect(() => chat.resolveOwnedTelosWorkCommandScope(f.args.reservation.conversationId)).toThrow(
+      /superseded|owns this task/,
+    );
+  } finally {
+    chat.registry.remove(restoredClientId);
+  }
+});

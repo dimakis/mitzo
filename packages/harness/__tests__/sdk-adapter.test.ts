@@ -7,7 +7,7 @@ import type {
 } from '../src/providers/session-types.js';
 import {
   sdkWrapperEmitter,
-  runAgenticLoop,
+  runDeferredGeminiLoop,
   type AgenticLoopOptions,
 } from '../src/providers/sdk-adapter.js';
 
@@ -17,7 +17,7 @@ import {
 function mockSession(turnsEvents: StreamEvent[][]): ModelSession {
   let turnIndex = 0;
   return {
-    provider: 'test',
+    provider: 'google-vertex',
     async *turn(_messages: ConversationMessage[]): AsyncIterable<StreamEvent> {
       const events = turnsEvents[turnIndex] ?? [];
       turnIndex++;
@@ -245,16 +245,16 @@ describe('sdkWrapperEmitter', () => {
   });
 });
 
-// ── runAgenticLoop ──────────────────────────────────────────────
+// ── runDeferredGeminiLoop ──────────────────────────────────────────────
 
-describe('runAgenticLoop', () => {
+describe('runDeferredGeminiLoop', () => {
   it('persists isolated snapshots before side effects and before yielding tool results', async () => {
     const snapshots: ConversationMessage[][] = [];
     const executeTool = vi.fn(async () => {
       expect(snapshots.at(-1)?.at(-1)?.role).toBe('assistant');
       return { type: 'tool_result' as const, tool_use_id: 't1', content: 'ok' };
     });
-    const loop = runAgenticLoop(
+    const loop = runDeferredGeminiLoop(
       mockSession([toolUseTurnEvents('Read', 't1', {}), textTurnEvents('done')]),
       [{ role: 'user', content: 'go' }],
       {
@@ -279,7 +279,7 @@ describe('runAgenticLoop', () => {
     const executeTool = vi.fn();
     await expect(
       collect(
-        runAgenticLoop(
+        runDeferredGeminiLoop(
           mockSession([toolUseTurnEvents('Write', 't1', {})]),
           [{ role: 'user', content: 'go' }],
           {
@@ -303,7 +303,9 @@ describe('runAgenticLoop', () => {
       executeTool: vi.fn(),
     };
 
-    const events = await collect(runAgenticLoop(session, [{ role: 'user', content: 'hi' }], opts));
+    const events = await collect(
+      runDeferredGeminiLoop(session, [{ role: 'user', content: 'hi' }], opts),
+    );
 
     // Should have stream_events + assistant + result
     const resultEvents = events.filter((e) => e.type === 'result');
@@ -334,7 +336,7 @@ describe('runAgenticLoop', () => {
     };
 
     const events = await collect(
-      runAgenticLoop(session, [{ role: 'user', content: 'read' }], opts),
+      runDeferredGeminiLoop(session, [{ role: 'user', content: 'read' }], opts),
     );
 
     // executeTool called once for 'Read'
@@ -412,7 +414,7 @@ describe('runAgenticLoop', () => {
     };
 
     const events = await collect(
-      runAgenticLoop(session, [{ role: 'user', content: 'search' }], opts),
+      runDeferredGeminiLoop(session, [{ role: 'user', content: 'search' }], opts),
     );
 
     // Both tools executed
@@ -426,7 +428,7 @@ describe('runAgenticLoop', () => {
   it('respects maxTurns limit', async () => {
     // Session that always returns tool_use — should stop after maxTurns
     const infiniteToolSession: ModelSession = {
-      provider: 'test',
+      provider: 'google-vertex',
       async *turn(): AsyncIterable<StreamEvent> {
         yield* toolUseTurnEvents('Read', `tool-${Date.now()}`, { file_path: '/loop' });
       },
@@ -445,7 +447,7 @@ describe('runAgenticLoop', () => {
     };
 
     const events = await collect(
-      runAgenticLoop(infiniteToolSession, [{ role: 'user', content: 'go' }], opts),
+      runDeferredGeminiLoop(infiniteToolSession, [{ role: 'user', content: 'go' }], opts),
     );
 
     const result = events.find((e) => e.type === 'result')!;
@@ -457,7 +459,7 @@ describe('runAgenticLoop', () => {
     let turnCount = 0;
 
     const session: ModelSession = {
-      provider: 'test',
+      provider: 'google-vertex',
       async *turn(): AsyncIterable<StreamEvent> {
         turnCount++;
         if (turnCount >= 2) controller.abort();
@@ -478,7 +480,9 @@ describe('runAgenticLoop', () => {
       executeTool,
     };
 
-    const events = await collect(runAgenticLoop(session, [{ role: 'user', content: 'go' }], opts));
+    const events = await collect(
+      runDeferredGeminiLoop(session, [{ role: 'user', content: 'go' }], opts),
+    );
 
     // Should have stopped — result emitted with turns <= 2
     const result = events.find((e) => e.type === 'result')!;
@@ -501,7 +505,7 @@ describe('runAgenticLoop', () => {
     };
 
     const events = await collect(
-      runAgenticLoop(session, [{ role: 'user', content: 'do bad thing' }], opts),
+      runDeferredGeminiLoop(session, [{ role: 'user', content: 'do bad thing' }], opts),
     );
 
     // executeTool was called (and threw)
@@ -542,7 +546,9 @@ describe('runAgenticLoop', () => {
       executeTool,
     };
 
-    const events = await collect(runAgenticLoop(session, [{ role: 'user', content: 'go' }], opts));
+    const events = await collect(
+      runDeferredGeminiLoop(session, [{ role: 'user', content: 'go' }], opts),
+    );
     const result = events.find((e) => e.type === 'result')!;
     const usage = (result as Record<string, unknown>).usage as Record<string, number>;
 
@@ -551,4 +557,17 @@ describe('runAgenticLoop', () => {
     expect(usage.input_tokens).toBe(100); // latest turn's input
     expect(usage.output_tokens).toBe(30); // 20 + 10
   });
+});
+
+it('rejects the retired custom loop for OpenAI before invoking a model or tool', async () => {
+  const turn = vi.fn();
+  const executeTool = vi.fn();
+  const session = { provider: 'openai', turn } as unknown as ModelSession;
+  const consume = async () => {
+    for await (const event of runDeferredGeminiLoop(session, [], { maxTurns: 1, executeTool }))
+      void event;
+  };
+  await expect(consume()).rejects.toThrow('retired');
+  expect(turn).not.toHaveBeenCalled();
+  expect(executeTool).not.toHaveBeenCalled();
 });

@@ -5,6 +5,8 @@ import type { TaskStore, Task, GateConfig } from './task-store.js';
 import type { WorkloadStore } from './workload-store.js';
 import { sendToChat } from './chat.js';
 import { createLogger } from './logger.js';
+import { randomUUID } from 'node:crypto';
+import type { AuthSession } from './auth.js';
 
 const log = createLogger('task-orchestrator');
 
@@ -23,6 +25,8 @@ export interface LoopStatus {
 export interface StartOptions {
   specMode?: boolean;
   clientId?: string;
+  /** Middleware-verified interactive login, never a request-body claim. */
+  operatorAuth?: AuthSession;
 }
 
 export interface OrchestratorDeps {
@@ -52,7 +56,21 @@ export interface OrchestratorDeps {
     goalId: string,
     onEnded?: (clientId: string, error?: Error) => void,
   ) => Promise<string | null>;
+  /** Capture the selected ordinary conversation's immutable runtime choices.
+   * The returned adapter uses the ordinary account/workspace/admission owners. */
+  bindWorkerSession?: (sourceClientId: string, operatorAuth?: AuthSession) => TaskWorkerSession;
 }
+
+export type TaskWorkerSession = ((
+  taskId: string,
+  prompt: string,
+  goalId: string,
+  onEnded: (clientId: string, error?: Error) => void,
+  scope: { operationId: string; signal: AbortSignal },
+) => Promise<string | null>) & {
+  close?: () => void;
+  authorize?: (operatorAuth?: AuthSession) => void;
+};
 
 export class TaskOrchestrator {
   /**
@@ -85,6 +103,7 @@ export class TaskOrchestrator {
   private deps: OrchestratorDeps;
   private runGeneration = 0;
   private dispatchAbort = new AbortController();
+  private boundWorkerSession: TaskWorkerSession | undefined;
 
   /** Tracks recently-spawned task IDs with their spawn timestamp for orphan detection grace. */
   private recentSpawns = new Map<string, number>();
@@ -109,7 +128,12 @@ export class TaskOrchestrator {
     return this._spawnEnabled;
   }
 
-  setSpawnEnabled(enabled: boolean): void {
+  setSpawnEnabled(enabled: boolean, operatorAuth?: AuthSession): void {
+    if (enabled && this.state !== 'idle' && this.deps.bindWorkerSession) {
+      if (this.boundWorkerSession) this.boundWorkerSession.authorize?.(operatorAuth);
+      else if (this.pinnedClientId)
+        this.boundWorkerSession = this.deps.bindWorkerSession(this.pinnedClientId, operatorAuth);
+    }
     this._spawnEnabled = enabled;
     log.info('spawn enabled changed', { enabled });
     this.deps.broadcastStatus(this.getStatus());
@@ -181,6 +205,7 @@ export class TaskOrchestrator {
   requiresClientId(goalId: string, opts?: StartOptions): boolean {
     if (opts?.clientId ?? this.deps.getClientId()) return false;
     if (opts?.specMode) return true;
+    if (this.deps.bindWorkerSession && this._spawnEnabled) return true;
 
     const needsReuse = (parentId: string): boolean =>
       this.deps.store.getChildren(parentId).some((task) => {
@@ -255,18 +280,26 @@ export class TaskOrchestrator {
       log.warn('start() requires an explicit session target', { goalId });
       return this.getStatus();
     }
+    // Capture before changing loop/task state. Unavailable account or scope
+    // cannot turn a workflow into an admitted task or choose a fallback chat.
+    const boundWorkerSession =
+      this._spawnEnabled && this.deps.bindWorkerSession && pinnedClientId
+        ? this.deps.bindWorkerSession(pinnedClientId, opts?.operatorAuth)
+        : undefined;
 
     this.state = 'running';
     this.autoPausedReason = null;
     this.deferredReviewDispatch = null;
     this.dispatchAbort.abort();
     this.dispatchAbort = new AbortController();
+    this.boundWorkerSession?.close?.();
     this.runGeneration++;
     this.goalId = goalId;
     this.activeTaskId = null;
     this.specMode = opts?.specMode ?? false;
     this.awaitingApproval = false;
     this.pinnedClientId = pinnedClientId;
+    this.boundWorkerSession = boundWorkerSession;
 
     // Clear spawn tracking state so a new goal isn't rate-limited by the previous one
     this.recentSpawns.clear();
@@ -357,6 +390,8 @@ export class TaskOrchestrator {
     this.specMode = false;
     this.awaitingApproval = false;
     this.pinnedClientId = null;
+    this.boundWorkerSession?.close?.();
+    this.boundWorkerSession = undefined;
     this.spawnDepth = 0;
     this.recentSpawns.clear();
     this.spawnAttempts.clear();
@@ -473,7 +508,8 @@ export class TaskOrchestrator {
           !!task.sessionId &&
           task.sessionId !== this.pinnedClientId));
     if (spawnedTask) {
-      if (!this._spawnEnabled || !this.deps.spawnSession) return false;
+      if (!this._spawnEnabled || (!this.deps.spawnSession && !this.boundWorkerSession))
+        return false;
       this.deps.store.update(taskId, { status: 'pending', annotations });
       this.deps.store.setSessionId(taskId, null);
       this.deps.store.cascadeStatus(taskId);
@@ -557,6 +593,18 @@ export class TaskOrchestrator {
             taskId: orphan.id,
             ageMs: now - spawnedAt,
           });
+          continue;
+        }
+        if (orphan.annotations.some((annotation) => annotation.startsWith('worker_allocation: '))) {
+          this.deps.store.update(orphan.id, {
+            status: 'blocked',
+            annotations: [
+              ...orphan.annotations,
+              'worker_error: retained worker outcome is unconfirmed; inspect its conversation before explicitly retrying',
+            ],
+          });
+          this.deps.store.cascadeStatus(orphan.id);
+          this.deps.broadcastTasks();
           continue;
         }
         log.info('reclaiming orphaned task', { taskId: orphan.id });
@@ -653,7 +701,7 @@ export class TaskOrchestrator {
         }
         const policy = next.sessionPolicy === 'reuse' || !this._spawnEnabled ? 'reuse' : 'spawn';
 
-        if (policy === 'spawn' && !this.deps.spawnSession) {
+        if (policy === 'spawn' && !this.deps.spawnSession && !this.boundWorkerSession) {
           this.deps.store.update(next.id, {
             status: 'blocked',
             annotations: [...next.annotations, 'spawn_error: session spawning unavailable'],
@@ -665,7 +713,7 @@ export class TaskOrchestrator {
           break;
         }
 
-        if (policy === 'spawn' && this.deps.spawnSession) {
+        if (policy === 'spawn' && (this.deps.spawnSession || this.boundWorkerSession)) {
           // Global rate limit: refuse to spawn if too many recent spawns
           const now = Date.now();
           this.spawnTimestamps = this.spawnTimestamps.filter(
@@ -706,7 +754,13 @@ export class TaskOrchestrator {
           this.spawnAttempts.set(next.id, attempt);
 
           // Spawn a dedicated headless session for this task
-          this.deps.store.update(next.id, { status: 'active' });
+          const workerOperationId = this.boundWorkerSession ? randomUUID() : undefined;
+          this.deps.store.update(next.id, {
+            status: 'active',
+            ...(workerOperationId
+              ? { annotations: [...next.annotations, `worker_allocation: ${workerOperationId}`] }
+              : {}),
+          });
           this.deps.store.cascadeStatus(next.id);
           this.deps.broadcastTasks();
           this.deps.broadcastStatus(this.getStatus());
@@ -737,7 +791,13 @@ export class TaskOrchestrator {
             this.deps.broadcastTasks();
             this.onTaskBlocked(next.id);
           };
-          this.deps.spawnSession(next.id, prompt, capturedGoalId, onEnded).then(
+          const spawning = this.boundWorkerSession
+            ? this.boundWorkerSession(next.id, prompt, capturedGoalId, onEnded, {
+                operationId: workerOperationId!,
+                signal: this.dispatchAbort.signal,
+              })
+            : this.deps.spawnSession!(next.id, prompt, capturedGoalId, onEnded);
+          spawning.then(
             (clientId) => {
               // Guard: orchestrator moved on (stop or new goal)
               if (this.goalId !== capturedGoalId || this.spawnAttempts.get(next.id) !== attempt)
@@ -751,7 +811,10 @@ export class TaskOrchestrator {
                 log.error('failed to spawn session for task', { taskId: next.id });
                 this.deps.store.update(next.id, {
                   status: 'blocked',
-                  annotations: [...next.annotations, 'spawn_error: session creation failed'],
+                  annotations: [
+                    ...(this.deps.store.get(next.id)?.annotations ?? next.annotations),
+                    'spawn_error: session creation failed',
+                  ],
                 });
                 this.deps.store.cascadeStatus(next.id);
                 this.deps.broadcastTasks();

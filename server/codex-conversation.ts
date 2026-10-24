@@ -1,3 +1,4 @@
+import type { AdviserTaskScope } from './adviser-task-scope.js';
 import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
 import {
   codexApplicationContextFragments,
@@ -134,6 +135,7 @@ export interface NativeBaseReadScope {
 }
 
 export interface CodexConversationOptions {
+  adviserScope?: AdviserTaskScope;
   /** Read-only idle health deadline; never changes model RPC timeouts. */
   idleProbeTimeoutMs?: number;
   route?: 'openai-api' | 'chatgpt-subscription';
@@ -467,6 +469,7 @@ export class CodexConversation {
   private webSearchDeploymentCeiling: WebSearchAccess = 'disabled';
   private readonly disableWebSearch: boolean;
   private readonly disableProjectDocuments: boolean;
+  private adviserSkills: { path: string }[] = [];
   private readonly agentContextSource?: string;
   constructor(private opts: CodexConversationOptions) {
     assertNativeCodexContextAdmission({ source: opts.agentContextSource });
@@ -690,6 +693,27 @@ export class CodexConversation {
       }),
     );
     await this.observeStartupConfig(configResponse.config, startupGeneration);
+    if (this.opts.adviserScope) {
+      this.opts.adviserScope.assertCurrent();
+      const cwd = this.opts.runtimeCwd ?? this.opts.cwd;
+      const listing = z
+        .object({
+          data: z
+            .array(
+              z.object({
+                cwd: z.string(),
+                skills: z.array(z.object({ path: z.string() })).max(1000),
+                errors: z.array(z.unknown()).max(0),
+              }),
+            )
+            .max(1),
+        })
+        .parse(await this.client.request('skills/list', { cwds: [cwd], forceReload: true }));
+      if (listing.data.length !== 1 || listing.data[0].cwd !== cwd)
+        throw Error('Adviser native skill inventory unavailable');
+      this.adviserSkills = listing.data[0].skills;
+      this.opts.adviserScope.codexConfig(this.adviserSkills);
+    }
     const runtimeConfig = this.runtimeConfiguration(configResponse.config);
     const modelProvider = this.opts.modelProvider ?? 'openai';
     const threadOptions = this.threadOptions(runtimeConfig, modelProvider, state);
@@ -1541,7 +1565,11 @@ export class CodexConversation {
           ? codexNativePermissionProfiles(this.opts.nativeExecution)
           : {}),
       };
-      return this.disableWebSearch ? { ...config, web_search: 'disabled' } : config;
+      return {
+        ...config,
+        ...(this.disableWebSearch ? { web_search: 'disabled' } : {}),
+        ...(this.opts.adviserScope?.codexConfig(this.adviserSkills) ?? {}),
+      };
     }
     const inherited = z
       .object({

@@ -110,6 +110,7 @@ export { createLogger } from './logger.js';
 export { createProvider, createProviders } from './providers/index.js';
 export type {
   ModelProvider,
+  CostRate,
   ProviderMessage,
   ProviderResponse,
   CallOptions,
@@ -117,7 +118,6 @@ export type {
 export { MODEL_COSTS, calculateCost } from './providers/index.js';
 
 // Agentic session — provider-agnostic streaming model interface
-export { AnthropicSession, createAnthropicSession } from './providers/index.js';
 export type {
   ModelSession,
   ModelSessionConfig,
@@ -126,11 +126,10 @@ export type {
   ConversationMessage,
   ContentBlock,
   ToolDefinition,
-  AnthropicSessionOptions,
 } from './providers/index.js';
 
 // SDK adapter — bridges ModelSession to query-loop.ts event shapes
-export { sdkWrapperEmitter, runAgenticLoop } from './providers/index.js';
+export { sdkWrapperEmitter, runDeferredGeminiLoop } from './providers/index.js';
 export type {
   SdkWrapperEvent,
   SdkAssistantEvent,
@@ -169,5 +168,4 @@ export type {
   ReasoningEventHandler,
 } from './reasoning/index.js';
 
-export { OpenAIResponsesRequestError, ResponsesSession } from './providers/index.js';
-export type { ResponsesSessionOptions, ResponsesCheckpoint } from './providers/index.js';
+export type { ResponsesCheckpoint } from './providers/index.js';

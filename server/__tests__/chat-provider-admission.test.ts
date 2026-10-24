@@ -4,11 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccountProfiles } from '../account-profiles.js';
 
-const openAiProfile = {
+const geminiProfile = {
   id: 'work-api',
   label: 'Work API',
-  provider: 'openai',
-  credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+  provider: 'google-vertex',
+  credentialRef: '/fixture/google-adc.json',
+  projectId: 'fixture-project',
+  region: 'global',
   models: [
     { id: 'old-model', label: 'Old model', reasoningEfforts: ['high'] },
     { id: 'new-model', label: 'New model', reasoningEfforts: ['high'] },
@@ -29,7 +31,7 @@ vi.mock('../responses-chat-session.js', () => ({
   trackResponsesProviderAdmission: responses.track,
 }));
 
-describe('active native provider admission', () => {
+describe('active deferred Gemini provider admission', () => {
   const clientId = 'provider-admission-client';
   let root: string;
   let chat: typeof import('../chat.js');
@@ -37,7 +39,7 @@ describe('active native provider admission', () => {
   beforeAll(async () => {
     root = mkdtempSync(join(tmpdir(), 'mitzo-provider-admission-'));
     const profilesPath = join(root, 'account-profiles.json');
-    writeFileSync(profilesPath, JSON.stringify([openAiProfile]));
+    writeFileSync(profilesPath, JSON.stringify([geminiProfile]));
     vi.stubEnv('REPO_PATH', root);
     vi.stubEnv('WORKTREE_ENABLED', 'false');
     vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', profilesPath);
@@ -71,9 +73,13 @@ describe('active native provider admission', () => {
       sessionId,
       cwd: root,
       sessionAllowList: new Set(),
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
     });
     chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
-    chat.eventStore.upsertSession({ sessionId });
+    chat.eventStore.upsertSession({
+      sessionId,
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
+    });
 
     await expect(
       chat.sendToChat(clientId, 'answer this', undefined, undefined, 'command-1'),
@@ -95,7 +101,7 @@ describe('active native provider admission', () => {
   it('reuses an exact model-switch retry after session selection changes', async () => {
     const push = vi.fn();
     const sessionId = 'session-model-retry';
-    const binding = new AccountProfiles([openAiProfile]).resolve('work-api', 'old-model');
+    const binding = new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model');
     chat.registry.register(clientId, {
       transport: { send: vi.fn(), isOpen: () => true },
       abortController: new AbortController(),
@@ -104,6 +110,7 @@ describe('active native provider admission', () => {
       cwd: root,
       model: 'old-model',
       sessionAllowList: new Set(),
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
     });
     chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
     chat.eventStore.upsertSession({
@@ -149,9 +156,13 @@ describe('active native provider admission', () => {
       sessionId,
       cwd: root,
       sessionAllowList: new Set(),
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
     });
     chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
-    chat.eventStore.upsertSession({ sessionId });
+    chat.eventStore.upsertSession({
+      sessionId,
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
+    });
 
     await chat.sendToChat(clientId, 'first prompt', undefined, undefined, 'command-2');
     await expect(
@@ -173,11 +184,15 @@ describe('active native provider admission', () => {
       sessionId,
       cwd: root,
       sessionAllowList: new Set(),
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
     });
     const session = chat.registry.get(clientId)!;
     session.inputQueue = { push, close: vi.fn() };
     session.queryInstance = { interrupt, close: vi.fn(), stopTask: vi.fn() };
-    chat.eventStore.upsertSession({ sessionId });
+    chat.eventStore.upsertSession({
+      sessionId,
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
+    });
 
     await chat.sendToChat(clientId, 'first prompt', undefined, undefined, 'interrupt-command');
     await expect(
@@ -200,11 +215,15 @@ describe('active native provider admission', () => {
       sessionId,
       cwd: root,
       sessionAllowList: new Set(),
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
     });
     const session = chat.registry.get(clientId)!;
     session.inputQueue = { push, close: vi.fn() };
     session.queryInstance = { interrupt, close: vi.fn(), stopTask: vi.fn() };
-    chat.eventStore.upsertSession({ sessionId });
+    chat.eventStore.upsertSession({
+      sessionId,
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
+    });
 
     await chat.sendToChat(clientId, 'same prompt', undefined, undefined, 'duplicate-interrupt');
     await expect(
@@ -216,36 +235,32 @@ describe('active native provider admission', () => {
     expect(push).toHaveBeenCalledOnce();
   });
 
-  it('reuses admission when identical images are restaged under different paths', async () => {
-    const push = vi.fn();
-    const sessionId = 'session-images';
+  it('refuses unsupported Gemini images before durable admission, preparation or queue visibility', async () => {
+    const push = vi.fn(),
+      send = vi.fn(),
+      sessionId = 'session-images';
+    const accountBinding = new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model');
     chat.registry.register(clientId, {
-      transport: { send: vi.fn(), isOpen: () => true },
+      transport: { send, isOpen: () => true },
       abortController: new AbortController(),
       mode: 'agent',
       sessionId,
       cwd: root,
       sessionAllowList: new Set(),
+      accountBinding,
     });
     chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
-    chat.eventStore.upsertSession({ sessionId });
+    chat.eventStore.upsertSession({ sessionId, accountBinding });
     const images = [{ data: Buffer.from('same-image').toString('base64'), mediaType: 'image/png' }];
-    const now = vi.spyOn(Date, 'now');
-    now.mockReturnValueOnce(1_000).mockReturnValueOnce(2_000);
-
-    try {
-      await expect(
-        chat.sendToChat(clientId, 'inspect this', images, undefined, 'command-images'),
-      ).resolves.toBe(true);
-      await expect(
-        chat.sendToChat(clientId, 'inspect this', images, undefined, 'command-images'),
-      ).resolves.toBe(true);
-    } finally {
-      now.mockRestore();
-    }
-
-    expect(responses.prepare).toHaveBeenCalledOnce();
-    expect(push).toHaveBeenCalledOnce();
+    expect(
+      await chat.sendToChat(clientId, 'inspect this', images, undefined, 'command-images'),
+    ).toBe(false);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ error: 'Gemini image attachments are not yet supported' }),
+    );
+    expect(responses.prepare).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    expect(chat.eventStore.getExecutionAdmission(sessionId, 'command-images')).toBeUndefined();
   });
 
   it('does not create an execution when a legacy transcript message already exists', async () => {
@@ -258,9 +273,13 @@ describe('active native provider admission', () => {
       sessionId,
       cwd: root,
       sessionAllowList: new Set(),
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
     });
     chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
-    chat.eventStore.upsertSession({ sessionId });
+    chat.eventStore.upsertSession({
+      sessionId,
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
+    });
     chat.eventStore.append(sessionId, 'user_message', {
       v: 2,
       type: 'user_message',
@@ -288,9 +307,13 @@ describe('active native provider admission', () => {
       sessionId,
       cwd: root,
       sessionAllowList: new Set(),
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
     });
     chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
-    chat.eventStore.upsertSession({ sessionId });
+    chat.eventStore.upsertSession({
+      sessionId,
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
+    });
 
     await expect(chat.sendToChat(clientId, 'generated identity')).resolves.toBe(true);
 
@@ -304,7 +327,7 @@ describe('active native provider admission', () => {
 
   it('terminalizes and clears preparation when acknowledgement throws', async () => {
     const sessionId = 'session-ack-failure';
-    const binding = new AccountProfiles([openAiProfile]).resolve('work-api', 'old-model');
+    const binding = new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model');
     chat.registry.register(clientId, {
       transport: {
         send: vi.fn(() => {
@@ -318,6 +341,7 @@ describe('active native provider admission', () => {
       cwd: root,
       model: 'old-model',
       sessionAllowList: new Set(),
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
     });
     chat.registry.get(clientId)!.inputQueue = { push: vi.fn(), close: vi.fn() };
     chat.eventStore.upsertSession({
@@ -352,7 +376,7 @@ describe('active native provider admission', () => {
   it('does not expose a prepared command when selection persistence fails', async () => {
     const push = vi.fn();
     const sessionId = 'session-selection-storage-failure';
-    const binding = new AccountProfiles([openAiProfile]).resolve('work-api', 'old-model');
+    const binding = new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model');
     chat.registry.register(clientId, {
       transport: { send: vi.fn(), isOpen: () => true },
       abortController: new AbortController(),
@@ -361,6 +385,7 @@ describe('active native provider admission', () => {
       cwd: root,
       model: 'old-model',
       sessionAllowList: new Set(),
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
     });
     chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
     chat.eventStore.upsertSession({
@@ -414,9 +439,13 @@ describe('active native provider admission', () => {
       sessionId,
       cwd: root,
       sessionAllowList: new Set(),
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
     });
     chat.registry.get(clientId)!.inputQueue = { push: vi.fn(), close: vi.fn() };
-    chat.eventStore.upsertSession({ sessionId });
+    chat.eventStore.upsertSession({
+      sessionId,
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
+    });
     const transition = vi
       .spyOn(chat.eventStore, 'transitionExecution')
       .mockImplementationOnce(() => {
@@ -457,9 +486,13 @@ describe('active native provider admission', () => {
       sessionId,
       cwd: root,
       sessionAllowList: new Set(),
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
     });
     chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
-    chat.eventStore.upsertSession({ sessionId });
+    chat.eventStore.upsertSession({
+      sessionId,
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
+    });
     const now = vi.spyOn(Date, 'now').mockReturnValue(9_000_000_000_000_000);
 
     try {
@@ -487,9 +520,13 @@ describe('active native provider admission', () => {
       sessionId,
       cwd: root,
       sessionAllowList: new Set(),
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
     });
     chat.registry.get(clientId)!.inputQueue = { push: vi.fn(), close: vi.fn() };
-    chat.eventStore.upsertSession({ sessionId });
+    chat.eventStore.upsertSession({
+      sessionId,
+      accountBinding: new AccountProfiles([geminiProfile]).resolve('work-api', 'old-model'),
+    });
 
     await expect(
       chat.sendToChat(clientId, 'busy command', undefined, undefined, 'busy-command'),

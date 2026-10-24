@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { ResponsesSession, type ModelSessionConfig, type ModelSession } from '@mitzo/harness';
+import type { ModelSessionConfig, ModelSession } from '@mitzo/harness';
 import {
   ChatGptPlanAdviserAccounts,
   ChatGptPlanAdviserCatalogError,
@@ -38,42 +38,10 @@ export class TerminalPlanAdviserHost {
   retryConnection(id: string, signal: AbortSignal) {
     return this.options.accounts.retryConnection(id, signal);
   }
-  async session(config: ModelSessionConfig, request: AdviserRequest): Promise<ModelSession> {
-    if (
-      config.model !== request.model ||
-      (config.reasoningEffort ?? null) !== (request.reasoningEffort ?? null)
-    )
-      throw Error('Adviser selection differs from its inference configuration');
-    if (config.tools?.length || config.thinking)
-      throw Error('Subscription advisers support text inference only');
-    const signal = config.signal ?? AbortSignal.timeout(120000);
-    const grant = await this.options.accounts.ready(
-      request.accountId,
-      request.model,
-      request.reasoningEffort,
-      signal,
+  async session(_config: ModelSessionConfig, _request: AdviserRequest): Promise<ModelSession> {
+    throw Error(
+      'Saved adviser registrations are retained. Select an explicitly configured Codex subscription account for native advice; existing registration credentials are never substituted.',
     );
-    grant.assertCurrent();
-    const model = new ResponsesSession(
-      { ...config, tools: [], signal: AbortSignal.any([signal, grant.signal]) },
-      {
-        accountId: request.accountId,
-        authentication: 'chatgpt-plan',
-        textTranscript: true,
-        getAccessToken: async () => grant.accessToken(),
-      },
-    );
-    return {
-      provider: model.provider,
-      async *turn(messages) {
-        grant.assertCurrent();
-        for await (const event of model.turn(messages)) {
-          grant.assertCurrent();
-          yield event;
-        }
-        grant.assertCurrent();
-      },
-    };
   }
   async start(owner: string, expiresAt: number, label: string, accountId?: string) {
     if (

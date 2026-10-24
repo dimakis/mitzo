@@ -1,5 +1,36 @@
 # Mitzo UI design contract
 
+## Reviewed native continuation
+
+Retained Responses conversations expose **Continue with Codex** beside the existing
+composer on mobile and desktop. The shared `HomeDialog` keeps the source draft
+mounted and flushes it before native admission or navigation. Its ordinary account,
+execution, agent and repository controls reuse the existing pickers in an isolated
+draft context; the approved Chat settings sheet and row order are unchanged.
+
+Review displays the exact bounded historical text, the separate new request,
+original and native execution choices, omitted-content counts and retained pending
+command count. Context approval and applicable uncertainty/selection acknowledgements
+are explicit. After an attempted commit, **Check admission** observes the same
+review and command identity without starting another command. The login-cleared
+session recovery hint retains this review across reloads; server authorization,
+source revisions and native admission remain authoritative. If lineage confirms
+that an expired or stale review never claimed a command, **Discard rejected
+attempt and review again** atomically retires that review before reopening the
+pickers. It preserves the new request and source draft, and requires fresh context
+and uncertainty acknowledgements. Claimed or uncertain attempts remain observation
+only. [Phone recovery](assets/legacy-native-continuation-preclaim-mobile.png) shows
+the shared secondary action after a rejected review is restored across reload.
+
+The form uses semantic surface/text/border roles, shared spacing/type/radius tokens,
+the shared code font and 44px checkbox rows. The all-intercept
+`legacy-native-continuation` fixture renders the actual component at narrow phone
+and desktop sizes, dark Mint/System and light Teal/Georgia. It checks bounded
+context approval, uncertain receipt observation, source draft preservation,
+reachable controls and horizontal overflow without a backend or model call.
+Inspected captures: [phone review](assets/legacy-native-continuation-mobile-dark.png)
+and [desktop review](assets/legacy-native-continuation-desktop-light.png).
+
 ## Sandbox inventory and removal
 
 Sandboxes shows physical workspace totals separately from recorded conversations

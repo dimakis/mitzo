@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { AdviserTaskScope } from '../adviser-task-scope.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -3179,6 +3180,54 @@ it.each(['recipe', 'supplied', 'retained'] as const)(
     expect(mocks.mcpClose).toHaveBeenCalled();
   },
 );
+
+it('keeps scoped adviser context isolated when ordinary local discovery and efficiency are enabled', async () => {
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const f = ownedLocalOptions('/tmp', undefined, 'ask');
+  const scope = new AdviserTaskScope(
+    {
+      authSessionId: 'operator',
+      feature: { kind: 'agent-library' },
+      accountId: f.opts.binding.accountId,
+      model: f.opts.model!,
+      instructions: 'Only the explicitly reviewed adviser snapshot is task context.',
+      messages: [{ role: 'user', content: 'Explain the reviewed plan.' }],
+    },
+    () => {},
+    new AbortController().signal,
+  );
+  scope.bindCommand('owned-session', 'owned-command');
+  try {
+    const query = await openCodexChat({ ...f.opts, adviserScope: scope });
+    const captured = mocks.conversationOptions!;
+    expect(captured.tools).toEqual([]);
+    expect(captured.disableWebSearch).toBe(true);
+    expect(captured.disableProjectDocuments).toBe(true);
+    expect(captured.systemPrompt).toContain(scope.instructions());
+    expect(captured.systemPrompt).not.toContain('Use SearchSkills');
+    expect(captured.systemPrompt).not.toContain('Selected integrations:');
+    expect(captured.systemPrompt).not.toContain('<mitzo_capabilities>');
+    expect(captured.systemPrompt).not.toContain('Agent Library context (saved recipe)');
+    expect(captured.skillContextTokens).toBeUndefined();
+    await expect(
+      (captured.executeTool as (...args: unknown[]) => Promise<unknown>)(
+        'SearchSkills',
+        {},
+        new AbortController().signal,
+        {},
+      ),
+    ).rejects.toMatchObject({ code: 'permission_denied' });
+    query.close();
+  } finally {
+    f.eventStore.close();
+  }
+});
 
 it('rechecks owned command authority immediately before native enqueue and provider dispatch', async () => {
   vi.clearAllMocks();
