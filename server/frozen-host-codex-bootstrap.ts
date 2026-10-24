@@ -342,6 +342,15 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
     claimBeforeBootstrap: () => boolean,
     operation: (lease: FrozenHostCodexBootstrapLease) => Promise<T>,
   ): Promise<T | undefined> {
+    return observeLocalCodexPhase('bootstrap', () =>
+      this.bootstrap(expectedInput, claimBeforeBootstrap, operation),
+    );
+  }
+  private async bootstrap<T>(
+    expectedInput: Readonly<Expected>,
+    claimBeforeBootstrap: () => boolean,
+    operation: (lease: FrozenHostCodexBootstrapLease) => Promise<T>,
+  ): Promise<T | undefined> {
     let loginLease: FrozenHostCodexLoginLease<FrozenHostCodexClient> | undefined;
     try {
       if (custodianControllerMode) throw unavailable();

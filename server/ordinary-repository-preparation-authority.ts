@@ -8,6 +8,7 @@ import { OpenShellRuntimeManager } from './openshell-runtime.js';
 import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-entry-owner.js';
 import { openAIAccountKeyAuthority } from './openai-account-key-authority.js';
 import { VertexAdcCustody } from './ordinary-local-vertex-custody.js';
+import { observeLocalCodexPhase } from './local-codex-observation.js';
 import {
   readPrivateRuntimeSettings,
   OrdinaryLocalCodexHostRuntime,
@@ -205,7 +206,9 @@ async function captureCurrentPreparation(
     ...(selection.runOn === 'openshell'
       ? { sandboxWorkdir: loadOrdinaryOpenShellCodexTarget()?.config.workdir }
       : {}),
-    credentialDigest: await credentialDigest(binding, selection, signal),
+    credentialDigest: await observeLocalCodexPhase('repository_credential_check', () =>
+      credentialDigest(binding, selection, signal),
+    ),
     ...(binding.provider === 'openai-codex' && selection.runOn === 'local'
       ? { credentialDigestVersion: 2 }
       : {}),

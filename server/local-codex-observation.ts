@@ -1,11 +1,14 @@
 import { performance } from 'node:perf_hooks';
-import { SpanStatusCode } from '@opentelemetry/api';
+import { context, trace, SpanStatusCode } from '@opentelemetry/api';
 import { createLogger } from './logger.js';
 import { tracer } from './tracing.js';
 
 type Phase =
   | 'repository_selection'
   | 'repository_reservation'
+  | 'repository_credential_check'
+  | 'bootstrap'
+  | 'keychain_read'
   | 'host_tool_admission'
   | 'host_tool_execution'
   | 'credential_check'
@@ -18,7 +21,7 @@ export async function observeLocalCodexPhase<T>(phase: Phase, work: () => Promis
     start = performance.now();
   let outcome = 'success';
   try {
-    const result = await work();
+    const result = await context.with(trace.setSpan(context.active(), span), work);
     span.setStatus({ code: SpanStatusCode.OK });
     return result;
   } catch (error) {

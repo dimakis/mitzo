@@ -4,6 +4,7 @@ import { KeychainController } from './keychain-controller.js';
 import { MacKeychainVault, KeychainUnavailableError } from './keychain-vault.js';
 import { z } from 'zod';
 import { CredentialReferenceSchema, type CredentialReference } from './credentials.js';
+import { observeLocalCodexPhase } from './local-codex-observation.js';
 import {
   OpenAIKeychainAuthorizationRequired,
   type VersionedKeychain,
@@ -129,7 +130,11 @@ export class KeychainRotationCredentials implements VersionedKeychain {
   }
   async read(reference: CredentialReference, signal: AbortSignal) {
     try {
-      return Secret.parse(await this.request(reference, 'read', signal));
+      return Secret.parse(
+        await observeLocalCodexPhase('keychain_read', () =>
+          this.request(reference, 'read', signal),
+        ),
+      );
     } catch (error) {
       if (error instanceof OpenAIKeychainAuthorizationRequired) throw error;
       throw new Error('Keychain unavailable');
