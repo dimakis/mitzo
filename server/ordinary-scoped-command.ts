@@ -95,19 +95,31 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
     resume: continuation,
   };
   switch (binding.harness.implementation) {
-    case 'claude-sdk':
+    case 'claude-sdk': {
       if (binding.execution.location !== 'local')
         throw Error('Selected ordinary execution target unavailable');
+      const ownerAuthSessionId = input.ownerAuthSessionId;
+      if (!ownerAuthSessionId) throw Error('Exact ordinary operator identity required');
       return continuation && existing
         ? sendOwnedLocalVertexCommand(common)
-        : startOwnedLocalVertexCommand(input.transport, input.clientId, startup);
+        : startOwnedLocalVertexCommand(input.transport, input.clientId, {
+            ...startup,
+            ownerAuthSessionId,
+          });
+    }
     case 'gemini':
-    case 'responses':
+    case 'responses': {
       if (binding.execution.location !== 'local')
         throw Error('Selected ordinary execution target unavailable');
+      const ownerAuthSessionId = input.ownerAuthSessionId;
+      if (!ownerAuthSessionId) throw Error('Exact ordinary operator identity required');
       return continuation && existing
         ? sendOwnedLocalResponsesCommand(common)
-        : startOwnedLocalResponsesCommand(input.transport, input.clientId, startup);
+        : startOwnedLocalResponsesCommand(input.transport, input.clientId, {
+            ...startup,
+            ownerAuthSessionId,
+          });
+    }
     case 'codex':
       if (binding.execution.location === 'openshell') {
         if (
@@ -117,7 +129,7 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
           input.onTerminalOutcome
         )
           throw Error('Scoped callbacks are unavailable on this execution target');
-        if (!input.sandboxWorkdir || !input.profile)
+        if (!input.sandboxWorkdir || !input.profile || !input.ownerConnectionId)
           throw Error('Original OpenShell workspace and profile required');
         return continuation && existing
           ? sendOwnedOpenShellCodexCommand(common)

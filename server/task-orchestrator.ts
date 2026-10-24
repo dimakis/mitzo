@@ -123,6 +123,14 @@ export class TaskOrchestrator {
   }
 
   setSpawnEnabled(enabled: boolean): void {
+    if (
+      enabled &&
+      this.state !== 'idle' &&
+      !this.boundWorkerSession &&
+      this.deps.bindWorkerSession &&
+      this.pinnedClientId
+    )
+      this.boundWorkerSession = this.deps.bindWorkerSession(this.pinnedClientId);
     this._spawnEnabled = enabled;
     log.info('spawn enabled changed', { enabled });
     this.deps.broadcastStatus(this.getStatus());

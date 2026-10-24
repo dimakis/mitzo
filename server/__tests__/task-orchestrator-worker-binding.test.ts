@@ -69,6 +69,16 @@ it('aborts an in-flight worker admission on Stop without restarting it', async (
   expect(f.spawn).toHaveBeenCalledTimes(1);
 });
 
+it('captures the selected source when spawning is enabled on a waiting workflow', async () => {
+  const f = fixture();
+  f.loop.setSpawnEnabled(false);
+  expect(f.loop.start(f.goal.id, { clientId: 'selected-source' }).state).toBe('paused');
+  expect(f.capture).not.toHaveBeenCalled();
+  f.loop.setSpawnEnabled(true);
+  await vi.waitFor(() => expect(f.spawn).toHaveBeenCalledTimes(1));
+  expect(f.capture).toHaveBeenCalledExactlyOnceWith('selected-source');
+});
+
 it('retains admitted worker uncertainty on restart instead of reclaiming and replaying effects', async () => {
   const f = fixture();
   f.store.update(f.task.id, {
