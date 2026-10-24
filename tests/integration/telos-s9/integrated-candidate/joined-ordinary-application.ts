@@ -164,7 +164,16 @@ afterEach(async () => {
  * journey/recovery files remain unchanged so their source-pinned receipts stay
  * independently reproducible. One private app/browser owner per test.
  */
-export async function createJoinedOrdinaryApplication(browserOptions: BrowserContextOptions = {}) {
+export async function createJoinedOrdinaryApplication(
+  browserOptions: BrowserContextOptions = {},
+  initializeSynthetic?: (data: {
+    runtime: typeof f;
+    canonical: ReturnType<
+      (typeof import('../../../../server/__tests__/fixtures/telos-canonical-advisor.js'))['createTelosCanonicalData']
+    >;
+  }) => void,
+  externalModelList?: (params?: Record<string, unknown>) => unknown | Promise<unknown>,
+) {
   vi.resetModules();
   vi.stubEnv('MITZO_KNOWLEDGE_LIBRARY_CONFIG', undefined);
   vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', undefined);
@@ -185,6 +194,8 @@ export async function createJoinedOrdinaryApplication(browserOptions: BrowserCon
     await import('../../../../server/__tests__/fixtures/telos-canonical-advisor.js');
   const canonical = createTelosCanonicalData('fresh');
   cleanup.push(() => canonical.close());
+  // Optional dedicated acceptance data, before App imports/owns these files.
+  initializeSynthetic?.({ runtime: f, canonical });
   vi.stubEnv('TELOS_DB_PATH', canonical.dbPath);
   const mgmtCli = await installPrivateCanonicalReadCli(f.configuredWorkspace, canonical.dbPath);
   if (process.env.S9_JOINED_SCREENSHOT_DIR)
@@ -284,6 +295,12 @@ export async function createJoinedOrdinaryApplication(browserOptions: BrowserCon
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
   const rawRpc = f.first.rpc.request.getMockImplementation()!;
+  // Optional external model-list stimulus only. Actual profile/catalog/cache,
+  // runtime selection, admission and allocator owners remain unchanged.
+  const metadata = (method: string, params?: Record<string, unknown>): Promise<unknown> =>
+    method === 'model/list' && externalModelList
+      ? Promise.resolve().then(() => externalModelList(params))
+      : rawRpc(method);
   vi.spyOn(native.CodexAppServerClient, 'launchIsolated').mockImplementation(
     (_home, _env, lifecycle) => {
       if (!lifecycle) throw Error('Native lifecycle callbacks required');
@@ -300,7 +317,7 @@ export async function createJoinedOrdinaryApplication(browserOptions: BrowserCon
             return { thread: { id: threadId }, model: 'fixture-model', modelProvider: 'openai' };
           if (method === 'turn/start') return { turn: { id: turnId } };
           if (method === 'turn/interrupt') return {};
-          return rawRpc(method);
+          return metadata(method, params);
         }),
         notify: vi.fn(),
         respond: vi.fn(),
@@ -316,7 +333,9 @@ export async function createJoinedOrdinaryApplication(browserOptions: BrowserCon
     () =>
       ({
         initialize: vi.fn(async () => {}),
-        request: vi.fn((method: string) => rawRpc(method)),
+        request: vi.fn((method: string, params?: Record<string, unknown>) =>
+          metadata(method, params),
+        ),
         notify: vi.fn(),
         close: vi.fn(),
       }) as unknown as ReturnType<typeof native.CodexAppServerClient.launchPreflight>,

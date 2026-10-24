@@ -140,4 +140,38 @@ describe('Telos item progress', () => {
       updated_at: 'original',
     });
   });
+
+  it('checks guarded native authority inside the actual writer before any effect', () => {
+    const { store, db, update } = fixture();
+    const before = store.read('child');
+    const owner = store as unknown as { db: Database.Database };
+    let called = 0;
+    expect(() =>
+      store.updateGuarded(update(), 'native-lead', () => {
+        called++;
+        expect(owner.db.inTransaction).toBe(true);
+        expect(db.prepare('SELECT status FROM items WHERE id=?').get('child')).toEqual({
+          status: 'active',
+        });
+        throw Error('Native authority retired before mutation');
+      }),
+    ).toThrow('Native authority retired before mutation');
+    expect(called).toBe(1);
+    expect(store.read('child')).toEqual(before);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM history').get()).toEqual({ n: 0 });
+  });
+
+  it.each([undefined as unknown as () => void, () => Promise.resolve(), () => true])(
+    'refuses a non-synchronous-void native guard without creating a mutation receipt',
+    (invalid) => {
+      const { store, db, update } = fixture();
+      expect(() => store.updateGuarded(update(), 'native-lead', invalid)).toThrow(
+        'Synchronous Telos item authority required',
+      );
+      expect(store.read('child')).toMatchObject({ status: 'active', updates: [] });
+      expect(
+        db.prepare("SELECT name FROM sqlite_master WHERE name='telos_item_updates'").get(),
+      ).toBeUndefined();
+    },
+  );
 });

@@ -2483,6 +2483,7 @@ app.use(
 
 app.use(
   createTelosSourceRouter({
+    tasks: taskStore,
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
     dbPath: telosDatabasePath,

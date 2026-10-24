@@ -238,6 +238,9 @@ export function useTelosSourceReview({
               requestId: recovery.requestId,
               proposalSha256: recovery.proposalSha256,
               selection: recovery.selection,
+              ...(result.materialScopeSha256
+                ? { materialScopeSha256: result.materialScopeSha256 }
+                : {}),
               previewSha256: recovery.previewSha256,
             };
             if (
@@ -359,6 +362,9 @@ export function useTelosSourceReview({
       sessionId,
       requestId: crypto.randomUUID(),
       proposalSha256: activeReview.proposalSha256,
+      ...(activeReview.materialScopeSha256
+        ? { materialScopeSha256: activeReview.materialScopeSha256 }
+        : {}),
       selection: {
         mode: 'selected',
         boundary: { sequence: last.sequence, messageId: last.messageId },
@@ -416,6 +422,7 @@ export function useTelosSourceReview({
         page.permId !== permId ||
         page.sessionId !== sessionId ||
         page.proposalSha256 !== activeReview.proposalSha256 ||
+        page.materialScopeSha256 !== activeReview.materialScopeSha256 ||
         page.cursor <= activeReview.cursor
       )
         throw Error('Source request changed.');
@@ -476,6 +483,8 @@ export function useTelosSourceReview({
         page.sessionId !== sessionId ||
         page.toolUseId !== activeReview.toolUseId ||
         page.proposalSha256 !== activeReview.proposalSha256 ||
+        page.materialScopeSha256 !== activeReview.materialScopeSha256 ||
+        (cursor && cursor.scopeSha256 !== activeReview.materialScopeSha256) ||
         (page.artifacts.length > 0 && (!cursor || !advanced)) ||
         (page.hasMore && (!cursor || !page.artifacts.length))
       )
@@ -692,7 +701,9 @@ export function useTelosSourceReview({
                           Created {artifact.createdAt ?? 'date unknown'} ·{' '}
                           {artifact.sessionId === activeReview.source.conversationId
                             ? (activeReview.source.title ?? 'This conversation')
-                            : 'Source conversation recorded'}
+                            : artifact.workerOutput
+                              ? `Worker output · ${artifact.workerOutput.title}`
+                              : 'Source conversation recorded'}
                         </small>
                       </span>
                     </label>
