@@ -587,7 +587,7 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
   await vi.waitFor(() => expect(nativeSessions).toHaveLength(1));
   const advisor = chat.registry.findBySessionId(advisorId)!;
   expect(advisor).toBeTruthy();
-  expect(advisor.session.taskContext).toBeUndefined();
+  expect(advisor.session.taskContext).toBeNull();
   expect(chat.eventStore.getSession(advisorId)!.agentProfile).toEqual(originalAdvisorProfile);
   const advisorNative = nativeSessions[0];
   // A simulated provider may produce this turn's output only after turn/start.
@@ -1238,7 +1238,7 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
   expect(nativeSessions).toHaveLength(3);
   expect(workerTurnStarts()).toBe(turnsBeforeReplay);
   expect(chat.registry.findBySessionId(advisorId)?.session).toBe(advisor.session);
-  expect(advisor.session.taskContext).toBeUndefined();
+  expect(advisor.session.taskContext).toBeNull();
   expect(chat.eventStore.getSession(advisorId)!.agentProfile).toEqual(originalAdvisorProfile);
   for (const id of [advisorId, leadId, workerId])
     chat.stopOrdinaryChat(chat.registry.findBySessionId(id)!.clientId);
