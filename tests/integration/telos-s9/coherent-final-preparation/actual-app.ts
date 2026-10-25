@@ -16,7 +16,6 @@ import { tmpdir, hostname } from 'node:os';
 import { join, isAbsolute } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { installPrivatePublicationTransport } from './private-publication-runtime.js';
 import { prepareNativeProviderToolCall } from '../../../../server/__tests__/fixtures/native-provider-tool-call.js';
 import type { CodexLifecycleTransport } from '../../../../server/codex-app-server-client.js';
 import type { GithubRepositoryCommand } from '../../../../server/github-repository-source.js';
@@ -549,9 +548,10 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
       runtime.store.close();
     });
   }
-  const publicationState: { owner?: ReturnType<typeof installPrivatePublicationTransport> } = {};
   const application = await import('../../../../server/app.js');
   const chat = await import('../../../../server/chat.js');
+  const { installPrivatePublicationTransport } = await import('./private-publication-runtime.js');
+  const publicationState: { owner?: ReturnType<typeof installPrivatePublicationTransport> } = {};
   const auth = await import('../../../../server/auth.js');
   auth.setAuthRevocationStore(chat.eventStore);
   const initialAuth: {
@@ -736,6 +736,12 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
   );
   publicationState.owner = selectedPublication;
   cleanup.push(() => selectedPublication.close());
+  const { getTelosMainPublicationRuntime } =
+    await import('../../../../server/telos-main-publication-runtime.js');
+  expect(getTelosMainPublicationRuntime()).toBe(selectedPublication);
+  expect(selectedPublication.supports(chat.registry, chat.eventStore, binding.accountId)).toBe(
+    true,
+  );
   const { TelosMainPublicationRecords } =
     await import('../../../../server/telos-main-publication-records.js');
   // Passive observers forward the original methods automatically. Retain their
