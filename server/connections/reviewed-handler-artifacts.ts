@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.677-secret-native-readiness';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.678-security-dependency-compat';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -737,7 +738,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/collaboration-forward-custody.ts':
     '63368fb15184ad9424eb91ef60a6bf8d37fd9ae67a6305eea46cef8e34d56d95',
   '../../packages/protocol/package.json':
-    'ed03bbe0daed502f0ed222b91c787ed86f7b153bd2005d43f73cf01ad9acf95d',
+    'a715d561175e35b90f02c0f8754e936829193368c43ef199b205725a95f7d5a8',
   '../../packages/protocol/src/collaboration-forward.ts':
     '400794ca0ec65ee75f153787d18ffbf1bdca81f0187959e69fade002b9c18271',
   '../../packages/protocol/src/collaboration-conversation.ts':
@@ -1777,4 +1778,18 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '53afb3ec1fa0dbea6d748852a80c393c3132be58d8b14df99b906893cfc2450f',
   '../__tests__/owned-local-codex-chat-consumer.test.ts':
     'a234a9db26bb77ac0bf814a0062f1a834e926efb6433df786744d1951aa19943',
+  '../../package.json': 'aa0ed8c17befe139c1316bfd04c8dbde5ae1f9a9b921872762268547b7cc8c1b',
+  '../../package-lock.json': 'f4b1613e00b863da92337278f7bd5630ce6509d7cbf6b3681a38043c54a52f9c',
+  '../../packages/harness/package.json':
+    '974deedfb3b496939f6c0a441048234b57bca0af746f4107d41e1406b81b1768',
+  '../../scripts/build-zod3-security-backport.mjs':
+    '3136d80c7b8d4b3c1a62c04b62d144a0fee2c3363d560e1c7d39432d624aadb8',
+  '../../scripts/security-backport-archive.mjs':
+    '5c4d7870d29e3192cb283ad1623b2ce1d06b04a3d1ddfb566fca46bd60510c05',
+  '../../vendor/security/zod3-collection-bounds.patch':
+    '78e0b2a64f711e04185ec0eb0f32c0d8df7e71ab2cf0ccaf658414cceb171c56',
+  '../../vendor/security/README.md':
+    'f2bdc506c50dc9e213d4592f954948b7ecdd0a21ef4f0f2373a95f6eb17adbda',
+  '../__tests__/sandbox-zod-security.test.ts':
+    'a7db330bc7cc87240d82a4f57b6dfe4d4faaa8332a493765fd2f8beaaefad24a',
 });
