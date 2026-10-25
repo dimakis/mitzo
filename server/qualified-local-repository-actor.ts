@@ -176,19 +176,50 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       revalidate: full,
     });
     const entries: NativeExclusiveTreeEntry[] = [];
-    for (const entry of view.entries) {
+    // Git can retain empty trees and uninitialized gitlinks. Materialize any
+    // missing private directories parent-first before independent identity reads.
+    const directories = view.entries
+      .filter((entry) => entry.mode === '040000')
+      .sort((left, right) => left.path.split('/').length - right.path.split('/').length);
+    for (let index = 0; index < directories.length; index += 64) {
       current();
-      const path = join(staging, entry.path);
-      if (entry.mode === '040000') {
-        // Gitlinks stay empty and uninitialized. No external commit is read.
-        const existing = await lstat(path).catch((error: NodeJS.ErrnoException) => {
-          if (error.code !== 'ENOENT') throw error;
-          return undefined;
-        });
-        if (!existing) await mkdir(path, { mode: 0o700 });
-        else if (!existing.isDirectory()) throw unavailable();
+      const wave = directories.slice(index, index + 64);
+      const results = await Promise.allSettled(
+        wave.map((entry) =>
+          lstat(join(staging, entry.path)).catch((error: NodeJS.ErrnoException) => {
+            if (error.code !== 'ENOENT') throw error;
+            return undefined;
+          }),
+        ),
+      );
+      current();
+      // Preserve the depth ordering for effects; only observations overlap.
+      for (let offset = 0; offset < wave.length; offset++) {
+        const result = results[offset];
+        if (result.status !== 'fulfilled') throw result.reason;
+        if (!result.value) {
+          current();
+          await mkdir(join(staging, wave[offset].path), { mode: 0o700 });
+          current();
+        } else if (!result.value.isDirectory()) throw unavailable();
       }
-      entries.push(Object.freeze({ ...entry, identity: await identity(path) }));
+    }
+    // These immutable, independently owned PRIVATE staging facts are neither
+    // source reads nor publication effects. Join each bounded wave before use.
+    for (let index = 0; index < view.entries.length; index += 64) {
+      current();
+      const results = await Promise.allSettled(
+        view.entries.slice(index, index + 64).map(async (entry) => {
+          context.signal.throwIfAborted();
+          if (Date.now() >= deadline) throw unavailable();
+          return Object.freeze({ ...entry, identity: await identity(join(staging, entry.path)) });
+        }),
+      );
+      current();
+      for (const result of results) {
+        if (result.status !== 'fulfilled') throw result.reason;
+        entries.push(result.value);
+      }
     }
     current();
     const metadataFiles: NativePreparationPublicationPlan['metadata'][number][] = [];

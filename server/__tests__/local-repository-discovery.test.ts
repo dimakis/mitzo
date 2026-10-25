@@ -279,7 +279,7 @@ describe('read-only repository inspection', () => {
     expect(status).toContain('?? untracked.txt');
     expect(result.diagnostics).toContainEqual({
       path: selected,
-      reason: 'comparison-context-unqualified',
+      reason: 'reference-only-metadata',
     });
     expect(result.instructions.files.map((file) => file.content)).toEqual([
       'parent instruction',
@@ -302,7 +302,11 @@ describe('read-only repository inspection', () => {
     expect(linked.gitDirectory).not.toBe(linked.commonDirectory);
     expect(linked.worktrees).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: worktree, branch: 'refs/heads/session/other' }),
+        expect.objectContaining({
+          path: worktree,
+          branch: 'refs/heads/session/other',
+          head: git(worktree, 'rev-parse', 'HEAD').trim(),
+        }),
       ]),
     );
     expect(linked.branch).toBe('session/other');
@@ -472,8 +476,36 @@ describe('read-only repository inspection', () => {
     );
     await rm(join(selected, '.git', 'objects', 'info', 'alternates'));
     await symlink(join(root, '.ssh', 'private'), join(selected, '.git', 'refs', 'unsafe'));
-    await expect(inspectLocalRepository({ path: selected, accessScope: scope() })).rejects.toThrow(
-      /symlink/i,
-    );
+    // Unconsumed refs are outside this explicitly HEAD-only qualification.
+    expect(await inspectLocalRepository({ path: selected, accessScope: scope() })).toMatchObject({
+      branch: 'main',
+      dirty: { state: 'unknown' },
+    });
+    await rm(join(selected, '.git', 'refs', 'heads', 'main'));
+    await symlink(join(root, '.ssh', 'private'), join(selected, '.git', 'refs', 'heads', 'main'));
+    await expect(
+      inspectLocalRepository({ path: selected, accessScope: scope() }),
+    ).rejects.toThrow();
+  });
+  it('reads repository orientation without traversing unconsumed object fanout', async () => {
+    const selected = await repo(join(root, 'source'));
+    const objectFanout = join(selected, '.git', 'objects', 'unconsumed-fanout');
+    await mkdir(objectFanout);
+    const request = {
+      accessScope: scope(),
+      assertReadAccess: async (path: string) => {
+        if (path === objectFanout || path.startsWith(objectFanout + '/'))
+          throw Error('Orientation must not consume object storage');
+      },
+    };
+    expect(await discoverLocalRepository({ ...request, explicitPath: selected })).toMatchObject({
+      state: 'selected',
+      candidates: [{ path: selected }],
+    });
+    expect(await inspectLocalRepository({ ...request, path: selected })).toMatchObject({
+      path: selected,
+      branch: 'main',
+      dirty: { state: 'unknown' },
+    });
   });
 });

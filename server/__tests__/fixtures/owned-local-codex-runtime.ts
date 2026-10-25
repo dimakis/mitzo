@@ -61,7 +61,7 @@ export async function ownedRuntimeFixture(
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const login = join(root, 'login'),
     privateRoot = join(root, 'custody'),
-    taskRoot = options.chatRoute ? join(root, '.claude', 'repository-tasks') : join(root, 'tasks');
+    taskRoot = options.chatRoute ? join(root, '.claude', 'worktrees') : join(root, 'tasks');
   if (options.chatRoute) {
     await mkdir(join(root, '.mitzo'), { mode: 0o700 });
     await mkdir(join(root, '.claude'), { mode: 0o700 });

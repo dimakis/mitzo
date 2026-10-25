@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import {
   mkdtemp,
   mkdir,
@@ -10,6 +10,12 @@ import {
   rename,
   symlink,
 } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { promisify } from 'node:util';
+import * as sandbox from '../sandboxed-command.js';
+import { captureLocalRepositoryReader } from '../local-repository-native-reader.js';
+import { repositoryObservationProgram } from '../native-repository-observation.js';
+import type { NativeBaseReadScope } from '../codex-conversation.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
@@ -36,12 +42,14 @@ const git = (cwd: string, ...args: string[]) =>
       },
     },
   ).trim();
-async function fixture(linkedSource = false) {
+async function fixture(linkedSource = false, native = false) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-prepared-owner-')));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   let source = join(root, 'source');
   const seed = source,
-    task = join(root, 'repo-fixture');
+    workspaceId = '12345678-1234-4234-8234-123456789abc',
+    task = join(root, native ? 'repo-' + workspaceId : 'repo-fixture'),
+    branch = native ? 'mitzo/repo-' + workspaceId : 'mitzo/fixture';
   await mkdir(source);
   git(source, 'init', '--template=', '-q', '-b', 'main');
   git(source, 'config', 'user.name', 'Offline');
@@ -53,8 +61,8 @@ async function fixture(linkedSource = false) {
     source = join(root, 'selected-source');
     git(seed, 'worktree', 'add', '-qb', 'selected-source', source);
   }
-  git(source, 'worktree', 'add', '-qb', 'mitzo/fixture', task);
-  const identity = await snapshotRepositoryTaskCheckout(task, 'mitzo/fixture', {
+  git(source, 'worktree', 'add', '-qb', branch, task);
+  const identity = await snapshotRepositoryTaskCheckout(task, branch, {
     repositoryId: 'fixture',
     path: source,
     root: numeric((await fixtureReadAnchor(source)).identity),
@@ -245,3 +253,78 @@ it('withholds physical success if original current owner changes or returns malf
   );
   await expect(owner.validate(f.task)).rejects.toThrow();
 });
+
+it.skipIf(process.platform !== 'darwin')(
+  'uses a genuine factory topology observation after commits without consuming large index or reflog bytes',
+  async () => {
+    const f = await fixture(false, true);
+    vi.spyOn(sandbox, 'executePrivateRepositoryObservation').mockImplementation(async (options) => {
+      const pending = promisify(execFile)(
+        '/usr/bin/python3',
+        ['-I', '-c', repositoryObservationProgram],
+        {
+          env: { PATH: '/usr/bin:/bin' },
+          signal: options.signal,
+          maxBuffer: options.maxOutputBytes,
+        },
+      );
+      pending.child.stdin?.end(options.requestJson);
+      return { content: '', stdout: (await pending).stdout, stderr: '', isError: false };
+    });
+    const abort = new AbortController();
+    const scope = Object.freeze({
+      readableRoots: Object.freeze(['/']),
+      workspaceRoots: Object.freeze([f.task]),
+      deniedRoots: Object.freeze([]),
+    }) as unknown as NativeBaseReadScope;
+    const validate = async () => {
+      const reader = await captureLocalRepositoryReader(
+        scope,
+        abort.signal,
+        () => abort.signal.throwIfAborted(),
+        async () => abort.signal.throwIfAborted(),
+        { deadline: Date.now() + 30000 },
+      );
+      try {
+        await assertPreparedRepositoryTaskTopology(
+          new LocalRepositoryReadAccess(reader),
+          f.identity,
+          f.sourceGitDirectory,
+        );
+      } finally {
+        await reader.dispose();
+      }
+    };
+    await validate();
+    await writeFile(join(f.task, 'task.txt'), 'Later task commit');
+    git(f.task, 'add', '.');
+    git(f.task, 'commit', '-qm', 'later');
+    const indexPath = join(f.identity.linkedGit!.directory, 'index');
+    const original = await readFile(indexPath),
+      extension = Buffer.alloc(17 * 1024 * 1024 + 8);
+    extension.write('XMIT', 0);
+    extension.writeUInt32BE(extension.length - 8, 4);
+    const content = Buffer.concat([original.subarray(0, -20), extension]);
+    await writeFile(
+      indexPath,
+      Buffer.concat([content, createHash('sha1').update(content).digest()]),
+    );
+    // Git accepts uppercase optional index extensions; this remains a valid index.
+    expect(git(f.task, 'ls-files', '--stage')).toContain('task.txt');
+    const log = join(
+      f.identity.localSource!.commonDirectory,
+      'logs',
+      'refs',
+      'heads',
+      f.identity.featureBranch,
+    );
+    const line = await readFile(log);
+    await writeFile(
+      log,
+      Buffer.concat(Array.from({ length: Math.ceil((128 * 1024) / line.length) }, () => line)),
+    );
+    await validate();
+    abort.abort();
+    await expect(validate()).rejects.toThrow();
+  },
+);

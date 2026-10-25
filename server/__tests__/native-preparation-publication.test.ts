@@ -350,17 +350,14 @@ it('refuses denied decoded trees, overlimit whole plans and raw accessors before
       launch,
     ),
   ).rejects.toThrow();
-  const entries = Array.from({ length: 1000 }, (_, n) => ({
+  const entries = Array.from({ length: 6000 }, (_, n) => ({
     ...f.plan.tree.entries[0],
     path: 'n'.repeat(250) + n,
   }));
+  const overlimit = { ...f.plan, tree: { ...f.plan.tree, entries } };
+  expect(Buffer.byteLength(JSON.stringify(overlimit))).toBeGreaterThan(2 * 1024 * 1024);
   await expect(
-    publishNativePreparedRepository(
-      { ...f.plan, tree: { ...f.plan.tree, entries } },
-      new AbortController().signal,
-      15000,
-      launch,
-    ),
+    publishNativePreparedRepository(overlimit, new AbortController().signal, 15000, launch),
   ).rejects.toThrow();
   const getter = vi.fn();
   const raw = Object.defineProperty(
@@ -590,4 +587,14 @@ it('rejects a widened existing common-directory grant before invoking the origin
   ).rejects.toThrow();
   expect(owner).not.toHaveBeenCalled();
   await expect(lstat(f.task)).rejects.toMatchObject({ code: 'ENOENT' });
+});
+it('retains a complete ordinary repository manifest larger than the former inline-shell ceiling', async () => {
+  const f = await fixture();
+  const entries = Array.from({ length: 1000 }, (_, index) => ({
+    ...f.plan.tree.entries[0],
+    path: `source-file-${index.toString().padStart(4, '0')}.ts`,
+  }));
+  const plan = { ...f.plan, tree: { ...f.plan.tree, entries } };
+  expect(Buffer.byteLength(JSON.stringify(plan))).toBeGreaterThan(120 * 1024);
+  expect(projectNativePreparationPublicationPlan(plan).tree.entries).toHaveLength(1000);
 });

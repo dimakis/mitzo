@@ -75,7 +75,7 @@ same-valued newer draft preservation. The browser launch runs outside the macOS
 sandbox as required by AGENTS.md. Representative captures are recorded by the UI
 design contract. Client package type builds and focused strict frontend source
 type checking pass; design guards pass (108 tests, one skipped). The final combined intercepted browser run passes 14 checks
-(12 receipt cases and two browser-startup probes). ESLint/format checks pass and all 1,312 reviewed
+(12 receipt cases and two browser-startup probes). ESLint/format checks pass and all 1,322 reviewed
 source fingerprints match the final implementation revision.
 
 The review correction pass additionally passes 282 focused frontend tests and
@@ -95,9 +95,12 @@ before the call, against a separately selected authorized target.
 
 Publication status
 The user subsequently authorized creating the PR and proceeding without SSH
-signing. Freshly fetched origin/main is exactly the deployed baseline
-5d1538df55cb7d71b3532380cbef76050270c041, so no upstream integration edits were
-needed. This branch uses an unsigned commit without changing signing settings.
+signing. The initial PR base was the deployed baseline
+5d1538df55cb7d71b3532380cbef76050270c041. During landing, accepted main advanced
+to 7d36d4c8dd56c823a6597ad2d70749da34559aef (repository-read performance #1131).
+The branch integrates that accepted base, retains both source-fingerprint sets
+and selects runtime revision v1.0.696-composer-receipt-efficiency. This branch
+uses unsigned local commits without changing signing settings.
 Required CI, trusted review, merge and deployment remain separate gates.
 
 Remaining performance work
