@@ -1,38 +1,27 @@
 import { GoogleAuth } from 'google-auth-library';
-import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
-import { ResponsesSession, type ModelSession, type ModelSessionConfig } from '@mitzo/harness';
+import type { ModelSession, ModelSessionConfig } from '@mitzo/harness';
 import { GeminiSession } from './gemini-session.js';
 import { geminiThinkingConfig } from './gemini-thinking.js';
 import { loadAccountProfiles } from './account-profiles.js';
-import { openAIAccountKeyAuthority } from './openai-account-key-authority.js';
 import type { AdviserRequest } from './terminal-adviser.js';
-import { getTerminalPlanAdviserHost } from './terminal-plan-adviser.js';
+import { createNativeAdviserSession, type AdviserFeatureOwner } from './adviser-harness-runtime.js';
 
-/** Native inference APIs only. No CLI agent, inherited tools, credentials or route fallback. */
+/** Gemini remains deferred; all supported OpenAI and Claude advice uses the shared harness owners. */
 export async function createTerminalAdviserSession(
   config: ModelSessionConfig,
   request: AdviserRequest,
+  owner?: AdviserFeatureOwner,
 ): Promise<ModelSession> {
-  if (request.accountId.startsWith('chatgpt_plan_')) {
-    const host = getTerminalPlanAdviserHost();
-    if (!host) throw Error('ChatGPT plan adviser host unavailable');
-    return host.session(config, request);
-  }
+  if (request.accountId.startsWith('chatgpt_plan_'))
+    throw Error(
+      'This saved adviser registration is retained. Select an explicitly configured Codex subscription account to continue; registration credentials are never substituted.',
+    );
   const profiles = loadAccountProfiles();
   const binding = profiles.resolve(request.accountId, request.model);
   profiles.validateModelSelection(binding, request.model, request.reasoningEffort);
-  if (binding.provider === 'openai-codex')
-    throw Error('ChatGPT subscription adviser requires an isolated inference-only runtime');
-  if (binding.provider === 'openai') {
-    const signal = config.signal ?? AbortSignal.timeout(60000);
-    const apiKey = await openAIAccountKeyAuthority(binding, profiles).resolveKey(
-      binding.accountId,
-      signal,
-    );
-    return new ResponsesSession(
-      { ...config, tools: [] },
-      { accountId: binding.accountId, apiKey, textTranscript: true },
-    );
+  if (binding.provider !== 'google-vertex') {
+    if (!owner) throw Error('Authenticated adviser feature owner required');
+    return createNativeAdviserSession(config, request, owner, binding);
   }
   if (binding.provider === 'google-vertex') {
     geminiThinkingConfig(config.model, config.reasoningEffort, true);
@@ -56,64 +45,5 @@ export async function createTerminalAdviserSession(
       },
     );
   }
-  const env = profiles.sdkEnv(binding, {});
-  const projectId = env.ANTHROPIC_VERTEX_PROJECT_ID,
-    region = env.CLOUD_ML_REGION;
-  if (!projectId || !region || !env.GOOGLE_APPLICATION_CREDENTIALS)
-    throw Error('Selected Vertex profile unavailable');
-  const client = new AnthropicVertex({
-    projectId,
-    region,
-    baseURL:
-      region === 'global'
-        ? 'https://aiplatform.googleapis.com/v1'
-        : `https://${region}-aiplatform.googleapis.com/v1`,
-    googleAuth: new GoogleAuth({
-      keyFilename: env.GOOGLE_APPLICATION_CREDENTIALS,
-      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-    }),
-    maxRetries: 0,
-  });
-  const effort = config.reasoningEffort;
-  if (effort && !['low', 'medium', 'high', 'xhigh', 'max'].includes(effort))
-    throw Error('Thinking mode unavailable');
-  return {
-    provider: 'anthropic-vertex',
-    async *turn(messages) {
-      const response = await client.messages.create(
-        {
-          model: config.model,
-          system: config.systemPrompt,
-          max_tokens: config.maxTokens,
-          messages: messages.map((message) => ({
-            role: message.role,
-            content:
-              typeof message.content === 'string'
-                ? message.content
-                : message.content
-                    .filter((block) => block.type === 'text')
-                    .map((block) => block.text)
-                    .join('\n'),
-          })),
-          tools: [],
-          ...(effort
-            ? {
-                thinking: { type: 'adaptive' as const },
-                output_config: { effort: effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max' },
-              }
-            : {}),
-        },
-        { signal: config.signal },
-      );
-      for (const [index, block] of response.content.entries()) {
-        if (block.type === 'tool_use') throw Error('Adviser tools unavailable');
-        if (block.type === 'text')
-          yield {
-            type: 'content_block_delta',
-            index,
-            delta: { type: 'text_delta', text: block.text },
-          };
-      }
-    },
-  };
+  throw Error('Selected adviser harness unavailable');
 }

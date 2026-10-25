@@ -63,14 +63,6 @@ vi.mock('../git-version.js', () => ({
 let app: Express;
 let authCookie: string;
 
-async function getAuthCookie(agent: request.Agent): Promise<string> {
-  const res = await agent.post('/api/auth/login').send({ passphrase: process.env.AUTH_PASSPHRASE });
-  const setCookie = res.headers['set-cookie'];
-  if (!setCookie) throw new Error('No cookie returned from login');
-  const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
-  return cookies[0].split(';')[0];
-}
-
 beforeAll(async () => {
   mkdirSync(TEST_REPO, { recursive: true });
   mkdirSync(join(TEST_REPO, 'mgmt_lib', 'inbox', 'archive'), { recursive: true });
@@ -79,8 +71,11 @@ beforeAll(async () => {
   const mod = await import('../app.js');
   app = mod.app;
 
-  const agent = request(app);
-  authCookie = await getAuthCookie(agent);
+  // Use the real signer without opening a listener for handler-only regressions.
+  const { login } = await import('../auth.js');
+  const token = await login(process.env.AUTH_PASSPHRASE!);
+  if (!token) throw Error('Fixture interactive login unavailable');
+  authCookie = 'cc_auth=' + token;
 });
 
 afterAll(async () => {
@@ -350,7 +345,148 @@ describe('POST /api/loop/start', () => {
     expect(start).toHaveBeenCalledWith(goal.id, {
       specMode: undefined,
       clientId: 'connection-1:session-1',
+      operatorAuth: expect.objectContaining({
+        id: expect.any(String),
+        expiresAt: expect.any(Number),
+      }),
     });
+  });
+});
+
+describe('worker initiating operator authorization', () => {
+  afterEach(async () => {
+    const mod = await import('../app.js');
+    mod.setOrchestrator(null as never);
+    const { registry } = await import('../chat.js');
+    vi.mocked(registry.get).mockReset();
+    vi.mocked(registry.findBySessionId).mockReset();
+  });
+
+  async function invoke(path: string, body: unknown, cookie?: string, internal = false) {
+    const { authMiddleware } = await import('../auth.js');
+    const { INTERNAL_TOKEN } = await import('../internal-token.js');
+    const req = {
+      method: 'POST',
+      path,
+      url: path,
+      body,
+      headers: {
+        ...(cookie ? { cookie } : {}),
+        ...(internal ? { 'x-internal-token': INTERNAL_TOKEN } : {}),
+      },
+      query: {},
+      cookies: cookie ? { cc_auth: cookie.slice(cookie.indexOf('=') + 1) } : {},
+    };
+    let status = 200;
+    let result: unknown;
+    const res = {
+      locals: {},
+      status(code: number) {
+        status = code;
+        return this;
+      },
+      json(value: unknown) {
+        result = value;
+        return this;
+      },
+    };
+    let admitted = false;
+    await authMiddleware(req as never, res as never, () => {
+      admitted = true;
+    });
+    if (admitted) {
+      const route = (
+        app as unknown as {
+          _router: {
+            stack: Array<{
+              route?: {
+                path: string;
+                stack: Array<{ handle: (req: unknown, res: unknown, next: () => void) => unknown }>;
+              };
+            }>;
+          };
+        }
+      )._router.stack.find((layer) => layer.route?.path === path)?.route;
+      if (!route) throw Error('Actual loop route unavailable');
+      await route.stack[0].handle(req, res, () => {
+        throw Error('Unexpected loop middleware fallthrough');
+      });
+    }
+    return { status, body: result };
+  }
+
+  async function workflow() {
+    const mod = await import('../app.js');
+    const { registry } = await import('../chat.js');
+    const { authenticateToken } = await import('../auth.js');
+    const owner = await authenticateToken(authCookie.slice(authCookie.indexOf('=') + 1));
+    if (!owner) throw Error('Fixture interactive login unavailable');
+    const goal = mod.taskStore.create({ title: 'Explicit selected worker workflow' });
+    mod.taskStore.create({ title: 'Selected task', parentId: goal.id, sessionPolicy: 'spawn' });
+    const source = { sessionId: 'worker-auth-source', ownerConnectionId: 'owner-viewer' };
+    vi.mocked(registry.get).mockReturnValue(source as never);
+    vi.mocked(registry.findBySessionId).mockReturnValue({
+      clientId: 'source-driver',
+      session: source,
+    } as never);
+    const authorize = (initiator?: { id: string; expiresAt: number }) => {
+      if (!initiator || initiator.id !== owner.id || initiator.expiresAt <= Date.now())
+        throw Error('Original initiating operator required');
+    };
+    const effect = vi.fn(async () => 'worker-driver');
+    const spawn = Object.assign(effect, { authorize });
+    const loop = new TaskOrchestrator({
+      store: mod.taskStore,
+      getClientId: () => null,
+      setTaskContext: vi.fn(),
+      clearTaskContext: vi.fn(),
+      broadcastTasks: vi.fn(),
+      broadcastStatus: vi.fn(),
+      bindWorkerSession: (_sourceId, initiator) => {
+        authorize(initiator);
+        return spawn;
+      },
+    });
+    mod.setOrchestrator(loop);
+    return { mod, loop, goal, owner, effect };
+  }
+
+  it('denies internal-token and foreign-login source grant borrowing, and admits the actual owning login', async () => {
+    const f = await workflow();
+    f.loop.setSpawnEnabled(true);
+    const { login } = await import('../auth.js');
+    const foreign = await login(process.env.AUTH_PASSPHRASE!);
+    const body = { goalId: f.goal.id, sessionId: 'worker-auth-source', operatorAuth: f.owner };
+    expect((await invoke('/api/loop/start', body, undefined, true)).status).toBe(403);
+    expect((await invoke('/api/loop/start', body, 'cc_auth=' + foreign)).status).toBe(403);
+    expect(f.effect).not.toHaveBeenCalled();
+    expect((await invoke('/api/loop/start', body, authCookie)).status).toBe(200);
+    await vi.waitFor(() => expect(f.effect).toHaveBeenCalledOnce());
+    f.loop.stop();
+  });
+
+  it('requires current owning login when enabling workers after a workflow has started', async () => {
+    const f = await workflow();
+    expect(
+      (
+        await invoke(
+          '/api/loop/start',
+          { goalId: f.goal.id, sessionId: 'worker-auth-source' },
+          authCookie,
+        )
+      ).status,
+    ).toBe(200);
+    const { login } = await import('../auth.js');
+    const foreign = await login(process.env.AUTH_PASSPHRASE!);
+    const body = { enabled: true, operatorAuth: f.owner };
+    expect((await invoke('/api/loop/spawn', body, undefined, true)).status).toBe(403);
+    expect((await invoke('/api/loop/spawn', body, 'cc_auth=' + foreign)).status).toBe(403);
+    expect(f.loop.spawnEnabled).toBe(false);
+    expect(f.effect).not.toHaveBeenCalled();
+    expect((await invoke('/api/loop/spawn', body, authCookie)).status).toBe(200);
+    await vi.waitFor(() => expect(f.effect).toHaveBeenCalledOnce());
+    expect((await invoke('/api/loop/spawn', body, 'cc_auth=' + foreign)).status).toBe(403);
+    f.loop.stop();
   });
 });
 

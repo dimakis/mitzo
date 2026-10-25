@@ -3,8 +3,7 @@ import { GeminiSession, type GeminiOptions } from './gemini-session.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
 import {
-  ResponsesSession,
-  runAgenticLoop,
+  runDeferredGeminiLoop,
   type ContentBlock,
   type ConversationMessage,
   type ModelSessionConfig,
@@ -69,7 +68,8 @@ function recoverToolResults(state: NativeResponsesState) {
   if (missing.length) state.history.push({ role: 'user', content: missing });
 }
 
-/** One explicit user turn at a time. The server retains ownership of queues and transport.
+/** Deferred Gemini compatibility only. OpenAI sessions are historical/read-only.
+ * One explicit user turn at a time. The server retains ownership of queues and transport.
  * Uses application conversation IDs only; provider response IDs stay in provider events.
  */
 export class NativeResponsesRunner {
@@ -86,20 +86,15 @@ export class NativeResponsesRunner {
   private selectedModel: string;
   private reasoningEffort?: string | null;
   constructor(private options: NativeResponsesOptions) {
-    if (options.binding.provider === 'openai') {
-      if ((!options.apiKey?.trim() && !options.getApiKey) || options.gemini)
-        throw new Error('OpenAI API key is required');
-      if (options.commandAuthority && (!options.getApiKey || options.apiKey))
-        throw Error('Owned Responses requires exact credential resolver without fallback');
-    } else if (options.binding.provider === 'google-vertex') {
-      if (
-        !options.gemini ||
-        options.apiKey ||
-        options.getApiKey ||
-        options.gemini.accountId !== options.binding.accountId
-      )
-        throw new Error('Explicit Google Vertex account is required');
-    } else throw new Error('Native runtime requires an explicit API account');
+    if (options.binding.provider !== 'google-vertex')
+      throw new Error('Custom Responses execution is retired; review a linked native continuation');
+    if (
+      !options.gemini ||
+      options.apiKey ||
+      options.getApiKey ||
+      options.gemini.accountId !== options.binding.accountId
+    )
+      throw new Error('Explicit Google Vertex account is required');
     if (!options.conversationId) throw new Error('Application conversation ID is required');
     this.selectedModel = options.selectedModel ?? options.binding.model;
     this.reasoningEffort = options.reasoningEffort;
@@ -231,14 +226,7 @@ export class NativeResponsesRunner {
       }
       const previousModel = this.selectedModel;
       const selectedModel = prepared?.selection?.model ?? previousModel;
-      const checkpoint =
-        !opts.gemini && state.checkpoint && state.checkpoint.model !== selectedModel
-          ? {
-              ...state.checkpoint,
-              model: selectedModel,
-              input: state.checkpoint.input.filter((item) => item.type !== 'reasoning'),
-            }
-          : state.checkpoint;
+      const checkpoint = state.checkpoint;
       const selectedReasoningEffort =
         prepared?.selection && 'reasoningEffort' in prepared.selection
           ? prepared.selection.reasoningEffort
@@ -263,15 +251,10 @@ export class NativeResponsesRunner {
           abort.signal.throwIfAborted();
         },
       };
-      const session = opts.gemini
-        ? new GeminiSession(config, { ...opts.gemini, checkpoint })
-        : new ResponsesSession(config, {
-            accountId: opts.binding.accountId,
-            apiKey: opts.apiKey ?? '',
-            getApiKey: opts.getApiKey,
-            checkpoint,
-          });
-      for await (const event of runAgenticLoop(session, state.history, {
+      // Gemini remains deferred. There is no OpenAI constructor or credential
+      // fallback in this retained provider-specific compatibility boundary.
+      const session = new GeminiSession(config, { ...opts.gemini!, checkpoint });
+      for await (const event of runDeferredGeminiLoop(session, state.history, {
         sessionId: opts.conversationId,
         maxTurns: opts.maxTurns ?? 50,
         signal: abort.signal,

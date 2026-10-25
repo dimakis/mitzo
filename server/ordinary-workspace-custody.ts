@@ -222,11 +222,12 @@ export class OrdinaryWorkspaceCustody {
     input.signal.throwIfAborted();
     if (
       !(selected.runOn === 'local'
-        ? binding.provider === 'openai-codex'
+        ? ['openai-codex', 'openai', 'anthropic-vertex'].includes(binding.provider)
         : ['openai', 'openai-codex'].includes(binding.provider)) ||
-      selected.runtime.harness !== 'codex'
+      selected.runtime.harness !==
+        (binding.provider === 'anthropic-vertex' ? 'claude-sdk' : 'codex')
     )
-      throw Error('Ordinary workspace isolation requires a supported Codex owner');
+      throw Error('Ordinary workspace isolation requires a supported native owner');
     if (
       !isDeepStrictEqual(selected.runtime.account, {
         accountId: binding.accountId,
@@ -392,7 +393,8 @@ export class OrdinaryWorkspaceCustody {
     const { settings, binding, agentProfile } = selected;
     if (
       settings.workspace.preparationId !== selected.preparationId ||
-      settings.binding.harness.implementation !== 'codex' ||
+      settings.binding.harness.implementation !==
+        (binding.provider === 'anthropic-vertex' ? 'claude-sdk' : 'codex') ||
       settings.selection.context.source !== 'none' ||
       settings.selection.permission.revision !== 0 ||
       settings.selection.model !== binding.model ||

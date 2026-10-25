@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { AdviserTaskScope } from '../adviser-task-scope.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -3186,6 +3187,99 @@ it.each(['recipe', 'supplied', 'retained'] as const)(
   },
 );
 
+it('keeps scoped adviser context isolated when ordinary local discovery and efficiency are enabled', async () => {
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  const integrationExecute = vi.fn(async () => ({ content: 'Ordinary integration output' }));
+  mocks.connect.mockResolvedValue({
+    definitions: [
+      {
+        name: 'fixture_reviewed_integration',
+        description: 'An ordinary integration that advisers must not discover or execute.',
+        input_schema: { type: 'object', properties: {} },
+      },
+    ],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+    execute: integrationExecute,
+  });
+  const f = ownedLocalOptions('/tmp', undefined, 'ask');
+  const scope = new AdviserTaskScope(
+    {
+      authSessionId: 'operator',
+      feature: { kind: 'agent-library' },
+      accountId: f.opts.binding.accountId,
+      model: f.opts.model!,
+      instructions: 'Only the explicitly reviewed adviser snapshot is task context.',
+      messages: [{ role: 'user', content: 'Explain the reviewed plan.' }],
+    },
+    () => {},
+    new AbortController().signal,
+  );
+  scope.bindCommand('owned-session', 'owned-command');
+  let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    query = await openCodexChat({ ...f.opts, adviserScope: scope });
+    const captured = mocks.conversationOptions!;
+    expect(captured.tools).toEqual([]);
+    expect(captured.disableWebSearch).toBe(true);
+    expect(captured.disableProjectDocuments).toBe(true);
+    expect(captured.systemPrompt).toContain(scope.instructions());
+    for (const instruction of [
+      'SearchSkills',
+      'ReadToolOutput',
+      'ListIntegrationTools',
+      'DescribeIntegrationTool',
+      'InvokeIntegrationTool',
+      'fixture_reviewed_integration',
+      'Selected integrations:',
+      '<mitzo_capabilities>',
+      'Agent Library context (saved recipe)',
+    ])
+      expect(captured.systemPrompt).not.toContain(instruction);
+    expect(captured.skillContextTokens).toBeUndefined();
+    expect(captured.onToolObservation).toBeUndefined();
+
+    const ordinaryGuard = vi.fn(() => {
+      throw Error('Scoped adviser reached an ordinary tool execution guard');
+    });
+    const execute =
+      captured.executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    const permissionCalls = mocks.permissionHandler.mock.calls.length;
+    const skillCalls = mocks.searchSkills.mock.calls.length;
+    const outputReadCalls = mocks.readToolOutput.mock.calls.length;
+    const outputRetentionCalls = mocks.retainToolOutput.mock.calls.length;
+    const forbidden: Array<[string, Record<string, unknown>]> = [
+      ['ListIntegrationTools', {}],
+      ['DescribeIntegrationTool', { toolId: 'fixture_reviewed_integration' }],
+      ['InvokeIntegrationTool', { toolId: 'fixture_reviewed_integration', input: {} }],
+      ['SearchSkills', { query: 'review' }],
+      ['ReadToolOutput', { outputId: '11111111-1111-4111-8111-111111111111' }],
+      ['fixture_reviewed_integration', {}],
+      ['SymposiumReadProfiles', {}],
+      ['RequestWebAccess', {}],
+      ['TelosGetItem', { itemId: 'unreviewed-item' }],
+    ];
+    for (const [name, input] of forbidden)
+      await expect(
+        execute(name, input, new AbortController().signal, {
+          turnId: 'scoped-turn',
+          callId: `scoped-${name}`,
+          assertCurrentSync: ordinaryGuard,
+        }),
+      ).rejects.toMatchObject({ code: 'permission_denied' });
+    expect(ordinaryGuard).not.toHaveBeenCalled();
+    expect(integrationExecute).not.toHaveBeenCalled();
+    expect(mocks.permissionHandler.mock.calls).toHaveLength(permissionCalls);
+    expect(mocks.searchSkills.mock.calls).toHaveLength(skillCalls);
+    expect(mocks.readToolOutput.mock.calls).toHaveLength(outputReadCalls);
+    expect(mocks.retainToolOutput.mock.calls).toHaveLength(outputRetentionCalls);
+  } finally {
+    query?.close();
+    f.eventStore.close();
+  }
+});
+
 it('rechecks owned command authority immediately before native enqueue and provider dispatch', async () => {
   vi.clearAllMocks();
   mocks.initialize.mockResolvedValue(undefined);
@@ -4309,6 +4403,119 @@ it('admits selected MCP through the actual owned Local Codex lifecycle and fence
     rmSync(root, { recursive: true, force: true });
   }
   expect(peerClose).toHaveBeenCalledOnce();
+});
+
+it('closes both MCP discovery peers when the real owned admission rejects fixture lease currentness', async () => {
+  vi.clearAllMocks();
+  mocks.conversationOptions = undefined;
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  const actual =
+    await vi.importActual<typeof import('../codex-mcp-tools.js')>('../codex-mcp-tools.js');
+  const nativeHooks = await import('../native-hooks.js');
+  const { SessionRegistry } = await import('@mitzo/harness');
+  const root = mkdtempSync(join(tmpdir(), 'owned-parallel-mcp-currentness-'));
+  const f = ownedLocalOptions(root);
+  const registry = new SessionRegistry();
+  registry.register('owned-client', {
+    ...f.opts.session,
+    sessionId: 'owned-session',
+    sessionAllowList: new Set<string>(),
+    transport: { send: () => {}, isOpen: () => true },
+  });
+  f.opts.registry = registry;
+  f.opts.session = registry.get('owned-client')!;
+  f.opts.mcpServers = {
+    first: { command: 'offline-first', args: [] },
+    second: { command: 'offline-second', args: [] },
+  };
+  const dispose = vi.fn();
+  const originalFactory = nativeHooks.createNativeHooks;
+  const factory = vi.spyOn(nativeHooks, 'createNativeHooks').mockImplementationOnce((...args) => {
+    const acquired = originalFactory(...args);
+    return {
+      ...acquired,
+      dispose: () => {
+        dispose();
+        acquired.dispose();
+      },
+    };
+  });
+  let entered = 0;
+  let enterBoth!: () => void;
+  let release!: () => void;
+  const bothEntered = new Promise<void>((resolve) => {
+    enterBoth = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const peers = [0, 1].map(() => ({
+    listTools: vi.fn(async () => {
+      if (++entered === 2) enterBoth();
+      await gate;
+      return { tools: [] };
+    }),
+    callTool: vi.fn(),
+    close: vi.fn(async () => {}),
+  }));
+  let nextPeer = 0;
+  const connect = vi.fn(async () => peers[nextPeer++]);
+  const previousConnect = mocks.connect.getMockImplementation();
+  mocks.connect.mockImplementation(
+    (
+      configs: Parameters<typeof actual.connectCodexMcpTools>[0],
+      options: Parameters<typeof actual.connectCodexMcpTools>[1],
+    ) => actual.connectCodexMcpTools(configs, { ...options, connect }),
+  );
+  const published = vi.fn();
+  const opening = openCodexChat(f.opts).then((query) => {
+    published(query);
+    return query;
+  });
+  try {
+    await Promise.race([
+      bothEntered,
+      opening.then(() => {
+        throw Error('Owned adapter published before held MCP discovery completed');
+      }),
+    ]);
+    expect(f.ownedLocal).toBeInstanceOf(OwnedLocalCodexChatAdmission);
+    expect(connect).toHaveBeenCalledTimes(2);
+    for (const peer of peers) expect(peer.listTools).toHaveBeenCalledOnce();
+    const checksBeforeRevocation = vi.mocked(f.lease.assertCurrentSync).mock.calls.length;
+    // The real sealed admission must propagate failure of its fixture lease.
+    // This seam is mocked; it does not simulate a real account or login mutation.
+    vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => {
+      throw Error('Original fixture lease is no longer current');
+    });
+    release();
+    await expect(opening).rejects.toThrow('MCP initialization failed');
+    expect(vi.mocked(f.lease.assertCurrentSync).mock.calls.length).toBeGreaterThan(
+      checksBeforeRevocation,
+    );
+    expect(connect).toHaveBeenCalledTimes(2);
+    for (const peer of peers) {
+      expect(peer.close).toHaveBeenCalledOnce();
+      expect(peer.callTool).not.toHaveBeenCalled();
+    }
+    expect(published).not.toHaveBeenCalled();
+    expect(mocks.initialize).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(f.eventStore.getOrdinaryLocalCommandAdmission('owned-command')?.state).toBe('uncertain');
+  } finally {
+    release();
+    const query = await opening.catch(() => undefined);
+    query?.close();
+    factory.mockRestore();
+    mocks.connect.mockReset();
+    if (previousConnect) mocks.connect.mockImplementation(previousConnect);
+    f.ownedLocal.close();
+    registry.dispose();
+    f.eventStore.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 it('disposes acquired hooks when the owned admission is revoked before configured source launch', async () => {

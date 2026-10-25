@@ -25,6 +25,24 @@ import { SessionRuntimeBindingV1Schema, type AccountBinding } from '@mitzo/proto
 import type { CodexAccountProfile } from './codex-account.js';
 import type { OrdinarySessionRuntimeCatalog } from './ordinary-session-runtime.js';
 
+/** Operator-qualified estimated USD rates per million tokens, scoped to this
+ * account and exact model. Private configuration, never client authority. */
+const PaidReasoningRate = z
+  .object({
+    inputPerMillion: z.number().finite().nonnegative(),
+    outputPerMillion: z.number().finite().nonnegative(),
+    cacheReadPerMillion: z.number().finite().nonnegative().optional(),
+    cacheCreationPerMillion: z.number().finite().nonnegative().optional(),
+  })
+  .strict()
+  .refine(
+    (rate) => rate.inputPerMillion > 0 || rate.outputPerMillion > 0,
+    'A qualified rate must account for input or output usage',
+  );
+const PaidReasoningRates = z
+  .record(z.string().min(1).max(256).regex(/^\S+$/), PaidReasoningRate)
+  .refine((rates) => Object.keys(rates).length <= 128, 'Too many model rates');
+
 const VertexProfile = z
   .object({
     id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
@@ -41,6 +59,7 @@ const VertexProfile = z
       .optional(),
     sandboxProviderId: z.string().trim().min(1).max(128).optional(),
     models: z.array(CatalogModel.strict()).min(1),
+    paidReasoningRates: PaidReasoningRates.optional(),
   })
   .superRefine((profile, context) => {
     if (Boolean(profile.sandboxProvider) !== Boolean(profile.sandboxProviderId))
@@ -71,6 +90,7 @@ const CodexProfile = z
     sandboxProviderId: z.string().min(1).max(128).optional(),
     sandboxGrantId: z.string().min(1).max(128).optional(),
     models: z.array(CatalogModel.strict()).min(1),
+    paidReasoningRates: PaidReasoningRates.optional(),
   })
   .superRefine((profile, context) => {
     if (profile.nativeAuth) {
@@ -134,6 +154,7 @@ const ApiProfile = z
       .optional(),
     sandboxProviderId: z.string().trim().min(1).max(128).optional(),
     models: z.array(CatalogModel.strict()).min(1),
+    paidReasoningRates: PaidReasoningRates.optional(),
   })
   .strict();
 const GoogleProfile = z
@@ -172,6 +193,9 @@ function routingRevision(profile: z.infer<typeof Profile>): string {
               profile.sandboxGrantId,
               ...(profile.nativeAuth ? [profile.nativeAuth] : []),
               ...(profile.nativeCatalogRevision ? [profile.nativeCatalogRevision] : []),
+              ...(profile.paidReasoningRates
+                ? [['paidReasoningRates', profile.paidReasoningRates]]
+                : []),
             ]
           : profile.provider === 'openai'
             ? [
@@ -180,6 +204,9 @@ function routingRevision(profile: z.infer<typeof Profile>): string {
                 profile.sandboxProvider,
                 profile.sandboxProviderId,
                 ...(profile.connection ? [profile.connection] : []),
+                ...(profile.paidReasoningRates
+                  ? [['paidReasoningRates', profile.paidReasoningRates]]
+                  : []),
               ]
             : [
                 profile.provider,
@@ -188,6 +215,9 @@ function routingRevision(profile: z.infer<typeof Profile>): string {
                 profile.credentialRef,
                 profile.sandboxProvider,
                 profile.sandboxProviderId,
+                ...(profile.paidReasoningRates
+                  ? [['paidReasoningRates', profile.paidReasoningRates]]
+                  : []),
               ],
       ),
     )
@@ -1024,6 +1054,14 @@ export class AccountProfiles {
     )
       throw new Error('Account configuration changed');
     return structuredClone(binding);
+  }
+
+  /** A routing-fenced private cost estimate; this never invokes a provider. */
+  paidReasoningRate(binding: AccountBinding): z.infer<typeof PaidReasoningRate> | undefined {
+    this.resumeRouting(binding);
+    const rate = this.profiles.find((profile) => profile.id === binding.accountId)
+      ?.paidReasoningRates?.[binding.model];
+    return rate ? structuredClone(rate) : undefined;
   }
 
   validateModel(binding: AccountBinding, model: string, reasoningEffort?: string | null): void {

@@ -53,7 +53,8 @@ it('blocks unselected legacy spawning visibly without allocation, dispatch or au
   }
 });
 
-it('wires the production spawn callback directly to the selection rejection before runtime allocation', () => {
+it('wires production spawning to the selected ordinary owner before runtime allocation', () => {
   const source = readFileSync(new URL('../index.ts', import.meta.url), 'utf8');
-  expect(source).toContain('spawnSession: rejectUnselectedHeadlessSession,');
+  expect(source).toContain('bindOrdinaryTaskWorkerSession(');
+  expect(source).not.toContain('spawnSession: rejectUnselectedHeadlessSession,');
 });

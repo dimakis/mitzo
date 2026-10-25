@@ -102,11 +102,117 @@ it('CT13/14 actual App: recursive canonical tree, category pins and provenance s
   const sessionsBefore = chat.eventStore.listSessions().length;
   const snapshots: unknown[] = [];
   const capture = async (name: string) => {
-    if (process.env.S9_JOINED_SCREENSHOT_DIR)
+    if (process.env.S9_JOINED_SCREENSHOT_DIR) {
+      if (name === 'workspace-sources-and-external') {
+        // Evidence only: use the existing row/scroll state and real product CSS.
+        await page.evaluate(async () => {
+          await document.fonts.ready;
+        });
+        const geometry = await page
+          .getByRole('region', { name: 'Sources', exact: true })
+          .locator('.todo-detail-source-row')
+          .filter({ hasText: 'Original acoustic research' })
+          .evaluateAll((rows) => {
+            const tolerancePx = 0.5;
+            const viewport = { width: innerWidth, height: innerHeight, dpr: devicePixelRatio };
+            const snapshot = (element: Element | null) => {
+              if (!element) return null;
+              const rect = element.getBoundingClientRect();
+              const style = getComputedStyle(element);
+              return {
+                tag: element.tagName,
+                text: element.textContent,
+                rect: {
+                  x: rect.x,
+                  y: rect.y,
+                  top: rect.top,
+                  right: rect.right,
+                  bottom: rect.bottom,
+                  left: rect.left,
+                  width: rect.width,
+                  height: rect.height,
+                },
+                style: {
+                  display: style.display,
+                  visibility: style.visibility,
+                  opacity: style.opacity,
+                  fontFamily: style.fontFamily,
+                  fontSize: style.fontSize,
+                  fontWeight: style.fontWeight,
+                  lineHeight: style.lineHeight,
+                },
+                clientRects: element.getClientRects().length,
+                clientWidth: element.clientWidth,
+                scrollWidth: element.scrollWidth,
+              };
+            };
+            const visible = (part: ReturnType<typeof snapshot>) =>
+              !!part &&
+              !!part.text?.trim() &&
+              part.clientRects > 0 &&
+              part.rect.width > 0 &&
+              part.rect.height > 0 &&
+              part.style.display !== 'none' &&
+              part.style.visibility !== 'hidden' &&
+              part.style.visibility !== 'collapse' &&
+              Number(part.style.opacity) > 0 &&
+              part.rect.bottom > 0 &&
+              part.rect.top < viewport.height &&
+              part.rect.right > 0 &&
+              part.rect.left < viewport.width;
+            const within = (part: ReturnType<typeof snapshot>) =>
+              !!part &&
+              part.rect.left >= -tolerancePx &&
+              part.rect.top >= -tolerancePx &&
+              part.rect.right <= viewport.width + tolerancePx &&
+              part.rect.bottom <= viewport.height + tolerancePx;
+            const samples = rows.map((row) => ({
+              row: snapshot(row),
+              content: snapshot(row.querySelector('.todo-detail-source-content')),
+              title: snapshot(row.querySelector('.todo-detail-source-title')),
+              author: snapshot(row.querySelector('.todo-detail-source-author')),
+              snippet: snapshot(row.querySelector('.todo-detail-source-snippet')),
+            }));
+            const sample = samples.length === 1 ? samples[0] : undefined;
+            const checks =
+              sample?.title && sample.author
+                ? {
+                    authorBelowTitle:
+                      sample.author.rect.top >= sample.title.rect.bottom - tolerancePx,
+                    bothTextBoxesVisible: visible(sample.title) && visible(sample.author),
+                    rowWithinViewport: within(sample.row),
+                  }
+                : null;
+            return {
+              capture: 'workspace-sources-and-external',
+              readOnlyObservation: true,
+              tolerancePx,
+              viewport,
+              fontsStatus: document.fonts.status,
+              htmlPreferences: { ...document.documentElement.dataset },
+              bodyPreferences: { ...document.body.dataset },
+              colorScheme: getComputedStyle(document.documentElement).colorScheme,
+              rowCount: samples.length,
+              samples,
+              checks,
+              classification: !checks
+                ? 'UNSUPPORTED_ROW_OR_FIELDS'
+                : Object.values(checks).every(Boolean)
+                  ? 'GEOMETRY_GREEN'
+                  : 'GEOMETRY_RED',
+              scope: 'Reported multiword row only; no unbroken-token or runtime/device acceptance.',
+            };
+          });
+        await writeFile(
+          join(process.env.S9_JOINED_SCREENSHOT_DIR, 'source-row-geometry.json'),
+          JSON.stringify(geometry, null, 2),
+        );
+      }
       await page.screenshot({
         path: join(process.env.S9_JOINED_SCREENSHOT_DIR, name + '.png'),
         fullPage: true,
       });
+    }
   };
   await page.goto(front.origin + '/todos');
   const tree = page.getByRole('region', { name: 'Outcomes tree', exact: true });

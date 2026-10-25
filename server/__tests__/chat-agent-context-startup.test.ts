@@ -46,6 +46,7 @@ async function setup(contextRecipe?: AgentContextRecipe, withFixtureMcp = false)
     '# Architecture\n## Choices\nUse immutable context bundles.',
   );
   vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   const fetcher = vi.fn<typeof fetch>(
     async () =>
@@ -98,8 +99,8 @@ async function setup(contextRecipe?: AgentContextRecipe, withFixtureMcp = false)
 }
 const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-565656565656';
 
-it.each(['Responses', 'Responses with native API disabled', 'Gemini'])(
-  'preserves pack compilation on the supported %s route',
+it.each(['retired Responses', 'retired Responses with native API disabled', 'Gemini', 'Claude'])(
+  'preserves the context compilation boundary on the %s route',
   async (route) => {
     const { root, chat, transport, compiler, unbind } = await setup({
       version: 2,
@@ -117,7 +118,7 @@ it.each(['Responses', 'Responses with native API disabled', 'Gemini'])(
     try {
       vi.stubEnv(
         'MITZO_OPENSHELL_ENABLED',
-        route === 'Responses with native API disabled' ? '1' : '0',
+        route === 'retired Responses with native API disabled' ? '1' : '0',
       );
       vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', '');
       vi.stubEnv('MITZO_OPENSHELL_OPENAI_API_ENABLED', '0');
@@ -132,16 +133,26 @@ it.each(['Responses', 'Responses with native API disabled', 'Gemini'])(
               credentialRef: '/test/adc.json',
               models: [{ id: 'luna', label: 'Fixture' }],
             }
-          : {
-              id: 'fixture',
-              label: 'Offline Responses',
-              provider: 'openai',
-              credentialRef: { provider: 'keychain', service: 'fixture', account: 'fixture' },
-              models: [{ id: 'luna', label: 'Fixture' }],
-            },
+          : route === 'Claude'
+            ? {
+                id: 'fixture',
+                label: 'Offline Claude',
+                provider: 'anthropic-vertex',
+                projectId: 'fixture-project',
+                region: 'europe-west1',
+                credentialRef: '/test/adc.json',
+                models: [{ id: 'luna', label: 'Fixture' }],
+              }
+            : {
+                id: 'fixture',
+                label: 'Offline Responses',
+                provider: 'openai',
+                credentialRef: { provider: 'keychain', service: 'fixture', account: 'fixture' },
+                models: [{ id: 'luna', label: 'Fixture' }],
+              },
       ]);
       const { credentials } = await import('../credentials.js');
-      vi.spyOn(credentials, 'resolve').mockResolvedValue('offline-key');
+      const credential = vi.spyOn(credentials, 'resolve').mockResolvedValue('offline-key');
       const { GoogleAuth } = await import('google-auth-library');
       vi.spyOn(GoogleAuth.prototype, 'getAccessToken').mockResolvedValue('offline-token');
       const compile = vi
@@ -152,7 +163,7 @@ it.each(['Responses', 'Responses with native API disabled', 'Gemini'])(
       const open = vi
         .spyOn(codex, 'openCodexChat')
         .mockRejectedValue(Error('Unexpected native dispatch'));
-      await chat.startChat(transport, 'supported-pack-route', 'Review', {
+      const starting = chat.startChat(transport, 'supported-pack-route', 'Review', {
         cwd: root,
         isolation: false,
         accountId: 'fixture',
@@ -162,6 +173,16 @@ it.each(['Responses', 'Responses with native API disabled', 'Gemini'])(
         agentProfile: { profileId: 'bob', revision: 3 },
         operatorConnectionId: 'operator',
       });
+      if (route.startsWith('retired')) {
+        await expect(starting).rejects.toThrow(/Responses execution is retired/);
+        expect(compile).not.toHaveBeenCalled();
+        expect(credential).not.toHaveBeenCalled();
+        expect(query).not.toHaveBeenCalled();
+        expect(open).not.toHaveBeenCalled();
+        expect(chat.eventStore.getSession(sessionId)).toBeNull();
+        return;
+      }
+      await starting;
       expect(compile).toHaveBeenCalledOnce();
       expect(transport.send.mock.calls).toContainEqual([
         expect.objectContaining({ type: 'error', error: 'Supported pack compilation reached' }),

@@ -1,3 +1,4 @@
+import { withAgentLibraryRecoveryAuthorization } from './agent-library-transport.js';
 import { createApiToolRouter, type ApiToolOwner } from './api-tool-router.js';
 import type { ConfiguredToolCatalog, ConfiguredCatalogOptions } from './configured-tool-catalog.js';
 import { agentToolCatalog } from './agent-tool-catalog.js';
@@ -184,10 +185,16 @@ export function createAgentLibraryRouter(
     try {
       controller.signal.throwIfAborted();
       if (!options.adviser) throw Error('Agent advisor unavailable');
-      const result = await options.adviser.ask(
-        auth.id,
-        body.data,
-        AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
+      const result = await withAgentLibraryRecoveryAuthorization(auth, (operatorConnectionId) =>
+        options.adviser!.ask(
+          {
+            authSessionId: auth.id,
+            operatorConnectionId: operatorConnectionId!,
+            feature: { kind: 'agent-library' },
+          },
+          body.data,
+          AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
+        ),
       );
       if (!controller.signal.aborted && auth.expiresAt > Date.now()) res.json(result);
     } catch {

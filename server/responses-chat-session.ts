@@ -39,7 +39,7 @@ import {
   WEB_ACCESS_INSTRUCTIONS,
 } from './request-web-access.js';
 import { createWebAccessTool } from './web-access-tool.js';
-import { searchOpenAI, searchGemini } from './web-search-adapters.js';
+import { searchGemini } from './web-search-adapters.js';
 import {
   HOST_TOOL_INSTRUCTIONS,
   SESSION_PERMISSION_INSTRUCTIONS,
@@ -67,7 +67,6 @@ import {
   type NativeToolOptions,
 } from './native-tool-executor.js';
 import type { McpServerConfig } from './mcp-config.js';
-import { classifyProviderFailure } from './provider-failure.js';
 import type { EventStore } from './event-store.js';
 import type { ProviderDispatchAdmission } from './provider-execution.js';
 import { createLogger } from './logger.js';
@@ -182,15 +181,10 @@ interface Options {
 }
 /** API execution uses the shared interaction policy and a private continuation store. */
 export async function openResponsesChat(options: Options) {
-  // Only an explicit ordinary API owner can opt in. Legacy API and Gemini
-  // sessions retain their existing command network policy.
-  const networkAccess =
-    options.commandAuthority &&
-    options.binding.provider === 'openai' &&
-    !options.gemini &&
-    process.env.MITZO_ORDINARY_LOCAL_RESPONSES_NETWORK_ENABLED === '1'
-      ? ('approved-command' as const)
-      : undefined;
+  if (options.binding.provider !== 'google-vertex' || !options.gemini)
+    throw Error('Custom Responses execution is retired; review a linked native continuation');
+  // The retained Gemini wrapper does not inherit retired OpenAI network flags.
+  const networkAccess: 'approved-command' | undefined = undefined;
   const agentProfile =
     options.agentProfile ?? options.eventStore?.getSession(options.conversationId)?.agentProfile;
   assertAgentToolRoute(agentProfile?.definition, 'local-api');
@@ -537,14 +531,7 @@ The selected account supplies model inference; Local host describes where the to
               options.conversationId,
               options.registry,
               async (query, signal) =>
-                options.gemini
-                  ? searchGemini(query, signal, options.gemini, runner.getSelectedModel())
-                  : searchOpenAI(
-                      query,
-                      signal,
-                      options.getApiKey ? await options.getApiKey(signal) : options.apiKey!,
-                      runner.getSelectedModel(),
-                    ),
+                searchGemini(query, signal, options.gemini!, runner.getSelectedModel()),
               assertRuntimeCurrent,
             )(input, signal);
           }
@@ -715,12 +702,9 @@ The selected account supplies model inference; Local host describes where the to
                 event.event.type === 'message_start'
               ) {
                 const providerId =
-                  options.binding.provider === 'openai'
-                    ? event.event.message.id
-                    : options.binding.provider === 'google-vertex' &&
-                        event.event.providerReceipt?.provider === 'google-vertex'
-                      ? event.event.providerReceipt.responseId
-                      : undefined;
+                  event.event.providerReceipt?.provider === 'google-vertex'
+                    ? event.event.providerReceipt.responseId
+                    : undefined;
                 if (providerId) {
                   contextAccepted = true;
                   options.onAgentContextAccepted?.(
@@ -760,19 +744,6 @@ The selected account supplies model inference; Local host describes where the to
               terminalize('failed', 'failed');
             }
           } catch (error) {
-            if (!interrupted && !signal.aborted && options.binding.provider === 'openai') {
-              const providerFailure = classifyProviderFailure(error, {
-                correlationId: message.mitzoMessageId ?? randomUUID(),
-              });
-              terminalize(providerFailure.ambiguous ? 'ambiguous' : 'failed', 'failed');
-              yield {
-                type: 'result',
-                session_id: options.conversationId,
-                is_error: true,
-                provider_failure: providerFailure,
-              };
-              return;
-            }
             const wasInterrupted = interrupted || signal.aborted;
             terminalize(
               wasInterrupted ? 'cancelled' : 'failed',

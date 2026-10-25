@@ -499,6 +499,34 @@ async function openSettings(page: Page) {
   return settingsHome(page);
 }
 
+async function withSelectedRepositoryCatalog(page: Page, action: () => Promise<unknown>) {
+  // Returning to a draft restores Run on after the initial account-only read.
+  // Finish this document's selected read before its next hard navigation;
+  // WebKit reports a new fetch from a departing document as an access error.
+  const read = page
+    .waitForRequest((request) => {
+      const url = new URL(request.url());
+      return (
+        request.method() === 'GET' &&
+        url.origin === 'https://mitzo-ui.test' &&
+        url.pathname === '/api/repository-workspaces/catalog' &&
+        url.searchParams.get('accountId') === 'personal' &&
+        url.searchParams.get('model') === 'luna-fixture' &&
+        url.searchParams.get('runOn') === 'openshell'
+      );
+    })
+    .then(async (request) => {
+      const response = await request.response();
+      if (!response) throw new Error('Selected repository catalog received no response');
+      expect(response.ok()).toBe(true);
+      expect(await response.finished()).toBeNull();
+    });
+  // If the action fails, preserve that failure while safely retiring its witness.
+  void read.catch(() => {});
+  await action();
+  await read;
+}
+
 async function prepareFirstCommand(page: Page, prompt: string) {
   const panel = await openSettings(page);
   await chooseSetting(page, 'Account', 'personal');
@@ -807,12 +835,14 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(
       page.getByRole('textbox', { name: 'Behavior and instructions', exact: true }),
     ).toHaveValue(unsavedInstructions);
-    await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+    await withSelectedRepositoryCatalog(page, () =>
+      page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click(),
+    );
     await expect(page).toHaveURL(chatUrl);
     await expect(composer).toHaveValue(
       'Keep the exact unsaved instructions and improve the acceptance criteria.',
     );
-    await page.reload();
+    await withSelectedRepositoryCatalog(page, () => page.reload());
     await expect(composer).toHaveValue(
       'Keep the exact unsaved instructions and improve the acceptance criteria.',
     );

@@ -1,6 +1,10 @@
+import { createLegacyNativeContinuationRouter } from './legacy-native-continuation-routes.js';
+import { getNativeResponsesStore } from './responses-chat-session.js';
+import { replayEventsToMessages } from './chat.js';
 import { mountApplicationChatEventStream } from './chat-event-stream.js';
 import {
   createOwnedLocalCodexEntryRouter,
+  createOwnedCodexFirstCommandHandler,
   createOwnedOrdinaryWorkspaceCommandRouter,
 } from './ordinary-local-codex-entry.js';
 import { operatorAuthMiddleware } from './auth.js';
@@ -155,6 +159,41 @@ export function mountApplicationChatRestTransport(
   ctx: V2HandlerContext,
 ): void {
   application.use('/api/chat', createChatRestRouter(sseRegistry, ctx));
+  application.use(
+    '/api/sessions/:id/native-continuation',
+    createLegacyNativeContinuationRouter({
+      store: getNativeResponsesStore,
+      hasSession: (id) => !!ctx.eventStore.getSession(id),
+      source: (id) => {
+        const meta = ctx.eventStore.getSession(id);
+        if (!meta?.accountBinding) throw Error('Retained conversation unavailable');
+        const native = getNativeResponsesStore();
+        const state = native.load(id, meta.accountBinding);
+        if (!state) throw Error('Retained conversation history unavailable');
+        const events = ctx.eventStore.getSessionEvents(id);
+        const custody = native.readOrdinaryCustody(id, meta.accountBinding);
+        const queue = custody ? native.queue(id, meta.accountBinding) : undefined;
+        return {
+          meta,
+          runtime: ctx.eventStore.getSessionRuntimeBinding(id) ?? undefined,
+          state,
+          events,
+          // An attached old owner must be closed before a second runtime starts.
+          live: !!ctx.sessionRegistry.findBySessionId(id),
+          pendingCommandIds: queue?.queued ?? [],
+          hasActiveCommand: queue?.active != null,
+          messages: replayEventsToMessages(events, meta.initialPrompt ?? undefined),
+        };
+      },
+      commandState: (review) => {
+        if (ctx.eventStore.getSendCommand(review.commandId)?.sessionId !== review.nativeSessionId)
+          return undefined;
+        const receipt = ctx.eventStore.getOrdinaryCommandAdmission(review.commandId);
+        return receipt?.state === 'consumed' ? 'consumed' : receipt ? 'uncertain' : undefined;
+      },
+      admit: createOwnedCodexFirstCommandHandler(sseRegistry, ctx),
+    }),
+  );
   application.use(
     '/api/ordinary/workspaces/commands',
     createOwnedOrdinaryWorkspaceCommandRouter(sseRegistry, ctx),

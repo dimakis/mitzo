@@ -1,5 +1,9 @@
 # Native OpenAI execution foundation
 
+> Historical implementation record. Custom OpenAI execution is retired. See
+> [the current retirement and linked-continuation contract](legacy-execution-retirement.md).
+> Retained private checkpoint data remains readable; it is not a native Codex thread.
+
 This is an internal server execution slice built on the Responses adapter. It is not wired into `startChat()` and does not enable OpenAI in the mobile catalog. The existing Vertex SDK route, ContexGin boot-context fetching, MCP configuration and production service are unchanged.
 
 ## Delivered boundary

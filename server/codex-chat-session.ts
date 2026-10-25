@@ -1,3 +1,4 @@
+import { AdviserTaskScope } from './adviser-task-scope.js';
 import type { CodexToolResult } from './codex-tool-result.js';
 import { projectToolOutput, readToolOutputPage } from './tool-output-projection.js';
 import {
@@ -649,6 +650,7 @@ interface Options {
   /** Host-owned admitted-command context delivery; never a public execution port. */
   ordinaryCollaborationDelivery?: OrdinaryCollaborationDelivery;
   contributorGuidance?: string;
+  adviserScope?: AdviserTaskScope;
   agentProfile?: AgentLibraryVersion;
   /** Captured from verified operator transport, never caller JSON; admission only. */
   assertAgentContextAuthorization?: () => void;
@@ -1423,14 +1425,15 @@ async function openCodexChatBound(
       options.ownedOpenShell.adoptPhysicalRuntime(retained);
     }
   }
-  const hookRuntime = connectedOpenShell
-    ? undefined
-    : createNativeHooks(options.session.cwd!, options.conversationId, options.env, {
-        trustProjectHooks:
-          !options.ownedLocal &&
-          !hasAgentToolSelection(options.session) &&
-          process.env.MITZO_TRUST_PROJECT_HOOKS === '1',
-      });
+  const hookRuntime =
+    options.adviserScope || connectedOpenShell
+      ? undefined
+      : createNativeHooks(options.session.cwd!, options.conversationId, options.env, {
+          trustProjectHooks:
+            !options.ownedLocal &&
+            !hasAgentToolSelection(options.session) &&
+            process.env.MITZO_TRUST_PROJECT_HOOKS === '1',
+        });
   const hooks = hookRuntime?.hooks;
   const dispose = hookRuntime?.dispose ?? (() => {});
   let startup: { context?: string };
@@ -1524,11 +1527,12 @@ async function openCodexChatBound(
     'TelosFindArtifacts',
     'TelosReadArtifact',
   ]);
-  const localEfficiencyDefinitions = ownedHost
-    ? localEfficiencyToolDefinitions.filter((tool) =>
-        tool.name === 'SearchSkills' ? agentToolAllowed(options.session, 'Read') : true,
-      )
-    : [];
+  const localEfficiencyDefinitions =
+    ownedHost && !options.adviserScope
+      ? localEfficiencyToolDefinitions.filter((tool) =>
+          tool.name === 'SearchSkills' ? agentToolAllowed(options.session, 'Read') : true,
+        )
+      : [];
   const configuredRefs =
     selectedProfile?.definition.tools?.filter((ref) => ref.id.startsWith('mcp:')) ?? [];
   if (configuredRefs.length && !options.configuredSourceEnv) {
@@ -1887,44 +1891,47 @@ async function openCodexChatBound(
     options.binding?.accountId ?? '',
     managedCapabilityConnection,
   );
-  const integrationDiscovery = options.ownedLocal
-    ? createIntegrationToolDiscovery({
-        tools: filterAgentTools(options.session, mcp.definitions),
-        directTools: filterAgentTools(options.session, [
-          ...profileToolDefinitions,
-          ...agentTaskToolDefinitions,
-          ...agentCommunicationDefinitions,
-          ...localHistoryDefinitions,
-        ]),
-        displayName: mcp.displayName,
-        assertCurrent: assertMcpCurrent,
-        execute: executeMcpTool,
-      })
-    : options.ownedOpenShell
+  const integrationDiscovery = options.adviserScope
+    ? undefined
+    : options.ownedLocal
       ? createIntegrationToolDiscovery({
-          tools: [],
-          directOnly: true,
+          tools: filterAgentTools(options.session, mcp.definitions),
           directTools: filterAgentTools(options.session, [
-            ...connectionTools.definitions,
-            ...openShellHostTools,
-            ...capabilityTools.definitions,
-            webAccessDefinition,
-            githubPublishingDefinition,
+            ...profileToolDefinitions,
+            ...agentTaskToolDefinitions,
+            ...agentCommunicationDefinitions,
+            ...localHistoryDefinitions,
           ]),
-          displayName: (name) => name,
-          assertCurrent: () => {
-            signal.throwIfAborted();
-            assertHostCurrentSync();
-            if (
-              options.registry.findBySessionId(options.conversationId)?.session !== options.session
-            )
-              throw new CodexToolFailure('stale_owner');
-          },
-          execute: async () => {
-            throw new CodexToolFailure('invalid_input');
-          },
+          displayName: mcp.displayName,
+          assertCurrent: assertMcpCurrent,
+          execute: executeMcpTool,
         })
-      : undefined;
+      : options.ownedOpenShell
+        ? createIntegrationToolDiscovery({
+            tools: [],
+            directOnly: true,
+            directTools: filterAgentTools(options.session, [
+              ...connectionTools.definitions,
+              ...openShellHostTools,
+              ...capabilityTools.definitions,
+              webAccessDefinition,
+              githubPublishingDefinition,
+            ]),
+            displayName: (name) => name,
+            assertCurrent: () => {
+              signal.throwIfAborted();
+              assertHostCurrentSync();
+              if (
+                options.registry.findBySessionId(options.conversationId)?.session !==
+                options.session
+              )
+                throw new CodexToolFailure('stale_owner');
+            },
+            execute: async () => {
+              throw new CodexToolFailure('invalid_input');
+            },
+          })
+        : undefined;
   const githubPublishing = createGithubPublishingTool(
     options.conversationId,
     options.registry,
@@ -1972,13 +1979,19 @@ async function openCodexChatBound(
       });
   }
   let nativeExecution: CodexNativeExecutionPolicy | undefined;
-  const selectedNativePolicy = () =>
-    composeOwnedLocalNativeExecutionPolicy({
+  const selectedNativePolicy = () => {
+    options.adviserScope?.assertCurrent();
+    if (options.adviserScope && options.session.mode !== 'ask')
+      throw Error('Adviser read-only task policy changed');
+    return composeOwnedLocalNativeExecutionPolicy({
       session: options.session,
       binding: options.binding,
-      readableRoots: options.nativeExecutionReadRoots,
+      readableRoots:
+        options.adviserScope?.nativeReadRoots(options.session.cwd!) ??
+        options.nativeExecutionReadRoots,
       assertCurrentSync: assertHostCurrentSync,
     });
+  };
   const originalNativePolicyCurrent = options.assertNativeExecutionCurrent;
   const assertNativePolicyCurrent = (policy: CodexNativeExecutionPolicy, commandId: string) => {
     assertHostCurrentSync();
@@ -2027,46 +2040,57 @@ async function openCodexChatBound(
     startupReservation?.();
     throw error;
   }
-  const baseSystemPrompt = options.ownedLocal
-    ? options.systemPrompt +
-      (nativeExecution ? NATIVE_MAC_EXECUTION_INSTRUCTIONS : HOST_TOOL_INSTRUCTIONS) +
-      GITHUB_PUBLISHING_INSTRUCTIONS +
-      (localRepositoryReadDefinitions.some((tool) => agentToolAllowed(options.session, tool.name))
-        ? `\n${LOCAL_REPOSITORY_TOOL_INSTRUCTIONS}\n`
-        : '') +
-      (localRepositoryPreparationDefinitions.length
-        ? `\n${LOCAL_REPOSITORY_PREPARATION_INSTRUCTIONS}\n`
-        : '')
-    : options.systemPrompt +
-      CONNECTION_TOOL_INSTRUCTIONS +
-      WEB_ACCESS_INSTRUCTIONS +
-      GITHUB_PUBLISHING_INSTRUCTIONS +
-      (connectedOpenShell
-        ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. ${options.contributorGuidance === undefined ? `${telosArtifactInstructions(!!agentContext)} Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.` : ''}${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
-        : HOST_TOOL_INSTRUCTIONS) +
-      (managedConnection?.templateId === 'jira-readonly'
-        ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
-        : '');
+  const baseSystemPrompt = options.adviserScope
+    ? options.adviserScope.instructions() +
+      '\nThis scoped adviser task runs on the selected Local Mac in a fresh read-only task directory. Only the explicitly reviewed conversation is task context. Terminal access, product tools, network access and permission escalation are unavailable. Suggested commands require the user to review and run them.'
+    : options.ownedLocal
+      ? options.systemPrompt +
+        (nativeExecution ? NATIVE_MAC_EXECUTION_INSTRUCTIONS : HOST_TOOL_INSTRUCTIONS) +
+        GITHUB_PUBLISHING_INSTRUCTIONS +
+        (localRepositoryReadDefinitions.some((tool) => agentToolAllowed(options.session, tool.name))
+          ? `\n${LOCAL_REPOSITORY_TOOL_INSTRUCTIONS}\n`
+          : '') +
+        (localRepositoryPreparationDefinitions.length
+          ? `\n${LOCAL_REPOSITORY_PREPARATION_INSTRUCTIONS}\n`
+          : '')
+      : options.systemPrompt +
+        CONNECTION_TOOL_INSTRUCTIONS +
+        WEB_ACCESS_INSTRUCTIONS +
+        GITHUB_PUBLISHING_INSTRUCTIONS +
+        (connectedOpenShell
+          ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. ${options.contributorGuidance === undefined ? `${telosArtifactInstructions(!!agentContext)} Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.` : ''}${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
+          : HOST_TOOL_INSTRUCTIONS) +
+        (managedConnection?.templateId === 'jira-readonly'
+          ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
+          : '');
   const instructionDelivery = assembleInstructionSections([
     { source: 'profile-and-runtime', text: baseSystemPrompt },
-    { source: 'tool-discovery', text: integrationDiscovery?.instructions ?? '' },
+    {
+      source: 'tool-discovery',
+      text: options.adviserScope ? '' : (integrationDiscovery?.instructions ?? ''),
+    },
     {
       source: 'runtime-efficiency',
-      text: options.ownedLocal
-        ? LOCAL_EFFICIENCY_INSTRUCTIONS
-        : options.ownedOpenShell
-          ? OPENSHELL_EFFICIENCY_INSTRUCTIONS
-          : '',
+      text: options.adviserScope
+        ? ''
+        : options.ownedLocal
+          ? LOCAL_EFFICIENCY_INSTRUCTIONS
+          : options.ownedOpenShell
+            ? OPENSHELL_EFFICIENCY_INSTRUCTIONS
+            : '',
     },
     {
       source: 'client-capabilities',
-      text: options.ownedLocal || options.ownedOpenShell ? buildClientCapabilitiesPrompt() : '',
+      text:
+        !options.adviserScope && (options.ownedLocal || options.ownedOpenShell)
+          ? buildClientCapabilitiesPrompt()
+          : '',
     },
-    { source: 'startup-context', text: startup.context ?? '' },
+    { source: 'startup-context', text: options.adviserScope ? '' : (startup.context ?? '') },
     {
       source: 'agent-library-context',
       text:
-        options.ownedLocal && agentContext
+        !options.adviserScope && options.ownedLocal && agentContext
           ? `# Agent Library context (saved recipe)\n${agentContext.context.fullMarkdown}`
           : '',
     },
@@ -2187,7 +2211,7 @@ async function openCodexChatBound(
     ),
     ...(integrationDiscovery?.definitions ?? []),
   ];
-  if (ownedHost)
+  if (ownedHost && !options.adviserScope)
     log.debug('Codex context delivery manifest', {
       conversationId: options.conversationId,
       runtime: options.ownedOpenShell ? 'openshell' : 'local',
@@ -2282,7 +2306,7 @@ async function openCodexChatBound(
     store: privateStorage,
     deferToolSurfaceReplacement: !!runtimeManager,
     enableCapacityRecovery: !options.ownedLocal && !options.ownedOpenShell,
-    ...(ownedHost ? { skillContextTokens: 1500 } : {}),
+    ...(ownedHost && !options.adviserScope ? { skillContextTokens: 1500 } : {}),
     transportClosure: options.ownedLocal ? 'terminal' : undefined,
     webSearchBackend: openShell ? 'openshell' : 'host',
     webSearchDeploymentRevision: options.ownedLocal
@@ -2363,6 +2387,14 @@ async function openCodexChatBound(
             signal: AbortSignal,
             context: Parameters<ReturnType<typeof createCodexNativeApprovalHandler>>[3],
           ) => {
+            if (options.adviserScope) {
+              options.adviserScope.assertCurrent();
+              return Promise.resolve(
+                method === 'item/permissions/requestApproval'
+                  ? { permissions: {}, scope: 'turn' }
+                  : { decision: 'decline' },
+              );
+            }
             const owner = options.registry.findBySessionId(options.conversationId);
             if (!owner || owner.session !== options.session)
               throw Error('Native approval session unavailable');
@@ -2393,6 +2425,7 @@ async function openCodexChatBound(
           beforeThreadInitialization: (store: CodexConversationStore) =>
             options.ownedLocal!.persistCustody(store),
           beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) => {
+            options.adviserScope?.assertCommand(options.conversationId, input.id);
             options.assertWorkTurnAdmission?.();
             options.assertAgentContextAuthorization?.();
             options.ownedLocal!.assertBeforeEnqueue(input);
@@ -2411,6 +2444,7 @@ async function openCodexChatBound(
           canClaimCommand: (commandId: string) =>
             options.ownedOpenShell!.canClaimCommand(commandId),
           beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) => {
+            options.adviserScope?.assertCommand(options.conversationId, input.id);
             options.assertWorkTurnAdmission?.();
             options.assertAgentContextAuthorization?.();
             options.ownedOpenShell!.assertBeforeEnqueue(input);
@@ -2669,8 +2703,15 @@ async function openCodexChatBound(
         return options.ownedOpenShell.assertModelSelection(model, reasoningEffort);
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
-    tools: selectedToolDefinitions,
-    ...(ownedHost
+    tools: options.adviserScope ? [] : selectedToolDefinitions,
+    ...(options.adviserScope
+      ? {
+          adviserScope: options.adviserScope,
+          disableProjectDocuments: true,
+          disableWebSearch: true,
+        }
+      : {}),
+    ...(ownedHost && !options.adviserScope
       ? {
           onToolObservation: (observation: Record<string, unknown>) =>
             log.debug('Codex tool delivery', {
@@ -2715,6 +2756,7 @@ async function openCodexChatBound(
       : {}),
     emit: (event) => events.push(event),
     onProviderDispatch: (messageId) => {
+      options.adviserScope?.assertCommand(options.conversationId, messageId);
       options.assertWorkTurnAdmission?.();
       if (ownedHost) options.assertAgentContextAuthorization?.();
       options.ownedLocal?.assertBeforeDispatch(messageId);
@@ -2772,6 +2814,7 @@ async function openCodexChatBound(
       finish();
     },
     requestUserInput: async (params, signal) => {
+      if (options.adviserScope) throw Error('Adviser interactive tools unavailable');
       await assertHostCurrent();
       const owner = options.registry.findBySessionId(options.conversationId);
       if (!owner) throw new Error('Codex session unavailable');
@@ -2824,6 +2867,7 @@ async function openCodexChatBound(
         }
       : {}),
     executeTool: async (name, input, signal, callContext) => {
+      if (options.adviserScope) throw new CodexToolFailure('permission_denied');
       if (ownedHost && localEfficiencyDefinitions.some((tool) => tool.name === name)) {
         callContext.assertCurrentSync?.();
         await assertHostCurrent();

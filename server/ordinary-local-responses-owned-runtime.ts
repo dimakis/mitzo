@@ -89,6 +89,8 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
   #initialized = false;
   #active?: string;
   constructor(private readonly owners: Owners) {
+    if (owners.reservation.binding.provider !== 'google-vertex')
+      throw Error('Custom Responses execution is retired; review a linked native continuation');
     if (!owners.enabled || custodianControllerMode || custodianOwnerMode) throw unavailable();
     owners.signal.throwIfAborted();
     this.owners = {

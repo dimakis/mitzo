@@ -113,7 +113,7 @@ export interface ManagedSession {
   /** Accumulates token totals across multiple query() calls in a session */
   cumulativeSessionTokens: number;
   cumulativeCostUsd: number;
-  taskContext: { currentTaskId: string; goalId: string } | null;
+  taskContext: { currentTaskId: string; goalId: string; workerAllocationId?: string } | null;
   telosTaskId?: string;
   /** Active subagent task IDs — task_id → tool_use_id (parent_tool_use_id). */
   activeTaskIds: Map<string, string>;
@@ -148,7 +148,7 @@ export interface ActiveSessionInfo {
   cumulativeSessionTokens: number;
   cumulativeCostUsd: number;
   hasSnapshot: boolean;
-  taskContext: { currentTaskId: string; goalId: string } | null;
+  taskContext: { currentTaskId: string; goalId: string; workerAllocationId?: string } | null;
   observerCount: number;
 }
 

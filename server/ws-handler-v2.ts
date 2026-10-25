@@ -908,6 +908,10 @@ export function handleSendV2(
           void ctx.nativeCommands
             .execute(resolution.name, resolution.arguments, skillRegistry, {
               transport: commandTransport,
+              paidReasoning: {
+                operatorConnectionId: connectionId,
+                phaseSelections: msg.phaseSelections,
+              },
               ...(paidReasoning
                 ? {
                     [resolution.name === 'fuse' ? 'fusion' : 'deliberation']: {
@@ -919,6 +923,7 @@ export function handleSendV2(
                         confirmAmbiguous: msg.confirmAmbiguous,
                         selection: {
                           accountBinding: accountBinding ?? null,
+                          phaseSelections: msg.phaseSelections,
                           model: msg.model ?? null,
                           reasoningEffort: msg.reasoningEffort,
                           cwd,

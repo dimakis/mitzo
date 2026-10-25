@@ -159,7 +159,7 @@ it('uses the gateway resolver readiness check and retains a fresh final preparat
   expect(ready).not.toHaveBeenCalled();
   expect(state.key).not.toHaveBeenCalled();
 });
-it('requalifies a persisted legacy workspace proof through its owner without admitting fresh Responses work', async () => {
+it('retains an immutable legacy workspace proof while refusing retired Responses execution', async () => {
   const { f, binding, selection, authority } = await fixture('local');
   const fresh = await authority.captureOrdinaryRepositoryPreparation(
     binding,
@@ -174,20 +174,28 @@ it('requalifies a persisted legacy workspace proof through its owner without adm
       targetId: 'local-mac',
     },
   };
-  const { localResponsesCapabilities, OrdinaryLocalResponsesTarget } =
+  const { OrdinaryLocalResponsesTarget } =
     await import('../ordinary-local-responses-capabilities.js');
   const { loadAccountProfiles } = await import('../account-profiles.js');
-  const resolved = localResponsesCapabilities(
-    loadAccountProfiles(),
-    new OrdinaryLocalResponsesTarget(f.dependencies.env),
-  ).resolve({ ...legacySelection.runtime, mode: 'agent' });
-  if (resolved.status !== 'compatible') throw Error('Expected historical Responses binding');
+  // Historical evidence is seeded as saved data. A retired catalog cannot mint
+  // an execution binding for a new command, including through a test fixture.
+  const target = new OrdinaryLocalResponsesTarget(f.dependencies.env).descriptor();
+  const historicalRuntime = {
+    version: 2 as const,
+    account: legacySelection.runtime.account,
+    harness: { implementation: 'responses' as const },
+    execution: {
+      location: 'local' as const,
+      targetId: target.targetId,
+      targetRevision: target.targetRevision,
+    },
+  };
   const source = lstatSync(join(f.root, 'repositories', f.reservation.id, 'mgmt'));
   // Seed the existing private owner row as a historical preparation. The same
   // account/key custody was captured above; no new Responses capture is used.
   const proof = {
     ...fresh,
-    runtimeBinding: resolved.binding,
+    runtimeBinding: historicalRuntime,
     sourceIdentity: { dev: source.dev, ino: source.ino },
   };
   const database = new Database(join(f.root, 'repositories', 'workspaces.db'));
@@ -206,9 +214,10 @@ it('requalifies a persisted legacy workspace proof through its owner without adm
     authority.captureOrdinaryRepositoryPreparation(binding, legacySelection, f.signal.signal),
   ).rejects.toThrow('preparation authority unavailable');
   expect(state.key).not.toHaveBeenCalled();
-  await expect(f.workspace.qualifiedStatus(f.reservation.id, binding)).resolves.toMatchObject({
-    id: f.reservation.id,
-  });
+  await expect(f.workspace.qualifiedStatus(f.reservation.id, binding)).rejects.toThrow(
+    'preparation authority unavailable',
+  );
+  expect(state.key).not.toHaveBeenCalled();
   expect(f.workspace.get(f.reservation.id).ordinaryPreparation).toEqual(proof);
   await expect(
     f.workspace.qualifiedStatus(f.reservation.id, { ...binding, accountId: 'foreign' }),

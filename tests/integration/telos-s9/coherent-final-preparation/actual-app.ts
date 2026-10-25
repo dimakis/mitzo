@@ -1,4 +1,5 @@
 import { afterEach, expect, vi } from 'vitest';
+import { expect as browserExpect } from '@playwright/test';
 import request from 'supertest';
 import { randomUUID, createHash } from 'node:crypto';
 import {
@@ -15,7 +16,6 @@ import { tmpdir, hostname } from 'node:os';
 import { join, isAbsolute } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { installPrivatePublicationTransport } from './private-publication-runtime.js';
 import { prepareNativeProviderToolCall } from '../../../../server/__tests__/fixtures/native-provider-tool-call.js';
 import type { CodexLifecycleTransport } from '../../../../server/codex-app-server-client.js';
 import type { GithubRepositoryCommand } from '../../../../server/github-repository-source.js';
@@ -27,6 +27,9 @@ import {
   createJoinedFrontend,
   createJoinedBrowser,
 } from './joined-browser-target.js';
+
+export type CoherentNativeApproval =
+  'once' | 'source-review-once' | 'saved-receipt' | 'publication-receipt';
 
 const effects = vi.hoisted(() => ({
   repository: undefined as GithubRepositoryCommand | undefined,
@@ -63,11 +66,14 @@ vi.mock(
     return {
       ...actual,
       GitHubCliHostPublisher: class extends actual.GitHubCliHostPublisher {
-        constructor() {
-          super((...args) => {
-            if (!effects.repository) throw Error('Private GitHub effect not installed');
-            return effects.repository(...args);
-          });
+        constructor(run?: ConstructorParameters<typeof actual.GitHubCliHostPublisher>[0]) {
+          super(
+            run ??
+              ((...args) => {
+                if (!effects.repository) throw Error('Private GitHub effect not installed');
+                return effects.repository(...args);
+              }),
+          );
         }
       },
     };
@@ -545,9 +551,10 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
       runtime.store.close();
     });
   }
-  const publicationState: { owner?: ReturnType<typeof installPrivatePublicationTransport> } = {};
   const application = await import('../../../../server/app.js');
   const chat = await import('../../../../server/chat.js');
+  const { installPrivatePublicationTransport } = await import('./private-publication-runtime.js');
+  const publicationState: { owner?: ReturnType<typeof installPrivatePublicationTransport> } = {};
   const auth = await import('../../../../server/auth.js');
   auth.setAuthRevocationStore(chat.eventStore);
   const initialAuth: {
@@ -732,6 +739,12 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
   );
   publicationState.owner = selectedPublication;
   cleanup.push(() => selectedPublication.close());
+  const { getTelosMainPublicationRuntime } =
+    await import('../../../../server/telos-main-publication-runtime.js');
+  expect(getTelosMainPublicationRuntime()).toBe(selectedPublication);
+  expect(selectedPublication.supports(chat.registry, chat.eventStore, binding.accountId)).toBe(
+    true,
+  );
   const { TelosMainPublicationRecords } =
     await import('../../../../server/telos-main-publication-records.js');
   // Passive observers forward the original methods automatically. Retain their
@@ -838,12 +851,42 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
       expectedOutput: 'Retained report',
       acceptanceCriteria: ['Evidence'],
       modelPolicyRole: 'agent',
+      tools: [
+        'TelosStartSlice',
+        'TelosSaveArtifact',
+        'TelosReadArtifact',
+        'TelosGetItem',
+        'TelosUpdateItem',
+        'TaskArtifact',
+        'TaskComplete',
+        'TelosAdoptSource',
+      ].map((name) => ({ id: 'mitzo:' + name, version: 1 })),
     },
   });
   const profile = library.publish('user', {
     profileId: 'coherent-worker',
     expectedVersion: 1,
     idempotencyKey: 'publish',
+  });
+  library.saveDraft('user', {
+    profileId: 'coherent-advisor',
+    expectedVersion: 0,
+    expectedRevision: 0,
+    idempotencyKey: 'advisor-draft',
+    definition: {
+      name: 'Silent reviewed advisor',
+      role: 'agent',
+      instructions: 'Retain the reviewed plan without starting delegated work.',
+      expectedOutput: 'Reviewed advisory source.',
+      acceptanceCriteria: ['Keep advice separate from execution.'],
+      modelPolicyRole: 'agent',
+      tools: [],
+    },
+  });
+  const advisorProfile = library.publish('user', {
+    profileId: 'coherent-advisor',
+    expectedVersion: 1,
+    idempotencyKey: 'advisor-publish',
   });
   library.saveDraft('user', {
     profileId: 'coherent-publisher',
@@ -877,6 +920,10 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
     model: 'fixture-model',
     thinking: 'low',
   };
+  const advisorSelection = {
+    ...selection,
+    agent: { profileId: advisorProfile.profileId, revision: advisorProfile.revision },
+  };
   const runtime = {
     account: catalog.inventory().accounts[0].account,
     harness: 'codex' as const,
@@ -909,7 +956,8 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
     sessionId: string,
     name: string,
     input: unknown,
-    beforeOnce?: () => Promise<void>,
+    approval: CoherentNativeApproval,
+    beforeOnce?: (permission: Readonly<Record<string, unknown>>) => Promise<void>,
   ) => {
     const handle = chat.registry.findBySessionId(sessionId);
     if (!handle) throw Error('Original native actor missing');
@@ -947,22 +995,34 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
         prepared.request,
         new AbortController().signal,
       ) as Promise<{ success: boolean; contentItems: Array<{ type: string; text?: string }> }>
-    ).catch(async (error: unknown) => {
-      await record('original-native-callback-failure', {
-        conversationId: sessionId,
-        name,
-        threadId: actor.threadId,
-        turnId: actor.turnId,
-        callId,
-        error:
-          error instanceof Error
-            ? { name: error.name, message: error.message, stack: error.stack }
-            : String(error),
+    )
+      .then(async (result) => {
+        await record('original-native-callback-result-before-policy-oracles', {
+          conversationId: sessionId,
+          name,
+          threadId: actor.threadId,
+          turnId: actor.turnId,
+          callId,
+          result,
+        });
+        return result;
+      })
+      .catch(async (error: unknown) => {
+        await record('original-native-callback-failure', {
+          conversationId: sessionId,
+          name,
+          threadId: actor.threadId,
+          turnId: actor.turnId,
+          callId,
+          error:
+            error instanceof Error
+              ? { name: error.name, message: error.message, stack: error.stack }
+              : String(error),
+        });
+        throw error;
       });
-      throw error;
-    });
-    // Safe tools need no fabricated permission. For actual pending permission,
-    // consume the real application's authenticated Once endpoint exactly once.
+    // Fresh scoped operations require their actual pending approval. Only the
+    // two named original receipt paths below may complete without a new prompt.
     let settled = false;
     void pending.then(
       () => {
@@ -985,18 +1045,80 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
     const permission = streamMessages
       .slice(before)
       .find((message) => message.type === 'permission_request' && message.sessionId === sessionId);
-    if (permission) {
-      await beforeOnce?.();
-      const allowed = await http('/api/chat/permission', {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'permission_response',
+    const receiptOnly = approval === 'saved-receipt' || approval === 'publication-receipt';
+    if (receiptOnly) {
+      expect(name).toBe(
+        approval === 'saved-receipt' ? 'TelosSaveArtifact' : 'RequestGithubMainPublication',
+      );
+      expect(permission).toBeUndefined();
+      expect(beforeOnce).toBeUndefined();
+    } else {
+      expect(permission).toBeTruthy();
+      expect(permission!.sessionId).toBe(sessionId);
+      const permId = permission!.permId;
+      if (typeof permId !== 'string' || !permId)
+        throw Error('Original pending permission identity required');
+      if (!name.startsWith('mcp__')) expect(permission!.toolName).toBe(name);
+      if (name === 'TelosStartSlice') {
+        // This original operation is session-capable; Once itself is not cached.
+        expect(permission!.approvalScope).toBe('session');
+        expect(permission!.allowSessionGrant).not.toBe(false);
+      } else if (
+        [
+          'TelosSaveArtifact',
+          'TelosReadArtifact',
+          'TelosAdoptSource',
+          'TelosGetItem',
+          'TelosUpdateItem',
+          'RequestGithubMainPublication',
+        ].includes(name)
+      ) {
+        expect(permission).toMatchObject({ approvalScope: 'request', allowSessionGrant: false });
+      }
+      // Task MCP retains its original policy; do not invent request-only fields.
+      if (approval === 'source-review-once') {
+        expect(name).toBe('TelosAdoptSource');
+        expect(permission).toMatchObject({ reviewKind: 'telos_source' });
+        expect(beforeOnce).toBeDefined();
+        await beforeOnce?.(permission!);
+        const button = browser.page.getByRole('button', { name: 'Allow Once', exact: true });
+        await browserExpect(button).toBeVisible();
+        await browserExpect(button).toBeEnabled();
+        const responsePromise = browser.page.waitForResponse(
+          (response) =>
+            response.request().method() === 'POST' &&
+            new URL(response.url()).pathname ===
+              '/api/telos/work/source/permissions/' + permId + '/approve',
+        );
+        await button.click();
+        const approved = await responsePromise;
+        const body = await approved.text();
+        await record('actual-source-ui-approval-response', {
           sessionId,
-          permId: permission.permId,
-          decision: 'once',
-        }),
-      });
-      expect(allowed.status).toBe(200);
+          permId: permission!.permId,
+          status: approved.status(),
+          input: approved.request().postDataJSON(),
+          body,
+        });
+        expect(approved.status()).toBe(200);
+        expect(JSON.parse(body)).toMatchObject({ permId: permission!.permId, sessionId });
+        // The source UI resolves its own reviewed approval. Never also POST a
+        // generic permission response or inject the host's reserved receipt.
+      } else {
+        expect(approval).toBe('once');
+        expect(name).not.toBe('TelosAdoptSource');
+        await beforeOnce?.(permission!);
+        const allowed = await http('/api/chat/permission', {
+          method: 'POST',
+          body: JSON.stringify({
+            type: 'permission_response',
+            sessionId,
+            permId: permission!.permId,
+            decision: 'once',
+          }),
+        });
+        expect(allowed.status).toBe(200);
+      }
     }
     const result = await pending;
     const observed = {
@@ -1011,6 +1133,8 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
       input,
       observed,
       permId: permission?.permId ?? null,
+      expectedApproval: approval,
+      permissionRequest: permission ?? null,
     });
     return observed;
   };
@@ -1029,6 +1153,7 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
     actors,
     runtime,
     selection,
+    advisorSelection,
     binding,
     capabilityRevision: catalog.inventory().capabilityRevision,
     connectionId,

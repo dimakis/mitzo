@@ -51,6 +51,8 @@ vi.mock('../codex-mcp-tools.js', () => ({
   })),
 }));
 import { openResponsesChat } from '../responses-chat-session.js';
+import { openCodexChat } from '../codex-chat-session.js';
+import { CodexConversation } from '../codex-conversation.js';
 const roots: string[] = [];
 afterEach(async () => {
   captured.options.length = 0;
@@ -64,7 +66,7 @@ it.each([
   ['openai', 'file_path'],
   ['google-vertex', 'file_path'],
 ] as const)(
-  'admits published custom tools through actual %s %s exposure, dispatch and cold resume',
+  'qualifies published custom tool exposure, dispatch and cold-resume boundaries on %s %s',
   async (provider, field) => {
     const f = fixture(':memory:', field);
     const toolInput = (text: string) => ({ [field]: field === 'file_path' ? 'a.txt' : text });
@@ -153,6 +155,41 @@ it.each([
             : { apiKey: 'fake-not-used' }),
         };
       };
+      if (provider === 'openai') {
+        // Installed custom tools remain supported by deferred Gemini only. The
+        // actual native Codex controller must refuse the selected publication
+        // before conversation initialization, approval, or tool execution.
+        const initialize = vi.spyOn(CodexConversation.prototype, 'initialize');
+        for (const resume of [false, true]) {
+          const options = makeOptions(resume);
+          await expect(
+            openCodexChat({
+              ...options,
+              binding: { ...options.binding, provider: 'openai-codex' },
+              profile: {
+                accountId: options.binding.accountId,
+                accountLabel: options.binding.accountLabel,
+                email: 'fixture@example.test',
+                model: options.binding.model,
+                planType: 'plus',
+                credentialRef: '/synthetic/never-read',
+              },
+              messageId: 'offline-command',
+              prompt: 'Inspect installed publication',
+            }),
+          ).rejects.toThrow('Selected tool is unavailable on this route');
+          await expect(openResponsesChat(options)).rejects.toThrow(
+            'Custom Responses execution is retired',
+          );
+        }
+        expect(initialize).not.toHaveBeenCalled();
+        expect(captured.options).toEqual([]);
+        expect(captured.approve).not.toHaveBeenCalled();
+        expect(f.execute).not.toHaveBeenCalled();
+        expect(events.getSession('custom-chat')!.agentProfile).toEqual(published);
+        initialize.mockRestore();
+        return;
+      }
       for (const resume of [false, true]) {
         const options = makeOptions(resume);
         const chat = await openResponsesChat(options);

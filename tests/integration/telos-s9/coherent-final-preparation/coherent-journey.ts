@@ -1,4 +1,5 @@
 import { expect } from 'vitest';
+import { expect as browserExpect } from '@playwright/test';
 import { randomUUID, createHash } from 'node:crypto';
 import { access, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -10,7 +11,7 @@ import {
   type CollaborationSettings,
   type OrdinaryWorkspaceSettings,
 } from '@mitzo/protocol';
-import { createActualApp } from './actual-app.js';
+import { createActualApp, type CoherentNativeApproval } from './actual-app.js';
 import { publicationJourney } from './publication-journey.js';
 import { prepareColdHandoff } from './cold-handoff.js';
 import { observeActualAllOutcomesEntry } from './collection-entry.js';
@@ -86,7 +87,9 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
   const ordinaryRuntime = { runOn: 'local' as const, runtime: runtimeSelection };
   // Each distinct role needs its own real allocation preparation; exact retries
   // below retain that role's original selection and request.
-  const prepareSettings = async (): Promise<CollaborationSettings | OrdinaryWorkspaceSettings> => {
+  const prepareSettings = async (
+    selected = app.selection,
+  ): Promise<CollaborationSettings | OrdinaryWorkspaceSettings> => {
     if (kind === 'non-git') {
       const prepared = await app.ordinary.prepare({
         version: 1,
@@ -102,7 +105,7 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
       return {
         version: 2,
         binding: prepared.runtimeBinding,
-        selection: app.selection,
+        selection: selected,
         workspace: { kind: 'ordinary', preparationId: prepared.preparationId },
       };
     } else {
@@ -133,13 +136,15 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
       expect(retained.ordinaryPreparation!.credentialDigest).not.toBe('a'.repeat(64));
       return {
         binding: retained.ordinaryPreparation!.runtimeBinding,
-        selection: app.selection,
+        selection: selected,
         repositoryWorkspaceId: retained.id,
       };
     }
   };
   const setupRole = async (role: 'advisor' | 'lead') => {
-    const settings = await prepareSettings();
+    const settings = await prepareSettings(
+      role === 'advisor' ? app.advisorSelection : app.selection,
+    );
     const work = await api.read('studio');
     const review = await api.reviewRoleContext({
       itemId: 'studio',
@@ -303,8 +308,14 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
     sourceSnapshotIds: [originalSource.snapshotId],
     artifactRefs: [],
   };
-  const nativeJson = async (sessionId: string, name: string, args: unknown) => {
-    const observed = await app.nativeCall(sessionId, name, args);
+  const nativeJson = async (
+    sessionId: string,
+    name: string,
+    args: unknown,
+    approval: CoherentNativeApproval = 'once',
+    beforeOnce?: Parameters<typeof app.nativeCall>[4],
+  ) => {
+    const observed = await app.nativeCall(sessionId, name, args, approval, beforeOnce);
     expect(observed.result.success).toBe(true);
     return JSON.parse(
       observed.result.contentItems.map((item) => item.text ?? '').join('\n'),
@@ -417,14 +428,83 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
   expect(output.sessionId).toBe(workerId);
   expect(output.sha256).toBe(hash(report));
   expect(
-    await nativeJson(workerId, 'TelosSaveArtifact', {
-      requestId: 'coherent-output',
-      itemId: childId,
-      filename: 'recording-report.md',
-      title: 'Reviewed recording report',
-      path: 'recording-report.md',
-    }),
+    await nativeJson(
+      workerId,
+      'TelosSaveArtifact',
+      {
+        requestId: 'coherent-output',
+        itemId: childId,
+        filename: 'recording-report.md',
+        title: 'Reviewed recording report',
+        path: 'recording-report.md',
+      },
+      'saved-receipt',
+    ),
   ).toEqual(retainedOutput);
+  const workBeforeOutputApproval = await api.read(childId);
+  const taskStatusBeforeOutputApproval = application.taskStore.get(taskId)?.status;
+  const taskContextBeforeOutputApproval = structuredClone(
+    chat.registry.findBySessionId(workerId)!.session.taskContext,
+  );
+  await app.browser.page.goto(app.front.origin + '/chat/' + workerId);
+  await browserExpect(
+    app.browser.page.getByRole('textbox', { name: 'Message Mitzo' }),
+  ).toBeVisible();
+  const adopted = await nativeJson(
+    workerId,
+    'TelosAdoptSource',
+    { itemId: childId },
+    'source-review-once',
+    async () => {
+      const panel = app.browser.page.getByRole('region', { name: 'Telos source review' });
+      await browserExpect(panel).toBeVisible();
+      const exchange = panel.getByRole('checkbox', {
+        name: /Perform only the retained reviewed work and save the report/,
+      });
+      const material = panel.getByRole('checkbox', { name: /Reviewed recording report/ });
+      await browserExpect(exchange).not.toBeChecked();
+      await browserExpect(material).not.toBeChecked();
+      await exchange.check();
+      await material.check();
+      await panel.getByRole('button', { name: 'Review selected source', exact: true }).click();
+      await browserExpect(panel.getByText('Reviewed source', { exact: true })).toBeVisible();
+    },
+  );
+  expect(adopted.id).toBe(childId);
+  expect(typeof adopted.sourceSnapshotId).toBe('string');
+  const outputSource = await api.readSource(childId, adopted.sourceSnapshotId as string);
+  const approvedOutputSource = outputSource.snapshot;
+  expect(approvedOutputSource.source).toEqual({ namespace: 'mitzo', conversationId: workerId });
+  expect(approvedOutputSource.artifacts).toContainEqual({
+    artifactId: output.id,
+    revision: output.revision,
+    sha256: output.sha256,
+  });
+  const approvedOutput = outputSource.packet.context.artifacts.find(
+    (pin) => pin.artifactId === output.id && pin.revision === output.revision,
+  );
+  expect(approvedOutput).toBeDefined();
+  expect(approvedOutput!.sha256).toBe(output.sha256);
+  expect(Buffer.from(approvedOutput!.contentBase64!, 'base64')).toEqual(report);
+  const afterOutputApproval = await api.read(childId);
+  expect(afterOutputApproval.sources).toEqual([originalSource, approvedOutputSource]);
+  expect(afterOutputApproval.assignments).toEqual(workBeforeOutputApproval.assignments);
+  expect(application.taskStore.get(taskId)?.status).toBe(taskStatusBeforeOutputApproval);
+  expect(chat.registry.findBySessionId(workerId)!.session.taskContext).toEqual(
+    taskContextBeforeOutputApproval,
+  );
+  expect(
+    resolveTelosWorkRoleContext(
+      chat.eventStore,
+      workerId,
+      chat.eventStore.getSession(workerId)!.accountBinding!,
+    ),
+  ).toEqual(workerContext);
+  await app.record('actual-worker-approved-output-source-before-separate-native-read', {
+    workerId,
+    adopted,
+    outputSource,
+  });
   const nativeRead = await nativeJson(workerId, 'TelosReadArtifact', {
     id: output.id,
     revision: output.revision,
@@ -436,18 +516,28 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
   expect(nativeRead).toMatchObject({
     artifact: { encoding: 'utf8', content: report.toString('utf8') },
   });
-  const artifactResult = await app.nativeCall(workerId, 'mcp__task-board__TaskArtifact', {
-    key: 'report',
-    value: `artifact:${output.id}@${output.revision}`,
-  });
+  const artifactResult = await app.nativeCall(
+    workerId,
+    'mcp__task-board__TaskArtifact',
+    {
+      key: 'report',
+      value: `artifact:${output.id}@${output.revision}`,
+    },
+    'once',
+  );
   expect(artifactResult.result.success).toBe(true);
   expect(artifactResult.result.contentItems.map((item) => item.text ?? '').join('')).not.toContain(
     'Error:',
   );
   // TaskComplete returns text, not a fabricated JSON receipt.
-  const completed = await app.nativeCall(workerId, 'mcp__task-board__TaskComplete', {
-    summary: 'Saved report; awaiting explicit verification.',
-  });
+  const completed = await app.nativeCall(
+    workerId,
+    'mcp__task-board__TaskComplete',
+    {
+      summary: 'Saved report; awaiting explicit verification.',
+    },
+    'once',
+  );
   expect(completed.result.success).toBe(true);
   expect(completed.result.contentItems.map((item) => item.text ?? '').join('')).toContain(
     'pending_review',
@@ -456,7 +546,7 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
   const canonicalCompletion = await reviewArtifactThenCompleteMilestoneAndOutcome(
     {
       http: app.http,
-      native: (name, args) => app.nativeCall(leadId, name, args),
+      native: (name, args) => app.nativeCall(leadId, name, args, 'once'),
       reload: () => app.browser.page.reload().then(() => {}),
       record: app.record,
     },
@@ -493,7 +583,7 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
   expect(app.actors).toHaveLength(2);
   expect((await stat(directory)).ino).toBe(inode);
   expect(await readFile(join(directory, 'recording-report.md'))).toEqual(report);
-  expect((await api.read(childId)).sources).toEqual([originalSource]);
+  expect((await api.read(childId)).sources).toEqual([originalSource, approvedOutputSource]);
   expect((await api.readSource(childId, originalSource.snapshotId)).packet).toEqual(preview.packet);
   if (kind === 'repository')
     expect((await exec('git', ['-C', app.sourceRoot!, 'rev-parse', 'main'])).stdout.trim()).toBe(
@@ -541,7 +631,16 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
       sourceMainUnchanged: app.sourceOid,
     });
     if ('workspace' in settings) throw Error('Actual repository settings required');
-    publication = await publicationJourney(app, settings, sourceHead, sourceTree, start);
+    const publisherSettings = await prepareSettings({
+      ...app.selection,
+      agent: {
+        profileId: app.publisherProfile.profileId,
+        revision: app.publisherProfile.revision,
+      },
+    });
+    if ('workspace' in publisherSettings) throw Error('Actual repository settings required');
+    expect(publisherSettings.repositoryWorkspaceId).not.toBe(settings.repositoryWorkspaceId);
+    publication = await publicationJourney(app, publisherSettings, sourceHead, sourceTree, start);
   }
   // All current provider turns terminate before original owners close. Source
   // completion and provider termination are distinct observable boundaries.

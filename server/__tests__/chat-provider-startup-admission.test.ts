@@ -58,7 +58,7 @@ vi.mock('../session-index.js', async (original) => ({
   registerSession: vi.fn(),
 }));
 
-function profiles(enrolled = false) {
+function apiProfiles(enrolled = false) {
   return new AccountProfiles(
     [
       {
@@ -66,11 +66,25 @@ function profiles(enrolled = false) {
         label: 'Work API',
         provider: 'openai',
         credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
-        models: [{ id: 'gpt-test', label: 'GPT Test', reasoningEfforts: ['high'] }],
+        models: [{ id: 'gemini-2.5-pro', label: 'GPT Test', reasoningEfforts: ['high'] }],
       },
     ],
     enrolled ? { enrolledOpenAIAccountIds: new Set(['work-api']) } : {},
   );
+}
+
+function profiles() {
+  return new AccountProfiles([
+    {
+      id: 'work-api',
+      label: 'Deferred Gemini',
+      provider: 'google-vertex',
+      projectId: 'fixture-project',
+      region: 'global',
+      credentialRef: '/fixture/google-adc.json',
+      models: [{ id: 'gemini-2.5-pro', label: 'Gemini fixture', reasoningEfforts: ['high'] }],
+    },
+  ]);
 }
 
 function stubBootContext() {
@@ -107,8 +121,8 @@ async function legacyApiStartup() {
       cwd: root,
       isolation: false,
       accountId: 'work-api',
-      model: 'gpt-test',
-      accountProfiles: profiles(),
+      model: 'gemini-2.5-pro',
+      accountProfiles: apiProfiles(),
       clientMsgId: 'legacy-read-command',
       onStartupAdmission: admission,
       onQueryEvent: () => chat.stopChat(clientId),
@@ -137,7 +151,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-it('starts a legacy API read beside an active sandbox allocation while keeping rotation exclusive', async () => {
+it('rejects retired API startup beside an active allocation without reading keys or disturbing credential rotation', async () => {
   const f = await legacyApiStartup();
   const entered = deferred(),
     finish = deferred();
@@ -146,38 +160,29 @@ it('starts a legacy API read beside an active sandbox allocation while keeping r
     await finish.promise;
   });
   await entered.promise;
-  const running = f.start();
-  let rotation: Promise<unknown> | undefined;
+  const read = vi.spyOn(f.service, 'withCredentialRead');
+  const mutate = vi.fn(async () => {});
+  const rotation = f.service.withCredentialMutation(mutate);
   try {
-    await vi.waitFor(() => expect(native.prompts).toEqual(['Read safely']), { timeout: 1000 });
-    expect(f.ready).toHaveBeenCalledOnce();
-    expect(native.credentialResolve).toHaveBeenCalledOnce();
-    const mutate = vi.fn(async () => {});
-    rotation = f.service.withCredentialMutation(mutate);
-    await Promise.resolve();
+    await expect(f.start()).rejects.toThrow(/Responses execution is retired/);
+    expect(read).not.toHaveBeenCalled();
+    expect(f.ready).not.toHaveBeenCalled();
+    expect(native.credentialResolve).not.toHaveBeenCalled();
+    expect(native.construct).not.toHaveBeenCalled();
     expect(mutate).not.toHaveBeenCalled();
-    finish.resolve();
-    await allocation;
-    await rotation;
-    expect(mutate).toHaveBeenCalledOnce();
   } finally {
     finish.resolve();
     await allocation;
     await rotation;
-    await running;
     await f.close();
   }
+  expect(mutate).toHaveBeenCalledOnce();
 });
 
 it.each(['queued', 'readiness', 'lookup'] as const)(
-  'refuses a cancelled legacy API credential read during %s without late dispatch',
+  'rejects retired API startup before entering a credential %s callback, with no late dispatch',
   async (phase) => {
     const f = await legacyApiStartup();
-    const deadline = new AbortController();
-    const originalTimeout = AbortSignal.timeout;
-    const timeout = vi
-      .spyOn(AbortSignal, 'timeout')
-      .mockImplementation((ms) => (ms === 30_000 ? deadline.signal : originalTimeout(ms)));
     const entered = deferred(),
       finish = deferred();
     const holder =
@@ -189,39 +194,18 @@ it.each(['queued', 'readiness', 'lookup'] as const)(
         : Promise.resolve();
     if (phase === 'queued') await entered.promise;
     const read = vi.spyOn(f.service, 'withCredentialRead');
-    const write = vi.spyOn(f.service, 'withCredentialMutation');
-    if (phase === 'readiness')
-      f.ready.mockImplementationOnce(async () => {
-        deadline.abort();
-      });
-    if (phase === 'lookup')
-      native.credentialResolve.mockImplementationOnce(async () => {
-        deadline.abort();
-        return 'expired-key';
-      });
-    const running = f.start();
     try {
-      if (phase === 'queued') {
-        await vi.waitFor(() => expect(read.mock.calls.length + write.mock.calls.length).toBe(1));
-        deadline.abort();
-      }
-      await vi.waitFor(() => expect(f.admission).toHaveBeenCalledWith(expect.any(Error)), {
-        timeout: 1000,
-      });
-      expect(timeout.mock.calls.filter(([ms]) => ms === 30_000)).toHaveLength(1);
+      await expect(f.start()).rejects.toThrow(/Responses execution is retired/);
+      expect(read).not.toHaveBeenCalled();
+      expect(f.ready).not.toHaveBeenCalled();
+      expect(native.credentialResolve).not.toHaveBeenCalled();
       expect(native.construct).not.toHaveBeenCalled();
       expect(native.prompts).toEqual([]);
-      expect(native.credentialResolve).toHaveBeenCalledTimes(phase === 'lookup' ? 1 : 0);
-      expect(f.ready).toHaveBeenCalledTimes(phase === 'queued' ? 0 : 1);
-      if (phase !== 'queued') expect(f.ready.mock.calls[0][1]).toBe(read.mock.calls[0][1]);
     } finally {
       finish.resolve();
       await holder;
-      await running;
       await f.close();
     }
-    // The queued callback must remain unexecuted even after its old holder exits.
-    expect(native.construct).not.toHaveBeenCalled();
     expect(native.prompts).toEqual([]);
   },
 );
@@ -248,7 +232,7 @@ it('refuses runtime-bound legacy startup and preflight before provider or transc
   stubBootContext();
   const chat = await import('../chat.js');
   const accountProfiles = profiles();
-  const accountBinding = accountProfiles.resolve('work-api', 'gpt-test');
+  const accountBinding = accountProfiles.resolve('work-api', 'gemini-2.5-pro');
   const sessionId = 'bound-runtime';
   chat.eventStore.createSessionWithRuntimeBinding(
     { sessionId, cwd: root, repositoryWorkspaceId: 'reserved-workspace', accountBinding },
@@ -259,7 +243,7 @@ it('refuses runtime-bound legacy startup and preflight before provider or transc
         provider: accountBinding.provider,
         profileRevision: accountBinding.profileRevision,
       },
-      harness: { implementation: 'responses' },
+      harness: { implementation: 'gemini' },
       execution: {
         location: 'local',
         targetId: 'fixture-local',
@@ -315,7 +299,7 @@ it.each(['command', 'reattach-command', 'repository'] as const)(
     stubBootContext();
     const chat = await import('../chat.js');
     const accountProfiles = profiles();
-    const accountBinding = accountProfiles.resolve('work-api', 'gpt-test');
+    const accountBinding = accountProfiles.resolve('work-api', 'gemini-2.5-pro');
     const clientMsgId = 'bound-derived-command';
     const workspaceId = 'reserved-derived-workspace';
     const sessionId = chat.nativeStartupSessionId(
@@ -330,7 +314,7 @@ it.each(['command', 'reattach-command', 'repository'] as const)(
           provider: accountBinding.provider,
           profileRevision: accountBinding.profileRevision,
         },
-        harness: { implementation: 'responses' },
+        harness: { implementation: 'gemini' },
         execution: { location: 'local', targetId: 'fixture-local', targetRevision: 'fixture-v1' },
       },
     );
@@ -344,7 +328,7 @@ it.each(['command', 'reattach-command', 'repository'] as const)(
         cwd: root,
         isolation: false,
         accountId: 'work-api',
-        model: 'gpt-test',
+        model: 'gemini-2.5-pro',
         accountProfiles,
         clientMsgId,
         onStartupAdmission,
@@ -372,135 +356,54 @@ it.each(['command', 'reattach-command', 'repository'] as const)(
   },
 );
 
-it.each(['enrolled', 'managed'] as const)(
-  'dispatches the exact verified %s key without a second generic credential read',
+it.each(['enrolled', 'managed', 'failed-marker', 'missing-controller'] as const)(
+  'rejects retired API startup before %s key custody or any generic fallback',
   async (custody) => {
     vi.resetModules();
-    const root = await mkdtemp(join(tmpdir(), 'mitzo-verified-startup-key-'));
-    await writeFile(join(root, '.mitzo.json'), '{}');
-    vi.stubEnv('REPO_PATH', root);
-    vi.stubEnv('WORKTREE_ENABLED', 'false');
-    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
-    stubBootContext();
-    native.credentialResolve.mockResolvedValue('changed-unverified-key');
-    let held = false;
-    const withCredentialMutation = vi.fn(async <T>(work: () => Promise<T>) => {
-      if (held) throw new Error('Nested credential gate');
-      held = true;
-      try {
-        return await work();
-      } finally {
-        held = false;
-      }
-    });
-    const resolveKey = vi.fn(async () =>
-      withCredentialMutation(async () => 'verified-account-key'),
-    );
-    const controller = { manages: (id: string) => id === 'work-api', resolveKey };
-    const runtime = await import('../connections-runtime.js');
-    runtime.setConnectionsRuntime({
-      service: { withCredentialMutation },
-      assertOpenAIKeyReady: vi.fn(async () => {}),
-      ...(custody === 'enrolled'
-        ? { openAIEnrollmentAuthority: controller }
-        : { openAIKeys: controller }),
-    } as never);
-    const chat = await import('../chat.js');
-    try {
-      const running = chat.startChat(
-        { send() {}, isOpen: () => true },
-        'verified-startup',
-        'use verified key',
-        {
-          cwd: root,
-          isolation: false,
-          accountId: 'work-api',
-          model: 'gpt-test',
-          accountProfiles: profiles(custody === 'enrolled'),
-          clientMsgId: 'verified-key-command',
-        },
-      );
-      await vi.waitFor(() => expect(native.prompts).toEqual(['use verified key']));
-      chat.stopChat('verified-startup');
-      await running;
-      expect(native.construct.mock.calls[0]?.[0].apiKey).toBe('verified-account-key');
-      expect(resolveKey).toHaveBeenCalledOnce();
-      expect(withCredentialMutation).toHaveBeenCalledOnce();
-      expect(native.credentialResolve).not.toHaveBeenCalled();
-    } finally {
-      runtime.setConnectionsRuntime(null);
-      chat.registry.dispose();
-      chat.eventStore.close();
-      await rm(root, { recursive: true, force: true });
-    }
-  },
-);
-
-it.each(['failed-marker', 'missing-controller'] as const)(
-  'blocks enrolled native startup after %s without falling back to a generic key',
-  async (scenario) => {
-    vi.resetModules();
-    const root = await mkdtemp(join(tmpdir(), 'mitzo-invalid-startup-marker-'));
-    await writeFile(join(root, '.mitzo.json'), '{}');
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-retired-key-custody-'));
     vi.stubEnv('REPO_PATH', root);
     vi.stubEnv('WORKTREE_ENABLED', 'false');
     vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
     stubBootContext();
     const resolveKey = vi.fn(async () => {
-      throw new Error('OpenAI enrolled account needs attention');
+      throw Error('private custody diagnostic');
     });
+    const withCredentialMutation = vi.fn();
     const runtime = await import('../connections-runtime.js');
-    runtime.setConnectionsRuntime({
-      openAIEnrollmentAuthority: { manages: () => true, resolveKey },
-      service: { withCredentialMutation: async <T>(work: () => Promise<T>) => work() },
-      assertOpenAIKeyReady: async () => {},
-    } as never);
+    const controller = { manages: () => true, resolveKey };
+    runtime.setConnectionsRuntime(
+      custody === 'missing-controller'
+        ? null
+        : ({
+            service: { withCredentialMutation },
+            assertOpenAIKeyReady: vi.fn(),
+            ...(custody === 'managed'
+              ? { openAIKeys: controller }
+              : { openAIEnrollmentAuthority: controller }),
+          } as never),
+    );
     const chat = await import('../chat.js');
-    if (scenario === 'missing-controller') {
-      const upsert = chat.eventStore.upsertSession.bind(chat.eventStore);
-      vi.spyOn(chat.eventStore, 'upsertSession').mockImplementationOnce((input) => {
-        upsert(input);
-        // Durable admission follows the first custody check, but precedes the
-        // startup credential read. Simulate the controller becoming unavailable.
-        runtime.setConnectionsRuntime(null);
-      });
-    }
-    const sent = vi.fn();
     try {
-      const running = chat.startChat(
-        { send: sent, isOpen: () => true },
-        'bad-marker-startup',
-        'never dispatch',
-        {
+      await expect(
+        chat.startChat({ send: vi.fn(), isOpen: () => true }, 'retired-custody', 'never dispatch', {
           cwd: root,
           isolation: false,
           accountId: 'work-api',
-          model: 'gpt-test',
-          accountProfiles: profiles(true),
-          clientMsgId: 'bad-marker-command',
-        },
-      );
-      await vi.waitFor(() =>
-        expect(
-          sent.mock.calls.some(([message]) => message.type === 'error') ||
-            native.prompts.length > 0,
-        ).toBe(true),
-      );
-      chat.stopChat('bad-marker-startup');
-      await running;
-      expect(resolveKey).toHaveBeenCalledTimes(scenario === 'failed-marker' ? 1 : 0);
-      expect(native.credentialResolve).not.toHaveBeenCalled();
-      expect(native.construct).not.toHaveBeenCalled();
-      expect(native.prompts).toEqual([]);
-      expect(sent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'error',
-          error:
-            scenario === 'failed-marker'
-              ? 'OpenAI enrolled account needs attention'
-              : 'OpenAI account enrollment controller is unavailable',
+          model: 'gemini-2.5-pro',
+          accountProfiles: apiProfiles(custody !== 'managed'),
+          clientMsgId: 'retired-key-command',
         }),
-      );
+      ).rejects.toThrow(/Responses execution is retired/);
+      for (const effect of [
+        resolveKey,
+        withCredentialMutation,
+        native.credentialResolve,
+        native.construct,
+        native.connect,
+      ])
+        expect(effect).not.toHaveBeenCalled();
+      expect(native.prompts).toEqual([]);
+      expect(chat.registry.get('retired-custody')).toBeUndefined();
     } finally {
       runtime.setConnectionsRuntime(null);
       chat.registry.dispose();
@@ -597,7 +500,7 @@ it('admits a native initial command before queue visibility and dispatches one p
         cwd: root,
         isolation: false,
         accountId: 'work-api',
-        model: 'gpt-test',
+        model: 'gemini-2.5-pro',
         reasoningEffort: 'high',
         accountProfiles: profiles(),
         initialSessionId: sessionId,
@@ -624,7 +527,7 @@ it('admits a native initial command before queue visibility and dispatches one p
         clientMsgId: 'initial-command',
         prompt: 'first turn',
         cwd: root,
-        model: 'gpt-test',
+        model: 'gemini-2.5-pro',
         reasoningEffort: 'high',
       }),
     ).toBe(true);
@@ -634,7 +537,7 @@ it('admits a native initial command before queue visibility and dispatches one p
         clientMsgId: 'initial-command',
         prompt: 'changed turn',
         cwd: root,
-        model: 'gpt-test',
+        model: 'gemini-2.5-pro',
         reasoningEffort: 'high',
       }),
     ).toThrow(/fingerprint/i);
@@ -645,7 +548,7 @@ it('admits a native initial command before queue visibility and dispatches one p
         prompt: 'first turn',
         cwd: root,
         contextBlocks: ['reference'],
-        model: 'gpt-test',
+        model: 'gemini-2.5-pro',
         reasoningEffort: 'high',
       }),
     ).toThrow(/fingerprint/i);
@@ -665,7 +568,7 @@ it('admits a native initial command before queue visibility and dispatches one p
         clientMsgId: 'initial-command',
         prompt: 'first turn',
         cwd: root,
-        model: 'gpt-test',
+        model: 'gemini-2.5-pro',
         reasoningEffort: null,
       }),
     ).toThrow(/fingerprint/i);
@@ -694,7 +597,7 @@ it('reuses initial and registry-missing resume admissions without redispatch', a
       cwd: root,
       isolation: false,
       accountId: 'work-api',
-      model: 'gpt-test',
+      model: 'gemini-2.5-pro',
       accountProfiles,
       initialSessionId: sessionId,
       clientMsgId: 'initial-command',
@@ -709,7 +612,7 @@ it('reuses initial and registry-missing resume admissions without redispatch', a
         clientMsgId: 'initial-command',
         prompt: 'first turn',
         cwd: root,
-        model: 'gpt-test',
+        model: 'gemini-2.5-pro',
       }),
     ).toBe(true);
     vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
@@ -719,26 +622,26 @@ it('reuses initial and registry-missing resume admissions without redispatch', a
         clientMsgId: 'initial-command',
         prompt: 'first turn',
         cwd: root,
-        model: 'gpt-test',
+        model: 'gemini-2.5-pro',
       }),
     ).toBe(true);
     vi.stubEnv('MITZO_OPENSHELL_ENABLED', '');
 
-    native.credentialResolve.mockClear();
-    native.credentialResolve.mockRejectedValueOnce(new Error('Keychain unavailable'));
+    native.googleToken.mockClear();
+    native.googleToken.mockRejectedValueOnce(new Error('Selected Google credential unavailable'));
     await chat.startChat(transport, 'initial-retry', 'first turn', {
       cwd: root,
       isolation: false,
       accountId: 'work-api',
-      model: 'gpt-test',
+      model: 'gemini-2.5-pro',
       accountProfiles,
       initialSessionId: sessionId,
       clientMsgId: 'initial-command',
     });
     expect(chat.registry.get('initial-retry')).toBeUndefined();
     expect(native.prompts).toEqual(['first turn']);
-    expect(native.credentialResolve).not.toHaveBeenCalled();
-    native.credentialResolve.mockReset().mockResolvedValue('private-test-key');
+    expect(native.googleToken).not.toHaveBeenCalled();
+    native.googleToken.mockReset().mockResolvedValue('private-google-token');
 
     const resumed = chat.startChat(transport, 'resume-client', 'continue', {
       resume: sessionId,
@@ -779,14 +682,14 @@ it('fails closed for a historical OpenShell command after routing changes to nat
   stubBootContext();
   const chat = await import('../chat.js');
   const sessionId = '99999999-9999-4999-8999-999999999999';
-  const accountBinding = profiles().resolve('work-api', 'gpt-test');
+  const accountBinding = apiProfiles().resolve('work-api', 'gemini-2.5-pro');
 
   try {
     chat.eventStore.upsertSession({
       sessionId,
       cwd: root,
       accountBinding,
-      selectedModel: 'gpt-test',
+      selectedModel: 'gemini-2.5-pro',
     });
     chat.eventStore.append(sessionId, 'user_message', {
       v: 2,
@@ -803,7 +706,7 @@ it('fails closed for a historical OpenShell command after routing changes to nat
         clientMsgId: 'openshell-command',
         prompt: 'already dispatched',
         cwd: root,
-        model: 'gpt-test',
+        model: 'gemini-2.5-pro',
       }),
     ).toThrow('ambiguous legacy OpenShell dispatch state; retry with a new command ID');
   } finally {
@@ -827,7 +730,7 @@ it('derives one stable native session identity for repeated WebSocket initial fr
     cwd: root,
     isolation: false,
     accountId: 'work-api',
-    model: 'gpt-test',
+    model: 'gemini-2.5-pro',
     accountProfiles: profiles(),
     clientMsgId: 'ws-initial-command',
   } as const;
@@ -838,13 +741,13 @@ it('derives one stable native session identity for repeated WebSocket initial fr
     chat.stopChat('ws-initial-first');
     await first;
 
-    native.credentialResolve.mockClear();
+    native.googleToken.mockClear();
     await chat.startChat(transport, 'ws-initial-retry', 'one frame', options);
 
     const sessionId = chat.nativeStartupSessionId('ws-initial-command');
     expect(chat.eventStore.getExecutionAdmission(sessionId, 'ws-initial-command')).toBeDefined();
     expect(native.prompts).toEqual(['one frame']);
-    expect(native.credentialResolve).not.toHaveBeenCalled();
+    expect(native.googleToken).not.toHaveBeenCalled();
     expect(chat.registry.get('ws-initial-retry')).toBeUndefined();
   } finally {
     chat.registry.dispose();
@@ -870,8 +773,8 @@ it('rejects a changed cold-resume command before registry or transcript mutation
     chat.eventStore.upsertSession({
       sessionId,
       cwd: root,
-      accountBinding: accountProfiles.resolve('work-api', 'gpt-test'),
-      selectedModel: 'gpt-test',
+      accountBinding: accountProfiles.resolve('work-api', 'gemini-2.5-pro'),
+      selectedModel: 'gemini-2.5-pro',
     });
     const original = chat.startChat(firstTransport, 'resume-first', 'original', {
       resume: sessionId,
@@ -908,7 +811,7 @@ it('rejects a changed cold-resume command before registry or transcript mutation
   }
 });
 
-it('sanitizes checkpoint startup failures and terminalizes admission before provider execution', async () => {
+it('terminalizes deferred Gemini preparation failures before provider execution', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-native-startup-failure-'));
   await writeFile(join(root, '.mitzo.json'), '{}');
@@ -916,11 +819,7 @@ it('sanitizes checkpoint startup failures and terminalizes admission before prov
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
   stubBootContext();
-  native.connect.mockRejectedValueOnce(
-    new Error(
-      'Command failed: ssh PRIVATE_BOOTSTRAP\ncheckpoint: unsupported provider state: .sqlite-maintenance.lock\n',
-    ),
-  );
+  native.connect.mockRejectedValueOnce(new Error('Gemini preparation failed'));
   const chat = await import('../chat.js');
   const sessionId = '44444444-4444-4444-8444-444444444444';
 
@@ -930,7 +829,7 @@ it('sanitizes checkpoint startup failures and terminalizes admission before prov
       cwd: root,
       isolation: false,
       accountId: 'work-api',
-      model: 'gpt-test',
+      model: 'gemini-2.5-pro',
       accountProfiles: profiles(),
       initialSessionId: sessionId,
       clientMsgId: 'startup-failure',
@@ -949,11 +848,9 @@ it('sanitizes checkpoint startup failures and terminalizes admission before prov
       .filter((message) => message.type === 'error');
     expect(errors).toEqual([
       expect.objectContaining({
-        error:
-          'Retained sandbox migration is blocked. The source runtime or provider layout is not supported. Its task files and provider thread are preserved.',
+        error: 'Gemini preparation failed',
       }),
     ]);
-    expect(JSON.stringify(errors)).not.toContain('PRIVATE_BOOTSTRAP');
   } finally {
     chat.registry.dispose();
     chat.eventStore.close();
@@ -983,7 +880,7 @@ it('terminalizes and removes staged runtime state when setup fails after admissi
         cwd: root,
         isolation: false,
         accountId: 'work-api',
-        model: 'gpt-test',
+        model: 'gemini-2.5-pro',
         accountProfiles: profiles(),
         initialSessionId: sessionId,
         clientMsgId: 'post-admission-failure',
@@ -1027,7 +924,7 @@ it('does not create runtime or transcript side effects when admission storage fa
       cwd: root,
       isolation: false,
       accountId: 'work-api',
-      model: 'gpt-test',
+      model: 'gemini-2.5-pro',
       accountProfiles: profiles(),
       initialSessionId: sessionId,
       clientMsgId: 'admission-storage-failure',
@@ -1072,7 +969,7 @@ it('terminalizes admission when transcript acknowledgement fails before queue pu
         cwd: root,
         isolation: false,
         accountId: 'work-api',
-        model: 'gpt-test',
+        model: 'gemini-2.5-pro',
         accountProfiles: profiles(),
         initialSessionId: sessionId,
         clientMsgId: 'transcript-storage-failure',
@@ -1098,105 +995,37 @@ it('terminalizes admission when transcript acknowledgement fails before queue pu
   }
 });
 
-it('admits OpenAI image startup and delivers pixels without staging Read-tool paths', async () => {
-  vi.resetModules();
-  const root = await mkdtemp(join(tmpdir(), 'mitzo-image-startup-'));
-  vi.stubEnv('REPO_PATH', root);
-  vi.stubEnv('WORKTREE_ENABLED', 'false');
-  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
-  stubBootContext();
-  const chat = await import('../chat.js');
-  const sent = vi.fn();
-  const images = [{ data: 'cG5n', mediaType: 'image/png' }];
-  const running = chat.startChat({ send: sent, isOpen: () => true }, 'image-startup', 'Inspect', {
-    cwd: root,
-    isolation: false,
-    accountId: 'work-api',
-    model: 'gpt-test',
-    accountProfiles: profiles(),
-    clientMsgId: 'image-initial',
-    images,
-  });
-  try {
-    await vi.waitFor(() =>
-      expect(native.prompts).toEqual([
-        [
-          { type: 'text', text: 'Inspect' },
-          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'cG5n' } },
-        ],
-      ]),
-    );
-    expect(sent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'user_message',
-        images: ['data:image/png;base64,cG5n'],
-      }),
-    );
-    expect(native.prepare).toHaveBeenCalledExactlyOnceWith('image-initial', [
-      { type: 'text', text: 'Inspect' },
-      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'cG5n' } },
-    ]);
-    native.prepare.mockClear();
-    const interrupt = vi.spyOn(chat.registry.get('image-startup')!.queryInstance!, 'interrupt');
-    const invalidImages = [{ data: 'not base64', mediaType: 'image/png' }];
-    expect(
-      await chat.sendToChat('image-startup', 'Invalid', invalidImages, undefined, 'invalid-image'),
-    ).toBe(false);
-    expect(
-      await chat.interruptChat(
-        'image-startup',
-        'Invalid',
-        invalidImages,
-        undefined,
-        'invalid-interrupt',
-      ),
-    ).toBe(false);
-    expect(interrupt).not.toHaveBeenCalled();
-    expect(native.prepare).not.toHaveBeenCalled();
-    expect(sent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'error',
-        error: expect.stringMatching(/base64/i),
-      }),
-    );
-    const followup = "Compare\n\nI've attached 1 image(s). Read them using the Read tool:\nfirst";
-    expect(
-      await chat.sendToChat('image-startup', followup, images, undefined, 'image-followup'),
-    ).toBe(true);
-    await vi.waitFor(() => expect(native.prompts).toHaveLength(2));
-    const expectedFollowup = [
-      { type: 'text', text: followup },
-      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'cG5n' } },
-    ];
-    expect(native.prompts[1]).toEqual(expectedFollowup);
-    expect(native.prepare).toHaveBeenCalledWith('image-followup', expectedFollowup, {});
-    expect(
-      await chat.sendToChat('image-startup', followup, images, undefined, 'image-followup'),
-    ).toBe(true);
-    await expect(
-      chat.sendToChat(
-        'image-startup',
-        followup.replace('first', 'changed'),
-        images,
-        undefined,
-        'image-followup',
-      ),
-    ).rejects.toThrow(/different request/i);
-    expect(native.prompts).toHaveLength(2);
-    expect(
-      await chat.interruptChat('image-startup', 'New view', images, undefined, 'image-interrupt'),
-    ).toBe(true);
-    await vi.waitFor(() => expect(native.prompts).toHaveLength(3));
-    expect(native.prompts[2]).toEqual([
-      { type: 'text', text: 'New view' },
-      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'cG5n' } },
-    ]);
-    expect(await readdir(root)).not.toContain('.mitzo-images');
-  } finally {
-    chat.stopChat('image-startup');
-    await running;
-    chat.registry.dispose();
-    chat.eventStore.close();
-    await rm(root, { recursive: true, force: true });
-  }
-});
+it.each([false, true])(
+  'rejects retired API image startup before staging, credentials or provider effects (malformed=%s)',
+  async (malformed) => {
+    vi.resetModules();
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-retired-image-startup-'));
+    vi.stubEnv('REPO_PATH', root);
+    vi.stubEnv('WORKTREE_ENABLED', 'false');
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
+    stubBootContext();
+    const chat = await import('../chat.js');
+    try {
+      await expect(
+        chat.startChat({ send: vi.fn(), isOpen: () => true }, 'image-startup', 'Inspect', {
+          cwd: root,
+          isolation: false,
+          accountId: 'work-api',
+          model: 'gemini-2.5-pro',
+          accountProfiles: apiProfiles(),
+          clientMsgId: 'image-initial',
+          images: [{ data: malformed ? 'not base64' : 'cG5n', mediaType: 'image/png' }],
+        }),
+      ).rejects.toThrow(/Responses execution is retired/);
+      expect(native.prepare).not.toHaveBeenCalled();
+      expect(native.construct).not.toHaveBeenCalled();
+      expect(native.credentialResolve).not.toHaveBeenCalled();
+      expect(native.prompts).toEqual([]);
+      expect(await readdir(root)).not.toContain('.mitzo-images');
+    } finally {
+      chat.registry.dispose();
+      chat.eventStore.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

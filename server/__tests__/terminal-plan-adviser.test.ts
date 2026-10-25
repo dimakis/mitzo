@@ -89,31 +89,18 @@ function setup() {
   setTerminalPlanAdviserHost(host);
   return { host, accounts, ready, fetcher };
 }
-it('routes the selected subscription straight to text inference with no CLI or API billing fallback', async () => {
+it('retains the selected registration and explains explicit native migration without accessing its token', async () => {
   const f = setup();
-  const result = await new TerminalAdviser(createTerminalAdviserSession).ask(
-    'operator',
-    {
-      accountId: id,
-      model: 'gpt-6-luna',
-      reasoningEffort: 'high',
-      messages: [{ role: 'user', content: 'Help' }],
-      output: 'Reviewed marker',
-    },
-    new AbortController().signal,
-  );
-  expect(result.commands).toEqual(['ls -la']);
-  expect(f.ready).toHaveBeenCalledWith(id, 'gpt-6-luna', 'high', expect.any(AbortSignal));
-  expect(f.fetcher).toHaveBeenCalledTimes(1);
-  const [url, init] = f.fetcher.mock.calls[0] as unknown as [string, RequestInit];
-  expect(url).toBe('https://api.openai.com/v1/responses');
-  const wire = JSON.parse(init.body as string);
-  expect(wire.input).toEqual([
-    { role: 'user', content: 'Help\n\nReviewed terminal output:\nReviewed marker' },
-  ]);
-  expect(wire.tools).toBeUndefined();
-  expect(wire.reasoning.effort).toBe('high');
-  expect(JSON.stringify(result)).not.toContain('synthetic');
+  await expect(
+    new TerminalAdviser(createTerminalAdviserSession).ask(
+      'operator',
+      { accountId: id, model: 'gpt-6-luna', messages: [{ role: 'user', content: 'Help' }] },
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow(/registration.*retained|retained.*registration/i);
+  expect(f.ready).not.toHaveBeenCalled();
+  expect(f.fetcher).not.toHaveBeenCalled();
+  expect(f.host.list()).toEqual([]);
 });
 it('refuses unavailable grants before a network request and does not try a legacy account', async () => {
   const f = setup();
