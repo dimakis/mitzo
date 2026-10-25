@@ -1,13 +1,16 @@
 import { test, expect, chromium } from '@playwright/test';
 import { createPrivateRelayBrowser } from '../../server/secret-relay-browser-driver';
 import { BrowserRelayTargetSchema, PrivateRelayBrowsers } from '../../server/secret-relay-browser';
-test('private browser authenticates with CSRF cookies, requests MFA and continues a reviewed action without exporting state', async ({}, testInfo) => {
+test('private browser authenticates with CSRF cookies, requests MFA and continues a reviewed action without exporting state', async (_fixtures, testInfo) => {
   test.skip(
     testInfo.project.name !== 'desktop-chromium',
     'Private browser adapter uses Chromium on the controller.',
   );
   const seen: Array<{ url: string; method: string; body: string; cookie: string }> = [];
   let retainedScopeCheck: (() => void) | undefined;
+  let challenged = false;
+  const codeForm =
+    '<form method="post" action="/otp"><input id="code" name="code"><button id="verify">Verify</button></form>';
   let signedIn = false;
   let saved = false;
   const target = BrowserRelayTargetSchema.parse({
@@ -63,6 +66,14 @@ test('private browser authenticates with CSRF cookies, requests MFA and continue
             headers: { 'content-type': 'application/json' },
             body: Buffer.from(JSON.stringify({ authenticated: signedIn, saved })),
           };
+        if (path === '/login' && method === 'GET' && challenged) {
+          expect(entry.cookie).toContain('challenge=private-challenge');
+          return {
+            status: 200,
+            headers: { 'content-type': 'text/html' },
+            body: Buffer.from(codeForm),
+          };
+        }
         if (path === '/login' && method === 'GET')
           return {
             status: 200,
@@ -78,11 +89,28 @@ test('private browser authenticates with CSRF cookies, requests MFA and continue
           expect(entry.cookie).toContain('csrf=private-csrf');
           expect(entry.body).toContain('password=private-password');
           expect(entry.body).toContain('csrf=private-csrf');
+          challenged = true;
           return {
             status: 200,
-            headers: { 'content-type': 'text/html' },
+            headers: {
+              'content-type': 'text/html',
+              'set-cookie': 'challenge=private-challenge; Secure; HttpOnly; Path=/',
+            },
+            // This old document schedules a replay only when MFA starts. It must
+            // never inherit the next operation's authority, even though /login
+            // is an approved POST destination and the old request finished.
             body: Buffer.from(
-              '<form method="post" action="/otp"><input id="code" name="code"><button id="verify">Verify</button></form>',
+              codeForm +
+                `<script>
+              let retry = Promise.resolve();
+              document.querySelector('#code').addEventListener('input', () => {
+                retry = new Promise(resolve => setTimeout(resolve, 0)).then(() =>
+                  fetch('/login', {method:'POST', body:${JSON.stringify(entry.body)}}).catch(() => {}));
+              });
+              document.querySelector('form').addEventListener('submit', async event => {
+                event.preventDefault(); await retry; event.target.submit();
+              });
+            </script>`,
             ),
           };
         }

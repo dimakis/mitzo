@@ -1,9 +1,10 @@
 import { request } from 'node:https';
+import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { brotliDecompressSync, gunzipSync, inflateSync } from 'node:zlib';
-import { chromium, type Browser, type LaunchOptions } from 'playwright-core';
+import { chromium, type Browser, type LaunchOptions, type Page } from 'playwright-core';
 import { isAllowedConnectionAddress } from './credential-http.js';
 import {
   assertBrowserGate,
@@ -234,55 +235,51 @@ export async function createPrivateRelayBrowser(
       ignoreHTTPSErrors: false,
       permissions: [],
     });
-    let active: BrowserGate | undefined;
-    const writes = new Set<string>();
+    type Scope = { gate: BrowserGate; page: Page; writes: Set<string> };
+    let active: Scope | undefined;
+    let running = false;
+    let opening = false;
+    let challengeUrl: string | undefined;
+    // Keep only fingerprints in host memory; never replay a body from an earlier operation.
+    const sentWrites = new Set<string>();
+    context.on('page', (page) => {
+      if (!opening) void page.close().catch(() => {});
+    });
     const send = options.send ?? sendPrivateBrowserRequest;
     await context.routeWebSocket('**/*', (socket) => socket.close());
     await context.route('**/*', async (route) => {
       try {
-        const gate = active;
+        const scope = active;
         const req = route.request();
-        if (!gate || !browserRequestAllowed(target, req.url(), req.method())) throw new Error();
+        if (
+          !scope ||
+          req.frame() !== scope.page.mainFrame() ||
+          !browserRequestAllowed(target, req.url(), req.method())
+        )
+          throw new Error();
+        const gate = scope.gate;
         await assertBrowserGate(gate);
         const headers = await req.allHeaders();
-        if (active !== gate) throw new Error();
+        gate.check();
+        const body = req.postDataBuffer() ?? undefined;
         if (!['GET', 'HEAD'].includes(req.method())) {
           const key = `${req.method()}:${new URL(req.url()).pathname}`;
-          if (writes.has(key)) throw new Error('Private browser duplicate write blocked');
-          writes.add(key);
+          const fingerprint = `${req.method()}:${req.url()}:${createHash('sha256')
+            .update(body ?? '')
+            .digest('hex')}`;
+          if (scope.writes.has(key) || sentWrites.has(fingerprint))
+            throw new Error('Private browser duplicate write blocked');
+          scope.writes.add(key);
+          sentWrites.add(fingerprint);
         }
-        const requestGate = {
-          ...gate,
-          check: () => {
-            if (active !== gate) throw new Error('Private browser request scope ended');
-            gate.check();
-          },
-        };
-        const response = await send(
-          target,
-          req.url(),
-          req.method(),
-          headers,
-          req.postDataBuffer() ?? undefined,
-          requestGate,
-        );
+        const response = await send(target, req.url(), req.method(), headers, body, gate);
         await assertBrowserGate(gate);
-        if (active !== gate) throw new Error();
         await route.fulfill(response);
       } catch {
         await route.abort('blockedbyclient').catch(() => {});
       }
     });
-    const page = await context.newPage();
-    page.setDefaultTimeout(10000);
-    page.setDefaultNavigationTimeout(15000);
-    context.on('page', (p) => {
-      if (p !== page) void p.close().catch(() => {});
-    });
-    page.on('dialog', (dialog) => {
-      void dialog.dismiss().catch(() => {});
-    });
-    const atOrigin = () => {
+    const atOrigin = (page: Page) => {
       if (new URL(page.url()).origin !== target.origin || page.frames().length !== 1)
         throw new Error('Private browser page changed');
     };
@@ -304,86 +301,120 @@ export async function createPrivateRelayBrowser(
       await assertBrowserGate(gate);
       verifyBrowserResponse(verification, response.status, response.body);
     };
-    const run = async <T>(gate: BrowserGate, work: () => Promise<T>): Promise<T> => {
-      if (active) throw new Error('Private browser busy');
-      await assertBrowserGate(gate);
-      active = gate;
-      writes.clear();
+    const run = async <T>(
+      gate: BrowserGate,
+      work: (page: Page, operationGate: BrowserGate) => Promise<T>,
+    ): Promise<T> => {
+      if (running) throw new Error('Private browser busy');
+      running = true;
+      let page: Page | undefined;
       const abort = () => {
         void context.close().catch(() => {});
       };
       gate.signal.addEventListener('abort', abort, { once: true });
       try {
-        const result = await work();
         await assertBrowserGate(gate);
+        // No previous document, timer, popup or script survives into a new operation.
+        for (const old of context.pages()) await old.close();
+        opening = true;
+        page = await context.newPage();
+        opening = false;
+        page.setDefaultTimeout(10000);
+        page.setDefaultNavigationTimeout(15000);
+        page.on('dialog', (dialog) => {
+          void dialog.dismiss().catch(() => {});
+        });
+        const scope: Scope = {
+          page,
+          writes: new Set(),
+          gate: {
+            ...gate,
+            check: () => {
+              if (active !== scope) throw new Error('Private browser request scope ended');
+              gate.check();
+            },
+          },
+        };
+        active = scope;
+        await assertBrowserGate(scope.gate);
+        const result = await work(page, scope.gate);
+        await assertBrowserGate(scope.gate);
         return result;
       } catch {
         throw new Error('Private browser operation unconfirmed');
       } finally {
         active = undefined;
+        opening = false;
+        await page?.close().catch(() => {});
+        running = false;
         gate.signal.removeEventListener('abort', abort);
       }
     };
     return {
       login: (password, gate) =>
-        run(gate, async () => {
+        run(gate, async (page, gate) => {
           await page.goto(new URL(target.login.path, target.origin).href, {
             waitUntil: 'domcontentloaded',
           });
           await assertBrowserGate(gate);
-          atOrigin();
+          atOrigin(page);
           if (target.login.usernameSelector)
             await page.locator(target.login.usernameSelector).fill(target.login.username!);
           await assertBrowserGate(gate);
-          atOrigin();
+          atOrigin(page);
           await page.locator(target.login.passwordSelector).fill(password);
           await assertBrowserGate(gate);
-          atOrigin();
+          atOrigin(page);
           await page.locator(target.login.submitSelector).click();
           await page.waitForLoadState('domcontentloaded');
           await assertBrowserGate(gate);
-          atOrigin();
+          atOrigin(page);
           try {
             await verify(gate);
-            await page.goto('about:blank');
             return { challenge: false };
           } catch {
             await assertBrowserGate(gate);
-            if (target.mfa && (await page.locator(target.mfa.codeSelector).isVisible()))
+            if (target.mfa && (await page.locator(target.mfa.codeSelector).isVisible())) {
+              // Continuing MFA requires a safe fresh GET using the private context's cookies.
+              if (!browserRequestAllowed(target, page.url(), 'GET')) throw new Error();
+              challengeUrl = page.url();
               return { challenge: true };
+            }
             throw new Error();
           }
         }),
       code: (value, gate) =>
-        run(gate, async () => {
-          if (!target.mfa) throw new Error();
-          atOrigin();
+        run(gate, async (page, gate) => {
+          if (!target.mfa || !challengeUrl) throw new Error();
+          const url = challengeUrl;
+          challengeUrl = undefined;
+          await page.goto(url, { waitUntil: 'domcontentloaded' });
+          await assertBrowserGate(gate);
+          atOrigin(page);
           await page.locator(target.mfa.codeSelector).fill(value);
           await assertBrowserGate(gate);
-          atOrigin();
+          atOrigin(page);
           await page.locator(target.mfa.submitSelector).click();
           await page.waitForLoadState('domcontentloaded');
           await verify(gate);
-          await page.goto('about:blank');
         }),
       action: (action, gate) =>
-        run(gate, async () => {
+        run(gate, async (page, gate) => {
           await verify(gate);
           await page.goto(new URL(action.path, target.origin).href, {
             waitUntil: 'domcontentloaded',
           });
-          atOrigin();
+          atOrigin(page);
           for (const field of action.fields) {
             await assertBrowserGate(gate);
-            atOrigin();
+            atOrigin(page);
             await page.locator(field.selector).fill(field.value);
           }
           await assertBrowserGate(gate);
-          atOrigin();
+          atOrigin(page);
           await page.locator(action.submitSelector).click();
           await page.waitForLoadState('domcontentloaded');
           await verify(gate, action.verification);
-          await page.goto('about:blank');
         }),
       close: () => browser.close(),
     };

@@ -87,8 +87,11 @@ traffic. The sender checks all DNS answers, excludes controller/metadata/loopbac
 pins one address, preserves private cookies, bounds bodies/headers, and rechecks
 session/runtime/operation authority immediately before actual socket dispatch.
 TLS verification remains enabled. Each mutating method/path can be dispatched only
-once per operation; page-script retries are blocked. Idle and late requests cannot
-borrow a later operation's authority. Cross-origin redirects and requests fail closed.
+once per operation. Host-memory body fingerprints also block an identical write
+across operations. Every operation owns a fresh page; only its main frame can send
+requests, and the page closes before the operation ends. Old documents, timers,
+popups and late requests cannot borrow a later operation's authority. Cross-origin
+redirects and requests fail closed.
 
 `ApplySecretRelay` without `actionIndex` starts sign-in. A
 `challenge_required` / `awaiting_code` receipt means the user must open the existing
@@ -99,14 +102,19 @@ no OTP. Staging the code sends no network request. A distinct durable readiness
 event resumes the original chat. The next permitted `ApplySecretRelay` consumes
 that code before submitting it. Ask mode, tool/skill selection, cancellation,
 exact session ownership and runtime authority are checked again. Duplicate code
-submits, uncertain MFA and uncertain form actions are never replayed.
+submits, uncertain MFA and uncertain form actions are never replayed. MFA resumes
+by a fresh allowlisted GET of the challenge URL using private context cookies.
+The service must restore its code form on that GET; Mitzo never replays the
+password POST or retains the old challenge document's scripts to reconstruct it.
 
 After confirmed sign-in, `ApplySecretRelay` with `actionIndex` performs only the
 corresponding reviewed form action in that private session. The password is not
 resolved again for MFA or later actions. After a private browser dispatch, general
 Mitzo API/WebSocket/dashboard response bodies from that origin are withheld, even
 after expiry/revocation, because they could echo newly minted cookies or OTPs.
-The retained attempt record keeps that boundary across restarts and chats. Use
+The retained attempt record keeps that boundary across restarts, chats and disabled
+relay execution. Other captured relay secrets still require redaction; if their
+resolver is unavailable, affected responses are withheld. Use
 reviewed browser verification for the task, or operator-side inspection; the
 agent cannot switch to another Mitzo transport to extract private browser state. Browser session state is memory-only:
 revocation, expiry or runtime retirement closes it; restart loses it and cannot
