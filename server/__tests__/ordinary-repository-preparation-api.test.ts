@@ -311,3 +311,102 @@ it('prepares a qualified local Responses endpoint through its selected host key 
   ).rejects.toThrow();
   expect(state.key).not.toHaveBeenCalled();
 });
+
+it('requalifies an upgraded OpenShell preparation only through the exact retained native conversation and namespace', async () => {
+  const { f, binding, selection, authority } = await fixture('openshell');
+  const config = {
+    cli: '/offline/openshell',
+    image: 'old-image',
+    seed: '/release/old/seed',
+    policy: '/release/old/policy',
+    workspace: 'work',
+    gateway: 'gateway',
+    gatewayInsecure: false,
+    workdir: '/sandbox/workspaces/task',
+    serviceProviders: [],
+    grantableServiceProviders: [],
+    createDetached: true,
+    sandboxIdLength: 13,
+    webSearch: 'disabled',
+  };
+  state.target.config = config;
+  const proof = await authority.captureOrdinaryRepositoryPreparation(
+    binding,
+    selection,
+    f.signal.signal,
+  );
+  const sessionId = 'retained-native-chat';
+  const workspaceId = 'retained-workspace';
+  const artifact = {
+    runtime: {
+      sandboxName: 'original',
+      sandboxId: 'original-physical',
+      cli: config.cli,
+      workspace: config.workspace,
+      gateway: config.gateway,
+      gatewayInsecure: false,
+      workdir: config.workdir,
+      appServerCommand: '/sandbox/run-mitzo-app-server',
+    },
+    route: { kind: 'api', provider: 'same-api-provider', model: binding.model },
+  };
+  const { openShellPhysicalCustodyFingerprint } = await import('../openshell-codex-custody.js');
+  const custody = {
+    version: 1,
+    authSessionId: 'original-login',
+    binding: proof.runtimeBinding,
+    workspace: { workspaceId, cwd: config.workdir },
+    physicalIdentitySha256: openShellPhysicalCustodyFingerprint(artifact as never),
+  };
+  const { eventStore } = await import('../chat.js');
+  vi.spyOn(eventStore, 'getSession').mockReturnValue({ accountBinding: binding } as never);
+  vi.spyOn(eventStore, 'getSessionRuntimeBinding').mockReturnValue(proof.runtimeBinding);
+  const native = await import('../codex-chat-session.js');
+  vi.spyOn(native, 'getCodexConversationStore').mockReturnValue({
+    readOpenShellCustody: () => custody,
+    readArtifactRuntime: () => artifact,
+  } as never);
+  const before = structuredClone(proof);
+  state.target.target.targetRevision = 'upgraded-code';
+  state.target.config = { ...config, seed: '/release/new/seed', policy: '/release/new/policy' };
+  try {
+    await expect(
+      authority.assertOrdinaryRepositoryPreparation(proof, binding, f.signal.signal),
+    ).rejects.toThrow();
+    await expect(
+      authority.assertOrdinaryRepositoryPreparation(
+        proof,
+        binding,
+        f.signal.signal,
+        false,
+        undefined,
+        { conversationId: sessionId, workspaceId },
+      ),
+    ).resolves.toBeUndefined();
+    expect(proof).toEqual(before);
+    await expect(
+      authority.assertOrdinaryRepositoryPreparation(
+        proof,
+        binding,
+        f.signal.signal,
+        false,
+        undefined,
+        { conversationId: sessionId, workspaceId: 'foreign-workspace' },
+      ),
+    ).rejects.toThrow();
+    state.target.config = { ...config, gateway: 'other-gateway' };
+    await expect(
+      authority.assertOrdinaryRepositoryPreparation(
+        proof,
+        binding,
+        f.signal.signal,
+        false,
+        undefined,
+        { conversationId: sessionId, workspaceId },
+      ),
+    ).rejects.toThrow();
+  } finally {
+    state.target.target.targetRevision = 'shell-r1';
+    state.target.config = {};
+  }
+});

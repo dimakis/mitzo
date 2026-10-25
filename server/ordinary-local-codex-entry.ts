@@ -65,11 +65,20 @@ import {
   loadOrdinaryLocalCodexTarget,
 } from './ordinary-local-codex-capabilities.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
-import { BASE_REPO, detachChatIfCurrentTransport, canResumeOwnedLocalCodexDriver } from './chat.js';
+import {
+  BASE_REPO,
+  eventStore,
+  detachChatIfCurrentTransport,
+  canResumeOwnedLocalCodexDriver,
+} from './chat.js';
 import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-entry-owner.js';
 import { projectOrdinaryOpenShellCodexCapabilities } from './ordinary-openshell-codex-route.js';
 import { resolveOrdinarySessionRuntime } from './ordinary-session-runtime.js';
-import { canResumeOwnedOpenShellCodexDriver } from './ordinary-openshell-codex-entry.js';
+import {
+  canResumeOwnedOpenShellCodexDriver,
+  ownedOpenShellCodexContinuationTarget,
+} from './ordinary-openshell-codex-entry.js';
+import { getCodexConversationStore } from './codex-chat-session.js';
 import { createLogger } from './logger.js';
 import { observeLocalCodexPhase } from './local-codex-observation.js';
 import { nativeStartupSessionId, reserveRepositoryStartup } from './ordinary-repository-startup.js';
@@ -85,6 +94,7 @@ function inventory(
   location: 'local' | 'openshell' = 'local',
   harness: 'codex' | 'responses' | 'claude-sdk' | 'gemini' = 'codex',
   retainedBinding?: SessionRuntimeBindingV2,
+  continuation?: { conversationId: string; workspaceId: string },
 ) {
   const profiles = loadAccountProfiles();
   if (harness === 'claude-sdk') {
@@ -98,6 +108,7 @@ function inventory(
       profiles,
       new OrdinaryLocalVertexTarget(),
       getAgentLibrary().list('user').versions,
+      retainedBinding,
     );
     return { profiles, catalog, result: catalog.inventory() };
   }
@@ -112,6 +123,7 @@ function inventory(
     const source = (retainedBinding ? localResponsesCapabilities : newLocalResponsesCapabilities)(
       profiles,
       new OrdinaryLocalResponsesTarget(process.env, harness),
+      retainedBinding,
     );
     const catalog = {
       inventory: source.inventory,
@@ -135,6 +147,37 @@ function inventory(
       target: configured.target,
       deployment: 'ordinary',
     });
+    if (
+      retainedBinding &&
+      continuation &&
+      retainedBinding.execution.targetRevision !== configured.target.targetRevision
+    ) {
+      const meta = eventStore.getSession(continuation.conversationId);
+      if (
+        !meta?.accountBinding ||
+        !isDeepStrictEqual(
+          eventStore.getSessionRuntimeBinding(continuation.conversationId),
+          retainedBinding,
+        )
+      )
+        throw Error(unavailable);
+      const custody = getCodexConversationStore().readOpenShellCustody(
+        continuation.conversationId,
+        meta.accountBinding,
+      );
+      if (
+        !custody ||
+        custody.workspace.workspaceId !== continuation.workspaceId ||
+        !isDeepStrictEqual(custody.binding, retainedBinding)
+      )
+        throw Error(unavailable);
+      const retainedTarget = ownedOpenShellCodexContinuationTarget(
+        continuation.conversationId,
+        custody.authSessionId,
+        configured,
+      );
+      projection.catalog.targets = [retainedTarget];
+    }
     return {
       profiles,
       agentContextPresets: configured.config.agentContextPresets,

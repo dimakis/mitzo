@@ -9,7 +9,11 @@ import type { SessionTransport } from '@mitzo/harness';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { buildAgentProfilePrompt } from './agent-library-prompt.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
-import { createOrdinaryOpenShellCodexEntryOwner } from './ordinary-openshell-codex-entry-owner.js';
+import {
+  createOrdinaryOpenShellCodexEntryOwner,
+  type loadOrdinaryOpenShellCodexTarget,
+} from './ordinary-openshell-codex-entry-owner.js';
+import { ordinaryOpenShellCodexContinuationTarget } from './openshell-chat-continuity.js';
 import { OrdinaryLocalCodexCommandRequestSchema } from './ordinary-local-codex-admission.js';
 import { getCodexConversationStore, getCodexRuntime } from './codex-chat-session.js';
 import {
@@ -26,6 +30,25 @@ export const OrdinaryOpenShellCodexCommandRequestSchema = OrdinaryCodexFirstComm
 );
 type SessionUpsert = Parameters<typeof eventStore.upsertSession>[0];
 const unavailable = () => new Error('Ordinary OpenShell Codex entry unavailable');
+
+export function ownedOpenShellCodexContinuationTarget(
+  sessionId: string,
+  authSessionId: string,
+  configured: NonNullable<ReturnType<typeof loadOrdinaryOpenShellCodexTarget>>,
+) {
+  const meta = eventStore.getSession(sessionId);
+  if (!meta?.accountBinding) throw unavailable();
+  const native = getCodexConversationStore();
+  return ordinaryOpenShellCodexContinuationTarget({
+    target: configured.target,
+    config: configured.config,
+    account: meta.accountBinding,
+    binding: eventStore.getSessionRuntimeBinding(sessionId),
+    custody: native.readOpenShellCustody(sessionId, meta.accountBinding),
+    artifact: native.readArtifactRuntime(sessionId, meta.accountBinding),
+    authSessionId,
+  });
+}
 
 export function canResumeOwnedOpenShellCodexDriver(
   sessionId: string,

@@ -479,6 +479,7 @@ interface Dependencies {
         import('@mitzo/protocol').OrdinaryWorkspaceSettings['selection'],
         'model' | 'thinking'
       >,
+      continuation?: { conversationId: string; workspaceId: string },
     ): Promise<void>;
   };
   authorize(
@@ -1386,7 +1387,16 @@ export class RepositoryWorkspaces {
       )
     )
       throw new Error('Ordinary preparation account changed');
-    await this.deps.ordinaryPreparation.assert(proof, binding, signal, requireModelReadiness);
+    await this.deps.ordinaryPreparation.assert(
+      proof,
+      binding,
+      signal,
+      requireModelReadiness,
+      undefined,
+      record.state === 'claimed' && record.conversationId
+        ? { conversationId: record.conversationId, workspaceId: record.id }
+        : undefined,
+    );
     // Durable terminal records are metadata only. Discard/failure cleanup can
     // remove their source; this does not assert that cleanup completed or grant
     // another preparation. Current account/runtime checks above still apply.

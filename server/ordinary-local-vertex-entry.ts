@@ -29,6 +29,7 @@ export function canResumeOwnedLocalVertexDriver(sessionId: string, authSessionId
     if (
       !meta?.accountBinding ||
       !custody ||
+      !isDeepStrictEqual(custody.binding, eventStore.getSessionRuntimeBinding(sessionId)) ||
       !process.env.MITZO_ACCOUNT_PROFILES_FILE ||
       !isDeepStrictEqual(
         {

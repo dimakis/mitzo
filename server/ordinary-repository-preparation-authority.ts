@@ -144,7 +144,8 @@ async function credentialDigest(
       await manager.assertReady(signal);
     }
     const current = loadOrdinaryOpenShellCodexTarget();
-    if (!current || !isDeepStrictEqual(current.target, configured.target)) throw unavailable();
+    if (!current || current.deploymentRevision !== configured.deploymentRevision)
+      throw unavailable();
   }
   signal.throwIfAborted();
   if (
@@ -180,6 +181,7 @@ async function captureCurrentPreparation(
   signal: AbortSignal,
   requireModelReadiness: boolean,
   retainedBinding?: OrdinaryRepositoryPreparation['runtimeBinding'],
+  continuation?: { conversationId: string; workspaceId: string },
 ): Promise<OrdinaryRepositoryPreparation> {
   signal.throwIfAborted();
   const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
@@ -187,6 +189,7 @@ async function captureCurrentPreparation(
     selection.runOn,
     selection.runtime.harness,
     retainedBinding,
+    continuation,
   );
   const resolved = catalog.resolve({ ...selection.runtime, mode: 'agent' });
   if (
@@ -221,6 +224,7 @@ async function captureCurrentPreparation(
     selection.runOn,
     selection.runtime.harness,
     retainedBinding,
+    continuation,
   ).catalog.resolve({ ...selection.runtime, mode: 'agent' });
   if (current.status !== 'compatible' || !isDeepStrictEqual(current.binding, proof.runtimeBinding))
     throw unavailable();
@@ -235,6 +239,7 @@ export async function assertOrdinaryRepositoryPreparation(
     import('@mitzo/protocol').OrdinaryWorkspaceSettings['selection'],
     'model' | 'thinking'
   >,
+  continuation?: { conversationId: string; workspaceId: string },
 ) {
   const saved = OrdinaryRepositoryPreparationSchema.parse(raw);
   if (
@@ -272,6 +277,7 @@ export async function assertOrdinaryRepositoryPreparation(
     signal,
     requireModelReadiness,
     saved.runtimeBinding,
+    continuation,
   );
   let sameRuntime = isDeepStrictEqual(current.runtimeBinding, saved.runtimeBinding);
   const localCodex =

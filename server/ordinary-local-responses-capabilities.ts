@@ -3,6 +3,11 @@ import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import { z } from 'zod';
 import { SessionRuntimeBindingV1Schema } from '@mitzo/protocol';
+import {
+  retainLocalApiChatBinding,
+  retainedLocalApiTargetRevision,
+  reviewedLegacyLocalApiTargetRevisions,
+} from './local-api-chat-continuity.js';
 import type { AccountProfiles } from './account-profiles.js';
 import { readPrivateRuntimeSettings } from './ordinary-local-codex-host-runtime.js';
 import { reviewedHandlerSourceArtifacts } from './connections/reviewed-handler-artifacts.js';
@@ -57,7 +62,12 @@ export class OrdinaryLocalResponsesTarget {
     const c = this.#configuration;
     return {
       targetId: c.targetId,
-      targetRevision: digest([`ordinary-local-${this.harness}-target-v1`, c]),
+      targetRevision: digest([
+        `ordinary-local-${this.harness}-target-v2`,
+        c.targetId,
+        c.hostId,
+        `${this.harness}-session-v1`,
+      ]),
       label: c.label,
       location: 'local' as const,
       harness: this.harness,
@@ -75,12 +85,15 @@ function responsesCapabilities(
   profiles: AccountProfiles,
   target: OrdinaryLocalResponsesTarget,
   newWork: boolean,
+  retainedBinding?: unknown,
 ) {
   const accounts =
     target.harness === 'gemini'
       ? profiles.ordinaryLocalGeminiInventory()
       : profiles.ordinaryLocalResponsesInventory();
   const targets = [target.descriptor()];
+  const declaration = target.admissionDeclaration();
+  const reviewedLegacy = reviewedLegacyLocalApiTargetRevisions(target.harness, declaration);
   const catalog: OrdinarySessionRuntimeCatalog = {
     deployment: 'ordinary',
     enabledHarnesses: [target.harness],
@@ -98,9 +111,13 @@ function responsesCapabilities(
   const resolve = (request: unknown) =>
     target.harness === 'responses'
       ? { status: 'rejected' as const, code: 'new_work_harness_unsupported' as const }
-      : (newWork ? resolveNewOrdinarySessionRuntime : resolveOrdinarySessionRuntime)(
-          request,
-          catalog,
+      : retainLocalApiChatBinding(
+          (newWork ? resolveNewOrdinarySessionRuntime : resolveOrdinarySessionRuntime)(
+            request,
+            catalog,
+          ),
+          newWork ? undefined : retainedBinding,
+          reviewedLegacy,
         );
   const inventory = {
     version: 1 as const,
@@ -146,6 +163,16 @@ function responsesCapabilities(
       ];
   }
   return {
+    get declaration() {
+      return {
+        ...declaration,
+        targetRevision: retainedLocalApiTargetRevision(
+          declaration.targetRevision,
+          retainedBinding,
+          reviewedLegacy,
+        ),
+      };
+    },
     inventory: () => structuredClone(inventory),
     resolve,
   };
@@ -156,8 +183,9 @@ function responsesCapabilities(
 export function localResponsesCapabilities(
   profiles: AccountProfiles,
   target: OrdinaryLocalResponsesTarget,
+  retainedBinding?: unknown,
 ) {
-  return responsesCapabilities(profiles, target, false);
+  return responsesCapabilities(profiles, target, false, retainedBinding);
 }
 
 /** Strict new-entry projection; retained histories keep their original engine.

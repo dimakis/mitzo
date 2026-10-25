@@ -35,6 +35,7 @@ interface Readiness {
     signal: AbortSignal,
     requireModelReadiness?: boolean,
     selection?: Pick<OrdinaryWorkspaceSettings['selection'], 'model' | 'thinking'>,
+    continuation?: { conversationId: string; workspaceId: string },
   ): Promise<void>;
 }
 const identity = z.strictObject({
@@ -285,6 +286,7 @@ export class OrdinaryWorkspaceCustody {
     binding: AccountBinding,
     signal: AbortSignal,
     selection?: Pick<OrdinaryWorkspaceSettings['selection'], 'model' | 'thinking'>,
+    continuation?: { conversationId: string; workspaceId: string },
   ) {
     signal.throwIfAborted();
     const saved = this.readPreparation(id);
@@ -294,8 +296,12 @@ export class OrdinaryWorkspaceCustody {
       structuredClone(saved.proof),
       structuredClone(binding),
       signal,
-      true,
-      selection,
+      // Acquiring a workspace qualifies its initial model. Retained custody is
+      // independent of that historical model; the command owner qualifies the
+      // new explicit model/thinking tuple before inference.
+      !continuation,
+      continuation ? undefined : selection,
+      continuation,
     );
     signal.throwIfAborted();
     if (!isDeepStrictEqual(saved, this.readPreparation(id)))
@@ -530,6 +536,9 @@ export class OrdinaryWorkspaceCustody {
       input.binding,
       input.signal,
       original.settings.selection,
+      original.state === 'claimed'
+        ? { conversationId: original.conversationId, workspaceId: original.id }
+        : undefined,
     );
     this.unchanged(original);
     this.assertClaimScope(original, input);
@@ -549,6 +558,9 @@ export class OrdinaryWorkspaceCustody {
       binding,
       input.signal,
       original.settings.selection,
+      original.state === 'claimed'
+        ? { conversationId: original.conversationId, workspaceId: original.id }
+        : undefined,
     );
     this.unchanged(original);
     this.assertClaimScope(original, selected);

@@ -16,7 +16,10 @@ import {
   canResumeOwnedLocalCodexDriver,
   canResumeOwnedLocalResponsesDriver,
 } from './chat.js';
-import { canResumeOwnedOpenShellCodexDriver } from './ordinary-openshell-codex-entry.js';
+import {
+  canResumeOwnedOpenShellCodexDriver,
+  ownedOpenShellCodexContinuationTarget,
+} from './ordinary-openshell-codex-entry.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import {
   loadOrdinaryLocalCodexTarget,
@@ -71,9 +74,12 @@ export function ordinaryCodexContinuationStatus(
       mode: meta.mode,
     };
     if (binding.harness.implementation === 'claude-sdk')
-      resolved = localVertexCapabilities(profiles, new OrdinaryLocalVertexTarget()).resolve(
-        request,
-      );
+      resolved = localVertexCapabilities(
+        profiles,
+        new OrdinaryLocalVertexTarget(),
+        [],
+        binding,
+      ).resolve(request);
     else if (['responses', 'gemini'].includes(binding.harness.implementation))
       resolved = localResponsesCapabilities(
         profiles,
@@ -81,6 +87,7 @@ export function ordinaryCodexContinuationStatus(
           process.env,
           binding.harness.implementation === 'gemini' ? 'gemini' : 'responses',
         ),
+        binding,
       ).resolve(request);
     else if (location === 'local')
       resolved = new OrdinaryLocalCodexCapabilityCatalog(
@@ -97,6 +104,18 @@ export function ordinaryCodexContinuationStatus(
         deployment: 'ordinary',
       });
       resolved = resolveOrdinarySessionRuntime(request, projection.catalog);
+      if (resolved.status === 'compatible' && !isDeepStrictEqual(resolved.binding, binding)) {
+        if (!authSessionId)
+          return blocked('Sign in with the original login to resume this conversation.');
+        const retained = ownedOpenShellCodexContinuationTarget(sessionId, authSessionId, target);
+        resolved = {
+          ...resolved,
+          binding: {
+            ...resolved.binding,
+            execution: { ...resolved.binding.execution, targetRevision: retained.targetRevision },
+          },
+        };
+      }
     }
     if (
       resolved.status === 'compatible' &&

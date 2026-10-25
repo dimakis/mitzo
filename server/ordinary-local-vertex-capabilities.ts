@@ -8,6 +8,11 @@ import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import { z } from 'zod';
 import { SessionRuntimeBindingV1Schema } from '@mitzo/protocol';
+import {
+  retainLocalApiChatBinding,
+  retainedLocalApiTargetRevision,
+  reviewedLegacyLocalApiTargetRevisions,
+} from './local-api-chat-continuity.js';
 import type { AccountProfiles } from './account-profiles.js';
 import { readPrivateRuntimeSettings } from './ordinary-local-codex-host-runtime.js';
 import { reviewedHandlerSourceArtifacts } from './connections/reviewed-handler-artifacts.js';
@@ -58,7 +63,12 @@ export class OrdinaryLocalVertexTarget {
     const c = this.#configuration;
     return {
       targetId: c.targetId,
-      targetRevision: digest(['ordinary-local-vertex-target-v1', c]),
+      targetRevision: digest([
+        'ordinary-local-vertex-target-v2',
+        c.targetId,
+        c.hostId,
+        'claude-sdk-session-v1',
+      ]),
       label: c.label,
       location: 'local' as const,
       harness: 'claude-sdk' as const,
@@ -76,6 +86,7 @@ export function localVertexCapabilities(
   profiles: AccountProfiles,
   target: OrdinaryLocalVertexTarget,
   published: readonly AgentLibraryVersion[] = [],
+  retainedBinding?: unknown,
 ) {
   const accounts = profiles.ordinaryLocalVertexInventory();
   const eligibility = ordinaryCodexAgentProfileRouteProjection(
@@ -86,6 +97,8 @@ export function localVertexCapabilities(
     { contextRecipes: 'none' },
   );
   const targets = [target.descriptor()];
+  const declaration = target.admissionDeclaration();
+  const reviewedLegacy = reviewedLegacyLocalApiTargetRevisions('claude-sdk', declaration);
   const catalog: OrdinarySessionRuntimeCatalog = {
     deployment: 'ordinary',
     enabledHarnesses: ['claude-sdk'],
@@ -128,7 +141,22 @@ export function localVertexCapabilities(
     ],
   };
   return {
+    get declaration() {
+      return {
+        ...declaration,
+        targetRevision: retainedLocalApiTargetRevision(
+          declaration.targetRevision,
+          retainedBinding,
+          reviewedLegacy,
+        ),
+      };
+    },
     inventory: () => structuredClone(inventory),
-    resolve: (request: unknown) => resolveOrdinarySessionRuntime(request, catalog),
+    resolve: (request: unknown) =>
+      retainLocalApiChatBinding(
+        resolveOrdinarySessionRuntime(request, catalog),
+        retainedBinding,
+        reviewedLegacy,
+      ),
   };
 }

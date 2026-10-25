@@ -369,13 +369,16 @@ export class OrdinaryLocalVertexOwnedRuntime {
         profiles,
         this.#target,
         this.owners.library.list('user').versions,
+        continuation
+          ? this.owners.eventStore.getSessionRuntimeBinding(this.owners.reservation.conversationId)
+          : undefined,
       ),
       events = this.owners.eventStore;
     const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
       enabled: true,
       adapter: 'claude-sdk',
       catalog,
-      declaration: this.#target.admissionDeclaration(),
+      declaration: catalog.declaration,
       authority,
       store: {
         admitOrdinaryLocalCommand: (
