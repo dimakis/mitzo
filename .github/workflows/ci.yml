@@ -130,7 +130,7 @@ jobs:
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Verify shared theme and mobile layouts without a backend
         id: offline-tests
-        run: npm run test:ui -- --project=${{ matrix.project }}
+        run: npm run test:ui -- --project=${{ matrix.project }} --workers=1
       - name: Retain offline layout failure evidence
         if: ${{ always() && steps.offline-tests.outcome == 'failure' }}
         uses: actions/upload-artifact@v7
