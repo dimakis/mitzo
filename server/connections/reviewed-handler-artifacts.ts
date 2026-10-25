@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.668-agent-flow-consolidation';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.669-agent-flow-consolidation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/native-telos-repository-materials.test.ts':
+    'f893c3d01ed431422f388901b89f8a1ac957a62353c5848b98849397961681d6',
+  '../__tests__/native-telos-repository-owner.test.ts':
+    'ba18d5a7611da3e4aa92f3a0e70f94bdcec3d22979a4b15f9a6f64d457c58ea9',
   '../__tests__/codex-conversation-store-statements.test.ts':
     'f4e9d9ff8edcc9016d442157347049c875812e3cd47c5bbcb7217bd1d4a32d84',
   '../__tests__/fixtures/synchronous-stage-profiler.ts':
@@ -605,7 +609,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../public-replay-error.ts': 'f259c0724784f96d7553750a6ca0d5812ef69d934f123b47eeaa863dd530aefe',
   '../provider-failure.ts': '0655ed00d881906318380ec0c90d62f1457b5257747eb765d05658199443805f',
   '../telos-source-recovery.ts': '91d1921366236f855fa2283fb35aa64641d1a2b589e5b2dcb7c24250d94dbb91',
-  '../telos-source-approval.ts': 'cfbe654763892e685b0787dd70c68080edae1d4855d94ca9d7b0604733fd2949',
+  '../telos-source-approval.ts': 'd2efbfedd84f61c39971b06565635c214d4788942322560575c4c504e64e9bb1',
   '../telos-source-approval-store.ts':
     '5f787fc729a9ef784220cb1bfc9a7200fa75ece64c16379818d5d2ef0dbc11ec',
   '../session-permission-policy.ts':
@@ -641,7 +645,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-outcome-owner.ts': '7e11bca759dcda14dbc766fd7a02d1a05165a7333d8b78368555145854740161',
   '../../packages/protocol/src/telos-outcome.ts':
     '2e02bc7096e531552c3eeec437f4e777d5b9a14089c3d6a9eb00b5d7942bf758',
-  '../telos-source-routes.ts': '0278981e05a3d0166373a60726481d779b413d171465f77b32f95cfb6a30fed0',
+  '../telos-source-routes.ts': '35eba943d0615976db44365e69302a25426f2f37595e53ed0b72a9d9228012cb',
   '../../packages/protocol/src/telos-source.ts':
     '3318bda91c57865f73e5577281b8afc93c6746b551038927bbff95d7247db550',
   '../telos-artifact-store.ts': '5e6ca28329fb2d4dd83f19a5092f6e42e59ee25c068147c80d129a37f5d892eb',
@@ -1048,7 +1052,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6be98645eb9b4467c30f5dacb3e8eee7a9c3f08cb6fc820edc872f789ef217c8',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
-  '../app.ts': 'ef97369d6fddb09fc01018274f2ea7c6f54449954e1046715bfab35648915a72',
+  '../app.ts': '1f9533c82737e9cfdf46b3bcbee36218ed65907988ac9d3a3bf170af0dab72e4',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -1228,7 +1232,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/types.ts':
     'c2372bf36f2b869f3b2f0cb1f7bc15c0b24109957f1b1512a3bfe17e4f0fdf7f',
   '../repository-workspace-runtime.ts':
-    'e1cb8bcd6240471fb9895121c683d76fee298f9a734c6c9cc34b1417aa4989eb',
+    '03af86fe87d5c313c2019d0145e82bc397a2fba76d30b8a39e4993522f9d0ddf',
   '../repository-workspace-router.ts':
     '3a18eb2f0e7c4057642342179e11a57c205b6651d5e5a94b90d745dd93c3b9ea',
   '../trusted-native-operation.ts':
@@ -1731,9 +1735,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-local-repository-read-tools.test.ts':
     '8b468fd7fa30125a83fbd6814cfe1edc30f265a663fa5ce7fdbdf5a7473a2266',
   '../native-telos-worker-materials.ts':
-    '471291f2d327397fab3f8e86465533adf879302b9ee40cfafbc53151593fc9fe',
+    '36d27dcd564a758082503ad455dba3ffabacda3b558efc66a28d7a42437b55af',
   '../__tests__/native-telos-worker-materials.test.ts':
-    '042a088048157eaa1a4705ff9156390de9287f28867490735ee81332c651c8cb',
+    '8fe2996730abcdcdd14ab4c4c67c638c4b51fd99a9abeb4d1d2a42698c2a7e12',
   '../__tests__/native-telos-source-material-approval.test.ts':
     'b3440a6fe9338c3fcb9098335b34dfc53264cdfd5482ac4490d283ecfa779ab3',
   '../__tests__/telos-worker-material-page.test.ts':
