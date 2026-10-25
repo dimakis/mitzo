@@ -1,7 +1,7 @@
 import { BrowserRelayTargetSchema, type PrivateRelayBrowsers } from './secret-relay-browser.js';
 import { MqttRelayTargetSchema, validateMqttRelayTarget } from './secret-relay-mqtt.js';
 import { validateLanRelayEndpoint } from './secret-relay-lan.js';
-import { redactCredentialResponse } from './credential-redaction.js';
+import { protectSecretRelayResponse } from './secret-relay-response-protection.js';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -321,45 +321,16 @@ export class SecretRelays {
     await this.adapters.browser?.dispose();
   }
   async redactResponse(_session: string, connectionId: string, body: string, signal: AbortSignal) {
-    const endpoint = this.connection(connectionId).endpoint;
-    const relays = this.store
-      .listRelays()
-      .filter(
-        (r) =>
-          r.targets.some(
-            (t) =>
-              ('connectionId' in t && t.connectionId === connectionId) || t.endpoint === endpoint,
-          ) &&
-          (r.vaultRef || ['verifying', 'unconfirmed'].includes(r.status)),
-      );
-    // Browser sessions may mint cookies/tokens and accept one-time codes that are
-    // deliberately never exported or persisted for redaction. A general API/WS
-    // read of this origin could echo them, even after local session revocation.
-    if (
-      relays.some((r) =>
-        r.targets.some(
-          (t, index) =>
-            'adapter' in t &&
-            t.adapter === 'browser' &&
-            t.endpoint === endpoint &&
-            r.outcomes[index]?.outcome !== 'not_sent',
-        ),
-      )
-    )
-      throw new Error(
-        'Response withheld for an origin used by a private browser session; use reviewed browser verification',
-      );
-    try {
-      for (const relay of relays) {
-        if (!relay.vaultRef) throw new Error();
-        body = redactCredentialResponse(body, await this.vault.read(relay.vaultRef, signal), {});
-      }
-      signal.throwIfAborted();
-      return body;
-    } catch {
-      throw new Error('Response withheld because private relay redaction is unavailable');
-    }
+    return protectSecretRelayResponse(
+      this.store,
+      connectionId,
+      this.connection(connectionId).endpoint,
+      body,
+      signal,
+      (ref, abort) => this.vault.read(ref, abort),
+    );
   }
+
   pendingReady() {
     return this.store
       .listRelays()

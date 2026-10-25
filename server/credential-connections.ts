@@ -1,3 +1,4 @@
+import { protectSecretRelayResponse } from './secret-relay-response-protection.js';
 import type { StoredSecretRelay, SecretRelays, RelayTarget } from './secret-relay.js';
 import { ConnectionRequestError, connectionRequestError } from './connection-request-error.js';
 import { CredentialConnectionSetups, type ConnectionSetup } from './credential-setup.js';
@@ -294,6 +295,12 @@ export class CredentialConnections {
   ) {
     this.setups = new CredentialConnectionSetups(store, (...args) => this.createVerified(...args));
   }
+  private protectResponse(session: string, id: string, body: string, signal: AbortSignal) {
+    // Disabling new relay execution cannot disable protections for retained secrets.
+    return this.relay
+      ? this.relay.redactResponse(session, id, body, signal)
+      : protectSecretRelayResponse(this.store, id, this.connection(id).endpoint, body, signal);
+  }
   private async createVerified(
     input: CredentialConnectionInput,
     secret: string,
@@ -569,7 +576,7 @@ export class CredentialConnections {
       );
       check();
       let redacted = redactCredentialResponse(body, secret, headers);
-      if (this.relay) redacted = await this.relay.redactResponse(session, id, redacted, combined);
+      redacted = await this.protectResponse(session, id, redacted, combined);
       combined.throwIfAborted();
       check();
       if (Buffer.byteLength(redacted) > MAX_WEBSOCKET_RESPONSE_BYTES)
@@ -667,7 +674,7 @@ export class CredentialConnections {
       let redacted = redactCredentialResponse(body, secret, {
         Authorization: `Bearer ${secret}`,
       });
-      if (this.relay) redacted = await this.relay.redactResponse(session, id, redacted, combined);
+      redacted = await this.protectResponse(session, id, redacted, combined);
       combined.throwIfAborted();
       check();
       if (request.operation === 'read' && redacted !== body) {
@@ -811,7 +818,7 @@ export class CredentialConnections {
       if (response.status === 429 || response.status >= 500)
         throw new ConnectionRequestError('service_unavailable');
       let body = redactCredentialResponse(response.body, secret, headers);
-      if (this.relay) body = await this.relay.redactResponse(session, id, body, combined);
+      body = await this.protectResponse(session, id, body, combined);
       combined.throwIfAborted();
       check();
       return { status: response.status, body };
