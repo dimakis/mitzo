@@ -12,6 +12,7 @@ it('pins the full secret relay host boundary and verifies all reviewed source ha
     'secret-relay-browser',
     'secret-relay-browser-driver',
     'secret-relay-runtime',
+    'secret-relay-response-protection',
     'openshell-secret-vault',
     'openshell-secret-protocol',
     'openshell-operator-transport',

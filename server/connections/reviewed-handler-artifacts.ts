@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.559-secret-adapters';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.560-secret-adapters';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,11 +22,13 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../secret-relay-response-protection.ts':
+    '3f875e0c6b15c6e1afa35177b920b2ec3c3a0af6afc6cfd837a6ecaa6a8aaf0e',
   '../secret-relay-browser-driver.ts':
-    '5af888c096231267e8ac7c59524ffe6b6b0b7d6f91ea77d210a0e9685c84dc7c',
+    'd70e2fd59291afadcfb3c8e94a0c103a27e94fab88d1618d9fa6b8d271543f1d',
   '../secret-relay-browser.ts': '3da18091f444a4b87ceeb4097c09708f95988ff0192f9be743019d597afc1f2e',
   '../secret-relay-mqtt.ts': 'd580482044ffd878046ee4b62d9900eeda719cbfc36af1ea5b93e43568037d5d',
-  '../secret-relay.ts': 'd4db039a7aabe399a09ac7cacd35c75b40e4040c7926b4768432bc6b9d214247',
+  '../secret-relay.ts': 'cb4efaae8cb99f879de787d5f2ce1c1e364b7c0abf0db333420e10e11493f95d',
   '../secret-relay-lan.ts': '03442b04b8a16ddc3146813f43ed45d9b4ae8fa0a64971a100de48d9a791a812',
   '../secret-relay-runtime.ts': '9cc241b6fd22ca948021e0db06346e81718e12f5eaf340742d42c7b0a172711f',
   '../openshell-secret-vault.ts':
@@ -860,7 +862,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../home-assistant-dashboard.ts':
     '1053d482935af066472aedd48365af2b71cb7cf55e30ee88cc9fcf89b96e1d62',
   '../credential-connections.ts':
-    '30a05f30e80fe1adc4ca0d68b136d1af6fbeb458c69e8e4cbf37299d740db5a8',
+    '720c92e6f067831eba11b1ef7f49eed08200a452d12b02673acd79d19c7740cf',
   '../credential-connections-router.ts':
     'a9be40b80992bad5d01e9e9d7e63740bbb2e32ca0c72b95d035aa86f3706bebf',
   '../credential-connection-tools.ts':
