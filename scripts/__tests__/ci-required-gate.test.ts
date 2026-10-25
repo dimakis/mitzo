@@ -28,6 +28,7 @@ function fixture(native = 'true') {
     [
       'changes',
       'core',
+      'unit-validation',
       'ordinary-journey',
       'ordinary-supplemental',
       'browser-validation',
@@ -57,6 +58,7 @@ it('runs core concurrently and keeps ci required across every selected owner res
     'ordinary-supplemental',
     'browser-validation',
     'native',
+    'unit-validation',
   ]);
   expect(workflow.jobs.ci.steps.some((s) => s.run === 'node scripts/ci-required-gate.mjs')).toBe(
     true,
@@ -79,6 +81,7 @@ it.each(['failure', 'cancelled', 'skipped', ''])(
     for (const name of [
       'changes',
       'core',
+      'unit-validation',
       'ordinary-journey',
       'ordinary-supplemental',
       'browser-validation',
@@ -130,4 +133,10 @@ it('cannot silently skip coverage using invalid shard arguments', () => {
     ['--skip'],
   ])
     expect(() => parseSupplementalShardArgs(args)).toThrow();
+});
+
+it('rejects omitted unit completeness even when every upstream owner succeeds', () => {
+  const needs = fixture();
+  delete needs['unit-validation'];
+  expect(run(needs).status).toBe(1);
 });
