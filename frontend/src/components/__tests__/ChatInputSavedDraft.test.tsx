@@ -1,8 +1,8 @@
-import { Profiler } from 'react';
+import { createRef, Profiler } from 'react';
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { ChatInput } from '../ChatInput';
+import { ChatInput, type ChatInputDraftControl } from '../ChatInput';
 import { renderToString } from 'react-dom/server';
 import { createChatDraft, getChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
@@ -14,6 +14,42 @@ afterEach(() => {
   localStorage.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
+});
+
+it('flushes an intentionally removed empty rich draft from its owned settings seed', () => {
+  const draft = createChatDraft();
+  const control = createRef<ChatInputDraftControl>();
+  render(
+    <ChatInput
+      onSend={() => false}
+      onStop={() => {}}
+      running={false}
+      savedChatDraft={draft}
+      draftControl={control}
+    />,
+  );
+  expect(getChatDraft(draft.id)).toBeNull();
+  expect(control.current?.flush?.()).toBe(true);
+  expect(getChatDraft(draft.id)).toBeNull();
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+});
+
+it('refuses rich fallback when an existing stored revision is unreadable', () => {
+  const draft = { ...createChatDraft(), text: 'Owned text' };
+  const control = createRef<ChatInputDraftControl>();
+  render(
+    <ChatInput
+      onSend={() => false}
+      onStop={() => {}}
+      running={false}
+      savedChatDraft={draft}
+      draftControl={control}
+    />,
+  );
+  const key = 'mitzo-chat-draft:' + draft.id;
+  localStorage.setItem(key, 'unreadable newer revision');
+  expect(control.current?.flush?.()).toBe(false);
+  expect(localStorage.getItem(key)).toBe('unreadable newer revision');
 });
 
 it('resizes edited drafts in the layout commit before the browser can paint stale lines', () => {

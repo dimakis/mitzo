@@ -864,7 +864,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    'f6f7ad8601f9a452230db32ed04d9415aa47a988d9f7bb8f5c2beb0b8d30a9fc',
+    'e980db0dc75d169637c6b103d7e219795448aebba9dc3f1d04dd6b737a39d8e5',
   '../../frontend/src/components/ComposerTools.tsx':
     'f939155993b0783c1a231a693de30c13d9594ff558cacc27a23c17a781315245',
   '../../frontend/src/components/ContextPanel.tsx':
@@ -2299,7 +2299,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ChatInputImagePreview.test.tsx':
     '8f4e395e87c190c9bbf5b92defe1f0447b2b727ea71acdeef41929fa3503d3e3',
   '../../frontend/src/components/__tests__/ChatInputSavedDraft.test.tsx':
-    '85ffcfb054e88f730fa063e721e2e157aa27608ca48f7b319bdb9bfe8f286fed',
+    'a6919a81d69d50887917ec3ff016dbbe2cf4e3c38d9372dc1457653ce028e282',
   '../../frontend/src/components/__tests__/ChatInputSendReceipt.test.tsx':
     '37167fb6964e71f64337ee7f90bfd804e291d7da171295c4916b97933de73562',
   '../../frontend/src/components/__tests__/ChatInputVoiceOwnership.test.tsx':

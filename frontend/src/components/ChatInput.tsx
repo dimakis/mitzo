@@ -293,7 +293,17 @@ export function ChatInput({
       readText: () => text,
       flush: () => {
         const flushed = flushDraft();
-        if (!flushed || !savedChatDraft) return flushed;
+        if (!savedChatDraft) return flushed;
+        if (!flushed) {
+          try {
+            // Empty rich drafts intentionally release their storage record.
+            // Reuse only that absent owner's seed, never overwrite an unreadable
+            // or failed existing revision. saveChatDraft still fences revocation.
+            if (localStorage.getItem(chatDraftStorageKey(savedChatDraft.id)) !== null) return false;
+          } catch {
+            return false;
+          }
+        }
         const current = getChatDraft(savedChatDraft.id) ?? savedChatDraft;
         return saveChatDraft({
           ...current,

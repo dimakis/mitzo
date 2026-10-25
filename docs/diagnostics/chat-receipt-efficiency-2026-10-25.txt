@@ -82,6 +82,10 @@ The review correction pass additionally passes 282 focused frontend tests and
 44 briefing ownership tests. Two independent full local reviews and focused
 follow-ups approved the corrected source, including warm cross-editor ownership,
 failed storage revocation, revision ancestry and replacement-composer cleanup.
+A later CI regression exposed an intentionally absent empty rich-draft seed:
+its complete guarded fallback remains allowed only when that exact record is
+absent. Existing/unreadable records and revocation/write errors remain protected;
+109 targeted tests, including all 38 role-binding page cases, pass after the fix.
 These local reviews do not replace the required trusted Centaur report.
 
 The broad server compile exceeded the instructed 1 GiB local heap limit. It is
