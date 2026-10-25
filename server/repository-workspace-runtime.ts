@@ -229,6 +229,10 @@ export function readRepositoryWorkspaceForConversation(
 export function getRepositoryWorkspaces(readOnly = false) {
   return workspaceOwner(readOnly);
 }
+/** Source review reads existing custody without enrolling another workspace. */
+export function getRepositoryWorkspaceCustody() {
+  return getRepositoryWorkspaces(true);
+}
 /** Local selection reuses configured checkouts and the existing workspace ledger. */
 export function getLocalRepositoryWorkspaces() {
   return workspaceOwner(false, false, true);

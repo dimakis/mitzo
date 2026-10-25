@@ -396,9 +396,49 @@ interface Conversation {
   toolSurfaceRevision: string | null;
   rolloverContext: string | null;
 }
+// Only fixed query programs are retained. Every invocation still executes its
+// original fresh read and validation; no row, binding or ownership result lives
+// in this finite per-store statement registry.
+const hotReadSql = {
+  conversation: `SELECT c.id AS conversationId,c.binding,c.cwd,c.thread_id AS threadId,
+          c.thread_generation AS threadGeneration,c.recovery,
+          c.recovery_strategy AS recoveryStrategy,
+          c.web_search_grant AS webSearchGrant,
+          c.web_search_grant_revision AS webSearchGrantRevision,
+          c.web_search_grant_updated_at AS webSearchGrantUpdatedAt,
+          c.tool_surface_revision AS toolSurfaceRevision,
+          c.rollover_context AS rolloverContext,
+          g.last_completed_turn_id AS lastCompletedTurnId
+        FROM codex_conversations c
+        LEFT JOIN codex_thread_generations g
+          ON g.conversation_id=c.id AND g.generation=c.thread_generation
+        WHERE c.id=?`,
+  hostCustody: 'SELECT owner_kind,host_custody FROM codex_conversations WHERE id=?',
+  threadAcceptances:
+    'SELECT command_id AS commandId, attempt, thread_id AS threadId, turn_id AS turnId, generation, ownership_pending AS ownershipPending, accepted_at AS acceptedAt, terminal_conflict AS terminalConflict FROM codex_thread_acceptances WHERE conversation_id=? ORDER BY accepted_at',
+  nativeTurnTarget:
+    'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+  commandStatus: 'SELECT status FROM codex_commands WHERE conversation_id=? AND id=?',
+  pendingNativeHostTool: `SELECT t.command_id AS commandId,
+        t.turn_id AS turnId,t.tool_name AS toolName,t.request_hash AS requestHash,
+        t.result_content AS resultContent,t.result_is_error AS resultIsError,c.attempt
+        FROM codex_tools t JOIN codex_commands c
+        ON c.conversation_id=t.conversation_id AND c.id=t.command_id
+        WHERE t.conversation_id=? AND t.call_id=? AND c.status='running'`,
+} as const;
+
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
-  private db: Database.Database;
+  private readonly db: Database.Database;
+  private readonly hotReadStatements = new Map<keyof typeof hotReadSql, Database.Statement>();
+  private hotReadStatement(name: keyof typeof hotReadSql): Database.Statement {
+    let statement = this.hotReadStatements.get(name);
+    if (!statement) {
+      statement = this.db.prepare(hotReadSql[name]);
+      this.hotReadStatements.set(name, statement);
+    }
+    return statement;
+  }
   constructor(
     path: string,
     private readonly ownership: { requireOwner?: boolean } = {},
@@ -639,23 +679,8 @@ export class CodexConversationStore {
       ) as { threadId: string; turnId: string } | undefined;
   }
   read(id: string, b: AccountBinding): Conversation {
-    const row = this.db
-      .prepare(
-        `SELECT c.id AS conversationId,c.binding,c.cwd,c.thread_id AS threadId,
-          c.thread_generation AS threadGeneration,c.recovery,
-          c.recovery_strategy AS recoveryStrategy,
-          c.web_search_grant AS webSearchGrant,
-          c.web_search_grant_revision AS webSearchGrantRevision,
-          c.web_search_grant_updated_at AS webSearchGrantUpdatedAt,
-          c.tool_surface_revision AS toolSurfaceRevision,
-          c.rollover_context AS rolloverContext,
-          g.last_completed_turn_id AS lastCompletedTurnId
-        FROM codex_conversations c
-        LEFT JOIN codex_thread_generations g
-          ON g.conversation_id=c.id AND g.generation=c.thread_generation
-        WHERE c.id=?`,
-      )
-      .get(id) as (Conversation & { binding: string }) | undefined;
+    const row = this.hotReadStatement('conversation').get(id) as
+      (Conversation & { binding: string }) | undefined;
     if (!row || row.binding !== this.key(b))
       throw new Error('Codex conversation binding unavailable or changed');
     return {
@@ -834,9 +859,10 @@ export class CodexConversationStore {
   }
   readHostCustody(id: string, binding: AccountBinding): HostCodexCustody | null {
     this.read(id, binding);
-    const row = this.db
-      .prepare('SELECT owner_kind,host_custody FROM codex_conversations WHERE id=?')
-      .get(id) as { owner_kind: string | null; host_custody: string | null };
+    const row = this.hotReadStatement('hostCustody').get(id) as {
+      owner_kind: string | null;
+      host_custody: string | null;
+    };
     if (row.owner_kind !== 'ordinary') throw new Error('Host Codex custody owner unavailable');
     return row.host_custody === null
       ? null
@@ -1405,11 +1431,7 @@ export class CodexConversationStore {
   }
   readThreadAcceptances(id: string, b: AccountBinding) {
     this.read(id, b);
-    const rows = this.db
-      .prepare(
-        'SELECT command_id AS commandId, attempt, thread_id AS threadId, turn_id AS turnId, generation, ownership_pending AS ownershipPending, accepted_at AS acceptedAt, terminal_conflict AS terminalConflict FROM codex_thread_acceptances WHERE conversation_id=? ORDER BY accepted_at',
-      )
-      .all(id) as Array<{
+    const rows = this.hotReadStatement('threadAcceptances').all(id) as Array<{
       commandId: string;
       attempt: number;
       threadId: string;
@@ -2307,11 +2329,7 @@ export class CodexConversationStore {
     attempt: number,
   ): CodexNativeTurnTarget | undefined {
     const current = this.read(id, b);
-    const row = this.db
-      .prepare(
-        'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
-      )
-      .get(id, commandId) as
+    const row = this.hotReadStatement('nativeTurnTarget').get(id, commandId) as
       { status: string; attempt: number; native_turns: string | null } | undefined;
     if (!row || row.status !== 'running' || row.attempt !== attempt) return;
     const targets = this.nativeTurns(row.native_turns).filter((t) => t.attempt === attempt);
@@ -2872,9 +2890,8 @@ export class CodexConversationStore {
     commandId: string,
   ): CodexCommand['status'] | undefined {
     this.read(id, binding);
-    const row = this.db
-      .prepare('SELECT status FROM codex_commands WHERE conversation_id=? AND id=?')
-      .get(id, commandId) as { status: string } | undefined;
+    const row = this.hotReadStatement('commandStatus').get(id, commandId) as
+      { status: string } | undefined;
     if (!row) return undefined;
     return z
       .enum(['queued', 'running', 'completed', 'interrupted', 'failed', 'cancelled'])
@@ -3043,16 +3060,7 @@ export class CodexConversationStore {
   ) {
     return this.db.transaction(() => {
       this.read(id, binding);
-      const row = this.db
-        .prepare(
-          `SELECT t.command_id AS commandId,
-        t.turn_id AS turnId,t.tool_name AS toolName,t.request_hash AS requestHash,
-        t.result_content AS resultContent,t.result_is_error AS resultIsError,c.attempt
-        FROM codex_tools t JOIN codex_commands c
-        ON c.conversation_id=t.conversation_id AND c.id=t.command_id
-        WHERE t.conversation_id=? AND t.call_id=? AND c.status='running'`,
-        )
-        .get(id, callId) as
+      const row = this.hotReadStatement('pendingNativeHostTool').get(id, callId) as
         | {
             commandId: string;
             turnId: string | null;

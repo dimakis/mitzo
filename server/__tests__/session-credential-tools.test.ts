@@ -3,6 +3,49 @@ import { sessionCredentialTools } from '../session-credential-tools.js';
 import { SessionRegistry } from '@mitzo/harness';
 import * as credentialRuntime from '../credential-connections-runtime.js';
 
+it('omits unavailable frame-based helpers and guidance from owned runtime discovery', async () => {
+  const { session, registry } = setup();
+  const tools = sessionCredentialTools(
+    'session',
+    session,
+    registry,
+    '',
+    undefined,
+    async () => {},
+    () => {},
+  );
+  const names = tools.definitions.map((tool) => tool.name);
+  expect(names).toContain('ConnectionRequest');
+  expect(names).not.toContain('ConnectionWebSocket');
+  expect(names).not.toContain('HomeAssistantDashboard');
+  const result = await tools.execute(
+    'GetConnectionGuide',
+    { topic: 'use' },
+    new AbortController().signal,
+  );
+  const guide = JSON.parse(result!.content);
+  expect(guide.tools).not.toContain('ConnectionWebSocket');
+  expect(guide.instructions).not.toContain('ConnectionWebSocket sends');
+  expect(guide.instructions).not.toContain('Use HomeAssistantDashboard');
+  expect(guide.instructions).toContain('scoped');
+  expect(
+    (
+      await tools.execute(
+        'ConnectionWebSocket',
+        { connectionId: 'ha', message: '{}' },
+        new AbortController().signal,
+      )
+    )?.isError,
+  ).toBe(true);
+});
+
+it('retains frame-based helpers for runtimes with the existing supported transport', () => {
+  const { tools } = setup();
+  expect(tools.definitions.map((tool) => tool.name)).toEqual(
+    expect.arrayContaining(['ConnectionWebSocket', 'HomeAssistantDashboard']),
+  );
+});
+
 it('fences captured credential handlers after runtime retirement but keeps guide and managed providers available', async () => {
   const prepare = vi.fn();
   const catalog = vi.fn(() => []);

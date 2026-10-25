@@ -296,7 +296,9 @@ jobs:
   ordinary-journey:
     name: Telos canonical ordinary journey (macOS)
     runs-on: macos-26
-    timeout-minutes: 20
+    # Add two mandatory 120s journeys plus their process/setup allowance.
+    # Individual acceptance, first-response and reader deadlines stay unchanged.
+    timeout-minutes: 25
     permissions:
       contents: read
     env:
@@ -350,10 +352,12 @@ jobs:
           }
           NODE
       - name: Run all required joined Telos acceptance cases
+        if: ${{ !cancelled() }}
         run: node tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs
       - name: Verify signed native operator lifetime and repository tools
+        if: ${{ !cancelled() }}
         run: |
-          npx vitest run server/__tests__/native-host-operator-lifetime.test.ts server/__tests__/native-local-repository-preparation-registration-dispatch.test.ts server/__tests__/native-local-repository-read-tools.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/native-host-authorization.json
+          npx vitest run server/__tests__/native-host-operator-lifetime.test.ts server/__tests__/native-local-repository-preparation-registration-dispatch.test.ts server/__tests__/native-local-repository-read-tools.test.ts server/__tests__/native-reader-path-authorization.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/native-host-authorization.json
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
           const result = JSON.parse(readFileSync('test-results/native-host-authorization.json', 'utf8'));
@@ -362,6 +366,7 @@ jobs:
             ['native-host-operator-lifetime.test.ts', 5],
             ['native-local-repository-preparation-registration-dispatch.test.ts', 4],
             ['native-local-repository-read-tools.test.ts', 8],
+            ['native-reader-path-authorization.test.ts', 13],
           ];
           for (const [file, count] of required) {
             const suite = result.testResults.find(test => test.name.endsWith('/' + file));
@@ -541,23 +546,6 @@ jobs:
           path: ${{ runner.temp }}/mitzo-production-bundle
           if-no-files-found: error
 
-      - name: Test
-        shell: bash
-        id: test
-        if: ${{ !cancelled() }}
-        run: npm test 2>&1 | tee test-output.txt
-
-      - name: Test count guard
-        id: test-count
-        if: ${{ !cancelled() }}
-        run: |
-          COUNT=$(grep 'Tests' test-output.txt | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')
-          echo "Test count: $COUNT"
-          if [ -z "$COUNT" ] || [ "$COUNT" -lt 250 ]; then
-            echo "::error::Test count dropped below 250 (got ${COUNT:-0}). Did you accidentally delete tests?"
-            exit 1
-          fi
-
       - name: Audit
         id: audit
         if: ${{ !cancelled() }}
@@ -604,8 +592,6 @@ jobs:
              [ "${{ steps.design.outcome }}" = "failure" ] || \
              [ "${{ steps.typecheck-server.outcome }}" = "failure" ] || \
              [ "${{ steps.typecheck-frontend.outcome }}" = "failure" ] || \
-             [ "${{ steps.test.outcome }}" = "failure" ] || \
-             [ "${{ steps.test-count.outcome }}" = "failure" ] || \
              [ "${{ steps.secret-scan.outcome }}" = "failure" ] || \
              [ "${{ steps.build-mcp.outcome }}" = "failure" ] || \
              [ "${{ steps.build.outcome }}" = "failure" ]; then
@@ -613,9 +599,89 @@ jobs:
             exit 1
           fi
 
+  unit:
+    name: Unit tests (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      # Finish every shard to retain complete coverage and failure evidence.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --global npm@11.18.0
+      - run: npm install --no-audit
+      # Preserve the former unit suite's compiled-artifact prerequisites.
+      - name: Build server and verify reviewed runtime artifacts
+        run: npm run build:server
+      - name: Build frontend for unit test prerequisites
+        id: build-frontend
+        if: ${{ !cancelled() }}
+        run: npm run build
+      - name: Discover the complete unit test suite without executing tests
+        run: |
+          mkdir -p unit-results
+          npx vitest list --filesOnly --json=unit-results/files-${{ matrix.shard }}.json
+      - name: Test
+        id: test
+        if: ${{ !cancelled() }}
+        run: >-
+          npm test -- --shard=${{ matrix.shard }}/4
+          --reporter=default --reporter=json
+          --outputFile=unit-results/report-${{ matrix.shard }}.json
+      - name: Retain unit shard evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          # Re-running a failed job replaces only that shard in this run.
+          name: unit-tests-${{ matrix.shard }}-${{ github.sha }}
+          path: unit-results/
+          overwrite: true
+          retention-days: 7
+          if-no-files-found: error
+
+  unit-validation:
+    needs: [core, unit]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Collect every unit shard from this workflow run
+        if: ${{ needs.unit.result == 'success' }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: unit-tests-*-${{ github.sha }}
+          path: unit-results
+          merge-multiple: true
+      - name: Require static checks and complete unit coverage
+        if: always()
+        env:
+          CI_CORE_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-unit-gate.mjs unit-results
+
   ci:
     name: ci
-    needs: [changes, core, ordinary-journey, ordinary-supplemental, browser-validation, native]
+    needs:
+      [
+        changes,
+        core,
+        ordinary-journey,
+        ordinary-supplemental,
+        browser-validation,
+        native,
+        unit-validation,
+      ]
     if: always()
     runs-on: ubuntu-latest
     steps:

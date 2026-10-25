@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { agentLibrarySource } from './fixtures/agent-library-source.js';
 
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { FrozenHostCodexExecutable } from '../frozen-host-codex-executable.js';
 
 import { revokeAuthSession, login, authenticateToken } from '../auth.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
@@ -1614,7 +1615,13 @@ it('commits a retained legacy companion upgrade in the native owner before launc
   await first.admit(f.request);
   const original = f.dispatch.mock.calls[0][0];
   const captured = original.lease.custodySnapshot!();
-  const { codeModeHost, ...legacyExecutable } = captured.executable;
+  // A legacy bundle lives inside its original login home. Newly captured code
+  // is shared and immutable, so model the actual historical layout explicitly.
+  const legacy = FrozenHostCodexExecutable.capture(
+    captured.executable.source,
+    captured.login.privateHome,
+  ).custodySnapshot();
+  const { codeModeHost, ...legacyExecutable } = legacy;
   expect(codeModeHost).toBeDefined();
   const custody = {
     version: 1 as const,

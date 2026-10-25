@@ -137,7 +137,9 @@ async function credentialDigest(
       };
     } else {
       const manager = openAIAccountKeyAuthority(binding, profiles);
-      await manager.assertReady(signal);
+      // Gateway resolution already verifies readiness inside its credential
+      // owner. Keep the fresh post-resolution fence, without repeating that
+      // preliminary gateway/Keychain read before the resolver does it again.
       credential = digest(await manager.resolveKey(binding.accountId, signal));
       await manager.assertReady(signal);
     }

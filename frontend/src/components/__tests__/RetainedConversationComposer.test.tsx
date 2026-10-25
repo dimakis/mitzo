@@ -30,7 +30,7 @@ it('copies the current unavailable recipient draft to a new chat without queuein
   expect(input.value).toBe('Latest unsaved text');
   expect(onQueue).not.toHaveBeenCalled();
 });
-it('uses the real ordinary composer, preserves draft while queueing and clears only on a confirmed receipt', async () => {
+it('shows queueing immediately and retains the persisted draft until a confirmed receipt', async () => {
   let finish!: (value: boolean) => void;
   const onQueue = vi.fn(
     () =>
@@ -52,9 +52,11 @@ it('uses the real ordinary composer, preserves draft while queueing and clears o
   fireEvent.change(input, { target: { value: 'Review the design' } });
   fireEvent.click(screen.getByRole('button', { name: 'Queue for approval' }));
   expect(onQueue).toHaveBeenCalledWith(['a'], 'Review the design');
-  expect(input.value).toBe('Review the design');
+  expect(input.value).toBe('');
+  expect(localStorage.getItem('mitzo-symposium-draft:retained:a')).toBe('Review the design');
   await act(async () => finish(true));
   await waitFor(() => expect(input.value).toBe(''));
+  expect(localStorage.getItem('mitzo-symposium-draft:retained:a')).toBeNull();
   expect(screen.queryByRole('combobox', { name: 'Message recipient' })).toBeNull();
 });
 it('keeps failed text and distinct recipient drafts; choosing a history preview cannot change the send target', async () => {

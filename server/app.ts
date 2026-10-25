@@ -81,6 +81,7 @@ import { canonicalRepositorySelection } from './github-repository-source.js';
 import {
   closeIdleRepositoryWorkspaces,
   getRepositoryWorkspaces,
+  getRepositoryWorkspaceCustody,
   repositoryWorkspaceBinding,
   repositoryWorkspaceCatalog,
 } from './repository-workspace-runtime.js';
@@ -2508,6 +2509,7 @@ app.use(
 app.use(
   createTelosSourceRouter({
     tasks: taskStore,
+    repositoryWorkspaces: getRepositoryWorkspaceCustody,
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
     dbPath: telosDatabasePath,

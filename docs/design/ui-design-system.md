@@ -2069,6 +2069,12 @@ on their existing Files path. This does not change server file permissions.
 
 ## Queue recovery status
 
+Submitted text leaves the input as soon as its send owner accepts it locally;
+the existing transcript and Sending status show progress while the server works.
+The original draft data remains retained until an exact delivery receipt. Rejected
+or uncertain delivery reveals it again, while later typed or dictated text remains
+its own draft and cannot be cleared by the older receipt.
+
 `ChatStatusMessage` gives send progress, conversation loading and composer-blocking
 reasons one shared quiet treatment: semantic muted text, UiIcon, UI font and shared
 spacing/type tokens. Both chat pages place delivery feedback beside the composer;
