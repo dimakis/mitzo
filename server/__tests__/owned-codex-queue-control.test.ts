@@ -69,11 +69,13 @@ it.each(['local', 'openshell'] as const)(
     expect(() => assertOwnedCodexQueueControl(f, 'session', web)).toThrow();
     auth.primaryActor = true;
     expect(() => assertOwnedCodexQueueControl(f, 'session', web)).not.toThrow();
+    const responses = { ...local, harness: { implementation: 'responses' as const } };
     expect(() =>
       assertOwnedCodexQueueControl(
         {
           ...f,
-          runtimeBinding: () => ({ ...local, harness: { implementation: 'responses' as const } }),
+          runtimeBinding: () => responses,
+          custody: () => ({ authSessionId: 'phone-login', binding: responses }),
         },
         'session',
         web,
