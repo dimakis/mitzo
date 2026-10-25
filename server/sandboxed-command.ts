@@ -832,8 +832,8 @@ async function runSandboxedCommand(
         else if (options.privateOutput) stream.push(chunk);
         else chunks.push(chunk);
       };
-      child.stdout.on('data', (chunk: Buffer) => collect(chunk, stdout));
-      child.stderr.on('data', (chunk: Buffer) => collect(chunk, stderr));
+      child.stdout!.on('data', (chunk: Buffer) => collect(chunk, stdout));
+      child.stderr!.on('data', (chunk: Buffer) => collect(chunk, stderr));
       child.on('error', () => {
         failure = 'Sandbox process could not start';
       });

@@ -84,6 +84,7 @@ export interface RepositoryObservationCapture {
   readonly data: Readonly<RepositoryObservationData>;
   readonly digest: string;
 }
+export class RepositoryObservationReadAccessError extends Error {}
 const fail = () => Error('Repository observation unavailable');
 export function freezeRepositoryObservationPlan(
   input: unknown,
@@ -135,7 +136,11 @@ async function run(
   const { executeNativeFileOperation } = await import('./native-file-operation.js');
   const result = await executeNativeFileOperation(request, signal, timeoutMs, transport);
   signal.throwIfAborted();
-  if (result.is_error) throw fail();
+  if (result.is_error) {
+    if (result.content === 'Repository read access required')
+      throw new RepositoryObservationReadAccessError('Repository read access required');
+    throw fail();
+  }
   return JSON.parse(result.content);
 }
 export async function captureRepositoryObservation(
@@ -241,8 +246,8 @@ def repository_observation(request):
     def allowed(path, walk=False):
         check()
         if not isinstance(path, str) or not path.startswith('/') or os.path.normpath(path) != path or '\x00' in path or len(path.encode()) > 4096: fail()
-        if any(contains(root, path) for root in exclusions): fail()
-        if not any(contains(root, path) or (walk and contains(path, root)) for root in readable): fail()
+        if any(contains(root, path) for root in exclusions): raise PermissionError('Repository read access required')
+        if not any(contains(root, path) or (walk and contains(path, root)) for root in readable): raise PermissionError('Repository read access required')
         parts = path.split('/')
         for index, part in enumerate(parts):
             if part in excluded_names and not (part in ('.claude', '.cursor', '.codex') and ((index + 1 < len(parts) and parts[index + 1] == 'worktrees') or (walk and index + 1 == len(parts)))): fail()
@@ -466,6 +471,8 @@ try:
     if len((envelope + '\n').encode('utf-8')) > 64 * 1024 * 1024:
         raise RuntimeError('Repository observation unavailable')
     print(envelope)
+except PermissionError:
+    print(json.dumps({'content': 'Repository read access required', 'is_error': True}))
 except Exception:
     print(json.dumps({'content': 'Repository observation unavailable', 'is_error': True}))
 `;

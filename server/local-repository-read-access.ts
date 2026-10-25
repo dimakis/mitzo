@@ -1,3 +1,4 @@
+import { RepositoryObservationReadAccessError } from './native-repository-observation.js';
 import type {
   RepositoryObservationCapture,
   RepositoryObservationInput,
@@ -284,7 +285,14 @@ export class LocalRepositoryReadAccess {
       throw unavailable();
     await this.authorize(input.sourcePath);
     if (input.taskRoot) await this.authorize(input.taskRoot);
-    const captured = await this.authority.captureRepositoryObservation(input);
+    let captured: Readonly<RepositoryObservationCapture>;
+    try {
+      captured = await this.authority.captureRepositoryObservation(input);
+    } catch (error) {
+      if (error instanceof RepositoryObservationReadAccessError)
+        throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+      throw error;
+    }
     if (
       captured.plan.mode !== input.mode ||
       captured.plan.sourcePath !== input.sourcePath ||

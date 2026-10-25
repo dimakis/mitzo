@@ -73,7 +73,7 @@ export async function localRepositoryNativeToolFixture(
     dispatch.admission.persistCustody(native);
     native.bindThread(dispatch.sessionId, dispatch.lease.binding, `thread-${dispatch.sessionId}`);
     previous.close();
-    if (options.registeredExecutablePath) {
+    if (options.registeredExecutablePath && options.continuityV2) {
       // Seed an earlier thread on the same registered runtime surface without
       // executing a provider/model turn. initialize supplies its actual revision;
       // a resumed thread correctly omits dynamicTools from its RPC parameters.

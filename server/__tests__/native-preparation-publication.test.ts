@@ -350,17 +350,14 @@ it('refuses denied decoded trees, overlimit whole plans and raw accessors before
       launch,
     ),
   ).rejects.toThrow();
-  const entries = Array.from({ length: 1000 }, (_, n) => ({
+  const entries = Array.from({ length: 6000 }, (_, n) => ({
     ...f.plan.tree.entries[0],
     path: 'n'.repeat(250) + n,
   }));
+  const overlimit = { ...f.plan, tree: { ...f.plan.tree, entries } };
+  expect(Buffer.byteLength(JSON.stringify(overlimit))).toBeGreaterThan(2 * 1024 * 1024);
   await expect(
-    publishNativePreparedRepository(
-      { ...f.plan, tree: { ...f.plan.tree, entries } },
-      new AbortController().signal,
-      15000,
-      launch,
-    ),
+    publishNativePreparedRepository(overlimit, new AbortController().signal, 15000, launch),
   ).rejects.toThrow();
   const getter = vi.fn();
   const raw = Object.defineProperty(

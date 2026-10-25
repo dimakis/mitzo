@@ -41,7 +41,7 @@ vi.setConfig({ testTimeout: 30000 });
 // protocol evidence, not another kernel-enforcement qualification.
 function offlineHelper(beforeSpawn?: () => void, boundaries?: NativeReadBoundaryProfile) {
   const runs: Array<Parameters<typeof sandbox.executeSandboxedCommand>[0]> = [];
-  vi.spyOn(sandbox, 'executeSandboxedCommand').mockImplementation(async (request) => {
+  const execute = async (request: Parameters<typeof sandbox.executeSandboxedCommand>[0]) => {
     runs.push(request);
     beforeSpawn?.();
     await request.beforeSpawnAsync?.();
@@ -67,7 +67,9 @@ function offlineHelper(beforeSpawn?: () => void, boundaries?: NativeReadBoundary
     } finally {
       finish?.(success);
     }
-  });
+  };
+  vi.spyOn(sandbox, 'executeSandboxedCommand').mockImplementation(execute);
+  vi.spyOn(sandbox, 'executePrivateRepositoryObservation').mockImplementation(execute);
   return runs;
 }
 
