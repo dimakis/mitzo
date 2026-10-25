@@ -8,6 +8,31 @@ export type NativeCompleteFact = { stage: string; facts: unknown };
 type Actor = Parameters<typeof prepareNativeProviderToolCall>[0];
 type Result = { success: boolean; contentItems: Array<{ type: string; text?: string }> };
 
+// An advisor has no delegated Task Board task. Publish its real tool ceiling
+// separately, before setup, rather than inheriting the lead/worker selection.
+export function publishNativeCompleteAdvisorProfile(library: AgentLibraryStore) {
+  const draft = library.saveDraft('user', {
+    profileId: 's9-native-complete-advisor',
+    expectedVersion: 0,
+    expectedRevision: 0,
+    idempotencyKey: 'native-complete-advisor-draft',
+    definition: {
+      name: 'S9 complete journey advisor',
+      role: 'agent',
+      instructions: 'Retain the reviewed plan; execution is a separate decision.',
+      expectedOutput: 'A retained advisory narrative.',
+      acceptanceCriteria: ['Preserve the original advisor and source context.'],
+      modelPolicyRole: 'agent',
+      tools: [{ id: 'mitzo:Read', version: 1 }],
+    },
+  });
+  return library.publish('user', {
+    profileId: draft.profileId,
+    expectedVersion: draft.version,
+    idempotencyKey: 'native-complete-advisor-publish',
+  });
+}
+
 // Synthetic fixture publication precedes role selection. Never edit a session's
 // retained profile, native admission, permissions or role/context after setup.
 export function publishNativeCompleteProfile(library: AgentLibraryStore) {

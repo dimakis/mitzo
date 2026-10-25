@@ -1,5 +1,6 @@
 import {
   allowNativeCompleteCallbacks,
+  publishNativeCompleteAdvisorProfile,
   publishNativeCompleteProfile,
   nativeCompleteCaller,
   nativeCompleteJSON,
@@ -179,6 +180,15 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
     separateConfiguredWorkspace: true,
   });
   services.workspace = f.workspaces;
+  const originalAdvisorProfile = structuredClone(publishNativeCompleteAdvisorProfile(f.library));
+  expect(originalAdvisorProfile.definition.tools).toEqual([{ id: 'mitzo:Read', version: 1 }]);
+  const advisorSelection = {
+    ...f.first.request.selection,
+    agent: {
+      profileId: originalAdvisorProfile.profileId,
+      revision: originalAdvisorProfile.revision,
+    },
+  };
   const originalNativeProfile = structuredClone(publishNativeCompleteProfile(f.library));
   const nativeSelection = {
     ...f.first.request.selection,
@@ -375,7 +385,7 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
     ...canonical.events.getSession('planning')!,
     accountBinding: f.binding,
   });
-  const seedRoleDraft = async (draftId: string, search: string) => {
+  const seedRoleDraft = async (draftId: string, search: string, selection = nativeSelection) => {
     const browserInventory = await (await http('/api/chat/runtime/capabilities')).json();
     await page.addInitScript(
       ({ draftId, search, first }) => {
@@ -421,7 +431,7 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
         search,
         first: {
           ...f.first.request,
-          selection: nativeSelection,
+          selection,
           capabilityRevision: browserInventory.capabilityRevision,
         },
       },
@@ -452,9 +462,8 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
     expectedRevision: originPreview.packet.workRevision,
     previewSha256: originPreview.sha256,
   });
-  const advisorSearch =
-    'telosRoleItem=studio&telosRole=advisor&telosRoleMode=additional&telosAdvisor=child&agentProfile=s9-native-complete-worker&profileRevision=1';
-  await seedRoleDraft('s9-joined-advisor', advisorSearch);
+  const advisorSearch = `telosRoleItem=studio&telosRole=advisor&telosRoleMode=additional&telosAdvisor=child&agentProfile=${originalAdvisorProfile.profileId}&profileRevision=${originalAdvisorProfile.revision}`;
+  await seedRoleDraft('s9-joined-advisor', advisorSearch, advisorSelection);
   await page.goto(front.origin + '/chat?draft=s9-joined-advisor&' + advisorSearch);
   await browserExpect(page.getByRole('button', { name: 'Start chat', exact: true })).toBeEnabled();
   expect(nativeSessions).toHaveLength(0);
@@ -474,6 +483,7 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
   );
   const advisorId = (await api.read('studio')).links.find((l) => l.role === 'advisor')!.conversation
     .conversationId;
+  expect(chat.eventStore.getSession(advisorId)!.agentProfile).toEqual(originalAdvisorProfile);
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + advisorId));
   const advisorPrompt = 'Please retain the acoustic plan and create the reviewed recording slice.';
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill(advisorPrompt);
@@ -493,6 +503,10 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
   });
   expect(chat.eventStore.listSessions()).toHaveLength(before + 1);
   await vi.waitFor(() => expect(nativeSessions).toHaveLength(1));
+  const advisor = chat.registry.findBySessionId(advisorId)!;
+  expect(advisor).toBeTruthy();
+  expect(advisor.session.taskContext).toBeUndefined();
+  expect(chat.eventStore.getSession(advisorId)!.agentProfile).toEqual(originalAdvisorProfile);
   const advisorNative = nativeSessions[0];
   // A simulated provider may produce this turn's output only after turn/start.
   await vi.waitFor(
@@ -1088,6 +1102,9 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
   });
   expect(nativeSessions).toHaveLength(3);
   expect(workerTurnStarts()).toBe(turnsBeforeReplay);
+  expect(chat.registry.findBySessionId(advisorId)?.session).toBe(advisor.session);
+  expect(advisor.session.taskContext).toBeUndefined();
+  expect(chat.eventStore.getSession(advisorId)!.agentProfile).toEqual(originalAdvisorProfile);
   for (const id of [advisorId, leadId, workerId])
     chat.stopOrdinaryChat(chat.registry.findBySessionId(id)!.clientId);
   await vi.waitFor(() => {
@@ -1136,6 +1153,7 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
   expect(pageErrors).toEqual([]);
   expect(f.legacyLookup).not.toHaveBeenCalled();
   expect(getClientId).not.toHaveBeenCalled();
+  expect(chat.eventStore.getSession(advisorId)!.agentProfile).toEqual(originalAdvisorProfile);
   expect(chat.eventStore.getSession(leadId)!.agentProfile).toEqual(originalNativeProfile);
   expect(chat.eventStore.getSession(workerId)!.agentProfile).toEqual(originalNativeProfile);
   expect(
@@ -1159,6 +1177,9 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
       finalParent: items.read('studio'),
       nativeActors: nativeSessions.length,
       workerTurnStarts: workerTurnStarts(),
+      originalAdvisorProfile,
+      actualAdvisorProfile: chat.eventStore.getSession(advisorId)!.agentProfile,
+      advisorTaskContext: advisor.session.taskContext ?? null,
       originalNativeProfile,
       actualLeadProfile: chat.eventStore.getSession(leadId)!.agentProfile,
       actualWorkerProfile: chat.eventStore.getSession(workerId)!.agentProfile,
