@@ -149,7 +149,7 @@ export function ordinaryCodexContinuationStatus(
       return blocked('Sign in with the original login to resume this conversation.');
     const live = registry.findBySessionId(sessionId)?.session;
     if (live)
-      return (location === 'local' && binding.harness.implementation === 'codex'
+      return (binding.harness.implementation === 'codex'
         ? ordinaryOperatorOwnsConversation(live.ordinaryRuntimeOwner?.authSessionId, authSessionId)
         : live.ordinaryRuntimeOwner?.authSessionId === authSessionId) &&
         live.ordinaryRuntimeOwner?.location === location
