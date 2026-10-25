@@ -838,11 +838,11 @@ it('delivers real App private relay and MFA readiness through guarded runtime-bo
     cwd: f.meta.cwd,
     accountBinding: f.account,
     transport: { send: vi.fn(), isOpen: () => true },
-    inputQueue: queue,
     abortController: new AbortController(),
     sessionAllowList: new Set(),
   });
   const session = chat.registry.get('private-origin')!;
+  session.inputQueue = queue;
   const owner = {
     location: 'openshell' as const,
     authSessionId: 'signed-operator',
