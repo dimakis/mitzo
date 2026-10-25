@@ -1,3 +1,4 @@
+import { PrepareSecretRelaySchema } from './secret-relay.js';
 import { ConnectionRequestError } from './connection-request-error.js';
 import { WebSocketRequestSchema, ConnectionWebSocketError } from './credential-websocket.js';
 import { randomUUID } from 'node:crypto';
@@ -31,8 +32,24 @@ export const credentialConnectionSchemas = {
     .strict(),
   PrepareConnectionSetup: PrepareConnectionSetupSchema,
   GetConnectionSetup: z.object({ setupId: id }).strict(),
+  PrepareSecretRelay: PrepareSecretRelaySchema,
+  GetSecretRelay: z.object({ relayId: id }).strict(),
+  ApplySecretRelay: z
+    .object({
+      relayId: id,
+      targetIndex: z.number().int().min(0).max(7),
+      actionIndex: z.number().int().min(0).max(7).optional(),
+    })
+    .strict(),
 };
 const descriptions = {
+  PrepareSecretRelay:
+    'Request one private password/token for exact reviewed API writes in this chat. Supply existing connection IDs/revisions, relative paths, write methods, and non-secret request templates. Enabled native adapters also accept adapter mqtt (broker origin with explicit port, username, connect or exact QoS1 publish) or browser (one HTTPS origin, reviewed request paths/methods, login selectors, JSON authentication verification, optional MFA selectors, and exact later form actions). MFA codes are requested on the same private page. Browser cookies stay private and expire with this relay. An explicitly enabled LAN device adapter instead accepts lanEndpoint: an exact numeric RFC1918 HTTP origin; the private page discloses cleartext transport. Research official service/device documentation before proposing paths or fields. JSON secret fields use RFC6901 pointers to null values; form fields must exist once with empty values. Returns a private Mitzo page; user enters the value there and approves the listed destinations. Never put credentials in tool input, chat or files. OpenShell stores the value; the agent receives no credential. Does not dispatch writes. Use GetConnectionGuide for details.',
+  GetSecretRelay:
+    'Read this chat’s private secret request status and per-target dispatch receipts. Never returns values or Gateway references. Wait for the readiness notification; do not poll repeatedly.',
+  ApplySecretRelay:
+    'Apply a privately captured value to one exact destination reviewed on its setup page. API destinations require existing connection access; native adapters use the private page’s reviewed scope. Supply relayId, targetIndex, and an optional reviewed browser actionIndex; Mitzo privately fills approved fields. For browser targets omit actionIndex to sign in or finish a privately staged MFA code; a challenge_required receipt means the user must open the relay setupUrl and enter a one-time code. Then call this same tool to continue. After confirmed sign-in, supply actionIndex to execute only that reviewed browser form action in its private session. MQTT returns CONNACK/PUBACK acknowledgement only. Other targets return HTTP status only. Never returns response bodies, cookies or codes. A confirmed receipt means an HTTP response, not verified application success. An unconfirmed write may have applied; never replay it or create another relay to retry without inspecting state.',
+
   ListConnections:
     'Discover configured service connections, their transport and access for this chat. Attached or approved connections can be used directly; request_session_access needs RequestConnectionAccess. Never returns credentials. If the needed service is missing, use GetConnectionGuide and PrepareConnectionSetup to help the user connect it within this task.',
   GetConnectionGuide:
@@ -139,7 +156,7 @@ export function createCredentialConnectionTools(
         if (
           !stillAllowed(
             name,
-            name === 'ConnectionWebSocket'
+            name === 'ConnectionWebSocket' || name === 'ApplySecretRelay'
               ? 'POST'
               : name === 'HomeAssistantDashboard'
                 ? input.operation === 'save'
@@ -159,6 +176,39 @@ export function createCredentialConnectionTools(
             input,
           );
         if (!parsed.success) return { content: 'Invalid connection tool input', isError: true };
+        if (['PrepareSecretRelay', 'GetSecretRelay', 'ApplySecretRelay'].includes(name)) {
+          if (!service.relay)
+            return {
+              content: 'OpenShell secret relay is not configured for this runtime',
+              isError: true,
+            };
+          await assertRuntimeCurrent?.();
+          if (!stillAllowed(name, name === 'ApplySecretRelay' ? 'POST' : 'GET'))
+            return { content: 'Session unavailable', isError: true };
+          let result;
+          if (name === 'PrepareSecretRelay')
+            result = { relay: service.relay.prepare(sessionId, parsed.data) };
+          else if (name === 'GetSecretRelay')
+            result = {
+              relay: service.relay.status(
+                sessionId,
+                credentialConnectionSchemas.GetSecretRelay.parse(input).relayId,
+              ),
+            };
+          else {
+            const args = credentialConnectionSchemas.ApplySecretRelay.parse(input);
+            result = await service.relay.apply(
+              sessionId,
+              args.relayId,
+              args.targetIndex,
+              signal,
+              () => stillAllowed(name, 'POST'),
+              assertRuntimeCurrent,
+              args.actionIndex,
+            );
+          }
+          return { content: JSON.stringify(result), isError: false };
+        }
         if (name === 'ListConnections')
           return {
             content: JSON.stringify({ connections: service.catalog(sessionId) }),

@@ -3369,6 +3369,7 @@ export async function startOwnedLocalCodexCommand(
           dispatch.preparationSignal
             ? AbortSignal.any([session.abortController.signal, dispatch.preparationSignal])
             : session.abortController.signal,
+          dispatch.assertCredentialSetupCurrent,
         );
         dispatch.preparationSignal?.throwIfAborted();
         resolveOwnedTelosWorkCommandScope(sessionId);
@@ -3425,6 +3426,24 @@ export async function startOwnedLocalCodexCommand(
       initialPreparationOperationId: preparationOperationId,
       initialResume: resume,
       admit: (command, signal) => retainedDriver.admitContinuation(command, signal),
+      notifyCredentialSetup: (notice) => {
+        const meta = eventStore.getSession(sessionId);
+        if (!meta) throw unavailable();
+        return retainedDriver.notifyCredentialSetup({
+          ...notice,
+          assertCurrent: () => {
+            notice.assertCurrent();
+            const current = registry.findBySessionId(sessionId)?.session;
+            if (
+              current !== liveSession ||
+              current.ordinaryRuntimeOwner?.identity !== retainedDriver ||
+              current.mode !== meta.mode
+            )
+              throw unavailable();
+            resolveOwnedTelosWorkCommandScope(sessionId);
+          },
+        });
+      },
       admitAgentMessage: (messageId, assertSenderCurrent, signal) =>
         retainedDriver.admitAgentMessage(messageId, assertSenderCurrent, signal),
       retryInitial: (command) =>

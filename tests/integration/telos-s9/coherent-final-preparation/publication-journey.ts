@@ -54,11 +54,16 @@ export async function publicationJourney(
   external.state.sourceTree = sourceTree;
   external.state.mergeTree = sourceTree;
   external.state.reportBody = `<!-- centaur:sha:${sourceHead} -->\n## Centaur Review\nLGTM — no issues found.\n\n### Convergence\n**Recommendation:** \`merge\`\n- New blocking findings: 0\n- Unresolved blocking findings: 0\n`;
-  const call = async (input: unknown, beforeOnce?: () => Promise<void>) => {
+  const call = async (
+    input: unknown,
+    approval: 'once' | 'publication-receipt',
+    beforeOnce?: () => Promise<void>,
+  ) => {
     const observed = await app.nativeCall(
       publisherId,
       'RequestGithubMainPublication',
       input,
+      approval,
       beforeOnce,
     );
     return {
@@ -93,7 +98,7 @@ export async function publicationJourney(
       held,
     });
   };
-  const held = await call(intent());
+  const held = await call(intent(), 'once');
   expect(holdInstalled).toBe(true);
   expect(held.body.state).toBe('denied');
   expect(external.state.mutations).toBe(0);
@@ -110,7 +115,7 @@ export async function publicationJourney(
   external.state.loseReply = true;
   const input = { ...intent(), workRevision: (await app.api.read('studio')).revision };
   const advancedMain = 'd'.repeat(40);
-  const uncertain = await call(input, async () => {
+  const uncertain = await call(input, 'once', async () => {
     // External remote main changes while the real Once is pending. The real
     // adapter must inspect again and admit the newly observed normal-rules main.
     external.state.currentMain = advancedMain;
@@ -132,12 +137,12 @@ export async function publicationJourney(
         record.stage === 'actual-app-http' && record.facts.path === '/api/chat/permission',
     ).length;
   const beforeRecovery = permissionCalls();
-  const recovered = await call(input);
+  const recovered = await call(input, 'publication-receipt');
   expect(recovered.observed.result.success).toBe(true);
   expect(recovered.body.state).toBe('accepted');
   expect(external.state.mutations).toBe(1);
   expect(permissionCalls()).toBe(beforeRecovery);
-  const exact = await call(input);
+  const exact = await call(input, 'publication-receipt');
   expect(exact.body).toEqual(recovered.body);
   expect(external.state.mutations).toBe(1);
   expect(permissionCalls()).toBe(beforeRecovery);

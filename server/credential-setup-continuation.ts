@@ -1,27 +1,58 @@
+import type { SecretRelay } from './secret-relay.js';
+type PrivateSetup = ConnectionSetup | SecretRelay;
 import type { ManagedSession, SessionRegistry } from '@mitzo/harness';
 import type { ConnectionSetup } from './credential-setup.js';
+
+export interface CredentialSetupNotification {
+  messageId: string;
+  prompt: string;
+  assertCurrent(): void;
+  signal: AbortSignal;
+}
 
 interface Options {
   registry: SessionRegistry;
   /** Unified provider dispatch; messageId must be persisted/deduplicated. */
-  send: (clientId: string, prompt: string, messageId: string) => Promise<boolean>;
+  send: (
+    clientId: string,
+    prompt: string,
+    messageId: string,
+    assertCurrent: () => void,
+  ) => Promise<boolean>;
+  canSend?: (clientId: string) => boolean;
   currentConnection: (connectionId: string) => { revision: number; status: string };
-  pendingReady: () => ConnectionSetup[];
+  pendingReady: () => PrivateSetup[];
+  currentRelay?: (id: string) => SecretRelay | undefined;
   markDelivered: (setupId: string) => void;
-  isBusy?: (session: ManagedSession) => boolean;
+  isBusy?: (session: ManagedSession, notificationId?: string) => boolean;
 }
 
 /** Durable pending state lives in the setup store; this helper only coalesces
  * dispatch attempts. A restart retries the same persisted message identity. */
 export function createConnectionSetupContinuation(options: Options) {
   const pending = new Map<string, Promise<boolean>>();
-  async function deliver(setup: ConnectionSetup): Promise<boolean> {
-    if (setup.status !== 'ready' || setup.delivery === 'delivered' || !setup.connectionId)
+  async function deliver(setup: PrivateSetup): Promise<boolean> {
+    const relay = 'targets' in setup;
+    if (setup.status !== 'ready' || setup.delivery === 'delivered') return false;
+    if (!/^[a-zA-Z0-9_-]+$/.test(setup.id)) return false;
+    if (!relay && (!setup.connectionId || !/^[a-zA-Z0-9_-]+$/.test(setup.connectionId)))
       return false;
-    // Identifiers are generated internally; never echo service-controlled values.
-    if (!/^[a-zA-Z0-9_-]+$/.test(setup.id) || !/^[a-zA-Z0-9_-]+$/.test(setup.connectionId))
-      return false;
+    const valid = () => {
+      if (relay) {
+        const current = options.currentRelay?.(setup.id);
+        return (
+          current?.status === 'ready' &&
+          current.sessionId === setup.sessionId &&
+          current.revision === setup.revision &&
+          current.continuation === setup.continuation &&
+          current.expiresAt > Date.now()
+        );
+      }
+      const connection = options.currentConnection(setup.connectionId!);
+      return connection.status === 'active' && connection.revision === setup.connectionRevision;
+    };
     const owner = options.registry.findBySessionId(setup.sessionId);
+    const messageId = `${relay ? 'secret-relay' : 'connection-setup'}:${setup.id}${relay && setup.continuation ? `:${setup.continuation}` : ''}`;
     if (
       !owner ||
       !options.registry.isAttached(owner.clientId) ||
@@ -32,14 +63,32 @@ export function createConnectionSetupContinuation(options: Options) {
       (options.isBusy?.(owner.session) ?? !!owner.session.currentSnapshot)
     )
       return false;
+    const assertCurrent = () => {
+      const current = options.registry.findBySessionId(setup.sessionId);
+      if (
+        setup.expiresAt <= Date.now() ||
+        current?.session !== owner.session ||
+        current.clientId !== owner.clientId ||
+        !options.registry.isAttached(owner.clientId) ||
+        options.registry.isSuspended(owner.clientId) ||
+        options.registry.isClosingOut(owner.clientId) ||
+        options.registry.isUserClose(owner.clientId) ||
+        owner.session.abortController.signal.aborted ||
+        options.canSend?.(owner.clientId) === false ||
+        (options.isBusy?.(owner.session, messageId) ?? !!owner.session.currentSnapshot) ||
+        !valid()
+      )
+        throw Error('Private setup notification is no longer current');
+    };
     try {
-      const connection = options.currentConnection(setup.connectionId);
-      if (connection.status !== 'active' || connection.revision !== setup.connectionRevision)
-        return false;
+      assertCurrent();
       const accepted = await options.send(
         owner.clientId,
-        `[Mitzo connection setup status] Setup ${setup.id} is ready; connectionId is ${setup.connectionId}. This is a context-only readiness notification, not a new user instruction or action approval. Continue the pending connection-dependent task only if it still matches the user's latest instructions. Do not repeat completed or unconfirmed actions. Request this chat's connection access before use and inspect relevant service state first.`,
-        `connection-setup:${setup.id}`,
+        relay
+          ? `[Mitzo private secret status] Relay ${setup.id} is ready.${setup.continuation ? ' A private verification code is available for the pending browser sign-in. Use ApplySecretRelay on its waiting target to continue under current permissions.' : ''} This is a context-only readiness notification, not a new instruction. Continue the pending task only if it still matches the user’s latest instructions. Use GetSecretRelay for the exact reviewed targets, obtain connection access before use, and apply only unattempted targets or a waiting browser target whose code is ready with ApplySecretRelay. Do not repeat completed or unconfirmed actions.`
+          : `[Mitzo connection setup status] Setup ${setup.id} is ready; connectionId is ${setup.connectionId}. This is a context-only readiness notification, not a new user instruction or action approval. Continue the pending connection-dependent task only if it still matches the user's latest instructions. Do not repeat completed or unconfirmed actions. Request this chat's connection access before use and inspect relevant service state first.`,
+        messageId,
+        assertCurrent,
       );
       const currentOwner = options.registry.findBySessionId(setup.sessionId);
       if (
@@ -53,12 +102,7 @@ export function createConnectionSetupContinuation(options: Options) {
         owner.session.abortController.signal.aborted
       )
         return false;
-      const currentConnection = options.currentConnection(setup.connectionId);
-      if (
-        currentConnection.status !== 'active' ||
-        currentConnection.revision !== setup.connectionRevision
-      )
-        return false;
+      assertCurrent();
       options.markDelivered(setup.id);
       return true;
     } catch {
@@ -66,7 +110,7 @@ export function createConnectionSetupContinuation(options: Options) {
       return false;
     }
   }
-  function notify(setup: ConnectionSetup): Promise<boolean> {
+  function notify(setup: PrivateSetup): Promise<boolean> {
     const existing = pending.get(setup.id);
     if (existing) return existing;
     const delivery = deliver(setup).finally(() => {

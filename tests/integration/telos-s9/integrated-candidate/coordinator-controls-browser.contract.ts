@@ -5,6 +5,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { TelosWorkControlViewSchema, type TelosWorkControlCommand } from '@mitzo/protocol';
 import { createJoinedOrdinaryApplication } from './joined-ordinary-application';
+import { observeNavigatedControlInbox } from './navigated-control-inbox';
 
 it('coordinates six actual outcomes through UI requests, native recipient ACKs, host safe-point evidence and durable release while unrelated Job completes', async () => {
   const hostFetch = globalThis.fetch;
@@ -396,7 +397,17 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
         (t) => t.stage === 'acknowledged' && t.workers.every((w) => w.stage === 'acknowledged'),
       ),
     ).toBe(true);
-    await page.goto(front.origin + '/chat/' + coordinatorId);
+    const acknowledgedInboxResponse = await observeNavigatedControlInbox(
+      page,
+      acknowledged.coordinatorItemId,
+      () => page.goto(front.origin + '/chat/' + coordinatorId),
+    );
+    expect(acknowledgedInboxResponse.status).toBe(200);
+    const acknowledgedInbox = TelosWorkControlViewSchema.array().parse(
+      acknowledgedInboxResponse.body,
+    );
+    expect(acknowledgedInbox).toEqual([acknowledged]);
+    await record('browser-loaded-exact-acknowledged-inbox', { acknowledgedInbox });
     await browserExpect(
       publication().getByRole('heading', {
         name: 'Acknowledged · application pending',
@@ -553,22 +564,13 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
     // Reload resolves before the linked-role reads have hydrated this inbox.
     // Observe its actual retained response before starting the heading oracle;
     // keep the full-case and UI assertion bounds unchanged.
-    const [retainedInboxResponse] = await Promise.all([
-      page.waitForResponse((response) => {
-        if (
-          response.request().method() !== 'POST' ||
-          new URL(response.url()).pathname !== '/api/telos/work/controls'
-        )
-          return false;
-        const command = response.request().postDataJSON();
-        return command.operation === 'inbox' && command.itemId === requested.coordinatorItemId;
-      }),
-      page.reload(),
-    ]);
-    expect(retainedInboxResponse.status()).toBe(200);
-    const retainedInbox = TelosWorkControlViewSchema.array().parse(
-      await retainedInboxResponse.json(),
+    const retainedInboxResponse = await observeNavigatedControlInbox(
+      page,
+      requested.coordinatorItemId,
+      () => page.reload(),
     );
+    expect(retainedInboxResponse.status).toBe(200);
+    const retainedInbox = TelosWorkControlViewSchema.array().parse(retainedInboxResponse.body);
     expect(retainedInbox.find((receipt) => receipt.controlId === requested.controlId)).toEqual(
       released,
     );

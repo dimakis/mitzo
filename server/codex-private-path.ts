@@ -41,6 +41,7 @@ export function privateCodexRoots(extraRoots: string[] = []): string[] {
       '.aws',
       '.ssh',
       '.config/gcloud',
+      '.config/openshell',
       '.config/gws',
       '.config/gh',
       '.cursor/mcp.json',

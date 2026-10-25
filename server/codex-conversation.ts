@@ -1181,13 +1181,19 @@ export class CodexConversation {
     this.opts.onQueueChange?.();
     return { model, reasoningEffort };
   }
-  async admitExplicitSend(input: CodexCommandInput, signal?: AbortSignal) {
+  async admitExplicitSend(
+    input: CodexCommandInput,
+    signal?: AbortSignal,
+    assertCurrent?: () => void,
+  ) {
     const sendContext = context.active();
     const admission = this.explicitEnqueue.then(() =>
       context.with(sendContext, async () => {
         if (signal?.aborted) throw sendCancelledError();
+        assertCurrent?.();
         await this.probeIdleTransport(signal);
         if (signal?.aborted) throw sendCancelledError();
+        assertCurrent?.();
         return this.enqueue(input);
       }),
     );

@@ -629,13 +629,60 @@ export function setCredentialConnectionsRuntime(service: CredentialConnections |
   credentialSetupApplication = service
     ? bindConnectionSetupApplication(service, {
         registry,
-        send: (clientId, prompt, messageId) =>
-          sendToChat(clientId, prompt, undefined, undefined, messageId),
-        isBusy: (session) => {
+        canSend: (clientId) => {
+          const session = registry.get(clientId);
+          if (!session?.sessionId) return false;
+          const binding = eventStore.getSessionRuntimeBinding(session.sessionId);
+          const owner = session.ordinaryRuntimeOwner;
+          return binding
+            ? binding.harness.implementation === 'codex' &&
+                owner?.location === binding.execution.location &&
+                !!getCodexRuntime(session) &&
+                !!owner.notifyCredentialSetup
+            : !owner;
+        },
+        send: async (clientId, prompt, messageId, assertCurrent) => {
+          assertCurrent();
+          const session = registry.get(clientId);
+          if (!session?.sessionId) return Promise.resolve(false);
+          const binding = eventStore.getSessionRuntimeBinding(session.sessionId);
+          if (!binding) return sendToChat(clientId, prompt, undefined, undefined, messageId);
+          const owner = session.ordinaryRuntimeOwner;
+          const native = getCodexRuntime(session);
+          if (!owner?.notifyCredentialSetup || !native) return false;
+          const accepted = await owner.notifyCredentialSetup({
+            messageId,
+            prompt,
+            signal: session.abortController.signal,
+            assertCurrent: () => {
+              assertCurrent();
+              if (
+                !session.inputQueue ||
+                registry.get(clientId) !== session ||
+                session.ordinaryRuntimeOwner !== owner ||
+                !isDeepStrictEqual(eventStore.getSessionRuntimeBinding(session.sessionId!), binding)
+              )
+                throw Error('Private setup runtime owner changed');
+            },
+          });
+          assertCurrent();
+          if (!accepted || getCodexRuntime(session) !== native) return false;
+          // Release only already-admitted FIFO work. Unlike an explicit user
+          // send, a private readiness notice never acknowledges paused recovery.
+          await native.startQueued();
+          assertCurrent();
+          return true;
+        },
+        isBusy: (session, notificationId) => {
           const codex = getCodexRuntime(session);
+          const active =
+            codex?.queue().filter((command) => ['queued', 'running'].includes(command.status)) ??
+            [];
+          const ownNotification =
+            !!notificationId && active.some((command) => command.id === notificationId);
           return (
-            !!session.currentSnapshot ||
-            !!codex?.queue().some((command) => ['queued', 'running'].includes(command.status)) ||
+            (!!session.currentSnapshot && !ownNotification) ||
+            active.some((command) => command.id !== notificationId) ||
             !!codex?.isPaused() ||
             !!codex?.isRecovering() ||
             !!getResponsesRuntime(session)?.isRunning()

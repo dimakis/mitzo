@@ -167,4 +167,15 @@ export function assertAgentToolAvailability(
     throw Error(
       'Selected connection setup tool requires the existing secure connection runtime to be configured',
     );
+  if (
+    ['PrepareSecretRelay', 'GetSecretRelay', 'ApplySecretRelay'].some((name) =>
+      names.has(`mitzo:${name}`),
+    ) &&
+    !service?.relay
+  )
+    throw Error(
+      'Selected secret relay tool requires an explicitly configured OpenShell secret relay runtime',
+    );
+  if (names.has('mitzo:ApplySecretRelay') && !names.has('mitzo:RequestConnectionAccess'))
+    throw Error('Select RequestConnectionAccess alongside private relay writes');
 }

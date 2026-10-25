@@ -238,6 +238,7 @@ export async function startOwnedOpenShellCodexCommand(
           dispatch.preparationSignal
             ? AbortSignal.any([live.abortController.signal, dispatch.preparationSignal])
             : live.abortController.signal,
+          dispatch.assertCredentialSetupCurrent,
         );
         dispatch.preparationSignal?.throwIfAborted();
         resolveOwnedTelosWorkCommandScope(sessionId);
@@ -269,6 +270,23 @@ export async function startOwnedOpenShellCodexCommand(
       initialCommandId: initial.command.clientMsgId,
       initialPreparationOperationId: preparationOperationId,
       initialResume: resume,
+      notifyCredentialSetup: (notice) => {
+        const meta = eventStore.getSession(sessionId);
+        if (!meta) throw unavailable();
+        return driver.notifyCredentialSetup(meta, {
+          ...notice,
+          assertCurrent: () => {
+            notice.assertCurrent();
+            const current = registry.findBySessionId(sessionId)?.session;
+            if (
+              current !== session ||
+              current.ordinaryRuntimeOwner?.identity !== driver ||
+              current.mode !== meta.mode
+            )
+              throw unavailable();
+          },
+        });
+      },
       admit: (raw, signal) => {
         resolveOwnedTelosWorkCommandScope(sessionId);
         const next = derive(raw);
