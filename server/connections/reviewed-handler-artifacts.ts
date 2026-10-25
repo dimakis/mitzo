@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.682-harness-consumer-consolidation';
+  'v1.0.683-harness-consumer-consolidation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2087,7 +2087,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/task-review-process-fixture.ts':
     'df4aaa48b1999e38ebbf0448900ce005292c37ca150894303a0c692516355e14',
   '../../tests/integration/telos-s9/integrated-candidate/tree-priority-browser.contract.ts':
-    'e21695bb11fa756aea2992e722a03480a87fabedff3100a27df54ceb6e8672be',
+    '5504545933b8c565ac1bfb7418aa6694b0ac83b8cde9bc82415040cc56620bb4',
   '../../tests/integration/telos-s9/integrated-candidate/ux-composition-browser.contract.ts':
     '2cfbc0029154898de9f76ccf9fb495f167a6ccf7288a227e28efda50fd58f645',
   '../../tests/integration/telos-s9/integrated-candidate/vitest.advisor-child.config.ts':
