@@ -140,6 +140,7 @@ const nativeSessions: Array<{
   threadId: string;
   turnId: string;
   tools: Array<{ name: string; description: string }>;
+  firstTurnStarted: Promise<void>;
 }> = [];
 const startup = await vi.hoisted(async () => {
   const fs = await import('node:fs'),
@@ -317,6 +318,10 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
       const threadId = 'offline-journey-thread-' + n,
         turnId = 'offline-journey-turn-' + n;
       const tools: Array<{ name: string; description: string }> = [];
+      let markFirstTurnStarted!: () => void;
+      const firstTurnStarted = new Promise<void>((resolve) => {
+        markFirstTurnStarted = resolve;
+      });
       const rpc = {
         initialize: vi.fn(async () => {}),
         request: vi.fn(async (method: string, params?: Record<string, unknown>) => {
@@ -324,7 +329,10 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
             tools.push(...((params?.dynamicTools as typeof tools) ?? []));
           if (method === 'thread/start' || method === 'thread/resume')
             return { thread: { id: threadId }, model: 'fixture-model', modelProvider: 'openai' };
-          if (method === 'turn/start') return { turn: { id: turnId } };
+          if (method === 'turn/start') {
+            markFirstTurnStarted();
+            return { turn: { id: turnId } };
+          }
           if (method === 'turn/interrupt') return {};
           return rawRpc(method);
         }),
@@ -332,7 +340,7 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
         respond: vi.fn(),
         close: vi.fn(() => lifecycle.onClose?.(Error('Offline native closed'))),
       } as unknown as typeof f.first.rpc;
-      nativeSessions.push({ lifecycle, rpc, threadId, turnId, tools });
+      nativeSessions.push({ lifecycle, rpc, threadId, turnId, tools, firstTurnStarted });
       return rpc as unknown as ReturnType<typeof native.CodexAppServerClient.launchIsolated>;
     },
   );
@@ -880,7 +888,11 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
   const workerNative = nativeSessions[2];
   const workerTurnStarts = () =>
     workerNative.rpc.request.mock.calls.filter(([method]) => method === 'turn/start').length;
-  await vi.waitFor(() => expect(workerTurnStarts()).toBe(1));
+  // A dispatched 202 admits background startup, not the first turn RPC.
+  // Observe the actual per-actor phase within the unchanged 120s case budget.
+  // Keep the exact count and later no-replay checks; do not dispatch again.
+  await workerNative.firstTurnStarted;
+  expect(workerTurnStarts()).toBe(1);
   const { getRepositoryWorkspaces } =
     await import('../../../../server/repository-workspace-runtime.js');
   expect(getRepositoryWorkspaces(true).get(workerCommand.repositoryWorkspaceId)).toMatchObject({

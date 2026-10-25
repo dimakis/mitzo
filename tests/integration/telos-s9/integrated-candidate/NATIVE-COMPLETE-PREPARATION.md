@@ -1,6 +1,12 @@
 # S9 complete native journey source preparation
 
-Status: unexecuted test-only preparation on accepted PR1128's exact tree
+This retains the original preparation record below. Consolidation applies the
+reviewed native repository correction (`66fcbd40` + `b9a8ec7a`) and adds both
+cases to the mandatory joined runner. Their original six-path source is retained
+at `ddea28e5`; the bounded first-turn observation follow-up preserves the original
+case and first-response budgets. Required final Mac CI supplies execution proof.
+
+Original status: unexecuted test-only preparation on accepted PR1128's exact tree
 `c2efa9898056390ea4c77325bff8a93362efc668` (checkout head `c1f27aac`,
 accepted squash `60fcd29b`). No App/browser/provider/native diagnostic has run.
 Root owns integration with the incoming 1125/1127/1126 batch and the next actual

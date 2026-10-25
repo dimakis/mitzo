@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.670-agent-flow-consolidation';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.671-agent-flow-consolidation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,9 +23,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/native-complete-non-git.contract.ts':
-    '0d8b26759e1e5d0549ba040f80529b071ddf60bce5bdd95e8f8e0c01e6467835',
+    'b39e64fd47d1ba2a2244e8f07679c6ce19b04584a789d3307c87dc78719be352',
   '../../tests/integration/telos-s9/integrated-candidate/native-complete-repository.contract.ts':
-    '9189ce6774bab2137afb76572e475938cb59cb381ca89dc1c0b7575994ead211',
+    '5d53b0eabd3ffe2e42b2c4e87132b9990c760969de27e38d7710b5b0af89ea1f',
   '../../tests/integration/telos-s9/integrated-candidate/native-complete-support.ts':
     '2a8ffc9cf2044bbf7f6ab96ae869593abb9004c4ed2fd3ce7959d925c5986280',
   '../../tests/integration/telos-s9/integrated-candidate/vitest.native-complete-non-git.config.ts':
