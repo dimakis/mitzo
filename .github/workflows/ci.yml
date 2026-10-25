@@ -296,9 +296,9 @@ jobs:
   ordinary-journey:
     name: Telos canonical ordinary journey (macOS)
     runs-on: macos-26
-    # Add two mandatory 120s journeys plus their process/setup allowance.
+    # Existing joined coverage plus two complete 240s workflows and setup.
     # Individual acceptance, first-response and reader deadlines stay unchanged.
-    timeout-minutes: 25
+    timeout-minutes: 30
     permissions:
       contents: read
     env:
@@ -342,6 +342,31 @@ jobs:
           "$RUNNER_TEMP/telos-s9-python/bin/python" -m pip install --require-hashes -r tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-requirements.txt
           echo "S9_MGMT_PYTHON=$RUNNER_TEMP/telos-s9-python/bin/python" >> "$GITHUB_ENV"
           npx playwright install chromium
+      - name: Verify complete native repository workflows on both owned account routes
+        if: ${{ !cancelled() }}
+        env:
+          MITZO_RUN_NATIVE_READ_TOOLS_MECHANICAL: '1'
+          MITZO_REQUIRE_NATIVE_REPOSITORY_WORKFLOW: '1'
+          MITZO_NATIVE_READ_TOOLS_SOURCE_PATH: ${{ github.workspace }}
+          MITZO_NATIVE_REPOSITORY_EVIDENCE_DIR: test-results/native-repository-workflows
+        run: |
+          npx vitest run server/__tests__/native-local-repository-read-registration.test.ts server/__tests__/native-local-repository-read-registration-api.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/native-repository-workflows.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const result=JSON.parse(readFileSync('test-results/native-repository-workflows.json','utf8'));
+          const cases=result.testResults.flatMap(suite=>suite.assertionResults);
+          if(!result.success || cases.length!==2 || cases.some(test=>test.status!=='passed') || result.numPendingTests!==0)
+            throw new Error('Both complete native repository workflows must execute; skips are not qualification');
+          for(const account of ['subscription','api']) {
+            const evidence=JSON.parse(readFileSync(`test-results/native-repository-workflows/${account}.json`,'utf8'));
+            if(evidence.account!==account || evidence.phase!=='completed' || !evidence.coldResume || !evidence.viewerDetached ||
+                evidence.outcomes.DiscoverLocalRepository?.state!=='selected' || !evidence.outcomes.InspectLocalRepository?.success ||
+                evidence.outcomes.PrepareLocalRepository?.state!=='materialized' || evidence.outcomes.denied?.success!==false ||
+                evidence.outcomes.revoked?.success!==false || !evidence.outcomes.custody?.scratchRemoved ||
+                !evidence.outcomes.handoff?.sameConversation || !evidence.outcomes.handoff?.sameThread || !evidence.outcomes.handoff?.taskCwdSelected || !evidence.outcomes.handoff?.toolsUsable)
+              throw new Error('Incomplete native repository evidence for '+account);
+          }
+          NODE
       - name: Run the complete offline journey with the real macOS artifact boundary
         run: |
           node -e "if (process.platform !== 'darwin') process.exit(1)"
@@ -380,31 +405,6 @@ jobs:
             if (cases?.length !== count || cases.some(test => test.status !== 'passed')) {
               throw new Error('Complete signed native coverage is required for ' + file);
             }
-          }
-          NODE
-      - name: Verify complete native repository workflows on both owned account routes
-        if: ${{ !cancelled() }}
-        env:
-          MITZO_RUN_NATIVE_READ_TOOLS_MECHANICAL: '1'
-          MITZO_REQUIRE_NATIVE_REPOSITORY_WORKFLOW: '1'
-          MITZO_NATIVE_READ_TOOLS_SOURCE_PATH: ${{ github.workspace }}
-          MITZO_NATIVE_REPOSITORY_EVIDENCE_DIR: test-results/native-repository-workflows
-        run: |
-          npx vitest run server/__tests__/native-local-repository-read-registration.test.ts server/__tests__/native-local-repository-read-registration-api.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/native-repository-workflows.json
-          node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
-          const result=JSON.parse(readFileSync('test-results/native-repository-workflows.json','utf8'));
-          const cases=result.testResults.flatMap(suite=>suite.assertionResults);
-          if(!result.success || cases.length!==2 || cases.some(test=>test.status!=='passed') || result.numPendingTests!==0)
-            throw new Error('Both complete native repository workflows must execute; skips are not qualification');
-          for(const account of ['subscription','api']) {
-            const evidence=JSON.parse(readFileSync(`test-results/native-repository-workflows/${account}.json`,'utf8'));
-            if(evidence.account!==account || evidence.phase!=='completed' || !evidence.coldResume || !evidence.viewerDetached ||
-                evidence.outcomes.DiscoverLocalRepository?.state!=='selected' || !evidence.outcomes.InspectLocalRepository?.success ||
-                evidence.outcomes.PrepareLocalRepository?.state!=='materialized' || evidence.outcomes.denied?.success!==false ||
-                evidence.outcomes.revoked?.success!==false || !evidence.outcomes.custody?.scratchRemoved ||
-                !evidence.outcomes.handoff?.sameConversation || !evidence.outcomes.handoff?.sameThread || !evidence.outcomes.handoff?.taskCwdSelected || !evidence.outcomes.handoff?.toolsUsable)
-              throw new Error('Incomplete native repository evidence for '+account);
           }
           NODE
       - name: Retain exact offline journey result
