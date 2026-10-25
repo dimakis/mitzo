@@ -538,7 +538,11 @@ export class TelosArtifactStore {
   }
   /** Exact retained revision metadata, with current access filtering before
    * the bounded page. Never loads content bytes or substitutes latest revisions. */
-  sourceMaterialPage(sessionId: string, after?: TelosSourceMaterialCursor) {
+  sourceMaterialPage(
+    sessionId: string,
+    after?: TelosSourceMaterialCursor,
+    additionalPins: ReadonlyArray<{ artifactId: string; revision: number; sha256: string }> = [],
+  ) {
     const cursor = after === undefined ? undefined : TelosSourceMaterialCursorSchema.parse(after);
     // Older canonical fixtures may omit profile; userUploadAllowed treats that
     // shape as public too. Keep its exact optional-separator/case policy.
@@ -552,12 +556,18 @@ export class TelosArtifactStore {
       .prepare(
         `SELECT a.id,a.item_id,a.filename,a.title,a.revision,a.sha256,a.size,a.session_id,a.source_path,a.created_at
       FROM telos_artifact_revisions a JOIN items i ON i.id=a.item_id
-      WHERE a.session_id=? AND ${policy}
+      WHERE (a.session_id=? OR EXISTS (
+        SELECT 1 FROM json_each(?) selected
+        WHERE json_extract(selected.value,'$.artifactId')=a.id
+          AND json_extract(selected.value,'$.revision')=a.revision
+          AND json_extract(selected.value,'$.sha256')=a.sha256
+      )) AND ${policy}
       ${cursor ? 'AND (a.created_at,a.id,a.revision) > (?,?,?)' : ''}
       ORDER BY a.created_at,a.id,a.revision LIMIT 101`,
       )
       .all(
         sessionId,
+        JSON.stringify(additionalPins),
         ...(cursor ? [cursor.createdAt, cursor.artifactId, cursor.revision] : []),
       ) as ArtifactRow[];
     const page = rows.slice(0, 100);

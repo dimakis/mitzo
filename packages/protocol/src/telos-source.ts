@@ -31,6 +31,8 @@ export const TelosSourcePacketSchema = z.strictObject({
   actorId: z.string().min(1),
   itemId: TelosWorkIdSchema.nullable(),
   workRevision: digest,
+  /** Correlation only; original host scope is re-resolved before fresh effects. */
+  materialScopeSha256: digest.optional(),
   selection: CollaborationSnapshotSelectionSchema,
   brief: z.strictObject({ sha256: digest, text: z.string() }),
   context: CollaborationSnapshotDraftSchema,
@@ -96,6 +98,7 @@ export const TelosSourceMaterialCursorSchema = z.strictObject({
   createdAt: z.string().min(1).max(100),
   artifactId: z.string().min(1).max(200),
   revision: z.number().int().positive().safe(),
+  scopeSha256: digest.optional(),
 });
 export const TelosSourceMaterialMetadataSchema = z.strictObject({
   artifactId: z.string().min(1).max(200),
@@ -106,6 +109,7 @@ export const TelosSourceMaterialMetadataSchema = z.strictObject({
   sizeBytes: z.number().int().nonnegative().safe(),
   createdAt: z.string(),
   sessionId: z.string(),
+  workerOutput: z.strictObject({ itemId: TelosWorkIdSchema, title: z.string() }).optional(),
 });
 export const TelosSourceMaterialPageRequestSchema = z.strictObject({
   sessionId: TelosWorkIdSchema,
@@ -118,6 +122,7 @@ export const TelosSourceMaterialPageSchema = z.strictObject({
   sessionId: TelosWorkIdSchema,
   toolUseId: z.string().min(1).max(1000),
   proposalSha256: digest,
+  materialScopeSha256: digest.optional(),
   artifacts: z.array(TelosSourceMaterialMetadataSchema).max(100),
   cursor: TelosSourceMaterialCursorSchema.nullable(),
   hasMore: z.boolean(),
@@ -131,6 +136,7 @@ export const TelosSourcePermissionReviewSchema = z.strictObject({
   toolUseId: z.string().min(1).max(1000),
   expiresAt: z.number().finite().positive(),
   proposalSha256: digest,
+  materialScopeSha256: digest.optional(),
   operation: TelosSourcePermissionOperationSchema,
   source: z.strictObject({
     conversationId: TelosWorkIdSchema,
@@ -165,6 +171,7 @@ export const TelosSourcePermissionPreviewRequestSchema = z.strictObject({
   sessionId: TelosWorkIdSchema,
   requestId: z.uuid(),
   proposalSha256: digest,
+  materialScopeSha256: digest.optional(),
   selection: TelosSourceChoiceSchema,
 });
 export const TelosSourcePermissionPreviewSchema = z.strictObject({
