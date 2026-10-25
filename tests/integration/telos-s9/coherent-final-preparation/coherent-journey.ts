@@ -631,7 +631,16 @@ export async function coherentJourney(kind: 'repository' | 'non-git', handoffPat
       sourceMainUnchanged: app.sourceOid,
     });
     if ('workspace' in settings) throw Error('Actual repository settings required');
-    publication = await publicationJourney(app, settings, sourceHead, sourceTree, start);
+    const publisherSettings = await prepareSettings({
+      ...app.selection,
+      agent: {
+        profileId: app.publisherProfile.profileId,
+        revision: app.publisherProfile.revision,
+      },
+    });
+    if ('workspace' in publisherSettings) throw Error('Actual repository settings required');
+    expect(publisherSettings.repositoryWorkspaceId).not.toBe(settings.repositoryWorkspaceId);
+    publication = await publicationJourney(app, publisherSettings, sourceHead, sourceTree, start);
   }
   // All current provider turns terminate before original owners close. Source
   // completion and provider termination are distinct observable boundaries.

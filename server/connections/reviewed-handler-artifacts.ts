@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.685-harness-consumer-consolidation';
+  'v1.0.686-harness-consumer-consolidation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1953,7 +1953,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/coherent-final-preparation/coherent-child-loader.mjs':
     '5f53dc1feb25e85569b5e39b6c37bbe3edd82855219cf01f0bba01e568010405',
   '../../tests/integration/telos-s9/coherent-final-preparation/coherent-journey.ts':
-    '91b4fc7e723cca4a39626339f25a004fbd6a3a9e32ee2ec24616530f3b21350f',
+    '813b0557fae81129f0824028f4672806650c4f43cf71a6d93a89c3d5197f5253',
   '../../tests/integration/telos-s9/coherent-final-preparation/cold-child-app.mjs':
     'd0479377eae7d3b9c47c9f1c8753d243493f4ddcc568956d95ab9d47cfa5ae33',
   '../../tests/integration/telos-s9/coherent-final-preparation/cold-handoff.ts':
