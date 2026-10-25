@@ -19,6 +19,7 @@ import {
   ordinaryOpenShellCodexTarget,
   projectOrdinaryOpenShellCodexCapabilities,
 } from '../ordinary-openshell-codex-route.js';
+import { ordinaryOpenShellCodexContinuationTarget } from '../openshell-chat-continuity.js';
 import { OrdinaryOpenShellCodexOwnedRuntime } from '../ordinary-openshell-codex-owned-runtime.js';
 
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}), getMcpConfigPaths: () => [] }));
@@ -31,7 +32,7 @@ afterEach(() => {
   natives.splice(0).forEach((store) => store.close());
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
 });
-function fixture(ordinary = false, existingEvents?: EventStore) {
+function fixture(ordinary = false, existingEvents?: EventStore, legacyRevision?: string) {
   const workspaceId = ordinary ? randomUUID() : 'repo';
   const events = existingEvents ?? new EventStore(':memory:');
   stores.push(events);
@@ -81,6 +82,7 @@ function fixture(ordinary = false, existingEvents?: EventStore) {
     config,
     openaiApi: 'disabled',
   });
+  if (legacyRevision) target.targetRevision = legacyRevision;
   const projection = projectOrdinaryOpenShellCodexCapabilities({
     profiles,
     target,
@@ -997,3 +999,91 @@ it('delivers real App private relay and MFA readiness through guarded runtime-bo
     vi.unstubAllEnvs();
   }
 });
+
+it.each([false, true])(
+  'continues a legacy OpenShell chat after upgrading code and release paths, ordinary=%s',
+  async (ordinary) => {
+    const f = fixture(ordinary, undefined, 'original-release-fingerprint');
+    if (f.preparationOperationId)
+      await f.driver.admitPreparedFirst(
+        f.preparationOperationId,
+        f.meta,
+        f.command('before-upgrade'),
+      );
+    else await f.driver.admit(f.meta, f.command('before-upgrade'));
+    const before = f.events.getSessionRuntimeBinding('session');
+    const custody = f.native.readOpenShellCustody('session', f.account);
+    const physical = f.native.readArtifactRuntime('session', f.account);
+    const commands = f.native.commands('session', f.account);
+    f.driver.close();
+    const reopened = f.reopen();
+    const config = {
+      ...f.owners.config,
+      image: 'new-image',
+      seed: '/release/new/seed',
+      policy: '/release/new/policy',
+    };
+    const current = ordinaryOpenShellCodexTarget({
+      targetId: f.owners.target.targetId,
+      runtimeContractRevision: 'new-code',
+      config,
+      openaiApi: 'disabled',
+    });
+    const projection = projectOrdinaryOpenShellCodexCapabilities({
+      profiles: f.owners.profiles,
+      target: current,
+      deployment: 'ordinary',
+    });
+    const target = ordinaryOpenShellCodexContinuationTarget({
+      target: current,
+      config,
+      account: f.account,
+      binding: before,
+      artifact: physical,
+      custody,
+      authSessionId: f.owners.authSessionId,
+    });
+    projection.catalog.targets = [target];
+    const dispatch = vi.fn(async (input) => {
+      input.admission.assertOptions({
+        conversationId: 'session',
+        messageId: input.commandId,
+        resume: true,
+        binding: input.account,
+        profile: input.profile,
+        session: { cwd: f.meta.cwd, mode: 'agent' },
+        prompt: input.payload.text,
+        systemPrompt: input.payload.systemPrompt,
+        model: input.expected.selection.model,
+        reasoningEffort: input.expected.selection.thinking,
+        agentProfile: f.meta.agentProfile,
+        ...(ordinary
+          ? { ordinaryWorkspace: input.workspace }
+          : { repositoryWorkspace: input.workspace }),
+      });
+      input.admission.persistNativeCustody(reopened);
+      await f.dispatch(input);
+    });
+    const resumed = new OrdinaryOpenShellCodexOwnedRuntime({
+      ...f.owners,
+      resume: true,
+      config,
+      target,
+      projection,
+      capabilitiesCurrent: () => ({ profiles: f.owners.profiles, projection }),
+      dispatch,
+    });
+    const request = {
+      ...f.command('after-upgrade'),
+      capabilityRevision: projection.inventory.capabilityRevision,
+    };
+    await expect(resumed.admit(f.meta, request)).resolves.toMatchObject({ dispatched: true });
+    await expect(resumed.admit(f.meta, request)).resolves.toMatchObject({ dispatched: false });
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(f.events.getSessionRuntimeBinding('session')).toEqual(before);
+    expect(reopened.readOpenShellCustody('session', f.account)).toEqual(custody);
+    expect(reopened.readArtifactRuntime('session', f.account)).toEqual(physical);
+    expect(reopened.read('session', f.account).threadId).toBe('native-thread');
+    expect(reopened.commands('session', f.account)[0]).toEqual(commands[0]);
+  },
+);

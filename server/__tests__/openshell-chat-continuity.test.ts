@@ -138,3 +138,27 @@ describe('OpenShell chat continuity across upgrades (offline)', () => {
     expect(() => ordinaryOpenShellCodexContinuationTarget(f)).toThrow();
   });
 });
+
+it('keeps current deployment attestation sensitive to code, seed paths and policy changes', async () => {
+  const { ordinaryOpenShellCodexDeploymentRevision } =
+    await import('../ordinary-openshell-codex-route.js');
+  const declaration = {
+    targetId: 'sandbox',
+    runtimeContractRevision: 'release-a',
+    config,
+    openaiApi: 'enabled' as const,
+  };
+  const original = ordinaryOpenShellCodexDeploymentRevision(declaration);
+  expect(
+    ordinaryOpenShellCodexDeploymentRevision({
+      ...declaration,
+      runtimeContractRevision: 'release-b',
+    }),
+  ).not.toBe(original);
+  expect(
+    ordinaryOpenShellCodexDeploymentRevision({
+      ...declaration,
+      config: { ...config, policy: '/releases/b/policy' },
+    }),
+  ).not.toBe(original);
+});

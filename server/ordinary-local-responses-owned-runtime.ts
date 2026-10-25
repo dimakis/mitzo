@@ -544,7 +544,9 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
       custody.binding.execution.location !== 'local' ||
       custody.binding.harness.implementation !== (this.#adc ? 'gemini' : 'responses') ||
       custody.binding.execution.targetId !== target.targetId ||
-      custody.binding.execution.targetRevision !== target.targetRevision
+      !loadAccountProfiles()
+        .ordinaryLocalGeminiInventory()
+        .some(({ account }) => isDeepStrictEqual(account, custody.binding.account))
     )
       throw unavailable();
   }
@@ -724,13 +726,19 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
           },
         }),
     };
-    const catalog = localResponsesCapabilities(profiles, this.#target),
+    const catalog = localResponsesCapabilities(
+        profiles,
+        this.#target,
+        continuation
+          ? this.owners.eventStore.getSessionRuntimeBinding(this.owners.reservation.conversationId)
+          : undefined,
+      ),
       events = this.owners.eventStore;
     const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
       enabled: true,
       adapter: this.#adc ? 'gemini' : 'responses',
       catalog,
-      declaration: this.#target.admissionDeclaration(),
+      declaration: catalog.declaration,
       authority,
       store: {
         admitOrdinaryLocalCommand: (meta, binding, input) => {

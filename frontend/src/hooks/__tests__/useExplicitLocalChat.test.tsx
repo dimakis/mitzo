@@ -571,7 +571,7 @@ it('retains a saved OpenShell route visibly blocked when runtime enrollment is d
   expect(result.current.reason).toBeDefined();
 });
 
-it('retains a bound future selection but blocks after metadata refresh fails and requires review of capability drift', async () => {
+it('retains a bound future selection through refresh failure and requalifies it on a successful explicit refresh', async () => {
   const data = localInventoryFixture();
   let failed = false;
   vi.mocked(apiFetch).mockImplementation(async (url) => {
@@ -605,12 +605,12 @@ it('retains a bound future selection but blocks after metadata refresh fails and
   failed = false;
   act(() => result.current.refresh());
   await waitFor(() => expect(result.current.metadataPending).toBe(false));
-  expect(result.current.intent.capabilityRevision).toBe('caps-r1');
-  expect(result.current.reason).toBe(
-    'Execution choices changed. Refresh and review before sending.',
-  );
-  act(() => result.current.review());
   expect(result.current.intent.capabilityRevision).toBe('caps-r2');
+  expect(result.current.intent.account).toEqual({
+    accountId: 'personal',
+    model: 'luna-fixture',
+    reasoningEffort: 'low',
+  });
   expect(result.current.reason).toBeUndefined();
 });
 

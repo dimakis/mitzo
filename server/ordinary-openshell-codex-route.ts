@@ -13,6 +13,44 @@ import {
 
 const unavailable = () => new Error('Ordinary OpenShell Codex route unavailable');
 
+/** Current deployment evidence, checked independently of saved chat identity. */
+export function ordinaryOpenShellCodexDeploymentRevision(input: {
+  targetId: string;
+  runtimeContractRevision: string;
+  config: OpenShellRuntimeConfig;
+  openaiApi: 'enabled' | 'disabled';
+}) {
+  const { config } = input;
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        'ordinary-openshell-codex-deployment-v1',
+        input.targetId,
+        input.runtimeContractRevision,
+        input.openaiApi,
+        config.cli,
+        config.image,
+        config.policy,
+        config.seed,
+        config.workspace,
+        config.gateway,
+        config.gatewayEndpoint,
+        config.gatewayInsecure,
+        Object.entries(config.cliEnvironment ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+        config.workdir,
+        config.cliContract,
+        config.createDetached,
+        config.sandboxIdLength,
+        config.webSearch,
+        config.seedStackManifest,
+        config.agentContextPresets,
+        [...config.serviceProviders].sort(),
+        [...config.grantableServiceProviders].sort(),
+      ]),
+    )
+    .digest('hex');
+}
+
 /** Configuration projection only. Reuses the existing runtime configuration;
  * this is neither a registry nor evidence of provider enrollment/readiness.
  * The target identifies the execution namespace and native protocol, not a

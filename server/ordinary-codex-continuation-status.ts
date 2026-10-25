@@ -16,7 +16,10 @@ import {
   canResumeOwnedLocalCodexDriver,
   canResumeOwnedLocalResponsesDriver,
 } from './chat.js';
-import { canResumeOwnedOpenShellCodexDriver } from './ordinary-openshell-codex-entry.js';
+import {
+  canResumeOwnedOpenShellCodexDriver,
+  ownedOpenShellCodexContinuationTarget,
+} from './ordinary-openshell-codex-entry.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import {
   loadOrdinaryLocalCodexTarget,
@@ -26,6 +29,7 @@ import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-ent
 import { projectOrdinaryOpenShellCodexCapabilities } from './ordinary-openshell-codex-route.js';
 import { resolveOrdinarySessionRuntime } from './ordinary-session-runtime.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
+import { retainLocalApiChatBinding } from './local-api-chat-continuity.js';
 
 /** Read-only action support; dispatch always requalifies the original authority. */
 export function ordinaryCodexContinuationStatus(
@@ -97,6 +101,18 @@ export function ordinaryCodexContinuationStatus(
         deployment: 'ordinary',
       });
       resolved = resolveOrdinarySessionRuntime(request, projection.catalog);
+      if (resolved.status === 'compatible' && !isDeepStrictEqual(resolved.binding, binding)) {
+        if (!authSessionId)
+          return blocked('Sign in with the original login to resume this conversation.');
+        const retained = ownedOpenShellCodexContinuationTarget(sessionId, authSessionId, target);
+        resolved = {
+          ...resolved,
+          binding: {
+            ...resolved.binding,
+            execution: { ...resolved.binding.execution, targetRevision: retained.targetRevision },
+          },
+        };
+      }
     }
     if (
       resolved.status === 'compatible' &&
@@ -123,6 +139,22 @@ export function ordinaryCodexContinuationStatus(
       } catch {
         return blocked('The original account or execution configuration has changed.');
       }
+    }
+    if (
+      resolved.status === 'compatible' &&
+      !isDeepStrictEqual(resolved.binding, binding) &&
+      location === 'local' &&
+      ['claude-sdk', 'gemini'].includes(binding.harness.implementation)
+    ) {
+      if (!authSessionId)
+        return blocked('Sign in with the original login to resume this conversation.');
+      const owner = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
+      const authorized =
+        (owner?.authSessionId === authSessionId && owner.location === 'local') ||
+        (binding.harness.implementation === 'claude-sdk'
+          ? canResumeOwnedLocalVertexDriver(sessionId, authSessionId)
+          : canResumeOwnedLocalResponsesDriver(sessionId, authSessionId));
+      if (authorized) resolved = retainLocalApiChatBinding(resolved, binding);
     }
     if (resolved.status !== 'compatible' || !isDeepStrictEqual(resolved.binding, binding))
       return blocked('The original account or execution configuration has changed.');

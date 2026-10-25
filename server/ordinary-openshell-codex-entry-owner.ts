@@ -23,8 +23,10 @@ import { getAgentLibrary } from './agent-library-runtime.js';
 import { getRepositoryWorkspaces, getOrdinaryWorkspaces } from './repository-workspace-runtime.js';
 import { openAIAccountKeyAuthority } from './openai-account-key-authority.js';
 import { permissionRevision } from './session-permission-revision.js';
+import { ordinaryOpenShellCodexContinuationTarget } from './openshell-chat-continuity.js';
 import {
   ordinaryOpenShellCodexTarget,
+  ordinaryOpenShellCodexDeploymentRevision,
   projectOrdinaryOpenShellCodexCapabilities,
   assertOrdinaryOpenShellCodexRoute,
 } from './ordinary-openshell-codex-route.js';
@@ -125,6 +127,7 @@ export function loadOrdinaryOpenShellCodexTarget(env: NodeJS.ProcessEnv = proces
       config,
       declaration,
       target: ordinaryOpenShellCodexTarget({ ...declaration, config }),
+      deploymentRevision: ordinaryOpenShellCodexDeploymentRevision({ ...declaration, config }),
     };
   } catch {
     throw unavailable();
@@ -172,6 +175,37 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
   const configured = loadOrdinaryOpenShellCodexTarget();
   if (!configured) throw unavailable();
   const profiles = loadAccountProfiles();
+  const continuationTarget = (
+    current: NonNullable<ReturnType<typeof loadOrdinaryOpenShellCodexTarget>>,
+  ) =>
+    input.resume
+      ? ordinaryOpenShellCodexContinuationTarget({
+          target: current.target,
+          config: current.config,
+          account: input.account,
+          binding: input.events.getSessionRuntimeBinding(input.sessionId),
+          custody: input.nativeStore.readOpenShellCustody(input.sessionId, input.account),
+          artifact: input.nativeStore.readArtifactRuntime(input.sessionId, input.account),
+          authSessionId: captured.auth.id,
+        })
+      : current.target;
+  const target = continuationTarget(configured);
+  const project = (
+    currentProfiles: AccountProfiles,
+    current: NonNullable<ReturnType<typeof loadOrdinaryOpenShellCodexTarget>>,
+  ) => {
+    const qualified = continuationTarget(current);
+    if (!isDeepStrictEqual(qualified, target)) throw unavailable();
+    const projected = projectOrdinaryOpenShellCodexCapabilities({
+      profiles: currentProfiles,
+      target: current.target,
+      deployment: 'ordinary',
+    });
+    // Public capability revisions describe today's choices. The private admission
+    // catalog retains this conversation's original receipt identity.
+    projected.catalog.targets = [qualified];
+    return projected;
+  };
   const configuredAccount = profiles.resolve(
     input.account.accountId,
     input.selectedModel ?? input.account.model,
@@ -181,11 +215,7 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
     configuredAccount.profileRevision !== input.account.profileRevision
   )
     throw unavailable();
-  const projection = projectOrdinaryOpenShellCodexCapabilities({
-    profiles,
-    target: configured.target,
-    deployment: 'ordinary',
-  });
+  const projection = project(profiles, configured);
   const ordinary = input.workspaceKind === 'ordinary';
   const workspace = ordinary ? getOrdinaryWorkspaces(true) : getRepositoryWorkspaces(true);
   const readWorkspace = () =>
@@ -225,12 +255,9 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
       throw unavailable();
     const current = loadOrdinaryOpenShellCodexTarget();
     const currentProfiles = loadAccountProfiles();
-    if (!current || !isDeepStrictEqual(current.target, configured.target)) throw unavailable();
-    const currentProjection = projectOrdinaryOpenShellCodexCapabilities({
-      profiles: currentProfiles,
-      target: current.target,
-      deployment: 'ordinary',
-    });
+    if (!current || current.deploymentRevision !== configured.deploymentRevision)
+      throw unavailable();
+    const currentProjection = project(currentProfiles, current);
     if (
       !currentProjection.inventory.accounts.some((account) =>
         isDeepStrictEqual(account.account, expected.binding.account),
@@ -297,7 +324,7 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
       account: input.account,
       profiles: loadAccountProfiles(),
       catalog: projection.catalog,
-      target: configured.target,
+      target,
       model: expected.selection.model,
       reasoningEffort: expected.selection.thinking,
       mode: expected.selection.permission.mode,
@@ -310,7 +337,7 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
       account: input.account,
       profiles: loadAccountProfiles(),
       catalog: projection.catalog,
-      target: configured.target,
+      target,
       model: expected.selection.model,
       reasoningEffort: expected.selection.thinking,
       mode: expected.selection.permission.mode,
@@ -368,16 +395,13 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
     assertCurrentSync(expected);
   };
   const capabilitiesCurrent = () => {
-    const target = loadOrdinaryOpenShellCodexTarget();
-    if (!target || !isDeepStrictEqual(target.target, configured.target)) throw unavailable();
+    const current = loadOrdinaryOpenShellCodexTarget();
+    if (!current || current.deploymentRevision !== configured.deploymentRevision)
+      throw unavailable();
     const profiles = loadAccountProfiles();
     return {
       profiles,
-      projection: projectOrdinaryOpenShellCodexCapabilities({
-        profiles,
-        target: target.target,
-        deployment: 'ordinary',
-      }),
+      projection: project(profiles, current),
     };
   };
   const driver = new OrdinaryOpenShellCodexOwnedRuntime({
@@ -392,7 +416,7 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
     sessionId: input.sessionId,
     workspaceId: input.workspaceId,
     taskRoot: input.taskRoot,
-    target: configured.target,
+    target,
     config: configured.config,
     projection,
     capabilitiesCurrent,
