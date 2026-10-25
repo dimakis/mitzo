@@ -42,7 +42,9 @@ account.
 The v1 target hash includes the full declaration. Reconstruction uses its exact
 property order and current server-owned host/target/label with these reviewed
 historical contract hashes. A different stable v2 host/protocol hash cannot match
-the v1 preimage. No arbitrary retained target revision is accepted. Claude custody,
+the v1 preimage. The current descriptor must also identify the reviewed v1 session
+protocol before any legacy declaration is offered. No arbitrary retained target
+revision is accepted. Claude custody,
 capability declaration and SDK history protocols are unchanged between the two
 older accepted releases and the accepted base.
 

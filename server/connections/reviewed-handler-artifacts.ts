@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.691-local-chat-host-continuity';
+  'v1.0.692-local-chat-host-protocol-continuity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,11 +24,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-api-chat-continuity.ts':
-    '3d25d62ca10c9f8cce1074bef93954f4d69d9e76f57d0f94405ce648343ebd8c',
+    '0d72553f0f7d954c9c6ea7340c4fb297ae4399a62105c1c3ee5bf9da6dac4738',
   '../__tests__/ordinary-codex-continuation-status.test.ts':
     '4963f867eab909c57fa17f9e88966335938ad4b9f714f5a9c1f6b66dc2197e8b',
   '../__tests__/local-api-chat-continuity.test.ts':
-    '82f2a71ee64417cd77176c647d5ac7e7ec9419f298603619ee6c6a7b072b0494',
+    '8a60dc33c5f0a5cb6dc3bf29dd54dd5ac422812fa6b5f59b17c27b9abf89d3bd',
   '../__tests__/openshell-chat-continuity.test.ts':
     '64d16f4fec83f680f799d472cd7488b1f227c562b15109d563f804e952a4b917',
   '../openshell-chat-continuity.ts':

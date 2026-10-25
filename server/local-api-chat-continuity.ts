@@ -25,9 +25,20 @@ const reviewedLegacyContracts = {
  */
 export function reviewedLegacyLocalApiTargetRevisions(
   harness: 'claude-sdk' | 'gemini' | 'responses',
-  current: { targetId: string; label: string; hostId: string },
+  current: { targetId: string; targetRevision: string; label: string; hostId: string },
 ): readonly string[] {
   if (harness === 'responses') return [];
+  const currentProtocol = createHash('sha256')
+    .update(
+      JSON.stringify([
+        `ordinary-local-${harness === 'claude-sdk' ? 'vertex' : harness}-target-v2`,
+        current.targetId,
+        current.hostId,
+        `${harness}-session-v1`,
+      ]),
+    )
+    .digest('hex');
+  if (current.targetRevision !== currentProtocol) return [];
   return Object.values(reviewedLegacyContracts[harness]).map((contract) =>
     createHash('sha256')
       .update(

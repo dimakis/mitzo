@@ -322,3 +322,56 @@ it.each(['claude-sdk', 'gemini'] as const)(
     expect(() => catalog.declaration).toThrow();
   },
 );
+
+it.each(['claude-sdk', 'gemini'] as const)(
+  'does not carry reviewed legacy %s authority into another current protocol',
+  (engine) => {
+    const target = configured(engine);
+    const initial =
+      engine === 'gemini'
+        ? localResponsesCapabilities(profiles, target as OrdinaryLocalResponsesTarget)
+        : localVertexCapabilities(profiles, target as OrdinaryLocalVertexTarget);
+    const request = {
+      account: initial.inventory().accounts[0].account,
+      harness: engine,
+      targetId: 'mac',
+      mode: 'agent',
+    };
+    const resolved = initial.resolve(request);
+    if (resolved.status !== 'compatible') throw Error('fixture');
+    const retained = {
+      ...resolved.binding,
+      execution: { ...resolved.binding.execution, targetRevision: legacyRevision(engine) },
+    };
+    const targetRevision = createHash('sha256')
+      .update(
+        JSON.stringify([
+          `ordinary-local-${engine === 'claude-sdk' ? 'vertex' : engine}-target-v2`,
+          'mac',
+          hostname(),
+          `${engine}-session-v2`,
+        ]),
+      )
+      .digest('hex');
+    const changed = {
+      harness: engine,
+      descriptor: () => ({ ...target.descriptor(), targetRevision }),
+      admissionDeclaration: () => ({ ...target.admissionDeclaration(), targetRevision }),
+    };
+    const catalog =
+      engine === 'gemini'
+        ? localResponsesCapabilities(
+            profiles,
+            changed as unknown as OrdinaryLocalResponsesTarget,
+            retained,
+          )
+        : localVertexCapabilities(
+            profiles,
+            changed as unknown as OrdinaryLocalVertexTarget,
+            [],
+            retained,
+          );
+    expect(catalog.resolve(request).status).toBe('rejected');
+    expect(() => catalog.declaration).toThrow();
+  },
+);
