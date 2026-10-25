@@ -7,6 +7,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rename,
   rm,
   symlink,
@@ -16,11 +17,97 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { executeTrustedGitCommit, trustedGitHubReadRequest } from '../trusted-native-operation.js';
+import { captureLocalRepository } from '../local-repository-worktree.js';
+import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
 
 describe('trusted native Git operation', () => {
   let root = '';
   afterEach(async () => {
     if (root) await rm(root, { recursive: true, force: true });
+  });
+
+  it.each(['valid', 'branch changed', 'marker replaced', 'admin replaced', 'common replaced'])(
+    'validates retained linked task custody before committing: %s',
+    async (scenario) => {
+      root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-retained-git-')));
+      const repo = join(root, 'repo');
+      const worktree = join(root, 'worktree');
+      const git = (cwd: string, ...args: string[]) =>
+        execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+      execFileSync('git', ['init', '-q', repo]);
+      git(repo, 'config', 'user.name', 'Mitzo Test');
+      git(repo, 'config', 'user.email', 'test@example.invalid');
+      await writeFile(join(repo, 'initial.txt'), 'initial');
+      git(repo, 'add', 'initial.txt');
+      git(repo, '-c', 'commit.gpgsign=false', 'commit', '-qm', 'initial');
+      const initialHead = git(repo, 'rev-parse', 'HEAD');
+      const signal = new AbortController().signal;
+      const { localSource } = await captureLocalRepository('test', repo, signal, 'HEAD');
+      const branch = 'mitzo/retained-task';
+      git(repo, 'worktree', 'add', '-b', branch, worktree);
+      const task = await snapshotRepositoryTaskCheckout(worktree, branch, localSource);
+      await writeFile(join(worktree, 'approved.txt'), 'approved');
+      await writeFile(join(worktree, 'unapproved.txt'), 'unapproved');
+      if (scenario === 'branch changed') git(worktree, 'switch', '-c', 'mitzo/other');
+      if (scenario === 'marker replaced') {
+        const marker = join(worktree, '.git');
+        await rename(marker, `${marker}.retained`);
+        await writeFile(marker, await readFile(`${marker}.retained`));
+      }
+      if (scenario === 'admin replaced') task.linkedGit!.identity.ino += 1;
+      if (scenario === 'common replaced') task.localSource!.commonRoot.ino += 1;
+      const commit = executeTrustedGitCommit(
+        worktree,
+        ['approved.txt'],
+        'test: retained commit',
+        signal,
+        undefined,
+        undefined,
+        undefined,
+        task,
+      );
+      if (scenario === 'valid') {
+        await expect(commit).resolves.toContain('test: retained commit');
+        expect(git(worktree, 'show', 'HEAD:approved.txt')).toBe('approved');
+        expect(git(worktree, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD')).toBe(
+          'approved.txt',
+        );
+      } else {
+        await expect(commit).rejects.toThrow();
+        expect(git(worktree, 'rev-parse', 'HEAD')).toBe(initialHead);
+      }
+      expect(git(repo, 'rev-parse', 'HEAD')).toBe(initialHead);
+    },
+  );
+
+  it.each([true, false])('preserves standalone commit custody (owned: %s)', async (owned) => {
+    root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-standalone-git-')));
+    execFileSync('git', ['init', '-q', '-b', 'mitzo/standalone', root]);
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
+    git('config', 'user.name', 'Offline fixture');
+    git('config', 'user.email', 'offline@example.invalid');
+    git('-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'initial');
+    const base = git('rev-parse', 'HEAD');
+    const task = await snapshotRepositoryTaskCheckout(root, 'mitzo/standalone');
+    await writeFile(join(root, 'change.txt'), 'approved');
+    const commit = executeTrustedGitCommit(
+      root,
+      ['change.txt'],
+      'test: standalone',
+      new AbortController().signal,
+      undefined,
+      undefined,
+      undefined,
+      owned ? task : undefined,
+    );
+    if (owned) {
+      await expect(commit).resolves.toContain('test: standalone');
+      expect(git('show', 'HEAD:change.txt')).toBe('approved');
+    } else {
+      await expect(commit).rejects.toThrow('require a verified repository task');
+      expect(git('rev-parse', 'HEAD')).toBe(base);
+    }
   });
 
   it('refuses publication after repository grant revocation during prepared commit authority refresh', async () => {

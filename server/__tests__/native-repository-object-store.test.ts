@@ -19,6 +19,40 @@ const run = async (request: unknown) => {
   pending.child.stdin?.end(JSON.stringify(request));
   return JSON.parse((await pending).stdout);
 };
+it.each(['multi-pack-index', `pack-${'a'.repeat(40)}.mtimes`])(
+  'omits optional Git maintenance metadata without opening it: %s',
+  async (name) => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-object-maintenance-')));
+    roots.push(root);
+    const common = join(root, 'common'),
+      target = join(root, 'target');
+    await mkdir(join(common, 'objects', 'pack'), { recursive: true });
+    await mkdir(target);
+    const canary = join(root, 'private');
+    await writeFile(canary, 'DO NOT READ');
+    await symlink(canary, join(common, 'objects', 'pack', name));
+    const pack = `pack-${'b'.repeat(40)}.pack`;
+    await writeFile(join(common, 'objects', 'pack', pack), 'opaque pack');
+    const anchor = async (rootPath: string) => {
+      const s = await stat(rootPath, { bigint: true });
+      return { rootPath, identity: { dev: String(s.dev), ino: String(s.ino) } };
+    };
+    const plan = {
+      version: 'preparation-object-store-v1',
+      source: await anchor(common),
+      target: await anchor(target),
+      objectFormat: 'sha1',
+      deniedRoots: [canary],
+    };
+    const capture = await run({ operation: 'capture', plan });
+    expect(capture.files).toMatchObject([{ path: `pack/${pack}` }]);
+    expect(await run({ operation: 'verify', plan, digest: capture.digest })).toEqual({
+      verified: true,
+    });
+    await expect(readFile(join(target, 'pack', name))).rejects.toThrow();
+    expect(await readFile(canary, 'utf8')).toBe('DO NOT READ');
+  },
+);
 it('streams bounded large pack containers to owned scratch and detects source changes without relaxing generic byte reads', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-object-store-')));
   roots.push(root);
