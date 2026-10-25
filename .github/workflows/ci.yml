@@ -305,6 +305,10 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=1024
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Native observation deliberately refuses external Git config includes.
+          # Checkout credentials are unnecessary for this fully offline job.
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 24
