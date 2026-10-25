@@ -647,9 +647,11 @@ export function ChatView() {
     if (savedChatDraft) saveDraftSettings(savedChatDraft.settings);
   }, [savedChatDraft, saveDraftSettings]);
   const releaseDraftReference = newChatDraft.releaseReference;
+  const ownsDraftUrl = newChatDraft.ownsUrl;
   useEffect(() => {
     if (!draftEnabled || newChatDraft.missing) return;
     const retainUrl = () => {
+      if (!ownsDraftUrl()) return;
       const saved = getChatDraft(newChatDraft.draft.id);
       const referencedId = searchParams.get('draft');
       if (saved && referencedId === newChatDraft.draft.id) return;
@@ -676,6 +678,7 @@ export function ChatView() {
     searchParams,
     navigate,
     releaseDraftReference,
+    ownsDraftUrl,
   ]);
 
   const voice = useVoice();
@@ -1759,6 +1762,7 @@ export function ChatView() {
                   onBound={(id) => {
                     if (!flushRoleDraft()) return;
                     if (getSessionChatDraft(id)) {
+                      newChatDraft.releaseUrlOwnership();
                       navigate(`/chat/${encodeURIComponent(id)}`);
                       return;
                     }
@@ -1770,6 +1774,7 @@ export function ChatView() {
                       return;
                     }
                     setRoleDraftError(null);
+                    newChatDraft.releaseUrlOwnership();
                     navigate(`/chat/${encodeURIComponent(id)}`);
                   }}
                 />

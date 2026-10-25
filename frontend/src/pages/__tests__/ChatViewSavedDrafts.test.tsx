@@ -534,7 +534,7 @@ for (const Page of [ChatView, DesktopChatView]) {
   });
 }
 
-const roleDraftFence = vi.hoisted(() => ({ setup: vi.fn() }));
+const roleDraftFence = vi.hoisted(() => ({ setup: vi.fn(), afterBound: vi.fn() }));
 vi.mock('../../hooks/useTelosRoleSetup', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../hooks/useTelosRoleSetup')>();
   return {
@@ -554,6 +554,7 @@ vi.mock('../../hooks/useTelosRoleSetup', async (importOriginal) => {
       confirm: async () => {
         await roleDraftFence.setup();
         options.onBound?.('confirmed-role-chat');
+        roleDraftFence.afterBound();
       },
       retry: async () => {
         await roleDraftFence.setup();
@@ -563,6 +564,60 @@ vi.mock('../../hooks/useTelosRoleSetup', async (importOriginal) => {
   };
 });
 for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} releases the old role URL owner before a post-binding draft write`, async () => {
+    roleDraftFence.setup.mockReset().mockResolvedValue(undefined);
+    const draft = createChatDraft();
+    draft.settings.selection = { accountId: 'work', model: 'luna', reasoningEffort: 'low' };
+    draft.settings.search = 'telosRoleItem=item&telosRole=lead&telosRoleMode=assign';
+    // Role setup can begin without a first message. Match the browser's saved
+    // runtime selection seed, whose empty body is released by saveChatDraft.
+    localStorage.setItem(`mitzo-chat-draft:${draft.id}`, JSON.stringify(draft));
+    roleDraftFence.afterBound.mockImplementationOnce(() => {
+      // Browser history changes before React commits the bound route. A draft
+      // event in that interval must not restore the old role URL.
+      saveChatDraft({ ...draft, text: 'First message after role binding' });
+    });
+    const { store } = mount(Page, `/chat?draft=${draft.id}&${draft.settings.search}`);
+    await waitFor(() => expect(getChatDraft(draft.id)).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: 'Assign lead & open chat' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/chat/confirmed-role-chat'),
+    );
+    expect(store.getState().sessions.active).toBe('confirmed-role-chat');
+    expect(getChatDraft(draft.id)?.text).toBe('First message after role binding');
+    expect(screen.getByRole('button', { name: 'Send message', exact: true })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Assign lead & open chat' })).toBeNull();
+  });
+  it(`${Page.name} keeps a successfully bound role composer on its conversation while retaining the rich draft`, async () => {
+    roleDraftFence.setup.mockReset().mockResolvedValue(undefined);
+    const draft = {
+      ...createChatDraft(),
+      text: 'Reviewed work conversation',
+      contextBlocks: ['Retain the reviewed source'],
+    };
+    draft.settings.retainRuntimeIntent = true;
+    draft.settings.search = 'telosRoleItem=item&telosRole=lead&telosRoleMode=assign';
+    saveChatDraft(draft);
+    const { store } = mount(Page, `/chat?draft=${draft.id}&${draft.settings.search}`);
+    fireEvent.click(screen.getByRole('button', { name: 'Assign lead & open chat' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/chat/confirmed-role-chat'),
+    );
+    await waitFor(() => expect(store.getState().sessions.active).toBe('confirmed-role-chat'));
+    expect(getSessionChatDraft('confirmed-role-chat')?.contextBlocks).toEqual([
+      'Retain the reviewed source',
+    ]);
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Perform the reviewed work' },
+    });
+    await waitFor(() =>
+      expect(getSessionChatDraft('confirmed-role-chat')?.text).toBe('Perform the reviewed work'),
+    );
+    expect(screen.getByTestId('location').textContent).toBe('/chat/confirmed-role-chat');
+    expect(screen.queryByRole('button', { name: 'Assign lead & open chat' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Send message', exact: true })).toBeTruthy();
+    expect(roleDraftFence.setup).toHaveBeenCalledOnce();
+  });
   it(`${Page.name} refuses silent role setup when the latest rich draft cannot be saved even though binding records fit`, async () => {
     roleDraftFence.setup.mockClear();
     const draft = {

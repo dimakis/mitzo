@@ -550,7 +550,28 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
       safePoint().getByRole('heading', { name: 'Hold released', exact: true }),
     ).toBeVisible();
     canonical.restartOwners();
-    await page.reload();
+    // Reload resolves before the linked-role reads have hydrated this inbox.
+    // Observe its actual retained response before starting the heading oracle;
+    // keep the full-case and UI assertion bounds unchanged.
+    const [retainedInboxResponse] = await Promise.all([
+      page.waitForResponse((response) => {
+        if (
+          response.request().method() !== 'POST' ||
+          new URL(response.url()).pathname !== '/api/telos/work/controls'
+        )
+          return false;
+        const command = response.request().postDataJSON();
+        return command.operation === 'inbox' && command.itemId === requested.coordinatorItemId;
+      }),
+      page.reload(),
+    ]);
+    expect(retainedInboxResponse.status()).toBe(200);
+    const retainedInbox = TelosWorkControlViewSchema.array().parse(
+      await retainedInboxResponse.json(),
+    );
+    expect(retainedInbox.find((receipt) => receipt.controlId === requested.controlId)).toEqual(
+      released,
+    );
     await browserExpect(
       publication().getByRole('heading', {
         name: 'Hold released · revalidation required',
@@ -561,6 +582,9 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
     const releasedSafe = await control({ operation: 'read', controlId: safe.controlId });
     expect(releasedSafe.stage).toBe('released');
     expect(releasedSafe.publicationRevalidation).toBe('not_applicable');
+    expect(retainedInbox.find((receipt) => receipt.controlId === safe.controlId)).toEqual(
+      releasedSafe,
+    );
     await page.setViewportSize({ width: 1280, height: 900 });
     await browserExpect(
       publication().getByRole('heading', {

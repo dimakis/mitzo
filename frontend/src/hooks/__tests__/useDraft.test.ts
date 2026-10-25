@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
+import { useLayoutEffect } from 'react';
 import { useDraft, type DraftSessionAssignment } from '../useDraft';
 
 beforeEach(() => localStorage.clear());
@@ -12,6 +13,28 @@ afterEach(() => {
 });
 
 describe('useDraft', () => {
+  it('owns an input arriving in the replacement commit before passive effects flush', () => {
+    const original = 'Keep the original delegated worker draft.';
+    const replacement = 'Keep the explicitly assigned replacement draft.';
+    localStorage.setItem('mitzo-draft-original', original);
+    const view = renderHook(
+      ({ id }) => {
+        const draft = useDraft(id, undefined, undefined, null);
+        const edit = draft[1];
+        useLayoutEffect(() => {
+          if (id === 'replacement') edit(replacement);
+        }, [id, edit]);
+        return draft;
+      },
+      { initialProps: { id: 'original' } },
+    );
+    view.rerender({ id: 'replacement' });
+    expect(view.result.current[0]).toBe(replacement);
+    view.unmount();
+    expect(localStorage.getItem('mitzo-draft-original')).toBe(original);
+    expect(localStorage.getItem('mitzo-draft-replacement')).toBe(replacement);
+  });
+
   it('promotes the current ordinary draft only for an exact authenticated session assignment', () => {
     vi.useFakeTimers();
     const { result, rerender } = renderHook(

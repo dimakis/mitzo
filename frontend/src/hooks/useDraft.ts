@@ -4,6 +4,7 @@ import {
   type SetStateAction,
   useState,
   useEffect,
+  useLayoutEffect,
   useRef,
   useCallback,
 } from 'react';
@@ -79,7 +80,8 @@ export function useDraft(
 
   // Only an ordinary assignment transfers ownership. Navigation
   // keeps the previous conversation's draft and loads the destination's own.
-  useEffect(() => {
+  // Commit that owner before a newly rendered composer can receive an edit.
+  useLayoutEffect(() => {
     const previous = storageRef.current;
     if (previous.key === key) return;
     clearTimeout(timerRef.current);
