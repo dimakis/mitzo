@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.665-agent-flow-consolidation';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.666-agent-flow-consolidation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,8 +22,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/agent-flow-consolidation.test.ts':
+    '129a706c224104b59c94db4c76fb3b1752d793fa4c59af216a6c21113b95182b',
   '../../scripts/measure-openshell-agent-efficiency.mjs':
-    'e28998ec734e4d76e03106b020dffbb642534f2110c98ee5a79b97b6fef42043',
+    'a81e6c13ef43084e01465545d6d5d5d939c4c6fdd81aa5fd8602c43091e80aa4',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':
@@ -995,7 +997,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-app-exit.ts': '6129588f968e7ae2cca592104fc0975081f112c9cfa8ef475c7b12c3a7af7d1d',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
   '../chat-rest-handler.ts': '3e511081210d3ccd59755d28eb9a4d74c91bdac8a4c21a2dd3882080f89e072e',
-  '../query-loop.ts': '1f026b1f5f26a10a9a5ff1db273c2b2c3301ad29caeb63040b5aa78e1fba4f42',
+  '../query-loop.ts': '4da62835b98c5d2ee8407b497f38cafae52493424274b1c96cf85bd1e6501dc8',
   '../account-profiles.ts': 'cbacdf2c442d47190066fb5ec0841454cd6dafdb3b5478d712e0bd520836bb6c',
   '../ordinary-turn-lifecycle.ts':
     'a138e83ba1a2ec8ceaef967858fb926d5de83658d21f555f32c98174afd4064b',
@@ -1024,7 +1026,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '6f0451781e0ce46f45ddfdb3e7cb57177d1eeb6806f204ad2c977907b26e5c8c',
+  '../chat.ts': 'b13e8bd7ef25228f8d9e542478d154ba5b87ca494d0ba3b2808866247db60caf',
   '../../packages/harness/src/session-registry.ts':
     'af896f917aca74debf5f02bdbf87904a0037fda31a259d62a047c7b15f3586c8',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',

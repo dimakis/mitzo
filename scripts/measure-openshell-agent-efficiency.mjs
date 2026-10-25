@@ -24,6 +24,19 @@ const suites = [
   'ordinary-openshell-codex-entry-owner',
   'ordinary-openshell-codex-entry-role',
   'openshell-runtime',
+  'agent-flow-consolidation',
+  'query-loop',
+  'reconstruct-messages',
+  'session-credential-tools',
+  'openshell-warm-pool',
+  'openshell-warm-pool-runtime',
+  'openshell-warm-pool-recovery',
+  'ordinary-repository-preparation-api',
+];
+const packageSuites = [
+  'packages/harness/__tests__/connection-registry.test.ts',
+  'packages/harness/__tests__/live-prefix-delivery.test.ts',
+  'packages/client/src/__tests__/applied-delivery.test.ts',
 ];
 const start = performance.now();
 const run = spawnSync(
@@ -32,6 +45,7 @@ const run = spawnSync(
     join(root, 'node_modules/vitest/vitest.mjs'),
     'run',
     ...suites.map((name) => `server/__tests__/${name}.test.ts`),
+    ...packageSuites,
     '--maxWorkers=1',
     '--reporter=json',
     `--outputFile=${testsFile}`,
@@ -64,8 +78,17 @@ const metrics = readReport(metricsFile),
   tests = readReport(testsFile);
 const measured =
   Number.isFinite(metrics?.schemaByteReduction) && Number.isFinite(metrics?.outputByteReduction);
+const jointPassed =
+  tests?.testResults
+    ?.find((result) => result.name.endsWith('/agent-flow-consolidation.test.ts'))
+    ?.assertionResults?.filter((result) => result.status === 'passed').length ?? 0;
 const success =
-  run.status === 0 && tests?.numPassedTests > 0 && tests?.numFailedTests === 0 && measured;
+  run.status === 0 &&
+  tests?.numPassedTests > 0 &&
+  tests?.numFailedTests === 0 &&
+  tests?.numFailedTestSuites === 0 &&
+  jointPassed === 2 &&
+  measured;
 const reportFile = join(directory, 'report.json');
 const report = {
   ...metrics,
@@ -75,9 +98,11 @@ const report = {
   testCount: tests?.numPassedTests ?? 0,
   failedTests: tests?.numFailedTests ?? null,
   failedSuites: tests?.numFailedTestSuites ?? null,
+  jointPassed,
   durationMs: Math.round(performance.now() - start),
   platform: process.platform,
   suites,
+  packageSuites,
   logFile,
   testsFile,
   reportFile,

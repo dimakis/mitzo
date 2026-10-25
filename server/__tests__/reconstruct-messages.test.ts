@@ -401,6 +401,76 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     expect(restored.messages.every((message) => !message.blocks[0].toolResult)).toBe(true);
   });
 
+  it('restores legacy results labelled with the newer active message without rewriting events', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'call' }),
+      evt(2, 'block_start', { messageId: 'call', blockId: 'b0', blockType: 'tool_use' }),
+      evt(3, 'block_end', {
+        messageId: 'call',
+        blockId: 'b0',
+        blockType: 'tool_use',
+        toolId: 'request',
+        toolName: 'ConnectionRequest',
+      }),
+      evt(4, 'message_end', { messageId: 'call' }),
+      evt(5, 'message_start', { messageId: 'thinking' }),
+      evt(6, 'block_start', { messageId: 'thinking', blockId: 'b0', blockType: 'thinking' }),
+      evt(7, 'block_delta', { messageId: 'thinking', blockId: 'b0', delta: 'Still working' }),
+      evt(8, 'tool_result', {
+        messageId: 'thinking',
+        toolId: 'request',
+        result: 'Saved response',
+        isError: false,
+      }),
+    ];
+    const original = structuredClone(events);
+    expect(replayEventsToTranscript(events.slice(0, 7)).messages[0].blocks[0]).not.toHaveProperty(
+      'toolResult',
+    );
+    expect(replayEventsToTranscript(events)).toMatchObject({
+      messages: [
+        { messageId: 'call', blocks: [{ toolResult: 'Saved response', toolError: false }] },
+      ],
+      current: { messageId: 'thinking', blocks: [{ content: 'Still working' }] },
+    });
+    expect(events).toEqual(original);
+
+    // A different explicit identity is not the known active-message producer bug.
+    expect(() =>
+      replayEventsToTranscript([
+        ...events.slice(0, 7),
+        evt(8, 'tool_result', { messageId: 'unrelated', toolId: 'request', result: 'invalid' }),
+      ]),
+    ).toThrow(/unmatched attributed/i);
+    // A future reuse makes the purported unique owner unverifiable.
+    expect(() =>
+      replayEventsToTranscript([
+        ...events,
+        evt(9, 'block_end', { messageId: 'later-call', blockId: 'b1', toolId: 'request' }),
+      ]),
+    ).toThrow(/unmatched attributed/i);
+
+    const provenance = {
+      seatId: 'architect',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    };
+    expect(() =>
+      replayEventsToTranscript(
+        events.map((event) => ({
+          ...event,
+          seatId: 'architect',
+          symposiumProvenance: provenance,
+        })),
+      ),
+    ).toThrow(/unmatched attributed/i);
+  });
+
   it('attaches a late unlabelled tool result only to a unique prior tool occurrence', () => {
     const events = [
       evt(1, 'message_start', { messageId: 'first' }),

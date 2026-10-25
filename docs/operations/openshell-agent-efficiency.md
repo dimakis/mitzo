@@ -75,11 +75,21 @@ live server is used. Local Mac component coverage runs alongside shared code.
 The separate Local Mac script remains available for its broader repository
 preparation/commit/publication proof.
 
-The representative OpenShell fixture has 26 original host tools: 31,716 schema
-bytes become 12,944 including the new helper definitions (59.2% less). A 151,903-byte
+The representative OpenShell fixture has 24 selected host tools after unsupported-helper filtering: 29,832 schema
+bytes become 12,139 including the new helper definitions (59.3% less). A 151,903-byte
 multilingual Telos read becomes a 6,109-byte preview (96.0% less). These are
 serialized-byte regressions, excluding native sandbox MCP schemas; they are not
 model-token counts, end-to-end latency, context peaks or compaction timings.
 Prompt caching does not remove cached tokens from the context window.
 Live measurements require a separately authorized target and the configured Luna
 model/account rules. Staging remains stood down; merge does not deploy this work.
+
+The consolidated proof also exercises durable-prefix forwarding, applied-delivery
+ACK fences, warm-pool guards and delayed-result restoration. Its two joint cases
+use the actual Codex event producer, query loop, EventStore, connection registry,
+client applied delivery and transcript replay: a delayed direct preview or paged
+read remains attached to its original call after newer thinking begins. They
+cover immediate redacted predecessor delivery, a failed write recovered by the
+next live event, held HTTP ACKs, no redundant prefix read and immutable replay.
+Both passed with the combined fixes; removing either attribution or prefix
+forwarding made both cases fail. The proof requires both cases to pass.
