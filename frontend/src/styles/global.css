@@ -6036,12 +6036,14 @@ textarea:focus {
 }
 
 .todo-detail-source-title {
+  display: block;
   font-size: var(--text-sm);
   font-weight: 500;
   line-height: 1.3;
 }
 
 .todo-detail-source-author {
+  display: block;
   font-size: var(--text-xxs);
   color: var(--text-dim);
   margin-top: 2px;
