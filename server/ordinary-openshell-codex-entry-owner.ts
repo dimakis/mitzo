@@ -16,7 +16,7 @@ import { z } from 'zod';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import { readBoundedFile } from './bounded-file-read.js';
-import { loadAccountProfiles } from './account-profiles.js';
+import { loadAccountProfiles, type AccountProfiles } from './account-profiles.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
