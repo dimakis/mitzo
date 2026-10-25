@@ -165,7 +165,7 @@ export class KnowledgePublicationBridge {
     }
     const raw = Buffer.concat(chunks).toString('utf8');
     const selection = Selection.parse(JSON.parse(raw).current);
-    const manifest = await this.verify(selection);
+    const manifest = await this.verify(selection, signal);
     signal.throwIfAborted();
     const bundle = await this.adapt(selection, signal);
     if (bundle.sourceCommit !== selection.revision)
@@ -188,7 +188,10 @@ export class KnowledgePublicationBridge {
     return { ...bundle, baselineSha256: hash(baselineBytes) };
   }
 
-  private async verify(selection: PublishedKnowledgeSelection): Promise<z.infer<typeof Manifest>> {
+  private async verify(
+    selection: PublishedKnowledgeSelection,
+    signal: AbortSignal,
+  ): Promise<z.infer<typeof Manifest>> {
     const root = await realpath(this.config.publisherRoot);
     const directory = resolve(selection.directory);
     const sourceRoot = join(root, this.config.source.id);
@@ -253,10 +256,20 @@ export class KnowledgePublicationBridge {
       [...files].some((file) => !expected.has(file))
     )
       throw new Error('Publication file set changed');
-    for (const file of manifest.files) {
-      const raw = await readFile(join(directory, 'source', file.path));
-      if (raw.length !== file.bytes || hash(raw) !== file.sha256)
-        throw new Error('Publication content changed');
+    // Independent source reads share the already-verified manifest and file-set
+    // budget. Bound buffers and settle the entire wave before admission exits,
+    // including failure/cancellation; report the first error in manifest order.
+    for (let offset = 0; offset < manifest.files.length; offset += 8) {
+      signal.throwIfAborted();
+      const reads = await Promise.allSettled(
+        manifest.files.slice(offset, offset + 8).map(async (file) => {
+          const raw = await readFile(join(directory, 'source', file.path));
+          if (raw.length !== file.bytes || hash(raw) !== file.sha256)
+            throw new Error('Publication content changed');
+        }),
+      );
+      for (const read of reads) if (read.status === 'rejected') throw read.reason;
+      signal.throwIfAborted();
     }
     if (hash(await readFile(join(directory, 'context.json'))) !== manifest.contextSha256)
       throw new Error('Publication context changed');

@@ -485,7 +485,7 @@ for (const workspaceChoice of ['select', 'default'] as const) {
           await expect(composer).toHaveValue('Develop Mitzo from latest main');
           const recover = page.getByRole('button', { name: 'Retry', exact: true });
           await expect(recover).toBeVisible();
-          await expect(page.getByText('Something went wrong.', { exact: true })).toHaveCount(1);
+          await expect(page.getByText('Delivery not confirmed.', { exact: true })).toHaveCount(1);
           await expect(
             page.getByText(
               /command retained|Review retained|Review the retained|Delivery was not confirmed/,
@@ -587,7 +587,7 @@ for (const workspaceChoice of ['select', 'default'] as const) {
           const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
           await expect(composer).toHaveValue('');
           await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
-          await expect(page.getByText('Something went wrong.', { exact: true })).toHaveCount(0);
+          await expect(page.getByText('Delivery not confirmed.', { exact: true })).toHaveCount(0);
           await settingsHome(page);
           await chooseSetting(page, 'Account', freshAccount);
           await openChatSetting(page, 'execution');

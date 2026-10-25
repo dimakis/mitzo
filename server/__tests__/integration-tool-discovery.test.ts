@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
+import { credentialConnectionToolDefinitions } from '../credential-connection-tools.js';
 
 const signal = () => new AbortController().signal;
 const fixtures = (count = 63) =>
@@ -225,4 +226,102 @@ it('keeps invalid, stale and unselected invocation activity in its bridge envelo
     name: 'ListIntegrationTools',
     input: {},
   });
+});
+
+const commonConnectionNames = [
+  'ListConnections',
+  'RequestConnectionAccess',
+  'GetConnectionGuide',
+  'ConnectionRequest',
+];
+const directDiscovery = (directTools = credentialConnectionToolDefinitions) =>
+  createIntegrationToolDiscovery({
+    tools: [],
+    directOnly: true,
+    directTools,
+    displayName: (name) => name,
+    assertCurrent: () => {},
+    execute: vi.fn(),
+  });
+
+it('exposes exact small common connection contracts without a describe round trip', async () => {
+  const discovery = directDiscovery();
+  for (const name of commonConnectionNames) {
+    const original = credentialConnectionToolDefinitions.find((tool) => tool.name === name)!;
+    const definition = discovery.directDefinitions.find((tool) => tool.name === name)!;
+    expect(definition).toEqual(original);
+    expect(Buffer.byteLength(JSON.stringify(definition))).toBeLessThanOrEqual(4096);
+    expect(definition.description).not.toContain('Call DescribeIntegrationTool');
+    const detail = JSON.parse(
+      (await discovery.execute('DescribeIntegrationTool', { toolId: name }, signal())).content,
+    );
+    expect(detail).toMatchObject({
+      name,
+      invocation: 'direct',
+      inputSchema: original.input_schema,
+    });
+    expect(discovery.displayCall(name, {})).toEqual({ name, input: {} });
+  }
+  expect(discovery.instructions).toContain('Call tools with full argument schemas directly');
+  expect(discovery.instructions).toContain('only for abbreviated contracts');
+  expect(
+    discovery.definitions.find((tool) => tool.name === 'DescribeIntegrationTool')?.description,
+  ).toContain('Tools already exposing full schemas can be called directly');
+  expect(discovery.definitions.map((tool) => tool.name)).toEqual([
+    'ListIntegrationTools',
+    'DescribeIntegrationTool',
+  ]);
+  expect((await discovery.execute('InvokeIntegrationTool', {}, signal())).isError).toBe(true);
+});
+
+it('defers uncommon tools and oversized common contracts while retaining exact details', async () => {
+  const oversized = {
+    name: 'ConnectionRequest',
+    description: 'Large future contract.',
+    input_schema: {
+      type: 'object',
+      properties: { path: { type: 'string', description: '🦉'.repeat(1500) } },
+    },
+  };
+  const uncommon = { ...oversized, name: 'UncommonHostTool', input_schema: { type: 'object' } };
+  const discovery = directDiscovery([oversized, uncommon]);
+  for (const original of [oversized, uncommon]) {
+    const definition = discovery.directDefinitions.find((tool) => tool.name === original.name)!;
+    expect(definition.input_schema).toEqual({ type: 'object', additionalProperties: true });
+    expect(definition.description).toContain('Call DescribeIntegrationTool');
+    expect(
+      JSON.parse(
+        (await discovery.execute('DescribeIntegrationTool', { toolId: original.name }, signal()))
+          .content,
+      ).inputSchema,
+    ).toEqual(original.input_schema);
+  }
+});
+
+it('preserves selected identities and pins common contracts and their full catalog fingerprint', async () => {
+  const selected = credentialConnectionToolDefinitions
+    .filter((tool) => tool.name === 'ListConnections')
+    .map((tool) => structuredClone(tool));
+  const discovery = directDiscovery(selected);
+  const before = JSON.stringify(discovery.definitions);
+  const fullDefinition = structuredClone(discovery.directDefinitions[0]);
+  selected[0].description += ' New access guidance.';
+  selected[0].input_schema = { type: 'object', properties: { changed: { type: 'string' } } };
+  expect(discovery.directDefinitions).toEqual([fullDefinition]);
+  expect(JSON.stringify(discovery.definitions)).toBe(before);
+  expect(JSON.stringify(directDiscovery(selected).definitions)).not.toBe(before);
+  expect(discovery.directDefinitions.map((tool) => tool.name)).toEqual(['ListConnections']);
+  Object.assign(discovery.directDefinitions[0].input_schema, { type: 'array' });
+  expect(
+    JSON.parse(
+      (await discovery.execute('DescribeIntegrationTool', { toolId: 'ListConnections' }, signal()))
+        .content,
+    ).inputSchema,
+  ).toEqual(fullDefinition.input_schema);
+  expect(JSON.stringify(discovery.definitions)).toBe(before);
+  expect(
+    (await discovery.execute('DescribeIntegrationTool', { toolId: 'ConnectionRequest' }, signal()))
+      .isError,
+  ).toBe(true);
+  expect(directDiscovery([]).directDefinitions).toEqual([]);
 });

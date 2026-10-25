@@ -2075,6 +2075,22 @@ The original draft data remains retained until an exact delivery receipt. Reject
 or uncertain delivery reveals it again, while later typed or dictated text remains
 its own draft and cannot be cleared by the older receipt.
 
+Local command recovery retains an opaque composer revision alongside the exact
+outbox command. An authenticated consumed receipt journals that revision before
+retiring the outbox, so a later WebView reload can finish clearing its submitted
+text and attachments. Newer edits, including identical retyped text, retain their
+own revision; changed saved settings or context also prevent older cleanup.
+Historical commands without revision proof retain their draft. Ambiguous delivery
+uses the existing quiet status row with **Delivery not confirmed.** and Retry;
+confirmed failures keep their existing error treatment.
+
+The intercepted `composer-receipt` fixture renders the actual ChatInput, client
+store and durable outbox without a backend or model. It covers complete document
+replacement while no composer is mounted, exact accepted cleanup, retained
+same-valued newer edits and no resend, at 320px mobile WebKit and 1280px desktop
+Chromium in dark Mint/System and light Teal/Georgia. Captures are retained as
+`test-results/offline/*/composer-receipt-{dark,light}-{accepted,newer}.png`.
+
 `ChatStatusMessage` gives send progress, conversation loading and composer-blocking
 reasons one shared quiet treatment: semantic muted text, UiIcon, UI font and shared
 spacing/type tokens. Both chat pages place delivery feedback beside the composer;

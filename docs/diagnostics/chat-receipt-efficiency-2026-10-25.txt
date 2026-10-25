@@ -1,0 +1,95 @@
+Chat receipt recovery and request efficiency — 25 October 2026
+
+Problem
+The investigated OpenShell request took 16.1 seconds to acknowledge, 29.4 seconds
+to first assistant text and 109.8 seconds to finish. Its follow-up was accepted
+and completed, but the phone continued showing a delivery error and submitted
+text almost two hours later. Smaller tool schemas had not established faster
+end-to-end completion.
+
+This branch starts from deployed source 5d1538df55cb. It does not reproduce or
+claim the exact device-side cause of losing that original HTTP receipt. It
+reproduces and repairs concrete gaps that could keep accepted work unresolved.
+
+Receipt recovery
+- A later receipt hint received while an older observation is pending now queues
+  one further exact read instead of being discarded. Concurrent hints coalesce.
+- Selecting the retained command, reconnecting or returning to the foreground
+  can observe its receipt again. Observation never dispatches or rebuilds intent.
+- The original command ID, payload, settings, session and phase remain frozen.
+  Only an authenticated matching 202 consumed receipt clears accepted delivery.
+- Local draft ownership includes an opaque edited revision token. It is retained
+  beside the command and never enters server/provider input.
+- Accepted revision proof is journaled before the final durable outbox entry is
+  removed. A document reload before React's cleanup cannot lose this proof.
+- A matching accepted revision can clear the submitted composer after reload.
+  New text, same-valued newer edits, changed rich draft content/settings and
+  another draft owner remain intact. Entries lacking revision proof retain text
+  conservatively. They can still recover the command's accepted delivery state.
+- Ambiguous local delivery says 'Delivery not confirmed.' in the existing quiet
+  status row. No layout, palette, font or approved settings redesign is introduced.
+
+Tool discovery
+The four small selected connection tool contracts (ListConnections,
+RequestConnectionAccess, GetConnectionGuide, ConnectionRequest) are available
+directly when each full serialized definition is at most 4 KiB. Large/uncommon
+contracts remain deferred. This removes the mandatory schema-description steps
+observed in the trace; it does not force the model's eventual choice of calls.
+The representative connection surface grows from 4,360 to 5,129 serialized bytes
+(769 extra), versus 16,532 bytes for all complete contracts. Returned schema
+objects cannot mutate the admission snapshot or its catalog revision. Selection,
+canonical tool identities and existing permissions still own execution.
+
+OpenShell authority qualification
+Each API owner qualification now performs one fresh readiness observation after
+read-only provider inspection, rather than two. One immediately repeated
+synchronous route projection is reused. There is no authority cache. The final
+credential, login, physical owner, workspace, source and dispatch fences remain.
+The repository proof's resolveKey plus final readiness sandwich is retained.
+This is a per-operation reduction; the retained trace cannot attribute the exact
+number of owner qualifications, so no total Keychain or wall-time saving is claimed.
+
+Knowledge verification
+Publisher integrity reads run in bounded waves of at most eight. A 17-file
+fixture requires three dependent waves instead of 17 serial reads. The number
+of reads/hashes is unchanged. Active reads settle before failure/cancellation
+returns, no later wave starts after cancellation, and manifest-order failure
+selection remains deterministic. Existing publication size limits, freshness,
+file-set/hash checks, policy and adoption evidence remain in force.
+
+Validation and limits
+All new behavior was developed with failing regressions before implementation.
+The combined focused client, frontend, authority, discovery and knowledge run
+passes 328 tests. The
+real composer/store/outbox fixture intercepts every request and covers mobile
+WebKit, mobile Chromium and desktop Chromium, light/dark themes, alternate
+accent/font preferences, whole-document replacement, accepted draft cleanup and
+same-valued newer draft preservation. The browser launch runs outside the macOS
+sandbox as required by AGENTS.md. Representative captures are recorded by the UI
+design contract. Client package type builds and focused strict frontend source
+type checking pass; design guards pass (108 tests, one skipped). All 15
+intercepted browser checks pass. ESLint/format checks pass and all 1,312 reviewed
+source fingerprints match the final implementation revision.
+
+The broad server compile exceeded the instructed 1 GiB local heap limit. It is
+left for CI; it is not reported as a successful build. No required CI, trusted
+Centaur approval, merge or deployment is claimed.
+
+There were no model-backed runtime tests, oven commands, staging operations,
+production configuration borrowing, warm-pool activation or deployments.
+Future live model tests must name an available Luna model and charged account
+before the call, against a separately selected authorized target.
+
+Publication status
+The user subsequently authorized creating the PR and proceeding without SSH
+signing. Freshly fetched origin/main is exactly the deployed baseline
+5d1538df55cb7d71b3532380cbef76050270c041, so no upstream integration edits were
+needed. This branch uses an unsigned commit without changing signing settings.
+Required CI, trusted review, merge and deployment remain separate gates.
+
+Remaining performance work
+These are proven operation and correctness improvements, not a measured live
+latency gain. The approximately 35,000-token initial context still needs exact
+section/cache attribution. Durable prompt acceptance ahead of lengthy provider
+preparation, larger authority-operation receipts and further knowledge/runtime
+reuse require their own ownership/admission design and end-to-end validation.

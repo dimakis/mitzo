@@ -3,6 +3,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
 import { useLayoutEffect } from 'react';
 import { useDraft, type DraftSessionAssignment } from '../useDraft';
+import {
+  createChatDraft,
+  saveChatDraft,
+  getChatDraft,
+  chatDraftStorageKey,
+} from '../../lib/chat-drafts';
 
 beforeEach(() => localStorage.clear());
 afterEach(() => {
@@ -13,6 +19,110 @@ afterEach(() => {
 });
 
 describe('useDraft', () => {
+  it.each(['settings', 'images', 'contextBlocks'] as const)(
+    'preserves a newer stored rich draft %s revision on an older receipt',
+    (field) => {
+      const draft = { ...createChatDraft(), text: 'Original rich draft' };
+      saveChatDraft(draft);
+      const view = renderHook(() => useDraft(undefined, undefined, chatDraftStorageKey(draft.id)));
+      const proof = view.result.current[4].capture()!;
+      const current = getChatDraft(draft.id)!;
+      const updated = {
+        ...current,
+        ...(field === 'settings'
+          ? { settings: { ...current.settings, mode: 'ask' as const } }
+          : {}),
+        ...(field === 'images'
+          ? { images: [{ data: 'new', preview: 'new', mediaType: 'image/png' }] }
+          : {}),
+        ...(field === 'contextBlocks' ? { contextBlocks: ['New context'] } : {}),
+      };
+      saveChatDraft(updated);
+      act(() => expect(view.result.current[4].consume(proof)).toBe(false));
+      expect(getChatDraft(draft.id)).toMatchObject({
+        text: updated.text,
+        settings: updated.settings,
+        images: updated.images,
+        contextBlocks: updated.contextBlocks,
+      });
+      expect(view.result.current[0]).toBe(draft.text);
+    },
+  );
+  it('retains exact submission proof across remount and consumes only its stored revision', () => {
+    const first = renderHook(() => useDraft('receipt-chat'));
+    act(() => first.result.current[1]('Submitted draft'));
+    const proof = first.result.current[4].capture();
+    expect(proof?.storageKey).toBe('mitzo-draft-receipt-chat');
+    expect(proof?.revisionToken).toBeTruthy();
+    first.unmount();
+    const restored = renderHook(() => useDraft('receipt-chat'));
+    expect(restored.result.current[0]).toBe('Submitted draft');
+    act(() => expect(restored.result.current[4].consume(proof!)).toBe(true));
+    expect(restored.result.current[0]).toBe('');
+    expect(localStorage.getItem('mitzo-draft-receipt-chat')).toBeNull();
+  });
+
+  it('invalidates old proof for identical edits and foreign draft owners', () => {
+    const first = renderHook(() => useDraft('receipt-chat'));
+    act(() => first.result.current[1]('Same text'));
+    const proof = first.result.current[4].capture()!;
+    act(() => first.result.current[1]('Same text'));
+    first.unmount();
+    const restored = renderHook(() => useDraft('receipt-chat'));
+    act(() => expect(restored.result.current[4].consume(proof)).toBe(false));
+    expect(restored.result.current[0]).toBe('Same text');
+    localStorage.setItem('mitzo-draft-foreign', 'Same text');
+    const foreign = renderHook(() => useDraft('foreign'));
+    act(() => expect(foreign.result.current[4].consume(proof)).toBe(false));
+    expect(foreign.result.current[0]).toBe('Same text');
+  });
+
+  it('withholds submission proof when durable revision storage fails', () => {
+    const view = renderHook(() => useDraft('receipt-chat'));
+    act(() => view.result.current[1]('Keep this draft'));
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw Error('Storage unavailable');
+    });
+    expect(view.result.current[4].capture()).toBeUndefined();
+    expect(view.result.current[0]).toBe('Keep this draft');
+  });
+
+  it('consumes a durably accepted revision on cold mount without a surviving outbox or observer', () => {
+    const first = renderHook(() => useDraft('receipt-chat'));
+    act(() => first.result.current[1]('Accepted before destruction'));
+    const proof = first.result.current[4].capture()!;
+    first.unmount();
+    localStorage.setItem(
+      `mitzo-draft-accepted:${encodeURIComponent(proof.storageKey)}`,
+      JSON.stringify(proof),
+    );
+    const restored = renderHook(() => useDraft('receipt-chat'));
+    expect(restored.result.current[0]).toBe('');
+    expect(localStorage.getItem('mitzo-draft-receipt-chat')).toBeNull();
+  });
+  it('retains revision and accepted proof when draft deletion fails, then recovers on reload', () => {
+    const first = renderHook(() => useDraft('receipt-chat'));
+    act(() => first.result.current[1]('Keep the durable recovery identity'));
+    const proof = first.result.current[4].capture()!;
+    first.unmount();
+    localStorage.setItem(
+      `mitzo-draft-accepted:${encodeURIComponent(proof.storageKey)}`,
+      JSON.stringify(proof),
+    );
+    const remove = Storage.prototype.removeItem;
+    const fault = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (key) {
+      if (key === proof.storageKey) throw Error('Draft deletion unavailable');
+      remove.call(this, key);
+    });
+    const blocked = renderHook(() => useDraft('receipt-chat'));
+    expect(blocked.result.current[0]).toBe('Keep the durable recovery identity');
+    blocked.unmount();
+    fault.mockRestore();
+    const restored = renderHook(() => useDraft('receipt-chat'));
+    expect(restored.result.current[0]).toBe('');
+    expect(localStorage.getItem(proof.storageKey)).toBeNull();
+  });
+
   it('owns an input arriving in the replacement commit before passive effects flush', () => {
     const original = 'Keep the original delegated worker draft.';
     const replacement = 'Keep the explicitly assigned replacement draft.';

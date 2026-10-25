@@ -71,6 +71,7 @@ interface Props {
     contextBlocks?: string[],
     onDelivery?: SendMessageOptions['onDelivery'],
     onSessionAssigned?: SendMessageOptions['onSessionAssigned'],
+    composerDraft?: SendMessageOptions['composerDraft'],
   ) => boolean;
   onStop: () => void;
   onInterrupt?: (
@@ -84,6 +85,8 @@ interface Props {
   /** Prompt storage ownership independent of the provider session identity. */
   draftStorageKey?: string;
   savedChatDraft?: ChatDraft;
+  /** Supplied only after the exact command's authenticated consumed receipt. */
+  acceptedComposerDraft?: SendMessageOptions['composerDraft'];
   draftControl?: RefObject<ChatInputDraftControl | null>;
   sendDisabledReason?: string;
   sendDisabledAction?: ChatStatusAction;
@@ -130,6 +133,7 @@ export function ChatInput({
   initialText,
   draftStorageKey: suppliedDraftStorageKey,
   savedChatDraft,
+  acceptedComposerDraft,
   draftControl,
   sendDisabledReason: suppliedSendDisabledReason,
   sendDisabledAction,
@@ -182,7 +186,7 @@ export function ChatInput({
     assignedDraft.current = null;
   const assignment =
     draftStorageKey === undefined ? (assignedDraft.current?.assignment ?? null) : null;
-  const [text, setText, clearDraft, flushDraft] = useDraft(
+  const [text, setText, clearDraft, flushDraft, draftReceipt] = useDraft(
     sessionId,
     initialText ?? savedChatDraft?.text,
     draftStorageKey,
@@ -237,6 +241,46 @@ export function ChatInput({
   const useExternal = externalContextBlocks !== undefined;
   const [respondersOpen, setRespondersOpen] = useState(false);
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
+  const previousSavedId = useRef(savedChatDraft?.id);
+  const savedOwnerChanging = previousSavedId.current !== savedChatDraft?.id;
+  useLayoutEffect(() => {
+    if (!savedOwnerChanging) return;
+    previousSavedId.current = savedChatDraft?.id;
+    setImages(savedChatDraft?.images ?? []);
+    if (!useExternal) setContextBlocks(savedChatDraft?.contextBlocks ?? []);
+  }, [savedChatDraft, savedOwnerChanging, useExternal]);
+  const { capture: captureDraft, consume: consumeDraftReceipt, revise: reviseDraft } = draftReceipt;
+  const consumedRevision = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    const revision = draftReceipt.consumedRevision;
+    if (!revision || consumedRevision.current === revision) return;
+    consumedRevision.current = revision;
+    setImages([]);
+    if (!useExternal) setContextBlocks([]);
+  }, [draftReceipt.consumedRevision, useExternal]);
+  const settingsSignature = JSON.stringify(savedChatDraft?.settings);
+  const attachmentRevision = useRef({
+    images,
+    contextBlocks: activeContextBlocks,
+    settingsSignature,
+  });
+  useLayoutEffect(() => {
+    const previous = attachmentRevision.current;
+    if (
+      previous.images !== images ||
+      previous.contextBlocks !== activeContextBlocks ||
+      previous.settingsSignature !== settingsSignature
+    )
+      reviseDraft();
+    attachmentRevision.current = { images, contextBlocks: activeContextBlocks, settingsSignature };
+  }, [images, activeContextBlocks, settingsSignature, reviseDraft]);
+  useLayoutEffect(() => {
+    // This also handles a verified receipt arriving before the composer mounts.
+    // Durable revision equality protects edits from earlier mounts and other tabs.
+    if (!acceptedComposerDraft || !consumeDraftReceipt(acceptedComposerDraft)) return;
+    setImages([]);
+    if (!useExternal) setContextBlocks([]);
+  }, [acceptedComposerDraft, consumeDraftReceipt, useExternal]);
   useImperativeHandle(
     draftControl,
     () => ({
@@ -286,14 +330,6 @@ export function ChatInput({
       text.trim() || 'What do you see in this image?',
       images.length ? images : undefined,
     );
-  const previousSavedId = useRef(savedChatDraft?.id);
-  const savedOwnerChanging = previousSavedId.current !== savedChatDraft?.id;
-  useEffect(() => {
-    if (!savedOwnerChanging) return;
-    previousSavedId.current = savedChatDraft?.id;
-    setImages(savedChatDraft?.images ?? []);
-    if (!useExternal) setContextBlocks(savedChatDraft?.contextBlocks ?? []);
-  }, [savedChatDraft, savedOwnerChanging, useExternal]);
   const [saveResult, setSaveResult] = useState<{
     draft: ChatDraft;
     failed: boolean;
@@ -481,6 +517,7 @@ export function ChatInput({
       if (queued && (boundedFirstCommand || sendDisabledReason)) return false;
       const submitted = latestDraft.current;
       const submittedSavedDraft = savedChatDraft ? getChatDraft(savedChatDraft.id) : null;
+      const composerDraft = queued ? undefined : captureDraft();
       const pending: { assignedSessionId?: string } = {};
       sendPending.current = pending;
       if (!queued)
@@ -558,6 +595,7 @@ export function ChatInput({
               };
           }
         },
+        composerDraft,
       );
       if (!sent) onDelivery('failed');
       return sent;
@@ -571,6 +609,7 @@ export function ChatInput({
       useExternal,
       draftStorageKey,
       savedChatDraft,
+      captureDraft,
       boundedFirstCommand,
       sendDisabledReason,
     ],
