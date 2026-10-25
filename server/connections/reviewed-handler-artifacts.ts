@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.664-openshell-agent-efficiency';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.665-agent-flow-consolidation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -716,9 +715,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'cc15c8961398998acff1315699feb77cd614278d9109804b5f1495d796a5d9bd',
   '../openshell-cli-environment.ts':
     '77f66ceaffb019038fe06479459505dbb37480b7791c596c8e869bef14c2b456',
-  '../openshell-warm-pool.ts': '9af589d6c38ce39d122a9f5d55b5e7c34a977ca6a040918dd7d6fe6321958f5d',
+  '../openshell-warm-pool.ts': '41865d7c3836454cae17bd55f409140989c95054f9f9250045f60efdf4b9b649',
   '../openshell-warm-pool-runtime.ts':
-    'f3090664b76b721494f9ef061f89732866d9696ce3c5f6172662c832a88533d4',
+    'b9da1ccc2af62fb9afc57fc214039f8208af424bd7aabef583084d0929df633a',
   '../openshell-warm-pool-binding.ts':
     '498030ec01afaa475f3e869974ec1eba1465eb537e14c06221e2c217a1e11583',
   '../openshell-warm-pool-router.ts':
@@ -1114,7 +1113,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-verification-error.ts':
     'd4fefb2652ec0bd00b24aac257b31a028b597dc20dd7101c77d527fe4505973d',
   '../credential-setup.ts': '8dfd54d1b4cb4408d52c9ca09f5cc220ba69adf6dc6181bc7de6803fee38f69c',
-  '../connection-guide.ts': '9ef03af9ddab350414346f0e0dc61e376007130dc6ae01dd9dadefbeb57c7768',
+  '../connection-guide.ts': '49b4bb1e6ff5bdb4d360714b858bf5cb249aadcc70a551b2715602002634a7af',
   '../credential-setup-continuation.ts':
     '6cb81428bb08fa2cf6b79e762573e34dc87f281cfc5d0be70b5316ce66fdd493',
   '../credential-setup-application.ts':
@@ -1136,7 +1135,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
   '../credential-sdk-tools.ts': '4ebaf013d5b5872175155d26e2b7df76224d086258f7bd0d8eaba04af793d2a2',
   '../session-credential-tools.ts':
-    '5a099e9e372fef0f115cb9ecf7caef26580001edc784534de533782227f3fa39',
+    'c027256e4bf2683c129e4f3232a6188d43eb9b65525e6269d27cdf656ebee429',
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
   'registry.ts': '431c78947dfcca432ece96d0d708f790705484443b9bbdf78c2edbbebc4a4216',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
@@ -1378,7 +1377,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-repository-preparation.ts':
     'c9d0113da17201ee421c4bdadb9108ae6817460ffab82cdb6eb4de888ecb0d9e',
   '../ordinary-repository-preparation-authority.ts':
-    '9252ab3b59dc650ce58f5c20fd05d435ba8652622d6e8d5c5e1b444ff9047fae',
+    '76fae1f207c027a3207a5115e141533d995ed62f938931ac2cc4d6f25ce0ac2d',
   '../../frontend/src/components/RepositoryChatPicker.tsx':
     '1b67d8ac02bfe47ed49b404e8733b7a28b0a81be71cc2a6ef85a640863d794f1',
   '../../frontend/src/hooks/useRepositoryChatPreparation.ts':
@@ -1430,7 +1429,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/applied-event-acks.ts':
     'cb9629e1da426916dbecd3bc0e924e45cf460799e94f1e49cbf7544abecf764d',
   '../../packages/harness/src/connection-registry.ts':
-    'c592507070a0d30d6b16bab589383a274fe8c583fc3e542315dc528ba6706256',
+    'c12650cb5912de809c99070c109c43cfda8dbf9e495c4c35d164ca057d33393d',
   '../../packages/protocol/src/ws-schemas-v2.ts':
     'a44c078500d72ccec00da10c082dae5d5081c3cc1d54428ff61cd473e59cf565',
   '../auth-route-boundary.ts': '9b853baf795f6c65a7cf956311787d049c961291cf4817ad53ad9e22ec62dd4c',
@@ -1693,7 +1692,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/repository-preparation-recovery.spec.ts':
     'a93d05aeebcb63d47f6ee9c140fce57c78e3383f652a5f896d9e0e1124f76cf9',
   '../__tests__/ordinary-repository-preparation-api.test.ts':
-    '94675d6da221ea9eb96d5208d81ee78c1c22ebfff00025728252220ef7253bb0',
+    '6b7ffc894194956ed75aa0017ddc656718beeb8539194fd329b89d30ea869e1e',
   '../command-timing-trace.ts': 'f4c8ddbcae082c29fd718f09dd4b846b5aacc25574f43d681e31a508bae76560',
   '../__tests__/command-timing-trace.test.ts':
     '65f51c783408f255dce89aa221ff33b0f45f51eb8c906f858cb61fc99f1f0a80',

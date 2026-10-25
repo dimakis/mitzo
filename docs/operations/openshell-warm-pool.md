@@ -104,7 +104,7 @@ retained as evidence before startup recovery;
 another live or unverified owner blocks startup. Interrupted preparation, claim
 and removal become uncertain, never Ready or automatically retried. A successful
 native create receipt persists its physical ID before waiting for readiness.
-Create dispatch is persisted before the CLI call, separately from seed preparation;
+Create dispatch is persisted before the CLI call;
 missing historical dispatch evidence is treated as unknown, never as not started.
 
 Generated spare names fit the legacy CLI’s 19-character limit; the ledger and
@@ -138,10 +138,18 @@ confers no account-bound execution or cleanup authority.
 
 Do not edit the ledger or gateway labels to repair uncertainty.
 
-Preparation freezes and verifies the configured shared knowledge seed into a
-separate pool-knowledge area. Claim selects and uploads fresh initial workspace
-content (or the independently admitted repository seed), attaches only the chosen
-account and approved services, then hands off to existing native initialization.
+Preparation warms only the provider-neutral runtime image with the selected policy
+and resource limits. It performs no knowledge selection, freeze or upload. The old
+`/sandbox/pool-knowledge` copy was never consumed by claim and duplicated work that
+must run against fresh knowledge. Existing copies may remain as historical data;
+this change does not remove them or grant them authority.
+Claim selects, verifies and uploads fresh initial workspace content (or the
+independently admitted repository seed), attaches only the chosen account and
+approved services, then hands off to existing native initialization. A publisher
+failure therefore blocks claim before upload/attachment, without blocking neutral
+spare creation. Physical inspection overlaps independent sandbox/provider reads;
+the adapter returns its final verified observation to the controller, which checks
+the exact physical identity and provider set without fetching that same state again.
 Normal command-time knowledge reconciliation and provider ACK rules still apply.
 A warmup never creates or inherits Slice 1's one-use initial-publication receipt.
 

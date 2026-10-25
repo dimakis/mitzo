@@ -91,7 +91,9 @@ async function fixture(failure: 'upload' | 'attachment' | 'inspection' | null, c
     if (
       failure === 'inspection' &&
       attached.get(name)?.length === 2 &&
-      ++completedReads === 2 &&
+      // The adapter's final observation is now also the controller receipt.
+      // Fail that read, rather than a removed duplicate controller inspection.
+      ++completedReads === 1 &&
       !failed
     ) {
       failed = true;
