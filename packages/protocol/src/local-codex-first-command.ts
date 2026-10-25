@@ -87,15 +87,7 @@ export const OrdinaryCodexFirstCommandSchema = z
       }),
     }),
   })
-  .superRefine((request, ctx) => {
-    validateCommandBounds(request, ctx);
-    if (request.runOn === 'openshell' && !request.repositoryWorkspaceId)
-      ctx.addIssue({
-        code: 'custom',
-        path: ['repositoryWorkspaceId'],
-        message: 'Prepare a sandbox repository before sending',
-      });
-  });
+  .superRefine(validateCommandBounds);
 export type OrdinaryCodexFirstCommand = z.infer<typeof OrdinaryCodexFirstCommandSchema>;
 export const OrdinaryCodexContinuationCommandSchema = OrdinaryCodexFirstCommandSchema.safeExtend({
   repositoryWorkspaceId: z.uuid(),

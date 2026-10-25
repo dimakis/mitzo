@@ -14,7 +14,12 @@ import { join } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { GoogleWorkspaceManagement } from './google-workspace-management.js';
-import { OpenAIKeyManagement, type ManagedOpenAIAccount } from './openai-key-management.js';
+import {
+  OpenAIKeyManagement,
+  type ManagedOpenAIAccount,
+  type OpenAIKeyResourceAccount,
+} from './openai-key-management.js';
+import { loadAccountProfiles } from './account-profiles.js';
 import { OpenAIKeyOperationStore } from './openai-key-operation-store.js';
 import {
   OpenAIAccountEnrollment,
@@ -76,7 +81,11 @@ export interface ConnectionsRuntime {
   openAIAccounts?: OpenAIAccountEnrollment;
   /** Retained custody checks remain active independently of the browser switch. */
   openAIEnrollmentAuthority?: OpenAIAccountEnrollment;
-  assertOpenAIKeyReady?: (accountId: string, signal: AbortSignal) => Promise<void>;
+  assertOpenAIKeyReady?: (
+    accountId: string,
+    signal: AbortSignal,
+    selected?: OpenAIKeyResourceAccount,
+  ) => Promise<void>;
   closeOpenAIKeyManagement?: () => void;
 }
 let activeRuntime: ConnectionsRuntime | null = null;
@@ -111,6 +120,7 @@ export function createConnectionsRuntime(options: {
   customProbePolicy?: string;
   /** Explicit server-owned enrollment; no credential/account adoption happens by default. */
   openAIKeyAccounts?: () => ManagedOpenAIAccount[];
+  openAIKeyResourceAccounts?: () => readonly OpenAIKeyResourceAccount[];
   managedOpenAIAccountIds?: readonly string[];
   configuredAccountIds?: () => readonly string[];
   openAIEnrollmentDatabase?: string;
@@ -218,6 +228,9 @@ export function createConnectionsRuntime(options: {
       throw new Error('OpenAI Keychain management requires macOS');
     openAIKeys = new OpenAIKeyManagement({
       accounts: options.openAIKeyAccounts,
+      resourceAccounts:
+        options.openAIKeyResourceAccounts ??
+        (() => loadAccountProfiles().openAIKeyResourceAccounts()),
       managedAccountIds: options.managedOpenAIAccountIds ?? [],
       store: new OpenAIKeyOperationStore(keyJournalPath),
       keychain: new KeychainRotationCredentials(),
@@ -237,6 +250,7 @@ export function createConnectionsRuntime(options: {
       gatewayBinding,
       workspace: options.workspace,
       gate: (work) => service.withCredentialMutation(work),
+      readGate: (work, signal) => service.withCredentialRead(work, signal),
     });
   }
   if (options.openAIEnrollmentDatabase) {
@@ -255,6 +269,7 @@ export function createConnectionsRuntime(options: {
       gatewayBinding,
       workspace: options.workspace,
       gate: (work) => service.withCredentialMutation(work),
+      readGate: (work, signal) => service.withCredentialRead(work, signal),
       existingAccountIds: () =>
         options.configuredAccountIds?.() ??
         (options.openAIKeyAccounts?.() ?? []).map((account) => account.id),
@@ -559,8 +574,12 @@ export function createConnectionsRuntime(options: {
     workspace: options.workspace,
     ...(openAIKeys || openAIEnrollment
       ? {
-          assertOpenAIKeyReady: async (id: string, signal: AbortSignal) => {
-            await openAIKeys?.assertReady(id, signal);
+          assertOpenAIKeyReady: async (
+            id: string,
+            signal: AbortSignal,
+            selected?: OpenAIKeyResourceAccount,
+          ) => {
+            await openAIKeys?.assertReady(id, signal, selected);
             if (openAIEnrollment?.manages(id)) await openAIEnrollment.assertReady(id, signal);
           },
           closeOpenAIKeyManagement: () => {

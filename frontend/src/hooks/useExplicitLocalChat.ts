@@ -154,7 +154,10 @@ export function useExplicitLocalChat(
     setError('');
     void Promise.resolve()
       .then(async () => {
-        const response = await apiFetch('/api/chat/runtime/capabilities', {
+        const capabilityUrl =
+          '/api/chat/runtime/capabilities?workspaceDefaults=1' +
+          (sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : '');
+        const response = await apiFetch(capabilityUrl, {
           signal: controller.signal,
         });
         return response.status === 404
@@ -253,8 +256,10 @@ export function useExplicitLocalChat(
             (ordinaryWorkspaceId !== undefined && body.repositoryWorkspaceId != null) ||
             parsed?.version !== 2 ||
             parsed.harness.implementation !== 'codex' ||
-            parsed.execution.location !== 'local' ||
-            parsed.account.provider !== 'openai-codex')
+            !(parsed.execution.location === 'local'
+              ? parsed.account.provider === 'openai-codex'
+              : ordinaryWorkspaceId !== undefined &&
+                ['openai', 'openai-codex'].includes(parsed.account.provider)))
         )
           throw Error('Ordinary conversation identity unavailable');
         const repository = RepositoryContextSchema.safeParse(body.repositoryContext);

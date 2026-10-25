@@ -123,3 +123,22 @@ it('publishes silent opaque preparation intent/receipt with no credential, path 
     }).success,
   ).toBe(false);
 });
+
+it('admits ordinary OpenShell intent without a repository grant and preserves strict selected-repository continuations', () => {
+  const first = {
+    runOn: 'openshell',
+    clientMsgId: 'first',
+    capabilityRevision: 'c1',
+    runtime,
+    selection,
+    payload: command.payload,
+  };
+  expect(protocol.OrdinaryRuntimeFirstCommandSchema.parse(first)).toEqual(first);
+  expect(
+    protocol.OrdinaryCodexContinuationCommandSchema.safeParse({ ...first, sessionId: 'session' })
+      .success,
+  ).toBe(false);
+  expect(
+    protocol.OrdinaryWorkspaceFirstCommandSchema.parse({ ...command, runOn: 'openshell' }).runOn,
+  ).toBe('openshell');
+});

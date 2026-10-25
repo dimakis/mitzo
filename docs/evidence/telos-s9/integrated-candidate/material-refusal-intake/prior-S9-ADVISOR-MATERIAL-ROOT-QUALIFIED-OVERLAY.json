@@ -1,0 +1,108 @@
+{
+  "recordedAt": "2026-10-20T08:34:06.728Z",
+  "disposition": "independently_bounded_closed_pin_UI_packetbyte_restart_only",
+  "originalResult": {
+    "id": "bb21018477f33dc367270ddb69bc3de5",
+    "revision": 1,
+    "sha256": "22ab66b19c7c2f3bd1b5771b2fd28ad8dc4c794dc37d81a8923ca4364c17bdae"
+  },
+  "originalSourceProofSha256": "73b4d15f3ed7f249b9b19ba2e906ff8857316261ee0bc27a90b187f47a942b29",
+  "sourceArchives": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-SOURCE.zip",
+      "sha256": "9449b1b42be36226486f8e49f6746e4403dca5ed34ff598858d2a920a0f03567",
+      "size": 3259656
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-DIAGNOSTICS.zip",
+      "sha256": "ba8a356385b587dce2a2de417959e61b3d1b2cb302299d1bc5764d3715739e7e",
+      "size": 552262
+    }
+  ],
+  "executionHead": "472d5c538c86b506972fbd9b7a7356b46d7277ff",
+  "executionTree": "a83fc19a7271254ef68205bbace4d89004941e53",
+  "selectedResult": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 20147.31103515625
+  },
+  "authorityAndEvidenceReviews": [
+    {
+      "id": "ea01b7c56c88fd803f8fbc70d6b9ab62",
+      "revision": 1,
+      "sha256": "59b57bea8fd259c06f27f9da2d25e43eb582e554946fcef47847af652a5c3c1e",
+      "filename": "S9-ADVISOR-MATERIAL-AUTHORITY-REVIEW.md"
+    },
+    {
+      "id": "817926d4b597a2c8cbb6ef3716ceda62",
+      "revision": 1,
+      "sha256": "c6cddd5f12abf77fbd3fcc6f1a3ca533b1e099959ec2af866b6acf2784620f14",
+      "filename": "S9-ADVISOR-MATERIAL-AUTHORITY-REVIEW.json"
+    },
+    {
+      "id": "deb250da31458c48ba813c563ad86590",
+      "revision": 1,
+      "sha256": "c7755d34a094d7a515e28df163fe92d804d6bb45b67380980c481e4a4fcb6850",
+      "filename": "S9-ADVISOR-MATERIAL-EVIDENCE-REVIEW.md"
+    },
+    {
+      "id": "196509f3f9418ce18b646b8b89efb5f2",
+      "revision": 1,
+      "sha256": "f063873d2413c82a155edff493c676133112ba731978eea2001bfea8f26d277e",
+      "filename": "S9-ADVISOR-MATERIAL-EVIDENCE-REVIEW.json"
+    }
+  ],
+  "independentNativeAccessAssessment": [
+    {
+      "id": "a216892fef4d4e3e0f5f4353c11c3492",
+      "revision": 1,
+      "sha256": "ab5d7e4ddd6e8a5d9271fca07a2c0f4c177384fbb083526c920c170635672649",
+      "filename": "TELOS-OWNED-MATERIAL-ACCESS-ASSESSMENT.md"
+    },
+    {
+      "id": "8ff4bfdb58f0faf968e4ea9090d5e3bb",
+      "revision": 1,
+      "sha256": "bd85c9c1500b3549cfb37009f4cd0c262e635802f83b857ffc2d30e2846d8c10",
+      "filename": "TELOS-OWNED-MATERIAL-ACCESS-ASSESSMENT.json"
+    }
+  ],
+  "qualifiedScope": "Complete newthreefile/reusedactualowner/seedauthority/raw/archive/visibleevidence independently PASS, no actionable harness/source finding. Actual r1UI/download/currentr2 isolation, retainedcontextpins/sourcepacketbytes/sameitem/source-return/Apprestart only. All95prior/667pins13,286tracked+7custody sourceZIP and24diagnostic members preserved; initialseed-onlyRED remainsdiagnostic. Originals unchanged; no retest.",
+  "nativeByteAccessQualification": {
+    "status": "confirmed_P2_delivery_or_selection_bound_read_contract_gap",
+    "referenceJsonIsNotBytes": true,
+    "suppliedFakeReplyIsNotReading": true,
+    "providerPromptRpcBytesNotCaptured": true,
+    "uiDownloadDoesNotDeliverIntoAdvisor": true,
+    "noAutomaticSelectedContentMaterialization": true,
+    "genericHostIoCaveat": "Read/worktree guard and Bash host read policy can permit some underlying nonprivate host files/SQLite access. Separately configured/published MCP can exist. Neither is a verified automatically selected source/revision/hash/privacy/currentness-qualified content path; this overlay does not assert all storage physically unreadable or certify host filesystem isolation.",
+    "actualSelectedToolCount": 13,
+    "toolCountNotUniversal": true,
+    "existingOwners": "Core producer/B artifact-source port; S5b later selected host consumer; no new implementation lane, mount, grant or caller bypass."
+  },
+  "acceptedMainSourceOnly": {
+    "receipt": {
+      "id": "f9d338166661a437bea1aed790b79fce",
+      "revision": 1,
+      "sha256": "e7d95694645bc7e5e91a4707c8729048a5c965a02b658c5665e779e3107c2986",
+      "filename": "PR1046-ACCEPTED-RECEIPT.json"
+    },
+    "commit": "7db1850aaadbebe875645e97fd0ba2a86c2b8f24",
+    "tree": "220c10f5cf0adf11650bde79f071e2f1ea99365c",
+    "pr": 1046,
+    "sourceLandingOnly": true,
+    "privateS9CaseRerunOnMain": false
+  },
+  "pending": [
+    "Actual native selected transcript/material byte delivery/read contract and its negative matrix.",
+    "Full ordinary-chat source-selection/adoption/outcome capture UI caller on selectedownedLocal route, separately source-traced below.",
+    "Current-main/hostedCI/trustedApp/fullrow/fullUX/device/livewindow acceptance."
+  ],
+  "sourceCaptureEntryAssessment": "S9-SOURCE-CAPTURE-ENTRY-GAP.json",
+  "testsRunForOverlay": 0,
+  "sourceProductEdits": false,
+  "fullRowAccepted": false,
+  "acceptedMainQualified": false,
+  "liveRuntimeQualified": false
+}

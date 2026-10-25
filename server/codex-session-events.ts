@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { CodexTurnUsage, observedCodexUsage } from './codex-turn-usage.js';
 import type { StreamEvent } from '@mitzo/harness';
 import type { ProviderFailure } from '@mitzo/protocol';
+import { normalizeCodexToolResult, type CodexToolContentItem } from './codex-tool-result.js';
 type ObjectValue = Record<string, unknown>;
 function object(value: unknown): ObjectValue {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as ObjectValue) : {};
@@ -24,6 +25,8 @@ export class CodexSessionEvents {
   private lastAnonymousCompaction?: string;
   private lastCompactionId?: string;
   private commandTools = new Map<string, string>();
+  private fileTools = new Map<string, string>();
+  private finishedFiles = new Set<string>();
   private runtimeTools = new Map<string, string>();
   private replayingReasoning = false;
   private reasoningReplayOffsets = new Map<string, number>();
@@ -208,6 +211,35 @@ export class CodexSessionEvents {
     // the terminal result for a turn; the next turn/started reopens the mapper.
     if (this.turnFinished && method.startsWith('item/')) return;
     const commandItem = object(params.item);
+    if (
+      (method === 'item/started' || method === 'item/completed') &&
+      commandItem.type === 'fileChange' &&
+      typeof commandItem.id === 'string' &&
+      Array.isArray(commandItem.changes)
+    ) {
+      if (this.finishedFiles.has(commandItem.id)) return;
+      let toolId = this.fileTools.get(commandItem.id);
+      if (!toolId) {
+        toolId = this.toolStart(commandItem.id, 'ApplyPatch', { changes: commandItem.changes });
+        this.fileTools.set(commandItem.id, toolId);
+      }
+      if (
+        method === 'item/completed' &&
+        ['completed', 'failed', 'declined'].includes(String(commandItem.status))
+      ) {
+        this.fileTools.delete(commandItem.id);
+        this.finishedFiles.add(commandItem.id);
+        const completed = commandItem.status === 'completed';
+        this.toolResult(
+          toolId,
+          completed
+            ? `Applied ${commandItem.changes.length} file change(s).`
+            : `File changes ${String(commandItem.status)}.`,
+          !completed,
+        );
+      }
+      return;
+    }
     if (method === 'thread/compacted' || method === 'contextCompaction') {
       this.compaction(method, params);
       return;
@@ -419,6 +451,11 @@ export class CodexSessionEvents {
       this.replayingReasoning = false;
       this.reasoningReplayOffsets.clear();
       this.flush();
+      for (const [id, toolId] of this.fileTools) {
+        this.finishedFiles.add(id);
+        this.toolResult(toolId, 'File change interrupted before completion.', true);
+      }
+      this.fileTools.clear();
       this.emit({
         type: 'result',
         session_id: this.conversationId,
@@ -462,11 +499,39 @@ export class CodexSessionEvents {
     });
     return id;
   }
-  toolResult(id: string, content: string, isError: boolean) {
+  toolResult(id: string, content: string, isError: boolean, contentItems?: CodexToolContentItem[]) {
+    const result = normalizeCodexToolResult({
+      content,
+      isError,
+      ...(contentItems ? { contentItems } : {}),
+    });
+    let precedingText = false;
+    const blocks = result.contentItems?.map((item) => {
+      if (item.type === 'inputText') {
+        // The public extractor concatenates SDK text blocks. Preserve the
+        // authoritative receipt's separators without changing image order.
+        const text = (precedingText ? '\n' : '') + item.text;
+        precedingText = true;
+        return { type: 'text', text };
+      }
+      const split = item.imageUrl.indexOf(';base64,');
+      return {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: item.imageUrl.slice(5, split),
+          data: item.imageUrl.slice(split + 8),
+        },
+      };
+    });
     this.emit({
       type: 'user',
       parent_tool_use_id: null,
-      message: { content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] },
+      message: {
+        content: [
+          { type: 'tool_result', tool_use_id: id, content: blocks ?? content, is_error: isError },
+        ],
+      },
     });
   }
 }

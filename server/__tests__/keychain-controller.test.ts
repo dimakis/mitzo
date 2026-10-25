@@ -3,6 +3,26 @@ import { mkdtemp, readFile, rm, stat, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { KeychainController } from '../keychain-controller.js';
+it('does not rewrite an unchanged controller during credential reads and repeated enrollment', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mitzo-controller-read-'));
+  try {
+    const controller = new KeychainController(directory);
+    const ref = { service: 'com.mitzo.openai', account: 'work' };
+    await controller.enrollRotation(ref);
+    const path = join(directory, 'controller.json');
+    const before = await stat(path, { bigint: true });
+    const directoryBefore = await stat(directory, { bigint: true });
+    await controller.authorization();
+    await controller.enrollRotation(ref);
+    const after = await stat(path, { bigint: true });
+    expect(after.ino).toBe(before.ino);
+    expect(after.mtimeNs).toBe(before.mtimeNs);
+    expect(after.ctimeNs).toBe(before.ctimeNs);
+    expect((await stat(directory, { bigint: true })).mtimeNs).toBe(directoryBefore.mtimeNs);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 it('creates a private controller capability and records only enrolled pinned references', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mitzo-controller-'));
   try {

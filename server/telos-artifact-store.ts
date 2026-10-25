@@ -1,3 +1,7 @@
+import {
+  openTelosOwnedDatabase,
+  type TelosOwnedDatabase,
+} from '@mitzo/protocol/telos-sqlite-owners';
 import { databaseBackupWatermark, backupOwnedDatabase } from '@mitzo/protocol/database-backup';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
@@ -126,6 +130,7 @@ export function describeTelosArtifactDocument(
 /** Content and item links commit together in the canonical Telos database, outside sandboxes. */
 export class TelosArtifactStore {
   private db: Database.Database;
+  #telosOwner: TelosOwnedDatabase | undefined;
   private readonly ownsConnection: boolean;
   /** Internal host composition only. The work owner retains transaction/close
    * authority for a borrowed connection; save/read retain their existing checks. */
@@ -138,14 +143,18 @@ export class TelosArtifactStore {
   }
   constructor(path: string, borrowedDatabase?: Database.Database, readOnly = false) {
     this.ownsConnection = borrowedDatabase === undefined;
-    this.db = borrowedDatabase ?? new Database(path, { fileMustExist: true, readonly: readOnly });
-    this.db.pragma('busy_timeout = 5000');
-    this.db.pragma('foreign_keys = ON');
+    this.#telosOwner = borrowedDatabase
+      ? undefined
+      : openTelosOwnedDatabase('canonical', path, { fileMustExist: true, readonly: readOnly });
+    this.db = borrowedDatabase ?? this.#telosOwner!.database;
     try {
+      this.db.pragma('busy_timeout = 5000');
+      this.db.pragma('foreign_keys = ON');
       this.db.prepare('SELECT id FROM items LIMIT 1').get();
       this.db.prepare('SELECT id FROM links LIMIT 1').get();
       if (readOnly) {
         this.db.prepare('SELECT id FROM telos_artifact_revisions LIMIT 0').all();
+        this.#telosOwner?.seal();
         return;
       }
       this.db.exec(`CREATE TABLE IF NOT EXISTS telos_artifact_revisions (
@@ -165,8 +174,9 @@ export class TelosArtifactStore {
         CREATE INDEX IF NOT EXISTS telos_artifacts_item ON telos_artifact_revisions(item_id);
         CREATE INDEX IF NOT EXISTS telos_artifacts_source_page ON telos_artifact_revisions(session_id,created_at,id,revision);
         CREATE INDEX IF NOT EXISTS telos_artifacts_origin ON telos_artifact_revisions(id,item_id,session_id);`);
+      this.#telosOwner?.seal();
     } catch (error) {
-      if (this.ownsConnection) this.db.close();
+      this.#telosOwner?.close();
       throw error;
     }
   }
@@ -179,7 +189,7 @@ export class TelosArtifactStore {
   }
 
   close() {
-    if (this.ownsConnection) this.db.close();
+    this.#telosOwner?.close();
   }
   /** Match the submitted request, not mutable workspace bytes, before reading a path. */
   /** Shared task outputs are not a private LifeOps evidence vault. */
@@ -528,7 +538,11 @@ export class TelosArtifactStore {
   }
   /** Exact retained revision metadata, with current access filtering before
    * the bounded page. Never loads content bytes or substitutes latest revisions. */
-  sourceMaterialPage(sessionId: string, after?: TelosSourceMaterialCursor) {
+  sourceMaterialPage(
+    sessionId: string,
+    after?: TelosSourceMaterialCursor,
+    additionalPins: ReadonlyArray<{ artifactId: string; revision: number; sha256: string }> = [],
+  ) {
     const cursor = after === undefined ? undefined : TelosSourceMaterialCursorSchema.parse(after);
     // Older canonical fixtures may omit profile; userUploadAllowed treats that
     // shape as public too. Keep its exact optional-separator/case policy.
@@ -542,12 +556,18 @@ export class TelosArtifactStore {
       .prepare(
         `SELECT a.id,a.item_id,a.filename,a.title,a.revision,a.sha256,a.size,a.session_id,a.source_path,a.created_at
       FROM telos_artifact_revisions a JOIN items i ON i.id=a.item_id
-      WHERE a.session_id=? AND ${policy}
+      WHERE (a.session_id=? OR EXISTS (
+        SELECT 1 FROM json_each(?) selected
+        WHERE json_extract(selected.value,'$.artifactId')=a.id
+          AND json_extract(selected.value,'$.revision')=a.revision
+          AND json_extract(selected.value,'$.sha256')=a.sha256
+      )) AND ${policy}
       ${cursor ? 'AND (a.created_at,a.id,a.revision) > (?,?,?)' : ''}
       ORDER BY a.created_at,a.id,a.revision LIMIT 101`,
       )
       .all(
         sessionId,
+        JSON.stringify(additionalPins),
         ...(cursor ? [cursor.createdAt, cursor.artifactId, cursor.revision] : []),
       ) as ArtifactRow[];
     const page = rows.slice(0, 100);

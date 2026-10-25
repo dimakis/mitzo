@@ -25,12 +25,33 @@ const workflow = load(
       permissions: Record<string, string>;
       needs: string | string[];
       if?: string;
-      strategy?: { matrix: { project: string[] }; 'fail-fast': boolean };
+      strategy?: {
+        matrix: { project: string[]; include?: { project: string; browser: string }[] };
+        'fail-fast': boolean;
+      };
     }
   >;
 };
 
 describe('browser failure evidence', () => {
+  it('installs each offline project engine while retaining both interaction engines', () => {
+    const projects = offline.projects!.filter((p) => !p.name!.startsWith('browser-startup-'));
+    const installs = workflow.jobs.offline.strategy?.matrix.include ?? [];
+    expect(installs.map((entry) => entry.project)).toEqual(projects.map((p) => p.name));
+    for (const project of projects)
+      expect(installs.find((entry) => entry.project === project.name)?.browser).toBe(
+        project.use?.browserName ?? project.use?.defaultBrowserType ?? 'chromium',
+      );
+    expect(
+      workflow.jobs.offline.steps.find((step) => step.run?.startsWith('npx playwright install'))
+        ?.run,
+    ).toBe('npx playwright install --with-deps ${{ matrix.browser }}');
+    expect(
+      workflow.jobs.browser.steps.find((step) => step.run?.startsWith('npx playwright install'))
+        ?.run,
+    ).toBe('npx playwright install --with-deps webkit chromium');
+  });
+
   it('isolates suite output and HTML reports so a later run cannot erase earlier failure evidence', () => {
     expect(browser.outputDir).toBe('test-results/browser');
     expect(offline.outputDir).toBe('test-results/offline');

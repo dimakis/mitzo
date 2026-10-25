@@ -108,7 +108,7 @@ it.each(['claiming', 'hidden', 'missing-kind', 'replaced-root'] as const)(
   'refuses prepared-first for %s original custody without repair',
   async (damage) => {
     if (damage === 'claiming') {
-      const db = new Database(join(f.root, 'workspace-owner', 'workspaces.db'));
+      const db = new Database(join(f.privateRoot, 'repository-sources', 'workspaces.db'));
       try {
         const record = f.workspaces.getOrdinaryWorkspace(first.reserved.id);
         db.prepare('UPDATE ordinary_workspaces SET record=? WHERE id=?').run(

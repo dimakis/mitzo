@@ -63,6 +63,16 @@ default MGMT seed.
 
 ## Conversational preparation
 
+For an admitted native Local Mac chat, repository discovery, inspection and
+preparation retain the startup operator's authenticated login independently of
+the browser's event connection. Suspending or reconnecting a phone does not
+revoke that run's tool authorization. The retained binding is released with the
+chat, including failed startup; it cannot fall back to a viewer after release.
+Logout, expiry and revocation still invalidate it through the existing auth
+registry. Native call, account, workspace, profile and one-use preparation
+approval checks remain required. This applies to Local Mac Codex with API and
+subscription accounts; it does not change queue controls or deployment.
+
 An ordinary agent can discover authorized repositories with `ListRepositories`,
 then call `PrepareRepositoryChat` with a repository and a focused task draft.
 Mitzo resolves the account, model and unique GitHub connection from the live chat;
@@ -183,7 +193,7 @@ management remain subsequent resource work. Task files are preserved by default.
   local-path attachment, GitLab, forks or submodule/LFS provisioning in this slice.
 - Tree metadata has a separate 64 MiB command-output bound; short-content files with long paths do not share the 2 MiB diagnostic-output cap.
 - A claimed preparation links to its existing conversation and cannot start another first send.
-- At most 10,000 current-tree files, 64 MiB of Git storage and 64 MiB of expanded
+- At most 10,000 current-tree files, 512 MiB of Git storage and 512 MiB of expanded
   current-tree content. GitHub's advertised repository size is checked before
   cloning; actual storage/content checks follow acquisition. This is not an OS
   disk quota on the network transfer.
@@ -205,10 +215,7 @@ real GitHub authentication, physical sandbox upload, model execution, dependency
 setup or external publication. Static mobile/desktop picker rendering is also
 distinct from device acceptance.
 
-Enable only through reviewed deployment configuration. Use the canonical staging
-procedure in `docs/operations/canonical-staging.md`, accepted sources and an
-independently reviewed staging provider configuration. Do not borrow production
-credentials or create a parallel staging backend. A real model acceptance test
+Enable only through reviewed deployment configuration and accepted sources. Canonical staging is stood down; use offline checks and CI. Live qualification needs a separately selected authorized target, and production deployment needs a separate explicit user action. A real model acceptance test
 must announce its exact supported Luna model and charged account first.
 
 Live acceptance should demonstrate one accessible private repository: acquire the
@@ -218,3 +225,33 @@ that PR. Also exercise denial, changed connection/branch, interrupted preparatio
 missing retained sandbox and account switching. Until those gates pass, this
 remains an opt-in implementation rather than a claim of a finished development
 workflow.
+
+## Development setup
+
+Source preparation checks for 3 GiB free before acquisition. The digest and
+independent-copy bounds allow 1 GiB combined Git storage and expanded content;
+copying requires another 2 GiB free for dependencies/builds. These are admission
+checks, not reserved disk quotas; concurrent use can still consume the disk.
+
+For Mitzo development, run `npm run setup:dev -- --install` inside the selected
+workspace. The command requires 2 GiB free, verifies Git/Python/make/C++, and
+prepares workspace-local Node 24 and npm 11.18.0 under ignored `.mitzo-devtools/`.
+It installs the root lockfile with development dependencies, then checks the
+dependency tree, native SQLite/PTY modules and test/build entrypoints. Use the
+reported `toolchainPath` at the front of PATH for later commands. Subsequent
+`npm run setup:dev` checks readiness without installing.
+
+Installation needs public npm registry/GitHub access. Public pinned GitHub
+dependencies use HTTPS without borrowing a host SSH agent or changing the
+lockfile. Subprocesses receive a minimal environment without inference tokens;
+raw package/Git errors are not returned as public diagnostics. The existing
+agent runtime and image are unchanged. A successful dependency check is not
+evidence of model execution, production deployment or OpenShell egress approval.
+
+Size failures return a specific 512 MiB diagnostic (HTTP 413), and low-space
+failures return a capacity diagnostic (HTTP 507), through the existing picker
+error display. Other failures retain sanitized account/access guidance.
+
+Failed repository-tool results keep their error status and their source-chat-bound recovery card. The card decoder accepts only a validated failed receipt from an error-marked tool; it still rejects error-marked ready receipts, unrelated source chats and noncanonical links. Opening the original recovery link reads its retained failed status without repeating acquisition or starting a conversation. Shared card links use the existing control-height token for a 44px target.
+
+The intercepted `repository-failure-card` browser fixture covers collapsed error groups, both preparation/recovery calls, keyboard activation, the actual recovery hook and status notice, narrow/large-text layouts and zero execution requests on mobile WebKit/Chromium and desktop Chromium in dark Mint/System and light Teal/Georgia. Inspected captures: [mobile recovery card](../design/assets/repository-failure-card-mobile-dark.png) and [desktop recovery card](../design/assets/repository-failure-card-desktop-light.png).

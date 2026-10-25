@@ -3,9 +3,15 @@ import request from 'supertest';
 import { access, writeFile, readFile, rename, mkdir, symlink } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
+import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import type { ownedOrdinaryRuntimeFixture } from './fixtures/owned-ordinary-workspace-runtime.js';
 
-const services = vi.hoisted(() => ({ workspace: undefined as unknown }));
+const services = vi.hoisted(() => ({ workspace: undefined as unknown, remoteRead: vi.fn() }));
+vi.mock('../session-artifact-reader.js', async (original) => ({
+  ...(await original<object>()),
+  createSessionArtifactReader: () => services.remoteRead,
+}));
 vi.mock('../repository-workspace-runtime.js', async (original) => ({
   ...(await original<object>()),
   getOrdinaryWorkspaces: () => services.workspace,
@@ -138,6 +144,144 @@ it('refuses configured workspace, sibling and symlink escapes instead of falling
   }
   expect((await get('/api/files').query({ dir: f.configuredWorkspace })).status).toBe(403);
 });
+it.each(['openai', 'openai-codex'] as const)(
+  'routes ordinary OpenShell file preview, download and guarded save through remote custody for %s',
+  async (provider) => {
+    const binding = { ...f.binding, provider };
+    const runtime = {
+      ...first.receipt.settings.binding,
+      account: { ...first.receipt.settings.binding.account, provider },
+      execution: {
+        location: 'openshell' as const,
+        targetId: 'offline-sandbox',
+        targetRevision: 'offline-sandbox-contract',
+      },
+    };
+    const root = join(f.root, randomUUID());
+    const taskRoot = join(root, 'tasks');
+    await mkdir(taskRoot, { recursive: true, mode: 0o700 });
+    const forbidden = vi.fn(async () => {
+      throw Error('No repository authority');
+    });
+    const owner = new RepositoryWorkspaces(join(root, 'private'), {
+      authorize: forbidden,
+      inspect: forbidden,
+      prepare: forbidden,
+      ordinaryPreparation: {
+        capture: async () => ({
+          version: 1,
+          originalBinding: binding,
+          runtimeBinding: runtime,
+          credentialDigest: 'a'.repeat(64),
+          sandboxWorkdir: '/sandbox/workspaces/mgmt',
+        }),
+        assert: async () => {},
+      },
+    });
+    try {
+      services.workspace = owner;
+      const prepared = await owner.prepareOrdinaryWorkspace({
+        binding,
+        selection: {
+          runOn: 'openshell',
+          runtime: {
+            account: runtime.account,
+            harness: 'codex',
+            targetId: runtime.execution.targetId,
+          },
+        },
+        signal: f.signal.signal,
+      });
+      const reserved = await owner.reserveOrdinaryWorkspace({
+        binding,
+        preparationId: prepared.preparationId,
+        allocationOperationId: randomUUID(),
+        agentProfile: first.reserved.agentProfile,
+        taskRoot,
+        signal: f.signal.signal,
+        settings: {
+          ...first.receipt.settings,
+          binding: runtime,
+          workspace: { kind: 'ordinary', preparationId: prepared.preparationId },
+        },
+      });
+      f.events.prepareOrdinaryWorkspaceSession(
+        {
+          sessionId: reserved.conversationId,
+          ordinaryWorkspaceId: reserved.id,
+          cwd: reserved.directory,
+          accountBinding: binding,
+          agentProfile: reserved.agentProfile,
+          selectedModel: binding.model,
+          reasoningEffort: reserved.settings.selection.thinking,
+          mode: reserved.settings.selection.permission.mode,
+        },
+        {
+          allocationOperationId: reserved.allocationOperationId,
+          preparationFingerprint: reserved.preparationFingerprint,
+          settings: reserved.settings,
+        },
+      );
+      await owner.claimOrdinaryWorkspace({
+        id: reserved.id,
+        conversationId: reserved.conversationId,
+        binding,
+        taskRoot,
+        signal: f.signal.signal,
+      });
+      const path = '/sandbox/workspaces/mgmt/global.txt';
+      services.remoteRead
+        .mockReset()
+        .mockResolvedValue({ path, bytes: Buffer.from('Sandbox report') });
+      for (const endpoint of ['read', 'download']) {
+        const result = await request(app.app)
+          .get('/api/files/' + endpoint)
+          .set('Authorization', 'Bearer ' + f.token)
+          .query({ sessionId: reserved.conversationId, path: 'global.txt' });
+        expect(result.status).toBe(200);
+        if (endpoint === 'read') expect(result.body.content).toBe('Sandbox report');
+        else expect(result.text ?? result.body.toString()).toBe('Sandbox report');
+      }
+      const saved = await request(app.app)
+        .put('/api/files/write')
+        .set('Authorization', 'Bearer ' + f.token)
+        .send({
+          sessionId: reserved.conversationId,
+          path: 'global.txt',
+          content: 'Edited sandbox report',
+          expectedContent: 'Sandbox report',
+        });
+      expect(saved.status).toBe(200);
+      expect(services.remoteRead).toHaveBeenCalledTimes(3);
+      expect(services.remoteRead).toHaveBeenLastCalledWith(
+        reserved.conversationId,
+        binding,
+        reserved.directory,
+        'global.txt',
+      );
+      expect(await readFile(join(f.configuredWorkspace, 'global.txt'), 'utf8')).toBe(
+        'Configured workspace material',
+      );
+      const readBinding = chat.eventStore.getSessionRuntimeBinding.bind(chat.eventStore);
+      vi.spyOn(chat.eventStore, 'getSessionRuntimeBinding').mockImplementation((id) =>
+        id === reserved.conversationId
+          ? { ...runtime, execution: { ...runtime.execution, location: 'local' } }
+          : readBinding(id),
+      );
+      const rejected = await request(app.app)
+        .get('/api/files/read')
+        .set('Authorization', 'Bearer ' + f.token)
+        .query({ sessionId: reserved.conversationId, path: 'global.txt' });
+      expect(rejected.status, JSON.stringify(rejected.body)).toBe(409);
+      expect(services.remoteRead).toHaveBeenCalledTimes(3);
+      expect(forbidden).not.toHaveBeenCalled();
+    } finally {
+      services.workspace = f.workspaces;
+      owner.close();
+    }
+  },
+);
+
 it('requires interactive authority for ordinary browser files even when the generic internal token is valid', async () => {
   const response = await request(app.app)
     .get('/api/files/read')
@@ -170,7 +314,7 @@ it.each([
   async (damage) => {
     const record = f.workspaces.getOrdinaryWorkspace(first.reserved.id);
     if (damage === 'claiming') {
-      const db = new Database(join(f.root, 'workspace-owner', 'workspaces.db'));
+      const db = new Database(join(f.privateRoot, 'repository-sources', 'workspaces.db'));
       try {
         db.prepare('UPDATE ordinary_workspaces SET record=? WHERE id=?').run(
           JSON.stringify({ ...record, state: 'claiming' }),
@@ -180,7 +324,7 @@ it.each([
         db.close();
       }
     } else if (damage === 'missing-record') {
-      const db = new Database(join(f.root, 'workspace-owner', 'workspaces.db'));
+      const db = new Database(join(f.privateRoot, 'repository-sources', 'workspaces.db'));
       try {
         db.prepare('DELETE FROM ordinary_workspaces WHERE id=?').run(record.id);
       } finally {

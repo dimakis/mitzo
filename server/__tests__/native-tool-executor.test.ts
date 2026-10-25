@@ -388,9 +388,16 @@ describe('native tool execution through session permissions', () => {
     const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     await writeFile(executable, bytes, { mode: 0o755 });
+    const companion = join(workspace, 'codex-code-mode-host');
+    await writeFile(companion, bytes, { mode: 0o755 });
     await writeFile(
       nativeFile,
-      JSON.stringify({ version: 1, executablePath: executable, executableSha256: sha256 }),
+      JSON.stringify({
+        version: 2,
+        executablePath: executable,
+        executableSha256: sha256,
+        codeModeHostSha256: sha256,
+      }),
       { mode: 0o600 },
     );
     await writeFile(
@@ -400,7 +407,7 @@ describe('native tool execution through session permissions', () => {
         targetId: 'fixture-mac',
         label: 'Fixture Mac',
         hostId: hostname(),
-        runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256),
+        runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256, sha256),
       }),
       { mode: 0o600 },
     );
@@ -410,15 +417,15 @@ describe('native tool execution through session permissions', () => {
     });
     await runtime.observe();
     const aliases: string[] = [];
-    for (const [index, target] of [nativeFile, targetFile, executable].entries()) {
+    for (const [index, target] of [nativeFile, targetFile, executable, companion].entries()) {
       const alias = join(workspace, `selection-alias-${index}`);
       await symlink(target, alias);
       aliases.push(alias);
     }
     const snapshots = await Promise.all(
-      [nativeFile, targetFile, executable].map((path) => readFile(path)),
+      [nativeFile, targetFile, executable, companion].map((path) => readFile(path)),
     );
-    for (const file_path of [nativeFile, targetFile, executable, ...aliases])
+    for (const file_path of [nativeFile, targetFile, executable, companion, ...aliases])
       expect(
         await executor()(call('Write', { file_path, content: 'model replacement' }), abort.signal),
       ).toMatchObject({ is_error: true });
@@ -439,7 +446,9 @@ describe('native tool execution through session permissions', () => {
     });
     expect(executeSandboxedCommand).not.toHaveBeenCalled();
     expect(
-      await Promise.all([nativeFile, targetFile, executable].map((path) => readFile(path))),
+      await Promise.all(
+        [nativeFile, targetFile, executable, companion].map((path) => readFile(path)),
+      ),
     ).toEqual(snapshots);
     expect(
       await executor()(

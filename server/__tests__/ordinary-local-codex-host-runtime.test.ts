@@ -26,20 +26,32 @@ afterEach(() => {
   vi.restoreAllMocks();
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
 });
+it('hashes each immutable source manifest once while retaining native identity and manifest replacement checks', () => {
+  manifest.artifacts = Object.freeze({ source: 'a'.repeat(64) });
+  const entries = vi.spyOn(Object, 'entries');
+  const original = ordinaryLocalCodexHostContractRevision('b'.repeat(64), 'c'.repeat(64));
+  expect(ordinaryLocalCodexHostContractRevision('b'.repeat(64), 'c'.repeat(64))).toBe(original);
+  expect(entries).toHaveBeenCalledTimes(1);
+  expect(ordinaryLocalCodexHostContractRevision('d'.repeat(64), 'c'.repeat(64))).not.toBe(original);
+  expect(entries).toHaveBeenCalledTimes(1);
+  manifest.artifacts = Object.freeze({ source: 'e'.repeat(64) });
+  expect(ordinaryLocalCodexHostContractRevision('b'.repeat(64), 'c'.repeat(64))).not.toBe(original);
+  expect(entries).toHaveBeenCalledTimes(2);
+});
 it('binds the target contract to the exact sorted code closure with unchanged nominal revision, CLI and native bytes', async () => {
   const f = fixture();
   const runtime = new OrdinaryLocalCodexHostRuntime(f.env);
-  const original = ordinaryLocalCodexHostContractRevision(f.sha256);
+  const original = ordinaryLocalCodexHostContractRevision(f.sha256, f.sha256);
   const actual = await vi.importActual<
     typeof import('../connections/reviewed-handler-artifacts.js')
   >('../connections/reviewed-handler-artifacts.js');
   manifest.artifacts = Object.fromEntries(
     Object.entries(actual.reviewedHandlerSourceArtifacts).reverse(),
   );
-  expect(ordinaryLocalCodexHostContractRevision(f.sha256)).toBe(original);
+  expect(ordinaryLocalCodexHostContractRevision(f.sha256, f.sha256)).toBe(original);
   const path = Object.keys(manifest.artifacts)[0];
   manifest.artifacts[path] = 'f'.repeat(64);
-  expect(ordinaryLocalCodexHostContractRevision(f.sha256)).not.toBe(original);
+  expect(ordinaryLocalCodexHostContractRevision(f.sha256, f.sha256)).not.toBe(original);
   expect(() => runtime.assertCurrentSync()).toThrow('Host Codex runtime observation unavailable');
   expect(() => new OrdinaryLocalCodexHostRuntime(f.env)).toThrow(
     'Host Codex runtime observation unavailable',
@@ -53,15 +65,17 @@ function fixture() {
   const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   writeFileSync(executable, bytes, { mode: 0o755 });
+  writeFileSync(join(root, 'codex-code-mode-host'), bytes, { mode: 0o755 });
   const nativePath = join(root, 'settings/native.json'),
     targetPath = join(root, 'settings/target.json');
   const writeNative = (extra = {}) =>
     writeFileSync(
       nativePath,
       JSON.stringify({
-        version: 1,
+        version: 2,
         executablePath: executable,
         executableSha256: sha256,
+        codeModeHostSha256: sha256,
         ...extra,
       }),
       { mode: 0o600 },
@@ -74,7 +88,7 @@ function fixture() {
         targetId: 'local-mac',
         label: 'Local Mac',
         hostId: hostname(),
-        runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256),
+        runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256, sha256),
         ...extra,
       }),
       { mode: 0o600 },
@@ -95,7 +109,7 @@ it('observes this OS host and exact native bytes independently of the target dec
     targetId: 'local-mac',
     executablePath: f.executable,
     executableSha256: f.sha256,
-    runtimeContractRevision: ordinaryLocalCodexHostContractRevision(f.sha256),
+    runtimeContractRevision: ordinaryLocalCodexHostContractRevision(f.sha256, f.sha256),
   });
 });
 it.each(['host', 'contract', 'native'] as const)(
@@ -134,4 +148,76 @@ it('refuses a private settings leaf replaced during its bounded read', async () 
     return content;
   });
   expect(() => runtime.assertCurrentSync()).toThrow('Host Codex runtime observation unavailable');
+});
+
+it('keeps v2 conversation identity stable across attested deployments and qualifies only reviewed legacy transitions', async () => {
+  const f = fixture();
+  f.writeTarget({ version: 2, continuityContract: 'codex-native-thread-v1' });
+  const first = new OrdinaryLocalCodexHostRuntime(f.env);
+  const identity = first.target().descriptor().targetRevision;
+  const oldAttestation = ordinaryLocalCodexHostContractRevision(f.sha256, f.sha256);
+  const actual = await vi.importActual<
+    typeof import('../connections/reviewed-handler-artifacts.js')
+  >('../connections/reviewed-handler-artifacts.js');
+  manifest.artifacts = {
+    ...actual.reviewedHandlerSourceArtifacts,
+    '../unrelated-ui.tsx': 'f'.repeat(64),
+  };
+  expect(ordinaryLocalCodexHostContractRevision(f.sha256, f.sha256)).not.toBe(oldAttestation);
+  expect(() => first.assertCurrentSync()).toThrow();
+  f.writeTarget({ version: 2, continuityContract: 'codex-native-thread-v1' });
+  const next = new OrdinaryLocalCodexHostRuntime(f.env);
+  expect(next.target().descriptor().targetRevision).toBe(identity);
+  expect(next.continuationDeclaration(identity).targetRevision).toBe(identity);
+  expect(() => next.continuationDeclaration('unreviewed-legacy')).toThrow();
+  const legacy = createHash('sha256')
+    .update(
+      JSON.stringify([
+        'ordinary-local-codex-host-v1',
+        'v1.0.531-repository-recovery-integration',
+        '24f1c83ffc3759a76095f3072edcc9fdebbe5087c874469d60e286d728160462',
+        '0.160.0',
+        f.sha256,
+      ]),
+    )
+    .digest('hex');
+  const revision = createHash('sha256')
+    .update(JSON.stringify(['ordinary-local-codex-target-v1', 'local-mac', hostname(), legacy]))
+    .digest('hex');
+  expect(next.continuationDeclaration(revision).targetRevision).toBe(revision);
+  expect(await next.observe()).toMatchObject({
+    targetRevision: identity,
+    compatibleTargetRevisions: expect.arrayContaining([revision]),
+  });
+});
+
+it('refuses native startup before dispatch when the bundled code-mode host is missing', () => {
+  const f = fixture();
+  rmSync(join(f.root, 'codex-code-mode-host'), { force: true });
+  expect(() => new OrdinaryLocalCodexHostRuntime(f.env)).toThrow(
+    'Host Codex runtime observation unavailable',
+  );
+});
+
+it('pins companion bytes explicitly in the selected native declaration and exact deployment attestation', async () => {
+  const f = fixture();
+  f.writeNative({ version: 2, codeModeHostSha256: f.sha256 });
+  f.writeTarget({
+    runtimeContractRevision: ordinaryLocalCodexHostContractRevision(f.sha256, f.sha256),
+  });
+  await expect(new OrdinaryLocalCodexHostRuntime(f.env).observe()).resolves.toMatchObject({
+    codeModeHostSha256: f.sha256,
+  });
+  const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 9, 8, 7]);
+  const changed = createHash('sha256').update(bytes).digest('hex');
+  writeFileSync(join(f.root, 'codex-code-mode-host'), bytes, { mode: 0o755 });
+  expect(() => new OrdinaryLocalCodexHostRuntime(f.env)).toThrow();
+  f.writeNative({ version: 2, codeModeHostSha256: changed });
+  expect(() => new OrdinaryLocalCodexHostRuntime(f.env)).toThrow();
+  f.writeTarget({
+    runtimeContractRevision: ordinaryLocalCodexHostContractRevision(f.sha256, changed),
+  });
+  await expect(new OrdinaryLocalCodexHostRuntime(f.env).observe()).resolves.toMatchObject({
+    codeModeHostSha256: changed,
+  });
 });

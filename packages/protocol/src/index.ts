@@ -338,7 +338,9 @@ export {
 
 export { sessionApprovalServer } from './session-approval-scope.js';
 export * from './ordinary-local-admission.js';
+export * from './prepared-repository-transition.js';
 export * from './local-codex-first-command.js';
+export * from './ordinary-command-timeouts.js';
 
 export * from './profile-builder.js';
 export * from './default-mitzo-profile.js';

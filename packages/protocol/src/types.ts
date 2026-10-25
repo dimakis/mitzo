@@ -248,6 +248,8 @@ export interface PermissionRequest {
 // --- Image attachment ---
 
 export interface ImageAttachment {
+  /** Source filename and PDF page label, retained with local drafts. */
+  name?: string;
   data: string;
   mediaType: string;
   preview: string;

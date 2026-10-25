@@ -28,6 +28,7 @@ const unavailable = () => Error('API Codex login unavailable');
 const digest = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 export interface CodexApiKeyAuthority {
   assertReady(signal: AbortSignal): Promise<void>;
+  /** Returns only the current controller-qualified key under its rotation gate. */
   resolveKey(accountId: string, signal: AbortSignal): Promise<string>;
 }
 function directory(path: string) {
@@ -121,7 +122,6 @@ export class FrozenHostCodexApiLogin {
       if (binding.provider !== 'openai' || !/^[a-f0-9]{64}$/.test(options.bootstrapId))
         throw unavailable();
       options.signal.throwIfAborted();
-      await options.authority.assertReady(options.signal);
       const key = await options.authority.resolveKey(binding.accountId, options.signal);
       if (!key.trim()) throw unavailable();
       options.signal.throwIfAborted();
@@ -149,7 +149,9 @@ export class FrozenHostCodexApiLogin {
         options.signal,
         true,
       );
-      await login.assertKey();
+      // The key was just resolved under its controller fence. Only synchronous
+      // private-home setup intervenes; connect rechecks the key before launch.
+      login.assertRoot();
       return login;
     } catch {
       throw unavailable();
@@ -187,15 +189,13 @@ export class FrozenHostCodexApiLogin {
     )
       throw unavailable();
   }
-  private async assertKey() {
+  private async assertKey(signal = this.signal) {
     this.assertRoot();
-    await this.authority.assertReady(this.signal);
-    this.assertRoot();
-    const key = await this.authority.resolveKey(this.#saved.binding.accountId, this.signal);
+    signal.throwIfAborted();
+    const key = await this.authority.resolveKey(this.#saved.binding.accountId, signal);
+    signal.throwIfAborted();
     this.assertRoot();
     if (digest(key) !== this.#saved.credentialDigest) throw unavailable();
-    await this.authority.assertReady(this.signal);
-    this.assertRoot();
   }
   custodySnapshot() {
     this.assertFiles();
@@ -233,6 +233,16 @@ export class FrozenHostCodexApiLogin {
       }
       this.assertFiles();
       const owned = client;
+      const assertCredentialCurrent = async (signal: AbortSignal) => {
+        try {
+          this.assertFiles();
+          await this.assertKey(signal);
+          this.assertFiles();
+        } catch {
+          close();
+          throw unavailable();
+        }
+      };
       const assertCurrent = async () => {
         try {
           this.assertFiles();
@@ -259,6 +269,7 @@ export class FrozenHostCodexApiLogin {
         },
         close,
         assertCurrent,
+        assertCredentialCurrent,
         assertCurrentSync: () => {
           try {
             this.assertFiles();

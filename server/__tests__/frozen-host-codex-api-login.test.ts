@@ -40,6 +40,40 @@ function fixture() {
     },
   };
 }
+it('captures the key once and checks it afresh before any later launch', async () => {
+  const f = fixture();
+  const login = await FrozenHostCodexApiLogin.capture(binding, {
+    privateRoot: f.root,
+    bootstrapId: 'e'.repeat(64),
+    authority: f.authority,
+    signal: new AbortController().signal,
+  });
+  expect(f.authority.resolveKey).toHaveBeenCalledOnce();
+  f.rotate();
+  await expect(login.connect(f.launch)).rejects.toThrow('API Codex login unavailable');
+  expect(f.launch).not.toHaveBeenCalled();
+  expect(f.authority.resolveKey).toHaveBeenCalledTimes(2);
+});
+it('uses one controller-qualified key read for a host-tool fence without account/model discovery', async () => {
+  const f = fixture();
+  const login = await FrozenHostCodexApiLogin.capture(binding, {
+    privateRoot: f.root,
+    bootstrapId: 'd'.repeat(64),
+    authority: f.authority,
+    signal: new AbortController().signal,
+  });
+  const lease = await login.connect(f.launch);
+  f.authority.resolveKey.mockClear();
+  f.authority.assertReady.mockClear();
+  f.rpc.request.mockClear();
+  await lease.assertCredentialCurrent!(new AbortController().signal);
+  expect(f.authority.resolveKey).toHaveBeenCalledOnce();
+  expect(f.authority.assertReady).not.toHaveBeenCalled();
+  expect(f.rpc.request).not.toHaveBeenCalled();
+  f.rotate();
+  await expect(lease.assertCredentialCurrent!(new AbortController().signal)).rejects.toThrow();
+  expect(f.rpc.close).toHaveBeenCalledOnce();
+});
 it('retains a private API login and resumes its exact billing account and physical home', async () => {
   const f = fixture(),
     signal = new AbortController().signal;
@@ -95,7 +129,7 @@ it('refuses account substitution, replaced private auth and loss of the original
   await expect(
     FrozenHostCodexApiLogin.reopen(binding, saved, f.authority, controller.signal),
   ).rejects.toThrow();
-  f.authority.assertReady.mockRejectedValue(Error('Private controller error'));
+  f.authority.resolveKey.mockRejectedValue(Error('Private controller error'));
   await expect(
     FrozenHostCodexApiLogin.capture(binding, {
       privateRoot: f.root,

@@ -13,6 +13,11 @@ export type LocalWorkspaceRecord<K extends LocalWorkspaceKind = 'repository'> = 
   ? OrdinaryWorkspaceRecord
   : RepositoryWorkspace;
 export type LocalWorkspaceReservation = Omit<HostRepositoryReservationInput, 'signal'>;
+/** Current custody operations shared by original and qualified post-CAS owners. */
+export type LocalWorkspaceCustodyOwner<K extends LocalWorkspaceKind = LocalWorkspaceKind> = Pick<
+  OrdinaryLocalWorkspaceOwner<K>,
+  'kind' | 'get' | 'assertCurrentSync' | 'revalidate' | 'validate'
+>;
 const unavailable = () => new Error('Original local workspace custody unavailable');
 
 /** Private policy adapter over the existing allocation owner. Kind originates in

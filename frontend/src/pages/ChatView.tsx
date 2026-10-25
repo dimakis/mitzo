@@ -1,3 +1,4 @@
+import { reviewedBriefingLaunch } from '../lib/launch-draft-delivery';
 import { localCommandSessionId } from '@mitzo/client';
 import { useTelosChatRoute } from '../hooks/useTelosChatRoute';
 import { TelosChatRouteLayout } from '../components/TelosChatRouteLayout';
@@ -24,6 +25,7 @@ import { AgentSettingsFields } from '../components/AgentSettingsPicker';
 import { ChatExecutionPicker } from '../components/ChatExecutionPicker';
 import {
   buildLocalFirstCommand,
+  defaultOpenShellWorkspaceReason,
   prepareLocalFirstCommand,
   prepareLocalContinuationCommand,
   prepareOrdinaryWorkspaceCommand,
@@ -152,6 +154,8 @@ export function ChatView() {
 
   const {
     launch,
+    briefingLaunchReason,
+    sendBriefingCommand,
     launchSending,
     launchDeliveryPending,
     launchAccountError,
@@ -162,18 +166,21 @@ export function ChatView() {
     registrationError,
     registrationSaving,
     retryRegistration,
-  } = usePendingLaunch(sessionId ? null : searchParams.get('draft'));
+  } = usePendingLaunch(sessionId ? null : searchParams.get('draft'), searchParams.toString());
   const briefingChat = useBriefingChat(activeSessionId, launch);
 
   const savedLaunch = searchParams.get('draft')
     ? getChatDraft(searchParams.get('draft')!)?.settings.launch
     : undefined;
+  const briefingOwnedDraft = !!(launch?.briefing || savedLaunch?.briefing);
+  const pinnedBriefingAccount = (launch ?? savedLaunch)?.accountSelection;
   const draftEnabled =
     !sessionId &&
     !activeSessionId &&
     !repositoryHandoff.present &&
-    !launch &&
-    !savedLaunch &&
+    (!launch || briefingOwnedDraft) &&
+    (!savedLaunch || briefingOwnedDraft) &&
+    !briefingLaunchReason &&
     !launchDeliveryPending;
   const newChatDraft = useNewChatDraft(searchParams.get('draft'), chatDraftRevision, draftEnabled);
   const retainedLocalCommand = useMitzoStore((s) => s.localCommand);
@@ -192,10 +199,13 @@ export function ChatView() {
         : true);
   const localCommand = ownsLocalCommand ? retainedLocalCommand : null;
   useEffect(() => {
-    if (draftEnabled) selectLocalCommandDraft(newChatDraft.draft.id);
+    if (draftEnabled || (briefingOwnedDraft && !!launch?.draftId && !commandSessionId))
+      selectLocalCommandDraft(newChatDraft.draft.id);
     else if (commandSessionId) selectLocalCommandSession(commandSessionId);
   }, [
     draftEnabled,
+    briefingOwnedDraft,
+    launch?.draftId,
     newChatDraft.draft.id,
     commandSessionId,
     selectLocalCommandDraft,
@@ -210,7 +220,7 @@ export function ChatView() {
     newChatDraft.draft.id,
     newChatDraft.draft.settings.runtimeSelection,
     activeSessionId,
-    !launch && !repositoryHandoff.present,
+    (!launch || briefingOwnedDraft) && !briefingLaunchReason && !repositoryHandoff.present,
     searchParams.toString(),
     newChatDraft.restored ? newChatDraft.draft.settings.selection : undefined,
   );
@@ -226,9 +236,10 @@ export function ChatView() {
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
   const localFirstCommand = explicitNew || localRuntime.preparedFirst;
-  const defaultLocalRepository =
-    localRuntime.intent.execution.location === 'local' &&
-    localRuntime.inventory?.defaultLocalRepository === true;
+  const defaultWorkspaceAvailable =
+    localRuntime.intent.execution.location === 'local'
+      ? localRuntime.inventory?.defaultLocalRepository === true
+      : localRuntime.inventory?.defaultOpenShellWorkspace === true;
   const refreshedFirstCommand = useRef<string | null>(null);
   const { preparedFirst, refresh: refreshRuntimeMetadata } = localRuntime;
   useEffect(() => {
@@ -393,6 +404,13 @@ export function ChatView() {
               savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
             ? { blocked: true }
             : null;
+  const defaultWorkspaceReason = explicitNew
+    ? defaultOpenShellWorkspaceReason(
+        localRuntime.intent,
+        localRuntime.inventory,
+        repositorySelection?.repositoryWorkspaceId,
+      )
+    : undefined;
   const preparedModelEditable =
     explicitNew &&
     !localCommand?.request &&
@@ -449,6 +467,13 @@ export function ChatView() {
   const selectAccount = useCallback(
     (selection: AccountSelection | null) => {
       if (controlsBlocked || (repositoryHandoff.present && activeSessionId)) return;
+      if (
+        briefingOwnedDraft &&
+        (!selection ||
+          selection.accountId !== pinnedBriefingAccount?.accountId ||
+          selection.model !== pinnedBriefingAccount?.model)
+      )
+        return;
       const binding = repositoryAccountSelection ?? newChatDraft.draft.settings.selection;
       if (
         draftEnabled &&
@@ -486,6 +511,8 @@ export function ChatView() {
     },
     [
       controlsBlocked,
+      briefingOwnedDraft,
+      pinnedBriefingAccount,
       launch,
       saveLaunchAccount,
       accountScope,
@@ -573,6 +600,11 @@ export function ChatView() {
         ? {
             ...newChatDraft.draft,
             settings: {
+              launch: reviewedBriefingLaunch(
+                newChatDraft.draft,
+                localRuntime.intent,
+                localRuntime.inventory,
+              ),
               sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
               retainRuntimeIntent: newChatDraft.draft.settings.retainRuntimeIntent,
               runtimeSelection: explicitNew
@@ -605,6 +637,7 @@ export function ChatView() {
       repositorySelection?.repositoryWorkspaceId,
       explicitNew,
       localRuntime.intent,
+      localRuntime.inventory,
       settingsSearch,
     ],
   );
@@ -747,7 +780,14 @@ export function ChatView() {
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
   ): boolean {
-    if (roleSetupRequested || controlsBlocked || builderSourceReason) return false;
+    if (
+      roleSetupRequested ||
+      controlsBlocked ||
+      builderSourceReason ||
+      briefingLaunchReason ||
+      (launch?.briefing && !explicitNew)
+    )
+      return false;
     if (localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable && activeSessionId) {
       if (ctxBlocks?.length || launching || localRuntime.reason) return false;
       const command = prepareOrdinaryCommand(text, images);
@@ -806,11 +846,13 @@ export function ChatView() {
       if (
         !localFirstCommand ||
         localRuntime.reason ||
+        defaultWorkspaceReason ||
         (localCommand && localCommand.state !== 'consumed') ||
-        (!defaultLocalRepository && !repositorySelection?.repositoryWorkspaceId) ||
+        (!defaultWorkspaceAvailable && !repositorySelection?.repositoryWorkspaceId) ||
         repositorySelection?.blocked ||
         ctxBlocks?.length ||
-        launching ||
+        (launching && !briefingOwnedDraft) ||
+        (briefingOwnedDraft && !launching) ||
         missingDraftReason ||
         repositoryAccountReason
       )
@@ -820,11 +862,13 @@ export function ChatView() {
         repositoryWorkspaceId: repositorySelection?.repositoryWorkspaceId,
         mode,
         text,
-        sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
+        sourceSnapshots: launch?.briefing
+          ? launch.sourceSnapshots
+          : newChatDraft.draft.settings.sourceSnapshots,
         images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
       });
       if (!command) return false;
-      return sendLocalFirstCommand(command, {
+      return (briefingOwnedDraft ? sendBriefingCommand : sendLocalFirstCommand)(command, {
         draftId: newChatDraft.draft.id,
         onDelivery,
         onSessionAssigned: (assignedId) => {
@@ -986,12 +1030,29 @@ export function ChatView() {
         controlled={
           explicitNew || localRuntime.commandAvailable
             ? {
-                accounts: runtimeModelAccounts(localRuntime.intent, localRuntime.inventory),
+                accounts: runtimeModelAccounts(localRuntime.intent, localRuntime.inventory)
+                  .filter(
+                    (account) =>
+                      !briefingOwnedDraft || account.id === pinnedBriefingAccount?.accountId,
+                  )
+                  .map((account) =>
+                    briefingOwnedDraft
+                      ? {
+                          ...account,
+                          models: account.models.filter(
+                            (model) => model.id === pinnedBriefingAccount?.model,
+                          ),
+                        }
+                      : account,
+                  ),
                 accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
                 accountReference: localRuntime.intent.accountReference ?? null,
                 onRefresh: localRuntime.refresh,
                 selection: localRuntime.intent.account,
                 onAccountChange: (selection) =>
+                  (!briefingOwnedDraft ||
+                    (selection.accountId === pinnedBriefingAccount?.accountId &&
+                      selection.model === pinnedBriefingAccount?.model)) &&
                   localRuntime.update(
                     {
                       ...localRuntime.intent,
@@ -1001,6 +1062,9 @@ export function ChatView() {
                     true,
                   ),
                 onChange: (selection) =>
+                  (!briefingOwnedDraft ||
+                    (selection.accountId === pinnedBriefingAccount?.accountId &&
+                      selection.model === pinnedBriefingAccount?.model)) &&
                   localRuntime.update({
                     ...localRuntime.intent,
                     account: selection,
@@ -1017,10 +1081,14 @@ export function ChatView() {
               ? (newChatDraft.draft.settings.selection ?? undefined)
               : undefined
         }
-        lockAccount={localBound || preparedExecutionLocked}
+        lockAccount={
+          (localBound || preparedExecutionLocked) &&
+          (!briefingOwnedDraft || !localRuntime.accountNeedsConfirmation)
+        }
         lockAccountModel={
-          localRuntime.preparedFirst ||
-          (draftEnabled && preparedExecutionLocked && !preparedModelEditable)
+          (localRuntime.preparedFirst ||
+            (draftEnabled && preparedExecutionLocked && !preparedModelEditable)) &&
+          (!briefingOwnedDraft || !localRuntime.accountNeedsConfirmation)
         }
         requiredSelection={
           !activeSessionId && repositoryHandoff.preparation && !preparedModelEditable
@@ -1039,7 +1107,8 @@ export function ChatView() {
           (messages.running && !localRuntime.continuation) ||
           controlsBlocked ||
           repositoryHandoff.loading ||
-          briefingChat.selectionLocked ||
+          (briefingChat.selectionLocked && !briefingOwnedDraft) ||
+          !!briefingLaunchReason ||
           launchSending
         }
         sessionId={activeSessionId}
@@ -1634,6 +1703,9 @@ export function ChatView() {
                   <button
                     disabled={
                       launchSending ||
+                      !!briefingLaunchReason ||
+                      (briefingOwnedDraft &&
+                        (!explicitNew || !!localRuntime.reason || !!defaultWorkspaceReason)) ||
                       (!activeSessionId &&
                         (!accountSelection || messages.running || repositorySelection?.blocked))
                     }
@@ -1725,7 +1797,7 @@ export function ChatView() {
                             },
                           ).reason
                       : localFirstCommand &&
-                          (repositorySelection?.repositoryWorkspaceId || defaultLocalRepository)
+                          (repositorySelection?.repositoryWorkspaceId || defaultWorkspaceAvailable)
                         ? (text, images) =>
                             prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
                               clientMsgId: createBrowserId(),
@@ -1737,7 +1809,7 @@ export function ChatView() {
                             }).reason
                         : undefined
                 }
-                savedChatDraft={savedChatDraft}
+                savedChatDraft={launch || savedLaunch ? undefined : savedChatDraft}
                 composerGeneration={chatDraftRevision}
                 key={
                   repositoryHandoff.present
@@ -1782,7 +1854,9 @@ export function ChatView() {
                       ? 'Open the bound work chat before sending a message.'
                       : undefined) ??
                   builderSourceReason ??
+                  briefingLaunchReason ??
                   localRuntime.reason ??
+                  defaultWorkspaceReason ??
                   (controlsBlocked ? 'Loading conversation settings…' : undefined) ??
                   (localRuntime.commandAvailable &&
                   localCommand &&
@@ -1800,7 +1874,7 @@ export function ChatView() {
                     ? 'Execution connection is unavailable. Reconnect before sending.'
                     : undefined) ??
                   (explicitNew &&
-                  !defaultLocalRepository &&
+                  !defaultWorkspaceAvailable &&
                   !repositorySelection?.repositoryWorkspaceId
                     ? 'Prepare a repository before sending the command.'
                     : undefined) ??

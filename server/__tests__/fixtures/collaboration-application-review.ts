@@ -66,11 +66,17 @@ export async function fixture() {
   const executable = join(root, 'codex');
   const binary = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
   await writeFile(executable, binary, { mode: 0o755 });
+  await writeFile(join(root, 'codex-code-mode-host'), binary, { mode: 0o755 });
   const nativePath = join(root, 'native.json'),
     targetPath = join(root, 'target.json');
   await writeFile(
     nativePath,
-    JSON.stringify({ version: 1, executablePath: executable, executableSha256: digest(binary) }),
+    JSON.stringify({
+      version: 2,
+      executablePath: executable,
+      executableSha256: digest(binary),
+      codeModeHostSha256: digest(binary),
+    }),
     { mode: 0o600 },
   );
   await writeFile(
@@ -80,7 +86,10 @@ export async function fixture() {
       targetId: 'offline-mac',
       label: 'Offline Mac',
       hostId: hostname(),
-      runtimeContractRevision: ordinaryLocalCodexHostContractRevision(digest(binary)),
+      runtimeContractRevision: ordinaryLocalCodexHostContractRevision(
+        digest(binary),
+        digest(binary),
+      ),
     }),
     { mode: 0o600 },
   );

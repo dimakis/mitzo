@@ -28,7 +28,7 @@ function fixture() {
     testResults: [{ name: file, status: 'passed' }],
   }));
   const needs: Record<string, { result: string }> = {
-    static: { result: 'success' },
+    core: { result: 'success' },
     unit: { result: 'success' },
   };
   function write() {
@@ -55,7 +55,7 @@ describe('required core CI gate', () => {
   });
 
   it.each(['failure', 'cancelled', 'skipped', ''])('rejects job result %j', (result) => {
-    for (const job of ['static', 'unit']) {
+    for (const job of ['core', 'unit']) {
       const f = fixture();
       f.needs[job].result = result;
       expect(f.run().status).toBe(1);
@@ -167,12 +167,16 @@ it('runs four complete unit shards independently of static/build validation', ()
   expect(jobs.unit?.strategy).toEqual({ 'fail-fast': false, matrix: { shard: [1, 2, 3, 4] } });
   const commands = jobs.unit?.steps.map((step) => step.run).join('\n');
   expect(commands).toContain('npm run build:server');
+  expect(commands).toContain('npm run build\n');
+  expect(commands!.indexOf('npm run build\n')).toBeLessThan(commands!.indexOf('--shard='));
   expect(commands).toContain('vitest list --filesOnly');
   expect(commands).toContain('--shard=${{ matrix.shard }}/4');
   expect(commands).toContain('--reporter=json');
-  expect(jobs.ci.needs).toEqual(['static', 'unit']);
-  expect(jobs.ci.if).toBe('always()');
+  expect(jobs['unit-validation'].needs).toEqual(['core', 'unit']);
+  expect(jobs['unit-validation'].if).toBe('always()');
   expect(
-    jobs.ci.steps.some((step) => step.run === 'node scripts/ci-unit-gate.mjs unit-results'),
+    jobs['unit-validation'].steps.some(
+      (step) => step.run === 'node scripts/ci-unit-gate.mjs unit-results',
+    ),
   ).toBe(true);
 });

@@ -44,6 +44,6 @@ export async function selectRepositoryChatWorkspace(
 }
 export function repositoryChatContext(workspace: RepositoryChatWorkspace | undefined) {
   return workspace
-    ? `Mitzo repository workspace ${workspace.id}: ${workspace.repository}. Starting branch ${workspace.baseBranch}, pinned commit ${workspace.baseOid}; task branch ${workspace.featureBranch}. Work in the supplied task workspace. Source acquisition did not install dependencies or run project setup.\n\n`
+    ? `Mitzo repository workspace ${workspace.id}: ${workspace.repository}. Starting branch ${workspace.baseBranch}, pinned commit ${workspace.baseOid}; task branch ${workspace.featureBranch}. Work in the supplied task workspace. Source acquisition did not install dependencies or run project setup. If package.json provides setup:dev, run npm run setup:dev -- --install before development, then use the reported workspace-local toolchain PATH for later commands. This checks sandbox space, installs lockfile dependencies and verifies native modules; report any setup error before claiming development readiness.\n\n`
     : '';
 }

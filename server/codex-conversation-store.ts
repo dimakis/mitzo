@@ -1,20 +1,37 @@
+import type { CodexNativeExecutionPolicy } from './codex-native-execution-policy.js';
 import type { SandboxOwnershipEvidence } from './sandbox-ownership-review.js';
 import {
   OpenShellCodexCustodySchema,
   type OpenShellCodexCustody,
 } from './openshell-codex-custody.js';
 import type { RuntimeMigration } from './openshell-runtime-migration.js';
-import { HostCodexCustodySchema, type HostCodexCustody } from './host-codex-custody.js';
+import {
+  HostCodexCustodySchema,
+  HostCodexCompanionUpgradePlanSchema,
+  type HostCodexCustody,
+} from './host-codex-custody.js';
+import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { chmodSync, closeSync, openSync } from 'node:fs';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { chmodSync, closeSync, openSync, lstatSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
 import { AgentSandboxContextScopeSchema } from '@mitzo/protocol';
 import { z } from 'zod';
+const HostBundleUpgrade = z.strictObject({
+  version: z.literal(1),
+  custody: HostCodexCustodySchema,
+  plan: HostCodexCompanionUpgradePlanSchema,
+});
 import type { OpenShellRuntime, OpenShellAccountRoute } from './openshell-runtime.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import type { PersistedWebSearchGrant, WebSearchGrant } from './web-search-policy.js';
+import {
+  normalizeCodexToolResult,
+  MAX_CODEX_RICH_RESULT_BYTES,
+  type CodexToolResult,
+} from './codex-tool-result.js';
 
 export interface ArtifactRuntime {
   runtime: OpenShellRuntime & { sandboxId: string };
@@ -178,6 +195,34 @@ export const CodexNativeTurnTargetSchema = z.strictObject({
   generation: z.number().int().nonnegative().safe(),
 });
 export type CodexNativeTurnTarget = z.infer<typeof CodexNativeTurnTargetSchema>;
+const CompletedPreparedRepositorySourceSchema = CodexNativeTurnTargetSchema.extend({
+  callId: z.string().min(1).max(200),
+  toolName: z.literal('PrepareLocalRepository'),
+  requestHash: z.string().regex(/^[a-f0-9]{64}$/),
+  resultSha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+/** Historical correlation only; current operator, read and custody authority
+ * must be supplied separately at the completed-turn admission barrier. */
+export type CompletedPreparedRepositorySource = z.infer<
+  typeof CompletedPreparedRepositorySourceSchema
+>;
+/** Private captured original-owner callback. A model packet or descriptive
+ * receipt cannot supply this authority. Native source checks remain independent. */
+export interface PreparedRepositoryPrimarySourceFence {
+  readonly commandId: string;
+  assertCurrentSync(command?: Readonly<CodexCommand>): void;
+}
+export function preparedRepositoryResultSha256(result: CodexToolResult): string {
+  const checked = normalizeCodexToolResult(result);
+  // Match recordToolResult/replayToolResult's durable public projection exactly.
+  // Private executor metadata is deliberately not part of the retained result.
+  const durable = {
+    content: checked.content,
+    isError: checked.isError,
+    ...(checked.contentItems ? { contentItems: checked.contentItems } : {}),
+  };
+  return createHash('sha256').update(JSON.stringify(durable)).digest('hex');
+}
 const NativeTurnHistorySchema = z
   .array(
     CodexNativeTurnTargetSchema.omit({ commandId: true }).extend({
@@ -185,6 +230,95 @@ const NativeTurnHistorySchema = z
     }),
   )
   .max(1000);
+const NativePolicyPath = RuntimeString.refine((path) => isAbsolute(path) && resolve(path) === path);
+const NativePolicyRoots = z
+  .array(NativePolicyPath)
+  .max(256)
+  .refine(
+    (paths) => isDeepStrictEqual(paths, [...new Set(paths)].sort()),
+    'Native policy roots are not canonical',
+  );
+const NativeExecutionPolicySnapshotSchema = z
+  .strictObject({
+    version: z.literal('native-mac-permissions-v1'),
+    bindingRevision: RuntimeString,
+    policyRevision: z.string().regex(/^[a-f0-9]{64}$/),
+    profileRevision: z.string().regex(/^[a-f0-9]{64}$/),
+    enforcement: z.literal('configured'),
+    scopeKind: z.literal('base-profile'),
+    grantState: z.literal('upstream-owned'),
+    cwd: NativePolicyPath,
+    readableRoots: NativePolicyRoots,
+    writableRoots: NativePolicyRoots,
+    workspaceRoots: NativePolicyRoots,
+    deniedRoots: NativePolicyRoots,
+    writeProtectedRoots: NativePolicyRoots,
+    networkAccess: z.literal('restricted'),
+    approvalPolicy: z.literal('on-request'),
+    permissions: z.enum(['mitzo-native-ask', 'mitzo-native-agent']),
+    reviewer: z.literal('user'),
+    reviewerAvailability: z.literal('unqualified'),
+  })
+  .superRefine((policy, context) => {
+    const digest = (value: unknown) =>
+      createHash('sha256').update(JSON.stringify(value)).digest('hex');
+    const profileRevision = digest([
+      policy.bindingRevision,
+      policy.readableRoots,
+      policy.deniedRoots,
+      policy.writeProtectedRoots,
+    ]);
+    const policyRevision = digest([
+      profileRevision,
+      policy.cwd,
+      policy.workspaceRoots,
+      policy.permissions,
+    ]);
+    if (
+      policy.profileRevision !== profileRevision ||
+      policy.policyRevision !== policyRevision ||
+      !isDeepStrictEqual(
+        policy.writableRoots,
+        policy.permissions === 'mitzo-native-ask' ? [] : policy.workspaceRoots,
+      )
+    )
+      context.addIssue({ code: 'custom', message: 'Native policy snapshot revision changed' });
+  });
+const NativeExecutionReceiptBase = z.strictObject({
+  version: z.literal(1),
+  attempt: z.number().int().positive().safe(),
+  threadId: RuntimeString,
+  generation: z.number().int().nonnegative().safe(),
+  policy: NativeExecutionPolicySnapshotSchema,
+  preparedAt: z.number().int().nonnegative().safe(),
+  replacement: z
+    .strictObject({
+      parentThreadId: RuntimeString.nullable(),
+      parentGeneration: z.number().int().nonnegative().safe(),
+    })
+    .optional(),
+});
+const NativeExecutionReceiptSchema = z.discriminatedUnion('phase', [
+  NativeExecutionReceiptBase.extend({ phase: z.literal('prepared') }),
+  NativeExecutionReceiptBase.extend({
+    phase: z.literal('accepted'),
+    turnId: RuntimeString,
+    acceptedAt: z.number().int().nonnegative().safe(),
+  }),
+]);
+const NativeExecutionHistorySchema = z
+  .array(NativeExecutionReceiptSchema)
+  .max(100)
+  .refine(
+    (history) =>
+      new Set(history.map((receipt) => receipt.attempt)).size === history.length &&
+      history.every(
+        (receipt, index) => index === 0 || history[index - 1].attempt < receipt.attempt,
+      ),
+    'Native execution attempts are ambiguous',
+  );
+export type CodexNativeExecutionReceipt = z.infer<typeof NativeExecutionReceiptSchema>;
+
 export interface CodexTargetedInterruptReceipt {
   requestId: string;
   target: CodexNativeTurnTarget;
@@ -291,14 +425,20 @@ export class CodexConversationStore {
         sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
         id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL,
         recovery_acknowledged INTEGER NOT NULL DEFAULT 0, retry_not_before INTEGER,
-        retryable INTEGER, ambiguous INTEGER, attempt INTEGER NOT NULL DEFAULT 1, native_turns TEXT,
+        retryable INTEGER, ambiguous INTEGER, attempt INTEGER NOT NULL DEFAULT 1, native_turns TEXT, native_execution_history TEXT,
         UNIQUE(conversation_id,id));
       CREATE TABLE IF NOT EXISTS codex_tools (
         conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, call_id TEXT NOT NULL,
-        turn_id TEXT, tool_name TEXT, request_hash TEXT, result_content TEXT, result_is_error INTEGER,
+        turn_id TEXT, tool_name TEXT, request_hash TEXT, result_content TEXT, result_is_error INTEGER, result_content_items TEXT,
         PRIMARY KEY(conversation_id,call_id),
         FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
       CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_tool_outputs (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
+      output_id TEXT NOT NULL UNIQUE, tool_name TEXT NOT NULL, source_scope TEXT NOT NULL, content TEXT NOT NULL,
+      created_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS codex_tool_outputs_owner ON codex_tool_outputs(conversation_id,sequence);`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_thread_acceptances (
       conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
       command_id TEXT NOT NULL, attempt INTEGER NOT NULL,
@@ -308,7 +448,7 @@ export class CodexConversationStore {
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_pending_thread_dispatches (
       conversation_id TEXT PRIMARY KEY REFERENCES codex_conversations(id),
       parent_thread_id TEXT, thread_id TEXT NOT NULL,
-      command_id TEXT NOT NULL, attempt INTEGER NOT NULL);`);
+      command_id TEXT NOT NULL, attempt INTEGER NOT NULL, parent_generation INTEGER);`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_startup_reservations (
       conversation_id TEXT PRIMARY KEY REFERENCES codex_conversations(id),
       phase TEXT NOT NULL CHECK(phase IN ('provisioning','provider_initializing')));`);
@@ -345,6 +485,7 @@ export class CodexConversationStore {
         ['request_hash', 'TEXT'],
         ['result_content', 'TEXT'],
         ['result_is_error', 'INTEGER'],
+        ['result_content_items', 'TEXT'],
       ] as const)
         if (!toolColumns.some((column) => column.name === name))
           this.db.exec(`ALTER TABLE codex_tools ADD COLUMN ${name} ${type}`);
@@ -355,6 +496,8 @@ export class CodexConversationStore {
         this.db.exec('ALTER TABLE codex_conversations ADD COLUMN openshell_custody TEXT');
       if (!conversationColumns.some((column) => column.name === 'host_custody'))
         this.db.exec('ALTER TABLE codex_conversations ADD COLUMN host_custody TEXT');
+      if (!conversationColumns.some((column) => column.name === 'host_bundle_upgrade'))
+        this.db.exec('ALTER TABLE codex_conversations ADD COLUMN host_bundle_upgrade TEXT');
       if (!conversationColumns.some((column) => column.name === 'artifact_runtime'))
         this.db.exec('ALTER TABLE codex_conversations ADD COLUMN artifact_runtime TEXT');
       if (!conversationColumns.some((column) => column.name === 'owner_kind'))
@@ -433,6 +576,15 @@ export class CodexConversationStore {
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1');
       if (!columns.some((column) => column.name === 'native_turns'))
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN native_turns TEXT');
+      if (!columns.some((column) => column.name === 'native_execution_history'))
+        this.db.exec('ALTER TABLE codex_commands ADD COLUMN native_execution_history TEXT');
+      const pendingColumns = this.db
+        .prepare('PRAGMA table_info(codex_pending_thread_dispatches)')
+        .all() as Array<{ name: string }>;
+      if (!pendingColumns.some((column) => column.name === 'parent_generation'))
+        this.db.exec(
+          'ALTER TABLE codex_pending_thread_dispatches ADD COLUMN parent_generation INTEGER',
+        );
       // Legacy recovery rows could not persist a failure class. A failed (not
       // merely interrupted) active command is the conservative signal that the
       // provider thread, rather than only its process transport, needs a new
@@ -700,8 +852,37 @@ export class CodexConversationStore {
         const conversation = this.read(id, binding);
         const previous = this.readHostCustody(id, binding);
         if (previous) {
-          if (!isDeepStrictEqual(previous, snapshot))
-            throw new Error('Host Codex custody cannot be replaced');
+          if (!isDeepStrictEqual(previous, snapshot)) {
+            const { codeModeHost, ...originalExecutable } = snapshot.executable;
+            const journal = this.hostBundleUpgrade(id, binding);
+            const companionPlan =
+              codeModeHost && (({ ownedIdentity: _owned, ...plan }) => plan)(codeModeHost);
+            // A reviewed cold bootstrap can complete the runtime distribution.
+            // This never replaces an owner, credential, main binary or history,
+            // and cannot repair unknown/running work by adopting another bundle.
+            if (
+              previous.executable.codeModeHost ||
+              !journal ||
+              !isDeepStrictEqual(journal.custody, previous) ||
+              !isDeepStrictEqual(journal.plan, companionPlan) ||
+              !codeModeHost ||
+              this.hasRunningCommand(id, binding) ||
+              !isDeepStrictEqual({ ...snapshot, executable: originalExecutable }, previous) ||
+              codeModeHost.path !==
+                join(dirname(previous.executable.path), 'codex-code-mode-host') ||
+              codeModeHost.source !==
+                join(dirname(previous.executable.source), 'codex-code-mode-host') ||
+              !isDeepStrictEqual(
+                codeModeHost.sourceDirectory,
+                previous.executable.sourceDirectory,
+              ) ||
+              !isDeepStrictEqual(codeModeHost.ownedDirectory, previous.executable.ownedDirectory)
+            )
+              throw new Error('Host Codex custody cannot be replaced');
+            this.db
+              .prepare('UPDATE codex_conversations SET host_custody=? WHERE id=?')
+              .run(JSON.stringify(snapshot), id);
+          }
           return;
         }
         if (conversation.threadId || this.commands(id, binding).length)
@@ -712,6 +893,70 @@ export class CodexConversationStore {
           )
           .run(JSON.stringify(snapshot), id).changes;
         if (changed !== 1) throw new Error('Host Codex custody changed concurrently');
+      })
+      .immediate();
+  }
+  private hostBundleUpgrade(id: string, binding: AccountBinding) {
+    this.read(id, binding);
+    const row = this.db
+      .prepare('SELECT host_bundle_upgrade FROM codex_conversations WHERE id=?')
+      .get(id) as { host_bundle_upgrade: string | null };
+    return row.host_bundle_upgrade === null
+      ? undefined
+      : HostBundleUpgrade.parse(JSON.parse(row.host_bundle_upgrade));
+  }
+  /** Durable intent precedes every companion file effect. No native launch or
+   * provider await occurs before completion CAS commits. Interrupted copies can
+   * be rebuilt only under this exact original custody/source/home journal.
+   */
+  completeHostRuntimeBundle(
+    id: string,
+    binding: AccountBinding,
+    raw: HostCodexCustody,
+    executable: FrozenHostCodexExecutable,
+  ): void {
+    const custody = HostCodexCustodySchema.parse(raw);
+    const plan = executable.companionUpgradePlan();
+    if (
+      !plan ||
+      custody.executable.codeModeHost ||
+      !isDeepStrictEqual(executable.custodySnapshot(), custody.executable)
+    )
+      throw Error('Original host bundle upgrade required');
+    const intended = HostBundleUpgrade.parse({ version: 1, custody, plan });
+    this.db
+      .transaction(() => {
+        if (
+          !isDeepStrictEqual(this.readHostCustody(id, binding), custody) ||
+          this.hasRunningCommand(id, binding)
+        )
+          throw Error('Original host bundle upgrade required');
+        this.assertNoPendingThreadDispatch(id, binding);
+        this.assertNoPendingThreadOwnership(id, binding);
+        const previous = this.hostBundleUpgrade(id, binding);
+        if (previous) {
+          if (!isDeepStrictEqual(previous, intended)) throw Error('Host bundle upgrade changed');
+        } else {
+          if (lstatSync(plan.path, { throwIfNoEntry: false }))
+            throw Error('Unexplained host bundle artifact');
+          this.db
+            .prepare('UPDATE codex_conversations SET host_bundle_upgrade=? WHERE id=?')
+            .run(JSON.stringify(intended), id);
+        }
+      })
+      .immediate();
+    executable.completeRuntimeBundle(plan);
+    this.db
+      .transaction(() => {
+        if (
+          !isDeepStrictEqual(this.hostBundleUpgrade(id, binding), intended) ||
+          !isDeepStrictEqual(this.readHostCustody(id, binding), custody)
+        )
+          throw Error('Host bundle upgrade changed');
+        this.setHostCustody(id, binding, { ...custody, executable: executable.custodySnapshot() });
+        this.db
+          .prepare('UPDATE codex_conversations SET host_bundle_upgrade=NULL WHERE id=?')
+          .run(id);
       })
       .immediate();
   }
@@ -1065,16 +1310,17 @@ export class CodexConversationStore {
     command: CodexCommand,
   ) {
     this.db.transaction(() => {
-      if ((this.read(id, b).threadId ?? undefined) !== parent)
+      const state = this.read(id, b);
+      if ((state.threadId ?? undefined) !== parent)
         throw new Error('Codex provider thread generation changed');
       const active = this.commands(id, b).find((c) => c.id === command.id);
       if (active?.status !== 'running' || active.attempt !== command.attempt)
         throw new Error('Codex replacement dispatch command changed');
       this.db
         .prepare(
-          'INSERT INTO codex_pending_thread_dispatches(conversation_id,parent_thread_id,thread_id,command_id,attempt) VALUES (?,?,?,?,?)',
+          'INSERT INTO codex_pending_thread_dispatches(conversation_id,parent_thread_id,thread_id,command_id,attempt,parent_generation) VALUES (?,?,?,?,?,?)',
         )
-        .run(id, parent ?? null, thread, command.id, command.attempt);
+        .run(id, parent ?? null, thread, command.id, command.attempt, state.threadGeneration);
     })();
   }
   assertNoPendingThreadDispatch(id: string, b: AccountBinding) {
@@ -1728,6 +1974,241 @@ export class CodexConversationStore {
       return 'queued';
     })();
   }
+  private nativeExecutions(raw: string | null): CodexNativeExecutionReceipt[] {
+    if (raw === null) return [];
+    if (Buffer.byteLength(raw) > 512 * 1024)
+      throw Error('Native execution history capacity exceeded');
+    return NativeExecutionHistorySchema.parse(JSON.parse(raw));
+  }
+  private saveNativeExecutions(
+    id: string,
+    commandId: string,
+    history: CodexNativeExecutionReceipt[],
+  ) {
+    const value = JSON.stringify(NativeExecutionHistorySchema.parse(history));
+    if (Buffer.byteLength(value) > 512 * 1024)
+      throw Error('Native execution history capacity exceeded');
+    const result = this.db
+      .prepare(
+        'UPDATE codex_commands SET native_execution_history=? WHERE conversation_id=? AND id=?',
+      )
+      .run(value, id, commandId);
+    if (result.changes !== 1) throw Error('Native execution command unavailable');
+  }
+  /** Private observations only. The current trusted runtime owner must assert its
+   * existing binding before preparing/reading/accepting or using this receipt.
+   * This history is not a permission grant or authorization to replay an RPC. */
+  readNativeExecutionHistory(
+    id: string,
+    b: AccountBinding,
+    commandId: string,
+  ): CodexNativeExecutionReceipt[] {
+    this.read(id, b);
+    const row = this.db
+      .prepare(
+        'SELECT native_execution_history FROM codex_commands WHERE conversation_id=? AND id=?',
+      )
+      .get(id, commandId) as { native_execution_history: string | null } | undefined;
+    return row ? this.nativeExecutions(row.native_execution_history) : [];
+  }
+  readNativeExecution(
+    id: string,
+    b: AccountBinding,
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+  ): CodexNativeExecutionReceipt | undefined {
+    return this.readNativeExecutionHistory(id, b, command.id).find(
+      (receipt) => receipt.attempt === command.attempt,
+    );
+  }
+  prepareNativeExecution(
+    id: string,
+    b: AccountBinding,
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+    threadId: string,
+    policy: CodexNativeExecutionPolicy,
+  ): void {
+    this.db.transaction(() => {
+      const state = this.read(id, b);
+      const active = this.db
+        .prepare(
+          'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+        )
+        .get(id, command.id) as
+        { status: string; attempt: number; native_turns: string | null } | undefined;
+      if (active?.status !== 'running' || active.attempt !== command.attempt)
+        throw Error('Native execution preparation identity changed');
+      const pending = this.db
+        .prepare(
+          'SELECT parent_thread_id,thread_id,command_id,attempt,parent_generation FROM codex_pending_thread_dispatches WHERE conversation_id=?',
+        )
+        .get(id) as
+        | {
+            parent_thread_id: string | null;
+            thread_id: string;
+            command_id: string;
+            attempt: number;
+            parent_generation: number | null;
+          }
+        | undefined;
+      let generation = state.threadGeneration;
+      let replacement: { parentThreadId: string | null; parentGeneration: number } | undefined;
+      if (pending) {
+        if (
+          pending.parent_thread_id !== (state.threadId ?? null) ||
+          pending.parent_generation !== state.threadGeneration ||
+          pending.thread_id !== threadId ||
+          pending.command_id !== command.id ||
+          pending.attempt !== command.attempt ||
+          pending.thread_id === pending.parent_thread_id
+        )
+          throw Error('Native execution pending replacement identity or generation changed');
+        replacement = {
+          parentThreadId: pending.parent_thread_id,
+          parentGeneration: state.threadGeneration,
+        };
+        generation += pending.parent_thread_id === null ? 0 : 1;
+      } else if (state.threadId !== threadId)
+        throw Error('Native execution preparation thread changed');
+      const snapshot = NativeExecutionPolicySnapshotSchema.parse(policy);
+      const history = this.readNativeExecutionHistory(id, b, command.id);
+      const existing = history.find((receipt) => receipt.attempt === command.attempt);
+      if (existing) {
+        if (
+          existing.threadId !== threadId ||
+          existing.generation !== generation ||
+          (pending && !isDeepStrictEqual(existing.replacement, replacement)) ||
+          !isDeepStrictEqual(existing.policy, snapshot)
+        )
+          throw Error('Native execution preparation changed');
+        return;
+      }
+      if (
+        this.nativeTurns(active.native_turns).some((turn) => turn.attempt === command.attempt) ||
+        this.db
+          .prepare(
+            'SELECT 1 FROM codex_capacity_native_acks WHERE conversation_id=? AND command_id=? AND attempt=?',
+          )
+          .get(id, command.id, command.attempt) ||
+        this.db
+          .prepare(
+            'SELECT 1 FROM codex_thread_acceptances WHERE conversation_id=? AND command_id=? AND attempt=?',
+          )
+          .get(id, command.id, command.attempt)
+      )
+        throw Error('Native execution policy was not prepared before acknowledgement');
+      const receipt = NativeExecutionReceiptSchema.parse({
+        version: 1,
+        phase: 'prepared',
+        attempt: command.attempt,
+        threadId,
+        generation,
+        ...(replacement ? { replacement } : {}),
+        policy: snapshot,
+        preparedAt: Date.now(),
+      });
+      this.saveNativeExecutions(id, command.id, [...history, receipt]);
+    })();
+  }
+  /** Link an existing parsed native ACK. A caller-supplied turn string, queued
+   * command or prepared base profile cannot create native turn acceptance. */
+  acceptNativeExecution(
+    id: string,
+    b: AccountBinding,
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+    threadId: string,
+    turnId: string,
+  ): void {
+    this.db.transaction(() => {
+      const state = this.read(id, b);
+      const active = this.db
+        .prepare(
+          'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+        )
+        .get(id, command.id) as
+        { status: string; attempt: number; native_turns: string | null } | undefined;
+      if (
+        active?.status !== 'running' ||
+        active.attempt !== command.attempt ||
+        state.threadId !== threadId
+      )
+        throw Error('Native execution acknowledgement identity changed');
+      // NativeTurnTarget intentionally hides ownership-pending turns from control
+      // authority. This observation links only its exact already-persisted ACK.
+      const targets = this.nativeTurns(active.native_turns).filter(
+        (turn) => turn.attempt === command.attempt,
+      );
+      const target = targets[0];
+      if (
+        targets.length !== 1 ||
+        target.threadId !== threadId ||
+        target.turnId !== turnId ||
+        target.generation !== state.threadGeneration
+      )
+        throw Error('Native execution acknowledgement unavailable or changed');
+      const ownership = this.pendingThreadOwnership(id, b);
+      if (
+        ownership &&
+        (ownership.commandId !== command.id ||
+          ownership.attempt !== command.attempt ||
+          ownership.threadId !== threadId ||
+          ownership.turnId !== turnId ||
+          ownership.generation !== target.generation)
+      )
+        throw Error('Native execution pending ownership changed');
+      const history = this.readNativeExecutionHistory(id, b, command.id);
+      const existing = history.find((receipt) => receipt.attempt === command.attempt);
+      if (!existing || existing.threadId !== threadId || existing.generation !== target.generation)
+        throw Error('Native execution preparation unavailable or changed');
+      if (existing.replacement) {
+        const origin = existing.replacement;
+        const accepted = this.readThreadAcceptances(id, b).filter(
+          (receipt) => receipt.commandId === command.id && receipt.attempt === command.attempt,
+        );
+        const lineage = this.db
+          .prepare(
+            'SELECT thread_id,parent_thread_id FROM codex_thread_generations WHERE conversation_id=? AND generation=?',
+          )
+          .get(id, target.generation) as
+          { thread_id: string; parent_thread_id: string | null } | undefined;
+        const parent =
+          origin.parentThreadId === null
+            ? undefined
+            : (this.db
+                .prepare(
+                  'SELECT thread_id FROM codex_thread_generations WHERE conversation_id=? AND generation=?',
+                )
+                .get(id, origin.parentGeneration) as { thread_id: string } | undefined);
+        if (
+          target.generation !==
+            origin.parentGeneration + (origin.parentThreadId === null ? 0 : 1) ||
+          lineage?.thread_id !== threadId ||
+          lineage.parent_thread_id !== origin.parentThreadId ||
+          (origin.parentThreadId !== null && parent?.thread_id !== origin.parentThreadId) ||
+          accepted.length !== 1 ||
+          accepted[0].threadId !== threadId ||
+          accepted[0].turnId !== turnId ||
+          accepted[0].generation !== target.generation ||
+          accepted[0].terminalConflict
+        )
+          throw Error('Native execution replacement acknowledgement or lineage changed');
+      }
+      if (existing.phase === 'accepted') {
+        if (existing.turnId !== turnId) throw Error('Native execution acknowledgement changed');
+        return;
+      }
+      const accepted = NativeExecutionReceiptSchema.parse({
+        ...existing,
+        phase: 'accepted',
+        turnId,
+        acceptedAt: Date.now(),
+      });
+      this.saveNativeExecutions(
+        id,
+        command.id,
+        history.map((receipt) => (receipt === existing ? accepted : receipt)),
+      );
+    })();
+  }
   private nativeTurns(raw: string | null) {
     if (raw === null) return [] as z.infer<typeof NativeTurnHistorySchema>;
     if (Buffer.byteLength(raw) > 64 * 1024) throw Error('Native turn history unavailable');
@@ -1842,6 +2323,70 @@ export class CodexConversationStore {
       return;
     if (this.pendingThreadOwnership(id, b)) return;
     return this.nativeTarget(commandId, targets[0]);
+  }
+  /** Post-terminal correlation, never a revived callback or read capability.
+   * A later nonqueued command prevents adopting an earlier task behind it. */
+  completedNativeTurnTarget(
+    id: string,
+    binding: AccountBinding,
+  ): CodexNativeTurnTarget | undefined {
+    const state = this.read(id, binding);
+    if (state.recovery || this.pendingThreadOwnership(id, binding)) return;
+    const row = this.db
+      .prepare(
+        `SELECT id,status,attempt,native_turns FROM codex_commands
+      WHERE conversation_id=? AND status!='queued' ORDER BY sequence DESC LIMIT 1`,
+      )
+      .get(id) as
+      { id: string; status: string; attempt: number; native_turns: string | null } | undefined;
+    if (!row || row.status !== 'completed') return;
+    const turns = this.nativeTurns(row.native_turns).filter((turn) => turn.attempt === row.attempt);
+    if (turns.length !== 1) return;
+    const target = this.nativeTarget(row.id, turns[0]);
+    const receipt = this.readNativeExecution(id, binding, { id: row.id, attempt: row.attempt });
+    if (
+      target.threadId !== state.threadId ||
+      target.generation !== state.threadGeneration ||
+      target.turnId !== state.lastCompletedTurnId ||
+      receipt?.phase !== 'accepted' ||
+      receipt.threadId !== target.threadId ||
+      receipt.turnId !== target.turnId ||
+      receipt.generation !== target.generation
+    )
+      return;
+    this.assertNoPendingThreadDispatch(id, binding);
+    return Object.freeze(target);
+  }
+  completedPreparedRepositoryResultSha256(
+    id: string,
+    binding: AccountBinding,
+    target: Readonly<CodexNativeTurnTarget>,
+    callId: string,
+    requestHash: string,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
+  ): string {
+    if (!isDeepStrictEqual(this.completedNativeTurnTarget(id, binding), target))
+      throw Error('Completed prepared repository target changed');
+    const identity = {
+      turnId: target.turnId,
+      toolName: 'PrepareLocalRepository' as const,
+      requestHash,
+    };
+    const result = this.replayToolResult(id, binding, target.commandId, callId, identity);
+    if (!result || result.isError) throw Error('Completed prepared repository result unavailable');
+    const resultSha256 = preparedRepositoryResultSha256(result);
+    this.assertCompletedPreparedRepositorySource(
+      id,
+      binding,
+      {
+        ...target,
+        ...identity,
+        callId,
+        resultSha256,
+      },
+      primarySource,
+    );
+    return resultSha256;
   }
   targetedInterruptReceipt(
     id: string,
@@ -2537,6 +3082,210 @@ export class CodexConversationStore {
       });
     })();
   }
+  /** Verify a completed source without reviving its expired native callback.
+   * This does not authorize a read, a workspace change or another provider turn.
+   * Old queued work is a hard boundary: never silently retarget that work or
+   * place an automatic continuation behind a later explicit user command. */
+  assertCompletedPreparedRepositorySource(
+    id: string,
+    binding: AccountBinding,
+    rawSource: CompletedPreparedRepositorySource,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
+  ): void {
+    this.assertPreparedRepositorySource(id, binding, rawSource, undefined, primarySource);
+  }
+  private assertPreparedRepositorySource(
+    id: string,
+    binding: AccountBinding,
+    rawSource: CompletedPreparedRepositorySource,
+    exactQueuedChildId?: string,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
+  ): void {
+    this.db.transaction(() => {
+      const source = CompletedPreparedRepositorySourceSchema.parse(rawSource);
+      const current = this.read(id, binding);
+      const commands = this.commands(id, binding);
+      const original = commands.find((command) => command.id === source.commandId);
+      const row = this.db
+        .prepare(
+          'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+        )
+        .get(id, source.commandId) as
+        { status: string; attempt: number; native_turns: string | null } | undefined;
+      const fail = () => {
+        throw Error('Completed prepared repository source unavailable');
+      };
+      if (
+        !row ||
+        row.status !== 'completed' ||
+        row.attempt !== source.attempt ||
+        current.threadId !== source.threadId ||
+        current.threadGeneration !== source.generation ||
+        current.lastCompletedTurnId !== source.turnId ||
+        current.recovery ||
+        commands.some(
+          (command) =>
+            command.status === 'running' ||
+            (command.status === 'queued' && command.id !== exactQueuedChildId),
+        ) ||
+        !original?.intent?.trim() ||
+        original.allowedTools ||
+        (original.environmentContinuation && !primarySource) ||
+        commands.filter((command) => command.status !== 'queued').at(-1)?.id !== source.commandId
+      )
+        fail();
+      if (original!.environmentContinuation) {
+        if (
+          !/^prepared-repository-[a-f0-9]{64}$/.test(original!.id) ||
+          primarySource?.commandId !== source.commandId
+        )
+          fail();
+        const assert = primarySource!.assertCurrentSync;
+        const checked: unknown = assert.call(primarySource, structuredClone(original!));
+        if (checked !== undefined) {
+          void Promise.resolve(checked).catch(() => {});
+          fail();
+        }
+        if (
+          primarySource!.assertCurrentSync !== assert ||
+          primarySource!.commandId !== source.commandId
+        )
+          fail();
+      }
+      this.assertNoPendingThreadOwnership(id, binding);
+      this.assertNoPendingThreadDispatch(id, binding);
+      const targets = this.nativeTurns(row!.native_turns).filter(
+        (turn) => turn.attempt === source.attempt,
+      );
+      if (
+        targets.length !== 1 ||
+        !isDeepStrictEqual(this.nativeTarget(source.commandId, targets[0]), {
+          commandId: source.commandId,
+          attempt: source.attempt,
+          threadId: source.threadId,
+          turnId: source.turnId,
+          generation: source.generation,
+        })
+      )
+        fail();
+      const receipt = this.readNativeExecution(id, binding, {
+        id: source.commandId,
+        attempt: source.attempt,
+      });
+      if (
+        receipt?.phase !== 'accepted' ||
+        receipt.threadId !== source.threadId ||
+        receipt.turnId !== source.turnId ||
+        receipt.generation !== source.generation
+      )
+        fail();
+      const result = this.replayToolResult(id, binding, source.commandId, source.callId, source);
+      if (
+        !result ||
+        result.isError ||
+        preparedRepositoryResultSha256(result) !== source.resultSha256
+      )
+        fail();
+    })();
+  }
+  assertQueuedPreparedRepositoryContinuation(
+    id: string,
+    binding: AccountBinding,
+    source: CompletedPreparedRepositorySource,
+    rawInput: CodexCommandInput,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
+  ): void {
+    this.db.transaction(() => {
+      const input = CommandInput.parse(rawInput);
+      if (
+        !/^prepared-repository-[a-f0-9]{64}$/.test(input.id) ||
+        input.environmentContinuation ||
+        input.allowedTools
+      )
+        throw Error('Prepared repository child identity unavailable');
+      const expected = JSON.parse(
+        JSON.stringify({
+          ...input,
+          environmentContinuation: {
+            sourceCommandId: source.commandId,
+            sourceTurnId: source.turnId,
+            sourceThreadId: source.threadId,
+            sourceGeneration: source.generation,
+          },
+        }),
+      );
+      const child = this.commands(id, binding).find((command) => command.id === input.id);
+      if (!child) throw Error('Prepared repository child is not exactly queued');
+      const { status, attempt, ...retained } = child;
+      if (status !== 'queued' || attempt !== 1)
+        throw Error('Prepared repository child is not exactly queued');
+      if (!isDeepStrictEqual(retained, expected))
+        throw Error('Prepared repository queued child changed');
+      this.assertPreparedRepositorySource(id, binding, source, input.id, primarySource);
+    })();
+  }
+  /** Called only after the existing admission owner consumed the exact prepared
+   * child. It shares FIFO's completed-turn/thread-generation fence and can never
+   * insert behind old queued work or turn a child into another automatic loop. */
+  enqueuePreparedRepositoryContinuation(
+    id: string,
+    binding: AccountBinding,
+    source: CompletedPreparedRepositorySource,
+    rawInput: CodexCommandInput,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
+  ): boolean {
+    return this.db.transaction(() => {
+      this.assertCompletedPreparedRepositorySource(id, binding, source, primarySource);
+      const input = CommandInput.parse(rawInput);
+      const original = this.commands(id, binding).find(
+        (command) => command.id === source.commandId,
+      );
+      if (
+        !original?.intent?.trim() ||
+        original.allowedTools ||
+        (original.environmentContinuation && !primarySource) ||
+        input.intent !== original.intent ||
+        input.allowedTools ||
+        input.environmentContinuation ||
+        !/^prepared-repository-[a-f0-9]{64}$/.test(input.id)
+      )
+        throw Error('Prepared repository original task continuation unavailable');
+      return this.enqueue(id, binding, {
+        ...input,
+        environmentContinuation: {
+          sourceCommandId: source.commandId,
+          sourceTurnId: source.turnId,
+          sourceThreadId: source.threadId,
+          sourceGeneration: source.generation,
+        },
+      });
+    })();
+  }
+  /** Expected-old primary CAS for the already guarded repository operation.
+   * Per-command frozen policy/turn history remains historical and unchanged. */
+  adoptPreparedRepositoryWorkspace(
+    id: string,
+    binding: AccountBinding,
+    source: CompletedPreparedRepositorySource,
+    expectedCwd: string,
+    nextCwd: string,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
+  ): void {
+    this.db.transaction(() => {
+      this.assertCompletedPreparedRepositorySource(id, binding, source, primarySource);
+      if (
+        !isAbsolute(nextCwd) ||
+        resolve(nextCwd) !== nextCwd ||
+        nextCwd.includes('\0') ||
+        nextCwd === expectedCwd
+      )
+        throw Error('Prepared repository native workspace invalid');
+      const changed = this.db
+        .prepare('UPDATE codex_conversations SET cwd=? WHERE id=? AND cwd=?')
+        .run(nextCwd, id, expectedCwd);
+      if (changed.changes !== 1) throw Error('Prepared repository native workspace changed');
+    })();
+  }
   /** A completed host result is persisted before it is exposed to the transport.
    * A duplicate RPC can replay exactly the same result after a lost response. */
   recordToolResult(
@@ -2545,13 +3294,15 @@ export class CodexConversationStore {
     commandId: string,
     callId: string,
     identity: { turnId: string; toolName: string; requestHash: string },
-    result: { content: string; isError: boolean },
+    result: CodexToolResult,
   ): void {
+    const checked = normalizeCodexToolResult(result);
+    const items = checked.contentItems ? JSON.stringify(checked.contentItems) : null;
     this.db.transaction(() => {
       this.read(id, b);
       const row = this.db
         .prepare(
-          `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error
+          `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error,result_content_items
         FROM codex_tools WHERE conversation_id=? AND call_id=?`,
         )
         .get(id, callId) as
@@ -2562,6 +3313,7 @@ export class CodexConversationStore {
             request_hash: string | null;
             result_content: string | null;
             result_is_error: number | null;
+            result_content_items: string | null;
           }
         | undefined;
       if (
@@ -2573,16 +3325,20 @@ export class CodexConversationStore {
       )
         throw new Error('Codex tool result identity changed');
       if (row.result_content !== null) {
-        if (row.result_content !== result.content || row.result_is_error !== Number(result.isError))
+        if (
+          row.result_content !== checked.content ||
+          row.result_is_error !== Number(checked.isError) ||
+          row.result_content_items !== items
+        )
           throw new Error('Codex tool result changed');
         return;
       }
       this.db
         .prepare(
-          `UPDATE codex_tools SET result_content=?,result_is_error=?
+          `UPDATE codex_tools SET result_content=?,result_is_error=?,result_content_items=?
         WHERE conversation_id=? AND command_id=? AND call_id=?`,
         )
-        .run(result.content, Number(result.isError), id, commandId, callId);
+        .run(checked.content, Number(checked.isError), items, id, commandId, callId);
     })();
   }
   replayToolResult(
@@ -2591,11 +3347,11 @@ export class CodexConversationStore {
     commandId: string,
     callId: string,
     identity: { turnId: string; toolName: string; requestHash: string },
-  ): { content: string; isError: boolean } | null {
+  ): CodexToolResult | null {
     this.read(id, b);
     const row = this.db
       .prepare(
-        `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error
+        `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error,result_content_items
       FROM codex_tools WHERE conversation_id=? AND call_id=?`,
       )
       .get(id, callId) as
@@ -2606,6 +3362,7 @@ export class CodexConversationStore {
           request_hash: string | null;
           result_content: string | null;
           result_is_error: number | null;
+          result_content_items: string | null;
         }
       | undefined;
     if (
@@ -2616,9 +3373,19 @@ export class CodexConversationStore {
       row.request_hash !== identity.requestHash
     )
       throw new Error('Codex tool replay identity changed');
-    return row.result_content === null
-      ? null
-      : { content: row.result_content, isError: row.result_is_error === 1 };
+    if (row.result_content === null) return null;
+    if (
+      row.result_content_items !== null &&
+      Buffer.byteLength(row.result_content_items) > MAX_CODEX_RICH_RESULT_BYTES
+    )
+      throw Error('Stored tool result exceeds bound');
+    return normalizeCodexToolResult({
+      content: row.result_content,
+      isError: row.result_is_error === 1,
+      ...(row.result_content_items !== null
+        ? { contentItems: JSON.parse(row.result_content_items) }
+        : {}),
+    });
   }
   recoverAtStartup(ownerKind?: 'ordinary' | 'symposium') {
     this.db.transaction(() => {
@@ -2706,6 +3473,59 @@ export class CodexConversationStore {
         )
         .run(id);
     })();
+  }
+  retainToolOutput(
+    id: string,
+    binding: AccountBinding,
+    toolName: string,
+    content: string,
+    sourceScope: string,
+  ): string {
+    if (!/^[a-f0-9]{64}$/.test(sourceScope)) throw Error('Invalid retained output scope');
+    if (Buffer.byteLength(content) > 4 * 1024 * 1024) throw Error('Tool output retention bound');
+    return this.db
+      .transaction(() => {
+        this.read(id, binding);
+        const outputId = randomUUID();
+        this.db
+          .prepare('DELETE FROM codex_tool_outputs WHERE created_at<?')
+          .run(Date.now() - 86400000);
+        this.db
+          .prepare(
+            'INSERT INTO codex_tool_outputs(conversation_id,output_id,tool_name,source_scope,content,created_at) VALUES(?,?,?,?,?,?)',
+          )
+          .run(id, outputId, toolName, sourceScope, content, Date.now());
+        // At most eight retained outputs per conversation; expiration is explicit on read.
+        this.db
+          .prepare(
+            'DELETE FROM codex_tool_outputs WHERE conversation_id=? AND sequence NOT IN (SELECT sequence FROM codex_tool_outputs WHERE conversation_id=? ORDER BY sequence DESC LIMIT 8)',
+          )
+          .run(id, id);
+        // Sixteen outputs globally also bound cache bytes to at most 64 MiB.
+        this.db
+          .prepare(
+            'DELETE FROM codex_tool_outputs WHERE sequence NOT IN (SELECT sequence FROM codex_tool_outputs ORDER BY sequence DESC LIMIT 16)',
+          )
+          .run();
+        return outputId;
+      })
+      .immediate();
+  }
+  readToolOutput(
+    id: string,
+    binding: AccountBinding,
+    outputId: string,
+  ): { toolName: string; sourceScope: string; content: string } | undefined {
+    this.read(id, binding);
+    const row = this.db
+      .prepare(
+        'SELECT tool_name,source_scope,content FROM codex_tool_outputs WHERE conversation_id=? AND output_id=? AND created_at>=?',
+      )
+      .get(id, z.uuid().parse(outputId), Date.now() - 86400000) as
+      { tool_name: string; source_scope: string; content: string } | undefined;
+    return row
+      ? { toolName: row.tool_name, sourceScope: row.source_scope, content: row.content }
+      : undefined;
   }
   close() {
     this.db.close();

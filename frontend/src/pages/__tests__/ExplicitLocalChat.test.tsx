@@ -247,8 +247,7 @@ function setup(
   if (apiHost) {
     const account = { ...fixture.accounts[0].account, provider: 'openai' as const };
     fixture.accounts[0] = { ...fixture.accounts[0], account, label: 'Work OpenAI API' };
-    fixture.targets[0] = { ...fixture.targets[0], harness: 'responses' };
-    fixture.routes[0] = { ...fixture.routes[0], account, harness: 'responses' };
+    fixture.routes[0] = { ...fixture.routes[0], account };
   }
   if (builtin) (fixture.agentProfiles as AgentLibraryVersion[]).push(builtin);
   const draft = createChatDraft();
@@ -276,7 +275,11 @@ function setup(
   }
   saveChatDraft(draft);
   vi.mocked(apiFetch).mockImplementation(async (url) => {
-    if (url === '/api/chat/runtime/capabilities')
+    if (
+      url === '/api/chat/runtime/capabilities?workspaceDefaults=1' ||
+      (bound &&
+        url === '/api/chat/runtime/capabilities?workspaceDefaults=1&sessionId=bound-session')
+    )
       return disabled
         ? new Response(JSON.stringify({ code: 'entry_disabled' }), { status: 503 })
         : new Response(JSON.stringify(fixture));
@@ -657,6 +660,10 @@ for (const [name, Screen] of [
     if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
     const account = await screen.findByRole('combobox', { name: 'Account' });
     await waitFor(() => expect(account).toBeDisabled());
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/chat/runtime/capabilities?workspaceDefaults=1&sessionId=bound-session',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     const details = document.querySelector('.composer-session-details')!;
     const fields = Array.from(details.querySelectorAll('dt')).map((term) => term.textContent);
     expect(fields).toEqual([
@@ -945,7 +952,7 @@ for (const [name, Screen] of [
           });
         return new Response(JSON.stringify(metadata));
       }
-      if (url === '/api/chat/runtime/capabilities')
+      if (url === '/api/chat/runtime/capabilities?workspaceDefaults=1&sessionId=existing')
         return new Response(JSON.stringify({ code: 'entry_disabled' }), { status: 503 });
       if (String(url).endsWith('/symposium/status'))
         return new Response(JSON.stringify({ sessionId: 'existing', config: null, seats: [] }));
@@ -1089,7 +1096,7 @@ for (const [name, Screen] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
-  it(`${name}: environment changes derive API Responses or Claude without losing draft or adopting another billing account`, async () => {
+  it(`${name}: environment changes derive API Codex or Claude without losing draft or adopting another billing account`, async () => {
     const { multiRuntimeInventoryFixture } =
       await import('../../test-utils/multi-runtime-inventory-fixture');
     const { store, localSend, legacySend, draft } = setup(
@@ -1099,7 +1106,7 @@ for (const [name, Screen] of [
       false,
       false,
       false,
-      multiRuntimeInventoryFixture(),
+      multiRuntimeInventoryFixture({ nativeLocalApi: true }),
     );
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
@@ -1120,7 +1127,7 @@ for (const [name, Screen] of [
     expect(screen.getByText('Runs with Codex')).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Local model' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Local Mac' }));
-    expect(screen.getByText('Runs with Mitzo Responses')).toBeInTheDocument();
+    expect(screen.getByText('Runs with Codex')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Account' })).toHaveValue('api');
     expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('shell-model');
     expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('high');

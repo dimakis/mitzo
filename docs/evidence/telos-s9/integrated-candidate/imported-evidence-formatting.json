@@ -1,0 +1,73 @@
+{
+  "originalFrozenSource": "b8fd3a5a1b6aeeacc94ed0a71260d0f389e83dac",
+  "preservation": "Original byte evidence remains in frozen Git source and retained S9 canonical archives; imported readable copies only formatted",
+  "files": [
+    {
+      "file": "docs/evidence/telos-s9/integrated-candidate/peer-actual-app-observation.json",
+      "originalSha256": "d916684aeebc6031c8304d83f955dca36b56b037437d1df5ca38473eb2da5dcc",
+      "formattedSha256": "90ea270745f28a434273d8a25fe943361b71d2bb1f6963d87a32b5bd05940bf9",
+      "jsonSemanticsIdentical": true
+    },
+    {
+      "file": "docs/evidence/telos-s9/integrated-candidate/s9-accepted-design-pins-results.json",
+      "originalSha256": "f7511d6e7a9cdced79ae50b31640024fd8341bedc58e554fcfcf6fcec1f7d908",
+      "formattedSha256": "7913fb3d6d27011c044fce705f0d0b76abca2bd2fca8dc812b8ad4c9d856011c",
+      "jsonSemanticsIdentical": true
+    },
+    {
+      "file": "docs/evidence/telos-s9/integrated-candidate/s9-peer-required-results.json",
+      "originalSha256": "fe925961f48faff2126824f4ffcac1c836fe8b314cfc6bb2a49ec3865e96b156",
+      "formattedSha256": "ab16140bdd6f4eae92615736506e0ac7f52b7765b97f64953694cd3dabdd3d53",
+      "jsonSemanticsIdentical": true
+    },
+    {
+      "file": "docs/evidence/telos-s9/integrated-candidate/s9-s5b-candidate-reuse-results.json",
+      "originalSha256": "fdb0486c354c373bba477403d03fd627e8b53d9733743f01e3c8dc44ad3b464a",
+      "formattedSha256": "d2f0cf19e025a7d6eb6e1cc9cdffd17111dc6ce957d8c53997c5d0aec377ab8b",
+      "jsonSemanticsIdentical": true
+    },
+    {
+      "file": "docs/evidence/telos-s9/integrated-candidate/s9-s5b-owner-boundaries-results.json",
+      "originalSha256": "392f200db21f397dacf259b9836c4ac275975477b22f35d2cb29affed7900089",
+      "formattedSha256": "2ace77bcbe03a1134a34f52d0c2a10cd1a51373d33789e6c7244253e9e5d63e4",
+      "jsonSemanticsIdentical": true
+    },
+    {
+      "file": "docs/evidence/telos-s9/integrated-candidate/s9-s6-current-boundaries-results.json",
+      "originalSha256": "fa3bded57a30db9b27c67d9a1206b4f5e3bc330567eb8f08d6638384928005ea",
+      "formattedSha256": "83525d9ee698198641c573abe25dbccad1aac741f1ddc64874ffb622ef34bac7",
+      "jsonSemanticsIdentical": true
+    },
+    {
+      "file": "docs/evidence/telos-s9/integrated-candidate/s9-s6-current-native-boundary-results.json",
+      "originalSha256": "9f8f4c7aa5504b9060be1988113bea75cbd100c487994f9c2250b4cb9e4773f0",
+      "formattedSha256": "f8017add344479e4efbed076a382e2baf2889aebcef34e5e5f85260a49f2b882",
+      "jsonSemanticsIdentical": true
+    },
+    {
+      "file": "docs/evidence/telos-s9/integrated-candidate/s9-s6-owner-boundaries-results.json",
+      "originalSha256": "460bfe8e19e5eb9cd97a1dca4ebebcfa70a97d707f33f5ccaca8f21e187172f1",
+      "formattedSha256": "f0bf06675b730ac6fc62605e0f70bda49746c0b21b0690562589ed7dc2a9319f",
+      "jsonSemanticsIdentical": true
+    },
+    {
+      "file": "docs/evidence/telos-s9/integrated-candidate/voice-image-268-result.json",
+      "originalFrozenSource": "3df81c5bfb6b08f0f4e79db2cdf20ac6868a78d7",
+      "originalSha256": "0fae2eb53effa5cb5b6e1be35965e3d28a27eb71d104fe11f029f5b90bfa0f33",
+      "formattedSha256": "ac4d60a925423e25510bc962063bc8976b3aabd4ac460669309f0f49abeb15b5",
+      "jsonSemanticsIdentical": true,
+      "originalArchive": "S9-VOICE-IMAGE-268-SOURCE.zip and canonical S9 raw evidence remain retained"
+    },
+    {
+      "file": "docs/evidence/telos-s9/integrated-candidate/navigation-context-268-result.json",
+      "originalFrozenSource": "5d86d76b18369796708b73614873b78f43fa6248",
+      "originalSha256": "3a9b8ef28a41cc5fddb9e4cd0f343f5d7484bd097cf6a7f331b4409b2e40782d",
+      "formattedSha256": "5746d66a8c669a58705d6e922ec3ff826120e11556dc25b996c10dd0ce7273f6",
+      "jsonSemanticsIdentical": true,
+      "originalArchive": "S9-NAVIGATION-268-SOURCE.zip and canonical S9 raw evidence remain retained"
+    }
+  ],
+  "attribution": "Derived readable copies only; formattedSha256 does not identify original raw evidence bytes.",
+  "qualification": "No execution, result content or qualification changed.",
+  "originalArchive": "S9-S8-LABEL-D525-B8FD-SOURCE.zip retained in canonical S9 artifacts; original frozen Git commit is also retained."
+}

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { AccountProfiles } from '../account-profiles.js';
+import { AccountProfiles, loadAccountProfiles } from '../account-profiles.js';
 import { agentLibrarySource } from './fixtures/agent-library-source.js';
 const services = vi.hoisted(() => ({
   authId: '',
@@ -81,7 +81,7 @@ function response(model: string) {
     headers: { 'content-type': 'text/event-stream' },
   });
 }
-it('dispatches consumed API commands through the actual chat owner and retains transcript on cold changed-model resume', async () => {
+it('rejects new Responses entry before preparation and preserves legacy chat ownership on cold changed-model resume', async () => {
   vi.spyOn(AccountProfiles.prototype, 'isEnrolledOpenAIAccount').mockReturnValue(true);
   const { ownedResponsesRuntimeFixture } =
     await import('./fixtures/owned-local-responses-runtime.js');
@@ -166,12 +166,14 @@ it('dispatches consumed API commands through the actual chat owner and retains t
     body: unknown,
     selectedRouter = router,
     auth: import('../auth.js').AuthSession = f.auth,
+    method = 'POST',
   ) =>
     new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
       let status = 200;
       const req = {
-        method: 'POST',
+        method,
         url,
+        query: Object.fromEntries(new URL(url, 'http://offline.test').searchParams),
         headers: { 'x-connection-id': f.dependencies.operatorConnectionId },
         body,
       };
@@ -195,17 +197,118 @@ it('dispatches consumed API commands through the actual chat owner and retains t
         }
       ).handle(req, res, (error) => reject(error ?? Error('Unmatched route')));
     });
-  const wire = { ...f.request, runOn: 'local', repositoryWorkspaceId: f.reservation.id };
-  await expect(invoke('/send', wire)).resolves.toMatchObject({
-    status: 202,
-    body: { dispatched: true, state: 'consumed' },
+  const { newLocalResponsesCapabilities, OrdinaryLocalResponsesTarget } =
+    await import('../ordinary-local-responses-capabilities.js');
+  const fresh = newLocalResponsesCapabilities(
+    loadAccountProfiles(),
+    new OrdinaryLocalResponsesTarget(f.dependencies.env),
+  );
+  type PublicInventory = ReturnType<typeof fresh.inventory>;
+  // Exercise the actual UI parser/selector without adding browser source files
+  // to the server TypeScript project's rootDir.
+  const { ExplicitLocalInventorySchema } = await vi.importActual<{
+    ExplicitLocalInventorySchema: { parse(value: unknown): PublicInventory };
+  }>('../../frontend/src/lib/explicit-local-chat');
+  const { selectedRuntimeRoute } = await vi.importActual<{
+    selectedRuntimeRoute(
+      selection: unknown,
+      inventory: PublicInventory,
+    ): { harness: string } | undefined;
+  }>('../../frontend/src/lib/chat-runtime-route');
+  const wire = {
+    ...f.request,
+    runOn: 'local',
+    repositoryWorkspaceId: f.reservation.id,
+  };
+  const claimWorkspace = vi.spyOn(f.workspace, 'claimReservedHostTask');
+  await expect(
+    invoke('/send', { ...wire, capabilityRevision: fresh.inventory().capabilityRevision }),
+  ).resolves.toMatchObject({
+    status: 409,
+    body: { code: 'new_work_harness_unsupported' },
   });
+  await expect(invoke('/send', wire)).resolves.toMatchObject({
+    status: 409,
+    body: { code: 'new_work_harness_unsupported' },
+  });
+  expect(claimWorkspace).not.toHaveBeenCalled();
+  expect(services.manager.resolveKey).not.toHaveBeenCalled();
+  expect(requests).toHaveLength(0);
+  expect(chat.eventStore.getSessionRuntimeBinding(f.reservation.conversationId)).toBeUndefined();
+  // Construct a retained legacy session through its original owner. New entry
+  // above cannot create this session; historical FIFO/Stop/cold resume stay intact.
+  await expect(
+    chat.startOwnedLocalResponsesCommand(transport, 'legacy-client', options),
+  ).resolves.toMatchObject({ dispatched: true });
   const liveClientId = chat.registry.findBySessionId(f.reservation.conversationId)!.clientId;
   await expect(
     chat.startOwnedLocalResponsesCommand(transport, 'retry-client', options),
   ).resolves.toMatchObject({ dispatched: false });
   expect(chat.registry.get(liveClientId)?.ordinaryRuntimeOwner).toBeDefined();
   await vi.waitFor(() => expect(requests).toHaveLength(1));
+  const publicChoices = await invoke(
+    `/capabilities?sessionId=${f.reservation.conversationId}`,
+    undefined,
+    router,
+    f.auth,
+    'GET',
+  );
+  expect(publicChoices.status).toBe(200);
+  const retainedInventory = ExplicitLocalInventorySchema.parse(publicChoices.body);
+  const retainedRoute = selectedRuntimeRoute(
+    {
+      version: 1,
+      account: { accountId: f.request.runtime.account.accountId, model: f.request.selection.model },
+      accountReference: f.request.runtime.account,
+      agentProfile: f.request.selection.agent,
+      execution: { location: 'local', targetId: f.request.runtime.targetId },
+      capabilityRevision: retainedInventory.capabilityRevision,
+    },
+    retainedInventory,
+  );
+  expect(retainedRoute?.harness).toBe('responses');
+  expect(retainedInventory.accounts.map((entry) => entry.account)).toEqual([
+    f.request.runtime.account,
+  ]);
+  expect(
+    retainedInventory.routes.every((route) => route.targetId === f.request.runtime.targetId),
+  ).toBe(true);
+  expect(retainedInventory.capabilityRevision).toBe(f.request.capabilityRevision);
+  wire.capabilityRevision = retainedInventory.capabilityRevision;
+  const unboundChoices = await invoke('/capabilities', undefined, router, f.auth, 'GET');
+  expect(ExplicitLocalInventorySchema.parse(unboundChoices.body).routes).toEqual([]);
+  await expect(
+    invoke(
+      `/capabilities?sessionId=${f.reservation.conversationId}`,
+      undefined,
+      router,
+      { ...f.auth, id: 'foreign-login' },
+      'GET',
+    ),
+  ).resolves.toMatchObject({ status: 409 });
+  const unboundSession = await invoke(
+    '/capabilities?sessionId=missing',
+    undefined,
+    router,
+    f.auth,
+    'GET',
+  );
+  expect(unboundSession.status).toBe(200);
+  expect(ExplicitLocalInventorySchema.parse(unboundSession.body).routes).toEqual([]);
+  chat.eventStore.upsertSession({
+    sessionId: 'legacy-metadata-only',
+    initialPrompt: 'Retained legacy metadata',
+  });
+  const metadataOnly = await invoke(
+    '/capabilities?sessionId=legacy-metadata-only',
+    undefined,
+    router,
+    f.auth,
+    'GET',
+  );
+  expect(metadataOnly.status).toBe(200);
+  expect(ExplicitLocalInventorySchema.parse(metadataOnly.body).routes).toEqual([]);
+  expect(chat.eventStore.getSessionRuntimeBinding('legacy-metadata-only')).toBeNull();
   expect(JSON.stringify(requests[0].input)).toContain(
     agentLibrarySource.content.replaceAll('"', '\\"'),
   );
@@ -253,6 +356,38 @@ it('dispatches consumed API commands through the actual chat owner and retains t
   expect(chat.canResumeOwnedLocalResponsesDriver(f.reservation.conversationId, f.auth.id)).toBe(
     true,
   );
+  const bindingBeforeProjection = chat.eventStore.getSessionRuntimeBinding(
+    f.reservation.conversationId,
+  );
+  const receiptBeforeProjection = chat.eventStore.getLatestOrdinaryCommandAdmission(
+    f.reservation.conversationId,
+  );
+  const coldChoices = await invoke(
+    `/capabilities?sessionId=${f.reservation.conversationId}`,
+    undefined,
+    router,
+    f.auth,
+    'GET',
+  );
+  expect(coldChoices.status).toBe(200);
+  expect(ExplicitLocalInventorySchema.parse(coldChoices.body).capabilityRevision).toBe(
+    retainedInventory.capabilityRevision,
+  );
+  expect(chat.eventStore.getSessionRuntimeBinding(f.reservation.conversationId)).toEqual(
+    bindingBeforeProjection,
+  );
+  expect(chat.eventStore.getLatestOrdinaryCommandAdmission(f.reservation.conversationId)).toEqual(
+    receiptBeforeProjection,
+  );
+  await expect(
+    invoke(
+      `/capabilities?sessionId=${f.reservation.conversationId}`,
+      undefined,
+      router,
+      { ...f.auth, id: 'foreign-cold-login' },
+      'GET',
+    ),
+  ).resolves.toMatchObject({ status: 409 });
   await expect(
     invoke('/continue', {
       ...wire,
@@ -521,6 +656,8 @@ it('dispatches consumed API commands through the actual chat owner and retains t
       }
       return originalCurrent.call(this, expected);
     });
+  // Freeze the request clock while invoking its deadline callback explicitly.
+  vi.spyOn(performance, 'now').mockReturnValue(Math.trunc(performance.now()));
   const originalTimer = globalThis.setTimeout;
   const timerProbe = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
     callback: () => void,

@@ -28,7 +28,7 @@ it.each([
   'build',
   'bundle-size',
 ])('%s retains coverage after failures but releases superseded CI on cancellation', (id) => {
-  const step = jobs.static.steps.find((candidate) => candidate.id === id);
+  const step = jobs.core.steps.find((candidate) => candidate.id === id);
   expect(step).toBeDefined();
   expect(enabled(step!.if, 'success')).toBe(true);
   expect(enabled(step!.if, 'failure')).toBe(true);
@@ -55,4 +55,12 @@ it('unit shards stop superseded tests but retain failure evidence', () => {
 
 it('the required core aggregator reports cancelled or incomplete shards', () => {
   expect(enabled(jobs.ci.if, 'cancelled')).toBe(true);
+});
+
+it('unit frontend prerequisites and complete unit validation release superseded runs', () => {
+  const build = jobs.unit.steps.find((candidate) => candidate.id === 'build-frontend');
+  expect(build).toBeDefined();
+  expect(enabled(build?.if, 'failure')).toBe(true);
+  expect(enabled(build?.if, 'cancelled')).toBe(false);
+  expect(enabled(jobs['unit-validation'].if, 'cancelled')).toBe(true);
 });

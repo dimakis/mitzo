@@ -8,6 +8,7 @@ import { OpenShellRuntimeManager } from './openshell-runtime.js';
 import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-entry-owner.js';
 import { openAIAccountKeyAuthority } from './openai-account-key-authority.js';
 import { VertexAdcCustody } from './ordinary-local-vertex-custody.js';
+import { observeLocalCodexPhase } from './local-codex-observation.js';
 import {
   readPrivateRuntimeSettings,
   OrdinaryLocalCodexHostRuntime,
@@ -38,6 +39,7 @@ async function credentialDigest(
   binding: AccountBinding,
   selection: OrdinaryRepositoryRuntimeSelection,
   signal: AbortSignal,
+  legacyNative?: Awaited<ReturnType<OrdinaryLocalCodexHostRuntime['legacyObservation']>>,
 ) {
   const profiles = loadAccountProfiles();
   const source = process.env.MITZO_ACCOUNT_PROFILES_FILE
@@ -68,13 +70,22 @@ async function credentialDigest(
     credential = {
       root: { path: profile.credentialRef, dev: root.dev, ino: root.ino },
       auth: privateFile(join(profile.credentialRef, 'auth.json')),
-      native: await new OrdinaryLocalCodexHostRuntime().observe(),
+      ...(legacyNative ? { native: legacyNative } : {}),
     };
+    // Code attestation is current execution authority, not credential identity.
+    // It is still independently checked on every qualification.
+    await new OrdinaryLocalCodexHostRuntime().observe();
   } else if (binding.provider === 'openai' && selection.runOn === 'local') {
-    const manager = openAIAccountKeyAuthority(binding, profiles);
-    await manager.assertReady(signal);
+    const connection = profiles.harnessConnection(binding);
+    if (connection.authentication !== 'api-key') throw unavailable();
+    const manager = openAIAccountKeyAuthority(binding, profiles, {
+      consumer: 'host',
+      endpoint: connection.endpoint,
+    });
+    // Host resolution already validates the current controller, profile and
+    // rotation fence around the Keychain read. Host assertReady does that same
+    // read again; sandwiching resolution triples every repository fence.
     credential = digest(await manager.resolveKey(binding.accountId, signal));
-    await manager.assertReady(signal);
   } else {
     const configured = loadOrdinaryOpenShellCodexTarget();
     if (!configured) throw unavailable();
@@ -155,11 +166,25 @@ export async function captureOrdinaryRepositoryPreparation(
   signal: AbortSignal,
   requireModelReadiness = true,
 ): Promise<OrdinaryRepositoryPreparation> {
+  return captureCurrentPreparation(binding, selection, signal, requireModelReadiness);
+}
+
+/** Retained context is private to assertion of an existing owner-store proof.
+ * Fresh capture never receives this argument and cannot mint a legacy route.
+ */
+async function captureCurrentPreparation(
+  binding: AccountBinding,
+  selection: OrdinaryRepositoryRuntimeSelection,
+  signal: AbortSignal,
+  requireModelReadiness: boolean,
+  retainedBinding?: OrdinaryRepositoryPreparation['runtimeBinding'],
+): Promise<OrdinaryRepositoryPreparation> {
   signal.throwIfAborted();
   const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
   const { profiles, catalog } = ordinaryRepositoryRuntimeInventory(
     selection.runOn,
     selection.runtime.harness,
+    retainedBinding,
   );
   const resolved = catalog.resolve({ ...selection.runtime, mode: 'agent' });
   if (
@@ -178,13 +203,22 @@ export async function captureOrdinaryRepositoryPreparation(
     version: 1,
     originalBinding: binding,
     runtimeBinding: resolved.binding,
-    credentialDigest: await credentialDigest(binding, selection, signal),
+    ...(selection.runOn === 'openshell'
+      ? { sandboxWorkdir: loadOrdinaryOpenShellCodexTarget()?.config.workdir }
+      : {}),
+    credentialDigest: await observeLocalCodexPhase('repository_credential_check', () =>
+      credentialDigest(binding, selection, signal),
+    ),
+    ...(binding.provider === 'openai-codex' && selection.runOn === 'local'
+      ? { credentialDigestVersion: 2 }
+      : {}),
   });
   signal.throwIfAborted();
   // Re-resolve after credential waits; a prior projection is not a final fence.
   const current = ordinaryRepositoryRuntimeInventory(
     selection.runOn,
     selection.runtime.harness,
+    retainedBinding,
   ).catalog.resolve({ ...selection.runtime, mode: 'agent' });
   if (current.status !== 'compatible' || !isDeepStrictEqual(current.binding, proof.runtimeBinding))
     throw unavailable();
@@ -223,7 +257,7 @@ export async function assertOrdinaryRepositoryPreparation(
       throw unavailable();
   };
   assertSelectionCurrent();
-  const current = await captureOrdinaryRepositoryPreparation(
+  const current = await captureCurrentPreparation(
     binding,
     {
       runOn: saved.runtimeBinding.execution.location,
@@ -235,10 +269,59 @@ export async function assertOrdinaryRepositoryPreparation(
     },
     signal,
     requireModelReadiness,
+    saved.runtimeBinding,
   );
+  let sameRuntime = isDeepStrictEqual(current.runtimeBinding, saved.runtimeBinding);
+  const localCodex =
+    saved.runtimeBinding.execution.location === 'local' &&
+    saved.runtimeBinding.harness.implementation === 'codex';
+  if (!sameRuntime && localCodex) {
+    const declaration = new OrdinaryLocalCodexHostRuntime().continuationDeclaration(
+      saved.runtimeBinding.execution.targetRevision,
+    );
+    sameRuntime =
+      declaration.targetId === current.runtimeBinding.execution.targetId &&
+      isDeepStrictEqual(
+        {
+          ...current.runtimeBinding,
+          execution: {
+            ...current.runtimeBinding.execution,
+            targetRevision: declaration.targetRevision,
+          },
+        },
+        saved.runtimeBinding,
+      );
+  }
+  let sameCredential = current.credentialDigest === saved.credentialDigest;
   if (
-    !isDeepStrictEqual(current.runtimeBinding, saved.runtimeBinding) ||
-    current.credentialDigest !== saved.credentialDigest
+    !sameCredential &&
+    localCodex &&
+    saved.originalBinding.provider === 'openai-codex' &&
+    saved.credentialDigestVersion === undefined
+  ) {
+    const native = await new OrdinaryLocalCodexHostRuntime().legacyObservation(
+      saved.runtimeBinding.execution.targetRevision,
+    );
+    sameCredential =
+      saved.credentialDigest ===
+      (await credentialDigest(
+        binding,
+        {
+          runOn: 'local',
+          runtime: {
+            account: saved.runtimeBinding.account,
+            harness: 'codex',
+            targetId: saved.runtimeBinding.execution.targetId,
+          },
+        },
+        signal,
+        native,
+      ));
+  }
+  if (
+    !sameRuntime ||
+    !sameCredential ||
+    (saved.sandboxWorkdir !== undefined && current.sandboxWorkdir !== saved.sandboxWorkdir)
   )
     throw unavailable();
   assertSelectionCurrent();

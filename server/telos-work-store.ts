@@ -1,3 +1,10 @@
+import type { EventStore } from './event-store.js';
+import type { TaskStore } from './task-store.js';
+import {
+  openTelosOwnedDatabase,
+  retainTelosDeletionWriterMarker,
+  type TelosOwnedDatabase,
+} from '@mitzo/protocol/telos-sqlite-owners';
 import {
   TelosOrdinaryWorkDelegationInputSchema,
   TelosOrdinaryWorkDelegationIntentSchema,
@@ -101,6 +108,12 @@ function invalid(message: string): never {
   throw new TelosWorkError('invalid', message);
 }
 
+type LifecycleDeletionInvocation = {
+  invalidated: boolean;
+  writer?: ReturnType<typeof retainTelosDeletionWriterMarker>;
+  fence?: { assertCurrent(): void; close(): void };
+};
+
 type TelosWorkStorePolicy = {
   ordinaryConversation(id: string): boolean;
   sourceConversation?(id: string): boolean;
@@ -112,8 +125,16 @@ type TelosWorkStorePolicy = {
  */
 export class TelosWorkStore {
   private db: Database.Database;
+  #telosOwner: TelosOwnedDatabase;
   #openedCanonicalName: string;
-  #deletionFrame: { itemId: string; invalidated: boolean } | undefined;
+  #deletionFrame:
+    | {
+        itemId: string;
+        invalidated: boolean;
+        writer: ReturnType<typeof retainTelosDeletionWriterMarker>;
+      }
+    | undefined;
+  #lifecycleInvocation: LifecycleDeletionInvocation | undefined;
   /** Observe initialized canonical authority without acquiring a schema writer.
    * Used by running-turn guards, including inside another owner's commit fence.
    * SQLite enforces read-only access; missing schema remains unavailable.
@@ -168,11 +189,15 @@ export class TelosWorkStore {
     private readonly policy: TelosWorkStorePolicy,
     readOnly = false,
   ) {
-    this.db = new Database(path, { fileMustExist: true, readonly: readOnly });
+    this.#telosOwner = openTelosOwnedDatabase('canonical', path, {
+      fileMustExist: true,
+      readonly: readOnly,
+    });
+    this.db = this.#telosOwner.database;
     this.#openedCanonicalName = resolve(this.db.name);
-    this.db.pragma('busy_timeout = 5000');
-    this.db.pragma('foreign_keys = ON');
     try {
+      this.db.pragma('busy_timeout = 5000');
+      this.db.pragma('foreign_keys = ON');
       this.db.prepare('SELECT id,parent_id,updated_at FROM items LIMIT 1').get();
       if (readOnly) {
         this.db.prepare('SELECT data FROM telos_work_attempts LIMIT 0').all();
@@ -180,13 +205,14 @@ export class TelosWorkStore {
       } else {
         initializeTelosWorkSchema(this.db);
       }
+      this.#telosOwner.seal();
     } catch (error) {
-      this.db.close();
+      this.#telosOwner.close();
       throw error;
     }
   }
   close() {
-    if (this.db.open) this.db.close();
+    this.#telosOwner.close();
   }
   mainPublicationsForHost() {
     return new TelosMainPublicationRecords(
@@ -256,31 +282,121 @@ export class TelosWorkStore {
     actor: TelosWorkActor,
     assertQuiescent?: (itemId: string) => void,
   ) {
-    if (this.#deletionFrame) {
-      this.#deletionFrame.invalidated = true;
+    if (this.#lifecycleInvocation || this.#deletionFrame) {
+      if (this.#lifecycleInvocation) this.#lifecycleInvocation.invalidated = true;
+      if (this.#deletionFrame) this.#deletionFrame.invalidated = true;
       conflict('Original writable lifecycle deletion frame required');
     }
-    // inTransaction alone is not evidence of an IMMEDIATE writer. Only a fresh
-    // entry into lifecycle.execute's own .immediate callback may create a frame.
+    const invocation: LifecycleDeletionInvocation = {
+      invalidated: false,
+    };
+    this.#lifecycleInvocation = invocation;
     const enteredInTransaction = this.db.open && this.db.inTransaction;
-    return this.lifecycle().execute(
-      raw,
-      actor,
-      assertQuiescent
-        ? (itemId) => {
-            if (enteredInTransaction || !this.db.open || this.db.readonly || !this.db.inTransaction)
-              conflict('Original writable lifecycle deletion frame required');
-            this.#deletionFrame = { itemId, invalidated: false };
-            try {
-              const result = assertQuiescent(itemId);
-              this.assertLifecycleDeletionWriter(itemId, this.#openedCanonicalName);
-              return result;
-            } finally {
-              this.#deletionFrame = undefined;
+    try {
+      return this.lifecycle().execute(
+        raw,
+        actor,
+        assertQuiescent
+          ? (itemId) => {
+              if (
+                enteredInTransaction ||
+                !this.db.open ||
+                this.db.readonly ||
+                !this.db.inTransaction
+              )
+                conflict('Original writable lifecycle deletion frame required');
+              const writer = retainTelosDeletionWriterMarker(this.db);
+              invocation.writer = writer;
+              this.#deletionFrame = { itemId, invalidated: false, writer };
+              try {
+                const result = assertQuiescent(itemId);
+                this.assertLifecycleDeletionWriter(itemId, this.#openedCanonicalName);
+                return result;
+              } finally {
+                this.#deletionFrame = undefined;
+              }
             }
-          }
-        : undefined,
-    );
+          : undefined,
+        () => {
+          if (invocation.invalidated)
+            conflict('Original writable lifecycle deletion frame required');
+          invocation.writer?.assertCurrent();
+          invocation.fence?.assertCurrent();
+        },
+      );
+    } finally {
+      // lifecycle.execute has now committed OR rolled back. Cleanup must never
+      // turn a committed immutable receipt into a claimed refusal/no deletion.
+      try {
+        invocation.fence?.close();
+      } catch {
+        this.#telosOwner.invalidate();
+        process.emitWarning('Retained Telos deletion fence cleanup failed');
+      }
+      this.#lifecycleInvocation = undefined;
+    }
+  }
+  /** Concrete original-invocation retention; only the actual host calls this
+   * inside the original callback with its captured EventStore and TaskStore. */
+  retainLifecycleDeletionFence(
+    itemId: string,
+    expectedCanonicalPath: string,
+    events: EventStore,
+    tasks: TaskStore,
+    assertInstalledOwners: () => void,
+  ): void {
+    this.assertLifecycleDeletionWriter(itemId, expectedCanonicalPath);
+    const invocation = this.#lifecycleInvocation;
+    if (!invocation || invocation.invalidated || invocation.fence)
+      conflict('Original retained lifecycle deletion scope required');
+    assertInstalledOwners();
+    const release = this.#telosOwner.acquireDeletionExclusion();
+    let eventScope: ReturnType<EventStore['beginTelosDeletionReferenceScope']> | undefined;
+    let taskScope: ReturnType<TaskStore['beginTelosDeletionReferenceScope']> | undefined;
+    const close = () => {
+      let failed = false;
+      for (const cleanup of [() => taskScope?.close(), () => eventScope?.close(), release]) {
+        try {
+          cleanup();
+        } catch {
+          failed = true;
+        }
+      }
+      if (failed) throw new Error('Retained deletion scope cleanup failed');
+    };
+    try {
+      eventScope = events.beginTelosDeletionReferenceScope(itemId);
+      taskScope = tasks.beginTelosDeletionReferenceScope(itemId);
+      const assertCurrent = () => {
+        try {
+          if (
+            this.#lifecycleInvocation !== invocation ||
+            invocation.invalidated ||
+            !this.db.open ||
+            this.db.readonly ||
+            !this.db.inTransaction
+          )
+            conflict('Original retained lifecycle deletion scope required');
+          this.#telosOwner.assertCurrent();
+          assertInstalledOwners();
+          eventScope!.assertCurrent();
+          taskScope!.assertCurrent();
+        } catch {
+          conflict('Permanent deletion refuses unavailable or retained host references');
+        }
+      };
+      invocation.fence = Object.freeze({ assertCurrent, close });
+      assertCurrent();
+    } catch (error) {
+      if (!invocation.fence) {
+        try {
+          close();
+        } catch {
+          this.#telosOwner.invalidate();
+        }
+      }
+      throw error;
+    }
   }
   /** Denial-only check on the ORIGINAL request owner during its current callback.
    * Name/frame agreement is not a certificate of external cohort completeness,
@@ -300,6 +416,14 @@ export class TelosWorkStore {
       resolve(this.db.name) !== this.#openedCanonicalName
     )
       conflict('Original writable lifecycle deletion frame required');
+    try {
+      frame.writer.assertCurrent();
+    } catch {
+      frame.invalidated = true;
+      if (this.#lifecycleInvocation) this.#lifecycleInvocation.invalidated = true;
+      this.#telosOwner.invalidate();
+      conflict('Original writable lifecycle deletion frame required');
+    }
   }
   assertLifecycleActive(itemId: string) {
     this.lifecycle().assertActive(itemId);

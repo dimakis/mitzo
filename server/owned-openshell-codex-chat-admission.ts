@@ -69,11 +69,13 @@ export interface OwnedOpenShellCodexOptions {
   images?: Array<{ data: string; mediaType: string }>;
   agentProfile?: AgentLibraryVersion;
   agentContext?: AgentContextSnapshot;
+  ordinaryWorkspace?: { kind: 'ordinary'; id: string; sandbox?: boolean; conversationId?: string };
   repositoryWorkspace?: { id: string; sandbox?: boolean; conversationId?: string };
   resume?: boolean;
   reattachOnly?: boolean;
 }
 interface Owner {
+  workspaceKind?: 'repository' | 'ordinary';
   events: EventStore;
   nativeStore: CodexConversationStore;
   sessionId: string;
@@ -142,6 +144,7 @@ export class OwnedOpenShellCodexChatAdmission {
       !artifact ||
       !owner.expectedRetained ||
       custody.authSessionId !== owner.authSessionId ||
+      (custody.workspaceKind ?? 'repository') !== (owner.workspaceKind ?? 'repository') ||
       !isDeepStrictEqual(custody.binding, owner.expected.binding) ||
       !isDeepStrictEqual(custody.workspace, owner.expected.workspace) ||
       custody.physicalIdentitySha256 !== openShellPhysicalCustodyFingerprint(artifact) ||
@@ -196,6 +199,7 @@ export class OwnedOpenShellCodexChatAdmission {
       authSessionId: this.owner.authSessionId,
       binding: this.#expected.binding,
       workspace: this.#expected.workspace,
+      ...(this.owner.workspaceKind === 'ordinary' ? { workspaceKind: 'ordinary' } : {}),
       physicalIdentitySha256: openShellPhysicalCustodyFingerprint(this.#retained),
       ...(this.#resume
         ? (() => {
@@ -286,6 +290,8 @@ export class OwnedOpenShellCodexChatAdmission {
   assertPreparedOptions(options: OwnedOpenShellCodexOptions) {
     this.assertCurrentSync();
     const command = this.#commands.get(options.messageId);
+    const ordinary = this.owner.workspaceKind === 'ordinary';
+    const workspace = ordinary ? options.ordinaryWorkspace : options.repositoryWorkspace;
     if (
       !command ||
       options.conversationId !== this.owner.sessionId ||
@@ -293,9 +299,12 @@ export class OwnedOpenShellCodexChatAdmission {
       options.reattachOnly ||
       options.session.cwd !== this.#expected.workspace.cwd ||
       options.session.mode !== this.#expected.selection.permission.mode ||
-      options.repositoryWorkspace?.id !== this.#expected.workspace.workspaceId ||
-      !options.repositoryWorkspace.sandbox ||
-      options.repositoryWorkspace.conversationId !== this.owner.sessionId ||
+      (ordinary
+        ? options.repositoryWorkspace !== undefined
+        : options.ordinaryWorkspace !== undefined) ||
+      workspace?.id !== this.#expected.workspace.workspaceId ||
+      !workspace?.sandbox ||
+      workspace.conversationId !== this.owner.sessionId ||
       options.prompt !==
         assembleSourceSnapshots(command.payload.text, command.payload.sourceSnapshots) ||
       options.systemPrompt !== command.payload.systemPrompt ||

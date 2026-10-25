@@ -5,6 +5,7 @@ import {
   type OrdinaryCommandDelivery,
 } from './local-command-delivery.js';
 import {
+  ORDINARY_COMMAND_RECEIPT_TIMEOUT_MS,
   SourceSnapshotsSchema,
   LocalCodexFirstCommandReceiptSchema,
   OrdinaryCodexRetainedCommandObservationSchema,
@@ -55,6 +56,8 @@ export class SendOutbox {
   private selectedLocalScope: { draftId: string } | { sessionId: string } | null | undefined;
   private localReady: Entry[] = [];
   private activeLocalEntry?: Entry;
+  private receiptReads = new Map<Entry, AbortController>();
+  private completingLocal = new Map<Entry, number>();
 
   constructor(private config: Config) {
     this.key = `mitzo-send-outbox:${config.url}`;
@@ -107,7 +110,8 @@ export class SendOutbox {
             ...entry,
             body,
             ...(ordinaryDelivery ? { ordinaryDelivery } : {}),
-            uncertain: true,
+            uncertain:
+              entry.localReceipt?.state === 'consumed' && entry.uncertain === false ? false : true,
           };
         });
       } else if (Array.isArray(saved))
@@ -212,12 +216,19 @@ export class SendOutbox {
       ? this.entries.find((entry) => entry.body.clientMsgId === commandId)
       : this.selectedLocalEntry();
     if (!entry || this.activeLocalEntry === entry || this.localReady.includes(entry)) return false;
+    if (entry.localReceipt?.state === 'consumed' && entry.uncertain === false) {
+      // Admission is already proven. Retry only the retained source assignment.
+      this.retireLocal(entry);
+      return true;
+    }
     this.localReady.push(entry);
     void this.pump();
     return true;
   }
 
   stop(): void {
+    for (const controller of this.receiptReads.values()) controller.abort();
+    this.receiptReads.clear();
     this.active = false;
     this.localReady = [];
     if (this.timer) clearTimeout(this.timer);
@@ -298,6 +309,8 @@ export class SendOutbox {
 
   /** Reject queued prompts and surface an in-flight prompt as delivery-ambiguous. */
   rejectAll(error: string): void {
+    for (const controller of this.receiptReads.values()) controller.abort();
+    this.receiptReads.clear();
     this.active = false;
     this.generation++;
     this.localReady = [];
@@ -357,6 +370,118 @@ export class SendOutbox {
     });
   }
 
+  /** A streamed/persisted reply is a hint to observe acceptance, never a grant
+   * to resubmit intent. Only the server's exact consumed receipt clears input.
+   */
+  async reconcileLocalCommand(commandId: string): Promise<void> {
+    const entry = this.entries.find((item) => item.body.clientMsgId === commandId);
+    if (!this.active || !this.config.localFirstCommand || !entry || this.receiptReads.has(entry))
+      return;
+    const generation = this.generation;
+    const controller = new AbortController();
+    this.receiptReads.set(entry, controller);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const { response, raw } = await Promise.race([
+        this.config
+          .fetch(this.localUrl(entry) + '/receipt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...this.config.headers?.() },
+            body: JSON.stringify(entry.body),
+            signal: controller.signal,
+          })
+          .then(async (response) => ({ response, raw: await response.json() })),
+        new Promise<never>((_, reject) => {
+          controller.signal.addEventListener(
+            'abort',
+            () => reject(Error('Receipt read interrupted')),
+            { once: true },
+          );
+          timer = setTimeout(() => controller.abort(), 15_000);
+        }),
+      ]);
+      if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
+      const receipt = LocalCodexFirstCommandReceiptSchema.safeParse(raw);
+      if (
+        response.status !== 202 ||
+        !receipt.success ||
+        receipt.data.state !== 'consumed' ||
+        receipt.data.clientMsgId !== entry.body.clientMsgId ||
+        (entry.ordinaryDelivery?.version === 1 &&
+          receipt.data.sessionId !== entry.ordinaryDelivery.sessionId) ||
+        (typeof entry.body.sessionId === 'string' &&
+          receipt.data.sessionId !== entry.body.sessionId)
+      )
+        return;
+      entry.localReceipt = { sessionId: receipt.data.sessionId, state: 'consumed' };
+      entry.uncertain = false;
+      if (!this.persist()) {
+        entry.uncertain = true;
+        return;
+      }
+      this.retireLocal(entry, true);
+    } catch {
+      // Observation failure never resends a command or overwrites its UI state.
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (this.receiptReads.get(entry) === controller) this.receiptReads.delete(entry);
+    }
+  }
+  private retireLocal(entry: Entry, releaseTransport = false): void {
+    const index = this.entries.indexOf(entry);
+    if (index < 0) return;
+    this.completingLocal.set(entry, index);
+    this.entries.splice(index, 1);
+    try {
+      // Hide only this entry from reentrant UI callbacks, while retaining its
+      // durable receipt until the source handoff has successfully committed.
+      this.notifyLocal(entry, 'consumed', true);
+      this.completingLocal.delete(entry);
+      if (!this.persist()) throw Error('Local completion could not be retained');
+    } catch {
+      this.completingLocal.delete(entry);
+      if (!this.entries.includes(entry))
+        this.entries.splice(Math.min(index, this.entries.length), 0, entry);
+      this.persist();
+      this.notifyLocal(entry, 'uncertain');
+      return;
+    }
+    const payload = entry.body.payload as
+      { sourceSnapshots?: Array<{ kind?: string }> } | undefined;
+    if (
+      !entry.ordinaryDelivery &&
+      !('sessionId' in entry.body) &&
+      entry.localReceipt?.state === 'consumed' &&
+      entry.uncertain === false &&
+      payload?.sourceSnapshots?.[0]?.kind === 'briefing'
+    ) {
+      try {
+        // Sensitive launch proof can retire only after the outbox removal is durable.
+        this.config.notify({ type: '_local_command_retired', clientMsgId: entry.body.clientMsgId });
+      } catch {
+        // Cleanup failure cannot resurrect admitted work or overwrite its success.
+      }
+    }
+    // Exact consumed acceptance releases only this original HTTP wait. Its
+    // finally block can then admit the next explicit command immediately.
+    if (releaseTransport && this.activeLocalEntry === entry) this.activeAbort?.abort();
+  }
+  private localUrl(entry: Entry): string {
+    return entry.ordinaryDelivery?.version === 2
+      ? '/api/ordinary/workspaces/commands/' + entry.ordinaryDelivery.phase
+      : entry.body.runOn === 'openshell' ||
+          (entry.body.runtime &&
+            typeof entry.body.runtime === 'object' &&
+            'harness' in entry.body.runtime &&
+            ['claude-sdk', 'responses', 'gemini'].includes(String(entry.body.runtime.harness)))
+        ? typeof entry.body.sessionId === 'string'
+          ? '/api/chat/runtime/continue'
+          : '/api/chat/runtime/send'
+        : typeof entry.body.sessionId === 'string'
+          ? this.config.url.replace(/\/send$/, '/continue')
+          : this.config.url;
+  }
+
   private async pumpLocal(): Promise<void> {
     if (
       !this.active ||
@@ -376,39 +501,26 @@ export class SendOutbox {
     try {
       entry.uncertain = true;
       if (!this.persist()) throw Error('Local intent could not be retained');
-      const response = await Promise.race([
-        this.config.fetch(
-          entry.ordinaryDelivery?.version === 2
-            ? '/api/ordinary/workspaces/commands/' + entry.ordinaryDelivery.phase
-            : entry.body.runOn === 'openshell' ||
-                (entry.body.runtime &&
-                  typeof entry.body.runtime === 'object' &&
-                  'harness' in entry.body.runtime &&
-                  ['claude-sdk', 'responses', 'gemini'].includes(
-                    String(entry.body.runtime.harness),
-                  ))
-              ? typeof entry.body.sessionId === 'string'
-                ? '/api/chat/runtime/continue'
-                : '/api/chat/runtime/send'
-              : typeof entry.body.sessionId === 'string'
-                ? this.config.url.replace(/\/send$/, '/continue')
-                : this.config.url,
-          {
+      const { response, raw } = await Promise.race([
+        this.config
+          .fetch(this.localUrl(entry), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...this.config.headers?.() },
             body: JSON.stringify(entry.body),
             signal: abort.signal,
-          },
-        ),
+          })
+          .then(async (response) => ({ response, raw: await response.json() })),
         new Promise<never>((_, reject) => {
           abort.signal.addEventListener('abort', () => reject(Error('Delivery interrupted')), {
             once: true,
           });
-          timeout = setTimeout(() => abort.abort(), this.config.timeoutMs ?? 15000);
+          timeout = setTimeout(
+            () => abort.abort(),
+            this.config.timeoutMs ?? ORDINARY_COMMAND_RECEIPT_TIMEOUT_MS,
+          );
         }),
       ]);
-      const raw = await response.json();
-      if (generation !== this.generation) return;
+      if (generation !== this.generation || !this.entries.includes(entry)) return;
       const success = LocalCodexFirstCommandReceiptSchema.safeParse(raw);
       const observation = OrdinaryCodexRetainedCommandObservationSchema.safeParse(raw);
       const matching =
@@ -418,9 +530,13 @@ export class SendOutbox {
         (typeof entry.body.sessionId !== 'string' || raw?.sessionId === entry.body.sessionId);
       if (matching && response.status === 202 && success.success) {
         entry.localReceipt = { sessionId: success.data.sessionId, state: success.data.state };
-        if (!this.persist()) throw Error('Local receipt could not be retained');
-        this.notifyLocal(entry, success.data.state, true);
-        if (success.data.state === 'consumed') this.entries.splice(this.entries.indexOf(entry), 1);
+        if (success.data.state === 'consumed') entry.uncertain = false;
+        if (!this.persist()) {
+          entry.uncertain = true;
+          throw Error('Local receipt could not be retained');
+        }
+        if (success.data.state === 'consumed') this.retireLocal(entry);
+        else this.notifyLocal(entry, success.data.state, true);
         this.persist();
       } else if (matching && response.status === 409 && observation.success) {
         entry.localReceipt = {
@@ -431,7 +547,8 @@ export class SendOutbox {
         this.notifyLocal(entry, 'retained');
       } else this.notifyLocal(entry, 'uncertain');
     } catch {
-      if (generation === this.generation) this.notifyLocal(entry, 'uncertain');
+      if (generation === this.generation && this.entries.includes(entry))
+        this.notifyLocal(entry, 'uncertain');
     } finally {
       if (timeout) clearTimeout(timeout);
       if (generation === this.generation) {
@@ -446,7 +563,10 @@ export class SendOutbox {
   private persist(): boolean {
     try {
       if (!this.config.storage) return false;
-      this.config.storage.setItem(this.key, JSON.stringify(this.entries));
+      const retained = [...this.entries];
+      for (const [entry, index] of this.completingLocal)
+        if (!retained.includes(entry)) retained.splice(Math.min(index, retained.length), 0, entry);
+      this.config.storage.setItem(this.key, JSON.stringify(retained));
       return true;
     } catch {
       // Ordinary sends retain their existing in-memory fallback.

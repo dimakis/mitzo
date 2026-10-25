@@ -338,7 +338,6 @@ import {
   createSessionWorktrees as createAllWorktrees,
   listWorktrees,
 } from './worktree.js';
-import { DEFAULT_AGENT_NAME } from './constants.js';
 import { createGitInfoDiscovery, createGitInfoHandler } from './git-discovery.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter, recentAppReauthorizationHandlers } from './connections-router.js';
@@ -793,7 +792,7 @@ try {
   // may already exist
 }
 export const taskStore = new TaskStore(join(mitzoDir, 'tasks.db'));
-setTaskStore(taskStore);
+const assertInstalledTelosChatOwners = setTaskStore(taskStore);
 export const workloadStore = new WorkloadStore(taskStore.getDatabase());
 setTokenStorePath(join(mitzoDir, 'device-tokens.json'));
 
@@ -975,6 +974,18 @@ app.post('/api/sessions', async (req, res) => {
     return;
   }
 
+  // This hook/registration endpoint has no account or execution-target selection.
+  // Reject before parsing: legacy fallback must not discard a malformed prompt
+  // and allocate worktrees as though it were a registration-only request.
+  if (Object.hasOwn(req.body ?? {}, 'initialPrompt')) {
+    res.status(409).json({
+      error: 'missing_runtime_selection',
+      message:
+        'Select an account, model and execution target through the ordinary chat or Telos workflow before starting a session.',
+    });
+    return;
+  }
+
   const body = SessionCreateBody.safeParse(req.body);
   if (!body.success) {
     // Backwards-compatible: check for old-style { source: string } body
@@ -995,13 +1006,9 @@ async function handleSessionCreate(
   res: express.Response,
   data: {
     source: string;
-    initialPrompt?: string;
-    summary?: string;
-    mode?: 'ask' | 'agent' | 'auto';
-    model?: string;
   },
 ) {
-  const { source, initialPrompt, summary, mode, model } = data;
+  const { source } = data;
 
   if (!isIsolationEnabled()) {
     log.info('session isolation disabled', { source });
@@ -1021,46 +1028,16 @@ async function handleSessionCreate(
       sessionId: wtId,
       source,
       repos: Object.keys(worktrees),
-      hasInitialPrompt: !!initialPrompt,
+      hasInitialPrompt: false,
     });
-
-    // If initialPrompt is provided, register in event store and auto-start headlessly
-    if (initialPrompt) {
-      eventStore.upsertSession({
-        sessionId: wtId,
-        summary: summary ?? initialPrompt.slice(0, 100),
-        initialPrompt,
-        isActive: true,
-        mode: mode ?? 'agent',
-        agentName: DEFAULT_AGENT_NAME,
-      });
-
-      // Start the session headlessly — NullTransport discards WS messages
-      // but the query loop still persists events to the EventStore.
-      // The user can reattach via WS at any time (takeover logic in ws-handler-v2).
-      const clientId = `headless:${wtId}`;
-      const transport = new NullTransport();
-      await startChat(transport, clientId, initialPrompt, {
-        // No resume — this is the first query, no SDK session exists yet.
-        // The SDK session UUID is captured in query-loop after the first
-        // assistant message and stored via updateSessionSdkId() for future
-        // queries (e.g. user replies from their phone).
-        mode: mode ?? 'agent',
-        model,
-        isolation: true,
-        agentName: DEFAULT_AGENT_NAME,
-      });
-
-      log.info('headless session started', { sessionId: wtId, prompt: initialPrompt });
-    }
 
     sseRegistry.broadcast('sessions_changed', {});
 
-    res.status(initialPrompt ? 201 : 200).json({
+    res.status(200).json({
       sessionId: wtId,
       worktrees,
       isolation: true,
-      headless: !!initialPrompt,
+      headless: false,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -2089,6 +2066,14 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
 
 const telosDatabasePath = () =>
   resolve(process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'));
+const lifecycleCanonicalSelection = telosDatabasePath();
+let lifecycleSelectionInvalidated = false;
+function assertInstalledTelosDeletionOwners() {
+  if (telosDatabasePath() !== lifecycleCanonicalSelection) lifecycleSelectionInvalidated = true;
+  if (lifecycleSelectionInvalidated || typeof assertInstalledTelosChatOwners !== 'function')
+    throw new Error('Actual selected Telos owners unavailable');
+  assertInstalledTelosChatOwners();
+}
 initializeTelosMainPublicationRuntime({
   registry,
   events: eventStore,
@@ -2438,7 +2423,29 @@ app.use(createOrdinaryWorkspacePreparationRouter());
 
 app.use(
   createTelosWorkRouter({
-    dbPath: telosDatabasePath,
+    dbPath: () => {
+      const selected = telosDatabasePath();
+      // Observe selection before constructing the request Store: a missing or
+      // rejected alternative cannot hide a change and later revive this App.
+      if (selected !== lifecycleCanonicalSelection) lifecycleSelectionInvalidated = true;
+      return selected;
+    },
+    assertLifecycleQuiescent: (itemId, original) => {
+      try {
+        original.retainLifecycleDeletionFence(
+          itemId,
+          lifecycleCanonicalSelection,
+          eventStore,
+          taskStore,
+          assertInstalledTelosDeletionOwners,
+        );
+      } catch {
+        throw new TelosWorkError(
+          'conflict',
+          'Verified host quiescence required for permanent deletion',
+        );
+      }
+    },
     operatorAuth: operatorAuthMiddleware,
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
@@ -2476,6 +2483,7 @@ app.use(
 
 app.use(
   createTelosSourceRouter({
+    tasks: taskStore,
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
     dbPath: telosDatabasePath,
@@ -3578,7 +3586,9 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
           !isAuthSessionCurrent(auth) ||
           custodianControllerClient ||
           custodianOwnerMode ||
-          process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1'
+          (eventStore.getSessionRuntimeBinding(meta.sessionId)?.execution.location === 'openshell'
+            ? process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED
+            : process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED) !== '1'
         )
           throw Error('Current ordinary operator unavailable');
         resolveTelosWorkCommandScope(
@@ -3939,8 +3949,12 @@ const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
 
 function isRemoteSessionArtifact(sessionId: string) {
   const meta = eventStore.getSession(sessionId);
-  // The ordinary owner is local and must fail closed there, never as a sandbox fallback.
-  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return false;
+  // Ordinary identity covers both host and sandbox workspaces. Its retained
+  // runtime binding selects the reader; custody validation still owns access.
+  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) {
+    const runtime = eventStore.getSessionRuntimeBinding(sessionId);
+    return runtime?.version === 2 && runtime.execution.location === 'openshell';
+  }
   if (!meta?.accountBinding)
     return Boolean(meta?.cwd?.startsWith('/sandbox/') && !isConfiguredAllowedPath(meta.cwd));
   if (!['openai', 'openai-codex'].includes(meta.accountBinding.provider)) return false;

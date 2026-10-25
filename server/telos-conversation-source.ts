@@ -39,6 +39,9 @@ export function createTelosConversationSource(options: {
   artifacts: TelosArtifactStore;
   authorize(conversationId: string): boolean;
   authorizeArtifact?(pin: Pin, itemId: string): boolean;
+  /** Private per-operation denial guards, never supplied by source request JSON. */
+  assertArtifact?(pin: Pin): void;
+  assertCurrent?(): void;
 }) {
   const authorize = (id: string) => {
     const session = options.events.getSession(id);
@@ -52,10 +55,13 @@ export function createTelosConversationSource(options: {
     return session;
   };
   const artifact = (pin: Pin) => {
-    const saved = options.artifacts.read(pin.artifactId, pin.revision);
+    options.assertCurrent?.();
+    options.assertArtifact?.(pin);
+    const metadata = options.artifacts.metadataForRevision(pin.artifactId, pin.revision);
     if (options.authorizeArtifact) {
-      if (!options.authorizeArtifact(pin, saved.itemId)) refuse();
-    } else authorize(saved.sessionId);
+      if (!options.authorizeArtifact(pin, metadata.itemId)) refuse();
+    } else authorize(metadata.sessionId);
+    const saved = options.artifacts.read(pin.artifactId, pin.revision);
     if (saved.sha256 !== pin.sha256 || sha(saved.bytes) !== pin.sha256) refuse();
     return saved;
   };
@@ -67,6 +73,7 @@ export function createTelosConversationSource(options: {
       if (wanted.size !== selection.messageIds.length) refuse();
       if (selection.mode === 'conversation_so_far' && wanted.size) refuse();
       const read = () => {
+        options.assertCurrent?.();
         const initialPrompt = authorize(sessionId).initialPrompt || null;
         const boundary = selection.boundary.sequence;
         const completed: Message[] = [];
@@ -123,7 +130,7 @@ export function createTelosConversationSource(options: {
                 if (selection.mode === 'conversation_so_far') refuse();
                 continue;
               }
-              const saved = options.artifacts.read(
+              const saved = options.artifacts.metadataForRevision(
                 path.slice(path.lastIndexOf('/') + 1),
                 Number(query.slice('revision='.length)),
               );

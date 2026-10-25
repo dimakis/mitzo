@@ -59,6 +59,12 @@ export class KeychainController implements KeychainControllerAccess {
   private async initializeRecord() {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     await this.privatePath(this.directory, 0o700);
+    try {
+      await this.privatePath(this.path, 0o600);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
     // Publish a complete record atomically, even if another host process initializes it.
     const temporary = join(this.directory, `${randomUUID()}.json`);
     try {
@@ -112,11 +118,14 @@ export class KeychainController implements KeychainControllerAccess {
   private update(change: (record: ControllerRecord) => void) {
     return this.serialized(async () => {
       const record = await this.record();
+      const previous = JSON.stringify(record);
       change(record);
       if (record.items.length > 256) throw new Error('Keychain connection limit reached');
+      const content = JSON.stringify(record);
+      if (content === previous) return;
       const temporary = join(this.directory, `${randomUUID()}.json`);
       try {
-        await writeFile(temporary, JSON.stringify(record), { flag: 'wx', mode: 0o600 });
+        await writeFile(temporary, content, { flag: 'wx', mode: 0o600 });
         await rename(temporary, this.path);
       } finally {
         await rm(temporary, { force: true });

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type { CredentialReference } from './credentials.js';
 import {
   OpenAIKeyOperationStore,
@@ -12,6 +13,14 @@ export interface ManagedOpenAIAccount {
   credentialRef: CredentialReference;
   providerName: string;
   providerId: string;
+}
+/** Credential custody remains authoritative even when an account cannot rotate keys. */
+export interface OpenAIKeyResourceAccount {
+  readonly id: string;
+  readonly profileRevision?: string;
+  readonly credentialRef: CredentialReference;
+  readonly providerName?: string;
+  readonly providerId?: string;
 }
 export interface VersionedKeychain {
   authorize?(reference: CredentialReference, signal: AbortSignal): Promise<void>;
@@ -71,6 +80,7 @@ export class OpenAIKeyManagement {
   constructor(
     private readonly options: {
       accounts: () => ManagedOpenAIAccount[];
+      resourceAccounts?: () => readonly OpenAIKeyResourceAccount[];
       store: OpenAIKeyOperationStore;
       keychain: VersionedKeychain;
       gateway: OpenAIKeyGateway;
@@ -78,6 +88,7 @@ export class OpenAIKeyManagement {
       gatewayBinding: string;
       workspace: string;
       gate?: <T>(work: () => Promise<T>) => Promise<T>;
+      readGate?: <T>(work: () => Promise<T>, signal: AbortSignal) => Promise<T>;
       managedAccountIds?: readonly string[];
     },
   ) {}
@@ -94,6 +105,9 @@ export class OpenAIKeyManagement {
     } finally {
       release();
     }
+  }
+  private read<T>(work: () => Promise<T>, signal: AbortSignal): Promise<T> {
+    return this.options.readGate ? this.options.readGate(work, signal) : this.serial(work);
   }
   private binding(account: ManagedOpenAIAccount) {
     return digest({
@@ -115,19 +129,20 @@ export class OpenAIKeyManagement {
     )
       throw new Error('OpenAI account is not configured for key replacement');
     this.assertResourceOwnership(account);
+    const resources = openAIKeyResourceBindings(account);
     if (
-      accounts.some(
+      (this.options.resourceAccounts?.() ?? accounts).some(
         (item) =>
           item.id !== id &&
-          (digest(item.credentialRef) === digest(account.credentialRef) ||
-            item.providerId === account.providerId ||
-            item.providerName === account.providerName),
+          (openAIKeyResourceBindings(item).credentialBinding === resources.credentialBinding ||
+            (!!item.providerId && item.providerId === account.providerId) ||
+            (!!item.providerName && item.providerName === account.providerName)),
       )
     )
       throw new Error('Shared credentials require separate configuration');
     return account;
   }
-  private assertResourceOwnership(account: ManagedOpenAIAccount) {
+  private assertResourceOwnership(account: OpenAIKeyResourceAccount) {
     if (this.options.store.hasOtherResourceOwner(account.id, openAIKeyResourceBindings(account)))
       throw new Error(
         'OpenAI credentials or provider are recorded under another account; operator reconciliation is required',
@@ -268,9 +283,17 @@ export class OpenAIKeyManagement {
     });
   }
   /** Called while ConnectionsService holds its admission gate. Legacy unadopted keys are unchanged. */
-  async assertReady(accountId: string, signal: AbortSignal) {
-    const configured = this.options.accounts().find((account) => account.id === accountId);
-    if (configured) this.assertResourceOwnership(configured);
+  async assertReady(accountId: string, signal: AbortSignal, selected?: OpenAIKeyResourceAccount) {
+    const configured = (this.options.resourceAccounts?.() ?? this.options.accounts()).find(
+      (account) => account.id === accountId,
+    );
+    if (
+      selected &&
+      (selected.id !== accountId || !configured || !isDeepStrictEqual(configured, selected))
+    )
+      throw new Error('OpenAI account credential resource changed');
+    const resource = selected ?? configured;
+    if (resource) this.assertResourceOwnership(resource);
     if (!this.options.store.latest(accountId)) return;
     const account = this.account(accountId);
     const state = await this.state(account, signal);
@@ -308,12 +331,49 @@ export class OpenAIKeyManagement {
   }
   /** Host consumers participate in the same mutation fence and read the canonical item per request. */
   resolveKey(accountId: string, signal = AbortSignal.timeout(30000)): Promise<string> {
-    return this.serial(async () => {
+    return this.read(async () => {
+      signal.throwIfAborted();
       const account = this.account(accountId);
       const state = await this.state(account, signal);
       this.checkReady(state);
       return state.keychain.value;
-    });
+    }, signal);
+  }
+  /** Host consumers use the canonical Keychain item and durable rotation fence.
+   * A sandbox replica's health is checked only by consumers of that replica.
+   * This is serialized with key rotation; no credential or readiness is cached.
+   */
+  resolveHostKey(accountId: string, signal: AbortSignal): Promise<string> {
+    return this.read(async () => {
+      signal.throwIfAborted();
+      const account = structuredClone(this.account(accountId));
+      const binding = this.binding(account);
+      const latest = this.options.store.latest(accountId);
+      const completed = this.options.store.completed(accountId);
+      if (
+        this.options.store.pending().some((operation) => operation.accountId === accountId) ||
+        (latest && latest.binding !== binding)
+      )
+        throw new Error('OpenAI credentials need attention');
+      const key = await this.options.keychain.read(account.credentialRef, signal);
+      signal.throwIfAborted();
+      if (
+        !key.value.trim() ||
+        this.binding(this.account(accountId)) !== binding ||
+        !isDeepStrictEqual(this.options.store.latest(accountId), latest)
+      )
+        throw new Error('OpenAI credentials need attention');
+      const ready = completed
+        ? completed.binding === binding && key.version === completed.id
+        : key.version === null &&
+          key.managed !== true &&
+          (!latest ||
+            (latest.phase === 'aborted' &&
+              latest.keychainBeforeVersion === null &&
+              !this.options.store.unresolvedLegacyChange(accountId, binding)));
+      if (!ready) throw new Error('OpenAI credentials need attention');
+      return key.value;
+    }, signal);
   }
   private async selected(input: Selection, signal: AbortSignal) {
     const account = this.account(input.accountId);

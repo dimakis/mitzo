@@ -4,9 +4,9 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { agentLibrarySource } from './fixtures/agent-library-source.js';
 
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 
-import { revokeAuthSession } from '../auth.js';
+import { revokeAuthSession, login, authenticateToken } from '../auth.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { join } from 'node:path';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
@@ -39,8 +39,20 @@ vi.mock('../symposium-custodian-mode.js', async (importOriginal) => ({
     return deployment.owner;
   },
 }));
+const manifest = vi.hoisted(() => ({ artifacts: undefined as Record<string, string> | undefined }));
+vi.mock('../connections/reviewed-handler-artifacts.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../connections/reviewed-handler-artifacts.js')>();
+  return {
+    ...actual,
+    get reviewedHandlerSourceArtifacts() {
+      return manifest.artifacts ?? actual.reviewedHandlerSourceArtifacts;
+    },
+  };
+});
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
+  manifest.artifacts = undefined;
   vi.useRealTimers();
   for (const close of cleanups.splice(0).reverse()) await close();
   vi.unstubAllEnvs();
@@ -54,7 +66,42 @@ const fixture = (options?: {
   contextRecipe?: boolean | 'workspace';
   silentPreparation?: boolean;
   builtinPreparation?: boolean;
+  continuityV2?: boolean;
+  chatRoute?: boolean;
+  localRepository?: boolean;
+  realPreparationAuthority?: boolean;
 }) => ownedRuntimeFixture(cleanups, options);
+
+it('binds a fresh prepared barrier to the actual retained operator, lease and physical old workspace', async () => {
+  const f = await fixture();
+  const runtime = f.create();
+  await runtime.admit(f.request);
+  const admission = f.dispatch.mock.calls[0][0].admission;
+  expect(() => admission.assertPreparedRepositoryBoundaryCurrentSync()).not.toThrow();
+  revokeAuthSession(f.auth);
+  expect(() => admission.assertPreparedRepositoryBoundaryCurrentSync()).toThrow();
+});
+
+it('renews run authority only on an explicit send from another verified operator login', async () => {
+  const f = await fixture();
+  const runtime = f.create();
+  await runtime.admit(f.request);
+  const token = await login(process.env.AUTH_PASSPHRASE!);
+  const web = await authenticateToken(token!);
+  if (!web) throw Error('Fixture login failed');
+  const connectionId = randomUUID();
+  const release = bindAgentLibraryTransport(connectionId, web);
+  cleanups.push(release, () => revokeAuthSession(web));
+  const launches = f.launch.mock.calls.length;
+  const dispatches = f.dispatch.mock.calls.length;
+  runtime.reauthorize(connectionId);
+  revokeAuthSession(f.auth);
+  await expect(runtime.admit(f.request)).resolves.toEqual({ dispatched: false });
+  expect(f.launch).toHaveBeenCalledTimes(launches);
+  expect(f.dispatch).toHaveBeenCalledTimes(dispatches);
+  revokeAuthSession(web);
+  await expect(runtime.admit(f.request)).rejects.toThrow();
+});
 
 it('rejects altered reviewed Library source bytes before native startup effects', async () => {
   const f = await fixture();
@@ -1480,4 +1527,179 @@ it('refuses unsupported published tools through actual owned profile resolution 
   expect(f.dispatch).not.toHaveBeenCalled();
   expect(f.launch).not.toHaveBeenCalled();
   expect(f.rpc.request).not.toHaveBeenCalled();
+});
+
+it('continues the same native thread from a new signed login after a compatible deployment, without replacing original custody', async () => {
+  const f = await fixture({
+    continuityV2: true,
+    chatRoute: true,
+    localRepository: true,
+    realPreparationAuthority: true,
+  });
+  const first = f.create();
+  await first.admit(f.request);
+  const original = f.dispatch.mock.calls[0][0];
+  const native = new CodexConversationStore(join(f.root, 'native-continuity.db'));
+  cleanups.push(() => native.close());
+  native.create(original.sessionId, original.lease.binding, original.workspace.directory!);
+  original.admission.persistCustody(native);
+  native.bindThread(original.sessionId, original.lease.binding, 'same-native-thread');
+  const custody = native.readHostCustody(original.sessionId, original.lease.binding);
+  const bound = f.events.getSessionRuntimeBinding(original.sessionId);
+  first.close();
+  const actual = await vi.importActual<
+    typeof import('../connections/reviewed-handler-artifacts.js')
+  >('../connections/reviewed-handler-artifacts.js');
+  manifest.artifacts = {
+    ...actual.reviewedHandlerSourceArtifacts,
+    '../unrelated-change.ts': 'e'.repeat(64),
+  };
+  const env = f.dependencies.env!;
+  const targetPath = env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE!;
+  const target = JSON.parse(readFileSync(targetPath, 'utf8'));
+  const nativeSettings = JSON.parse(
+    readFileSync(env.MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE!, 'utf8'),
+  );
+  const { ordinaryLocalCodexHostContractRevision } =
+    await import('../ordinary-local-codex-host-runtime.js');
+  target.runtimeContractRevision = ordinaryLocalCodexHostContractRevision(
+    nativeSettings.executableSha256,
+    nativeSettings.codeModeHostSha256,
+  );
+  writeFileSync(targetPath, JSON.stringify(target), { mode: 0o600 });
+  const web = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
+  if (!web) throw Error('Fixture login failed');
+  const connection = randomUUID();
+  cleanups.push(bindAgentLibraryTransport(connection, web), () => revokeAuthSession(web));
+  const catalog = new OrdinaryLocalCodexCapabilityCatalog(
+    loadAccountProfiles(),
+    new OrdinaryLocalCodexHostRuntime(env).target(),
+    'ordinary',
+  );
+  const next = {
+    ...structuredClone(f.request),
+    clientMsgId: randomUUID(),
+    capabilityRevision: catalog.inventory().capabilityRevision,
+    payload: { text: 'Continue on web' },
+  };
+  const dispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {
+    expect(value.resume).toBe(true);
+    expect(value.expected.binding).toEqual(bound);
+    expect(value.expected.workspace).toEqual(original.expected.workspace);
+    value.admission.persistCustody(native);
+  });
+  const cold = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    operatorConnectionId: connection,
+    commandId: next.clientMsgId,
+    nativeStore: native,
+    launch: () => f.rpc,
+    dispatch,
+  });
+  cleanups.push(() => cold.close());
+  await expect(cold.admitResume(next)).resolves.toEqual({ dispatched: true });
+  expect(dispatch).toHaveBeenCalledOnce();
+  expect(native.read(original.sessionId, original.lease.binding).threadId).toBe(
+    'same-native-thread',
+  );
+  expect(native.readHostCustody(original.sessionId, original.lease.binding)).toEqual(custody);
+  expect(f.events.getSessionRuntimeBinding(original.sessionId)).toEqual(bound);
+  await expect(cold.admitResume(next)).resolves.toEqual({ dispatched: false });
+  expect(dispatch).toHaveBeenCalledOnce();
+});
+
+it('commits a retained legacy companion upgrade in the native owner before launch and keeps the original thread', async () => {
+  const f = await fixture();
+  const first = f.create();
+  await first.admit(f.request);
+  const original = f.dispatch.mock.calls[0][0];
+  const captured = original.lease.custodySnapshot!();
+  const { codeModeHost, ...legacyExecutable } = captured.executable;
+  expect(codeModeHost).toBeDefined();
+  const custody = {
+    version: 1 as const,
+    authSessionId: f.auth.id,
+    bootstrapId: original.expected.bootstrapId!,
+    login: captured.login,
+    executable: legacyExecutable,
+  };
+  const native = new CodexConversationStore(join(f.root, 'legacy-native.db'));
+  cleanups.push(() => native.close());
+  native.create(original.sessionId, original.lease.binding, original.workspace.directory!);
+  native.setHostCustody(original.sessionId, original.lease.binding, custody);
+  native.bindThread(original.sessionId, original.lease.binding, 'legacy-thread');
+  first.close();
+  unlinkSync(codeModeHost!.path);
+  const next = {
+    ...structuredClone(f.request),
+    clientMsgId: randomUUID(),
+    payload: { text: 'Continue legacy bundle' },
+  };
+  const launch = vi.fn(() => {
+    expect(
+      native.readHostCustody(original.sessionId, original.lease.binding)?.executable.codeModeHost,
+    ).toBeDefined();
+    return f.rpc;
+  });
+  const dispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) =>
+    value.admission.persistCustody(native),
+  );
+  const cold = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    commandId: next.clientMsgId,
+    nativeStore: native,
+    launch,
+    dispatch,
+  });
+  cleanups.push(() => cold.close());
+  await expect(cold.admitResume(next)).resolves.toEqual({ dispatched: true });
+  expect(launch).toHaveBeenCalledOnce();
+  expect(native.read(original.sessionId, original.lease.binding).threadId).toBe('legacy-thread');
+  const completed = native.readHostCustody(original.sessionId, original.lease.binding)!;
+  const { codeModeHost: helper, ...main } = completed.executable;
+  expect({ ...completed, executable: main }).toEqual(custody);
+  expect(helper?.path).toBe(codeModeHost!.path);
+});
+
+it('does not invent an adoption or open a second transport when the real repository selector has no completed Prepare candidate', async () => {
+  const f = await fixture();
+  const native = new CodexConversationStore(join(f.root, 'transition-native.db'));
+  cleanups.push(() => native.close());
+  native.create(f.reservation.conversationId, f.reservation.binding, f.reserved.directory!);
+  const runtime = new OrdinaryLocalCodexOwnedRuntime({ ...f.dependencies, nativeStore: native });
+  cleanups.push(() => runtime.close());
+  await runtime.admit(f.request);
+  const admission = f.dispatch.mock.calls[0][0].admission;
+  const scope = Object.freeze({
+    bindingRevision: 'binding',
+    profileRevision: 'profile',
+    policyRevision: 'policy',
+    readableRoots: Object.freeze(['/']),
+    workspaceRoots: Object.freeze([]),
+    deniedRoots: Object.freeze([]),
+    signal: f.signal.signal,
+    assertCurrentSync() {},
+    async revalidate() {},
+  });
+  const policyOwner = Object.freeze({
+    signal: f.signal.signal,
+    selectedPolicy: () => {
+      throw Error('No candidate must not create physical owner');
+    },
+    assertCurrentSync() {},
+  });
+  const target = Object.freeze({
+    commandId: f.request.clientMsgId,
+    attempt: 1,
+    threadId: 'thread',
+    turnId: 'turn',
+    generation: 0,
+  });
+  await expect(
+    admission.adoptPreparedRepositoryAtBoundary(scope, target, () => {}, policyOwner),
+  ).resolves.toBeUndefined();
+  expect(f.launch).toHaveBeenCalledOnce();
+  expect(f.events.getLatestOrdinaryCommandAdmission(f.reservation.conversationId)?.state).toBe(
+    'consumed',
+  );
 });

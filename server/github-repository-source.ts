@@ -1,12 +1,29 @@
 import { isGitBranchName } from './git-branch.js';
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, rm, stat, realpath } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat, statfs, realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 
 const exec = promisify(execFile);
-const MAX_REPOSITORY_BYTES = 64 * 1024 * 1024;
+export const REPOSITORY_SOURCE_LIMIT_MIB = 512;
+const MAX_REPOSITORY_BYTES = REPOSITORY_SOURCE_LIMIT_MIB * 1024 * 1024;
+export const MAX_REPOSITORY_CHECKOUT_BYTES = 2 * MAX_REPOSITORY_BYTES;
+/** Only this fixed public diagnostic may cross the API error boundary. */
+export class RepositorySourceLimitError extends Error {
+  constructor(kind: 'source' | 'storage' | 'expanded source' = 'source') {
+    super(
+      `Repository exceeds the ${REPOSITORY_SOURCE_LIMIT_MIB} MiB ${kind} limit. Use a smaller repository or ask the operator to review the import limit.`,
+    );
+  }
+}
+export class RepositorySpaceError extends Error {
+  constructor() {
+    super(
+      'Not enough free space for repository preparation and dependencies. Free at least 3 GiB, then preview the repository again.',
+    );
+  }
+}
 const MAX_FILES = 10000;
 // Tree metadata grows with path lengths independently of file contents/Git storage.
 const MAX_TREE_METADATA_BYTES = 64 * 1024 * 1024;
@@ -33,7 +50,7 @@ export const runGithubRepositoryCommand: GithubRepositoryCommand = async (
   try {
     return await exec(command, [...args], {
       signal,
-      timeout: 120000,
+      timeout: 512000,
       maxBuffer:
         command === 'git' && args.includes('ls-tree') ? MAX_TREE_METADATA_BYTES : 2 * 1024 * 1024,
       env: {
@@ -110,8 +127,7 @@ export async function inspectGithubRepositorySource(
   if (canonicalRepositorySelection(metadata.full_name) !== repository)
     throw new Error('GitHub repository identity changed');
   if (metadata.archived) throw new Error('Archived repositories cannot be published');
-  if (metadata.size * 1024 > MAX_REPOSITORY_BYTES)
-    throw new Error('Repository exceeds the initial 64 MiB source limit');
+  if (metadata.size * 1024 > MAX_REPOSITORY_BYTES) throw new RepositorySourceLimitError();
   const selectedBranch = await run(
     'gh',
     [
@@ -142,8 +158,7 @@ async function boundedDirectory(directory: string): Promise<number> {
       if (entry.isDirectory()) await walk(child);
       else if (entry.isFile()) bytes += (await stat(child)).size;
       else throw new Error('Repository storage is unsupported');
-      if (bytes > MAX_REPOSITORY_BYTES)
-        throw new Error('Repository exceeds the initial 64 MiB source limit');
+      if (bytes > MAX_REPOSITORY_BYTES) throw new RepositorySourceLimitError('storage');
     }
   }
   await walk(directory);
@@ -168,6 +183,9 @@ export async function prepareGithubRepositorySource(
     (await realpath(dirname(directory))) !== dirname(directory)
   )
     throw new Error('Repository destination must have a canonical parent');
+  const capacity = await statfs(dirname(directory));
+  if (capacity.bavail * capacity.bsize < 2 * MAX_REPOSITORY_BYTES + 2 * 1024 ** 3)
+    throw new RepositorySpaceError();
   await mkdir(directory, { mode: 0o700 }); // No recursive creation or existing-destination fallback.
   const gitdir = join(directory, '.git');
   const git = async (...args: string[]) =>
@@ -241,7 +259,7 @@ export async function prepareGithubRepositorySource(
       }
       bytes += Number(match[3]!);
       if (!Number.isSafeInteger(bytes) || bytes > MAX_REPOSITORY_BYTES)
-        throw new Error('Repository exceeds the initial 64 MiB expanded source limit');
+        throw new RepositorySourceLimitError('expanded source');
     }
     await git('config', 'core.bare', 'false');
     await git('config', 'user.name', 'Mitzo Sandbox');

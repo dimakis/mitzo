@@ -239,6 +239,9 @@ export const agentBuilderCommandHandoff = {
       JSON.stringify({ draftId: prior.draftId, sessionId, profileRevision: prior.profileRevision }),
     );
   },
+  finalize(clientMsgId: string): void {
+    briefingCommandHandoff.finalize(clientMsgId);
+  },
   reject(clientMsgId: string): void {
     const receipt = commandReceipt(clientMsgId);
     if (!receipt) {

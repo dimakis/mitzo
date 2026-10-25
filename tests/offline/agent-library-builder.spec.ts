@@ -82,6 +82,7 @@ async function offline(
     });
   });
   const commands: Array<ReturnType<typeof OrdinaryRuntimeFirstCommandSchema.parse>> = [];
+  const receiptReads: Array<ReturnType<typeof OrdinaryRuntimeFirstCommandSchema.parse>> = [];
   const legacyCommands: Array<ReturnType<typeof V2SendMessage.parse>> = [];
   const proposalSaves: Record<string, unknown>[] = [];
   const lifecycle = {
@@ -157,6 +158,34 @@ async function offline(
         return route.fulfill({ json: [] });
       }
       if (allowDispatch && route.request().method() === 'POST') {
+        if (
+          path === '/api/chat/runtime/send/receipt' ||
+          path === '/api/chat/local-codex/send/receipt'
+        ) {
+          const command = OrdinaryRuntimeFirstCommandSchema.parse(route.request().postDataJSON());
+          expect(command).toEqual(
+            commands.find((original) => original.clientMsgId === command.clientMsgId),
+          );
+          expect(route.request().headers()['x-connection-id']).toBe('offline-builder');
+          receiptReads.push(command);
+          // Observation cannot dispatch. A hidden conversation or unconsumed
+          // command cannot grant the exact acceptance receipt either.
+          return lifecycle.metadata === 'hidden' || lifecycle.commandState !== 'consumed'
+            ? route.fulfill({
+                status: 409,
+                json: { ok: false, code: 'receipt_pending', clientMsgId: command.clientMsgId },
+              })
+            : route.fulfill({
+                status: 202,
+                json: {
+                  ok: true,
+                  clientMsgId: command.clientMsgId,
+                  sessionId,
+                  dispatched: false,
+                  state: 'consumed',
+                },
+              });
+        }
         if (path === '/api/chat/send' && lifecycle.legacy) {
           const command = V2SendMessage.strict().parse(route.request().postDataJSON());
           legacyCommands.push(command);
@@ -454,7 +483,16 @@ async function offline(
       body: `<!doctype html><html data-theme="${theme}" data-accent="teal" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
     });
   });
-  return { unexpected, errors, commands, legacyCommands, proposalSaves, lifecycle, task };
+  return {
+    unexpected,
+    errors,
+    commands,
+    receiptReads,
+    legacyCommands,
+    proposalSaves,
+    lifecycle,
+    task,
+  };
 }
 
 async function openSettings(page: Page) {
@@ -1198,6 +1236,8 @@ test('Library keeps fresh setup when a hidden conversation receives its delayed 
   await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
   await expect(page).toHaveURL(freshUrl);
   expect(fixture.commands).toHaveLength(2);
+  expect(fixture.receiptReads.length).toBeGreaterThan(0);
+  for (const observation of fixture.receiptReads) expect(observation).toEqual(fixture.commands[0]);
   expect(fixture.unexpected).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });

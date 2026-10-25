@@ -9,6 +9,7 @@ import {
   type ManagedOpenAIAccount,
 } from '../openai-key-management.js';
 import { OpenAIKeyOperationStore } from '../openai-key-operation-store.js';
+import { AccountProfiles } from '../account-profiles.js';
 
 const signal = () => AbortSignal.timeout(5000);
 const account: ManagedOpenAIAccount = {
@@ -107,7 +108,121 @@ function fixture() {
     },
   };
 }
+function configuredResourceFixture(
+  shared: 'credential' | 'provider id' | 'provider name' | 'none',
+) {
+  const f = fixture();
+  const profiles = new AccountProfiles([
+    {
+      id: account.id,
+      label: account.label,
+      provider: 'openai',
+      credentialRef: account.credentialRef,
+      sandboxProvider: account.providerName,
+      sandboxProviderId: account.providerId,
+      models: [{ id: 'offline-luna', label: 'Offline Luna' }],
+    },
+    {
+      id: 'custom',
+      label: 'Independent endpoint',
+      provider: 'openai',
+      credentialRef:
+        shared === 'credential'
+          ? account.credentialRef
+          : { ...account.credentialRef, account: 'custom' },
+      sandboxProvider: shared === 'provider name' ? account.providerName : 'custom-provider',
+      sandboxProviderId: shared === 'provider id' ? account.providerId : 'custom-provider-id',
+      models: [{ id: 'offline-luna', label: 'Offline Luna' }],
+      connection: {
+        endpoint: 'https://custom.example.test/v1',
+        protocol: 'responses',
+        qualification: {
+          source: 'operator',
+          streaming: true,
+          toolCalls: true,
+          continuation: true,
+          cancellation: true,
+        },
+      },
+    },
+  ]);
+  const manager = new OpenAIKeyManagement({
+    ...f.options,
+    accounts: () => profiles.openAIKeyManagementAccounts(),
+    resourceAccounts: () => profiles.openAIKeyResourceAccounts(),
+  });
+  return { ...f, manager, profiles };
+}
 describe('OpenAI key replacement and recovery', () => {
+  it.each(['credential', 'provider id', 'provider name'] as const)(
+    'refuses a first rotation that shares a configured custom %s before reading or changing either destination',
+    async (shared) => {
+      const f = configuredResourceFixture(shared);
+      expect(f.profiles.openAIKeyManagementAccounts().map((item) => item.id)).toEqual(['work']);
+      const revision = (await f.manager.list(signal()))[0].revision;
+      f.keychain.read.mockClear();
+      f.gateway.inspect.mockClear();
+      await expect(
+        f.manager.replace({ accountId: 'work', revision, apiKey: 'offline-candidate' }, signal()),
+      ).rejects.toThrow('Shared credentials');
+      expect(f.keychain.read).not.toHaveBeenCalled();
+      expect(f.keychain.write).not.toHaveBeenCalled();
+      expect(f.gateway.inspect).not.toHaveBeenCalled();
+      expect(f.gateway.pause).not.toHaveBeenCalled();
+      expect(f.gateway.replace).not.toHaveBeenCalled();
+      expect(f.validateKey).not.toHaveBeenCalled();
+      expect(f.store.latest('work')).toBeUndefined();
+      expect(f.store.latest('custom')).toBeUndefined();
+    },
+  );
+  it('preserves official first rotation for distinct configured resources without admitting a custom account to rotation', async () => {
+    const f = configuredResourceFixture('none');
+    const revision = (await f.manager.list(signal()))[0].revision;
+    await expect(
+      f.manager.replace({ accountId: 'work', revision, apiKey: 'offline-candidate' }, signal()),
+    ).resolves.toMatchObject({ accountId: 'work', health: 'ready' });
+    expect(f.keychain.write).toHaveBeenCalledOnce();
+    expect(f.gateway.replace).toHaveBeenCalledOnce();
+    expect(f.validateKey).toHaveBeenCalledOnce();
+    await expect(
+      f.manager.replace({ accountId: 'custom', revision, apiKey: 'offline-other' }, signal()),
+    ).rejects.toThrow('not configured');
+    expect(f.keychain.write).toHaveBeenCalledOnce();
+    expect(f.gateway.replace).toHaveBeenCalledOnce();
+    expect(f.store.latest('custom')).toBeUndefined();
+  });
+  it('reads host credentials through their controller without inspecting the sandbox replica', async () => {
+    const f = fixture();
+    f.gateway.inspect.mockRejectedValue(Error('sandbox unavailable'));
+    expect(await f.manager.resolveHostKey('work', signal())).toBe('old-key');
+    expect(f.gateway.inspect).not.toHaveBeenCalled();
+  });
+  it('uses the completed host key when the sandbox replica is unavailable', async () => {
+    const f = fixture();
+    await f.replace();
+    f.gateway.inspect.mockClear().mockRejectedValue(Error('sandbox unavailable'));
+    expect(await f.manager.resolveHostKey('work', signal())).toBe('new-key');
+    expect(f.gateway.inspect).not.toHaveBeenCalled();
+    await expect(f.manager.resolveKey('work', signal())).rejects.toThrow();
+  });
+  it.each(['pending', 'key-drift', 'binding-drift', 'resource-alias', 'cancelled'] as const)(
+    'fails host credential custody closed on %s without probing or repairing a sandbox',
+    async (failure) => {
+      const f = fixture();
+      await f.replace();
+      if (failure === 'pending') {
+        f.gateway.replace.mockRejectedValue(Error('interrupted rotation'));
+        await f.replace('second-key');
+      } else if (failure === 'key-drift') f.driftKeychain();
+      else if (failure === 'binding-drift') f.setAccounts([{ ...account, providerId: 'changed' }]);
+      else if (failure === 'resource-alias') f.setAccounts([account, { ...account, id: 'alias' }]);
+      const controller = new AbortController();
+      if (failure === 'cancelled') controller.abort();
+      f.gateway.inspect.mockClear();
+      await expect(f.manager.resolveHostKey('work', controller.signal)).rejects.toThrow();
+      expect(f.gateway.inspect).not.toHaveBeenCalled();
+    },
+  );
   it.each(['credential', 'provider id', 'provider name'])(
     'blocks an unjournaled account reusing a recorded %s after the owning account is removed',
     async (shared) => {

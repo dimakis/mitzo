@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import type { ToolDefinition } from '@mitzo/harness';
 import type { WebSearchAccess } from './web-search-policy.js';
 import { codexResearchInstructions } from './research-instructions.js';
+import {
+  codexNativeExecutionParams,
+  type CodexNativeExecutionPolicy,
+} from './codex-native-execution-policy.js';
 
 /** These are the ordinary owner's resolved host RPC parameters, not the expanded
  * native model prompt. Native instructions, discovered project documents, native
@@ -18,20 +22,35 @@ export function codexThreadOptions(input: {
   webSearch: WebSearchAccess;
   disableProjectDocuments?: boolean;
   systemPrompt: string;
+  nativeExecution?: CodexNativeExecutionPolicy;
+  skillContextTokens?: number;
 }) {
   return {
     model: input.model,
     modelProvider: input.modelProvider,
-    cwd: input.cwd,
     config: {
       model_reasoning_summary: 'auto',
       ...input.runtimeConfig,
+      ...(input.skillContextTokens
+        ? { 'skills.max_context_tokens': input.skillContextTokens }
+        : {}),
       web_search: input.webSearch,
       ...(input.disableProjectDocuments ? { project_doc_max_bytes: 0 } : {}),
     },
-    approvalPolicy: 'never',
-    sandbox: 'read-only',
-    developerInstructions: input.systemPrompt + codexResearchInstructions(input.webSearch),
+    ...(input.nativeExecution
+      ? codexNativeExecutionParams(input.nativeExecution)
+      : { cwd: input.cwd, approvalPolicy: 'never', sandbox: 'read-only' }),
+    developerInstructions:
+      input.systemPrompt +
+      (input.nativeExecution
+        ? `\nCurrent configured execution: ${JSON.stringify({
+            executionLocation: 'Local Mac',
+            workingDirectory: input.nativeExecution.cwd,
+            permissionProfile: input.nativeExecution.permissions,
+            networkAccess: input.nativeExecution.networkAccess,
+          })}\nUse this admitted workspace for local work. Another repository needs its own verified preparation and permissions; a source export alone does not establish Git/task custody.\n`
+        : '') +
+      codexResearchInstructions(input.webSearch),
   };
 }
 
@@ -105,6 +124,7 @@ export function codexTurnStartParams(input: {
   reasoningEffort?: string | null;
   sandboxPolicy?: Record<string, unknown>;
   additionalContext: CodexAdditionalContext;
+  nativeExecution?: CodexNativeExecutionPolicy;
 }) {
   return {
     threadId: input.threadId,
@@ -121,8 +141,9 @@ export function codexTurnStartParams(input: {
             url: `data:${image.mediaType};base64,${image.data}`,
           })),
         ],
-    approvalPolicy: 'never',
-    sandboxPolicy: input.sandboxPolicy ?? { type: 'readOnly' },
+    ...(input.nativeExecution
+      ? codexNativeExecutionParams(input.nativeExecution)
+      : { approvalPolicy: 'never', sandboxPolicy: input.sandboxPolicy ?? { type: 'readOnly' } }),
     ...(input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
     ...(Object.keys(input.additionalContext).length
       ? { additionalContext: input.additionalContext }

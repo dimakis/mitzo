@@ -1,10 +1,10 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Keep `ci` required: matrix success alone cannot prove every shard ran.
+// Final `ci` requires this validation: matrix success alone cannot prove every shard ran.
 try {
   const needs = JSON.parse(process.env.CI_CORE_NEEDS ?? '{}');
-  for (const job of ['static', 'unit']) {
+  for (const job of ['core', 'unit']) {
     if (needs[job]?.result !== 'success') throw Error(`Required ${job} job did not succeed`);
   }
   const directory = process.argv[2];
@@ -46,7 +46,7 @@ try {
   }
   if (seen.size !== expected.length) throw Error('Unit shards did not cover the full test suite');
   if (passed < 250) throw Error(`Test count dropped below 250 (got ${passed})`);
-  const summary = `${passed} passed tests across ${seen.size} files; all 4 shards and static checks passed`;
+  const summary = `${passed} passed tests across ${seen.size} files; all 4 shards and core checks passed`;
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY)
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Unit tests\n\n${summary}\n`);

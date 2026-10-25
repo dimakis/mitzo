@@ -1124,7 +1124,7 @@ for (const theme of ['dark', 'light'])
     await expect(page.getByRole('button', { name: /Workspace controls/ })).toBeVisible();
     await expect(
       page.getByRole('button', {
-        name: isMobile ? 'More composer actions' : 'Attach image',
+        name: isMobile ? 'More composer actions' : 'Attach images or PDF',
         exact: true,
       }),
     ).toBeVisible();

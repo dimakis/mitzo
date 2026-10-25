@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { EventStore } from '../../event-store.js';
 import { AgentLibraryStore } from '../../agent-library-store.js';
 import { RepositoryWorkspaces } from '../../repository-workspaces.js';
@@ -36,6 +36,10 @@ export async function ownedRuntimeFixture(
   cleanups: Array<() => void | Promise<void>>,
   options: {
     tools?: AgentToolReference[];
+    /** Initial admitted mode for signed offline permission controls only. */
+    mode?: 'ask' | 'agent' | 'auto';
+    /** Synthetic operator lifetime for multi-operation offline journeys only. */
+    operatorLifetimeMs?: number;
     workspaceId?: string;
     contextRecipe?: boolean | 'workspace';
     chatRoute?: boolean;
@@ -46,6 +50,11 @@ export async function ownedRuntimeFixture(
     /** Explicit offline native diagnostic; real model turns must still be intercepted. */
     nativeExecutablePath?: string;
     modelId?: string;
+    continuityV2?: boolean;
+    realPreparationAuthority?: boolean;
+    historicalPreparation?: (
+      proof: import('../../ordinary-repository-preparation.js').OrdinaryRepositoryPreparation,
+    ) => Promise<import('../../ordinary-repository-preparation.js').OrdinaryRepositoryPreparation>;
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
@@ -80,17 +89,26 @@ export async function ownedRuntimeFixture(
     ? await readFile(options.nativeExecutablePath)
     : Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
-  if (!options.nativeExecutablePath) await writeFile(executablePath, bytes, { mode: 0o755 });
+  const codeModeHostSha256 = options.nativeExecutablePath
+    ? createHash('sha256')
+        .update(await readFile(join(dirname(executablePath), 'codex-code-mode-host')))
+        .digest('hex')
+    : sha256;
+  if (!options.nativeExecutablePath) {
+    await writeFile(executablePath, bytes, { mode: 0o755 });
+    await writeFile(join(root, 'codex-code-mode-host'), bytes, { mode: 0o755 });
+  }
   const target = {
-    version: 1,
+    version: options.continuityV2 ? 2 : 1,
+    ...(options.continuityV2 ? { continuityContract: 'codex-native-thread-v1' } : {}),
     targetId: 'local-mac',
     label: 'Local Mac',
     hostId: hostname(),
-    runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256),
+    runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256, codeModeHostSha256),
   };
   await writeFile(
     nativePath,
-    JSON.stringify({ version: 1, executablePath, executableSha256: sha256 }),
+    JSON.stringify({ version: 2, executablePath, executableSha256: sha256, codeModeHostSha256 }),
     { mode: 0o600 },
   );
   await writeFile(targetPath, JSON.stringify(target), { mode: 0o600 });
@@ -209,6 +227,9 @@ export async function ownedRuntimeFixture(
   git(source, 'commit', '-qm', 'offline base');
   const baseOid = git(source, 'rev-parse', 'HEAD');
   const inspect = async () => ({ repository: 'example/repo', baseBranch: 'main', baseOid });
+  const readiness = options.realPreparationAuthority
+    ? await import('../../ordinary-repository-preparation-authority.js')
+    : undefined;
   const workspace = new RepositoryWorkspaces(join(root, 'repositories'), {
     localRepositories: () => ({ primary: source }),
     authorize: async (selected) => {
@@ -223,7 +244,15 @@ export async function ownedRuntimeFixture(
     },
     verify: async () => {},
     ordinaryPreparation: {
-      capture: async (account, selection) => {
+      capture: async (account, selection, signal) => {
+        if (readiness) {
+          const proof = await readiness.captureOrdinaryRepositoryPreparation(
+            account,
+            selection,
+            signal,
+          );
+          return options.historicalPreparation ? options.historicalPreparation(proof) : proof;
+        }
         const resolved = catalog.resolve({ ...selection.runtime, mode: 'agent' });
         if (resolved.status !== 'compatible') throw Error('Offline runtime unavailable');
         return OrdinaryRepositoryPreparationSchema.parse({
@@ -233,9 +262,11 @@ export async function ownedRuntimeFixture(
           credentialDigest: 'a'.repeat(64),
         });
       },
-      assert: async (_proof, account) => {
-        loadAccountProfiles().resumeRouting(account);
-      },
+      assert:
+        readiness?.assertOrdinaryRepositoryPreparation ??
+        (async (_proof, account) => {
+          loadAccountProfiles().resumeRouting(account);
+        }),
     },
   });
   cleanups.push(() => workspace.close());
@@ -295,8 +326,11 @@ export async function ownedRuntimeFixture(
     };
   if (!options.silentPreparation)
     reserved = await workspace.reserveHostTask({ ...reservation, signal: signal.signal });
-  const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 },
-    operatorConnectionId = randomUUID();
+  const auth: import('../../auth.js').AuthSession = {
+    id: randomUUID(),
+    expiresAt: Date.now() + (options.operatorLifetimeMs ?? 60000),
+  };
+  const operatorConnectionId = randomUUID();
   const detach = bindAgentLibraryTransport(operatorConnectionId, auth);
   cleanups.push(detach);
   const commandId = randomUUID();
@@ -307,7 +341,7 @@ export async function ownedRuntimeFixture(
       account: catalog.inventory().accounts[0].account,
       harness: 'codex' as const,
       targetId: 'local-mac',
-      mode: 'agent' as const,
+      mode: options.mode ?? ('agent' as const),
     },
     selection: {
       version: 1 as const,
@@ -317,7 +351,7 @@ export async function ownedRuntimeFixture(
         ...(agentProfile.kind ? { kind: agentProfile.kind } : {}),
       },
       context: { source: 'none' as const, revision: null },
-      permission: { mode: 'agent' as const, revision: 0 },
+      permission: { mode: options.mode ?? ('agent' as const), revision: 0 },
       model: modelId,
       thinking: 'low',
     },
@@ -396,7 +430,7 @@ export async function ownedRuntimeFixture(
         messageId: commandId,
         binding,
         profile: value.profile,
-        session: { cwd: value.workspace.directory, mode: 'agent' },
+        session: { cwd: value.workspace.directory, mode: options.mode ?? 'agent' },
         prompt: value.payload.text,
         systemPrompt: value.payload.systemPrompt,
         intent: value.payload.intent,

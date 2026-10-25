@@ -35,14 +35,20 @@ vi.mock('node:child_process', async (importOriginal) => {
       race.run = undefined;
       run?.();
       if (race.afterOpen && Array.isArray(args[1])) {
-        args[1] = args[1].map((arg) =>
-          arg.includes('        info = os.fstat(file)')
-            ? arg.replace(
-                '        info = os.fstat(file)',
-                race.afterOpen + '\n        info = os.fstat(file)',
-              )
-            : arg,
-        );
+        args[1] = args[1].map((arg) => {
+          if (!arg.includes('def execute(request):')) return arg;
+          // Match the legacy branch's WHOLE line, not the same substring in a
+          // more deeply nested private tree/publication branch. An ambiguous
+          // hook is a fixture failure, never a skipped security assertion.
+          const boundary = arg.indexOf('def execute(request):');
+          const legacy = arg.slice(boundary);
+          const point = /^ {8}info = os\.fstat\(file\)$/gm;
+          expect([...legacy.matchAll(point)]).toHaveLength(1);
+          return (
+            arg.slice(0, boundary) +
+            legacy.replace(point, race.afterOpen + '\n        info = os.fstat(file)')
+          );
+        });
       }
       return actual.execFile(...args);
     },

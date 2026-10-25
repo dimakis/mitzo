@@ -1,3 +1,4 @@
+import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-admission.js';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
@@ -80,6 +81,16 @@ export type SessionUpsert = Partial<
   Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision'>
 > & { sessionId: string };
 
+export interface SessionSummaryPage {
+  sessions: Array<{
+    sessionId: string;
+    summary: string | null;
+    summaryTruncated: boolean;
+    updatedAt: number;
+  }>;
+  hasMore: boolean;
+}
+
 export interface SessionMetadataOwner {
   database(): Database.Database | null;
   statements: {
@@ -130,7 +141,7 @@ export class SessionMetadataStore {
     const binding = SessionRuntimeBindingSchema.parse(input);
     assertRuntimeAccount(binding, meta.accountBinding);
     assertRuntimeWorkspace(sessionWorkspaceId(meta), meta.cwd);
-    assertOrdinaryWorkspaceRoute(binding, meta.ordinaryWorkspaceId);
+    assertOrdinaryWorkspaceRoute(binding, meta.ordinaryWorkspaceId, meta.cwd);
     this.db!.transaction(() => {
       const existing = this.stmts.getSession.get(meta.sessionId) as SessionRow | undefined;
       if (existing) {
@@ -428,6 +439,45 @@ export class SessionMetadataStore {
     return rows.map(rowToSession);
   }
 
+  /** Bounded title metadata only. Query matching must happen after the caller's
+   * authorization/public-text projection, never against private event payloads.
+   * Offset ordering is deterministic but not a snapshot across metadata edits. */
+  listSessionSummaries(limit = 100, offset = 0): SessionSummaryPage {
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 100 ||
+      !Number.isSafeInteger(offset) ||
+      offset < 0 ||
+      offset > 100000
+    ) {
+      throw Error('Invalid session summary pagination limit or offset');
+    }
+    const rows = this.db!.prepare(
+      `
+      SELECT s.session_id, substr(s.summary, 1, 4096) AS summary,
+        length(s.summary) > 4096 AS summary_truncated, s.updated_at
+      FROM sessions s
+      WHERE s.is_hidden = 0 AND ${REGISTERED_CONVERSATION_SQL}
+      ORDER BY s.updated_at DESC, s.session_id ASC LIMIT ? OFFSET ?
+    `,
+    ).all(limit + 1, offset) as Array<{
+      session_id: string;
+      summary: string | null;
+      summary_truncated: number | null;
+      updated_at: number;
+    }>;
+    return {
+      sessions: rows.slice(0, limit).map((row) => ({
+        sessionId: row.session_id,
+        summary: row.summary,
+        summaryTruncated: row.summary_truncated === 1,
+        updatedAt: row.updated_at,
+      })),
+      hasMore: rows.length > limit,
+    };
+  }
+
   /**
    * Search saved conversation titles, user messages and assistant text deltas.
    * Prefer a matching message snippet when the title also matches.
@@ -673,14 +723,21 @@ export function sessionWorkspaceId(meta: {
   }
   return meta.repositoryWorkspaceId;
 }
-function assertOrdinaryWorkspaceRoute(binding: SessionRuntimeBinding, ordinaryId: unknown) {
+function assertOrdinaryWorkspaceRoute(
+  binding: SessionRuntimeBinding,
+  ordinaryId: unknown,
+  cwd: unknown,
+) {
   if (
     ordinaryId !== undefined &&
     ordinaryId !== null &&
     (binding.version !== 2 ||
-      binding.account.provider !== 'openai-codex' ||
       binding.harness.implementation !== 'codex' ||
-      binding.execution.location !== 'local')
+      !(binding.execution.location === 'local'
+        ? binding.account.provider === 'openai-codex'
+        : ['openai', 'openai-codex'].includes(binding.account.provider)) ||
+      (binding.execution.location === 'openshell' &&
+        !OrdinaryOpenShellCommandAdmissionSchema.shape.workspace.shape.cwd.safeParse(cwd).success))
   )
     throw Error('Ordinary workspace runtime route is unsupported');
 }
@@ -712,7 +769,7 @@ function runtimeBindingFromRow(row: SessionRow): SessionRuntimeBinding | null {
       }),
       row.cwd,
     );
-    assertOrdinaryWorkspaceRoute(binding, row.ordinary_workspace_id);
+    assertOrdinaryWorkspaceRoute(binding, row.ordinary_workspace_id, row.cwd);
     return binding;
   } catch (error) {
     throw new Error('Invalid or unsupported session runtime binding', { cause: error });

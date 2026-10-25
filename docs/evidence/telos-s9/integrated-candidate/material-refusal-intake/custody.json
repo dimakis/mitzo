@@ -1,0 +1,93 @@
+{
+  "frozenExecution": "07266938a17a87d13a886e4d7623fdccc96bb319",
+  "baseline": "05292f463fc30d8bccf8dedee6db696270bfdac1",
+  "entries": [
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-MATERIAL-REFUSAL-AUTHORITY-REVIEW.md",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/material-refusal-intake/root-authority-review.md",
+      "sha256": "28a80adb3521066b7dd4de06b6b501441c7f81a1082ff944b234a607e97daa5a",
+      "bytes": 5372
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-MATERIAL-REFUSAL-AUTHORITY-REVIEW.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/material-refusal-intake/root-authority-review.json",
+      "sha256": "0591e0891f7949a9588d397ea8631bdced440854412061f922e79b9b64924a2d",
+      "bytes": 9260
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-MATERIAL-REFUSAL-EVIDENCE-REVIEW.md",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/material-refusal-intake/root-evidence-review.md",
+      "sha256": "24d6923bc7db3f4d61e0ac066b406f0c8302545a4957b80adb558322241a2896",
+      "bytes": 3767
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-MATERIAL-REFUSAL-EVIDENCE-REVIEW.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/material-refusal-intake/root-evidence-review.json",
+      "sha256": "0a11c286843dc5a578412c73692a45bed2a6e918042d9799200e3b94d9c79ad3",
+      "bytes": 3590
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-RESULT.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/material-refusal-intake/original-producer-result-0726.json",
+      "sha256": "6cb37960c0d13215992f5c6bdb89394a24657299af07ba1d426b000be4caa725",
+      "bytes": 122749
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-SOURCE-PROOF.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/material-refusal-intake/original-source-proof-0726.json",
+      "sha256": "2f7e658c30c0d77b0869551c56ed32dba2a55436c01e7943f992d314da8a4ef1",
+      "bytes": 7545
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-MATERIAL-ROOT-QUALIFIED-OVERLAY.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/material-refusal-intake/prior-S9-ADVISOR-MATERIAL-ROOT-QUALIFIED-OVERLAY.json",
+      "sha256": "f263974dc1776a67eef76708d15ed513b6fa1629c90e67989d69922a9697f0bd",
+      "bytes": 5073
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-CAPTURE-ENTRY-GAP.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/material-refusal-intake/prior-S9-SOURCE-CAPTURE-ENTRY-GAP.json",
+      "sha256": "4e5512af6fcd298f72a12213c2471f65d6591ee8ded84f8bf6004e17805abab0",
+      "bytes": 8979
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-CAPTURE-ENTRY-SCOPE-OVERLAY.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/material-refusal-intake/prior-S9-SOURCE-CAPTURE-ENTRY-SCOPE-OVERLAY.json",
+      "sha256": "3ba5306dbaaa008b253910377d8eda5f6f18251c388fe4d1b142cd930799ba20",
+      "bytes": 3425
+    }
+  ],
+  "archivesAndRaw": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-SOURCE.zip",
+      "sha256": "9d9012118234886399f56fce266c1be4cfde37a41f01256d477b437397f67bda",
+      "size": 3319901,
+      "copied": false,
+      "custody": "Original producer retained archive/raw; root review independently checked contents"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS.zip",
+      "sha256": "17aaad4a9fa9bf9fb0efd8de993efceb7a7ad86577a075baf66f7567da50edfd",
+      "size": 369524,
+      "copied": false,
+      "custody": "Original producer retained archive/raw; root review independently checked contents"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/initial/run.json",
+      "sha256": "1fe667d4188e076b877f736b50cfd4775b59dd1c7b50c1f2e55dfbee2152cb9c",
+      "size": 1669,
+      "copied": false,
+      "custody": "Original producer retained archive/raw; root review independently checked contents"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-REFUSAL-DIAGNOSTICS/origin-observer/run.json",
+      "sha256": "48a11a33d0e4f2e734655f71d306bb425a3d380883473aaa85e820ccca86a271",
+      "size": 1220,
+      "copied": false,
+      "custody": "Original producer retained archive/raw; root review independently checked contents"
+    }
+  ],
+  "closedScope": "Composite reviewed selected-material custody/integrity API refusal only; no direct byte-hash predicate, UI error/recovery, native access/runtime recovery/current-main claim",
+  "overlayPrecedence": "The preserved SOURCE-CAPTURE-ENTRY-SCOPE-OVERLAY supersedes ENTRY-GAP classification; no new UI picker, caller, source adoption or design/implementation grant is inferred. Original pending-review wording and all prior overlays remain untouched.",
+  "diagnosticChronology": "Initial observer failure precedes the negative API request and is not product guard RED. Final1PASS13.560s is one historical private case, not repeated composed-source runtime."
+}

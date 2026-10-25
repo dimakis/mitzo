@@ -42,6 +42,8 @@ export interface ManagedSession {
   ordinaryRuntimeOwner?: {
     location: 'local' | 'openshell';
     authSessionId: string;
+    /** Explicit same-operator sends can renew the retained login authority. */
+    reauthorize?(operatorConnectionId: string): void;
     identity: object;
     initialCommandId: string;
     /** Frozen server entry identity; absent resume is the ordinary first-command path. */

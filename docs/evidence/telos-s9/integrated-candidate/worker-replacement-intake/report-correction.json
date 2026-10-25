@@ -1,0 +1,11 @@
+{
+  "scope": "Metadata-only correction overlay for the exact retained original producer report; original report/archive bytes preserved",
+  "originalProducerReportSha256": "748e36d5d04931e819142823051643b143b5ce7730c5de287d16761433399e1c",
+  "originalReportRetained": "docs/evidence/telos-s9/integrated-candidate/worker-replacement-intake/original-producer-result-e4ef.json",
+  "field": "visualInspection.accessibleNames",
+  "correctedValue": "Accessible names are distinct by role: Open Previous conversation: Offline restart; Open Additional worker: Offline restart; Open Assigned worker: Offline restart. The earlier failing exact locator omitted the title suffix. Visible titles repeat; accessible names do not. Full accessibility qualification remains pending.",
+  "authority": "root-intake-review.md P3, verified actual chooserRows and frozen TelosChatList.tsx role/title construction",
+  "noArchiveRewritten": true,
+  "noClaimOldArchiveContainsCorrectedReport": true,
+  "currentProducerReportAtIntakeStillOriginalSha256": "748e36d5d04931e819142823051643b143b5ce7730c5de287d16761433399e1c"
+}

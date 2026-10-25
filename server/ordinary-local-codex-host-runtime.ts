@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { closeSync, constants, fstatSync, lstatSync, openSync, realpathSync } from 'node:fs';
 import { hostname } from 'node:os';
-import { isAbsolute } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import { readBoundedFile } from './bounded-file-read.js';
 import { SUPPORTED_CODEX_CLI_VERSION } from './codex-app-server-client.js';
@@ -11,33 +11,53 @@ import {
 } from './connections/reviewed-handler-artifacts.js';
 import { OrdinaryLocalCodexTarget } from './ordinary-local-codex-capabilities.js';
 import { measureHostCodexExecutable } from './frozen-host-codex-executable.js';
+import { observeLocalCodexSyncPhase } from './local-codex-observation.js';
 import type { FrozenHostCodexRuntimeObservation } from './frozen-host-codex-bootstrap.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
+import {
+  reviewedLegacyHostContractRevision,
+  reviewedLegacyHostTargetRevisions,
+} from './host-codex-continuity.js';
+import type { OrdinaryLocalCodexCapabilityCatalog } from './ordinary-local-codex-capabilities.js';
 
 const unavailable = () => new Error('Host Codex runtime observation unavailable');
 const Native = z.strictObject({
-  version: z.literal(1),
+  version: z.literal(2),
   executablePath: z.string().max(4096).refine(isAbsolute),
   executableSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  codeModeHostSha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
-export function ordinaryLocalCodexHostContractRevision(executableSha256: string): string {
-  const codeClosure = createHash('sha256')
-    .update(
-      JSON.stringify(
-        Object.entries(reviewedHandlerSourceArtifacts).sort(([left], [right]) =>
-          left < right ? -1 : left > right ? 1 : 0,
+// Only the frozen, in-memory code manifest is reusable. Mutable test manifests,
+// filesystem observations, settings and native executable identities stay fresh.
+const immutableCodeClosures = new WeakMap<object, string>();
+export function ordinaryLocalCodexHostContractRevision(
+  executableSha256: string,
+  codeModeHostSha256: string,
+): string {
+  const artifacts = reviewedHandlerSourceArtifacts;
+  const immutable = Object.isFrozen(artifacts);
+  let codeClosure = immutable ? immutableCodeClosures.get(artifacts) : undefined;
+  if (codeClosure === undefined) {
+    codeClosure = createHash('sha256')
+      .update(
+        JSON.stringify(
+          Object.entries(artifacts).sort(([left], [right]) =>
+            left < right ? -1 : left > right ? 1 : 0,
+          ),
         ),
-      ),
-    )
-    .digest('hex');
+      )
+      .digest('hex');
+    if (immutable) immutableCodeClosures.set(artifacts, codeClosure);
+  }
   return createHash('sha256')
     .update(
       JSON.stringify([
-        'ordinary-local-codex-host-v1',
+        'ordinary-local-codex-host-v2',
         reviewedConnectionsRuntimeImplementationRevision,
         codeClosure,
         SUPPORTED_CODEX_CLI_VERSION,
         executableSha256,
+        codeModeHostSha256,
       ]),
     )
     .digest('hex');
@@ -87,6 +107,7 @@ export class OrdinaryLocalCodexHostRuntime {
   readonly #env: Readonly<NodeJS.ProcessEnv>;
   readonly #native: z.infer<typeof Native>;
   readonly #measurement: ReturnType<typeof measureHostCodexExecutable>;
+  readonly #codeModeHost: ReturnType<typeof measureHostCodexExecutable>;
   readonly #target: OrdinaryLocalCodexTarget;
   constructor(env: Readonly<NodeJS.ProcessEnv> = process.env) {
     try {
@@ -97,14 +118,27 @@ export class OrdinaryLocalCodexHostRuntime {
       this.#target = new OrdinaryLocalCodexTarget(
         readPrivateRuntimeSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE),
       );
-      this.#measurement = measureHostCodexExecutable(this.#native.executablePath);
+      [this.#measurement, this.#codeModeHost] = observeLocalCodexSyncPhase(
+        'native_measurement',
+        () =>
+          [
+            measureHostCodexExecutable(this.#native.executablePath),
+            measureHostCodexExecutable(
+              join(dirname(this.#native.executablePath), 'codex-code-mode-host'),
+            ),
+          ] as const,
+      );
       this.assertCurrentSync();
       const selectors = [
         this.#env.MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE!,
         this.#env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE!,
       ];
       registerWorkspaceRuntimeAuthorityPaths(
-        [...selectors, this.#native.executablePath],
+        [
+          ...selectors,
+          this.#native.executablePath,
+          join(dirname(this.#native.executablePath), 'codex-code-mode-host'),
+        ],
         selectors,
       );
     } catch {
@@ -116,6 +150,62 @@ export class OrdinaryLocalCodexHostRuntime {
       readPrivateRuntimeSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE),
     );
   }
+  /** Current measured host qualifies a retained identity without rewriting it. */
+  continuationDeclaration(targetRevision: string) {
+    this.assertCurrentSync();
+    const target = this.target();
+    if (!target.compatibleTargetRevisions(this.#measurement.sha256).includes(targetRevision))
+      throw unavailable();
+    return { ...target.admissionDeclaration(), targetRevision };
+  }
+  continuationConfiguration(catalog: OrdinaryLocalCodexCapabilityCatalog, targetRevision: string) {
+    const declaration = this.continuationDeclaration(targetRevision);
+    return {
+      declaration,
+      catalog: {
+        inventory: () => catalog.inventory(),
+        resolve: (input: unknown) => {
+          const resolved = catalog.resolve(input);
+          return resolved.status === 'compatible' &&
+            resolved.binding.execution.targetId === declaration.targetId
+            ? {
+                ...resolved,
+                binding: {
+                  ...resolved.binding,
+                  execution: { ...resolved.binding.execution, targetRevision },
+                },
+              }
+            : resolved;
+        },
+      },
+    };
+  }
+  /** Exact published v1 observation format for rechecking its original private
+   * credential digest. Only the reviewed legacy target qualifies; current
+   * deployment/native authority is independently verified before reconstruction.
+   */
+  async legacyObservation(targetRevision: string) {
+    this.continuationDeclaration(targetRevision);
+    const current = await this.observe();
+    if (
+      !reviewedLegacyHostTargetRevisions(
+        current.targetId,
+        current.hostId,
+        current.executableSha256,
+      ).includes(targetRevision)
+    )
+      throw unavailable();
+    const runtimeContractRevision = reviewedLegacyHostContractRevision(current.executableSha256);
+    if (!runtimeContractRevision) throw unavailable();
+    return {
+      hostId: current.hostId,
+      runtimeContractRevision,
+      targetId: current.targetId,
+      targetRevision,
+      executablePath: current.executablePath,
+      executableSha256: current.executableSha256,
+    };
+  }
   assertCurrentSync(): void {
     const native = Native.parse(
       readPrivateRuntimeSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE),
@@ -125,14 +215,17 @@ export class OrdinaryLocalCodexHostRuntime {
     if (
       native.executablePath !== this.#native.executablePath ||
       native.executableSha256 !== this.#native.executableSha256 ||
+      native.codeModeHostSha256 !== this.#native.codeModeHostSha256 ||
+      this.#codeModeHost.sha256 !== native.codeModeHostSha256 ||
       this.#measurement.sha256 !== native.executableSha256 ||
       JSON.stringify(original) !== JSON.stringify(current) ||
       current.hostId !== hostname() ||
       current.runtimeContractRevision !==
-        ordinaryLocalCodexHostContractRevision(native.executableSha256)
+        ordinaryLocalCodexHostContractRevision(native.executableSha256, native.codeModeHostSha256)
     )
       throw unavailable();
     this.#measurement.assertCurrent();
+    this.#codeModeHost.assertCurrent();
   }
   async observe(): Promise<FrozenHostCodexRuntimeObservation> {
     try {
@@ -142,11 +235,14 @@ export class OrdinaryLocalCodexHostRuntime {
         hostId: hostname(),
         runtimeContractRevision: ordinaryLocalCodexHostContractRevision(
           this.#native.executableSha256,
+          this.#native.codeModeHostSha256,
         ),
         targetId: declaration.targetId,
         targetRevision: declaration.targetRevision,
+        compatibleTargetRevisions: this.#target.compatibleTargetRevisions(this.#measurement.sha256),
         executablePath: this.#native.executablePath,
         executableSha256: this.#measurement.sha256,
+        codeModeHostSha256: this.#codeModeHost.sha256,
       };
     } catch {
       throw unavailable();

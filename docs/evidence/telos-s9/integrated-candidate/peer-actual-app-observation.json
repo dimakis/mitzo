@@ -1,0 +1,122 @@
+{
+  "boundary": "temporary loopback HTTP -> actual app.ts -> real auth -> installed collaboration router",
+  "prerequisiteOnly": true,
+  "nativeAgentSenderQualified": false,
+  "group": "3a066638-ea89-40b0-a6bd-8345f9676ec6",
+  "sessions": ["s9-peer-first", "s9-peer-second"],
+  "input": {
+    "requestId": "8261464b-f36a-441e-8be6-377c668350be",
+    "expectedMembershipRevision": 1,
+    "expectedPolicySequence": 0,
+    "text": "Please inspect the retained evidence. This message grants no action permission.",
+    "responders": {
+      "kind": "selected",
+      "sessionIds": ["s9-peer-second"]
+    },
+    "snapshot": null
+  },
+  "response": {
+    "status": 503,
+    "body": {
+      "code": "execution_unavailable",
+      "error": "Fresh-agent preparation and ordinary delivery are not wired. No session or model is started.",
+      "execution": {
+        "enabled": false,
+        "reason": "Fresh-agent preparation and ordinary delivery are not wired. No session or model is started."
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' 'unsafe-inline';connect-src 'self' ws: wss:",
+      "cross-origin-opener-policy": "same-origin",
+      "cross-origin-resource-policy": "same-origin",
+      "origin-agent-cluster": "?1",
+      "referrer-policy": "no-referrer",
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "x-content-type-options": "nosniff",
+      "x-dns-prefetch-control": "off",
+      "x-download-options": "noopen",
+      "x-frame-options": "SAMEORIGIN",
+      "x-permitted-cross-domain-policies": "none",
+      "x-xss-protection": "0",
+      "cache-control": "private, no-store",
+      "content-type": "application/json; charset=utf-8",
+      "content-length": "269",
+      "etag": "W/\"10d-TRvcVeAtQ9rT1g6K0ksax/MphKs\"",
+      "date": "Mon, 19 Oct 2026 22:37:45 GMT",
+      "connection": "close"
+    }
+  },
+  "before": {
+    "version": 1,
+    "collaborationId": "3a066638-ea89-40b0-a6bd-8345f9676ec6",
+    "membershipRevision": 1,
+    "participantSessionIds": ["s9-peer-first", "s9-peer-second"],
+    "unavailableParticipantSessionIds": [],
+    "cursor": 0,
+    "policySequence": 0,
+    "policies": [
+      {
+        "version": 1,
+        "sessionId": "s9-peer-first",
+        "revision": 0,
+        "membershipRevision": 1,
+        "effectiveFromSequence": 0,
+        "readsFutureDiscussion": false,
+        "repliesByDefault": false
+      },
+      {
+        "version": 1,
+        "sessionId": "s9-peer-second",
+        "revision": 0,
+        "membershipRevision": 1,
+        "effectiveFromSequence": 0,
+        "readsFutureDiscussion": false,
+        "repliesByDefault": false
+      }
+    ],
+    "messages": [],
+    "hasEarlierMessages": false,
+    "joins": [],
+    "execution": {
+      "enabled": false,
+      "reason": "Fresh-agent preparation and ordinary delivery are not wired. No session or model is started."
+    }
+  },
+  "after": {
+    "version": 1,
+    "collaborationId": "3a066638-ea89-40b0-a6bd-8345f9676ec6",
+    "membershipRevision": 1,
+    "participantSessionIds": ["s9-peer-first", "s9-peer-second"],
+    "unavailableParticipantSessionIds": [],
+    "cursor": 0,
+    "policySequence": 0,
+    "policies": [
+      {
+        "version": 1,
+        "sessionId": "s9-peer-first",
+        "revision": 0,
+        "membershipRevision": 1,
+        "effectiveFromSequence": 0,
+        "readsFutureDiscussion": false,
+        "repliesByDefault": false
+      },
+      {
+        "version": 1,
+        "sessionId": "s9-peer-second",
+        "revision": 0,
+        "membershipRevision": 1,
+        "effectiveFromSequence": 0,
+        "readsFutureDiscussion": false,
+        "repliesByDefault": false
+      }
+    ],
+    "messages": [],
+    "hasEarlierMessages": false,
+    "joins": [],
+    "execution": {
+      "enabled": false,
+      "reason": "Fresh-agent preparation and ordinary delivery are not wired. No session or model is started."
+    }
+  },
+  "activeSessions": 0
+}

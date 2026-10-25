@@ -1,0 +1,50 @@
+{
+  "executionHead": "ab2c1f6617053f81364025cafe6d6116d6d16cce",
+  "executionTree": "1ed4db82b7e1613a8f5d70ae4290dbc7279ba151",
+  "scope": "Root direct inspection of four complete retained390x844 App captures for the unchanged Home-return case; independent raw/source/effect audit pending",
+  "captures": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS/exact-s7-correction/source-only-workspace-back-after-home.png",
+      "sha256": "b74a0a5aef14f00b380bc7add8d102fc33ed6931026cd19b22ee1bb8cfdec600",
+      "bytes": 47175,
+      "width": 390,
+      "height": 844
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS/exact-s7-correction/source-only-unassigned-studio-overview.png",
+      "sha256": "25b23f55464a62e3a8f6a2637dd5a6db0851fe879fee365cdcd10717d8439b36",
+      "bytes": 52382,
+      "width": 390,
+      "height": 844
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS/exact-s7-correction/source-only-from-actual-home-explicit-chat-tab.png",
+      "sha256": "656a1ae89f4b3aa9b39f5f1d4f205e57fa3792126bcb01964f3e483c5ef76e23",
+      "bytes": 53353,
+      "width": 390,
+      "height": 844
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-SOURCE-ONLY-S7-RETAKE-DIAGNOSTICS/exact-s7-correction/source-only-origin-draft-retained-after-home.png",
+      "sha256": "954db527c94d4de28eb76f5d160e34806f9e56d314516c6fa03d70be2e97249e",
+      "bytes": 36306,
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "observations": [
+    "Workspace Back now visibly returns to Today/Home with original Home studio Work pin; Today navigation selected",
+    "StudioOverview shows explicit choose lead affordance and child worker unassigned",
+    "ExplicitChat tab shows Chats1 and original originating conversation plus separate choose lead/Newchat affordances",
+    "Original planning chat retains the exact unsent draft after Home navigation; visibleoriginalexchange retained"
+  ],
+  "approvedContractReference": "UX03 previous context; dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255",
+  "noNewStylesInCorrection": true,
+  "limits": [
+    "No inferred browser focus restoration from focus styling alone",
+    "No standalone approved-mock visual-render access or alternative renderer used",
+    "No native source creation/adoption/Homepinning proof; pre-Appsyntheticseed remains explicit",
+    "No restart/device/theme/fullUX/currentmain/native/live/model qualification",
+    "One actualAppcase reported, screenshots/observations notadditionaltestpasses"
+  ]
+}

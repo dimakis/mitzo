@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
+import { readOnlyGitExecutable } from './read-only-git.js';
 import {
   inspectLocalRepositoryWorktree,
   type LocalRepositorySource,
@@ -75,7 +76,7 @@ export async function snapshotRepositoryTaskCheckout(
     throw new Error('Retained repository task branch changed');
   const runGit = (args: string[]) =>
     run(
-      'git',
+      readOnlyGitExecutable(),
       [
         '--no-replace-objects',
         '-c',

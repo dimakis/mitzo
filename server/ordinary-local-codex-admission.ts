@@ -1,3 +1,4 @@
+import { findNativeMacExecutionUnavailable } from './codex-native-artifact-qualification.js';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
@@ -505,12 +506,16 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
         }
         if (!d.bootstrapAuthority && !claim()) return { dispatched: false };
         try {
-          await lease.assertCurrent();
+          // Bootstrap already claimed before the first fence. Only ordinary
+          // admission crosses a new durable claim here and needs another read.
+          if (!d.bootstrapAuthority) await lease.assertCurrent();
           await prepareWorkspace(structuredClone(snapshot));
           await lease.assertCurrent();
           await dispatch(structuredClone(snapshot), request.clientMsgId);
           d.store.completeOrdinaryLocalCommand(request.clientMsgId);
-        } catch {
+        } catch (error) {
+          const capabilityError = findNativeMacExecutionUnavailable(error);
+          if (capabilityError) throw capabilityError;
           fail('dispatch_uncertain');
         }
         return { dispatched: true };
@@ -524,6 +529,8 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       if (!result) fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable');
       return result;
     } catch (error) {
+      const capabilityError = findNativeMacExecutionUnavailable(error);
+      if (capabilityError) throw capabilityError;
       if (error instanceof OrdinaryLocalCodexAdmissionError) throw error;
       fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable');
     }

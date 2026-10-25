@@ -251,24 +251,27 @@ it.each([false, true])(
       );
       db.close();
     }
-    const foreignToken = (await auth.login('test-passphrase-for-vitest'))!;
-    const foreign = (await auth.authenticateToken(foreignToken))!;
-    const foreignConnection = randomUUID();
-    const detachForeign = bindAgentLibraryTransport(foreignConnection, foreign);
+    // A second verified login is another device for the same primary operator.
+    const otherDeviceToken = (await auth.login('test-passphrase-for-vitest'))!;
+    const otherDevice = (await auth.authenticateToken(otherDeviceToken))!;
+    const otherDeviceConnection = randomUUID();
+    const detachOtherDevice = bindAgentLibraryTransport(otherDeviceConnection, otherDevice);
     streams.add(
-      foreignConnection,
+      otherDeviceConnection,
       { write: vi.fn(() => true), end: vi.fn(), writableEnded: false } as unknown as Response,
-      foreign.id,
+      otherDevice.id,
     );
-    connections.register(foreignConnection, new SseTransport(foreignConnection, streams));
-    transportAuth.claimTransportConnection(foreignConnection, foreign.id);
+    connections.register(otherDeviceConnection, new SseTransport(otherDeviceConnection, streams));
+    transportAuth.claimTransportConnection(otherDeviceConnection, otherDevice.id);
     transportCleanup.push(() => {
-      streams.remove(foreignConnection);
-      transportAuth.releaseTransportConnection(foreignConnection, foreign.id);
-      detachForeign();
-      auth.revokeAuthSession(foreign);
+      streams.remove(otherDeviceConnection);
+      transportAuth.releaseTransportConnection(otherDeviceConnection, otherDevice.id);
+      detachOtherDevice();
+      auth.revokeAuthSession(otherDevice);
     });
-    expect((await send(wire, foreignToken, foreignConnection)).status).toBe(403);
+    expect((await send(wire, otherDeviceToken, otherDeviceConnection)).status).toBe(202);
+    auth.revokeAuthSession(otherDevice);
+    expect((await send(wire, otherDeviceToken, otherDeviceConnection)).status).toBe(401);
     expect((await send(wire)).status).toBe(202);
     const { repositoryPreparedCommandStatus } = await import('../repository-prepared-command.js');
     const firstOnlyAuthority = vi.fn(() => {
@@ -291,6 +294,12 @@ it.each([false, true])(
     expect(turns).toBe(1);
     expect(launch).toHaveBeenCalledOnce();
     const native = await import('../codex-chat-session.js');
+    expect(
+      native
+        .getCodexConversationStore()
+        .readHostCustody(first.reservation.conversationId, first.reservation.binding)
+        ?.authSessionId,
+    ).toBe(actor.id);
     expect(
       native
         .getCodexConversationStore()

@@ -1,0 +1,167 @@
+{
+  "retained": [
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-TASK-CHAT-TREE-S8-GREEN-REVIEW.md",
+      "retained": "root-S9-TASK-CHAT-TREE-S8-GREEN-REVIEW.md",
+      "bytes": 5220,
+      "sha256": "8501890f9bf5ea760177d42e0798cc6c0121b3a2f05a897377b95dbdde8bb7b3",
+      "byteExact": true
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-TASK-CHAT-TREE-S8-GREEN-REVIEW.json",
+      "retained": "root-S9-TASK-CHAT-TREE-S8-GREEN-REVIEW.json",
+      "bytes": 135495,
+      "sha256": "9899106d0dbec919654ddb4c1c8a43b4a623fc222a682273d8a489cd65beafbe",
+      "byteExact": true
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S8-TASK-ASSOCIATION-ROOT-SOURCE-CLOSURE.json",
+      "retained": "root-S8-TASK-ASSOCIATION-ROOT-SOURCE-CLOSURE.json",
+      "bytes": 1899,
+      "sha256": "77af93a581aeb2acc59f52bf92d607329b379c77d4ad3f7644635774dc99651b",
+      "byteExact": true
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-CHAT-TREE-S8-RETAKE-DIAGNOSTICS/exact-s8-correction/run.json",
+      "retained": "original-bbf04-green-run.json",
+      "bytes": 1146,
+      "sha256": "2e0e8a0e41f9e66346691ba9069c056c876dd96a0e947c9dbcca14c33a554452",
+      "byteExact": true
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-CHAT-TREE-S8-RETAKE-DIAGNOSTICS/exact-s8-correction/run.log",
+      "retained": "original-bbf04-green-run.log",
+      "bytes": 695,
+      "sha256": "4168200f9fbc136df5eaeee3845365e67958c8e7a423c8f5ed70dca1f45f02e0",
+      "byteExact": true
+    },
+    {
+      "sourcePath": "foundation-evidence/acceptance-sixteenth-dependency-assessment.json",
+      "retained": "reused-dependency-assessment.json",
+      "bytes": 4183,
+      "sha256": "d561983cc2d9f1fc2ebfb1af4391658a1c74d59c4acd162e4c76752b44b96000",
+      "byteExact": true
+    },
+    {
+      "sourcePath": "foundation-evidence/acceptance-sixteenth-reused-erased-proof.json",
+      "retained": "existing-fixture-erasure-proof.json",
+      "bytes": 327,
+      "sha256": "c107a1cae24ae9bfe6eea0c6d595243aa3eab330333de0a12c649a17b17e7900",
+      "byteExact": true
+    },
+    {
+      "sourcePath": "foundation-evidence/acceptance-sixteenth-all-production-source-differences.json",
+      "retained": "inherited-production-source-identities.json",
+      "bytes": 2452,
+      "sha256": "1f87c48af5fc87843a8448015f672e7f5e5cc3b75b9070bd91bc24fcaadb5e91",
+      "byteExact": true
+    },
+    {
+      "sourcePath": "foundation-evidence/acceptance-sixteenth-production-boundary-identities.json",
+      "retained": "direct-production-boundary-identities.json",
+      "bytes": 7006,
+      "sha256": "cd131b7f5f0eba5a439323bbf602b21e87e77e28723325939a0e228db1dac65a",
+      "byteExact": true
+    }
+  ],
+  "originalRedsPreservedAtSource": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-CHAT-TREE-RESULT.json",
+      "bytes": 2998090,
+      "sha256": "436ae936e8507ce711aaf01c325b611e69263edb1e1537110172d8393bf06d0e",
+      "executionHead": "f507f944a73fac7be662dc83cf347f60e0df5ca5",
+      "selectedResult": {
+        "cases": 1,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "durationMs": 37867.164306640625,
+        "disposition": "RED_three_missing_exact_attempt_associated_chat_tree_row_observations"
+      },
+      "raw": [
+        {
+          "role": "rawSelectedResult",
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-CHAT-TREE-DIAGNOSTICS/observer-corrected-baseline-red/run.json",
+          "sha256": "c40ba0abdbeb2dbd1917186c3f961e7d56011c30b532a335f6ef7ce2becc6d28",
+          "size": 3173
+        },
+        {
+          "role": "initialDiagnostic",
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-CHAT-TREE-INITIAL-DIAGNOSTIC.json",
+          "sha256": "38e056dccba4b6fe862efa19a590a54932d9ce3001982d4b6b0996f09964895e",
+          "size": 7056
+        }
+      ]
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-READABILITY-RESULT.json",
+      "bytes": 920292,
+      "sha256": "04a2c5dcd7d0885849e433b392d709fc0fdd58a545c7fdb0c9aa4643dfa60ea4",
+      "executionHead": "f04f922aeddb9fa70e568992bbba090b6f98a806",
+      "selectedResult": {
+        "cases": 1,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "durationMs": 26802.2978515625,
+        "disposition": "RED_missing_worker_session_link_in_actual_TaskBoard"
+      },
+      "raw": [
+        {
+          "role": "rawSelectedResult",
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-READABILITY-DIAGNOSTICS/private-css-retake/run.json",
+          "sha256": "063bf6e29bc3de66eb8cb5a95bbe671f8b06ad95ea3a73059d20fa07c718ab07",
+          "size": 4792
+        },
+        {
+          "role": "rawBaselineResult",
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-READABILITY-DIAGNOSTICS/same-source-baseline-red/run.json",
+          "sha256": "d60783748c87c7597f3a44ec8955091bc818ec539233e0a5bbe6f5f52bacdc87",
+          "size": 19184
+        }
+      ]
+    }
+  ],
+  "sourceQualifiedGreen": {
+    "head": "bbf04d660adc62618824b69124d8d3a53ff5659d",
+    "tree": "cd02dcec14e466d5e435ef62a6cf9570296f3551",
+    "raw": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-CHAT-TREE-S8-RETAKE-DIAGNOSTICS/exact-s8-correction/run.json",
+      "sha256": "2e0e8a0e41f9e66346691ba9069c056c876dd96a0e947c9dbcca14c33a554452",
+      "size": 1146,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0,
+      "durationMs": 29255.311279296875
+    },
+    "sourceArchive": {
+      "sha256": "0919519b6dc3044d74dce3640451a65d1cd81969ef1cc4686bb8a4de634cad87",
+      "bytes": 3641451
+    },
+    "diagnosticsArchive": {
+      "sha256": "9479bd747cbdd43f59849fb1ec7c180c1a29398cc3878a54da197ef2802a1f95",
+      "bytes": 1059606
+    }
+  },
+  "threeNewFiles": [
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/task-chat-tree-app.contract.ts",
+      "sha256AtIntake": "cb059caa2733e2442fd34d2fb544d0e9ddc6e2e4ee1310c2878c9e62916a1dfe",
+      "byteExactFrozen": true
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/task-chat-tree-geometry.ts",
+      "sha256AtIntake": "bd72de1b8ba7afe8565118f111b142fdc049d65062b9efd85bbaaeed467dad18",
+      "byteExactFrozen": true
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/vitest.task-chat-tree-app.config.ts",
+      "sha256AtIntake": "a3388cc11e91d843e81048c9beceb48ebeb98ec7d532c546e36334201bcb79f6",
+      "byteExactFrozen": true
+    }
+  ],
+  "currentRuntimeRun": false,
+  "knownDependencies": ["Accepted1057 task association predicate", "LaterS7CSS corrective"],
+  "existingFixtureEdited": false,
+  "newAssertionsEdited": false
+}
