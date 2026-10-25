@@ -98,7 +98,13 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
           setSecret('');
           setPassphrase('');
         }
-        setSetup(next);
+        setSetup(
+          next.expiresAt <= Date.now() &&
+            ('targets' in next || next.status !== 'ready') &&
+            !['cancelled', 'unconfirmed'].includes(next.status)
+            ? { ...next, status: 'expired' }
+            : next,
+        );
         setError(next.error || (next.status === 'pending' ? submissionError.current : ''));
         setUncertain(false);
       }
@@ -170,7 +176,9 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
       setup.targets.some(
         (t, i) =>
           t.adapter === 'browser' &&
-          ['not_sent', 'challenge_required'].includes(setup.outcomes[i]?.outcome ?? 'not_sent'),
+          ['not_sent', 'unconfirmed', 'challenge_required'].includes(
+            setup.outcomes[i]?.outcome ?? 'not_sent',
+          ),
       );
     if (busy || (setup?.status !== 'verifying' && !browserPending)) return;
     let polling = false;

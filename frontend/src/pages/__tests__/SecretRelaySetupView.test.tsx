@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ConnectionSetupView } from '../ConnectionSetupView';
@@ -189,4 +189,76 @@ it('submits a masked one-time code privately and clears it before the request se
     outcomes: [{ outcome: 'challenge_required', challenge: 'code_ready' }],
   } as never);
   await screen.findByText(/Verification code is ready/);
+});
+
+it('keeps observing a delayed browser sign-in through multiple intermediate unconfirmed receipts', async () => {
+  vi.useFakeTimers();
+  try {
+    const relay = {
+      id: 'delayed',
+      sessionId: 'chat',
+      revision: 3,
+      status: 'ready' as const,
+      expiresAt: Date.now() + 30000,
+      label: 'Browser password',
+      setupUrl: '/connections/secrets/delayed',
+      targets: [
+        {
+          adapter: 'browser' as const,
+          origin: 'https://service.example',
+          endpoint: 'https://service.example',
+          label: 'Service',
+          allowPrivateNetwork: false,
+          requests: [{ path: '/login', methods: ['GET', 'POST'] }],
+          login: { path: '/login', passwordSelector: '#password', submitSelector: '#login' },
+          verification: { path: '/whoami', pointer: '/authenticated', equals: true },
+          actions: [],
+        },
+      ],
+      outcomes: [{ outcome: 'not_sent' as const }],
+    };
+    const uncertain = { ...relay, outcomes: [{ outcome: 'unconfirmed' as const }] };
+    const challenge = {
+      ...relay,
+      revision: 4,
+      outcomes: [{ outcome: 'challenge_required' as const, challenge: 'awaiting_code' as const }],
+    };
+    vi.mocked(api.getSecretRelay)
+      .mockReset()
+      .mockResolvedValueOnce(relay)
+      .mockResolvedValueOnce(uncertain)
+      .mockResolvedValueOnce(uncertain)
+      .mockResolvedValue(challenge);
+    render(
+      <MemoryRouter initialEntries={['/connections/secrets/delayed']}>
+        <Routes>
+          <Route
+            path="/connections/secrets/:setupId"
+            element={<ConnectionSetupView secretRelay />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    for (let i = 0; i < 3; i++)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+    expect(screen.getByLabelText('Verification code')).toBeTruthy();
+    expect(api.getSecretRelay).toHaveBeenCalledTimes(4);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+    const calls = vi.mocked(api.getSecretRelay).mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(api.getSecretRelay).toHaveBeenCalledTimes(calls);
+    expect(screen.queryByLabelText('Verification code')).toBeNull();
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
 });
