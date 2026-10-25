@@ -41,10 +41,12 @@ export async function localRepositoryNativeToolFixture(
     readableRoots?: readonly string[];
     registeredExecutablePath?: string;
     resumeFromPreviousLogin?: boolean;
+    continuityV2?: boolean;
   } = {},
 ) {
   const f = await ownedRuntimeFixture(cleanups, {
     api: options.api,
+    continuityV2: options.continuityV2,
     localRepository: options.api,
     // Legacy default selection permits these actual read tools.
     ...(options.registeredExecutablePath
@@ -71,6 +73,21 @@ export async function localRepositoryNativeToolFixture(
     dispatch.admission.persistCustody(native);
     native.bindThread(dispatch.sessionId, dispatch.lease.binding, `thread-${dispatch.sessionId}`);
     previous.close();
+    if (options.registeredExecutablePath) {
+      // Seed an earlier thread on the same registered runtime surface without
+      // executing a provider/model turn. initialize supplies its actual revision;
+      // a resumed thread correctly omits dynamicTools from its RPC parameters.
+      const originalCreate = native.create;
+      const seed = vi
+        .spyOn(native, 'create')
+        .mockImplementation((id, binding, cwd, revision, kind) => {
+          if (id === dispatch.sessionId && revision) {
+            native.bindThread(id, binding, `thread-${id}`, revision);
+            seed.mockRestore();
+          }
+          return originalCreate.call(native, id, binding, cwd, revision, kind);
+        });
+    }
   }
   f.detach();
   const token = await login(process.env.AUTH_PASSPHRASE!);
@@ -148,7 +165,12 @@ export async function localRepositoryNativeToolFixture(
         return originalRequest(method);
       },
     );
-    const metrics = { syncCalls: 0, syncMs: 0, asyncCalls: 0, asyncMs: 0 };
+    const metrics = {
+      syncCalls: 0,
+      syncMs: 0,
+      asyncCalls: 0,
+      asyncMs: 0,
+    };
     let initial!: OrdinaryLocalCodexOwnedDispatch;
     const driver = new OrdinaryLocalCodexOwnedRuntime({
       ...selected.dependencies,

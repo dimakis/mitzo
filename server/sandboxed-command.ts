@@ -1,3 +1,4 @@
+import { repositoryObservationProgram } from './native-repository-observation.js';
 import { nativePreparationPublicationWriteRoots } from './native-preparation-publication.js';
 import {
   privateRepositoryCheckoutCommand,
@@ -8,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { readFileSync, realpathSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { AuthoritySnapshot, identity, validatePath } from './sandbox-authority.js';
 import type { SandboxWorkerPayload } from './sandboxed-command-worker.js';
 import { tmpdir } from 'node:os';
@@ -16,6 +17,9 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import {
   freezeNativeReadExclusions,
   privateNativeFileHelperCommand,
+  nativeFileHelperProgram,
+  privateNativeFileProgramCommand,
+  privateRepositoryObservationCommand,
   projectPrivateNativeFileHelperRequest,
   type NativeReadAnchor,
 } from './native-file-operation.js';
@@ -55,6 +59,7 @@ export interface PrivateNativeFileHelperOptions {
   revalidate(): Promise<void>;
 }
 interface PrivateHelperScope {
+  readonly repositoryReadJson?: string;
   readonly requestJson?: string;
   readonly checkoutJson?: string;
   readonly ownedAuthority?: ReturnType<AuthoritySnapshot['serialize']>;
@@ -563,6 +568,37 @@ export async function executeSandboxedCommand(
   return runSandboxedCommand(options);
 }
 
+/** The fixed metadata reader needs no proxy, SRT singleton or worker runtime.
+ * Use SRT's pure macOS profile generator with NO network or socket allowances.
+ * General shell commands continue through their existing isolated worker. */
+export async function executePrivateRepositoryObservation(
+  options: SandboxedCommandOptions & { requestJson: string },
+) {
+  const command = privateRepositoryObservationCommand(options.requestJson);
+  const request = JSON.parse(options.requestJson);
+  if (
+    process.platform !== 'darwin' ||
+    command !== options.command ||
+    options.networkAccess ||
+    options.privateOutput !== 'separate' ||
+    !privateLiteral(options.cwd) ||
+    options.writableRoots.length !== 1 ||
+    options.writableRoots[0] !== options.cwd ||
+    Object.keys(options.env).length !== 1 ||
+    options.env.PATH !== '/usr/bin:/bin' ||
+    JSON.stringify(freezeNativeReadExclusions(options.deniedRoots)) !==
+      JSON.stringify(freezeNativeReadExclusions(request.repositoryPlan.deniedRoots))
+  )
+    throw Error('Private repository reader unavailable');
+  const cwd = identity(options.cwd);
+  if (!cwd?.isDirectory()) throw Error('Private repository reader unavailable');
+  return runSandboxedCommand(options, {
+    repositoryReadJson: options.requestJson,
+    deadline: Date.now() + Math.min(options.timeoutMs ?? 30000, request.timeoutMs),
+    cwdIdentity: { dev: cwd.dev.toString(), ino: cwd.ino.toString() },
+  });
+}
+
 async function runSandboxedCommand(
   options: SandboxedCommandOptions,
   privateHelper?: PrivateHelperScope,
@@ -695,6 +731,17 @@ async function runSandboxedCommand(
         allowAppleEvents: false,
       },
     };
+    if (privateHelper?.requestJson) {
+      const programPath = join(temporary, 'helper.py'),
+        requestPath = join(temporary, 'request.json');
+      await writeFile(programPath, nativeFileHelperProgram, { flag: 'wx', mode: 0o400 });
+      await writeFile(requestPath, privateHelper.requestJson, { flag: 'wx', mode: 0o400 });
+      authority.capture(programPath, true);
+      authority.capture(requestPath, true);
+      payload.authority = authority.serialize();
+      payload.command = privateNativeFileProgramCommand(programPath, requestPath);
+      payload.privateNativeFileProgram = { programPath, requestPath };
+    }
     await writeFile(settings, JSON.stringify(payload), { mode: 0o600 });
     const env: Record<string, string> = { PATH: '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin' };
     for (const [name, value] of Object.entries(options.env)) {
@@ -702,6 +749,37 @@ async function runSandboxedCommand(
         env[name] = value;
     }
     Object.assign(env, { HOME: home, TMPDIR: scratch, CLAUDE_CODE_TMPDIR: scratch });
+    let repositoryCommand: string | undefined;
+    if (privateHelper?.repositoryReadJson) {
+      if (options.command !== privateRepositoryObservationCommand(privateHelper.repositoryReadJson))
+        throw Error('Private repository reader unavailable');
+      const directory = dirname(require.resolve('@anthropic-ai/sandbox-runtime'));
+      const { wrapCommandWithSandboxMacOS } = await import(
+        pathToFileURL(join(directory, 'sandbox', 'macos-sandbox-utils.js')).href
+      );
+      const program = join(temporary, 'repository-read.py');
+      await writeFile(program, repositoryObservationProgram, { flag: 'wx', mode: 0o400 });
+      authority.capture(program, true);
+      const quotedProgram = "'" + program.replaceAll("'", "'\\''") + "'";
+      repositoryCommand = await wrapCommandWithSandboxMacOS({
+        command: `/usr/bin/python3 -I ${quotedProgram}`,
+        binShell: '/bin/sh',
+        needsNetworkRestriction: true,
+        allowAllUnixSockets: false,
+        allowLocalBinding: false,
+        allowAppleEvents: false,
+        allowPty: false,
+        enableWeakerNetworkIsolation: false,
+        readConfig: {
+          denyOnly: payload.config.filesystem.denyRead,
+          allowWithinDeny: payload.config.filesystem.allowRead,
+        },
+        writeConfig: {
+          allowOnly: payload.config.filesystem.allowWrite,
+          denyWithinAllow: payload.config.filesystem.denyWrite,
+        },
+      });
+    }
     options.signal.throwIfAborted();
     await options.beforeSpawnAsync?.();
     return await new Promise((resolveResult) => {
@@ -710,12 +788,20 @@ async function runSandboxedCommand(
       // No await between revalidating authority and handing policy to the child.
       authority.verify();
       if (privateHelper) options.beforeSpawn?.();
-      const child = spawn(process.execPath, [...workerArgs, settings], {
-        cwd: options.cwd,
-        env,
-        detached: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
+      const child = spawn(
+        repositoryCommand ? '/bin/sh' : process.execPath,
+        repositoryCommand ? ['-c', repositoryCommand] : [...workerArgs, settings],
+        {
+          cwd: options.cwd,
+          env,
+          detached: true,
+          stdio: [repositoryCommand ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+        },
+      );
+      if (repositoryCommand) {
+        child.stdin?.on('error', () => {});
+        child.stdin?.end(privateHelper!.repositoryReadJson);
+      }
       let failure: string | undefined;
       let size = 0;
       const chunks: Buffer[] = [];

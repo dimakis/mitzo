@@ -591,3 +591,13 @@ it('rejects a widened existing common-directory grant before invoking the origin
   expect(owner).not.toHaveBeenCalled();
   await expect(lstat(f.task)).rejects.toMatchObject({ code: 'ENOENT' });
 });
+it('retains a complete ordinary repository manifest larger than the former inline-shell ceiling', async () => {
+  const f = await fixture();
+  const entries = Array.from({ length: 1000 }, (_, index) => ({
+    ...f.plan.tree.entries[0],
+    path: `source-file-${index.toString().padStart(4, '0')}.ts`,
+  }));
+  const plan = { ...f.plan, tree: { ...f.plan.tree, entries } };
+  expect(Buffer.byteLength(JSON.stringify(plan))).toBeGreaterThan(120 * 1024);
+  expect(projectNativePreparationPublicationPlan(plan).tree.entries).toHaveLength(1000);
+});

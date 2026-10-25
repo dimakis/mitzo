@@ -312,3 +312,52 @@ it('rejects substituted private checkout commands before sandbox setup', async (
   expect(manager.initialize).not.toHaveBeenCalled();
   expect(spawn).not.toHaveBeenCalled();
 });
+it('validates fixed private program and request bytes again after asynchronous sandbox wrapping', async () => {
+  const {
+    nativeFileHelperProgram,
+    privateNativeFileProgramCommand,
+    projectPrivateNativeFileHelperRequest,
+  } = await import('../native-file-operation.js');
+  const { payload, manager, spawn } = fixture();
+  vi.stubEnv('HOME', join(root, 'home'));
+  const programPath = join(root, 'helper.py'),
+    requestPath = join(root, 'request.json');
+  const rootInfo = new AuthoritySnapshot();
+  rootInfo.capture(root);
+  const rootIdentity = rootInfo.serialize().find((item) => item.path === root)!.stat!;
+  const requestJson = projectPrivateNativeFileHelperRequest(
+    JSON.stringify({
+      operation: 'CreateDirectory',
+      identity: null,
+      limit: 1,
+      timeoutMs: 1000,
+      file_path: join(root, 'target'),
+      rootAnchor: { rootPath: root, identity: { dev: rootIdentity.dev, ino: rootIdentity.ino } },
+      parentIdentity: { dev: rootIdentity.dev, ino: rootIdentity.ino },
+      expectedAbsent: true,
+      deniedRoots: [],
+    }),
+  );
+  await writeFile(programPath, nativeFileHelperProgram);
+  await writeFile(requestPath, requestJson);
+  rootInfo.capture(programPath, true);
+  rootInfo.capture(requestPath, true);
+  payload.authority = rootInfo.serialize();
+  payload.privateNativeFileRequestJson = requestJson;
+  payload.privateNativeFileProgram = { programPath, requestPath };
+  payload.command = privateNativeFileProgramCommand(programPath, requestPath);
+  try {
+    expect(await runSandboxedWorker(payload, { manager, spawn: spawn as never })).toBe(0);
+    spawn.mockClear();
+    manager.wrapWithSandbox.mockImplementation(async () => {
+      writeFileSync(programPath, 'FOREIGN PROGRAM');
+      return 'wrapped';
+    });
+    await expect(runSandboxedWorker(payload, { manager, spawn: spawn as never })).rejects.toThrow(
+      'Sandbox authority changed',
+    );
+    expect(spawn).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});

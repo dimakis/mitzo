@@ -85,7 +85,7 @@ const within = (child: string, parent: string) =>
 /** Restrictive filename policy only; this never canonicalizes a permission path.
  * Credential/agent and Git metadata aliases are refused, including conservative
  * case/Unicode variants. Excluded tracked entries fail the WHOLE publication. */
-export function validNativeTreeRelativePath(value: unknown): value is string {
+function validTreeRelativePath(value: unknown, trackedRepository: boolean): value is string {
   if (
     typeof value !== 'string' ||
     Buffer.byteLength(value) > 4096 ||
@@ -107,23 +107,24 @@ export function validNativeTreeRelativePath(value: unknown): value is string {
         ) &&
         !/\p{Cf}/u.test(part) &&
         !/[ .]$/.test(part) &&
-        ![
-          '.git',
-          '.ssh',
-          '.aws',
-          '.gnupg',
-          '.kube',
-          '.azure',
-          '.gcloud',
-          'keychains',
-          '.claude',
-          '.cursor',
-          '.codex',
-        ].includes(restricted) &&
+        !['.git', '.ssh', '.aws', '.gnupg', '.kube', '.azure', '.gcloud', 'keychains'].includes(
+          restricted,
+        ) &&
+        (trackedRepository || !['.claude', '.cursor', '.codex'].includes(restricted)) &&
         !/^\.?git~\d+$/i.test(restricted)
       );
     })
   );
+}
+/** Generic publication keeps agent storage excluded. */
+export function validNativeTreeRelativePath(value: unknown): value is string {
+  return validTreeRelativePath(value, false);
+}
+/** Repository preparation publishes only the exact cryptographically verified
+ * tracked tree. Project configuration is data, never host credential storage or
+ * a policy grant. Owned runtimes retain their project-hook/config ceilings. */
+export function validNativeRepositoryTreeRelativePath(value: unknown): value is string {
+  return validTreeRelativePath(value, true);
 }
 /** NEGATIVE-only comparison. It never proves physical equality or absence,
  * selects a root or grants access. ASCII case variants and Unicode-normalized
@@ -147,6 +148,19 @@ function mayOverlapForRefusal(a: string, b: string): boolean {
 }
 /** Shared bounded staging manifest projection; no target identities or grant. */
 export function projectNativeTreeEntries(input: unknown): readonly NativeExclusiveTreeEntry[] {
+  return projectTreeEntries(input, validNativeTreeRelativePath);
+}
+/** Only the prepared-repository phase consumes this projection; generic
+ * PublishTree and model file operations retain the restrictive projection. */
+export function projectNativeRepositoryTreeEntries(
+  input: unknown,
+): readonly NativeExclusiveTreeEntry[] {
+  return projectTreeEntries(input, validNativeRepositoryTreeRelativePath);
+}
+function projectTreeEntries(
+  input: unknown,
+  validPath: (value: unknown) => value is string,
+): readonly NativeExclusiveTreeEntry[] {
   let bytes = 0;
   const entries = array(input, 10000).map((value) => {
     const relative = data(value, 'path'),
@@ -154,7 +168,7 @@ export function projectNativeTreeEntries(input: unknown): readonly NativeExclusi
       size = data(value, 'size'),
       sha256 = data(value, 'sha256');
     if (
-      !validNativeTreeRelativePath(relative) ||
+      !validPath(relative) ||
       typeof mode !== 'string' ||
       !['040000', '100644', '100755', '120000'].includes(mode) ||
       typeof size !== 'number' ||

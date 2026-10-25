@@ -325,6 +325,17 @@ async function context(request: ReadRequest) {
         signal: request.signal,
         deadline,
       });
+  const requestedSource =
+    'explicitPath' in request ? request.explicitPath : 'path' in request ? request.path : undefined;
+  if (nativeReader?.captureRepositoryObservation && typeof requestedSource === 'string') {
+    await canonical(requestedSource);
+    await readAccess.captureRepositoryObservation({
+      mode: 'explicitPath' in request ? 'discovery' : 'orientation',
+      sourcePath: requestedSource,
+      readableRoots: hostWide ? ['/'] : roots,
+      additionalDeniedRoots: suppliedDenials,
+    });
+  }
   for (const root of [...roots]) {
     try {
       await readAccess.pinRoot(root);
@@ -338,21 +349,35 @@ async function context(request: ReadRequest) {
   const inspected = new Map<string, LocalRepositoryGitMetadata>();
   const metadata = async (cwd: string) => {
     if (!inspected.has(cwd)) {
-      inspected.set(
-        cwd,
-        await inspectLocalRepositoryGitMetadata({
-          path: cwd,
-          assertReadable: async (path) => {
-            if (!isAbsolute(path) || !allowed(path))
-              throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
-            await authorize(path);
-          },
-          signal: request.signal,
-          readAccess,
-          maxEntries: limits.maxGitMetadataEntries,
-          timeoutMs: Math.max(1, deadline - Date.now()),
-        }),
-      );
+      // Orientation consumes reference metadata, never object/status evidence.
+      // Preserve source indirection refusal without recursively enumerating
+      // every unconsumed Git object fanout directory.
+      const qualified = await inspectLocalRepositoryGitMetadata({
+        mode: 'head',
+        path: cwd,
+        assertReadable: async (path) => {
+          if (!isAbsolute(path) || !allowed(path))
+            throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+          await authorize(path);
+        },
+        signal: request.signal,
+        readAccess,
+        maxEntries: limits.maxGitMetadataEntries,
+        timeoutMs: Math.max(1, deadline - Date.now()),
+      });
+      for (const name of ['objects/info/alternates', 'objects/info/http-alternates']) {
+        try {
+          if (
+            (await readAccess.read(join(qualified.commonDirectory, name), 65536))
+              .toString('utf8')
+              .trim()
+          )
+            throw new LocalRepositoryGitInspectionError('unsafe', 'alternate-storage-unavailable');
+        } catch (error) {
+          if (errorCode(error) !== 'ENOENT') throw error;
+        }
+      }
+      inspected.set(cwd, qualified);
     }
     return inspected.get(cwd)!;
   };

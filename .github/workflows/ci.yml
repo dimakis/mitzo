@@ -378,6 +378,31 @@ jobs:
             }
           }
           NODE
+      - name: Verify complete native repository workflows on both owned account routes
+        if: ${{ !cancelled() }}
+        env:
+          MITZO_RUN_NATIVE_READ_TOOLS_MECHANICAL: '1'
+          MITZO_REQUIRE_NATIVE_REPOSITORY_WORKFLOW: '1'
+          MITZO_NATIVE_READ_TOOLS_SOURCE_PATH: ${{ github.workspace }}
+          MITZO_NATIVE_REPOSITORY_EVIDENCE_DIR: test-results/native-repository-workflows
+        run: |
+          npx vitest run server/__tests__/native-local-repository-read-registration.test.ts server/__tests__/native-local-repository-read-registration-api.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/native-repository-workflows.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const result=JSON.parse(readFileSync('test-results/native-repository-workflows.json','utf8'));
+          const cases=result.testResults.flatMap(suite=>suite.assertionResults);
+          if(!result.success || cases.length!==2 || cases.some(test=>test.status!=='passed') || result.numPendingTests!==0)
+            throw new Error('Both complete native repository workflows must execute; skips are not qualification');
+          for(const account of ['subscription','api']) {
+            const evidence=JSON.parse(readFileSync(`test-results/native-repository-workflows/${account}.json`,'utf8'));
+            if(evidence.account!==account || evidence.phase!=='completed' || !evidence.coldResume || !evidence.viewerDetached ||
+                evidence.outcomes.DiscoverLocalRepository?.state!=='selected' || !evidence.outcomes.InspectLocalRepository?.success ||
+                evidence.outcomes.PrepareLocalRepository?.state!=='materialized' || evidence.outcomes.denied?.success!==false ||
+                evidence.outcomes.revoked?.success!==false || !evidence.outcomes.custody?.scratchRemoved ||
+                !evidence.outcomes.handoff?.sameConversation || !evidence.outcomes.handoff?.sameThread || !evidence.outcomes.handoff?.taskCwdSelected || !evidence.outcomes.handoff?.toolsUsable)
+              throw new Error('Incomplete native repository evidence for '+account);
+          }
+          NODE
       - name: Retain exact offline journey result
         if: always()
         uses: actions/upload-artifact@v7
@@ -386,6 +411,8 @@ jobs:
           path: |
             test-results/ordinary-journey.json
             test-results/native-host-authorization.json
+            test-results/native-repository-workflows.json
+            test-results/native-repository-workflows/
             test-results/telos-s9-joined/
             test-results/telos-s9-supplemental/
           if-no-files-found: error

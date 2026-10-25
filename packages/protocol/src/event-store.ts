@@ -378,6 +378,8 @@ const SCHEMA = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events (session_id, seq);
+  CREATE INDEX IF NOT EXISTS idx_events_ordinary_context ON events (session_id, seq)
+    WHERE type IN ('contributor_guidance', 'telos_work_role_context');
   CREATE INDEX IF NOT EXISTS idx_events_worktree_repo
     ON events (session_id, json_extract(payload, '$.repoName'), seq)
     WHERE type = 'worktree_opened';
@@ -3126,6 +3128,17 @@ export class EventStore {
 
   getSessionEvents(sessionId: string): StoredEvent[] {
     return this.conversationReplay.getSessionEvents(sessionId);
+  }
+
+  /** Fresh authority records only. Never decode transcript/tool payloads in a
+   * repeated ownership fence, and never cache away a newly retained conflict. */
+  getOrdinaryContributorContextEvents(sessionId: string): StoredEvent[] {
+    const rows = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events WHERE session_id = ?
+        AND type IN ('contributor_guidance', 'telos_work_role_context') ORDER BY seq`,
+    ).all(sessionId) as EventRow[];
+    return rows.map(rowToEvent);
   }
 
   /** Bounded ordered anchors for audience-specific transcript projections. */

@@ -36,7 +36,7 @@ export interface LocalRepositoryGitInspectionRequest {
   readAccess?: LocalRepositoryReadAccess;
   /** Private views only; preparation defers selected ref consumption to its
    * marked snapshot. Neither partial view qualifies object storage or status. */
-  mode?: 'complete' | 'references' | 'preparation';
+  mode?: 'complete' | 'references' | 'preparation' | 'head';
 }
 export interface LocalRepositoryComparisonConfig {
   readonly coreAutocrlf?: boolean | 'input';
@@ -52,7 +52,7 @@ export interface LocalRepositoryGitMetadata {
   referenceCoverage?: 'preparation-head-and-namespace-v1';
   /** Default/legacy complete preflight remains unmarked. Ref-only evidence
    * must be rejected by any object/status consumer before source lookup. */
-  qualification?: 'references' | 'preparation';
+  qualification?: 'references' | 'preparation' | 'head';
   path: string;
   gitDirectory: string;
   commonDirectory: string;
@@ -141,13 +141,23 @@ export async function inspectLocalRepositoryGitMetadata(
 ): Promise<LocalRepositoryGitMetadata> {
   if (
     request.mode !== undefined &&
-    !['complete', 'references', 'preparation'].includes(request.mode)
+    !['complete', 'references', 'preparation', 'head'].includes(request.mode)
   )
     throw new LocalRepositoryGitInspectionError('unsafe', 'inspection-mode-unsupported');
   if (request.readAccess?.preparationObservationOnly && request.mode !== 'preparation')
     throw new LocalRepositoryGitInspectionError('unsafe', 'preparation-observation-only');
+  if (
+    request.readAccess?.repositoryObservationMode &&
+    request.mode !== 'head' &&
+    !(
+      request.mode === 'preparation' &&
+      ['allocation', 'adoption', 'topology'].includes(request.readAccess.repositoryObservationMode)
+    )
+  )
+    throw new LocalRepositoryGitInspectionError('unsafe', 'repository-observation-only');
   const preparation = request.mode === 'preparation';
-  const referencesOnly = request.mode === 'references' || preparation;
+  const headOnly = request.mode === 'head';
+  const referencesOnly = request.mode === 'references' || preparation || headOnly;
   if (referencesOnly && !request.readAccess)
     throw new LocalRepositoryGitInspectionError('access', 'read-anchor-required');
   const deadline =
@@ -278,7 +288,8 @@ export async function inspectLocalRepositoryGitMetadata(
       ].slice(-8);
       if (ready.length) {
         for (const path of ready) await physical(path);
-        await request.readAccess.preloadDirectories(ready);
+        if (!(headOnly && request.readAccess.repositoryObservationMode === 'base'))
+          await request.readAccess.preloadDirectories(ready);
         for (const path of ready) preloaded.add(path);
       }
     }
@@ -287,7 +298,11 @@ export async function inspectLocalRepositoryGitMetadata(
     visited.add(directory);
     await physical(directory);
     const opened = request.readAccess
-      ? (await request.readAccess.list(directory)).map((entry) => ({
+      ? (
+          await (headOnly && request.readAccess.repositoryObservationMode === 'base'
+            ? request.readAccess.headMetadataEntries(directory)
+            : request.readAccess.list(directory))
+        ).map((entry) => ({
           name: entry.name,
           isSymbolicLink: () => entry.kind === 'unsupported',
           isDirectory: () => entry.kind === 'directory',
@@ -303,7 +318,7 @@ export async function inspectLocalRepositoryGitMetadata(
         (!['HEAD', 'refs', 'packed-refs', 'config', 'config.worktree', 'commondir'].includes(
           entry.name,
         ) ||
-          (preparation && entry.name === 'refs'))
+          ((preparation || headOnly) && entry.name === 'refs'))
       )
         continue;
       if (++entries > Math.max(1, Math.min(request.maxEntries ?? 100000, 500000)))
@@ -421,9 +436,11 @@ export async function inspectLocalRepositoryGitMetadata(
           qualification: 'preparation' as const,
           referenceCoverage: 'preparation-head-and-namespace-v1' as const,
         }
-      : referencesOnly
-        ? { qualification: 'references' as const }
-        : {}),
+      : headOnly
+        ? { qualification: 'head' as const }
+        : referencesOnly
+          ? { qualification: 'references' as const }
+          : {}),
     path,
     gitDirectory,
     commonDirectory,

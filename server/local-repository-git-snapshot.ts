@@ -119,9 +119,17 @@ async function privateContext<T>(
     gitDirectory: string;
     reader: Reader;
     git: (...args: string[]) => Promise<string>;
+    referenceOids: (references: readonly string[]) => Promise<Map<string, string>>;
   }) => Promise<T>,
-  referenceView: 'all' | 'preparation' = 'all',
+  referenceView: 'all' | 'preparation' | 'head' = 'all',
 ) {
+  if (
+    options.readAccess.repositoryObservationMode &&
+    (referenceView === 'all' ||
+      (!['allocation', 'adoption'].includes(options.readAccess.repositoryObservationMode) &&
+        referenceView === 'preparation'))
+  )
+    throw failure('repository-observation-only');
   if (options.readAccess.preparationObservationOnly && referenceView !== 'preparation')
     throw failure('preparation-observation-only');
   if (
@@ -134,6 +142,10 @@ async function privateContext<T>(
     !['references', 'preparation'].includes(metadata.qualification ?? '')
   )
     throw failure('preparation-reference-view-required');
+  if (metadata.qualification === 'head' && referenceView !== 'head')
+    throw failure('head-only-metadata');
+  if (referenceView === 'head' && metadata.qualification !== 'head')
+    throw failure('head-only-metadata-required');
   const reader = sourceReader(options, referenceView === 'preparation');
   let scratch: string | undefined;
   try {
@@ -182,17 +194,10 @@ async function privateContext<T>(
     if (!head) throw failure('snapshot-head-unavailable');
     headValue(head.buffer);
     await writeFile(join(gitDirectory, 'HEAD'), head.buffer);
-    const refs = join(metadata.commonDirectory, 'refs');
-    if (referenceView === 'all') {
-      if (await options.readAccess.stat(refs))
-        await copyTree(refs, join(gitDirectory, 'refs'), reader, false, true);
-    } else {
-      // Copy only the actual bounded symbolic chain. Existing Git below still
-      // resolves/validates the final HEAD/branch/OID; no unrelated ref OID is
-      // fabricated, inferred or read. Packed refs remain independently bounded.
-      let reference = headValue(head.buffer).ref;
+    const copyHeadReferences = async (reference: string | undefined) => {
       const seen = new Set<string>();
       while (reference) {
+        headValue(Buffer.from('ref: ' + reference));
         if (seen.has(reference) || seen.size >= 16) throw failure('snapshot-reference-unsupported');
         seen.add(reference);
         const value = await reader.optional(join(metadata.commonDirectory, reference), 4096);
@@ -209,7 +214,12 @@ async function privateContext<T>(
         await writeFile(destination, value.buffer, { mode: value.mode });
         reference = next.ref;
       }
-    }
+    };
+    const refs = join(metadata.commonDirectory, 'refs');
+    if (referenceView === 'all') {
+      if (await options.readAccess.stat(refs))
+        await copyTree(refs, join(gitDirectory, 'refs'), reader, false, true);
+    } else await copyHeadReferences(headValue(head.buffer).ref);
     const packed = await reader.optional(
       join(metadata.commonDirectory, 'packed-refs'),
       16 * 1024 * 1024,
@@ -223,12 +233,27 @@ async function privateContext<T>(
         headValue(Buffer.from(`ref: ${match[2]}`));
       }
       await writeFile(join(gitDirectory, 'packed-refs'), packed.buffer);
-    } else if (referenceView === 'preparation')
+    } else if (referenceView !== 'all')
       await assertPhysicalReferenceAbsent(
         options.readAccess,
         join(metadata.commonDirectory, 'packed-refs'),
       );
-    const result = await action({ scratch, gitDirectory, reader, git });
+    const referenceOids = async (references: readonly string[]) => {
+      if (referenceView === 'head')
+        for (const reference of new Set(references)) await copyHeadReferences(reference);
+      const rows = (await git('for-each-ref', '--format=%(refname) %(objectname)'))
+        .split('\n')
+        .filter(Boolean);
+      const result = new Map<string, string>();
+      for (const row of rows) {
+        const match = /^(refs\/[^\r\n\0]+) ([a-f0-9]{40}(?:[a-f0-9]{24})?)$/.exec(row);
+        if (!match || result.has(match[1])) throw failure('snapshot-reference-unsupported');
+        headValue(Buffer.from('ref: ' + match[1]));
+        result.set(match[1], match[2]);
+      }
+      return result;
+    };
+    const result = await action({ scratch, gitDirectory, reader, git, referenceOids });
     await reader.authorize(metadata.path);
     return result;
   } catch (error) {
@@ -292,8 +317,11 @@ export async function readLocalRepositoryGitFacts(
   metadata: LocalRepositoryGitMetadata,
   options: LocalRepositorySnapshotOptions,
 ) {
-  return privateContext(metadata, options, ({ git, reader }) =>
-    resolveHeadFacts(metadata, options, git, reader),
+  return privateContext(
+    metadata,
+    options,
+    ({ git, reader }) => resolveHeadFacts(metadata, options, git, reader),
+    metadata.qualification === 'head' ? 'head' : 'all',
   );
 }
 
@@ -463,55 +491,65 @@ export async function readLocalRepositoryWorktrees(
   metadata: LocalRepositoryGitMetadata,
   options: LocalRepositorySnapshotOptions,
 ) {
-  return privateContext(metadata, options, async ({ git, reader }) => {
-    const facts = async (directory: string, path: string) => {
-      const value = headValue((await reader.read(join(directory, 'HEAD'), 4096)).buffer);
-      let head = value.oid;
-      if (value.ref) {
-        try {
-          head = (await git('rev-parse', '--verify', value.ref)).trim();
-        } catch {
-          options.signal?.throwIfAborted();
-        }
+  if (options.readAccess.repositoryObservationMode === 'base')
+    throw failure('base-observation-only');
+  return privateContext(
+    metadata,
+    options,
+    async ({ referenceOids, reader }) => {
+      const facts = async (directory: string, path: string) => {
+        const value = headValue((await reader.read(join(directory, 'HEAD'), 4096)).buffer);
+        const head = value.oid;
+        const locked = !!(await reader.optional(join(directory, 'locked'), 65536));
+        await reader.authorize(path);
+        return { path, head, ...(value.ref ? { branch: value.ref } : {}), locked };
+      };
+      const worktrees = [
+        await facts(
+          metadata.commonDirectory,
+          metadata.commonDirectory === metadata.gitDirectory
+            ? metadata.path
+            : basename(metadata.commonDirectory) === '.git'
+              ? dirname(metadata.commonDirectory)
+              : metadata.path,
+        ),
+      ];
+      const registry = join(metadata.commonDirectory, 'worktrees');
+      let names: string[];
+      try {
+        // Only authorized definite absence may retain the current worktree alone.
+        // ListDirectory refuses nonexistent/non-directory targets without ENOENT.
+        if (!(await reader.physical(registry)).isDirectory())
+          throw failure('snapshot-worktree-registry-unsupported');
+        names = await reader.list(registry);
+      } catch (error) {
+        if (code(error) !== 'ENOENT') throw error;
+        names = [];
       }
-      const locked = !!(await reader.optional(join(directory, 'locked'), 65536));
-      await reader.authorize(path);
-      return { path, head, ...(value.ref ? { branch: value.ref } : {}), locked };
-    };
-    const worktrees = [
-      await facts(
-        metadata.commonDirectory,
-        metadata.commonDirectory === metadata.gitDirectory
-          ? metadata.path
-          : basename(metadata.commonDirectory) === '.git'
-            ? dirname(metadata.commonDirectory)
-            : metadata.path,
-      ),
-    ];
-    const registry = join(metadata.commonDirectory, 'worktrees');
-    let names: string[];
-    try {
-      // Only authorized definite absence may retain the current worktree alone.
-      // ListDirectory refuses nonexistent/non-directory targets without ENOENT.
-      if (!(await reader.physical(registry)).isDirectory())
-        throw failure('snapshot-worktree-registry-unsupported');
-      names = await reader.list(registry);
-    } catch (error) {
-      if (code(error) !== 'ENOENT') throw error;
+      for (const name of names) {
+        const directory = join(registry, name);
+        const pointer = (await reader.read(join(directory, 'gitdir'), 4096)).buffer.toString(
+          'utf8',
+        );
+        if (!/^[^\r\n\0]+\r?\n?$/.test(pointer))
+          throw failure('snapshot-worktree-pointer-unsupported');
+        const gitdir = resolve(directory, pointer.trimEnd());
+        if (basename(gitdir) !== '.git' || isLocalRepositoryCredentialPath(gitdir))
+          throw failure('snapshot-worktree-pointer-unsupported');
+        worktrees.push(await facts(directory, dirname(gitdir)));
+      }
+      try {
+        const references = await referenceOids(
+          worktrees.flatMap((tree) => (tree.branch ? [tree.branch] : [])),
+        );
+        for (const tree of worktrees) if (tree.branch) tree.head = references.get(tree.branch);
+      } catch {
+        options.signal?.throwIfAborted();
+      }
       return worktrees;
-    }
-    for (const name of names) {
-      const directory = join(registry, name);
-      const pointer = (await reader.read(join(directory, 'gitdir'), 4096)).buffer.toString('utf8');
-      if (!/^[^\r\n\0]+\r?\n?$/.test(pointer))
-        throw failure('snapshot-worktree-pointer-unsupported');
-      const gitdir = resolve(directory, pointer.trimEnd());
-      if (basename(gitdir) !== '.git' || isLocalRepositoryCredentialPath(gitdir))
-        throw failure('snapshot-worktree-pointer-unsupported');
-      worktrees.push(await facts(directory, dirname(gitdir)));
-    }
-    return worktrees;
-  });
+    },
+    metadata.qualification === 'head' ? 'head' : 'all',
+  );
 }
 
 /** Full bounded copies are required for status: even stat/hash/ignore reads may
