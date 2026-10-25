@@ -798,6 +798,7 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
   const inode = (await stat(directory)).ino;
   let report = 'Recorded the first session and retained its notes.';
   const initialWrite = await nativeCall(workerNative, workerId, 'Write', {
+    require_approval: true,
     file_path: join(directory, 'recording-report.md'),
     content: report,
   });
