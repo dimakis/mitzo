@@ -1,9 +1,11 @@
 import { test, expect, chromium } from '@playwright/test';
 import { createPrivateRelayBrowser } from '../../server/secret-relay-browser-driver';
 import { BrowserRelayTargetSchema, PrivateRelayBrowsers } from '../../server/secret-relay-browser';
-test('private browser authenticates with CSRF cookies, requests MFA and continues a reviewed action without exporting state', async (_fixtures, testInfo) => {
+test('private browser authenticates with CSRF cookies, requests MFA and continues a reviewed action without exporting state', async ({
+  browserName,
+}, testInfo) => {
   test.skip(
-    testInfo.project.name !== 'desktop-chromium',
+    browserName !== 'chromium' || testInfo.project.name !== 'desktop-chromium',
     'Private browser adapter uses Chromium on the controller.',
   );
   const seen: Array<{ url: string; method: string; body: string; cookie: string }> = [];
