@@ -32,6 +32,7 @@ for (const theme of ['dark', 'light'] as const)
         path: string;
         body: ReturnType<typeof OrdinaryWorkspaceFirstCommandSchema.parse>;
       }[] = [],
+      receiptReads: typeof requests = [],
       forbidden: string[] = [],
       errors: string[] = [];
     inventory.agentProfiles[0].definition.name = 'People-work helper';
@@ -153,6 +154,20 @@ for (const theme of ['dark', 'light'] as const)
         expect(route.request().headers()['x-connection-id']).toBe('ordinary-offline-sse');
         expect(body.sessionId).toBe('ordinary-bound');
         expect(body.workspace.workspaceId).toBe('11111111-1111-4111-8111-111111111111');
+        if (path.endsWith('/receipt')) {
+          expect(path).toBe('/api/ordinary/workspaces/commands/first/receipt');
+          receiptReads.push({ path, body });
+          return route.fulfill({
+            status: 202,
+            json: {
+              ok: true,
+              sessionId: body.sessionId,
+              clientMsgId: body.clientMsgId,
+              dispatched: false,
+              state: accepted ? 'consumed' : 'reserved',
+            },
+          });
+        }
         requests.push({ path, body });
         if (requests.length === 1)
           return route.fulfill({ status: 503, json: { error: 'Acknowledgement unavailable' } });
@@ -311,6 +326,9 @@ for (const theme of ['dark', 'light'] as const)
     await composer.fill('Newer unsent continuation draft.');
     await page.reload();
     await expect(composer).toHaveValue('Newer unsent continuation draft.');
+    await expect.poll(() => receiptReads.length).toBeGreaterThanOrEqual(1);
+    expect(receiptReads[0].body).toEqual(requests[0].body);
+    // Foreground recovery observes the frozen command without resubmitting it.
     expect(requests).toHaveLength(1);
     const recover = page.getByRole('button', {
       name: 'Retry',
@@ -400,6 +418,7 @@ for (const theme of ['dark', 'light'] as const)
     expect(
       await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), retainedKey),
     ).toEqual(olderEntry);
+    for (const read of receiptReads) expect(read.body).toEqual(requests[0].body);
     expect(errors).toEqual([]);
     expect(forbidden).toEqual([]);
   });

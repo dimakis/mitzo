@@ -2116,8 +2116,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '13616520e3d403c83531783808a637b520681713c88825622da35ab11a9d684e',
   '../../tests/integration/telos-s9/integrated-candidate/supplemental-shards.mjs':
     '8c8d58ddbf0c2049b8b54ec64bfb1198afdfe57744cc913f7ff2c2876a7999b0',
+  '../../tests/integration/telos-s9/integrated-candidate/task-chat-read-observer.test.ts':
+    '776271cf18e6a7cb1c9183f693778ceadb3f92d9a80429547b1c1f2fb38c07f1',
+  '../../tests/integration/telos-s9/integrated-candidate/task-chat-read-observer.ts':
+    '626da755ede8af92697b95c9cd7cc8dc0452ae3b008773498c765c55ad37ca96',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-tree-app.contract.ts':
-    '4d9288ef45fdcb80785a06cf72c50b24bb05e7e18419bdac32e494b98741c945',
+    'a3b20d9e20282f93737ae601aa4ae5e7d451b4084685958746b28efa7653df4d',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-tree-geometry.ts':
     'bd72de1b8ba7afe8565118f111b142fdc049d65062b9efd85bbaaeed467dad18',
   '../../tests/integration/telos-s9/integrated-candidate/task-review-child-app.mjs':

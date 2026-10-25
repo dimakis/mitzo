@@ -88,6 +88,31 @@ absent. Existing/unreadable records and revocation/write errors remain protected
 109 targeted tests, including all 38 role-binding page cases, pass after the fix.
 These local reviews do not replace the required trusted Centaur report.
 
+CI head 746c3ee31 exposed a separate task-chat-tree observation barrier. Its
+retained browser evidence contains four successful GET /api/tasks bodies with
+the exact pending-review task, while the test timed out awaiting every body read
+from earlier navigations. Vitest's generic timeout confirms the callback never
+reported a failed task assertion; earlier meta-body observations also record
+navigation-related protocol errors. The UI row check had not yet run, so these
+artifacts do not establish whether that row was present. The corrected test
+polls completed reads independently and requires a GET issued after its request
+ordinal boundary, status 200 and the exact task. Existing DOM, restart, approval,
+draft and isolation assertions remain. Failed waits now retain pending URLs,
+request ordinals and current rows. A never-settling unrelated body reproduces
+the original timeout before the fix; six focused offline observer and adjacent geometry tests
+pass afterward, including rejection of late completions from older requests.
+The full private browser contract was attempted outside the sandbox using the
+qualified native artifact and isolated pinned Python. It hit local ENOSPC before
+qualification and is not a pass; hosted CI must execute the complete contract.
+The separate ordinary-chat fixture also now distinguishes receipt observations
+from command submissions. The original mobile case failed when a read-only
+receipt was counted as a second send. All six theme/project cases plus two
+browser startup probes pass with exact frozen-body, no-resubmit, authentication,
+explicit-retry and draft assertions retained. All 1,324 source fingerprints match.
+The canonical ordinary macOS journey, all four unit shards, full builds, browser
+interactions and native checks passed on 746c3ee31. Two other layout runners
+received shutdown signals; fresh combined CI remains required for this delta.
+
 The broad server compile exceeded the instructed 1 GiB local heap limit. It is
 left for CI; it is not reported as a successful build. No required CI, trusted
 Centaur approval, merge or deployment is claimed.
