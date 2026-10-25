@@ -85,6 +85,9 @@ export interface RepositoryObservationCapture {
   readonly digest: string;
 }
 export class RepositoryObservationReadAccessError extends Error {}
+export class RepositoryObservationMissingError extends Error {
+  readonly code = 'ENOENT';
+}
 const fail = () => Error('Repository observation unavailable');
 export function freezeRepositoryObservationPlan(
   input: unknown,
@@ -139,6 +142,8 @@ async function run(
   if (result.is_error) {
     if (result.content === 'Repository read access required')
       throw new RepositoryObservationReadAccessError('Repository read access required');
+    if (result.content === 'Repository source missing')
+      throw new RepositoryObservationMissingError('Repository source missing');
     throw fail();
   }
   return JSON.parse(result.content);
@@ -233,6 +238,7 @@ export async function verifyRepositoryObservation(
 }
 /** Fixed read-only operation inside the existing descriptor helper and SRT boundary. */
 export const repositoryObservationPython = String.raw`
+class RepositorySourceMissingError(Exception): pass
 def repository_observation(request):
     plan = request['repositoryPlan']
     deadline = time.monotonic() + request['timeoutMs'] / 1000
@@ -356,11 +362,14 @@ def repository_observation(request):
         files[path] = {'path': path, 'bytes': encoded, 'link': link}
         if len(files) > 512: fail()
         return data
-    for root in readable: entry(root)
     requested = plan['sourcePath']; source = requested
+    try: initial = entry(requested)
+    except FileNotFoundError: raise RepositorySourceMissingError('Repository source missing')
+    if initial is None: raise RepositorySourceMissingError('Repository source missing')
+    for root in readable: entry(root)
     for _ in range(128):
         if entry(source) is None or entries[source]['kind'] != 'directory': fail()
-        scan(source, None if plan['mode'] in ('allocation','adoption') else ['.git'])
+        scan(source, None if plan['mode'] in ('allocation','adoption') else ['.git', 'HEAD', 'config', 'objects'])
         marker = os.path.join(source, '.git'); value = entry(marker)
         if value is not None: break
         parent = os.path.dirname(source)
@@ -471,6 +480,8 @@ try:
     if len((envelope + '\n').encode('utf-8')) > 64 * 1024 * 1024:
         raise RuntimeError('Repository observation unavailable')
     print(envelope)
+except RepositorySourceMissingError:
+    print(json.dumps({'content': 'Repository source missing', 'is_error': True}))
 except PermissionError:
     print(json.dumps({'content': 'Repository read access required', 'is_error': True}))
 except Exception:

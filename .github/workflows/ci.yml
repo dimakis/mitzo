@@ -394,7 +394,7 @@ jobs:
           const required = [
             ['native-host-operator-lifetime.test.ts', 7],
             ['native-local-repository-preparation-registration-dispatch.test.ts', 4],
-            ['native-local-repository-read-tools.test.ts', 8],
+            ['native-local-repository-read-tools.test.ts', 12],
             ['native-reader-path-authorization.test.ts', 13],
           ];
           for (const [file, count] of required) {

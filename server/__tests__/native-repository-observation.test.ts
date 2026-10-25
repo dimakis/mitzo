@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   captureRepositoryObservation,
+  RepositoryObservationMissingError,
+  RepositoryObservationReadAccessError,
   verifyRepositoryObservation,
 } from '../native-repository-observation.js';
 const roots: string[] = [];
@@ -309,4 +311,50 @@ it('rolls back merged sibling reference names after a later optional worktree re
     10000,
     transport,
   );
+});
+
+it('preserves typed source absence without exposing denied paths or storage failures as missing', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-observation-missing-')));
+  roots.push(root);
+  const transport: NativeFileHelperTransport = async (invocation) => {
+    const { stdout } = await promisify(execFile)('/bin/sh', ['-c', invocation.command], {
+      cwd: root,
+      env: { PATH: '/usr/bin:/bin' },
+      signal: invocation.signal,
+      timeout: invocation.timeoutMs,
+      maxBuffer: invocation.maxOutputBytes,
+    });
+    return { stdout, isError: false };
+  };
+  const source = join(root, 'missing');
+  const plan = {
+    version: 'repository-read-v1',
+    mode: 'discovery',
+    sourcePath: source,
+    readableRoots: [root],
+    deniedRoots: [],
+    excludedNames: [],
+  };
+  await expect(
+    captureRepositoryObservation(plan, new AbortController().signal, 10000, transport),
+  ).rejects.toBeInstanceOf(RepositoryObservationMissingError);
+  await expect(
+    captureRepositoryObservation(
+      { ...plan, deniedRoots: [source] },
+      new AbortController().signal,
+      10000,
+      transport,
+    ),
+  ).rejects.toBeInstanceOf(RepositoryObservationReadAccessError);
+  execFileSync('/usr/bin/git', ['init', '--template=', '-q', '-b', 'main', root]);
+  await rm(join(root, '.git', 'objects'), { recursive: true });
+  await symlink('/unavailable-offline-fixture', join(root, '.git', 'objects'));
+  await expect(
+    captureRepositoryObservation(
+      { ...plan, sourcePath: root },
+      new AbortController().signal,
+      10000,
+      transport,
+    ),
+  ).rejects.not.toBeInstanceOf(RepositoryObservationMissingError);
 });

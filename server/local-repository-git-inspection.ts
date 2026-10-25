@@ -224,12 +224,12 @@ export async function inspectLocalRepositoryGitMetadata(
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || dirname(path) === path) throw error;
       if (request.readAccess) {
-        const entries = await request.readAccess.list(path);
-        if (
-          entries.some((entry) => entry.name === 'HEAD' && entry.kind === 'file') &&
-          entries.some((entry) => entry.name === 'config' && entry.kind === 'file') &&
-          entries.some((entry) => entry.name === 'objects' && entry.kind === 'directory')
-        )
+        // Bare-repository detection needs only these three physical entries.
+        // A native ancestor observation deliberately has no complete listing.
+        const [head, config, objects] = await Promise.all(
+          ['HEAD', 'config', 'objects'].map((name) => request.readAccess!.stat(join(path, name))),
+        );
+        if (head?.kind === 'file' && config?.kind === 'file' && objects?.kind === 'directory')
           throw new LocalRepositoryGitInspectionError('unsafe', 'bare-repository-unsupported');
       }
       path = dirname(path);

@@ -767,6 +767,7 @@ try:
 except Exception as error:
     # OS errors may contain filenames, but never file contents or request payloads.
     content = 'Exclusive file unavailable' if isinstance(request, dict) and request.get('operation') in ('CreateFile', 'PublishTree', 'PublishPreparedRepository') else ('Anchored directory batch unavailable' if isinstance(request, dict) and request.get('operation') == 'ListDirectoryBatch' else ('Preparation observation unavailable' if isinstance(request, dict) and request.get('operation') in ('CapturePreparationObservation', 'VerifyPreparationObservation') else ('Repository read access required' if isinstance(request, dict) and request.get('operation') in ('CaptureRepositoryObservation', 'VerifyRepositoryObservation') and isinstance(error, PermissionError) else str(error))))
+    if isinstance(error, RepositorySourceMissingError): content = 'Repository source missing'
     print(json.dumps({'content': content, 'is_error': True}))
 `;
 
