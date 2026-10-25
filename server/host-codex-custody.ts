@@ -56,6 +56,13 @@ export const HostCodexCompanionUpgradePlanSchema = HostCodexExecutableFileCustod
 export type HostCodexCompanionUpgradePlan = z.infer<typeof HostCodexCompanionUpgradePlanSchema>;
 export const HostCodexExecutableCustodySchema = HostCodexExecutableFileCustodySchema.extend({
   codeModeHost: HostCodexExecutableFileCustodySchema.optional(),
+  sharedPlacement: z
+    .strictObject({
+      kind: z.literal('shared-runtime-v1'),
+      privateRoot: Path,
+      rootIdentity: Directory,
+    })
+    .optional(),
 }).strict();
 /** Internal physical custody evidence in the existing native conversation row.
  * Never projected into client inventory or supplied by request JSON.

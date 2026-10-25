@@ -56,6 +56,13 @@ export function sessionCredentialTools(
   assertRuntimeCurrentSync?: () => void,
   enableAgentTasks = false,
 ) {
+  // These multi-frame helpers reject owned runtimes before approval because
+  // their transport cannot yet enforce the runtime's final authority fence.
+  const credentialDefinitions = credentialConnectionToolDefinitions.filter(
+    ({ name }) =>
+      !assertRuntimeCurrent ||
+      (name !== 'ConnectionWebSocket' && name !== 'HomeAssistantDashboard'),
+  );
   const taskToolsEnabled = enableAgentTasks && !!assertRuntimeCurrent && !!assertRuntimeCurrentSync;
   const taskTools = taskToolsEnabled
     ? sessionAgentTaskTools(
@@ -127,7 +134,10 @@ export function sessionCredentialTools(
           await assertRuntimeCurrent?.();
           const current = owner();
           if (!current || !credentialAllowed(name))
-            return Promise.resolve({ behavior: 'deny', message: 'Session unavailable' });
+            return Promise.resolve({
+              behavior: 'deny',
+              message: 'Session unavailable',
+            });
           const decision = await buildPermissionHandler(current.clientId, registry)(
             toolPrefix + name,
             input,
@@ -142,7 +152,7 @@ export function sessionCredentialTools(
     : undefined;
   return {
     definitions: filterAgentTools(session, [
-      ...credentialConnectionToolDefinitions,
+      ...credentialDefinitions,
       ...repositoryTools.definitions,
       ...profileToolDefinitions,
       ...(taskToolsEnabled ? agentTaskToolDefinitions : []),
@@ -155,6 +165,11 @@ export function sessionCredentialTools(
       call?: ProfileToolCall,
     ) {
       await assertRuntimeCurrent?.();
+      if (
+        assertRuntimeCurrent &&
+        (name === 'ConnectionWebSocket' || name === 'HomeAssistantDashboard')
+      )
+        return unavailable();
       if (
         assertRuntimeCurrent &&
         (name === 'PrepareSecretRelay' || name === 'PrepareConnectionSetup') &&
@@ -202,7 +217,7 @@ export function sessionCredentialTools(
           content: JSON.stringify(
             connectionGuide(
               credentialConnectionSchemas.GetConnectionGuide.parse(input).topic,
-              filterAgentTools(session, credentialConnectionToolDefinitions),
+              filterAgentTools(session, credentialDefinitions),
             ),
           ),
           isError: false,

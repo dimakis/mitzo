@@ -111,7 +111,12 @@ for (const theme of ['dark', 'light']) {
       buffer: Buffer.from('invalid PDF'),
     });
     await expect(page.getByRole('alert')).toBeVisible();
-    await expect(input).toHaveValue('Summarize the attached report');
+    await expect(input).toHaveValue('');
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem('mitzo-draft-new')))
+      .toBe('Summarize the attached report');
+    await expect(page.getByAltText('report.pdf — page 1 of 2')).toBeVisible();
+    await expect(page.getByAltText('report.pdf — page 2 of 2')).toBeVisible();
     await page.screenshot({ path: info.outputPath(`pdf-error-${theme}.png`) });
     expect(errors).toEqual([]);
   });

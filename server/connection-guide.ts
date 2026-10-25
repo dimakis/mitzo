@@ -28,11 +28,25 @@ export function connectionGuide(
   topic: ConnectionGuideTopic,
   definitions: readonly ToolDefinition[],
 ) {
+  const available = new Set(definitions.map(({ name }) => name));
+  const guidance = instructions[topic]
+    .split('\n')
+    .filter(
+      (line) =>
+        (!line.startsWith('Use HomeAssistantDashboard') ||
+          available.has('HomeAssistantDashboard')) &&
+        (!line.startsWith('ConnectionWebSocket sends') || available.has('ConnectionWebSocket')),
+    )
+    .join('\n');
   return {
     topic,
     version: 1,
     source: 'mitzo-runtime',
-    instructions: instructions[topic],
+    instructions:
+      guidance +
+      (topic === 'use' && available.has('ConnectionRequest')
+        ? '\nFor Home Assistant diagnostics, use a scoped entity inventory and /api/states/<entity_id>, then bounded history/logbook windows. Avoid the unfiltered /api/states inventory: it can exceed the response limit. After response_too_large, narrow the query rather than repeating it.'
+        : ''),
     tools: definitions.map(({ name }) => name),
   };
 }

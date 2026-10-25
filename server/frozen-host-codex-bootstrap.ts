@@ -189,9 +189,11 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
   currentLease(): FrozenHostCodexBootstrapLease | undefined {
     return this.#lease;
   }
-  private profile(expected: Expected) {
-    const profiles = this.owners.loadProfiles();
-    const historical = this.owners.isSelectionPending?.() === false && this.#routingBinding;
+  private profile(
+    expected: Expected,
+    profiles = this.owners.loadProfiles(),
+    historical = this.owners.isSelectionPending?.() === false && !!this.#routingBinding,
+  ) {
     const current = historical
       ? profiles.resumeRouting(this.#routingBinding!)
       : profiles.resolve(expected.binding.account.accountId, expected.selection.model);
@@ -233,9 +235,14 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
     this.assertColdOwnerIdentity();
     this.owners.signal.throwIfAborted();
     strictVoid(this.owners.assertRuntimeCurrentSync());
-    this.profile(expected);
+    // Selection observers can synchronously update metadata. Capture them in
+    // their existing order before loading one fresh view for this fence only.
+    // No profile view is retained across another fence, await or native effect.
+    const historical = this.owners.isSelectionPending?.() === false && !!this.#routingBinding;
+    const selections = this.selections(expected);
     const profiles = this.owners.loadProfiles();
-    for (const selection of this.selections(expected)) {
+    this.profile(expected, profiles, historical);
+    for (const selection of selections) {
       const binding = profiles.resolve(expected.binding.account.accountId, selection.model);
       if (
         binding.provider !== expected.binding.account.provider ||
@@ -406,10 +413,14 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             this.owners.privateRoot ?? codexPrivateDirectory(),
             `${api ? 'host-api' : 'host-login'}-${retained.bootstrapId}`,
           ) ||
-          retained.executable.path !== join(retained.login.privateHome, 'codex-runtime') ||
           retained.executable.source !== observed.executablePath)
       )
         throw unavailable();
+      if (retained)
+        FrozenHostCodexExecutable.assertCustodyForLoginHome(
+          retained.executable,
+          retained.login.privateHome,
+        );
       const authBinding =
         this.owners.retainedAccountBinding ??
         this.owners.loadProfiles().resolve(expected.binding.account.accountId, ownedProfile.model);
@@ -450,7 +461,11 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             });
       const executable = retained
         ? FrozenHostCodexExecutable.reopen(retained.executable)
-        : FrozenHostCodexExecutable.capture(observed.executablePath, login.privateHome);
+        : FrozenHostCodexExecutable.captureReusable(
+            observed.executablePath,
+            this.owners.privateRoot ?? codexPrivateDirectory(),
+          );
+      executable.assertForLoginHome(login.privateHome);
       if (retained && executable.companionUpgradePlan()) {
         if (!this.owners.completeRetainedRuntimeBundle) throw unavailable();
         this.owners.completeRetainedRuntimeBundle(executable);

@@ -22,7 +22,7 @@ export const localEfficiencyToolDefinitions: ToolDefinition[] = [
   {
     name: 'ReadToolOutput',
     description:
-      'Read retained integration or GitHubRead text by its outputId. UTF-16 offset pages are bounded in UTF-8 bytes; query performs literal search from offset. Output may expire after 24 hours or eight newer retained outputs. Existing source/tool authorization still applies. Never rerun an effect to recover expired output.',
+      'Read retained tool text by its outputId. UTF-16 offset pages are bounded in UTF-8 bytes; query performs literal search from offset. Output may expire after 24 hours or eight newer retained outputs. Existing source/tool authorization still applies. Never rerun an effect to recover expired output.',
     input_schema: z.toJSONSchema(ReadToolOutputInput, { io: 'input' }),
   },
   {
@@ -38,6 +38,13 @@ Large integration and GitHubRead text results return a preview and outputId. Use
 Reuse known tool contracts while the catalog revision is unchanged. Use DescribeIntegrationTool for abbreviated Mitzo tool schemas, then call those tools directly by their original name.
 For asynchronous native commands use Codex's process/session handles. For peer-message waits use AgentCommunication wait instead of repeated inbox calls. Report changes rather than unchanged polls.
 Do not retry an unchanged denial. Reconcile uncertain effects before another write. Smaller output never changes permissions or repository custody.
+`;
+
+export const OPENSHELL_EFFICIENCY_INSTRUCTIONS = `
+Use SearchSkills when a needed skill is absent from the bounded native skill index. It searches the current sandbox workspace. Read its selected SKILL.md with native sandbox file tools before use; explicitly named skills still apply.
+Reuse known tool contracts while the catalog revision is unchanged. Use DescribeIntegrationTool for abbreviated Mitzo host tool schemas, then call those tools directly by their original name. Sandbox MCP tools remain owned by Codex; use its native discovery when available.
+Large Telos read results return a preview and outputId. Use ReadToolOutput only for missing evidence, with a literal query or narrow range. Retrieval rechecks the original read permission. Do not expand every result automatically.
+For asynchronous sandbox commands use Codex's process/session handles. Report changes rather than unchanged polls. Do not retry an unchanged denial. Reconcile uncertain effects before another write. Smaller output never changes permissions or repository custody.
 `;
 
 const Skill = z.object({

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type { TelosWorkRoleContextSelection } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import type { TaskStore } from './task-store.js';
@@ -7,6 +8,7 @@ import { TelosWorkError, type TelosWorkStore } from './telos-work-store.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { assertTelosWorkExecutionAuthority } from './telos-work-execution-authority.js';
+import type { RepositoryWorkspaces } from './repository-workspaces.js';
 
 type Pin = TelosWorkRoleContextSelection['artifacts'][number];
 function unavailable(): never {
@@ -21,6 +23,8 @@ export interface NativeTelosWorkerMaterialOwners {
   work: TelosWorkStore;
   artifacts: TelosArtifactStore;
   tasks?: Pick<TaskStore, 'get' | 'getTelosExecutionBinding'>;
+  /** Actual host custody owner. Never a workspace descriptor from request JSON. */
+  repositoryWorkspaces?(): Pick<RepositoryWorkspaces, 'getForConversation'>;
   conversationId: string;
   itemId: string;
   pendingIdentity: unknown;
@@ -39,15 +43,15 @@ export function captureNativeTelosWorkerMaterials(owners: NativeTelosWorkerMater
     session?.accountBinding ?? undefined,
   );
   if (originalRole?.role !== 'lead') return undefined;
-  const ordinary = (id: string) => {
+  let originalRepositoryOwner:
+    ReturnType<NonNullable<NativeTelosWorkerMaterialOwners['repositoryWorkspaces']>> | undefined;
+  const localWorkspace = (id: string) => {
     const meta = events.getSession(id),
       route = events.getSessionRuntimeBinding(id);
     const account = meta?.accountBinding;
     if (
       !meta ||
       !isAvailableTelosWorkConversation(meta) ||
-      !meta.ordinaryWorkspaceId ||
-      meta.repositoryWorkspaceId != null ||
       !account ||
       route?.version !== 2 ||
       route.harness.implementation !== 'codex' ||
@@ -58,7 +62,52 @@ export function captureNativeTelosWorkerMaterials(owners: NativeTelosWorkerMater
     )
       unavailable();
     const role = resolveTelosWorkRoleContext(events, id, account);
-    return { account, route, workspaceId: meta.ordinaryWorkspaceId, role };
+    // Keep non-Git scope facts and correlation hashes unchanged; this path must
+    // not open repository custody or inherit a repository capability.
+    if (meta.ordinaryWorkspaceId && meta.repositoryWorkspaceId == null)
+      return { account, route, workspaceId: meta.ordinaryWorkspaceId, role };
+    if (!meta.repositoryWorkspaceId || meta.ordinaryWorkspaceId != null) unavailable();
+    const owner = owners.repositoryWorkspaces?.();
+    if (
+      !owner ||
+      typeof owner.getForConversation !== 'function' ||
+      (originalRepositoryOwner && owner !== originalRepositoryOwner)
+    )
+      unavailable();
+    originalRepositoryOwner ??= owner;
+    const workspace = owner.getForConversation(id);
+    const originalRuntime =
+      workspace?.ordinaryPreparation?.runtimeBinding ??
+      workspace?.qualifiedLocalPreparation?.request.runtimeBinding;
+    if (
+      !workspace ||
+      workspace.id !== meta.repositoryWorkspaceId ||
+      workspace.state !== 'claimed' ||
+      workspace.directory !== meta.cwd ||
+      !workspace.taskIdentity ||
+      !isDeepStrictEqual(workspace.binding, account) ||
+      !isDeepStrictEqual(originalRuntime, route)
+    )
+      unavailable();
+    // The real owner proves the current primary and retained checkout. These
+    // private facts only narrow source selection; they grant no filesystem read.
+    return {
+      account,
+      route,
+      role,
+      workspaceId: workspace.id,
+      directory: workspace.directory,
+      taskIdentity: workspace.taskIdentity,
+      delegation: workspace.delegation,
+      repositorySource: {
+        connectionId: workspace.connectionId,
+        connectionRevision: workspace.connectionRevision,
+        repository: workspace.repository,
+        baseBranch: workspace.baseBranch,
+        baseOid: workspace.baseOid,
+        localSource: workspace.localSource ?? null,
+      },
+    };
   };
   const resolve = () => {
     const checked: unknown = owners.assertCurrent();
@@ -66,7 +115,7 @@ export function captureNativeTelosWorkerMaterials(owners: NativeTelosWorkerMater
       void Promise.resolve(checked).catch(() => {});
       unavailable();
     }
-    const lead = ordinary(conversationId);
+    const lead = localWorkspace(conversationId);
     if (hash(lead.role) !== hash(originalRole)) unavailable();
     const parent = work.read(originalRole.itemId, { kind: 'conversation', id: conversationId });
     const assignment = parent.assignments.find((a) => a.role === 'lead');
@@ -97,7 +146,14 @@ export function captureNativeTelosWorkerMaterials(owners: NativeTelosWorkerMater
         const workerId = attempt.workerConversationId,
           taskId = attempt.executionTaskId;
         if (!workerId || !taskId || !owners.tasks) unavailable();
-        const selectedWorker = ordinary(workerId);
+        const selectedWorker = localWorkspace(workerId);
+        if (
+          !isDeepStrictEqual(lead.repositorySource, selectedWorker.repositorySource) ||
+          (lead.repositorySource &&
+            (selectedWorker.delegation?.sourceConversationId !== conversationId ||
+              selectedWorker.delegation.sourceWorkspaceId !== lead.workspaceId))
+        )
+          unavailable();
         assertTelosWorkExecutionAuthority(
           { events, tasks: owners.tasks, work: () => work },
           workerId,

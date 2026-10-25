@@ -115,15 +115,20 @@ export function createWarmPoolAdapter(
     signal: AbortSignal,
   ): Promise<WarmSandbox | undefined> => {
     assertAccess(record);
-    let raw: unknown;
-    try {
-      raw = JSON.parse(await run([...base, 'get', record.name, '--output', 'json'], signal));
-    } catch (e) {
+    // Both reads describe the same immutable physical target. Settle both so
+    // an absent sandbox keeps its authoritative absence result and a peer
+    // rejection is always observed.
+    const [physical, attachments] = await Promise.allSettled([
+      run([...base, 'get', record.name, '--output', 'json'], signal),
+      run([...base, 'provider', 'list', record.name], signal),
+    ]);
+    if (physical.status === 'rejected') {
+      const e: unknown = physical.reason;
       if (/not found|404|does not exist/i.test(e instanceof Error ? e.message : ''))
         return undefined;
       throw e;
     }
-    const s = Physical.parse(raw);
+    const s = Physical.parse(JSON.parse(physical.value));
     if (
       s.name !== record.name ||
       s.workspace !== config.workspace ||
@@ -134,10 +139,8 @@ export function createWarmPoolAdapter(
       !hasWarmPoolRuntimeAuthority(record, { scope, runtimeAuthority })
     )
       throw Error('Warm sandbox physical identity differs');
-    const providers = parseProviderAttachments(
-      await run([...base, 'provider', 'list', record.name], signal),
-      record.name,
-    );
+    if (attachments.status === 'rejected') throw attachments.reason;
+    const providers = parseProviderAttachments(attachments.value, record.name);
     return { id: s.id, name: s.name, phase: s.phase, poolId: record.id, providers };
   };
   const adapter: WarmPoolAdapter = {
@@ -160,64 +163,61 @@ export function createWarmPoolAdapter(
       if (record.scope !== scope || !hasWarmPoolRuntimeAuthority(record, adapter))
         throw Error('Warm sandbox preparation recipe differs');
       if (!adapter.available) throw Error(adapter.reason!);
-      const prepared = await prepareSeed(config, signal);
-      try {
-        signal.throwIfAborted();
-        dispatched?.();
-        const output = Physical.parse(
-          JSON.parse(
-            await run(
-              [
-                ...base,
-                'create',
-                '--name',
-                record.name,
-                '--from',
-                config.image,
-                '--policy',
-                config.policy,
-                '--cpu',
-                String(record.resources.cpu),
-                '--memory',
-                record.resources.memoryGiB + 'Gi',
-                '--upload',
-                prepared.seed + ':/sandbox/pool-knowledge',
-                '--label',
-                'mitzo.warm_pool=' + record.id,
-                '--no-auto-providers',
-                '--detach',
-                '--output',
-                'json',
-              ],
-              signal,
-            ),
+      // Neutral warming needs no task knowledge. Claim selects and verifies
+      // fresh knowledge; an unused warm-up copy only duplicates that work.
+      signal.throwIfAborted();
+      dispatched?.();
+      const output = Physical.parse(
+        JSON.parse(
+          await run(
+            [
+              ...base,
+              'create',
+              '--name',
+              record.name,
+              '--from',
+              config.image,
+              '--policy',
+              config.policy,
+              '--cpu',
+              String(record.resources.cpu),
+              '--memory',
+              record.resources.memoryGiB + 'Gi',
+              '--label',
+              'mitzo.warm_pool=' + record.id,
+              '--no-auto-providers',
+              '--detach',
+              '--output',
+              'json',
+            ],
+            signal,
           ),
-        );
-        if (
-          output.name !== record.name ||
-          output.workspace !== config.workspace ||
-          output.labels['mitzo.warm_pool'] !== record.id ||
-          output.labels['mitzo.conversation'] ||
-          output.labels['mitzo.account_provider']
-        )
-          throw Error('Warm sandbox create identity differs');
-        created?.(output.id);
-        let observed = await inspect({ ...record, physicalId: output.id }, signal);
-        const deadline = Date.now() + 90000;
-        while (
-          observed &&
-          ['Pending', 'Creating', 'Starting'].includes(observed.phase) &&
-          Date.now() < deadline
-        ) {
-          await delay(250, undefined, { signal });
-          observed = await inspect({ ...record, physicalId: output.id }, signal);
-        }
-        if (!observed || observed.phase !== 'Ready')
-          throw Error('Warm sandbox readiness is unverified');
-        return observed;
-      } finally {
-        prepared.cleanup();
+        ),
+      );
+      if (
+        output.name !== record.name ||
+        output.workspace !== config.workspace ||
+        output.labels['mitzo.warm_pool'] !== record.id ||
+        output.labels['mitzo.conversation'] ||
+        output.labels['mitzo.account_provider']
+      )
+        throw Error('Warm sandbox create identity differs');
+      created?.(output.id);
+      let observed = await inspect({ ...record, physicalId: output.id }, signal);
+      const deadline = Date.now() + 90000;
+      while (
+        observed &&
+        ['Pending', 'Creating', 'Starting'].includes(observed.phase) &&
+        Date.now() < deadline
+      ) {
+        await delay(250, undefined, { signal });
+        observed = await inspect({ ...record, physicalId: output.id }, signal);
       }
+      if (!observed || observed.phase !== 'Ready')
+        throw Error('Warm sandbox readiness is unverified');
+      signal.throwIfAborted();
+      assertCurrent();
+      return observed;
     },
     async remove(record, signal) {
       const before = await inspect(record, signal);
@@ -274,6 +274,8 @@ export function createWarmPoolAdapter(
           desired.some((x) => !after.providers.includes(x))
         )
           throw Error('Claim provider attachment set differs');
+        assertCurrent();
+        return after;
       } finally {
         prepared.cleanup();
       }

@@ -5604,6 +5604,17 @@ function replaySingleEventsToTranscript(
         : [],
     ),
   );
+  const uniqueToolOwners = new Map<string, string | null>();
+  for (const event of events) {
+    const p = event.payload;
+    if (
+      event.type === 'block_end' &&
+      typeof p.toolId === 'string' &&
+      typeof p.messageId === 'string' &&
+      typeof p.blockId === 'string'
+    )
+      uniqueToolOwners.set(p.toolId, uniqueToolOwners.has(p.toolId) ? null : p.messageId);
+  }
   let activeMessageId: string | null = null;
   for (const event of events) {
     const p = event.payload;
@@ -5611,6 +5622,20 @@ function replaySingleEventsToTranscript(
       activeMessageId = p.messageId;
     if (event.type === 'tool_result' && typeof p.toolId === 'string') {
       let messageId = typeof p.messageId === 'string' ? p.messageId : null;
+      const owner = uniqueToolOwners.get(p.toolId);
+      // Older query loops stamped delayed results with the active thinking
+      // message. Repair only that ordinary-stream shape with one prior call;
+      // keep seat attribution, reused IDs and unrelated explicit IDs strict.
+      if (
+        messageId &&
+        messageId === activeMessageId &&
+        event.seatId === undefined &&
+        event.symposiumProvenance === undefined &&
+        owner &&
+        owner !== messageId &&
+        pendingBlocks.get(JSON.stringify([owner, p.toolId]))?.length === 1
+      )
+        messageId = owner;
       if (!messageId) {
         const owners = toolOwners.get(p.toolId);
         if (owners && owners.size > 1)

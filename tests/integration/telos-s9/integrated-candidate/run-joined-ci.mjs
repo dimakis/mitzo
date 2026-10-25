@@ -66,6 +66,16 @@ const cases = [
     files: ['tests/integration/telos-s9/worker-first-completion/first-completion.contract.ts'],
   },
   {
+    name: 'native-complete-non-git',
+    config: 'vitest.native-complete-non-git.config.ts',
+    file: 'native-complete-non-git.contract.ts',
+  },
+  {
+    name: 'native-complete-repository',
+    config: 'vitest.native-complete-repository.config.ts',
+    file: 'native-complete-repository.contract.ts',
+  },
+  {
     name: 'selected-model-readiness',
     configPath: 'tests/integration/telos-s9/model-readiness/vitest.config.ts',
     files: ['tests/integration/telos-s9/model-readiness/model-readiness.contract.ts'],

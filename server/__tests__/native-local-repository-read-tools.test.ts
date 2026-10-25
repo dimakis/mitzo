@@ -13,6 +13,11 @@ import * as gitFacts from '../local-repository-git-snapshot.js';
 import { captureNativeLocalRepositoryReader } from '../local-repository-native-read.js';
 import { sessionLocalRepositoryTools } from '../session-local-repository-tools.js';
 import type { NativeHostToolContext } from '../native-host-tool-context.js';
+import {
+  SynchronousStageProfiler,
+  installSignedNativeReadStages,
+  NativeReadBoundaryProfile,
+} from './fixtures/synchronous-stage-profiler.js';
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
@@ -34,7 +39,7 @@ vi.setConfig({ testTimeout: 30000 });
 // Exercise the real factory/descriptor helpers with scratch-only fixture bytes.
 // Only the lowest sandbox process boundary is replaced; this is lifecycle and
 // protocol evidence, not another kernel-enforcement qualification.
-function offlineHelper(beforeSpawn?: () => void) {
+function offlineHelper(beforeSpawn?: () => void, boundaries?: NativeReadBoundaryProfile) {
   const runs: Array<Parameters<typeof sandbox.executeSandboxedCommand>[0]> = [];
   vi.spyOn(sandbox, 'executeSandboxedCommand').mockImplementation(async (request) => {
     runs.push(request);
@@ -42,17 +47,37 @@ function offlineHelper(beforeSpawn?: () => void) {
     await request.beforeSpawnAsync?.();
     request.beforeSpawn?.();
     request.signal.throwIfAborted();
-    const result = await promisify(execFile)('/bin/sh', ['-c', request.command], {
-      cwd: request.cwd,
-      env: request.env,
-      signal: request.signal,
-      timeout: request.timeoutMs,
-      maxBuffer: request.maxOutputBytes ?? 8388608,
-    });
-    return { content: result.stdout, stdout: result.stdout, stderr: result.stderr, isError: false };
+    const finish = boundaries?.beginHelper();
+    let success = false;
+    try {
+      const result = await promisify(execFile)('/bin/sh', ['-c', request.command], {
+        cwd: request.cwd,
+        env: request.env,
+        signal: request.signal,
+        timeout: request.timeoutMs,
+        maxBuffer: request.maxOutputBytes ?? 8388608,
+      });
+      success = true;
+      return {
+        content: result.stdout,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        isError: false,
+      };
+    } finally {
+      finish?.(success);
+    }
   });
   return runs;
 }
+
+type AdmissionMetrics = { syncCalls: number; syncMs: number; asyncCalls: number; asyncMs: number };
+const metricSnapshot = (value: AdmissionMetrics) => ({
+  syncCalls: value.syncCalls,
+  syncMs: Number(value.syncMs.toFixed(3)),
+  asyncCalls: value.asyncCalls,
+  asyncMs: Number(value.asyncMs.toFixed(3)),
+});
 
 function owner(context: NativeHostToolContext, root: string) {
   const scope = context.nativeBaseReadScope!;
@@ -78,111 +103,171 @@ async function signedReadPositive(
   tool: 'DiscoverLocalRepository' | 'InspectLocalRepository',
   detachedViewer = false,
 ) {
-  const runs = offlineHelper();
-  let failure: unknown;
-  const inspect = metadata.inspectLocalRepositoryGitMetadata;
-  vi.spyOn(metadata, 'inspectLocalRepositoryGitMetadata').mockImplementation(async (...args) => {
-    try {
-      return await inspect(...args);
-    } catch (error) {
-      failure = error;
-      throw error;
-    }
-  });
-  const facts = gitFacts.readLocalRepositoryGitFacts;
-  vi.spyOn(gitFacts, 'readLocalRepositoryGitFacts').mockImplementation(async (...args) => {
-    try {
-      return await facts(...args);
-    } catch (error) {
-      failure = error;
-      throw error;
-    }
-  });
-  let source = '';
-  let original: NativeHostToolContext | undefined;
-  const f = await localRepositoryNativeToolFixture(
-    cleanups,
-    async (context, input) => {
-      original = context;
-      const tools = sessionLocalRepositoryTools(owner(context, source));
-      const result = await tools.execute(context.toolName, input, context.signal);
-      expect(result).toBeDefined();
-      return result!;
-    },
-    { separateViewer: detachedViewer },
+  const started = performance.now();
+  let phase: 'setup' | 'call' | 'verification' = 'setup';
+  const boundaries = new NativeReadBoundaryProfile();
+  const profile = new SynchronousStageProfiler(
+    () => performance.now(),
+    (time) => (phase === 'call' ? boundaries.windowAt(time) : phase),
   );
-  source = join(f.f.root, 'read-tools-source');
-  await mkdir(source);
-  // A disposable, unenrolled source under the additional fixture-only ceiling.
-  await writeFile(join(source, 'AGENTS.md'), 'Only controlled fixture bytes');
-  const git = (...args: string[]) =>
-    execFileSync(
-      '/usr/bin/git',
-      [
-        '-C',
-        source,
-        '-c',
-        'core.hooksPath=/dev/null',
-        '-c',
-        'commit.gpgsign=false',
-        '-c',
-        'user.name=Offline',
-        '-c',
-        'user.email=offline@example.invalid',
-        ...args,
-      ],
-      {
-        env: {
-          PATH: '/usr/bin:/bin',
-          GIT_CONFIG_GLOBAL: '/dev/null',
-          GIT_CONFIG_SYSTEM: '/dev/null',
-        },
+  cleanups.push(installSignedNativeReadStages(profile, boundaries));
+  const runs = offlineHelper(undefined, boundaries);
+  let setupProfile: ReturnType<typeof profile.snapshot> | undefined;
+  let metrics: AdmissionMetrics | undefined;
+  let setupMetrics: ReturnType<typeof metricSnapshot> | undefined;
+  let callStarted: number | undefined, callEnded: number | undefined;
+  let setupHelpers = 0;
+  let passed = false;
+  try {
+    let failure: unknown;
+    const inspect = metadata.inspectLocalRepositoryGitMetadata;
+    vi.spyOn(metadata, 'inspectLocalRepositoryGitMetadata').mockImplementation(async (...args) => {
+      try {
+        return await inspect(...args);
+      } catch (error) {
+        failure = error;
+        throw error;
+      }
+    });
+    const facts = gitFacts.readLocalRepositoryGitFacts;
+    vi.spyOn(gitFacts, 'readLocalRepositoryGitFacts').mockImplementation(async (...args) => {
+      try {
+        return await facts(...args);
+      } catch (error) {
+        failure = error;
+        throw error;
+      }
+    });
+    let source = '';
+    let original: NativeHostToolContext | undefined;
+    const f = await localRepositoryNativeToolFixture(
+      cleanups,
+      async (context, input) => {
+        original = context;
+        const tools = sessionLocalRepositoryTools(owner(context, source));
+        const result = await tools.execute(context.toolName, input, context.signal);
+        expect(result).toBeDefined();
+        return result!;
       },
+      { separateViewer: detachedViewer },
     );
-  git('init', '--template=', '-q', '-b', 'main');
-  git('add', '.');
-  git('commit', '-qm', 'fixture');
-  if (detachedViewer) f.detachViewer();
-  const result = await f.a.call({ path: source }, { tool });
-  expect(original?.nativeBaseReadScope).toBeDefined();
-  expect(
-    result.response.success,
-    JSON.stringify({ value: result.value, helpers: runs.length, metrics: f.a.metrics, failure }),
-  ).toBe(true);
-  if (tool === 'DiscoverLocalRepository')
+    source = join(f.f.root, 'read-tools-source');
+    await mkdir(source);
+    // A disposable, unenrolled source under the additional fixture-only ceiling.
+    await writeFile(join(source, 'AGENTS.md'), 'Only controlled fixture bytes');
+    const git = (...args: string[]) =>
+      execFileSync(
+        '/usr/bin/git',
+        [
+          '-C',
+          source,
+          '-c',
+          'core.hooksPath=/dev/null',
+          '-c',
+          'commit.gpgsign=false',
+          '-c',
+          'user.name=Offline',
+          '-c',
+          'user.email=offline@example.invalid',
+          ...args,
+        ],
+        {
+          env: {
+            PATH: '/usr/bin:/bin',
+            GIT_CONFIG_GLOBAL: '/dev/null',
+            GIT_CONFIG_SYSTEM: '/dev/null',
+          },
+        },
+      );
+    git('init', '--template=', '-q', '-b', 'main');
+    git('add', '.');
+    git('commit', '-qm', 'fixture');
+    if (detachedViewer) f.detachViewer();
+    metrics = f.a.metrics;
+    setupMetrics = metricSnapshot(metrics);
+    setupProfile = profile.snapshot();
+    setupHelpers = runs.length;
+    Object.assign(metrics, { syncCalls: 0, syncMs: 0, asyncCalls: 0, asyncMs: 0 });
+    profile.reset();
+    boundaries.reset();
+    phase = 'call';
+    callStarted = performance.now();
+    let result: Awaited<ReturnType<typeof f.a.call>>;
+    try {
+      result = await f.a.call({ path: source }, { tool });
+    } finally {
+      callEnded = performance.now();
+      phase = 'verification';
+    }
+    expect(original?.nativeBaseReadScope).toBeDefined();
     expect(
-      result.value,
-      JSON.stringify({
-        value: result.value,
-        helpers: runs.length,
-        metrics: f.a.metrics,
-        failure,
-      }),
-    ).toMatchObject({ state: 'selected', candidates: [{ path: source }] });
-  else {
-    expect(
-      result.value,
-      JSON.stringify({
-        value: result.value,
-        helpers: runs.length,
-        metrics: f.a.metrics,
-        failure,
-      }),
-    ).toMatchObject({ path: source, branch: 'main', dirty: { state: 'unknown' } });
-    expect(result.value.instructions.files).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: join(source, 'AGENTS.md'),
-          content: 'Only controlled fixture bytes',
+      result.response.success,
+      JSON.stringify({ value: result.value, helpers: runs.length, metrics: f.a.metrics, failure }),
+    ).toBe(true);
+    if (tool === 'DiscoverLocalRepository')
+      expect(
+        result.value,
+        JSON.stringify({
+          value: result.value,
+          helpers: runs.length,
+          metrics: f.a.metrics,
+          failure,
         }),
-      ]),
+      ).toMatchObject({ state: 'selected', candidates: [{ path: source }] });
+    else {
+      expect(
+        result.value,
+        JSON.stringify({
+          value: result.value,
+          helpers: runs.length,
+          metrics: f.a.metrics,
+          failure,
+        }),
+      ).toMatchObject({ path: source, branch: 'main', dirty: { state: 'unknown' } });
+      expect(result.value.instructions.files).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: join(source, 'AGENTS.md'),
+            content: 'Only controlled fixture bytes',
+          }),
+        ]),
+      );
+    }
+    expect(original?.nativeBaseReadScope).toBeDefined();
+    expect(runs.length).toBeGreaterThan(0);
+    for (const scratch of new Set(runs.map((r) => r.cwd)))
+      await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(f.a.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+    passed = true;
+  } finally {
+    const ended = performance.now();
+    console.info(
+      'Signed native repository read profile',
+      JSON.stringify({
+        tool,
+        detachedViewer,
+        passed,
+        phase,
+        setupElapsedMs: Number(((callStarted ?? ended) - started).toFixed(3)),
+        callElapsedMs:
+          callStarted === undefined
+            ? null
+            : Number(((callEnded ?? ended) - callStarted).toFixed(3)),
+        postCallVerificationMs:
+          callEnded === undefined ? null : Number((ended - callEnded).toFixed(3)),
+        setupHelpers: callStarted === undefined ? runs.length : setupHelpers,
+        callHelpers: callStarted === undefined ? null : runs.length - setupHelpers,
+        setupAdmissionMetrics: setupMetrics ?? null,
+        callAdmissionMetrics:
+          callStarted === undefined || !metrics ? null : metricSnapshot(metrics),
+        setupSynchronous: setupProfile ?? (callStarted === undefined ? profile.snapshot() : null),
+        callAndVerificationSynchronous: callStarted === undefined ? null : profile.snapshot(),
+        boundaries: boundaries.snapshot(),
+        accounting:
+          'Inclusive stages, async admission timings and helper wall times can overlap; exclusive stages sum to instrumented synchronous time. Windows classify call entry. Joined tool disposal is inside call; outer fixture cleanup is excluded.',
+      }),
     );
   }
-  expect(original?.nativeBaseReadScope).toBeDefined();
-  expect(runs.length).toBeGreaterThan(0);
-  for (const scratch of new Set(runs.map((r) => r.cwd)))
-    await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' });
-  expect(f.a.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
 }
 it.runIf(process.platform === 'darwin')(
   'uses the actual signed native reader for discovery and joins cleanup before returning facts',

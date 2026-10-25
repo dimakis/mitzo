@@ -97,11 +97,43 @@ it('creates a fresh identity for genuine New chat and preserves the previous dra
     { initialProps: { generation: 0 } },
   );
   const first = result.current.draft;
+  const firstOwnsUrl = result.current.ownsUrl;
   saveChatDraft({ ...first, text: 'Saved thought' });
+  result.current.releaseUrlOwnership();
+  expect(firstOwnsUrl()).toBe(false);
   rerender({ generation: 1 });
   expect(result.current.draft.id).not.toBe(first.id);
   expect(result.current.draft.text).toBe('');
+  expect(result.current.ownsUrl()).toBe(true);
+  expect(firstOwnsUrl()).toBe(false);
   expect(getChatDraft(first.id)?.text).toBe('Saved thought');
+});
+it('revokes an unreleased old URL owner when genuine New creates another generation', () => {
+  const { result, rerender } = renderHook(
+    ({ generation }) => useNewChatDraft(null, generation, true),
+    { initialProps: { generation: 0 } },
+  );
+  const oldOwnsUrl = result.current.ownsUrl;
+  expect(oldOwnsUrl()).toBe(true);
+  rerender({ generation: 1 });
+  expect(result.current.ownsUrl()).toBe(true);
+  expect(oldOwnsUrl()).toBe(false);
+});
+it('keeps the rendered new draft as the current URL owner through StrictMode replay and reset', () => {
+  const { result, rerender } = renderHook(
+    ({ generation }) => useNewChatDraft(null, generation, true),
+    {
+      initialProps: { generation: 0 },
+      wrapper: ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode>,
+    },
+  );
+  const oldId = result.current.draft.id;
+  const oldOwnsUrl = result.current.ownsUrl;
+  expect(oldOwnsUrl()).toBe(true);
+  rerender({ generation: 1 });
+  expect(result.current.draft.id).not.toBe(oldId);
+  expect(result.current.ownsUrl()).toBe(true);
+  expect(oldOwnsUrl()).toBe(false);
 });
 it('blocks missing draft references instead of quietly substituting another draft', () => {
   const { result } = renderHook(() => useNewChatDraft('missing', 0, true));

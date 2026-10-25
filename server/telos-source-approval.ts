@@ -32,6 +32,7 @@ import type { TaskStore } from './task-store.js';
 import {
   captureNativeTelosWorkerMaterials,
   type NativeTelosWorkerMaterialScope,
+  type NativeTelosWorkerMaterialOwners,
 } from './native-telos-worker-materials.js';
 
 const adopt = z.strictObject({ itemId: z.string().min(1).max(200) });
@@ -51,6 +52,7 @@ export class TelosSourceApproval {
       artifacts: TelosArtifactStore;
       store: TelosSourceApprovalStore;
       tasks?: Pick<TaskStore, 'get' | 'getTelosExecutionBinding'>;
+      repositoryWorkspaces?: NativeTelosWorkerMaterialOwners['repositoryWorkspaces'];
       /** Current interactive authority supplied only by the authenticated host. */
       assertAuthorized?(): void;
       createOutcome(

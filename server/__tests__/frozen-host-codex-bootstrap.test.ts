@@ -10,6 +10,7 @@ import {
   type FrozenHostQualifiedWorkspaceReadOwner,
 } from '../frozen-host-codex-bootstrap.js';
 import { FrozenHostCodexLogin } from '../frozen-host-codex-login.js';
+import { FrozenHostCodexExecutable } from '../frozen-host-codex-executable.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
 const roots: string[] = [];
 const deployment = vi.hoisted(() => ({ controller: false }));
@@ -167,6 +168,34 @@ function fixture() {
     runtime,
   };
 }
+it('reuses code across bootstrap owners while login custody and native clients stay independent', async () => {
+  const a = fixture(),
+    b = fixture();
+  b.options.privateRoot = a.privateRoot;
+  b.runtime.executablePath = a.runtime.executablePath;
+  b.expected.bootstrapId = 'b'.repeat(64);
+  try {
+    await a.authority.withBootstrap(a.expected, a.claim, async (first) => {
+      const one = first.custodySnapshot!();
+      expect(one.executable.sharedPlacement?.privateRoot).toBe(a.privateRoot);
+      await b.authority.withBootstrap(b.expected, b.claim, async (second) => {
+        const two = second.custodySnapshot!();
+        expect(two.executable).toEqual(one.executable);
+        expect(two.login.privateHome).not.toBe(one.login.privateHome);
+        expect(first.client).not.toBe(second.client);
+        await first.assertCurrent();
+        await second.assertCurrent();
+      });
+      b.authority.currentLease()!.close();
+      await first.assertCurrent();
+    });
+  } finally {
+    a.authority.currentLease()?.close();
+    b.authority.currentLease()?.close();
+    a.store.close();
+    b.store.close();
+  }
+});
 it('qualifies config/models once and keeps repeated current-authority checks free of discovery', async () => {
   const f = fixture();
   try {
@@ -186,6 +215,131 @@ it('qualifies config/models once and keeps repeated current-authority checks fre
       );
       f.rpc.request.mockImplementation(async () => ({ data: [], nextCursor: null }) as never);
       await expect(lease.qualifyModelSelection!('fixture-model', 'low')).rejects.toThrow();
+    });
+  } finally {
+    f.authority.currentLease()?.close();
+    f.store.close();
+  }
+});
+
+it('uses one fresh profile view per synchronous fence after both selection observers', async () => {
+  const f = fixture();
+  const observed: string[] = [];
+  const load = f.options.loadProfiles;
+  const profiles = vi.spyOn(f.options, 'loadProfiles').mockImplementation(() => {
+    observed.push('profiles');
+    return load();
+  });
+  const pending = vi.fn(() => {
+    observed.push('pending-status');
+    return true;
+  });
+  const selections = vi.fn(() => {
+    observed.push('pending-selections');
+    return [];
+  });
+  Object.assign(f.options, { isSelectionPending: pending, pendingSelections: selections });
+  let measured: unknown;
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      observed.length = 0;
+      profiles.mockClear();
+      pending.mockClear();
+      selections.mockClear();
+      lease.assertCurrentSync!();
+      measured = {
+        loads: profiles.mock.calls.length,
+        pending: pending.mock.calls.length,
+        selections: selections.mock.calls.length,
+        order: [...observed],
+      };
+      f.configuration[0].email = 'changed@example.test';
+      expect(() => lease.assertCurrentSync!()).toThrow('Host Codex bootstrap unavailable');
+    });
+    expect(measured).toEqual({
+      loads: 1,
+      pending: 2,
+      selections: 1,
+      order: ['pending-status', 'pending-status', 'pending-selections', 'profiles'],
+    });
+    expect(profiles).toHaveBeenCalledTimes(2);
+  } finally {
+    f.authority.currentLease()?.close();
+    f.store.close();
+  }
+});
+
+it.each(['isSelectionPending', 'pendingSelections'] as const)(
+  'observes profile mutations made synchronously by %s before validating the fresh view',
+  async (observer) => {
+    const f = fixture();
+    let mutate = false;
+    let rejected = false;
+    const change = () => {
+      if (mutate) {
+        mutate = false;
+        f.configuration[0].email = 'changed@example.test';
+      }
+    };
+    Object.assign(f.options, {
+      isSelectionPending: () => {
+        if (observer === 'isSelectionPending') change();
+        return true;
+      },
+      pendingSelections: () => {
+        if (observer === 'pendingSelections') change();
+        return [];
+      },
+    });
+    try {
+      await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+        mutate = true;
+        try {
+          lease.assertCurrentSync!();
+        } catch {
+          rejected = true;
+        }
+      });
+      expect(rejected).toBe(true);
+      expect(f.rpc.close).toHaveBeenCalled();
+    } finally {
+      f.authority.currentLease()?.close();
+      f.store.close();
+    }
+  },
+);
+
+it('loads a new profile view after an awaited workspace check and rejects changes before returning authority', async () => {
+  const f = fixture();
+  let mutate = false;
+  f.options.assertSelectionCurrent.mockImplementation(async () => {
+    if (mutate) {
+      mutate = false;
+      f.configuration[0].email = 'changed@example.test';
+    }
+  });
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      mutate = true;
+      await expect(lease.assertCurrent()).rejects.toThrow('Host Codex bootstrap unavailable');
+      expect(f.rpc.close).toHaveBeenCalled();
+    });
+  } finally {
+    f.authority.currentLease()?.close();
+    f.store.close();
+  }
+});
+
+it('continues to validate every pending model against the same fresh profile view', async () => {
+  const f = fixture();
+  let extra = false;
+  Object.assign(f.options, {
+    pendingSelections: () => (extra ? [{ model: 'not-configured', thinking: null }] : []),
+  });
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      extra = true;
+      expect(() => lease.assertCurrentSync!()).toThrow('Host Codex bootstrap unavailable');
     });
   } finally {
     f.authority.currentLease()?.close();
@@ -403,7 +557,10 @@ it('fresh provider model/thinking refusal blocks workspace/dispatch and retains 
     expect(operation).not.toHaveBeenCalled();
     expect(f.rpc.close).toHaveBeenCalledTimes(1);
     expect(f.store.getOrdinaryLocalCommandAdmission('command')?.state).toBe('uncertain');
-    expect(readdirSync(f.privateRoot)).toEqual([`host-login-${f.expected.bootstrapId}`]);
+    expect(readdirSync(f.privateRoot).sort()).toEqual([
+      `host-login-${f.expected.bootstrapId}`,
+      expect.stringMatching(/^host-runtime-[A-Za-z0-9]{6}$/),
+    ]);
   } finally {
     f.store.close();
   }
@@ -976,9 +1133,14 @@ it('retains the real login refresh receiver and refuses async credential-functio
   }
 });
 
-it.each([false, true])(
-  'qualifies a retained cold workspace only after the new uncertain claim and real lease exists (physical failure=%s)',
-  async (failPhysical) => {
+it.each([
+  { legacy: false, failPhysical: false },
+  { legacy: false, failPhysical: true },
+  { legacy: true, failPhysical: false },
+  { legacy: true, failPhysical: true },
+])(
+  'qualifies exact retained cold custody after the new uncertain claim and real lease exists: %j',
+  async ({ legacy, failPhysical }) => {
     const f = fixture();
     let custody: import('../host-codex-custody.js').HostCodexCustody | undefined;
     await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
@@ -990,6 +1152,11 @@ it.each([false, true])(
       };
     });
     f.authority.currentLease()!.close();
+    if (legacy)
+      custody!.executable = FrozenHostCodexExecutable.capture(
+        f.runtime.executablePath,
+        custody!.login.privateHome,
+      ).custodySnapshot();
     const phases: string[] = [];
     const options = {
       ...f.options,
@@ -1042,6 +1209,7 @@ it.each([false, true])(
       },
       async (lease) => {
         await lease.assertCurrent();
+        expect(lease.custodySnapshot!().executable).toEqual(custody!.executable);
         phases.push('dispatch');
       },
     );

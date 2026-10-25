@@ -13,5 +13,15 @@
     "rewriteRelativeImportExtensions": true
   },
   "include": ["server/**/*.ts"],
-  "references": [{ "path": "packages/protocol" }, { "path": "packages/harness" }]
+  "references": [
+    {
+      "path": "packages/protocol"
+    },
+    {
+      "path": "packages/harness"
+    },
+    {
+      "path": "packages/client"
+    }
+  ]
 }

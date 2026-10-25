@@ -185,7 +185,7 @@ it('never launches unregistered or sandbox-only sources, rejects config changes 
       }),
     ).rejects.toThrow();
     expect(catalog.list()).toEqual([]);
-    expect(f.close).toHaveBeenCalledOnce();
+    expect(f.close).toHaveBeenCalledTimes(2);
   } finally {
     catalog.close();
   }
@@ -305,7 +305,7 @@ it('rejects inherited environment drift during discovery before publishing and a
       }),
     ).rejects.toThrow('MCP initialization failed');
     expect(catalog.list()).toEqual(saved);
-    expect(close).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledTimes(2);
   } finally {
     if (previous === undefined) delete process.env.PATH;
     else process.env.PATH = previous;
@@ -421,10 +421,10 @@ it('keeps cancelled refresh unsettled until the real peer shutdown has finished'
       },
     );
   try {
-    await vi.waitFor(() => expect(listTools).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(listTools).toHaveBeenCalledTimes(2));
     abort.abort();
     finishList();
-    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(2));
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
     expect(settled).toBe(false);
     finishClose();
