@@ -73,10 +73,11 @@ export function publishNativeCompleteProfile(library: AgentLibraryStore) {
 // Only the two original native loopback callbacks are allowed. All other
 // external effects/model traffic continue to fail closed in these cases.
 export function allowNativeCompleteCallbacks(origin: string) {
+  const ownedOrigins = [origin, `http://localhost:${new URL(origin).port}`];
   vi.stubGlobal('fetch', (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (
-      url.origin !== origin ||
+      !ownedOrigins.includes(url.origin) ||
       init?.method !== 'POST' ||
       url.username ||
       url.password ||
