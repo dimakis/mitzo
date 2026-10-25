@@ -80,7 +80,7 @@ function controlledReceipt(context: NativeHostToolContext, events: EventStore, t
   };
 }
 it.runIf(process.platform === 'darwin')(
-  'registers and dispatches API Prepare after viewer detach through the signed native adapter without accepting JSON owners',
+  'registers and dispatches API Prepare after cold resume by a new login and viewer detach without accepting JSON owners',
   async () => {
     vi.stubGlobal(
       'fetch',
@@ -99,7 +99,12 @@ it.runIf(process.platform === 'darwin')(
       async () => {
         throw Error('Public registration must own dispatch');
       },
-      { registeredExecutablePath: executable, api: true, separateViewer: true },
+      {
+        registeredExecutablePath: executable,
+        api: true,
+        separateViewer: true,
+        resumeFromPreviousLogin: true,
+      },
     );
     // Existing fixture owns a separate real SQLite service. Bind the server
     // lookup to that EXACT original runtime owner; no product injection option.

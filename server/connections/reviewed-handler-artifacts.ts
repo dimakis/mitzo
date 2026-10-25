@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.692-local-chat-host-protocol-continuity';
+  'v1.0.693-native-repository-operator-continuity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -42,7 +42,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-local-repository-preparation-approval-modes.test.ts':
     '52a067210d22faeef80a8fa7cd45b73f4ebf346e751363ca30401d6813531a6b',
   '../__tests__/native-local-repository-preparation-registration-dispatch.test.ts':
-    '41b16beaf0cf06a3bad9cab410f50fbdac79d30b7c3973e8d5123b4b072373ef',
+    '1a1ebc4a9caac6e06b11bf3ac4824d7faa5f773715ba7e2367c82990444eb5b5',
   '../native-local-repository-preparation.ts':
     '9ccc78aa713b57cfcf72e9ac5ab1187362c3370400bdc63060114349f3682d53',
   '../__tests__/native-local-repository-preparation.test.ts':
@@ -1558,7 +1558,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1116a555e86fbd95a99c4addd1d00c55480928d4d277d9c33bb11e7b430465af',
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../native-host-tool-context.ts':
-    '4f6a7110ee8d2680b65070aaac0085eae19f7f401a3831bddd87447d346f571e',
+    '64131909bdc6f8f3180d390908727349658c0d4bd72fe4072c579909a8949e45',
   '../symposium-publication-credentials.ts':
     'e1c578eec9297cf567c6ef31ac3443ad8a36a3fb40ccda2149ac18d18362346d',
   '../openshell-artifact-reader.ts':
@@ -1680,7 +1680,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-initial-directory-batch.test.ts':
     '0b4359329a52ff0878bef702eb3748cab2288502fbe6f55ed68c2b57040e95e1',
   '../__tests__/fixtures/local-repository-native-tools.ts':
-    '13453db6c9ead63895fb6264e9d7eda6c9b50985d305ed15c0c6325193f1ae6d',
+    '5f52079f5b51b62a5afde89d44dfdc082c3ce889d6fb8edbff16d0c1f3714aaa',
   '../__tests__/native-local-repository-read-projection.test.ts':
     'e78286f66f12951fd228c86e7044e17d3e5023294087aa0b4b16ec0b6af44571',
   '../__tests__/native-local-repository-read-registration.test.ts':
@@ -2201,7 +2201,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/telos-worker-materials.ts':
     '362c2f64970802cbacaccdac3c38af153768aee385d3094031f5d32e56959134',
   '../__tests__/native-host-operator-lifetime.test.ts':
-    '53afb3ec1fa0dbea6d748852a80c393c3132be58d8b14df99b906893cfc2450f',
+    'ccf58d17751c96aed4c17ae39c47d3922c19ebaff688dde594fbbcc581173262',
   '../../frontend/src/components/__tests__/TelosSourceReview.test.tsx':
     'c573b2ef7c636b6331ebf3a8f5d1af4d5943956f42805082a102af20627ffb80',
   '../../frontend/src/hooks/__tests__/useDraft.test.ts':
@@ -2211,7 +2211,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/ChatViewSavedDrafts.test.tsx':
     'df798f338b6dec2c641a0f6269b73295c114ba3621f85894ce27e558a246edd3',
   '../../scripts/__tests__/ci-native-operator.test.ts':
-    'a0ad6cec12d8b853ab4b1b4b20ebcf3b8877c171dff9de44290879507ecea41f',
+    '3a3c12ec5bca12df18a6f8939bdb3b4cfd81223a1e6351e08b79aa47a4dbc7dc',
   '../__tests__/agent-tool-catalog.test.ts':
     '1fabebb55b6b6124c47fec49d97909aae109e0ec96b6d34c3f1c4978a5295964',
   '../__tests__/telos-item-store.test.ts':
@@ -2279,7 +2279,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/__tests__/live-prefix-delivery.test.ts':
     '7c18084f6e5b9996b25e4ce44d351ab56cb4bcae2d86abf23d25cc48efc3321f',
   '../../scripts/__tests__/ci-native-authorization.test.ts':
-    '4cfae9cac0838d93a8da5bfd82e8ada21a0c99625f7536b92e6d9e6b41a67d91',
+    '68ee32a912141749f1478d2eb1c80e1977190cd6b67f4ceb9a8ad335c4b12c19',
   '../../scripts/__tests__/ci-unit-gate.test.ts':
     'ef23a02956341c218927e561f5b19eac43dcba7c52be64ce71f4653d1a8d96c8',
   '../../scripts/ci-unit-gate.mjs':

@@ -1,6 +1,7 @@
 import { expect, vi } from 'vitest';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { codexDynamicToolsOption } from '../../codex-ordinary-packet.js';
 import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { ownedRuntimeFixture } from './owned-local-codex-runtime.js';
 import { login, authenticateToken } from '../../auth.js';
@@ -39,6 +40,7 @@ export async function localRepositoryNativeToolFixture(
     nativeBaseReads?: boolean;
     readableRoots?: readonly string[];
     registeredExecutablePath?: string;
+    resumeFromPreviousLogin?: boolean;
   } = {},
 ) {
   const f = await ownedRuntimeFixture(cleanups, {
@@ -49,6 +51,27 @@ export async function localRepositoryNativeToolFixture(
       ? { chatRoute: true, nativeExecutablePath: options.registeredExecutablePath }
       : {}),
   });
+  const native = options.registeredExecutablePath
+    ? (await import('../../codex-chat-session.js')).getCodexConversationStore()
+    : new CodexConversationStore(join(f.root, 'peer-native.db'));
+  cleanups.push(() => native.close());
+  if (options.resumeFromPreviousLogin) {
+    const previous = f.create();
+    await previous.admit(f.request);
+    const dispatch = f.dispatch.mock.calls[0][0];
+    const surfaceRevision = createHash('sha256')
+      .update(JSON.stringify(codexDynamicToolsOption(localRepositoryToolDefinitions)))
+      .digest('hex');
+    native.create(
+      dispatch.sessionId,
+      dispatch.lease.binding,
+      dispatch.workspace.directory!,
+      surfaceRevision,
+    );
+    dispatch.admission.persistCustody(native);
+    native.bindThread(dispatch.sessionId, dispatch.lease.binding, `thread-${dispatch.sessionId}`);
+    previous.close();
+  }
   f.detach();
   const token = await login(process.env.AUTH_PASSPHRASE!);
   const auth = (await authenticateToken(token!))!;
@@ -59,10 +82,6 @@ export async function localRepositoryNativeToolFixture(
     ? bindAgentLibraryTransport(viewerConnectionId, auth)
     : () => {};
   cleanups.push(detachViewer);
-  const native = options.registeredExecutablePath
-    ? (await import('../../codex-chat-session.js')).getCodexConversationStore()
-    : new CodexConversationStore(join(f.root, 'peer-native.db'));
-  cleanups.push(() => native.close());
   const registry = new SessionRegistry();
   cleanups.push(() => registry.dispose());
   const handles = new Map<string, Awaited<ReturnType<typeof start>>>();
@@ -76,6 +95,9 @@ export async function localRepositoryNativeToolFixture(
     selected: typeof f | Awaited<ReturnType<typeof f.prepareSibling>>,
     prepared = false,
   ) {
+    const request = options.resumeFromPreviousLogin
+      ? { ...selected.request, clientMsgId: randomUUID() }
+      : selected.request;
     const sessionId = selected.reservation.conversationId;
     const clientId = `${operatorConnectionId}:${sessionId}`;
     registry.register(clientId, {
@@ -113,7 +135,12 @@ export async function localRepositoryNativeToolFixture(
         requests.push({ method, params: params ?? {} });
         if (method === 'thread/start' || method === 'thread/resume')
           return {
-            thread: { id: `thread-${sessionId}` },
+            thread: {
+              id:
+                options.resumeFromPreviousLogin && method === 'thread/start'
+                  ? `thread-${sessionId}-replacement`
+                  : `thread-${sessionId}`,
+            },
             model: 'fixture-model',
             modelProvider: 'openai',
           };
@@ -125,6 +152,10 @@ export async function localRepositoryNativeToolFixture(
     let initial!: OrdinaryLocalCodexOwnedDispatch;
     const driver = new OrdinaryLocalCodexOwnedRuntime({
       ...selected.dependencies,
+      commandId: request.clientMsgId,
+      ...(options.resumeFromPreviousLogin
+        ? { launch: () => selected.rpc, launchApi: async () => selected.rpc }
+        : {}),
       nativeStore: native,
       operatorConnectionId,
       dispatch: async (dispatch) => {
@@ -156,6 +187,7 @@ export async function localRepositoryNativeToolFixture(
         const runtimeId = randomUUID();
         if (!options.registeredExecutablePath)
           dispatch.admission.assertOptions({
+            resume: dispatch.resume,
             conversationId: sessionId,
             messageId: dispatch.commandId,
             binding: dispatch.lease.binding,
@@ -189,6 +221,7 @@ export async function localRepositoryNativeToolFixture(
             return attach.call(dispatch.admission, cb);
           });
           const query = await openCodexChat({
+            resume: dispatch.resume,
             conversationId: sessionId,
             messageId: dispatch.commandId,
             ownedLocal: dispatch.admission,
@@ -333,7 +366,8 @@ export async function localRepositoryNativeToolFixture(
         selected.preparation!.receipt.allocationOperationId,
         selected.request,
       );
-    else await driver.admit(selected.request);
+    else if (options.resumeFromPreviousLogin) await driver.admitResume(request);
+    else await driver.admit(request);
     session.ordinaryRuntimeOwner = {
       location: 'local',
       authSessionId: auth.id,
@@ -364,7 +398,7 @@ export async function localRepositoryNativeToolFixture(
         const response = await callbacks.onRequest(
           'item/tool/call',
           {
-            threadId: `thread-${sessionId}`,
+            threadId: native.read(sessionId, initial.lease.binding).threadId,
             turnId: `turn-${turn}`,
             callId: randomUUID(),
             namespace: null,
@@ -382,7 +416,7 @@ export async function localRepositoryNativeToolFixture(
           .commands(sessionId, initial.lease.binding)
           .find((c) => c.status === 'running')!;
         callbacks.onNotification('turn/completed', {
-          threadId: `thread-${sessionId}`,
+          threadId: native.read(sessionId, initial.lease.binding).threadId,
           turn: { id: `turn-${turn}`, status: 'completed' },
         });
         await vi.waitFor(() =>

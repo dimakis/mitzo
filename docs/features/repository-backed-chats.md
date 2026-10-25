@@ -73,6 +73,12 @@ registry. Native call, account, workspace, profile and one-use preparation
 approval checks remain required. This applies to Local Mac Codex with API and
 subscription accounts; it does not change queue controls or deployment.
 
+After a cold resume, these tools use the current signed primary operator under
+the same ownership rule as ordinary chat admission. The creating login remains
+unchanged in the custody record; its login ID is not a permanent device ACL.
+The original admission, pending native call and current operator must still be
+valid, including after the viewer disconnects.
+
 An ordinary agent can discover authorized repositories with `ListRepositories`,
 then call `PrepareRepositoryChat` with a repository and a focused task draft.
 Mitzo resolves the account, model and unique GitHub connection from the live chat;

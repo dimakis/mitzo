@@ -22,6 +22,7 @@ import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import type { NativeMainPublicationCall } from './telos-main-publication-host.js';
 import { MainPublicationAccountSchema } from './telos-main-publication-contract.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 
 type NativeCall = Parameters<CodexConversationOptions['executeTool']>[3];
 const retainedOperators = new WeakMap<ManagedSession, string>();
@@ -364,7 +365,15 @@ export function captureNativeHostToolContext(owners: {
       owners.call.callId,
       identity,
     );
-    if (!custody || custody.authSessionId !== authorization.auth.id || !pending) unavailable();
+    // The creating login remains custody provenance. A cold resume already
+    // admits the current signed primary operator through the same identity rule;
+    // retain that rule here without replacing the original custody receipt.
+    if (
+      !custody ||
+      !ordinaryOperatorOwnsConversation(custody.authSessionId, authorization.auth.id) ||
+      !pending
+    )
+      unavailable();
     const nativeTarget: Readonly<CodexNativeTurnTarget> = freezeData({
       commandId: pending.commandId,
       attempt: pending.attempt,
