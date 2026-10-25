@@ -39,6 +39,7 @@ vi.mock('node:child_process', async (original) => {
 // its mock is initializing: that import cycle can capture the global getter.
 vi.mock('../repository-workspace-runtime.js', () => ({
   getRepositoryWorkspaces: () => services.workspace,
+  getRepositoryWorkspaceCustody: () => services.workspace,
   repositoryWorkspaceBinding: () => {
     throw Error('No new repository account selection in this metadata fixture');
   },
