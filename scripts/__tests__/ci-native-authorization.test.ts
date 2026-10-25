@@ -15,7 +15,7 @@ const step = workflow.jobs['ordinary-journey'].steps.find(
 )!;
 const validator = step.run!.split("node --input-type=module <<'NODE'\n")[1].split('\nNODE')[0];
 const required = [
-  ['native-host-operator-lifetime.test.ts', 5],
+  ['native-host-operator-lifetime.test.ts', 7],
   ['native-local-repository-preparation-registration-dispatch.test.ts', 4],
   ['native-local-repository-read-tools.test.ts', 8],
   ['native-reader-path-authorization.test.ts', 13],
@@ -48,7 +48,7 @@ function validate(report: ReturnType<typeof fixture>) {
     rmSync(directory, { recursive: true, force: true });
   }
 }
-it('accepts all thirty actual authority cases and only the named optional diagnostic', () => {
+it('accepts all thirty-two actual authority cases and only the named optional diagnostic', () => {
   expect(step.run!.split("node --input-type=module <<'NODE'\n")[0]).toContain(
     'server/__tests__/native-reader-path-authorization.test.ts',
   );
