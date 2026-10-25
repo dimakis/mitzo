@@ -5260,6 +5260,146 @@ it.each([false, true])(
   },
 );
 
+it.each([
+  { role: 'lead', ownerChanged: false },
+  { role: 'lead', ownerChanged: true },
+  { role: 'worker', ownerChanged: false },
+  { role: 'advisor', ownerChanged: false },
+  { role: 'reviewer', ownerChanged: false },
+  { role: undefined, ownerChanged: false },
+] as const)(
+  'scopes one immutable artifact/task profile before delegation (role=$role, ownerChanged=$ownerChanged)',
+  async ({ role, ownerChanged }) => {
+    vi.clearAllMocks();
+    const { AgentLibraryStore } = await import('../agent-library-store.js');
+    const { installTelosMainPublicationRuntime, closeTelosMainPublicationRuntime } =
+      await import('../telos-main-publication-runtime.js');
+    const { PublicationCredentialCustodian } =
+      await import('../symposium-publication-credentials.js');
+    const { credentials } = await import('../credentials.js');
+    const root = mkdtempSync(join(tmpdir(), 'owned-lead-task-selection-'));
+    const library = new AgentLibraryStore(':memory:');
+    const draft = library.saveDraft('user', {
+      profileId: 'owned-agent',
+      expectedVersion: 0,
+      expectedRevision: 0,
+      idempotencyKey: 'draft',
+      definition: {
+        name: 'Lead and worker',
+        role: 'agent',
+        instructions: 'Retain the current role and exact task scope.',
+        expectedOutput: 'Evidence',
+        acceptanceCriteria: ['One immutable role-scoped selection'],
+        modelPolicyRole: 'agent',
+        tools: [
+          'TelosStartSlice',
+          'TelosSaveArtifact',
+          'TelosReadArtifact',
+          'Write',
+          'TaskStatus',
+          'TaskArtifact',
+          'TaskComplete',
+        ].map((name) => ({ id: `mitzo:${name}`, version: 1 })),
+      },
+    });
+    const profile = library.publish('user', {
+      profileId: draft.profileId,
+      expectedVersion: draft.version,
+      idempotencyKey: 'publish',
+    });
+    const originalProfile = structuredClone(profile);
+    const f = ownedLocalOptions(root, profile);
+    f.opts.registry = {
+      findBySessionId: () => ({
+        clientId: 'original-client',
+        session: ownerChanged ? { ...f.opts.session } : f.opts.session,
+      }),
+      get: () => f.opts.session,
+    } as never;
+    f.opts.assertAgentContextAuthorization = () => {};
+    if (role)
+      retainTelosWorkRoleContext(f.eventStore, f.opts.conversationId, f.opts.binding, {
+        version: 1,
+        itemId: 'outcome',
+        role,
+        ...(role === 'worker' ? { leadConversationId: 'original-lead' } : {}),
+        brief: {
+          revision: 'r1',
+          text: 'Reviewed role',
+          sha256: createHash('sha256').update('Reviewed role').digest('hex'),
+        },
+        parentCriteria: [],
+        overallGoal: { itemId: 'outcome', revision: 'r1', text: 'Outcome' },
+        sources: [],
+        artifacts: [],
+      });
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      displayName: (name: string) => name,
+      close: mocks.mcpClose,
+    });
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    installTelosMainPublicationRuntime({
+      registry: f.opts.registry,
+      events: f.eventStore,
+      databasePath: () => join(root, 'telos.sqlite'),
+      registrations: [],
+      custodian: new PublicationCredentialCustodian(credentials),
+    });
+    let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      if (role !== 'lead' || ownerChanged) {
+        await expect(openCodexChat(f.opts)).rejects.toThrow(
+          'Selected task tools require the original owned local task',
+        );
+        expect(mocks.initialize).not.toHaveBeenCalled();
+      } else {
+        query = await openCodexChat(f.opts);
+        const names = (mocks.conversationOptions!.tools as Array<{ name: string }>)
+          .map(({ name }) => name)
+          .sort();
+        expect(names).toEqual(
+          [
+            'AskUserQuestion',
+            'TelosReadArtifact',
+            'TelosSaveArtifact',
+            'TelosStartSlice',
+            'Write',
+          ].sort(),
+        );
+        const execute = mocks.conversationOptions!.executeTool as (
+          name: string,
+          input: Record<string, unknown>,
+          signal: AbortSignal,
+          context: { turnId: string; callId: string },
+        ) => Promise<unknown>;
+        mocks.permissionHandler.mockClear();
+        for (const name of [
+          'TaskComplete',
+          'mcp__task-board__TaskComplete',
+          'InvokeIntegrationTool',
+        ])
+          await expect(
+            execute(name, {}, new AbortController().signal, { turnId: 'lead-turn', callId: name }),
+          ).rejects.toThrow(/not selected|unavailable/i);
+        expect(mocks.permissionHandler).not.toHaveBeenCalled();
+        expect(f.opts.session.taskContext).toBeFalsy();
+      }
+      expect(mocks.connect).toHaveBeenCalledOnce();
+      expect(mocks.connect.mock.calls[0][0]).toEqual({});
+      expect(profile).toEqual(originalProfile);
+      expect(f.opts.agentProfile).toEqual(originalProfile);
+    } finally {
+      query?.close();
+      closeTelosMainPublicationRuntime();
+      f.eventStore.close();
+      library.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
 it('composes explicitly selected native artifacts and task MCP on the same owned local worker', async () => {
   const { AgentLibraryStore } = await import('../agent-library-store.js');
   const { SessionRegistry } = await import('@mitzo/harness');

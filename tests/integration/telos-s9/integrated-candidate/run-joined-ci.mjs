@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
 import { createRequire } from 'node:module';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 
@@ -55,16 +55,36 @@ const cases = [
       'server/__tests__/telos-coordinator-v2-native-journey.test.ts',
     ],
   },
+  {
+    name: 'native-lead-worker-workflow',
+    configPath: 'tests/integration/telos-s5b/vitest.native-role-composition.config.ts',
+    files: ['tests/integration/telos-s5b/native-role-composition.contract.ts'],
+  },
+  {
+    name: 'worker-first-completion',
+    configPath: 'tests/integration/telos-s9/worker-first-completion/vitest.config.ts',
+    files: ['tests/integration/telos-s9/worker-first-completion/first-completion.contract.ts'],
+  },
+  {
+    name: 'selected-model-readiness',
+    configPath: 'tests/integration/telos-s9/model-readiness/vitest.config.ts',
+    files: ['tests/integration/telos-s9/model-readiness/model-readiness.contract.ts'],
+  },
 ];
 const failures = [];
 const summary = [];
 for (const selected of cases) {
   const directory = join(root, 'test-results/telos-s9-joined', selected.name);
   mkdirSync(directory, { recursive: true });
+  // A missing fresh reporter must never reuse a previous execution's proof.
+  rmSync(join(directory, 'run.json'), { force: true });
   const env = {
     ...process.env,
     NODE_OPTIONS: '--max-old-space-size=1024',
     S9_JOINED_SCREENSHOT_DIR: directory,
+    ...(selected.name === 'native-lead-worker-workflow'
+      ? { S5B_NATIVE_ROLE_EVIDENCE: join(directory, 'native-role-facts.json') }
+      : {}),
   };
   // CI uses retained accepted bytes, never a developer's MGMT checkout.
   delete env.S9_MGMT_SOURCE_ROOT;
@@ -74,7 +94,7 @@ for (const selected of cases) {
       vitest,
       'run',
       '--config',
-      join(suite, selected.config),
+      selected.configPath ?? join(suite, selected.config),
       '--reporter=default',
       '--reporter=json',
       '--outputFile=' + join(directory, 'run.json'),

@@ -30,6 +30,13 @@ interface UpdateRow {
   new_status: string;
   created_at: string;
 }
+function assertCurrent(assertion?: () => void): void {
+  if (!assertion) return;
+  const result: unknown = assertion();
+  if (result === undefined) return;
+  void Promise.resolve(result).catch(() => {});
+  throw Error('Synchronous Telos item authority required');
+}
 
 /** Operates on the canonical Telos DB, preserving its existing item/history model. */
 export class TelosItemStore {
@@ -109,10 +116,44 @@ export class TelosItemStore {
     return this.db.transaction(() => this.snapshot(itemId))();
   }
 
+  /** Native invocation authority is checked while the real read snapshot is open. */
+  readGuarded(itemId: string, assertion: () => void) {
+    if (typeof assertion !== 'function') throw Error('Synchronous Telos item authority required');
+    if (this.db.inTransaction) throw Error('Original Telos item reader required');
+    return this.db.transaction(() => {
+      assertCurrent(assertion);
+      const item = this.snapshot(itemId);
+      assertCurrent(assertion);
+      return item;
+    })();
+  }
+
   update(input: TelosItemUpdateInput, sessionId: string) {
+    return this.mutate(input, sessionId);
+  }
+
+  /** The original canonical owner keeps the outer writer and receipt ordering. */
+  updateGuarded(
+    input: TelosItemUpdateInput,
+    sessionId: string,
+    assertion: () => void,
+    beforeApply?: () => void,
+  ) {
+    if (typeof assertion !== 'function') throw Error('Synchronous Telos item authority required');
+    if (this.db.inTransaction) throw Error('Original Telos item writer required');
+    return this.mutate(input, sessionId, assertion, beforeApply);
+  }
+
+  private mutate(
+    input: TelosItemUpdateInput,
+    sessionId: string,
+    assertion?: () => void,
+    beforeApply?: () => void,
+  ) {
     if (!sessionId || !input.note.trim()) throw new Error('Session and evidence note required');
     return this.db
       .transaction(() => {
+        assertCurrent(assertion);
         const inputHash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
         if (this.hasUpdates()) {
           const previous = this.db
@@ -140,6 +181,10 @@ export class TelosItemStore {
             .get(input.itemId);
           if (unfinished) throw new Error('Unfinished milestones; complete them before the parent');
         }
+        // No authority callback runs after a status/history/receipt effect.
+        assertCurrent(assertion);
+        // Fresh-effect eligibility must not hide a known committed receipt.
+        assertCurrent(beforeApply);
         this.db.exec(`CREATE TABLE IF NOT EXISTS telos_item_updates (
         seq INTEGER PRIMARY KEY, item_id TEXT NOT NULL REFERENCES items(id),
         session_id TEXT NOT NULL, request_id TEXT NOT NULL, input_hash TEXT NOT NULL,

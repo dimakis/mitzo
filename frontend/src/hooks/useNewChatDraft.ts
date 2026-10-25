@@ -37,9 +37,11 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
       generation,
       urlOwned: true,
     };
-    previousOwner.current = next;
     return next;
   }, [requestedId, generation]);
+  // StrictMode may discard a memo calculation. Track the owner React retained,
+  // rather than publishing a different owner from a discarded calculation.
+  previousOwner.current = owner;
   const [settingsError, setSettingsError] = useState(false);
   const saveSettings = useCallback(
     (settings: ChatDraft['settings']) => {

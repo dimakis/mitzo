@@ -74,6 +74,7 @@ vi.mock('../ordinary-local-codex-owned-runtime.js', () => ({
   },
 }));
 vi.mock('../agent-library-transport.js', () => ({
+  bindAgentLibraryTransport: vi.fn(() => vi.fn()),
   captureAgentLibraryAuthorization: vi.fn(() => ({
     auth: { id: 'fixture-owner-login' },
     assertCurrent: vi.fn(),

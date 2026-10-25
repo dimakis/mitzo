@@ -119,6 +119,22 @@ it('revokes an unreleased old URL owner when genuine New creates another generat
   expect(result.current.ownsUrl()).toBe(true);
   expect(oldOwnsUrl()).toBe(false);
 });
+it('keeps the rendered new draft as the current URL owner through StrictMode replay and reset', () => {
+  const { result, rerender } = renderHook(
+    ({ generation }) => useNewChatDraft(null, generation, true),
+    {
+      initialProps: { generation: 0 },
+      wrapper: ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode>,
+    },
+  );
+  const oldId = result.current.draft.id;
+  const oldOwnsUrl = result.current.ownsUrl;
+  expect(oldOwnsUrl()).toBe(true);
+  rerender({ generation: 1 });
+  expect(result.current.draft.id).not.toBe(oldId);
+  expect(result.current.ownsUrl()).toBe(true);
+  expect(oldOwnsUrl()).toBe(false);
+});
 it('blocks missing draft references instead of quietly substituting another draft', () => {
   const { result } = renderHook(() => useNewChatDraft('missing', 0, true));
   expect(result.current.missing).toBe(true);

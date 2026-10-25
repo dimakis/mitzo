@@ -26,6 +26,7 @@ import {
   prepareKnowledgeAndCapabilities,
 } from './codex-admission-preparation.js';
 import { executeNativeTelosArtifactOperation } from './native-telos-artifact-operations.js';
+import { executeNativeTelosItemOperation } from './native-telos-item-operations.js';
 import {
   captureNativeHostReadOwner,
   captureNativeHostToolContext,
@@ -919,6 +920,7 @@ async function openCodexChatBound(
       ? [
           telosCreateOutcomeDefinition,
           telosAdoptSourceDefinition,
+          ...(selectedTelosRole?.role === 'lead' ? telosItemDefinitions : []),
           ...telosArtifactDefinitions.filter((tool) =>
             ['TelosSaveArtifact', 'TelosReadArtifact'].includes(tool.name),
           ),
@@ -1585,7 +1587,15 @@ async function openCodexChatBound(
         throw error;
       });
   const taskRefs = selectedTaskMcpReferences(selectedProfile?.definition);
-  if (taskRefs.length) {
+  // A retained lead delegates rather than executing a task. Its unchanged
+  // published selection can be inherited by the separately admitted worker.
+  const leadWithoutTask =
+    taskRefs.length > 0 &&
+    !!options.ownedLocal &&
+    selectedTelosRole?.role === 'lead' &&
+    !options.session.taskContext?.currentTaskId &&
+    options.registry.findBySessionId(options.conversationId)?.session === options.session;
+  if (taskRefs.length && !leadWithoutTask) {
     let taskPeer: Awaited<ReturnType<typeof connectSelectedTaskMcpTools>> | undefined;
     try {
       const owner = options.registry.findBySessionId(options.conversationId);
@@ -3206,6 +3216,50 @@ async function openCodexChatBound(
           isError: operation.status !== 'succeeded',
         };
       }
+      if (options.ownedLocal && isTelosItemTool(name)) {
+        if (!mainPublicationRuntime || !nativeTelosTools.some((tool) => tool.name === name))
+          throw Error('Original native Telos item tool unavailable');
+        const context = captureSignedContext();
+        try {
+          await context.assertCurrent();
+          const parsed = telosItemSchemas[name].safeParse(input);
+          if (!parsed.success)
+            return toolInputError('Telos item input', telosItemSchemas[name], parsed.error);
+          return await mainPublicationRuntime.withItems(context, (owners) =>
+            executeNativeTelosItemOperation(
+              {
+                ...owners,
+                approve: async (toolName, parsedInput, permissionSignal) => {
+                  await owners.context.assertCurrent();
+                  const result = await buildPermissionHandler(context.clientId, options.registry, {
+                    onDemandCreate: options.onDemandCreate,
+                  })(toolName, parsedInput, {
+                    signal: permissionSignal,
+                    toolUseID:
+                      'native:' +
+                      createHash('sha256')
+                        .update(JSON.stringify([context.turnId, context.callId, toolName]))
+                        .digest('hex'),
+                    forcePrompt: true,
+                    allowSessionGrant: false,
+                    approvalScope: 'request',
+                    title:
+                      toolName === 'TelosGetItem'
+                        ? 'Read this Telos item?'
+                        : 'Update this exact Telos item?',
+                  });
+                  owners.context.assertCurrentSync();
+                  return result;
+                },
+              },
+              name,
+              input,
+            ),
+          );
+        } finally {
+          context.dispose();
+        }
+      }
       if (connectedOpenShell && isTelosItemTool(name)) {
         const parsed = telosItemSchemas[name].safeParse(input);
         if (!parsed.success)
@@ -3366,7 +3420,9 @@ async function openCodexChatBound(
                 ? 'Create this outcome in live Telos?'
                 : 'Save source to this Telos item?',
             description:
-              'This writes the approved outcome and milestones to the host Telos store linked to this Mitzo session.',
+              name === TELOS_CREATE_OUTCOME_TOOL
+                ? 'This writes the approved outcome and milestones to the host Telos store linked to this Mitzo session.'
+                : 'This adds the reviewed source to the selected Telos item.',
           });
           sourceSignal.throwIfAborted();
           if (permission.behavior !== 'allow')
