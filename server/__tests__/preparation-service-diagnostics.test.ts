@@ -6,6 +6,7 @@ import {
   qualifiedPreparedRepositoryRecord,
 } from './prepared-repository-candidate-fixture.js';
 import { materializeQualifiedLocalRepositoryTask } from '../qualified-local-repository-actor.js';
+import { createHash } from 'node:crypto';
 
 vi.mock('../qualified-local-repository-actor.js', () => ({
   materializeQualifiedLocalRepositoryTask: vi.fn(),
@@ -139,9 +140,17 @@ it.each(['actor', 'schema', 'bound', 'cas', 'success'] as const)(
     );
     expect(row.pendingHostTask.state).toBe('materializing');
     expect(row.qualifiedLocalPreparation.publication).toBeUndefined();
-    expect(
-      diagnostics.snapshot().stages['service-materialize'].errors[0].cause?.messageSha256,
-    ).toBeDefined();
+    const projectedCause = diagnostics.snapshot().stages['service-materialize'].errors[0].cause;
+    if (failure === 'schema' || failure === 'bound') {
+      // Current Zod messages are accessors: the diagnostic boundary must not
+      // invoke them. Require the actual finite schema evidence and its hash.
+      expect(projectedCause?.name).toBe('ZodError');
+      expect(projectedCause?.issues?.length).toBeGreaterThan(0);
+      expect(projectedCause?.issuesSha256).toBe(
+        createHash('sha256').update(JSON.stringify(projectedCause!.issues)).digest('hex'),
+      );
+      expect(projectedCause?.messageSha256).toBeUndefined();
+    } else expect(projectedCause?.messageSha256).toBeDefined();
     if (failure === 'schema')
       expect(diagnostics.snapshot().stages['receipt-schema'].errors).toHaveLength(1);
     if (failure === 'cas') expect(diagnostics.snapshot().stages['row-cas'].errors).toHaveLength(1);

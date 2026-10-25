@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.679-coordinator-ack-readiness';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.680-lazy-schema-diagnostics';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -119,13 +118,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/materialized-prepared-repository.ts':
     '4db550b99366022ab922172459a1dad125df059bc1dafc7cf916d1d7fb190deb',
   '../__tests__/fixtures/preparation-attempt-diagnostics.ts':
-    '7b91914ab31a83d027f3e6f81dcd7695a49cbc15987d5da42a445f2b41f7a257',
+    '202b3be83a32ccf83793590a8def8d441305b6bdfc98ee361389f2b8f950575c',
   '../__tests__/fixtures/preparation-service-diagnostics.ts':
     '5fc0428905e5b1a6a75316e2b2e8c7cb563d6c3a63dbf87f9d151e6e34b3d8b5',
   '../__tests__/preparation-attempt-diagnostics.test.ts':
-    'db25514e6af83989bac552be67f43c906ef6ccecca21e38ebbd4c63d0d5ce7df',
+    'f8c07cea36124ec920f3d1119d296257c0a559c4a95f9b4aa14dbf6b38f67d2d',
   '../__tests__/preparation-service-diagnostics.test.ts':
-    'f0a1025acdb038cc25a7092b381a4b49838457a7d99e42457e7268ea33220c65',
+    '71fcfd9f1eccdd52b3725d372b0d04f7b5286e4db5e4dc7f2d457c1b6b5a5d5d',
   '../__tests__/pending-host-task-error-cause.test.ts':
     'bfaf5acdefd35ad40da4fc7905a68e6613a28f172fbeeb4fe47852fe3a7951b2',
   '../prepared-repository-workspace-owner.ts':

@@ -2,9 +2,11 @@ import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import {
   createPreparationAttemptDiagnostics,
+  preparationDiagnosticFailure,
   recordPreparationAttempt,
   runRecordedPreparationAttempt,
 } from './fixtures/preparation-attempt-diagnostics.js';
+import { z } from 'zod';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -154,6 +156,39 @@ it('retains bounded schema issue metadata without values or getter execution', a
     { code: 'invalid_type', path: ['taskIdentity'] },
   ]);
   expect(JSON.stringify(diagnostic.snapshot())).not.toContain('secret');
+});
+
+it('fingerprints finite schema metadata without evaluating lazy message accessors', () => {
+  const sentinel = 'SYNTHETIC_PRIVATE_SCHEMA_VALUE';
+  const getter = vi.fn(() => sentinel);
+  const error = Object.defineProperties(
+    {},
+    {
+      name: { value: 'ZodError' },
+      message: { get: getter },
+      issues: {
+        value: [{ code: 'invalid_type', path: ['taskIdentity', sentinel], received: sentinel }],
+      },
+    },
+  );
+  const projected = preparationDiagnosticFailure(error);
+  expect(projected.name).toBe('ZodError');
+  expect(projected.messageSha256).toBeUndefined();
+  expect(projected.issues).toEqual([{ code: 'invalid_type', path: ['taskIdentity', 'redacted'] }]);
+  expect(projected.issuesSha256).toBe(hash(JSON.stringify(projected.issues)));
+  expect(getter).not.toHaveBeenCalled();
+  expect(JSON.stringify(projected)).not.toContain(sentinel);
+
+  const parsed = z.object({ root: z.string() }).safeParse({ root: 42 });
+  expect(parsed.success).toBe(false);
+  if (parsed.success) throw Error('Expected schema failure');
+  const message = Object.getOwnPropertyDescriptor(parsed.error, 'message');
+  expect(message?.get).toBeTypeOf('function');
+  const actual = preparationDiagnosticFailure(parsed.error);
+  expect(actual.issues).toEqual([{ code: 'invalid_type', path: ['root'] }]);
+  expect(actual.issuesSha256).toBe(hash(JSON.stringify(actual.issues)));
+  expect(actual.messageSha256).toBeUndefined();
+  expect(Object.getOwnPropertyDescriptor(parsed.error, 'message')).toEqual(message);
 });
 
 it('joins asynchronous checks and cleanup before persistence or outward success', async () => {

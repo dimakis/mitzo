@@ -5,6 +5,7 @@ type Failure = {
   messageSha256?: string;
   code?: string;
   issues?: Array<{ code: string; path: Array<string | number> }>;
+  issuesSha256?: string;
   cause?: Failure;
 };
 type Stage = {
@@ -125,6 +126,12 @@ export function preparationDiagnosticFailure(error: unknown, depth = 0): Failure
           },
         ];
       });
+    // Zod can expose message lazily. Keep refusing getters; fingerprint only
+    // the finite, redacted issue projection when schema classification exists.
+    if (result.issues?.length)
+      result.issuesSha256 = createHash('sha256')
+        .update(JSON.stringify(result.issues))
+        .digest('hex');
     const cause = data(error, 'cause');
     if (cause !== undefined && depth < 3)
       result.cause = preparationDiagnosticFailure(cause, depth + 1);
