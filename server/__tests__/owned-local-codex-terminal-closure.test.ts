@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   realpathSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -22,7 +23,7 @@ import {
 } from '../ordinary-local-codex-host-runtime.js';
 import { OrdinaryLocalCodexOwnedRuntime } from '../ordinary-local-codex-owned-runtime.js';
 import { CodexAppServerClient, type CodexLifecycleTransport } from '../codex-app-server-client.js';
-import { getCodexRuntime } from '../codex-chat-session.js';
+import { getCodexRuntime, getCodexConversationStore } from '../codex-chat-session.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { revokeAuthSession } from '../auth.js';
 import { ordinaryLocalCodexBootstrapId } from '../ordinary-local-codex-admission.js';
@@ -337,6 +338,10 @@ it.each(['expiry', 'revocation', 'abort'] as const)(
     expect(chat.eventStore.getOrdinaryLocalCommandAdmission(f.commandId)?.state).toBe('consumed');
     expect(peers.close).not.toHaveBeenCalled();
     expect(f.launch).toHaveBeenCalledOnce();
+    const store = getCodexConversationStore();
+    const custody = store.readHostCustody(f.sessionId, f.reservation.binding)!;
+    expect(custody).not.toBeNull();
+    const authBytes = readFileSync(join(custody.login.privateHome, 'auth.json'));
     if (kind === 'expiry') await vi.advanceTimersByTimeAsync(f.auth.expiresAt - Date.now() + 1);
     if (kind === 'revocation') revokeAuthSession(f.auth);
     if (kind === 'abort') f.cancel.abort();
@@ -361,7 +366,12 @@ it.each(['expiry', 'revocation', 'abort'] as const)(
         ),
     );
     expect(existsSync(join(privateHome, 'auth.json'))).toBe(true);
-    expect(existsSync(join(privateHome, 'codex-runtime'))).toBe(true);
+    expect(custody.login.privateHome).toBe(privateHome);
+    expect(readFileSync(join(privateHome, 'auth.json'))).toEqual(authBytes);
+    expect(store.readHostCustody(f.sessionId, f.reservation.binding)).toEqual(custody);
+    expect(existsSync(custody.executable.path)).toBe(true);
+    expect(custody.executable.codeModeHost).toBeDefined();
+    expect(existsSync(custody.executable.codeModeHost!.path)).toBe(true);
     await expect(
       f.runtime.send({ id: 'unadmitted-recovery', prompt: 'Never dispatch' }),
     ).rejects.toThrow();

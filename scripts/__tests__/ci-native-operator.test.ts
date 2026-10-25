@@ -18,6 +18,7 @@ function completeReport(): Report {
       ['native-host-operator-lifetime', 5],
       ['native-local-repository-preparation-registration-dispatch', 4],
       ['native-local-repository-read-tools', 8],
+      ['native-reader-path-authorization', 13],
     ].map(([name, count]) => ({
       name: `/checkout/server/__tests__/${name}.test.ts`,
       assertionResults: Array.from({ length: Number(count) }, (_, i) => ({
@@ -52,6 +53,18 @@ it('accepts complete signed Mac coverage with only the retained opt-in Inspect d
 });
 
 it.each([
+  [
+    'missing native reader suite',
+    (r: Report): void => {
+      r.testResults.pop();
+    },
+  ],
+  [
+    'skipped native reader case',
+    (r: Report): void => {
+      r.testResults[3].assertionResults[0].status = 'pending';
+    },
+  ],
   [
     'missing lifetime case',
     (r: Report): void => {

@@ -141,6 +141,8 @@ it.each(['failed', 'uncertain', 'accepted'] as const)(
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
     expect(send.mock.calls[0][1]).toEqual(draft.images);
     expect(getChatDraft(draft.id)).not.toBeNull();
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+    expect(screen.queryByText('Draft saved on this device')).toBeNull();
     act(() => receipt?.(status));
     view.unmount();
     expect(getChatDraft(draft.id) === null).toBe(status === 'accepted');
@@ -166,6 +168,31 @@ it('retains an edit made while an older message is awaiting confirmation', () =>
   act(() => receipt?.('accepted'));
   view.unmount();
   expect(getChatDraft(draft.id)?.text).toBe('Newer thought');
+});
+it('retains an identical next saved draft after the older send is accepted', () => {
+  const draft = { ...createChatDraft(), text: 'Same next message' };
+  saveChatDraft(draft);
+  let receipt: ((status: 'accepted') => void) | undefined;
+  const view = render(
+    <ChatInput
+      onSend={(_text, _images, _context, callback) => {
+        receipt = callback;
+        return true;
+      }}
+      onStop={() => {}}
+      running={false}
+      savedChatDraft={draft}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+    target: { value: 'Same next message' },
+  });
+  act(() => receipt?.('accepted'));
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Same next message');
+  view.unmount();
+  expect(getChatDraft(draft.id)?.text).toBe('Same next message');
 });
 it('switches saved owners without copying prior text, images or context to the new draft', () => {
   const first = {

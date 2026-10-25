@@ -313,6 +313,26 @@ it('adopts through the genuine retained bootstrap selection and actual repositor
   await f.first.lease.assertCurrent();
   expect(f.disposals).toHaveBeenCalled();
 });
+it('retains the controlled prepared reader during Linux adoption without loading the real native factory', async () => {
+  const f = await fixture();
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  const readerCalls = physical.reader.mock.calls.length;
+  const creationCalls = physical.creation.mock.calls.length;
+  try {
+    // Only adoption uses the Linux branch. Bootstrap and executable guards
+    // already ran; this fixture retains its existing controlled read transport.
+    Object.defineProperty(process, 'platform', { ...platform, value: 'linux' });
+    const result = await f.adopt();
+    expect(result?.id).toBe(f.record.id);
+    expect(f.workspace.getForConversation(f.first.sessionId)?.id).toBe(f.record.id);
+    expect(f.events.getSession(f.first.sessionId)?.cwd).toBe(result!.directory);
+    expect(physical.reader.mock.calls.length).toBeGreaterThan(readerCalls);
+    expect(physical.creation.mock.calls.length).toBeGreaterThan(creationCalls);
+    expect(f.disposals).toHaveBeenCalled();
+  } finally {
+    Object.defineProperty(process, 'platform', platform);
+  }
+});
 it('admits a later explicit follow-up through the actual adopted primary and unchanged original bootstrap', async () => {
   const f = await fixture();
   const result = await f.adopt();

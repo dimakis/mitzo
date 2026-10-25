@@ -70,6 +70,16 @@ it('resolves only original exact current worker output while preserving own lead
   scope.assertPin({ artifactId: x.own.id, revision: 1, sha256: x.own.sha256 });
   expect(read).not.toHaveBeenCalled();
 });
+
+it('keeps ordinary non-Git material scope independent of repository custody', async () => {
+  const x = await fixture();
+  const repositoryWorkspaces = vi.fn(() => {
+    throw Error('Non-Git work must not select repository custody');
+  });
+  const scope = captureNativeTelosWorkerMaterials({ ...x.options, repositoryWorkspaces })!;
+  scope.assertPin({ artifactId: x.output.id, revision: 1, sha256: x.output.sha256 });
+  expect(repositoryWorkspaces).not.toHaveBeenCalled();
+});
 it('refuses crafted, cross-child, source-capture and operator-edited worker selectors', async () => {
   const x = await fixture();
   const save = (itemId: string, sessionId: string) =>

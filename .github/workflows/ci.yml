@@ -296,7 +296,9 @@ jobs:
   ordinary-journey:
     name: Telos canonical ordinary journey (macOS)
     runs-on: macos-26
-    timeout-minutes: 20
+    # Add two mandatory 120s journeys plus their process/setup allowance.
+    # Individual acceptance, first-response and reader deadlines stay unchanged.
+    timeout-minutes: 25
     permissions:
       contents: read
     env:
@@ -350,10 +352,12 @@ jobs:
           }
           NODE
       - name: Run all required joined Telos acceptance cases
+        if: ${{ !cancelled() }}
         run: node tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs
       - name: Verify signed native operator lifetime and repository tools
+        if: ${{ !cancelled() }}
         run: |
-          npx vitest run server/__tests__/native-host-operator-lifetime.test.ts server/__tests__/native-local-repository-preparation-registration-dispatch.test.ts server/__tests__/native-local-repository-read-tools.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/native-host-authorization.json
+          npx vitest run server/__tests__/native-host-operator-lifetime.test.ts server/__tests__/native-local-repository-preparation-registration-dispatch.test.ts server/__tests__/native-local-repository-read-tools.test.ts server/__tests__/native-reader-path-authorization.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/native-host-authorization.json
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
           const result = JSON.parse(readFileSync('test-results/native-host-authorization.json', 'utf8'));
@@ -362,6 +366,7 @@ jobs:
             ['native-host-operator-lifetime.test.ts', 5],
             ['native-local-repository-preparation-registration-dispatch.test.ts', 4],
             ['native-local-repository-read-tools.test.ts', 8],
+            ['native-reader-path-authorization.test.ts', 13],
           ];
           for (const [file, count] of required) {
             const suite = result.testResults.find(test => test.name.endsWith('/' + file));

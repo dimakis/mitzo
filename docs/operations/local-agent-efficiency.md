@@ -1,7 +1,8 @@
 # Local agent efficiency
 
 This change builds on progressive integration discovery for ordinary owned Local
-Mac Codex chats. It does not change model selection, compaction policy, repository
+Mac Codex chats. See [OpenShell agent efficiency](openshell-agent-efficiency.md)
+for the corresponding sandbox-owned delivery boundaries and separate measurements. It does not change model selection, compaction policy, repository
 custody, native permissions, credentials or staging/production state.
 
 ## Codex boundary
