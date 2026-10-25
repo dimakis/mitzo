@@ -24,9 +24,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/composer-draft-proof.ts':
-    '886223ea2e318f8f7745e0ba6dc1960e2d4852df2c0201675599ef2b51682f23',
+    '60ed34dd696b358842a544cb73ae5dde3b2a036dabf67ed8c3bff72c499f8bb8',
   '../../frontend/src/components/__tests__/ChatInputColdReceipt.test.tsx':
-    '4faa5e10e310f86d9e6b630351fa547618dffe835ae307d0dc13b2910015ed81',
+    '6378ec93bad1ffc0e1c71823a0133023ab7f4a3bd042dab39837e988e17e573a',
   '../../packages/client/src/__tests__/local-receipt-recheck.test.ts':
     'e832495ac09bab7ddf5f839989ec3669d162d03262b52044b2411196a9e63c10',
   '../../tests/offline/composer-receipt.spec.ts':
@@ -844,7 +844,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    '749b079e7b0d6da6478c9260ca39766b8cd5cc297d4074aea4ae9a1d888d4edd',
+    'f6f7ad8601f9a452230db32ed04d9415aa47a988d9f7bb8f5c2beb0b8d30a9fc',
   '../../frontend/src/components/ComposerTools.tsx':
     'f939155993b0783c1a231a693de30c13d9594ff558cacc27a23c17a781315245',
   '../../frontend/src/components/ContextPanel.tsx':
@@ -870,7 +870,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/launch-draft-delivery.ts':
     'd15081e3eb3dd4c2bae69a16d58ac371cfb15cd5d4cc8e39fd20ef90fec0eb47',
   '../../frontend/src/hooks/useDraft.ts':
-    '9b5d378f5cf46c8df19a06a79fae945dca15925c56983c98fae7731d5603df57',
+    '6000be7a80b6da04001bd82725e7c90b50370a8877df0595d35ccea4a72c0e43',
   '../../frontend/src/hooks/usePendingLaunch.ts':
     '2c404fd87c407e7003004e2ed302555c79e4e6487e6f3f1d80c4fff2218599dd',
   '../../frontend/src/hooks/useStageChatLaunch.ts':
@@ -878,7 +878,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useBriefingChat.ts':
     'd0b124d3acf747c6a2605cdf23a7a0bfa59fc87d2aed1d3cd230e440d2c69996',
   '../../frontend/src/lib/chat-drafts.ts':
-    '77dc9d88fd08a0e76572ef5df2ad63243f3acf03299c9e917192135038b27bd3',
+    '50bc84696e7b14015eb1619c4844a64df0db88bb1f38ac466fe133f71cc55c08',
   '../../frontend/src/lib/chat-runtime-selection.ts':
     'b47f7b6cc1bd0d261c7c57560204a1e5d18edd72f58e34e7e9fd63eba1244de0',
   '../../frontend/src/lib/explicit-local-chat.ts':
@@ -2215,7 +2215,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/TelosSourceReview.test.tsx':
     'c573b2ef7c636b6331ebf3a8f5d1af4d5943956f42805082a102af20627ffb80',
   '../../frontend/src/hooks/__tests__/useDraft.test.ts':
-    'a294c1a6cfe1b640529f028ffdb9ef5deea44e837019fad1e0732c5f063d1107',
+    'c10c95001cca25125f790b5c502c057d6e0c115c89eacee12adcb9397f56c499',
   '../../frontend/src/hooks/__tests__/useNewChatDraft.test.tsx':
     '3942ae3873900aae93c862fe665dcd44feae3e29c8a0212e4c3fe94dc56d7ac7',
   '../../frontend/src/pages/__tests__/ChatViewSavedDrafts.test.tsx':
@@ -2277,9 +2277,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/measure-openshell-agent-efficiency.mjs':
     'a81e6c13ef43084e01465545d6d5d5d939c4c6fdd81aa5fd8602c43091e80aa4',
   '../../frontend/src/components/__tests__/ChatInputImagePreview.test.tsx':
-    '9cc52fb71d23b163ba1346291e090d547786d215b70040b30c6ad29f77b25a09',
+    '8f4e395e87c190c9bbf5b92defe1f0447b2b727ea71acdeef41929fa3503d3e3',
   '../../frontend/src/components/__tests__/ChatInputSavedDraft.test.tsx':
-    '2add136d23b098ecad65fc096b2ff405058386d1008b098d18851795d87e3336',
+    '85ffcfb054e88f730fa063e721e2e157aa27608ca48f7b319bdb9bfe8f286fed',
   '../../frontend/src/components/__tests__/ChatInputSendReceipt.test.tsx':
     '37167fb6964e71f64337ee7f90bfd804e291d7da171295c4916b97933de73562',
   '../../frontend/src/components/__tests__/ChatInputVoiceOwnership.test.tsx':

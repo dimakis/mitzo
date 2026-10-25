@@ -243,14 +243,16 @@ it('keeps the composer and stored content when settings changed while an older s
   expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe('Original');
   expect(getChatDraft(draft.id)?.settings.mode).toBe('ask');
 });
-it('consumes the accepted revision after navigation unmounts the composer', () => {
+it('retains an unmounted accepted revision until a replacement composer can consume its receipt', () => {
   const draft = { ...createChatDraft(), text: 'Original' };
   saveChatDraft(draft);
   let receipt: ((status: 'accepted') => void) | undefined;
+  let proof: import('@mitzo/client').SendMessageOptions['composerDraft'];
   const view = render(
     <ChatInput
-      onSend={(_text, _images, _context, callback) => {
+      onSend={(_text, _images, _context, callback, _assigned, submittedProof) => {
         receipt = callback;
+        proof = submittedProof;
         return true;
       }}
       onStop={() => {}}
@@ -261,7 +263,18 @@ it('consumes the accepted revision after navigation unmounts the composer', () =
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
   view.unmount();
   act(() => receipt?.('accepted'));
+  expect(getChatDraft(draft.id)?.text).toBe('Original');
+  render(
+    <ChatInput
+      onSend={() => false}
+      onStop={() => {}}
+      running={false}
+      savedChatDraft={getChatDraft(draft.id)!}
+      acceptedComposerDraft={proof}
+    />,
+  );
   expect(getChatDraft(draft.id)).toBeNull();
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
 });
 
 import * as draftOwner from '../../lib/chat-drafts';

@@ -222,6 +222,7 @@ it('recovers a late rejected payload separately from newer draft and queued inpu
     undefined,
     expect.any(Function),
     expect.any(Function),
+    undefined,
   );
   f.receive({ type: 'session_state_changed', sessionId: 'child', state: 'running' });
   f.receive({ type: 'session_state_changed', sessionId: 'child', state: 'idle' });

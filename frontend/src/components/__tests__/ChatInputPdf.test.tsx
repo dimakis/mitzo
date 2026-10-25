@@ -42,6 +42,10 @@ describe('PDF composer', () => {
       undefined,
       expect.any(Function),
       expect.any(Function),
+      {
+        storageKey: 'mitzo-draft-new',
+        revisionToken: expect.stringMatching(/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/),
+      },
     );
   });
 
@@ -69,6 +73,10 @@ describe('PDF composer', () => {
       undefined,
       expect.any(Function),
       expect.any(Function),
+      {
+        storageKey: 'mitzo-draft-new',
+        revisionToken: expect.stringMatching(/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/),
+      },
     );
   });
 

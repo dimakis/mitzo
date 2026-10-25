@@ -37,7 +37,6 @@ import {
   chatDraftStorageKey,
   getChatDraft,
   saveChatDraft,
-  consumeChatDraft,
 } from '../lib/chat-drafts';
 
 function attachmentPrompt(text: string, images: ImageAttachment[]): string {
@@ -249,7 +248,12 @@ export function ChatInput({
     setImages(savedChatDraft?.images ?? []);
     if (!useExternal) setContextBlocks(savedChatDraft?.contextBlocks ?? []);
   }, [savedChatDraft, savedOwnerChanging, useExternal]);
-  const { capture: captureDraft, consume: consumeDraftReceipt, revise: reviseDraft } = draftReceipt;
+  const {
+    capture: captureDraft,
+    consume: consumeDraftReceipt,
+    ownsCurrent: ownsCurrentDraft,
+    revise: reviseDraft,
+  } = draftReceipt;
   const consumedRevision = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
     const revision = draftReceipt.consumedRevision;
@@ -288,8 +292,8 @@ export function ChatInput({
       clear: clearDraft,
       readText: () => text,
       flush: () => {
-        flushDraft();
-        if (!savedChatDraft) return true;
+        const flushed = flushDraft();
+        if (!flushed || !savedChatDraft) return flushed;
         const current = getChatDraft(savedChatDraft.id) ?? savedChatDraft;
         return saveChatDraft({
           ...current,
@@ -552,26 +556,51 @@ export function ChatInput({
         const ownsDraft = latest.scope === submitted.scope || assigned;
         const draftEdited = latest.revision !== submitted.revision + (assigned ? 1 : 0);
         const textEdited = latest.textRevision !== submitted.textRevision + (assigned ? 1 : 0);
-        if (status === 'accepted' && submittedSavedDraft && ownsDraft && draftEdited) {
-          // Attachment/context edits belong to the next draft. Consume only the
-          // accepted text, retaining those edits and any newer text verbatim.
-          if (mounted.current && !textEdited) setText('');
+        if (status === 'accepted') {
+          if (!mounted.current || !composerDraft || !ownsDraft) return;
+          if (!draftEdited) {
+            // Warm callbacks use the same durable revision fence as cold
+            // recovery. Another editor may have changed this storage owner
+            // without changing any of this mount's in-memory draft refs.
+            consumeDraftReceipt(composerDraft);
+            return;
+          }
+          if (!mounted.current || textEdited || !ownsCurrentDraft(composerDraft)) return;
+          if (submittedSavedDraft) {
+            const persisted = getChatDraft(submittedSavedDraft.id);
+            if (
+              !persisted ||
+              JSON.stringify({
+                text: persisted.text,
+                images: persisted.images.map(({ data, mediaType, preview, name }) => [
+                  data,
+                  mediaType,
+                  preview,
+                  name,
+                ]),
+                contextBlocks: persisted.contextBlocks,
+                settings: persisted.settings,
+              }) !==
+                JSON.stringify({
+                  text: latest.text,
+                  images: latest.images.map(({ data, mediaType, preview, name }) => [
+                    data,
+                    mediaType,
+                    preview,
+                    name,
+                  ]),
+                  contextBlocks: latest.contextBlocks,
+                  settings: submittedSavedDraft.settings,
+                })
+            )
+              return;
+          }
+          // Only this mount's attachment/context edits remain. Consume the
+          // accepted text while retaining that independently edited rich draft.
+          setText('');
           return;
         }
-        const savedRevisionConsumed =
-          status === 'accepted' && submittedSavedDraft
-            ? consumeChatDraft(submittedSavedDraft)
-            : true;
-        if (status === 'accepted' && !savedRevisionConsumed) return;
-        if (!mounted.current || !ownsDraft) return;
-        if (draftEdited) {
-          if (status === 'failed') restoreRejected(payload);
-          else if (!textEdited) clearDraft();
-        } else if (status === 'accepted') {
-          clearDraft();
-          setImages([]);
-          if (!useExternal) setContextBlocks([]);
-        }
+        if (mounted.current && ownsDraft && draftEdited) restoreRejected(payload);
       };
       const sent = onSend(
         attachmentPrompt(payload.text, payload.images),
@@ -604,12 +633,12 @@ export function ChatInput({
       onSend,
       restoreRejected,
       removeSubmitted,
-      clearDraft,
       setText,
-      useExternal,
       draftStorageKey,
       savedChatDraft,
       captureDraft,
+      consumeDraftReceipt,
+      ownsCurrentDraft,
       boundedFirstCommand,
       sendDisabledReason,
     ],

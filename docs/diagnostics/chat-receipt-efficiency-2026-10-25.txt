@@ -26,6 +26,13 @@ Receipt recovery
   New text, same-valued newer edits, changed rich draft content/settings and
   another draft owner remain intact. Entries lacking revision proof retain text
   conservatively. They can still recover the command's accepted delivery state.
+- Warm acceptance uses the same revision guard as reload recovery. Local
+  attachment/context edits retain receipt ancestry only across locally owned
+  transitions. A foreign same-valued edit cannot regain older cleanup authority.
+- Failed revision replacement first revokes older authority. If both revocation
+  operations fail, ordinary and rich draft persistence stay fenced until retry
+  succeeds; unsaved edits remain in memory. An unmounted observer leaves cleanup
+  proof for the active replacement composer.
 - Ambiguous local delivery says 'Delivery not confirmed.' in the existing quiet
   status row. No layout, palette, font or approved settings redesign is introduced.
 
@@ -67,9 +74,15 @@ accent/font preferences, whole-document replacement, accepted draft cleanup and
 same-valued newer draft preservation. The browser launch runs outside the macOS
 sandbox as required by AGENTS.md. Representative captures are recorded by the UI
 design contract. Client package type builds and focused strict frontend source
-type checking pass; design guards pass (108 tests, one skipped). All 15
-intercepted browser checks pass. ESLint/format checks pass and all 1,312 reviewed
+type checking pass; design guards pass (108 tests, one skipped). The final combined intercepted browser run passes 14 checks
+(12 receipt cases and two browser-startup probes). ESLint/format checks pass and all 1,312 reviewed
 source fingerprints match the final implementation revision.
+
+The review correction pass additionally passes 282 focused frontend tests and
+44 briefing ownership tests. Two independent full local reviews and focused
+follow-ups approved the corrected source, including warm cross-editor ownership,
+failed storage revocation, revision ancestry and replacement-composer cleanup.
+These local reviews do not replace the required trusted Centaur report.
 
 The broad server compile exceeded the instructed 1 GiB local heap limit. It is
 left for CI; it is not reported as a successful build. No required CI, trusted

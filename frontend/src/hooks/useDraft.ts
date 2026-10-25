@@ -2,6 +2,10 @@ import { preserveAcceptedLaunchText } from '../lib/launch-draft-delivery';
 import { createBrowserId, sha256Hex } from '../lib/browser-crypto';
 import {
   acceptedComposerDraftKey,
+  allowComposerDraftPersistence,
+  composerDraftRevisionKey,
+  composerDraftRevocationPending,
+  replaceComposerDraftRevision,
   composerDraftProof,
   type ComposerDraftProof,
 } from '../lib/composer-draft-proof';
@@ -26,10 +30,16 @@ const DEBOUNCE_MS = 400;
 interface DraftReceiptControl {
   capture(): ComposerDraftProof | undefined;
   consume(proof: ComposerDraftProof): boolean;
+  ownsCurrent(proof: ComposerDraftProof): boolean;
   revise(): void;
   consumedRevision?: string;
 }
-const revisionKey = (key: string) => `mitzo-draft-revision:${encodeURIComponent(key)}`;
+interface DraftRevision {
+  key: string;
+  token?: string;
+  submittedToken?: string;
+}
+const revisionKey = composerDraftRevisionKey;
 function richDraftSignature(key: string): string {
   const id = chatDraftIdFromKey(key);
   const draft = id ? getChatDraft(id) : null;
@@ -45,6 +55,7 @@ function richDraftSignature(key: string): string {
 }
 function readRevision(key: string, text: string): string | undefined {
   try {
+    if (composerDraftRevocationPending(key)) return undefined;
     const saved = JSON.parse(localStorage.getItem(revisionKey(key)) ?? 'null');
     return saved?.textSha256 === sha256Hex(text) &&
       readDraft(key, undefined, true) === text &&
@@ -59,8 +70,8 @@ function readRevision(key: string, text: string): string | undefined {
 function writeRevision(key: string, text: string, bindRichDraft = false): string | undefined {
   try {
     const revisionToken = createBrowserId();
-    localStorage.setItem(
-      revisionKey(key),
+    const saved = replaceComposerDraftRevision(
+      key,
       JSON.stringify({
         textSha256: sha256Hex(text),
         revisionToken,
@@ -69,7 +80,7 @@ function writeRevision(key: string, text: string, bindRichDraft = false): string
         ...(bindRichDraft ? { richDraftSignature: richDraftSignature(key) } : {}),
       }),
     );
-    return revisionToken;
+    return saved ? revisionToken : undefined;
   } catch {
     return undefined;
   }
@@ -98,6 +109,7 @@ function readDraft(key: string, initialText?: string, scoped = false): string {
 
 function saveDraft(key: string, text: string, preserveEmpty = false): boolean {
   try {
+    if (!allowComposerDraftPersistence(key)) return false;
     const id = chatDraftIdFromKey(key);
     if (id) {
       if (!text && !preserveEmpty) return deleteChatDraft(id);
@@ -125,7 +137,7 @@ export function useDraft(
   draftStorageKey?: string,
   // Legacy callers omit this; composers pass null until an exact assignment arrives.
   assignment?: DraftSessionAssignment | null,
-): [string, Dispatch<SetStateAction<string>>, () => void, () => void, DraftReceiptControl] {
+): [string, Dispatch<SetStateAction<string>>, () => void, () => boolean, DraftReceiptControl] {
   const key = draftStorageKey ?? draftKey(sessionId);
   const scoped = draftStorageKey !== undefined;
   const [text, setTextRaw] = useState(() => readDraft(key, initialText, scoped));
@@ -136,8 +148,12 @@ export function useDraft(
   const textRef = useRef(text);
   textRef.current = text;
   const dirty = useRef(false);
-  const [initialRevision] = useState(() => ({ key, token: readRevision(key, text) }));
-  const revisionRef = useRef(initialRevision);
+  const [initialRevision] = useState(() => {
+    const token = readRevision(key, text);
+    return { key, token, submittedToken: token };
+  });
+  const revisionRef = useRef<DraftRevision>(initialRevision);
+  const assignedFromKey = useRef<string | undefined>(undefined);
   const mountedRef = useRef(false);
 
   // Only an ordinary assignment transfers ownership. Navigation
@@ -159,6 +175,7 @@ export function useDraft(
         (assignment?.toSessionId === sessionId &&
           previous.key === draftKey(assignment.fromSessionId)));
     if (!assigningOrdinaryDraft) {
+      assignedFromKey.current = undefined;
       storageRef.current = { key, scoped };
       const restored = readDraft(key, initialText, scoped);
       textRef.current = restored;
@@ -167,23 +184,41 @@ export function useDraft(
       return;
     }
     storageRef.current = { key, scoped };
-    // Assignment proves the text transfer, but an old owner's receipt must not
-    // acquire authority over a different storage owner after a later reload.
+    const oldRevision = revisionRef.current;
+    assignedFromKey.current = undefined;
     revisionRef.current = { key, token: undefined };
 
     // If we had a draft under the old key, migrate it
     const oldKey = previous.key;
     const newKey = key;
     try {
+      if (!allowComposerDraftPersistence(oldKey) || !allowComposerDraftPersistence(newKey)) {
+        // An unrelated destination remains usable; never copy edited bytes
+        // beneath the old proof when its revocation is still unavailable.
+        const restored = readDraft(newKey);
+        textRef.current = restored;
+        revisionRef.current = { key, token: readRevision(newKey, restored) };
+        setTextRaw(restored);
+        return;
+      }
       const existing = localStorage.getItem(newKey);
       if (existing) {
         // New session already has a draft — use it
+        textRef.current = existing;
+        revisionRef.current = { key, token: readRevision(newKey, existing) };
         setTextRaw(existing);
       } else {
         // Migrate from old key
         const old = localStorage.getItem(oldKey);
         if (old) {
           localStorage.setItem(newKey, old);
+          if (oldRevision.token && readRevision(oldKey, old) === oldRevision.token) {
+            const raw = localStorage.getItem(revisionKey(oldKey));
+            if (raw && replaceComposerDraftRevision(newKey, raw)) {
+              revisionRef.current = { ...oldRevision, key };
+              assignedFromKey.current = oldKey;
+            }
+          }
           // Don't change text state — it's the same draft, just moved
         }
       }
@@ -204,8 +239,7 @@ export function useDraft(
     const savedKey = storageRef.current.key;
     const preserveEmpty = storageRef.current.scoped;
     timerRef.current = setTimeout(() => {
-      saveDraft(savedKey, text, preserveEmpty);
-      dirty.current = false;
+      if (saveDraft(savedKey, text, preserveEmpty)) dirty.current = false;
     }, DEBOUNCE_MS);
 
     return () => clearTimeout(timerRef.current);
@@ -224,16 +258,39 @@ export function useDraft(
     };
   }, []);
 
-  const setText = useCallback<Dispatch<SetStateAction<string>>>((update) => {
-    const next = typeof update === 'function' ? update(textRef.current) : update;
-    textRef.current = next;
-    dirty.current = true;
+  const rotateRevision = useCallback((next: string) => {
     const owner = storageRef.current.key;
-    // Rotate even for a same-valued edit; content equality cannot prove that
-    // a reloaded composer is still the revision submitted by an older command.
-    revisionRef.current = { key: owner, token: writeRevision(owner, next) };
-    setTextRaw(next);
+    const previous = revisionRef.current;
+    let submittedToken: string | undefined;
+    try {
+      const durable = JSON.parse(localStorage.getItem(revisionKey(owner)) ?? 'null');
+      // Only local transitions retain a submitted revision's text authority.
+      // Replacing another editor's token cannot reacquire an older receipt.
+      if (
+        previous.key === owner &&
+        previous.token &&
+        durable?.revisionToken === previous.token &&
+        !composerDraftRevocationPending(owner)
+      )
+        submittedToken = previous.submittedToken;
+    } catch {
+      // Unreadable ancestry cannot authorize a partial receipt cleanup.
+    }
+    revisionRef.current = { key: owner, token: writeRevision(owner, next), submittedToken };
   }, []);
+
+  const setText = useCallback<Dispatch<SetStateAction<string>>>(
+    (update) => {
+      const next = typeof update === 'function' ? update(textRef.current) : update;
+      textRef.current = next;
+      dirty.current = true;
+      // Rotate even for a same-valued edit; content equality cannot prove that
+      // a reloaded composer is still the revision submitted by an older command.
+      rotateRevision(next);
+      setTextRaw(next);
+    },
+    [rotateRevision],
+  );
 
   const clearDraft = useCallback(() => {
     const saved = saveDraft(storageRef.current.key, '');
@@ -253,28 +310,28 @@ export function useDraft(
 
   const flushDraft = useCallback(() => {
     clearTimeout(timerRef.current);
-    saveDraft(storageRef.current.key, textRef.current, storageRef.current.scoped);
-    dirty.current = false;
+    const saved = saveDraft(storageRef.current.key, textRef.current, storageRef.current.scoped);
+    if (saved) dirty.current = false;
+    return saved;
   }, []);
 
   const revise = useCallback(() => {
-    const owner = storageRef.current.key;
-    revisionRef.current = { key: owner, token: writeRevision(owner, textRef.current) };
-  }, []);
+    rotateRevision(textRef.current);
+  }, [rotateRevision]);
   const capture = useCallback(() => {
     clearTimeout(timerRef.current);
     const owner = storageRef.current;
     if (!saveDraft(owner.key, textRef.current, owner.scoped)) return undefined;
     dirty.current = false;
     const token = writeRevision(owner.key, textRef.current, true);
-    revisionRef.current = { key: owner.key, token };
+    revisionRef.current = { key: owner.key, token, submittedToken: token };
     return token ? { storageKey: owner.key, revisionToken: token } : undefined;
   }, []);
   const consume = useCallback(
     (proof: ComposerDraftProof) => {
       const owner = storageRef.current.key;
       if (
-        proof.storageKey !== owner ||
+        (proof.storageKey !== owner && proof.storageKey !== assignedFromKey.current) ||
         revisionRef.current.key !== owner ||
         revisionRef.current.token !== proof.revisionToken ||
         readRevision(owner, textRef.current) !== proof.revisionToken
@@ -296,6 +353,27 @@ export function useDraft(
     },
     [clearDraft],
   );
+  const ownsCurrent = useCallback((proof: ComposerDraftProof) => {
+    const owner = storageRef.current.key;
+    if (
+      (proof.storageKey !== owner && proof.storageKey !== assignedFromKey.current) ||
+      revisionRef.current.key !== owner ||
+      !revisionRef.current.token ||
+      revisionRef.current.submittedToken !== proof.revisionToken ||
+      composerDraftRevocationPending(owner)
+    )
+      return false;
+    try {
+      const saved = JSON.parse(localStorage.getItem(revisionKey(owner)) ?? 'null');
+      return (
+        saved?.revisionToken === revisionRef.current.token &&
+        saved.textSha256 === sha256Hex(textRef.current) &&
+        readDraft(owner, undefined, true) === textRef.current
+      );
+    } catch {
+      return false;
+    }
+  }, []);
   useLayoutEffect(() => {
     try {
       const marker = composerDraftProof(
@@ -306,5 +384,11 @@ export function useDraft(
       // An unreadable local receipt does not authorize clearing a draft.
     }
   }, [key, consume]);
-  return [text, setText, clearDraft, flushDraft, { capture, consume, revise, consumedRevision }];
+  return [
+    text,
+    setText,
+    clearDraft,
+    flushDraft,
+    { capture, consume, ownsCurrent, revise, consumedRevision },
+  ];
 }

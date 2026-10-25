@@ -19,6 +19,100 @@ afterEach(() => {
 });
 
 describe('useDraft', () => {
+  it('revokes older proof when an identical edit cannot write a replacement revision', () => {
+    const first = renderHook(() => useDraft('receipt-chat'));
+    act(() => first.result.current[1]('Same text'));
+    const proof = first.result.current[4].capture()!;
+    const write = Storage.prototype.setItem;
+    const fault = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key,
+      value,
+    ) {
+      if (key.startsWith('mitzo-draft-revision:')) throw Error('Revision write unavailable');
+      write.call(this, key, value);
+    });
+    act(() => first.result.current[1]('Same text'));
+    first.unmount();
+    fault.mockRestore();
+    const restored = renderHook(() => useDraft('receipt-chat'));
+    act(() => expect(restored.result.current[4].consume(proof)).toBe(false));
+    expect(restored.result.current[0]).toBe('Same text');
+  });
+
+  it('does not persist edits under old proof while both revision replacement and revocation fail', () => {
+    const view = renderHook(() => useDraft('receipt-chat'));
+    act(() => view.result.current[1]('Original admitted text'));
+    const proof = view.result.current[4].capture()!;
+    const write = Storage.prototype.setItem;
+    const remove = Storage.prototype.removeItem;
+    const writeFault = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key,
+      value,
+    ) {
+      if (key.startsWith('mitzo-draft-revision:')) throw Error('Revision write unavailable');
+      write.call(this, key, value);
+    });
+    const removeFault = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (
+      this: Storage,
+      key,
+    ) {
+      if (key.startsWith('mitzo-draft-revision:')) throw Error('Revision revoke unavailable');
+      remove.call(this, key);
+    });
+    act(() => {
+      view.result.current[1]('Newer unsaved edit');
+      view.result.current[3]();
+    });
+    expect(view.result.current[0]).toBe('Newer unsaved edit');
+    expect(localStorage.getItem(proof.storageKey)).toBe('Original admitted text');
+    writeFault.mockRestore();
+    removeFault.mockRestore();
+    act(() => view.result.current[3]());
+    view.unmount();
+    const restored = renderHook(() => useDraft('receipt-chat'));
+    act(() => expect(restored.result.current[4].consume(proof)).toBe(false));
+    expect(restored.result.current[0]).toBe('Newer unsaved edit');
+  });
+  it('preserves pending source bytes and permits an unrelated destination while assignment revocation fails', () => {
+    localStorage.setItem('mitzo-draft-destination', 'Independent destination');
+    const view = renderHook(
+      ({ session, assignment }: { session: string; assignment: DraftSessionAssignment | null }) =>
+        useDraft(session, undefined, undefined, assignment),
+      {
+        initialProps: {
+          session: 'receipt-chat',
+          assignment: null as DraftSessionAssignment | null,
+        },
+      },
+    );
+    act(() => view.result.current[1]('Original admitted text'));
+    view.result.current[4].capture();
+    const write = Storage.prototype.setItem,
+      remove = Storage.prototype.removeItem;
+    const sourceRevision = 'mitzo-draft-revision:' + encodeURIComponent('mitzo-draft-receipt-chat');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      if (key === sourceRevision) throw Error('Source revision unavailable');
+      write.call(this, key, value);
+    });
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (this: Storage, key) {
+      if (key === sourceRevision) throw Error('Source revision unavailable');
+      remove.call(this, key);
+    });
+    act(() => view.result.current[1]('Newer unsaved source'));
+    view.rerender({
+      session: 'destination',
+      assignment: { fromSessionId: 'receipt-chat', toSessionId: 'destination' },
+    });
+    expect(view.result.current[0]).toBe('Independent destination');
+    expect(localStorage.getItem('mitzo-draft-receipt-chat')).toBe('Original admitted text');
+    act(() => {
+      view.result.current[1]('New destination edit');
+      expect(view.result.current[3]()).toBe(true);
+    });
+    expect(localStorage.getItem('mitzo-draft-destination')).toBe('New destination edit');
+  });
   it.each(['settings', 'images', 'contextBlocks'] as const)(
     'preserves a newer stored rich draft %s revision on an older receipt',
     (field) => {
@@ -110,7 +204,10 @@ describe('useDraft', () => {
       JSON.stringify(proof),
     );
     const remove = Storage.prototype.removeItem;
-    const fault = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (key) {
+    const fault = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (
+      this: Storage,
+      key,
+    ) {
       if (key === proof.storageKey) throw Error('Draft deletion unavailable');
       remove.call(this, key);
     });
