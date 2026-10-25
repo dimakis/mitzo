@@ -155,6 +155,24 @@ it('supports fixed private packed storage without reading source object info', a
   expect(f.reads.some((path) => path.includes('/objects/info/'))).toBe(false);
 }, 30000);
 
+it.each(['multi-pack-index', `pack-${'a'.repeat(40)}.mtimes`])(
+  'prepares a packed checkout while omitting maintenance sidecar %s',
+  async (name) => {
+    git('repack', '-ad');
+    const canary = join(root, 'maintenance-canary');
+    await writeFile(canary, 'DO NOT READ');
+    await symlink(canary, join(source, '.git', 'objects', 'pack', name));
+    const f = await fixture();
+    await withLocalRepositoryPreparationObjects(f.metadata, f.options, async (view) => {
+      expect(view.baseOid).toBe(f.options.baseOid);
+      await expect(readFile(join(view.gitDirectory, 'objects', 'pack', name))).rejects.toThrow();
+    });
+    expect(f.reads.some((path) => path.endsWith(name) || path === canary)).toBe(false);
+    expect(await readFile(canary, 'utf8')).toBe('DO NOT READ');
+  },
+  30000,
+);
+
 it('refuses a blob whose valid compression/header conceals content not matching its object name', async () => {
   const oid = git('rev-parse', 'HEAD:source.txt');
   const object = join(source, '.git', 'objects', oid.slice(0, 2), oid.slice(2));
