@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/native-repository-registered-workflow.ts':
-    '03fa4df8da400fb6a3f728f1c90449047b04ca234287ce8a7ad4e70268c9ca0f',
+    'b89e513b19aaffc8f3f9d07c02c49b7b9723540b8a6f928f22b75ee51de1b969',
   '../__tests__/native-local-repository-read-registration-api.test.ts':
     'a9727a723647947bef931292a467765a910a09361ad6b1651032813552b87a15',
   '../__tests__/native-repository-object-store.test.ts':

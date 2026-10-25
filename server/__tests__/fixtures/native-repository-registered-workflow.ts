@@ -398,6 +398,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
       const setupMs = performance.now() - setupStarted;
       const operationTimings: Record<string, number> = {};
       const outcomes: Record<string, unknown> = {};
+      let filesystemCallBudget: { trackedFiles: number; limit: number } | undefined;
       let phase = 'ready';
       let preparedDirectory: string | undefined;
       // Keep retained outcomes bounded and payload-free, including denial paths.
@@ -446,6 +447,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
               metadataBudgets,
               factsBudgets,
               metrics: f.a.metrics,
+              filesystemCallBudget,
               trace,
               phases,
             },
@@ -610,6 +612,13 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
             'Offline nested empty tree fixture\n',
           );
           fixtureGit(['update-ref', 'refs/heads/main', commit]);
+          // Publication must inspect each tracked leaf before it writes it. Keep
+          // fixed owner-fence overhead bounded while accounting for repository size:
+          // the Mac source fixture has 873 leaves; the CI checkout has over 5,000.
+          const trackedFiles = fixtureGit(['ls-tree', '-r', '--name-only', '-z', 'HEAD'])
+            .split('\0')
+            .filter(Boolean).length;
+          filesystemCallBudget = { trackedFiles, limit: 16_000 + 2 * trackedFiles };
           const prepared = await f.a.call(
             { path: preparationSource },
             { tool: 'PrepareLocalRepository' },
@@ -626,7 +635,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
             ).isDirectory(),
           ).toBe(true);
           expect(f.permissions).toHaveLength(1);
-          expect(f.a.metrics.syncCalls).toBeLessThan(20000);
+          expect(f.a.metrics.syncCalls).toBeLessThan(filesystemCallBudget.limit);
           expect(history).not.toHaveBeenCalled();
         }
         phase = 'denied';
