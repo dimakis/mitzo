@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.664-telos-repository-source-scope';
+  'v1.0.665-telos-repository-custody-reader';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1033,7 +1033,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6be98645eb9b4467c30f5dacb3e8eee7a9c3f08cb6fc820edc872f789ef217c8',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
-  '../app.ts': '63132a94e5b9921330ea70f93f528006e8be19583f6d010c4381dbf400dcf688',
+  '../app.ts': '1f9533c82737e9cfdf46b3bcbee36218ed65907988ac9d3a3bf170af0dab72e4',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -1213,7 +1213,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/types.ts':
     'c2372bf36f2b869f3b2f0cb1f7bc15c0b24109957f1b1512a3bfe17e4f0fdf7f',
   '../repository-workspace-runtime.ts':
-    'e1cb8bcd6240471fb9895121c683d76fee298f9a734c6c9cc34b1417aa4989eb',
+    '03af86fe87d5c313c2019d0145e82bc397a2fba76d30b8a39e4993522f9d0ddf',
   '../repository-workspace-router.ts':
     '3a18eb2f0e7c4057642342179e11a57c205b6651d5e5a94b90d745dd93c3b9ea',
   '../trusted-native-operation.ts':
@@ -1733,4 +1733,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'a234a9db26bb77ac0bf814a0062f1a834e926efb6433df786744d1951aa19943',
   '../__tests__/native-telos-repository-materials.test.ts':
     'f893c3d01ed431422f388901b89f8a1ac957a62353c5848b98849397961681d6',
+  '../__tests__/native-telos-repository-owner.test.ts':
+    'ba18d5a7611da3e4aa92f3a0e70f94bdcec3d22979a4b15f9a6f64d457c58ea9',
 });
