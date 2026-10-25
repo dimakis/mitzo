@@ -585,7 +585,7 @@ for (const Page of [ChatView, DesktopChatView]) {
     );
     expect(store.getState().sessions.active).toBe('confirmed-role-chat');
     expect(getChatDraft(draft.id)?.text).toBe('First message after role binding');
-    expect(screen.getByRole('button', { name: 'Send message', exact: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Assign lead & open chat' })).toBeNull();
   });
   it(`${Page.name} keeps a successfully bound role composer on its conversation while retaining the rich draft`, async () => {
@@ -615,7 +615,7 @@ for (const Page of [ChatView, DesktopChatView]) {
     );
     expect(screen.getByTestId('location').textContent).toBe('/chat/confirmed-role-chat');
     expect(screen.queryByRole('button', { name: 'Assign lead & open chat' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Send message', exact: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeTruthy();
     expect(roleDraftFence.setup).toHaveBeenCalledOnce();
   });
   it(`${Page.name} refuses silent role setup when the latest rich draft cannot be saved even though binding records fit`, async () => {

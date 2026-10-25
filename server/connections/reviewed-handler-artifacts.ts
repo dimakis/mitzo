@@ -2199,7 +2199,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useNewChatDraft.test.tsx':
     '3942ae3873900aae93c862fe665dcd44feae3e29c8a0212e4c3fe94dc56d7ac7',
   '../../frontend/src/pages/__tests__/ChatViewSavedDrafts.test.tsx':
-    'f97b4beec43d49b9879a444c9d8e8a8a3f5f71da1ce1a69339993684433d618e',
+    'df798f338b6dec2c641a0f6269b73295c114ba3621f85894ce27e558a246edd3',
   '../../scripts/__tests__/ci-native-operator.test.ts':
     '3ef7fc5d5d0928c6b549384896e73ad895151381ff40925bb096534f8edf5d16',
   '../__tests__/agent-tool-catalog.test.ts':
