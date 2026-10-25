@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.678-security-dependency-compat';
+  'v1.0.679-coordinator-ack-readiness';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1792,4 +1792,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'f2bdc506c50dc9e213d4592f954948b7ecdd0a21ef4f0f2373a95f6eb17adbda',
   '../__tests__/sandbox-zod-security.test.ts':
     'a7db330bc7cc87240d82a4f57b6dfe4d4faaa8332a493765fd2f8beaaefad24a',
+  '../../tests/integration/telos-s9/integrated-candidate/coordinator-controls-browser.contract.ts':
+    '69e5a4da3e299219d8a3b48ca9ab723a57fabd7ab7e7786065136ce62d965216',
 });
