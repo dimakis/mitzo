@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.689-harness-consumer-consolidation';
+  'v1.0.690-chat-upgrade-continuity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/openshell-chat-continuity.test.ts':
+    '8a6334efd73b076577a4ce4d8a11f09c619acc14778a260f9c8b6f5c41c50d0c',
+  '../openshell-chat-continuity.ts':
+    '9485ec7c85711a76c162f3eb670592a81390528bce81288e025a69ce8b3697f0',
   '../__tests__/prepared-repository-physical-boundary.test.ts':
     'd63526850338a948cf1e9cd2eadfdb8d5eb4902baec0eaa73ae38b04e7548cd8',
   '../local-repository-preparation-tool.ts':
@@ -1283,7 +1287,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-openshell-codex-owned-runtime.ts':
     'b346bd2a0bb5830b33d6837797fcec8869d66b17103eb3bbc15589734a0acdaa',
   '../ordinary-openshell-codex-route.ts':
-    'f0bfd42b4dd663d2577d77ca857fddb9a1ac67d6a894f440b08764b7b33191d2',
+    'abbc9eac813955ad4ba4aa4e14ce14066197ba6eb5ce836ac7e0f685e7df40ee',
   '../owned-openshell-codex-chat-admission.ts':
     '5ed43a1ded24dd0f599aeb914805f6e15842a0be59c44767327ae93a8662b5de',
   '../session-registry.ts': 'd91b89354926d0ec7355e73fcae4f41066008d63097ca00077f37022fc554ccf',

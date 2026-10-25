@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { SessionRuntimeBindingV2Schema, type AccountBinding } from '@mitzo/protocol';
 import { sameOpenShellRouteAuthority } from './openshell-route-authority.js';
+import { SUPPORTED_CODEX_CLI_VERSION } from './codex-app-server-client.js';
 import type { AccountProfiles } from './account-profiles.js';
 import type { ArtifactRuntime } from './codex-conversation-store.js';
 import type { OpenShellAccountRoute, OpenShellRuntimeConfig } from './openshell-runtime.js';
@@ -14,7 +15,8 @@ const unavailable = () => new Error('Ordinary OpenShell Codex route unavailable'
 
 /** Configuration projection only. Reuses the existing runtime configuration;
  * this is neither a registry nor evidence of provider enrollment/readiness.
- * A reviewed contract revision covers policy/seed contents and compiler behavior.
+ * The target identifies the execution namespace and native protocol, not a
+ * release. The entry owner separately attests current code, policy and seed.
  */
 export function ordinaryOpenShellCodexTarget(input: {
   targetId: string;
@@ -26,14 +28,11 @@ export function ordinaryOpenShellCodexTarget(input: {
   const targetRevision = createHash('sha256')
     .update(
       JSON.stringify([
-        'ordinary-openshell-codex-target-v1',
+        'ordinary-openshell-codex-target-v2',
         input.targetId,
-        input.runtimeContractRevision,
+        SUPPORTED_CODEX_CLI_VERSION,
         input.openaiApi,
         config.cli,
-        config.image,
-        config.policy,
-        config.seed,
         config.workspace,
         config.gateway,
         config.gatewayEndpoint,
@@ -41,13 +40,6 @@ export function ordinaryOpenShellCodexTarget(input: {
         Object.entries(config.cliEnvironment ?? {}).sort(([a], [b]) => a.localeCompare(b)),
         config.workdir,
         config.cliContract,
-        config.createDetached,
-        config.sandboxIdLength,
-        config.webSearch,
-        config.seedStackManifest,
-        config.agentContextPresets,
-        [...config.serviceProviders].sort(),
-        [...config.grantableServiceProviders].sort(),
       ]),
     )
     .digest('hex');
