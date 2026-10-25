@@ -25,6 +25,7 @@ function fixture() {
     delivery: 'pending',
     connectionId: 'connection-a',
     connectionRevision: 1,
+    expiresAt: Date.now() + 60_000,
   } as ConnectionSetup;
   const pending = [setup];
   const send = vi.fn(async (_clientId: string, _prompt: string, _messageId: string) => true);
@@ -51,6 +52,7 @@ it('delivers only a context readiness notice to the exact owning chat with deter
     'client-a',
     expect.stringContaining('Do not repeat'),
     'connection-setup:setup-a',
+    expect.any(Function),
   );
   expect(f.send.mock.calls[0][1]).toContain('connection-a');
   expect(f.markDelivered).toHaveBeenCalledWith('setup-a');

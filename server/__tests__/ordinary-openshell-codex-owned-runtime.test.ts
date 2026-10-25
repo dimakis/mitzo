@@ -21,6 +21,8 @@ import {
 } from '../ordinary-openshell-codex-route.js';
 import { OrdinaryOpenShellCodexOwnedRuntime } from '../ordinary-openshell-codex-owned-runtime.js';
 
+vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}), getMcpConfigPaths: () => [] }));
+
 const stores: EventStore[] = [];
 const natives: CodexConversationStore[] = [];
 const roots: string[] = [];
@@ -29,9 +31,9 @@ afterEach(() => {
   natives.splice(0).forEach((store) => store.close());
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
 });
-function fixture(ordinary = false) {
+function fixture(ordinary = false, existingEvents?: EventStore) {
   const workspaceId = ordinary ? randomUUID() : 'repo';
-  const events = new EventStore(':memory:');
+  const events = existingEvents ?? new EventStore(':memory:');
   stores.push(events);
   const profiles = new AccountProfiles(
     [
@@ -239,6 +241,7 @@ function fixture(ordinary = false) {
       native.bindThread('session', account, 'native-thread');
       opened = true;
     }
+    input.assertCredentialSetupCurrent?.();
     input.admission.assertBeforeEnqueue({
       id: input.commandId,
       prompt: assembleSourceSnapshots(input.payload.text, input.payload.sourceSnapshots),
@@ -253,7 +256,7 @@ function fixture(ordinary = false) {
       model: input.expected.selection.model,
       reasoningEffort: input.expected.selection.thinking,
     });
-    pump();
+    if (!input.assertCredentialSetupCurrent) pump();
   });
   const assertCurrentSync = vi.fn();
   const assertCurrent = vi.fn(async () => {});
@@ -807,4 +810,190 @@ it('uses the ordinary default OpenShell workspace through first send, continuati
     'completed',
   ]);
   expect(f.claim).not.toHaveBeenCalled();
+});
+
+it('delivers real App private relay and MFA readiness through guarded runtime-bound native admission', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mitzo-private-readiness-app-'));
+  roots.push(directory);
+  vi.stubEnv('REPO_PATH', directory);
+  vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '');
+  const engine = await import('../app.js');
+  const chat = await import('../chat.js');
+  const codex = await import('../codex-chat-session.js');
+  const { default: request } = await import('supertest');
+  const { CredentialConnectionStore, CredentialConnections } =
+    await import('../credential-connections.js');
+  const { SecretRelays } = await import('../secret-relay.js');
+  const { PrivateRelayBrowsers } = await import('../secret-relay-browser.js');
+  const { buildAgentProfilePrompt } = await import('../agent-library-prompt.js');
+  const f = fixture(false, chat.eventStore);
+  const first = f.command('first');
+  first.payload.systemPrompt = buildAgentProfilePrompt(f.meta.agentProfile.definition);
+  await f.driver.admit(f.meta, first);
+  f.pump();
+  const queue = { push: vi.fn(), close: vi.fn() };
+  chat.registry.register('private-origin', {
+    sessionId: 'session',
+    mode: 'agent',
+    cwd: f.meta.cwd,
+    accountBinding: f.account,
+    transport: { send: vi.fn(), isOpen: () => true },
+    inputQueue: queue,
+    abortController: new AbortController(),
+    sessionAllowList: new Set(),
+  });
+  const session = chat.registry.get('private-origin')!;
+  const owner = {
+    location: 'openshell' as const,
+    authSessionId: 'signed-operator',
+    identity: f.driver,
+    initialCommandId: 'first',
+    admit: async () => ({ dispatched: false }),
+    retryInitial: async () => ({ dispatched: false }),
+    close: () => {},
+    notifyCredentialSetup: (
+      notice: import('../credential-setup-continuation.js').CredentialSetupNotification,
+    ) => f.driver.notifyCredentialSetup(chat.eventStore.getSession('session')!, notice),
+  };
+  session.ordinaryRuntimeOwner = owner;
+  let paused = false;
+  const native = {
+    queue: () => f.native.commands('session', f.account),
+    isPaused: () => paused,
+    isRecovering: () => false,
+    startQueued: vi.fn(async () => f.pump()),
+  };
+  const runtime = vi
+    .spyOn(codex, 'getCodexRuntime')
+    .mockImplementation((current) => (current === session ? (native as never) : undefined));
+  const store = new CredentialConnectionStore(':memory:');
+  const browser = new PrivateRelayBrowsers(async () => ({
+    login: async () => ({ challenge: true }),
+    code: async () => {},
+    action: async () => {},
+    close: async () => {},
+  }));
+  const vault = {
+    save: vi.fn(async () => ({
+      gateway: 'fixture',
+      workspace: 'fixture',
+      name: 'private',
+      providerId: '1',
+      version: '1',
+      profileVersion: '1',
+    })),
+    read: vi.fn(async () => 'private-password'),
+  };
+  const service = new CredentialConnections(store, {} as never, vi.fn());
+  service.relay = new SecretRelays(
+    store,
+    vault,
+    () => {
+      throw Error('No public HTTP');
+    },
+    vi.fn(),
+    false,
+    { browser },
+  );
+  engine.setCredentialConnectionsRuntime(service);
+  const prepare = () =>
+    service.relay!.prepare('session', {
+      label: 'private-service-label',
+      targets: [
+        {
+          adapter: 'browser',
+          origin: 'https://service.example',
+          requests: [
+            { path: '/login', methods: ['GET', 'POST'] },
+            { path: '/whoami', methods: ['GET'] },
+          ],
+          login: { path: '/login', passwordSelector: '#password', submitSelector: '#login' },
+          mfa: { codeSelector: '#code', submitSelector: '#verify' },
+          verification: { path: '/whoami', pointer: '/authenticated', equals: true },
+        },
+      ],
+    });
+  try {
+    const agent = request.agent(engine.app);
+    await agent
+      .post('/api/auth/login')
+      .send({ passphrase: 'test-passphrase-for-vitest' })
+      .expect(200);
+    const auth = await agent
+      .post('/api/credential-connections/reauthorize')
+      .send({ passphrase: 'test-passphrase-for-vitest' })
+      .expect(200);
+    const complete = (draft: ReturnType<typeof prepare>) =>
+      agent
+        .post(`/api/credential-connections/relays/${draft.id}/complete`)
+        .set('x-csrf-token', auth.body.csrf)
+        .send({ revision: draft.revision, secret: 'private-password' });
+    const draft = prepare();
+    await expect(chat.sendToChat('private-origin', 'must remain forbidden')).rejects.toThrow(
+      'guarded admission',
+    );
+    const response = await complete(draft).expect(200);
+    expect(response.body.relay.delivery).toBe('delivered');
+    const firstId = `secret-relay:${draft.id}`;
+    expect(f.native.commands('session', f.account).filter((c) => c.id === firstId)).toHaveLength(1);
+    await service.relay.apply('session', draft.id, 0, new AbortController().signal, () => true);
+    const challenge = service.relay.browserStatus(draft.id);
+    const code = await agent
+      .post(`/api/credential-connections/relays/${draft.id}/code`)
+      .set('x-csrf-token', auth.body.csrf)
+      .send({ revision: challenge.revision, targetIndex: 0, code: '123456' })
+      .expect(200);
+    expect(code.body.relay.delivery).toBe('delivered');
+    const codeId = `${firstId}:1`;
+    expect(f.native.commands('session', f.account).filter((c) => c.id === codeId)).toHaveLength(1);
+    engine.setCredentialConnectionsRuntime(service);
+    await new Promise((done) => setTimeout(done, 0));
+    const notices = f.native
+      .commands('session', f.account)
+      .filter((c) => c.id.startsWith('secret-relay:'));
+    expect(notices).toHaveLength(2);
+    expect(native.startQueued).toHaveBeenCalledTimes(2);
+    expect(notices.every((notice) => notice.status === 'completed')).toBe(true);
+    expect(JSON.stringify(notices)).not.toMatch(/private-password|123456|private-service-label/);
+    expect(queue.push).not.toHaveBeenCalled();
+    paused = true;
+    const pausedDraft = prepare();
+    const pausedResponse = await complete(pausedDraft).expect(200);
+    expect(pausedResponse.body.relay.delivery).toBe('pending');
+    expect(native.startQueued).toHaveBeenCalledTimes(2);
+    expect(
+      f.native.commands('session', f.account).filter((c) => c.id.startsWith('secret-relay:')),
+    ).toHaveLength(2);
+    service.relay.cancel(pausedDraft.id, pausedResponse.body.relay.revision);
+    paused = false;
+    const unsupported = prepare();
+    delete (session.ordinaryRuntimeOwner as Partial<typeof owner>).notifyCredentialSetup;
+    await complete(unsupported).expect(409);
+    expect(vault.save).toHaveBeenCalledTimes(2);
+    session.ordinaryRuntimeOwner = {
+      ...owner,
+      notifyCredentialSetup: (notice) =>
+        f.driver.notifyCredentialSetup(chat.eventStore.getSession('session')!, notice),
+    };
+    const revoked = prepare();
+    f.assertCurrent.mockImplementationOnce(async () => {
+      service.relay!.cancel(revoked.id, service.relay!.browserStatus(revoked.id).revision);
+    });
+    const refused = await complete(revoked).expect(200);
+    expect(refused.body.relay.status).toBe('cancelled');
+    expect(
+      f.native.commands('session', f.account).filter((c) => c.id.startsWith('secret-relay:')),
+    ).toHaveLength(2);
+    expect(
+      chat.eventStore.getOrdinaryOpenShellCommandAdmission(`secret-relay:${revoked.id}`),
+    ).toBeUndefined();
+  } finally {
+    engine.setCredentialConnectionsRuntime(null);
+    chat.registry.abort('private-origin');
+    runtime.mockRestore();
+    await browser.dispose();
+    store.close();
+    engine.taskStore.close();
+    vi.unstubAllEnvs();
+  }
 });

@@ -50,6 +50,13 @@ export interface ManagedSession {
     initialPreparationOperationId?: string;
     initialResume?: boolean;
     admit(command: unknown, preparationSignal?: AbortSignal): Promise<{ dispatched: boolean }>;
+    /** Host-only private setup receipt; never an alternative public send route. */
+    notifyCredentialSetup?(input: {
+      messageId: string;
+      prompt: string;
+      assertCurrent(): void;
+      signal: AbortSignal;
+    }): Promise<boolean>;
     /** Host-only exact peer receipt; cannot be selected by a public command body. */
     admitAgentMessage?(
       messageId: string,

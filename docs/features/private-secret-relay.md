@@ -71,6 +71,15 @@ transformation of a secret. Keep agent egress limited to reviewed adapters.
 
 ## Private browser and MFA contract
 
+For runtime-bound OpenShell and Local Codex chats, readiness uses a host-only
+capability on the existing ordinary runtime owner. It retains the latest consumed
+selection and ordinary admission checks, and rechecks the exact setup, expiry,
+chat and runtime through the final native enqueue. Only an exact consumed receipt
+acknowledges delivery; an uncertain notification is never replayed. Notifications
+start already-admitted FIFO work without acknowledging paused recovery. Other
+runtime-bound providers reject private setup before credential capture until they
+implement the same guarded continuation contract.
+
 A browser target supplies one `origin`, `allowPrivateNetwork`, reviewed request
 rules (`path`, `methods`), login selectors, and an authenticated JSON verification
 request (`path`, RFC6901 `pointer`, scalar `equals`). Paths are exact unless a rule

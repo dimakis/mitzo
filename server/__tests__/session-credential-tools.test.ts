@@ -219,3 +219,30 @@ it('advertises and dispatches repository tools through the shared provider surfa
   const result = await f.tools.execute('ListRepositories', {}, new AbortController().signal);
   expect(result).toBeDefined();
 });
+
+it('refuses private setup before creating a page when a native runtime has no guarded readiness capability', async () => {
+  const { session, registry } = setup();
+  const prepare = vi.fn();
+  const runtime = vi
+    .spyOn(credentialRuntime, 'getCredentialConnectionsRuntime')
+    .mockReturnValue({ setups: { prepare }, relay: { prepare } } as never);
+  try {
+    const tools = sessionCredentialTools(
+      'session',
+      session,
+      registry,
+      '',
+      undefined,
+      async () => {},
+      () => {},
+    );
+    for (const name of ['PrepareSecretRelay', 'PrepareConnectionSetup']) {
+      const result = await tools.execute(name, {}, new AbortController().signal);
+      expect(result?.isError).toBe(true);
+      expect(result?.content).toContain('continuation is unavailable');
+    }
+    expect(prepare).not.toHaveBeenCalled();
+  } finally {
+    runtime.mockRestore();
+  }
+});

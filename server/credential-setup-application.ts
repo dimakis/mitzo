@@ -9,16 +9,27 @@ export function bindConnectionSetupApplication(
   service: CredentialConnections,
   options: {
     registry: SessionRegistry;
-    send(clientId: string, prompt: string, messageId: string): Promise<boolean>;
-    isBusy?(session: ManagedSession): boolean;
+    send(
+      clientId: string,
+      prompt: string,
+      messageId: string,
+      assertCurrent: () => void,
+    ): Promise<boolean>;
+    canSend?(clientId: string): boolean;
+    isBusy?(session: ManagedSession, notificationId?: string): boolean;
   },
 ) {
   let disposed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const continuation = createConnectionSetupContinuation({
     ...options,
-    send: (clientId, prompt, messageId) =>
-      disposed ? Promise.resolve(false) : options.send(clientId, prompt, messageId),
+    send: (clientId, prompt, messageId, assertCurrent) =>
+      disposed
+        ? Promise.resolve(false)
+        : options.send(clientId, prompt, messageId, () => {
+            if (disposed) throw Error('Credential runtime retired');
+            assertCurrent();
+          }),
     currentConnection: (id) => {
       if (disposed) throw new Error('Credential runtime retired');
       return service.connection(id);
@@ -40,7 +51,9 @@ export function bindConnectionSetupApplication(
     const owner = options.registry.findBySessionId(setup.sessionId);
     return (
       !disposed &&
+      setup.expiresAt > Date.now() &&
       !!owner?.session.inputQueue &&
+      options.canSend?.(owner.clientId) !== false &&
       !owner.session.abortController.signal.aborted &&
       !options.registry.isClosingOut(owner.clientId) &&
       !options.registry.isUserClose(owner.clientId)

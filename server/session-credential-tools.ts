@@ -155,6 +155,16 @@ export function sessionCredentialTools(
       call?: ProfileToolCall,
     ) {
       await assertRuntimeCurrent?.();
+      if (
+        assertRuntimeCurrent &&
+        (name === 'PrepareSecretRelay' || name === 'PrepareConnectionSetup') &&
+        !session.ordinaryRuntimeOwner?.notifyCredentialSetup
+      )
+        return {
+          content:
+            'Private setup continuation is unavailable for this runtime. Use a supported originating chat before entering credentials.',
+          isError: true,
+        };
       if (!agentToolAllowed(session, name))
         return {
           content: 'Tool is not selected by this session’s published agent profile',

@@ -1703,3 +1703,39 @@ it('does not invent an adoption or open a second transport when the real reposit
     'consumed',
   );
 });
+
+it('admits a host private-setup notice through original local custody and never replays an uncertain notification', async () => {
+  const f = await fixture();
+  const continuation = vi.fn(async (input: OrdinaryLocalCodexOwnedDispatch) => {
+    input.assertCredentialSetupCurrent?.();
+    input.admission.assertBeforeEnqueue({
+      id: input.commandId,
+      prompt: input.payload.text,
+      intent: input.payload.intent,
+      model: input.expected.selection.model,
+      reasoningEffort: input.expected.selection.thinking,
+    });
+  });
+  const driver = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    dispatchContinuation: continuation,
+  });
+  cleanups.push(() => driver.close());
+  await driver.admit(f.request);
+  const notice = {
+    messageId: 'secret-relay:private-fixture',
+    prompt: 'Safe context-only readiness',
+    signal: new AbortController().signal,
+    assertCurrent: vi.fn(),
+  };
+  expect(await driver.notifyCredentialSetup(notice)).toBe(true);
+  expect(await driver.notifyCredentialSetup(notice)).toBe(true);
+  expect(continuation).toHaveBeenCalledOnce();
+  expect(f.events.getOrdinaryLocalCommandAdmission(notice.messageId)?.state).toBe('consumed');
+  continuation.mockRejectedValueOnce(Error('Provider outcome uncertain'));
+  const uncertain = { ...notice, messageId: 'secret-relay:uncertain-fixture' };
+  await expect(driver.notifyCredentialSetup(uncertain)).rejects.toThrow();
+  expect(f.events.getOrdinaryLocalCommandAdmission(uncertain.messageId)?.state).toBe('uncertain');
+  expect(await driver.notifyCredentialSetup(uncertain)).toBe(false);
+  expect(continuation).toHaveBeenCalledTimes(2);
+});
