@@ -12,3 +12,6 @@ frontend/ios/
 infra/
 # Immutable approved reference; the design contract verifies its original SHA256.
 docs/design/approved/symposium/fresh-agent-review.html
+
+# Frozen Telos acceptance provenance; preserve recorded evidence byte hashes.
+docs/evidence/telos-s9/integrated-candidate/

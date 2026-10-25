@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 import {
   codexApplicationContextFragments,
   codexDynamicToolsOption,
@@ -7,6 +8,33 @@ import {
 } from '../codex-ordinary-packet.js';
 
 describe('ordinary Codex host packet serialization', () => {
+  it('orients local work from the admitted native policy rather than an unrelated requested directory', () => {
+    const nativeExecution = codexNativeExecutionPolicy({
+      bindingRevision: 'offline',
+      mode: 'agent',
+      cwd: '/actual-local-task',
+      readableRoots: ['/'],
+      writableRoots: ['/actual-local-task'],
+      deniedRoots: ['/private-credentials'],
+    });
+    const options = codexThreadOptions({
+      model: 'offline',
+      modelProvider: 'openai',
+      cwd: '/unprepared-other-repo',
+      runtimeConfig: {},
+      webSearch: 'disabled',
+      systemPrompt: 'Selected profile',
+      nativeExecution,
+    });
+    expect(options.developerInstructions).toContain('"executionLocation":"Local Mac"');
+    expect(options.developerInstructions).toContain('"workingDirectory":"/actual-local-task"');
+    expect(options.developerInstructions).not.toContain('/unprepared-other-repo');
+    expect(options.developerInstructions).toContain('native file and shell tools');
+    expect(options.developerInstructions).not.toContain(
+      'for repository files, issues and pull requests',
+    );
+    expect(options.developerInstructions).toContain('Native web search is disabled');
+  });
   it('preserves persistent guidance, native document isolation and effective runtime policy', () => {
     expect(
       codexThreadOptions({

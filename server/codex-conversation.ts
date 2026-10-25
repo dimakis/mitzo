@@ -1,3 +1,4 @@
+import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
 import {
   codexApplicationContextFragments,
   codexDynamicToolsOption,
@@ -18,14 +19,18 @@ import { context, trace, SpanStatusCode, type Span, type Context } from '@opente
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { performance } from 'node:perf_hooks';
+import { SearchSkillsInput, searchNativeSkills } from './local-agent-efficiency.js';
+import { codexToolFailureResult } from './codex-tool-failure.js';
 import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
 import type { ToolDefinition } from '@mitzo/harness';
 import {
   CodexHostToolRequestError,
   CodexRequestError,
+  CodexServerRequestResolvedError,
   CodexTransportError,
   type CodexLifecycleTransport,
+  type CodexServerRequestContext,
 } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
 import {
@@ -37,6 +42,11 @@ import {
   type CodexTargetedInterruptReceipt,
 } from './codex-conversation-store.js';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
+import {
+  assertNativeExecutionRefresh,
+  codexNativePermissionProfiles,
+  type CodexNativeExecutionPolicy,
+} from './codex-native-execution-policy.js';
 import { CodexSessionEvents } from './codex-session-events.js';
 import {
   codexToolResultContentItems,
@@ -56,6 +66,7 @@ import {
 } from './web-search-policy.js';
 import type { ConversationHistoryEntry } from './codex-rollover-context.js';
 type ObjectValue = Record<string, unknown>;
+type NativeRequestContext = CodexServerRequestContext;
 const ROLLOVER_CONTEXT_MAX_CHARS = 64 * 1024;
 const ROLLOVER_CONTEXT_MAX_TURNS = 64;
 const ATTEMPT_CONTEXT_PREFIX = [
@@ -106,6 +117,22 @@ export interface CodexStartupConfigObservation {
   readonly config: unknown;
 }
 
+/** Server-only snapshot from an original verified native host-tool invocation.
+ * Base roots exclude retained upstream grants. Its fence expires with that call. */
+export interface NativeBaseReadScope {
+  readonly nativeTarget: Readonly<CodexNativeTurnTarget>;
+  readonly callId: string;
+  readonly toolName: string;
+  readonly requestHash: string;
+  readonly bindingRevision: string;
+  readonly profileRevision: string;
+  readonly policyRevision: string;
+  readonly readableRoots: readonly string[];
+  readonly workspaceRoots: readonly string[];
+  readonly deniedRoots: readonly string[];
+  assertCurrentSync(): void;
+}
+
 export interface CodexConversationOptions {
   /** Read-only idle health deadline; never changes model RPC timeouts. */
   idleProbeTimeoutMs?: number;
@@ -141,6 +168,8 @@ export interface CodexConversationOptions {
       /** Actual native callbacks supply this fence. Legacy non-native bridges
        * keep labels only; new authority-bearing owners must refuse its absence. */
       assertCurrentSync?(): void;
+      /** Nonenumerable original-call capability, absent without a native base policy. */
+      captureNativeBaseReadScope?(): NativeBaseReadScope;
     }>,
   ): Promise<CodexToolResult>;
   /** Called only after an exact host tool result can be replayed durably. */
@@ -160,8 +189,26 @@ export interface CodexConversationOptions {
   environmentContinuationOwner?: 'external';
   onEnvironmentPending?: (commandId: string, providerTurnId: string) => void;
   requestUserInput?: (params: ObjectValue, signal: AbortSignal) => Promise<ObjectValue>;
+  /** The native provider owns execution and grant enforcement. This callback
+   * only obtains an exact decision from the existing permission owner. */
+  requestNativeApproval?: (
+    method: string,
+    params: ObjectValue,
+    signal: AbortSignal,
+    context: Readonly<{
+      requestId: string | number;
+      commandId: string;
+      threadId: string;
+      turnId: string;
+      assertCurrentSync(): void;
+      fileChangePaths?: readonly string[];
+      registerResponseFence?(assertCurrent: () => void): void;
+    }>,
+  ) => Promise<ObjectValue>;
   validateModel?: (model: string, reasoningEffort?: string) => void;
-  displayToolName?: (name: string) => string;
+  displayToolCall?: (name: string, input: ObjectValue) => { name: string; input: ObjectValue };
+  onToolObservation?: (observation: Record<string, unknown>) => void;
+  skillContextTokens?: number;
   /** Resolve control-plane prerequisites before the prompt reaches the provider. */
   prepareTurn?: (
     turn: { providerPrompt: string; userIntent?: string; turnId: string },
@@ -187,7 +234,12 @@ export interface CodexConversationOptions {
   startupSignal?: AbortSignal;
   beforeReconnect?: () => Promise<void>;
   /** Completed-turn boundary, before claiming queued work. */
-  beforeRuntimeAdmission?: (closeOwnedTransport: () => Promise<void>) => Promise<boolean>;
+  beforeRuntimeAdmission?:
+    | ((closeOwnedTransport: () => Promise<void>) => Promise<boolean>)
+    | {
+        readonly kind: 'prepared-repository-primary';
+        admit(assertCurrentSync: () => void): Promise<void>;
+      };
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
   completionHookTimeoutMs?: number;
   runtimeCwd?: string;
@@ -201,6 +253,16 @@ export interface CodexConversationOptions {
   webSearchDeploymentRevision?: string;
   getMode?: () => MitzoMode;
   turnSandboxPolicy?: Record<string, unknown>;
+  /** Initial trusted selected target policy. Its named profiles are installed
+   * once; per-command workspace roots remain owned by the admission authority. */
+  nativeExecution?: CodexNativeExecutionPolicy;
+  resolveNativeExecutionPolicy?: (input: {
+    commandId: string;
+    signal: AbortSignal;
+  }) => Promise<CodexNativeExecutionPolicy>;
+  /** Revalidate the frozen command's authority before dispatch and at the exact
+   * response write. A later queued command cannot retarget an active grant. */
+  assertNativeExecutionCurrent?: (policy: CodexNativeExecutionPolicy, commandId: string) => void;
   verifyBinding?: (client: Rpc, stored?: AccountBinding) => Promise<AccountBinding>;
   onQueueChange?: () => void;
   onActivity?: () => boolean | void;
@@ -347,7 +409,11 @@ type ActiveCommand = {
   abort: AbortController;
   span?: Span;
   firstOutputSpan?: Span;
+  preparationSpan?: Span;
   traceContext: Context;
+  nativeExecution?: CodexNativeExecutionPolicy;
+  nativeFileChanges?: Map<string, readonly string[] | null>;
+  nativeFileChangeRevisions?: Map<string, string | null>;
 };
 const interruptTargetBrand = Symbol('native-interrupt-target');
 /** Identity only: host auth/admission remains required; serialized copies grant nothing. */
@@ -376,6 +442,7 @@ export class CodexConversation {
   };
   private mapper?: CodexSessionEvents;
   private commandContexts = new Map<string, Context>();
+  private queueTimingSpans = new Map<string, Span>();
   private active?: ActiveCommand;
   private interruptTargets = new WeakMap<
     CodexInterruptTarget,
@@ -414,10 +481,10 @@ export class CodexConversation {
       onNotification: (m, p) => {
         if (!this.closed && generation === this.transportGeneration) this.notification(m, p);
       },
-      onRequest: (m, p, s) => {
+      onRequest: (m, p, s, requestContext?: NativeRequestContext) => {
         if (this.closed || generation !== this.transportGeneration)
           return Promise.reject(new CodexTransportError('connection'));
-        return this.request(m, p, s);
+        return this.request(m, p, s, requestContext);
       },
       onClose: (error) => this.transportClosed(generation, error),
     });
@@ -567,6 +634,33 @@ export class CodexConversation {
         throw error;
       }
     }
+  }
+  async searchSkills(
+    input: z.infer<typeof SearchSkillsInput>,
+    signal: AbortSignal,
+    assertCurrent: () => void,
+  ) {
+    const active = this.active;
+    const client = this.client;
+    const generation = this.transportGeneration;
+    const cwd = this.opts.cwd;
+    const current = () => {
+      signal.throwIfAborted();
+      assertCurrent();
+      if (
+        !active ||
+        this.active !== active ||
+        this.closed ||
+        this.client !== client ||
+        this.transportGeneration !== generation ||
+        this.opts.cwd !== cwd
+      )
+        throw Error('Current native skill owner unavailable');
+    };
+    current();
+    const value = await client!.request('skills/list', { cwds: [cwd], forceReload: false });
+    current();
+    return searchNativeSkills(value, SearchSkillsInput.parse(input), cwd);
   }
   async initialize() {
     if (this.startupObserverVetoed) throw new Error('Startup observer permanently vetoed');
@@ -1056,6 +1150,9 @@ export class CodexConversation {
     if (saved) {
       this.clearCapacityTimer();
       this.commandContexts.set(input.id, context.active());
+      // The durable enqueue has returned; time waiting for this exact command's claim.
+      const timing = startCommandTimingSpan('codex.command.queue_wait', input.id, context.active());
+      if (timing) this.queueTimingSpans.set(input.id, timing);
     }
     this.opts.onQueueChange?.();
     return { model, reasoningEffort };
@@ -1196,6 +1293,8 @@ export class CodexConversation {
     const result = this.opts.store.cancelQueued(this.opts.conversationId, this.binding, commandId);
     if (result === 'cancelled') {
       this.commandContexts.delete(commandId);
+      finishCommandTimingSpan(this.queueTimingSpans.get(commandId), 'cancelled');
+      this.queueTimingSpans.delete(commandId);
       this.opts.onQueueChange?.();
     }
     return result;
@@ -1430,8 +1529,18 @@ export class CodexConversation {
   }
 
   private runtimeConfiguration(configuration: unknown): Record<string, unknown> {
+    this.assertNativeExecutionOwner();
     if (!this.opts.runtimeConfig) {
-      const config = codexRuntimeOverrides(configuration, this.opts.profile.workspaceId);
+      const config = {
+        ...codexRuntimeOverrides(
+          configuration,
+          this.opts.profile.workspaceId,
+          this.opts.nativeExecution,
+        ),
+        ...(this.opts.nativeExecution
+          ? codexNativePermissionProfiles(this.opts.nativeExecution)
+          : {}),
+      };
       return this.disableWebSearch ? { ...config, web_search: 'disabled' } : config;
     }
     const inherited = z
@@ -1445,6 +1554,16 @@ export class CodexConversation {
       ...this.opts.runtimeConfig,
       ...(this.disableWebSearch ? { web_search: 'disabled' } : {}),
     };
+  }
+
+  private assertNativeExecutionOwner() {
+    if (
+      this.opts.nativeExecution &&
+      (!this.opts.assertNativeExecutionCurrent ||
+        !this.opts.requestNativeApproval ||
+        this.opts.runtimeConfig)
+    )
+      throw Error('Native execution owner unavailable');
   }
 
   private threadOptions(
@@ -1475,9 +1594,11 @@ export class CodexConversation {
       modelProvider,
       cwd: this.opts.runtimeCwd ?? this.opts.cwd,
       runtimeConfig,
+      skillContextTokens: this.opts.skillContextTokens,
       webSearch: policy.effective,
       disableProjectDocuments: this.disableProjectDocuments,
       systemPrompt: this.opts.systemPrompt,
+      nativeExecution: this.opts.nativeExecution,
     });
   }
 
@@ -1909,20 +2030,65 @@ export class CodexConversation {
   }
   private async beginNext() {
     if (this.opts.beforeRuntimeAdmission && this.binding && !this.active) {
+      const boundary = this.opts.beforeRuntimeAdmission;
+      const boundaryAdmit = typeof boundary === 'function' ? undefined : boundary.admit;
+      const client = this.client;
+      const generation = this.transportGeneration;
+      const threadId = this.threadId;
+      const binding = this.binding;
+      const startupSignal = this.opts.startupSignal;
       await this.verifyCurrentBinding(this.binding);
       try {
-        const admit = async () => {
-          const changed = await this.opts.beforeRuntimeAdmission!(async () => {
-            this.transportGeneration += 1;
-            this.ready = false;
-            this.client.close();
-          });
-          if (changed || !this.ready) await this.reconnectBound();
-        };
-        // Hold the current grant reservation across migration and reattachment;
-        // validating only afterward could already provision revoked connections.
-        if (this.opts.reconnectGuard) await this.opts.reconnectGuard(admit);
-        else await admit();
+        if (typeof boundary !== 'function') {
+          if (!boundary || boundary.kind !== 'prepared-repository-primary' || !this.ready)
+            throw Error('Retained primary admission requires the original transport');
+          const admit = boundaryAdmit!;
+          let boundaryOpen = true;
+          const assertBoundaryCurrentSync = () => {
+            startupSignal?.throwIfAborted();
+            if (
+              !boundaryOpen ||
+              this.opts.startupSignal !== startupSignal ||
+              this.closed ||
+              this.paused ||
+              this.active ||
+              !this.ready ||
+              this.client !== client ||
+              this.transportGeneration !== generation ||
+              this.threadId !== threadId ||
+              this.binding !== binding ||
+              this.opts.beforeRuntimeAdmission !== boundary ||
+              boundary.admit !== admit
+            )
+              throw Error('Original retained primary boundary unavailable');
+          };
+          try {
+            assertBoundaryCurrentSync();
+            const admitted: unknown = await Reflect.apply(admit, boundary, [
+              assertBoundaryCurrentSync,
+            ]);
+            if (admitted !== undefined)
+              throw Error('Retained primary admission must settle without a value');
+            assertBoundaryCurrentSync();
+            await this.verifyCurrentBinding(this.binding);
+            assertBoundaryCurrentSync();
+          } finally {
+            boundaryOpen = false;
+          }
+        } else {
+          const admit = async () => {
+            const changed = await boundary(async () => {
+              this.transportGeneration += 1;
+              this.ready = false;
+              this.client.close();
+            });
+            if (changed || !this.ready) await this.reconnectBound();
+          };
+          // Hold the current grant reservation across migration and reattachment;
+          // validating only afterward could already provision revoked connections.
+          if (this.opts.reconnectGuard) await this.opts.reconnectGuard(admit);
+          else await admit();
+        }
       } catch (error) {
         // Admission precedes claimNext: preserve queued FIFO and expose an
         // explicit recovery pause even when only our idle transport was closed.
@@ -1948,6 +2114,8 @@ export class CodexConversation {
     }
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
+    finishCommandTimingSpan(this.queueTimingSpans.get(command.id), 'claimed');
+    this.queueTimingSpans.delete(command.id);
     const continuation = this.opts.store.capacityContinuation(
       this.opts.conversationId,
       this.binding!,
@@ -1972,11 +2140,29 @@ export class CodexConversation {
     let transportGeneration = this.transportGeneration;
     this.opts.onQueueChange?.();
     try {
+      active.preparationSpan = startCommandTimingSpan(
+        'codex.command.preparation',
+        command.id,
+        active.traceContext,
+      );
       const model = command.model ?? this.binding!.model;
       this.validateModel(model, command.reasoningEffort);
       this.mapper?.setModel(model);
       await this.verifyCurrentBinding(this.binding);
       active.abort.signal.throwIfAborted();
+      if (this.opts.nativeExecution) {
+        this.assertNativeExecutionOwner();
+        const policy = this.opts.resolveNativeExecutionPolicy
+          ? await this.opts.resolveNativeExecutionPolicy({
+              commandId: command.id,
+              signal: active.abort.signal,
+            })
+          : this.opts.nativeExecution;
+        active.abort.signal.throwIfAborted();
+        assertNativeExecutionRefresh(this.opts.nativeExecution, policy);
+        this.opts.assertNativeExecutionCurrent?.(policy, command.id);
+        active.nativeExecution = policy;
+      }
       const systemPrompt = await this.opts.prepareSystemPrompt?.(active.abort.signal, {
         commandId: command.id,
       });
@@ -2031,6 +2217,8 @@ export class CodexConversation {
       await this.opts.prepareAgentContext?.(active.abort.signal);
       active.abort.signal.throwIfAborted();
       this.opts.onProviderDispatch?.(command.id);
+      if (active.nativeExecution)
+        this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, command.id);
       active.span = tracer.startSpan('codex.turn', {}, active.traceContext);
       active.span.setAttribute('mitzo.route', this.opts.route ?? 'chatgpt-subscription');
       active.span.setAttribute('gen_ai.request.model', model);
@@ -2065,6 +2253,16 @@ export class CodexConversation {
       let response: unknown;
       let dispatched = false;
       try {
+        if (active.nativeExecution)
+          this.opts.store.prepareNativeExecution(
+            this.opts.conversationId,
+            this.binding!,
+            command,
+            this.threadId!,
+            active.nativeExecution,
+          );
+        finishCommandTimingSpan(active.preparationSpan, 'submitted');
+        active.preparationSpan = undefined;
         const pendingAck = this.client.request(
           'turn/start',
           codexTurnStartParams({
@@ -2077,6 +2275,7 @@ export class CodexConversation {
             prompt: preparedPrompt,
             images: command.images,
             sandboxPolicy: this.opts.turnSandboxPolicy,
+            nativeExecution: active.nativeExecution,
             reasoningEffort: command.reasoningEffort,
             additionalContext,
           }),
@@ -2139,6 +2338,14 @@ export class CodexConversation {
           this.threadId!,
           active.turnId,
         );
+        if (active.nativeExecution)
+          this.opts.store.acceptNativeExecution(
+            this.opts.conversationId,
+            this.binding!,
+            command,
+            this.threadId!,
+            active.turnId,
+          );
         let providerObserverFailed = false;
         let providerObserverError: unknown;
         try {
@@ -2317,6 +2524,9 @@ export class CodexConversation {
       if (replaceProviderThread || active.accepted) this.retireTransportForRecovery();
       this.opts.onQueueChange?.();
       throw error;
+    } finally {
+      finishCommandTimingSpan(active.preparationSpan, 'stopped');
+      active.preparationSpan = undefined;
     }
   }
   private persistAcceptedTerminalConflict(thread: string, turn: string) {
@@ -2338,6 +2548,57 @@ export class CodexConversation {
   }
   private notification(method: string, params: ObjectValue) {
     if (this.closed || params.threadId !== this.threadId) return;
+    if (method === 'item/started' && this.active && params.turnId === this.active.turnId) {
+      const identity = z
+        .object({ type: z.literal('fileChange'), id: z.string().min(1) })
+        .safeParse(params.item);
+      const item = z
+        .object({
+          type: z.literal('fileChange'),
+          id: z.string().min(1),
+          changes: z.array(
+            z.object({
+              path: z.string().min(1),
+              kind: z.discriminatedUnion('type', [
+                z.object({ type: z.literal('add') }).strict(),
+                z.object({ type: z.literal('delete') }).strict(),
+                z
+                  .object({ type: z.literal('update'), move_path: z.string().min(1).nullable() })
+                  .strict(),
+              ]),
+              diff: z.string(),
+            }),
+          ),
+        })
+        .safeParse(params.item);
+      if (identity.success) {
+        this.active.nativeFileChanges ??= new Map();
+        this.active.nativeFileChangeRevisions ??= new Map();
+        const revision = item.success
+          ? createHash('sha256').update(JSON.stringify(item.data.changes)).digest('hex')
+          : null;
+        const previousRevision = this.active.nativeFileChangeRevisions.get(identity.data.id);
+        const consistent = previousRevision === undefined || previousRevision === revision;
+        const paths = item.success
+          ? Object.freeze(
+              item.data.changes.flatMap((change) => [
+                change.path,
+                ...(change.kind.type === 'update' && change.kind.move_path
+                  ? [change.kind.move_path]
+                  : []),
+              ]),
+            )
+          : null;
+        const previous = this.active.nativeFileChanges.get(identity.data.id);
+        this.active.nativeFileChanges.set(
+          identity.data.id,
+          consistent && (previous === undefined || isDeepStrictEqual(previous, paths))
+            ? paths
+            : null,
+        );
+        this.active.nativeFileChangeRevisions.set(identity.data.id, consistent ? revision : null);
+      }
+    }
     if (
       this.active?.firstOutputSpan &&
       [
@@ -2572,25 +2833,87 @@ export class CodexConversation {
     method: string,
     params: ObjectValue,
     signal: AbortSignal,
+    requestContext?: NativeRequestContext,
   ): Promise<ObjectValue> {
-    if (!this.opts.prepareAgentContext) return this.hostRequest(method, params, signal);
+    const prepareAgentContext = this.opts.prepareAgentContext;
+    if (!prepareAgentContext) return this.hostRequest(method, params, signal, requestContext);
     const active = this.active;
+    const activeAbort = active?.abort;
+    const command = active?.command;
+    const commandId = command?.id;
+    const attempt = command?.attempt;
+    const turnId = active?.turnId;
+    const threadId = this.threadId;
+    const client = this.client;
+    const binding = this.binding;
+    const bindingSnapshot = JSON.stringify(binding);
     const generation = this.transportGeneration;
-    const continuationSignal = AbortSignal.any([
-      signal,
-      ...(active ? [active.abort.signal] : []),
-      ...(this.opts.startupSignal ? [this.opts.startupSignal] : []),
+    const startupSignal = this.opts.startupSignal;
+    const requestId = requestContext?.requestId;
+    const requestIdentity = [params.threadId, params.turnId, params.itemId, params.callId];
+    // A consumed RPC may outlive its provider operation. Revalidate authority
+    // without that one cancellation, retaining the original command/startup
+    // signals even when AbortSignal.any has already selected the RPC reason.
+    const authoritySignal = AbortSignal.any([
+      ...(activeAbort ? [activeAbort.signal] : []),
+      ...(startupSignal ? [startupSignal] : []),
     ]);
-    const authorize = async () => {
+    const continuationSignal = AbortSignal.any([signal, authoritySignal]);
+    const assertIdentity = (resolvedCleanup: boolean) => {
+      if (
+        this.closed ||
+        generation !== this.transportGeneration ||
+        this.client !== client ||
+        this.active !== active ||
+        active?.abort !== activeAbort ||
+        active?.command !== command ||
+        command?.id !== commandId ||
+        command?.attempt !== attempt ||
+        active?.turnId !== turnId ||
+        this.threadId !== threadId ||
+        this.binding !== binding ||
+        JSON.stringify(binding) !== bindingSnapshot ||
+        this.opts.prepareAgentContext !== prepareAgentContext ||
+        this.opts.startupSignal !== startupSignal ||
+        requestContext?.requestId !== requestId ||
+        [params.threadId, params.turnId, params.itemId, params.callId].some(
+          (value, index) => value !== requestIdentity[index],
+        )
+      )
+        throw Error('Codex host continuation identity changed');
+      if (
+        resolvedCleanup &&
+        (!active ||
+          !threadId ||
+          !turnId ||
+          requestIdentity[0] !== threadId ||
+          requestIdentity[1] !== turnId)
+      )
+        throw Error('Codex resolved request identity mismatch');
+    };
+    const authorize = async (resolvedCleanup = false): Promise<void> => {
+      const authorizationSignal = resolvedCleanup ? authoritySignal : continuationSignal;
       try {
-        if (this.closed || generation !== this.transportGeneration)
-          throw Error('Codex host continuation is closed or replaced');
-        continuationSignal.throwIfAborted();
-        await this.opts.prepareAgentContext!(continuationSignal);
-        continuationSignal.throwIfAborted();
-        if (this.closed || generation !== this.transportGeneration || this.active !== active)
-          throw Error('Codex host continuation identity changed');
+        assertIdentity(resolvedCleanup);
+        authorizationSignal.throwIfAborted();
+        await prepareAgentContext.call(this.opts, authorizationSignal);
+        authorizationSignal.throwIfAborted();
+        assertIdentity(resolvedCleanup);
       } catch (error) {
+        if (
+          !resolvedCleanup &&
+          signal.aborted &&
+          error === signal.reason &&
+          signal.reason instanceof CodexServerRequestResolvedError &&
+          requestId !== undefined &&
+          signal.reason.requestId === requestId
+        ) {
+          // Exactly one authority-only retry covers resolution during either
+          // admission or final authorization. Never repeat the host operation
+          // or return its result after upstream has consumed this request.
+          await authorize(true);
+          throw error;
+        }
         if (!this.closed) {
           try {
             this.opts.onError?.(
@@ -2608,7 +2931,7 @@ export class CodexConversation {
     };
     await authorize();
     try {
-      return await this.hostRequest(method, params, continuationSignal);
+      return await this.hostRequest(method, params, continuationSignal, requestContext);
     } finally {
       // Covers questions, tool failures, duplicate uncertainty and durable
       // replay/result observers, including authority changes while they await.
@@ -2619,7 +2942,68 @@ export class CodexConversation {
     method: string,
     params: ObjectValue,
     signal: AbortSignal,
+    requestContext?: NativeRequestContext,
   ): Promise<ObjectValue> {
+    if (
+      [
+        'item/commandExecution/requestApproval',
+        'item/fileChange/requestApproval',
+        'item/permissions/requestApproval',
+      ].includes(method)
+    ) {
+      const active = this.active;
+      const generation = this.transportGeneration;
+      const threadId = this.threadId;
+      const turnId = active?.turnId;
+      const fileItemId =
+        method === 'item/fileChange/requestApproval' && typeof params.itemId === 'string'
+          ? params.itemId
+          : undefined;
+      const fileChangePaths = fileItemId ? active?.nativeFileChanges?.get(fileItemId) : undefined;
+      const fileChangeRevision = fileItemId
+        ? active?.nativeFileChangeRevisions?.get(fileItemId)
+        : undefined;
+      const approvalSignal = AbortSignal.any([signal, ...(active ? [active.abort.signal] : [])]);
+      const assertCurrentSync = () => {
+        approvalSignal.throwIfAborted();
+        if (
+          this.closed ||
+          !active ||
+          this.active !== active ||
+          generation !== this.transportGeneration ||
+          !threadId ||
+          !turnId ||
+          this.threadId !== threadId ||
+          active.turnId !== turnId ||
+          params.threadId !== threadId ||
+          params.turnId !== turnId ||
+          !requestContext ||
+          !['string', 'number'].includes(typeof requestContext.requestId)
+        )
+          throw new Error('Codex native approval identity mismatch');
+        if (
+          fileItemId &&
+          (!isDeepStrictEqual(active.nativeFileChanges?.get(fileItemId), fileChangePaths) ||
+            active.nativeFileChangeRevisions?.get(fileItemId) !== fileChangeRevision)
+        )
+          throw new Error('Codex native file approval changed');
+        if (active.nativeExecution)
+          this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
+      };
+      assertCurrentSync();
+      if (!this.opts.requestNativeApproval) throw new Error('Codex native approvals unavailable');
+      requestContext!.registerResponseFence?.(assertCurrentSync);
+      const response = await this.opts.requestNativeApproval(method, params, approvalSignal, {
+        ...requestContext!,
+        commandId: active!.command.id,
+        threadId: threadId!,
+        turnId: turnId!,
+        assertCurrentSync,
+        ...(fileItemId ? { fileChangePaths: fileChangePaths ?? undefined } : {}),
+      });
+      assertCurrentSync();
+      return response;
+    }
     if (method === 'item/tool/requestUserInput') {
       const input = CodexUserInput.parse(params);
       const active = this.active;
@@ -2693,66 +3077,139 @@ export class CodexConversation {
         ],
       };
     }
-    const publicId = this.mapper!.toolStart(
-      call.callId,
-      this.opts.displayToolName?.(call.tool) ?? call.tool,
-      call.arguments,
-    );
+    const display = this.opts.displayToolCall?.(call.tool, call.arguments) ?? {
+      name: call.tool,
+      input: call.arguments,
+    };
+    const publicId = this.mapper!.toolStart(call.callId, display.name, display.input);
     let result: CodexToolResult;
     let callbackOpen = true;
     const callbackBinding = this.binding!;
     // Keep existing label-only JSON/strict store contracts unchanged. Spreading
     // or cloning labels deliberately cannot carry this private callback fence.
-    const invocation = Object.freeze(
-      Object.defineProperty(
-        {
-          turnId: call.turnId,
-          callId: call.callId,
-        },
-        'assertCurrentSync',
-        {
-          value: () => {
-            toolSignal.throwIfAborted();
-            if (
-              !callbackOpen ||
-              this.closed ||
-              this.paused ||
-              !this.ready ||
-              this.active !== active ||
-              active.interruptRequested ||
-              this.binding !== callbackBinding ||
-              this.threadId !== call.threadId ||
-              active.turnId !== call.turnId ||
-              createHash('sha256').update(JSON.stringify(call.arguments)).digest('hex') !==
-                toolIdentity.requestHash
-            )
-              throw new Error('Original native tool callback is no longer current');
-            const pending = this.opts.store.pendingNativeHostTool(
-              this.opts.conversationId,
-              callbackBinding,
-              call.callId,
-              toolIdentity,
-            );
-            if (
-              !pending ||
-              pending.commandId !== active.command.id ||
-              pending.attempt !== active.command.attempt ||
-              pending.threadId !== call.threadId
-            )
-              throw new Error('Original native tool claim is no longer current');
-          },
-        },
-      ),
-    );
+    const assertOriginalCallCurrent = () => {
+      toolSignal.throwIfAborted();
+      if (
+        !callbackOpen ||
+        this.closed ||
+        this.paused ||
+        !this.ready ||
+        this.active !== active ||
+        active.interruptRequested ||
+        this.binding !== callbackBinding ||
+        this.threadId !== call.threadId ||
+        active.turnId !== call.turnId ||
+        createHash('sha256').update(JSON.stringify(call.arguments)).digest('hex') !==
+          toolIdentity.requestHash
+      )
+        throw new Error('Original native tool callback is no longer current');
+      const pending = this.opts.store.pendingNativeHostTool(
+        this.opts.conversationId,
+        callbackBinding,
+        call.callId,
+        toolIdentity,
+      );
+      if (
+        !pending ||
+        pending.commandId !== active.command.id ||
+        pending.attempt !== active.command.attempt ||
+        pending.threadId !== call.threadId
+      )
+        throw new Error('Original native tool claim is no longer current');
+    };
+    const invocation: Parameters<CodexConversationOptions['executeTool']>[3] = {
+      turnId: call.turnId,
+      callId: call.callId,
+    };
+    Object.defineProperty(invocation, 'assertCurrentSync', { value: assertOriginalCallCurrent });
+    const nativePolicy = active.nativeExecution;
+    if (nativePolicy) {
+      assertOriginalCallCurrent();
+      const pending = this.opts.store.pendingNativeHostTool(
+        this.opts.conversationId,
+        callbackBinding,
+        call.callId,
+        toolIdentity,
+      );
+      if (!pending) throw Error('Original native base read claim unavailable');
+      const originalPending = Object.freeze({ ...pending });
+      const assertNativePolicyCurrent = this.opts.assertNativeExecutionCurrent;
+      const nativeTarget = Object.freeze({
+        commandId: pending.commandId,
+        attempt: pending.attempt,
+        threadId: pending.threadId,
+        turnId: pending.turnId,
+        generation: pending.generation,
+      });
+      const assertBaseReadCurrent = Object.freeze(() => {
+        assertOriginalCallCurrent();
+        if (active.nativeExecution !== nativePolicy)
+          throw Error('Original native base read policy changed');
+        if (
+          !Object.isFrozen(nativePolicy) ||
+          ![
+            nativePolicy.readableRoots,
+            nativePolicy.workspaceRoots,
+            nativePolicy.deniedRoots,
+          ].every(Object.isFrozen)
+        )
+          throw Error('Native base read policy must be frozen');
+        const current = this.opts.store.pendingNativeHostTool(
+          this.opts.conversationId,
+          callbackBinding,
+          call.callId,
+          toolIdentity,
+        );
+        if (!isDeepStrictEqual(current, originalPending))
+          throw Error('Original native base read claim changed');
+        if (
+          !assertNativePolicyCurrent ||
+          this.opts.assertNativeExecutionCurrent !== assertNativePolicyCurrent
+        )
+          throw Error('Original native base read policy owner changed');
+        const checked: unknown = Reflect.apply(assertNativePolicyCurrent, this.opts, [
+          nativePolicy,
+          active.command.id,
+        ]);
+        if (checked !== undefined) {
+          void Promise.resolve(checked).catch(() => {});
+          throw Error('Native base read policy owner must be synchronous');
+        }
+      });
+      Object.defineProperty(invocation, 'captureNativeBaseReadScope', {
+        value: Object.freeze((): NativeBaseReadScope => {
+          assertBaseReadCurrent();
+          return Object.freeze({
+            nativeTarget,
+            callId: originalPending.callId,
+            toolName: originalPending.toolName,
+            requestHash: originalPending.requestHash,
+            bindingRevision: nativePolicy.bindingRevision,
+            profileRevision: nativePolicy.profileRevision,
+            policyRevision: nativePolicy.policyRevision,
+            readableRoots: Object.freeze([...nativePolicy.readableRoots]),
+            workspaceRoots: Object.freeze([...nativePolicy.workspaceRoots]),
+            deniedRoots: Object.freeze([...nativePolicy.deniedRoots]),
+            assertCurrentSync: assertBaseReadCurrent,
+          });
+        }),
+      });
+    }
+    Object.freeze(invocation);
+    const toolStarted = performance.now();
     try {
       result = normalizeCodexToolResult(
         await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation),
       );
-    } catch {
-      result = {
-        content: 'Tool failed or was interrupted. Inspect current state before retrying.',
-        isError: true,
-      };
+    } catch (error) {
+      result = codexToolFailureResult(error, toolSignal.aborted);
+      const diagnostic = JSON.parse(result.content) as { diagnosticId: string; error: string };
+      log.warn('Dynamic tool failed', {
+        diagnosticId: diagnostic.diagnosticId,
+        toolFailureCode: diagnostic.error,
+        conversationId: this.opts.conversationId,
+        callId: call.callId,
+      });
     } finally {
       // No retained closure can outlive the original executor, including a
       // subsequent durable-result write failure while the native turn stays live.
@@ -2848,6 +3305,17 @@ export class CodexConversation {
       );
     }
     this.mapper!.toolResult(publicId, result.content, result.isError, result.contentItems);
+    try {
+      this.opts.onToolObservation?.({
+        toolName: call.tool,
+        inputBytes: Buffer.byteLength(JSON.stringify(call.arguments)),
+        outputBytes: Buffer.byteLength(result.content),
+        isError: result.isError,
+        durationMs: Math.round(performance.now() - toolStarted),
+      });
+    } catch {
+      /* Observability cannot change an executed result. */
+    }
     return {
       success: !result.isError,
       contentItems: codexToolResultContentItems(result),
@@ -2964,6 +3432,10 @@ export class CodexConversation {
   }
   close() {
     this.commandContexts.clear();
+    for (const span of this.queueTimingSpans.values()) finishCommandTimingSpan(span, 'closed');
+    this.queueTimingSpans.clear();
+    finishCommandTimingSpan(this.active?.preparationSpan, 'closed');
+    if (this.active) this.active.preparationSpan = undefined;
     if (this.closed) return;
     this.closed = true;
     this.paused = true;

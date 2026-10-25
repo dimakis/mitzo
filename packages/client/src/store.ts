@@ -233,15 +233,18 @@ export interface MitzoStoreOptions {
   initiallyAuthenticated?: boolean;
   launchDrafts?: {
     pending(draftId: string): boolean;
+    matches?(draftId: string, command: Record<string, unknown>): boolean;
     prepare(draftId: string, command: Record<string, unknown>): boolean;
-    assign(clientMsgId: string, sessionId: string): void;
+    assign(clientMsgId: string, sessionId: string): void | { context: string };
     settle(clientMsgId: string, status: 'accepted' | 'failed' | 'uncertain'): string | undefined;
+    finalize?(clientMsgId: string): void;
   };
   /** Global durable command handoff, recreated at bootstrap and independent of UI observers. */
   sendHandoff?: {
     prepare(command: Record<string, unknown>): boolean;
     assign(clientMsgId: string, sessionId: string, hint?: Record<string, unknown>): void;
     reject(clientMsgId: string): void;
+    finalize?(clientMsgId: string): void;
   };
 }
 
@@ -336,6 +339,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     ? new SseConnection(options.sseConfig)
     : new MitzoConnection(options.wsConfig);
 
+  // An explicit clear is a display decision too; never infer freshness from null.
+  let contextDisplayWritten = false;
   let localCommandScope: { draftId: string } | { sessionId: string } | null | undefined;
   let visibleLocalCommandId: string | undefined;
   let reviewedAuthenticated = options.initiallyAuthenticated !== false;
@@ -379,6 +384,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           },
           headers: () => ({ 'X-Connection-ID': connection.getConnectionId() ?? '' }),
           notify(event) {
+            if (event.type === '_local_command_retired') {
+              if (typeof event.clientMsgId === 'string') {
+                options.sendHandoff?.finalize?.(event.clientMsgId);
+                options.launchDrafts?.finalize?.(event.clientMsgId);
+              }
+              return;
+            }
             if (event.type !== '_local_command_state') return;
             if (event.state === 'idle') {
               visibleLocalCommandId = undefined;
@@ -469,17 +481,24 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             if (
               sessionId &&
               event.acknowledged === true &&
+              (state === 'consumed' ||
+                !request.payload.sourceSnapshots?.some((source) => source.kind === 'briefing')) &&
               !('sessionId' in request) &&
               ordinaryDelivery?.version !== 1
             ) {
               const source = request.payload.sourceSnapshots?.find(
-                (source) => source.kind === 'agent-library',
+                (source) => source.kind === 'agent-library' || source.kind === 'briefing',
               );
-              if (source)
-                assignCommand(request.clientMsgId, sessionId, {
-                  kind: 'agent-library',
-                  revision: source.revision,
-                });
+              const preassignmentSession = store.getState().sessions.active;
+              const assignment = source
+                ? assignCommand(
+                    request.clientMsgId,
+                    sessionId,
+                    source.kind === 'briefing'
+                      ? { kind: 'briefing-owned', draftId: event.originDraftId, command: request }
+                      : { kind: 'agent-library', revision: source.revision },
+                  )
+                : undefined;
               const foreground = bindLaunchAssignment(
                 request.clientMsgId,
                 sessionId,
@@ -487,6 +506,18 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 'local',
               );
               if (foreground) {
+                if (
+                  source?.kind === 'briefing' &&
+                  assignment &&
+                  !contextDisplayWritten &&
+                  preassignmentSession === null &&
+                  store.getState().sessions.active === null &&
+                  store.getState().pendingSession?.draftId === event.originDraftId
+                ) {
+                  store
+                    .getState()
+                    .dispatchMessages({ type: 'SET_SESSION_CONTEXT', context: assignment.context });
+                }
                 parserState.currentSessionId = sessionId;
                 store.setState((s) => ({
                   sessions: { ...s.sessions, active: sessionId },
@@ -939,8 +970,22 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           : !!parserState.currentSessionId)
     )
       return false;
-    if (frozen.payload.sourceSnapshots?.length && options.sendHandoff?.prepare(frozen) === false)
+    const briefingLaunch =
+      !('sessionId' in frozen) &&
+      !ordinaryDelivery &&
+      frozen.payload.sourceSnapshots?.some((source) => source.kind === 'briefing');
+    if (
+      briefingLaunch &&
+      (!opts.draftId || options.launchDrafts?.prepare(opts.draftId, frozen) !== true)
+    )
       return false;
+    const handoff = frozen.payload.sourceSnapshots?.length
+      ? options.sendHandoff?.prepare(frozen)
+      : undefined;
+    if ((briefingLaunch && handoff !== true) || handoff === false) {
+      if (briefingLaunch) options.launchDrafts?.settle(frozen.clientMsgId, 'failed');
+      return false;
+    }
     const sessionId = localCommandSessionId(
       frozen,
       ordinaryDelivery?.version === 1 ? ordinaryDelivery.sessionId : undefined,
@@ -1004,6 +1049,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     getTransportConnectionId: () => connection.getConnectionId(),
 
     dispatchMessages(action: MessagesAction) {
+      if (action.type === 'SET_SESSION_CONTEXT') contextDisplayWritten = true;
       set((s) => ({ messages: messagesReducer(s.messages, normalizePermissionAction(action)) }));
     },
 
@@ -1181,6 +1227,27 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       localCommandScope = { draftId };
       visibleLocalCommandId = undefined;
       localOutbox?.selectLocalDraft(draftId);
+      const command = get().localCommand;
+      const request = command?.request;
+      const origin = request ? deliveryOrigins.get(request.clientMsgId) : undefined;
+      if (
+        request &&
+        !('sessionId' in request) &&
+        command?.originDraftId === draftId &&
+        request.payload.sourceSnapshots?.[0]?.kind === 'briefing' &&
+        get().sessions.active === null &&
+        get().pendingSession?.draftId === draftId &&
+        !assignmentObservers.has(request.clientMsgId) &&
+        !deliveryObservers.has(request.clientMsgId) &&
+        !unassignedDeliveries.has(request.clientMsgId) &&
+        origin &&
+        options.launchDrafts?.matches?.(draftId, request) === true
+      ) {
+        // Explicit restoration adopts only its original proven draft's UI scope.
+        // Native dispatch and receipt/source assignment keep their existing gates.
+        origin.historyRequest = historyRequest;
+        origin.launchGeneration = launchGeneration;
+      }
     },
     selectLocalCommandSession(sessionId) {
       localCommandScope = { sessionId };
@@ -1689,7 +1756,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
   function assignCommand(id: string, sessionId: string, hint?: Record<string, unknown>) {
     options.sendHandoff?.assign(id, sessionId, hint);
-    options.launchDrafts?.assign(id, sessionId);
+    return options.launchDrafts?.assign(id, sessionId);
   }
 
   function bindLaunchAssignment(
@@ -2266,6 +2333,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     for (const incomingAction of result.messagesActions) {
+      if (incomingAction.type === 'SET_SESSION_CONTEXT') contextDisplayWritten = true;
       const action = normalizePermissionAction(
         retainedFailureSeq !== undefined &&
           (incomingAction.type === 'ERROR' || incomingAction.type === 'CONTROL_REJECTED')

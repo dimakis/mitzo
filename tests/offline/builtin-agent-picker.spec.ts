@@ -18,7 +18,7 @@ for (const appearance of ['dark', 'light'] as const)
   test(`Builtin agents stay selectable with an empty Library on Host Mac (${appearance})`, async ({
     page,
   }, testInfo) => {
-    const inventory = multiRuntimeInventoryFixture();
+    const inventory = multiRuntimeInventoryFixture({ nativeLocalApi: true });
     const builtins = [
       [DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION, defaultMitzoProfileDefinition],
       [PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION, profileBuilderDefinition],

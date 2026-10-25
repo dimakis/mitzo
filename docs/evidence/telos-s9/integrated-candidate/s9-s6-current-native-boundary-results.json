@@ -1,0 +1,951 @@
+{
+  "numTotalTestSuites": 1,
+  "numPassedTestSuites": 1,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 101,
+  "numPassedTests": 2,
+  "numFailedTests": 0,
+  "numPendingTests": 99,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1792449855356,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "uses assigned GitHub credentials instead of the legacy fallback on a new runtime",
+          "status": "skipped",
+          "title": "uses assigned GitHub credentials instead of the legacy fallback on a new runtime",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "forwards only recognized sanitized Codex diagnostics",
+          "status": "skipped",
+          "title": "forwards only recognized sanitized Codex diagnostics",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "explains sandbox recipe compatibility and source failures without exposing compiler output",
+          "status": "skipped",
+          "title": "explains sandbox recipe compatibility and source failures without exposing compiler output",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "reports connection admission rejection without claiming a provider turn failed",
+          "status": "skipped",
+          "title": "reports connection admission rejection without claiming a provider turn failed",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "reports startup request failures without discarding their safe category",
+          "status": "skipped",
+          "title": "reports startup request failures without discarding their safe category",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps fresh-sign-in advice when sandbox preparation rejects a subscription grant",
+          "status": "skipped",
+          "title": "keeps fresh-sign-in advice when sandbox preparation rejects a subscription grant",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "scopes capability idempotency to the authoritative conversation identity",
+          "status": "skipped",
+          "title": "scopes capability idempotency to the authoritative conversation identity",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "builds managed Jira runtime context from versioned public configuration, not legacy email",
+          "status": "skipped",
+          "title": "builds managed Jira runtime context from versioned public configuration, not legacy email",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "routes the selected model when provisioning an OpenShell subscription",
+          "status": "skipped",
+          "title": "routes the selected model when provisioning an OpenShell subscription",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "does not open MCP processes if private storage is unavailable",
+          "status": "skipped",
+          "title": "does not open MCP processes if private storage is unavailable",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "labels openai provider conversations with their actual trace route",
+          "status": "skipped",
+          "title": "labels openai provider conversations with their actual trace route",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "labels openai-codex provider conversations with their actual trace route",
+          "status": "skipped",
+          "title": "labels openai-codex provider conversations with their actual trace route",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "retains the failing initialization step while closing the runtime",
+          "status": "skipped",
+          "title": "retains the failing initialization step while closing the runtime",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "reports a first-send policy rejection as known preparation failure",
+          "status": "skipped",
+          "title": "reports a first-send policy rejection as known preparation failure",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "retains uncertain-work advice when the first send fails after initialization",
+          "status": "skipped",
+          "title": "retains uncertain-work advice when the first send fails after initialization",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "closes an initialization aborted before the first turn starts",
+          "status": "skipped",
+          "title": "closes an initialization aborted before the first turn starts",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "reattaches the provider runtime without admitting or replaying user intent",
+          "status": "skipped",
+          "title": "reattaches the provider runtime without admitting or replaying user intent",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "forwards ordinary provider receipts alongside retained context (false) without treating close as termination",
+          "status": "skipped",
+          "title": "forwards ordinary provider receipts alongside retained context (false) without treating close as termination",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "forwards ordinary provider receipts alongside retained context (true) without treating close as termination",
+          "status": "skipped",
+          "title": "forwards ordinary provider receipts alongside retained context (true) without treating close as termination",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "waits for cold-reconnect runtime registration",
+          "status": "skipped",
+          "title": "waits for cold-reconnect runtime registration",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "waits for the reconnect session and runtime to both register",
+          "status": "skipped",
+          "title": "waits for the reconnect session and runtime to both register",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "cancels reconnect polling when the request is aborted",
+          "status": "skipped",
+          "title": "cancels reconnect polling when the request is aborted",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "cleans each resource once across explicit close, runtime close and abort",
+          "status": "skipped",
+          "title": "cleans each resource once across explicit close, runtime close and abort",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "binds Telos source review to the actual native provider turn and call identity",
+          "status": "skipped",
+          "title": "binds Telos source review to the actual native provider turn and call identity",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "does not advertise unavailable host tools to an OpenShell runtime",
+          "status": "skipped",
+          "title": "does not advertise unavailable host tools to an OpenShell runtime",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "advertises reviewed per-chat provider grants to a managed OpenShell runtime",
+          "status": "skipped",
+          "title": "advertises reviewed per-chat provider grants to a managed OpenShell runtime",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "preserves image attachments while binding a trusted capability, forcing approval, and recovering on reconnect",
+          "status": "skipped",
+          "title": "preserves image attachments while binding a trusted capability, forcing approval, and recovering on reconnect",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "registers a newly ensured sandbox before context initialization can fail",
+          "status": "skipped",
+          "title": "registers a newly ensured sandbox before context initialization can fail",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "releases startup reservation before hook or client construction when environment attestation fails",
+          "status": "skipped",
+          "title": "releases startup reservation before hook or client construction when environment attestation fails",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects the legacy shared-sandbox seam in production",
+          "status": "skipped",
+          "title": "rejects the legacy shared-sandbox seam in production",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects OpenShell Ask mode before enabling provider-native tools",
+          "status": "skipped",
+          "title": "rejects OpenShell Ask mode before enabling provider-native tools",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "never loads trusted project hooks on the host for OpenShell sessions",
+          "status": "skipped",
+          "title": "never loads trusted project hooks on the host for OpenShell sessions",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "fails closed instead of substituting API billing for a ChatGPT subscription in OpenShell",
+          "status": "skipped",
+          "title": "fails closed instead of substituting API billing for a ChatGPT subscription in OpenShell",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects managed OpenShell subscription profiles before provisioning a sandbox",
+          "status": "skipped",
+          "title": "rejects managed OpenShell subscription profiles before provisioning a sandbox",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects managed OpenShell API profiles without an account provider binding",
+          "status": "skipped",
+          "title": "rejects managed OpenShell API profiles without an account provider binding",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects a grantable account provider before opening a managed OpenShell chat",
+          "status": "skipped",
+          "title": "rejects a grantable account provider before opening a managed OpenShell chat",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "releases the real connection reservation before first-turn admission (send)",
+          "status": "skipped",
+          "title": "releases the real connection reservation before first-turn admission (send)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "releases the real connection reservation before first-turn admission (reattach)",
+          "status": "skipped",
+          "title": "releases the real connection reservation before first-turn admission (reattach)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "releases the real connection reservation before first-turn admission (failure)",
+          "status": "skipped",
+          "title": "releases the real connection reservation before first-turn admission (failure)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "releases the real connection reservation before first-turn admission (revoked)",
+          "status": "skipped",
+          "title": "releases the real connection reservation before first-turn admission (revoked)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "releases the real connection reservation before first-turn admission (added)",
+          "status": "skipped",
+          "title": "releases the real connection reservation before first-turn admission (added)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "releases the real connection reservation before first-turn admission (retained)",
+          "status": "skipped",
+          "title": "releases the real connection reservation before first-turn admission (retained)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "releases the real connection reservation before first-turn admission (unavailable-retained)",
+          "status": "skipped",
+          "title": "releases the real connection reservation before first-turn admission (unavailable-retained)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "releases the real connection reservation before first-turn admission (unavailable-added)",
+          "status": "skipped",
+          "title": "releases the real connection reservation before first-turn admission (unavailable-added)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "releases the real connection reservation before first-turn admission (jira-retained)",
+          "status": "skipped",
+          "title": "releases the real connection reservation before first-turn admission (jira-retained)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "preserves first launch and valid restore while failing closed for a replacement with no lifecycle state",
+          "status": "skipped",
+          "title": "preserves first launch and valid restore while failing closed for a replacement with no lifecycle state",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "persists a fake provider profile proposal without saving a reusable profile",
+          "status": "skipped",
+          "title": "persists a fake provider profile proposal without saving a reusable profile",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "publishes safe observable migration eligibility for Migration storage capacity insufficient: private path secret",
+          "status": "skipped",
+          "title": "publishes safe observable migration eligibility for Migration storage capacity insufficient: private path secret",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "publishes safe observable migration eligibility for checkpoint: unsupported provider state: private-filename",
+          "status": "skipped",
+          "title": "publishes safe observable migration eligibility for checkpoint: unsupported provider state: private-filename",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "publishes safe observable migration eligibility for Retained migration target policy differs secret",
+          "status": "skipped",
+          "title": "publishes safe observable migration eligibility for Retained migration target policy differs secret",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "publishes safe observable migration eligibility for checkpoint: sandbox writer is still open secret",
+          "status": "skipped",
+          "title": "publishes safe observable migration eligibility for checkpoint: sandbox writer is still open secret",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "explains unavailable knowledge without exposing publication transport details",
+          "status": "skipped",
+          "title": "explains unavailable knowledge without exposing publication transport details",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "describes an active transport interruption without claiming a failed provider turn",
+          "status": "skipped",
+          "title": "describes an active transport interruption without claiming a failed provider turn",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "offers Keychain connection tools inside OpenShell alongside existing host capabilities",
+          "status": "skipped",
+          "title": "offers Keychain connection tools inside OpenShell alongside existing host capabilities",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "does not require Telos outcome capture for ordinary artifact contributors in OpenShell",
+          "status": "skipped",
+          "title": "does not require Telos outcome capture for ordinary artifact contributors in OpenShell",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses cold repository resume without its artifact identity before ensuring a sandbox",
+          "status": "skipped",
+          "title": "refuses cold repository resume without its artifact identity before ensuring a sandbox",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects host Codex profile packs before startup or provider acceptance",
+          "status": "skipped",
+          "title": "rejects host Codex profile packs before startup or provider acceptance",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "admits sandbox recipes before provider initialization and preserves their immutable prompt: new",
+          "status": "skipped",
+          "title": "admits sandbox recipes before provider initialization and preserves their immutable prompt: new",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "admits sandbox recipes before provider initialization and preserves their immutable prompt: resume",
+          "status": "skipped",
+          "title": "admits sandbox recipes before provider initialization and preserves their immutable prompt: resume",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "admits sandbox recipes before provider initialization and preserves their immutable prompt: revoked",
+          "status": "skipped",
+          "title": "admits sandbox recipes before provider initialization and preserves their immutable prompt: revoked",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "admits sandbox recipes before provider initialization and preserves their immutable prompt: compiler failure",
+          "status": "skipped",
+          "title": "admits sandbox recipes before provider initialization and preserves their immutable prompt: compiler failure",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses native pack admission before runtime setup: supplied",
+          "status": "skipped",
+          "title": "refuses native pack admission before runtime setup: supplied",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses native pack admission before runtime setup: retained",
+          "status": "skipped",
+          "title": "refuses native pack admission before runtime setup: retained",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses native pack admission before runtime setup: supplied-host",
+          "status": "skipped",
+          "title": "refuses native pack admission before runtime setup: supplied-host",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses native pack admission before runtime setup: retained-host",
+          "status": "skipped",
+          "title": "refuses native pack admission before runtime setup: retained-host",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses native pack admission before runtime setup: recipe",
+          "status": "skipped",
+          "title": "refuses native pack admission before runtime setup: recipe",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rechecks pack origin after account reservation await before bound runtime setup (recipe)",
+          "status": "skipped",
+          "title": "rechecks pack origin after account reservation await before bound runtime setup (recipe)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rechecks pack origin after account reservation await before bound runtime setup (supplied)",
+          "status": "skipped",
+          "title": "rechecks pack origin after account reservation await before bound runtime setup (supplied)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rechecks pack origin after account reservation await before bound runtime setup (retained)",
+          "status": "skipped",
+          "title": "rechecks pack origin after account reservation await before bound runtime setup (retained)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rechecks pack origin after async MCP setup before native constructor (recipe)",
+          "status": "skipped",
+          "title": "rechecks pack origin after async MCP setup before native constructor (recipe)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rechecks pack origin after async MCP setup before native constructor (supplied)",
+          "status": "skipped",
+          "title": "rechecks pack origin after async MCP setup before native constructor (supplied)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rechecks pack origin after async MCP setup before native constructor (retained)",
+          "status": "skipped",
+          "title": "rechecks pack origin after async MCP setup before native constructor (retained)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rechecks owned command authority immediately before native enqueue and provider dispatch",
+          "status": "passed",
+          "title": "rechecks owned command authority immediately before native enqueue and provider dispatch",
+          "duration": 20.5015420000002,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "uses the already verified owned client locally regardless of global OpenShell settings",
+          "status": "passed",
+          "title": "uses the already verified owned client locally regardless of global OpenShell settings",
+          "duration": 11.049667,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses owned local injection in a custodian controller even when dedicated OpenShell is configured",
+          "status": "skipped",
+          "title": "refuses owned local injection in a custodian controller even when dedicated OpenShell is configured",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects an owned initial prompt mismatch before hooks, MCP or provider effects",
+          "status": "skipped",
+          "title": "rejects an owned initial prompt mismatch before hooks, MCP or provider effects",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects an owned initial systemPrompt mismatch before hooks, MCP or provider effects",
+          "status": "skipped",
+          "title": "rejects an owned initial systemPrompt mismatch before hooks, MCP or provider effects",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps the admitted developer input fixed while asynchronous owned verification waits",
+          "status": "skipped",
+          "title": "keeps the admitted developer input fixed while asynchronous owned verification waits",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "qualifies owned native, MCP, profile and publishing tools and rejects other helpers before effects",
+          "status": "skipped",
+          "title": "qualifies owned native, MCP, profile and publishing tools and rejects other helpers before effects",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "ignores trusted project command hooks and SessionStart context for the owned frozen prompt",
+          "status": "skipped",
+          "title": "ignores trusted project command hooks and SessionStart context for the owned frozen prompt",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps owned native web search disabled despite a live runtime preference and refuses grant edits",
+          "status": "skipped",
+          "title": "keeps owned native web search disabled despite a live runtime preference and refuses grant edits",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "consumes frozen owned OpenShell configuration and executes guarded runtime admission without implicit migration",
+          "status": "skipped",
+          "title": "consumes frozen owned OpenShell configuration and executes guarded runtime admission without implicit migration",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "cold owned OpenShell reuses the original physical mapping while a new turn selects another model",
+          "status": "skipped",
+          "title": "cold owned OpenShell reuses the original physical mapping while a new turn selects another model",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses a selected-tool profile before direct Codex startup: {\"tools\":[]}",
+          "status": "skipped",
+          "title": "refuses a selected-tool profile before direct Codex startup: {\"tools\":[]}",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses a selected-tool profile before direct Codex startup: {\"tools\":[{\"id\":\"mitzo:Read\",\"version\":1}]}",
+          "status": "skipped",
+          "title": "refuses a selected-tool profile before direct Codex startup: {\"tools\":[{\"id\":\"mitzo:Read\",\"version\":1}]}",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "carries the published selected surface and instructions through the owned Local Codex adapter",
+          "status": "skipped",
+          "title": "carries the published selected surface and instructions through the owned Local Codex adapter",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "admits selected MCP through the actual owned Local Codex lifecycle and fences its effects after approval",
+          "status": "skipped",
+          "title": "admits selected MCP through the actual owned Local Codex lifecycle and fences its effects after approval",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "disposes acquired hooks when the owned admission is revoked before configured source launch",
+          "status": "skipped",
+          "title": "disposes acquired hooks when the owned admission is revoked before configured source launch",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "exposes exact slice allocation to a retained owned local lead and fences approval and owner changes",
+          "status": "skipped",
+          "title": "exposes exact slice allocation to a retained owned local lead and fences approval and owner changes",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "exposes slice allocation to a retained OpenShell lead without enabling selected profile tool routes",
+          "status": "skipped",
+          "title": "exposes slice allocation to a retained OpenShell lead without enabling selected profile tool routes",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "gives mapped OpenShell workers exact task tools and forwards their saved result through ordinary permissions",
+          "status": "skipped",
+          "title": "gives mapped OpenShell workers exact task tools and forwards their saved result through ordinary permissions",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "withholds OpenShell task adapters without exact worker role/context/proof/owner: lead true true true",
+          "status": "skipped",
+          "title": "withholds OpenShell task adapters without exact worker role/context/proof/owner: lead true true true",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "withholds OpenShell task adapters without exact worker role/context/proof/owner: worker false true true",
+          "status": "skipped",
+          "title": "withholds OpenShell task adapters without exact worker role/context/proof/owner: worker false true true",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "withholds OpenShell task adapters without exact worker role/context/proof/owner: worker true false true",
+          "status": "skipped",
+          "title": "withholds OpenShell task adapters without exact worker role/context/proof/owner: worker true false true",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "withholds OpenShell task adapters without exact worker role/context/proof/owner: worker true true false",
+          "status": "skipped",
+          "title": "withholds OpenShell task adapters without exact worker role/context/proof/owner: worker true true false",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps explicit owned lead tool selection authoritative over S5 helpers and ambient task MCP servers",
+          "status": "skipped",
+          "title": "keeps explicit owned lead tool selection authoritative over S5 helpers and ambient task MCP servers",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "routes qualified owned Codex task provider calls to durable review proposals without saving tasks",
+          "status": "skipped",
+          "title": "routes qualified owned Codex task provider calls to durable review proposals without saving tasks",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "composes the published task selection with the qualified owned Codex surface (selected=false)",
+          "status": "skipped",
+          "title": "composes the published task selection with the qualified owned Codex surface (selected=false)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "composes the published task selection with the qualified owned Codex surface (selected=true)",
+          "status": "skipped",
+          "title": "composes the published task selection with the qualified owned Codex surface (selected=true)",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT10/CT12: fences a newly queued or dispatching work command separately from an active turn context",
+          "status": "skipped",
+          "title": "CT10/CT12: fences a newly queued or dispatching work command separately from an active turn context",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT12: a retained ordinary lead gets the scoped control tool with unchanged-input approval and current-owner checks",
+          "status": "skipped",
+          "title": "CT12: a retained ordinary lead gets the scoped control tool with unchanged-input approval and current-owner checks",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792449857202,
+      "endTime": 1792449857233.0496,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s6-candidate-acceptance/server/__tests__/codex-chat-session.test.ts"
+    }
+  ]
+}

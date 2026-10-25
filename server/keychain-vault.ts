@@ -80,7 +80,14 @@ async function verifyHelper(file: string, requirement: string) {
     env: { PATH: '/usr/bin:/bin' },
   });
 }
+type RetainedHelper = {
+  ready: Promise<PreparedKeychainHelper>;
+  users: number;
+  retired: boolean;
+  timer?: ReturnType<typeof setTimeout>;
+};
 export class MacKeychainVault implements CredentialVault {
+  private retained?: RetainedHelper;
   constructor(
     private file: string,
     private requirement: string,
@@ -88,15 +95,83 @@ export class MacKeychainVault implements CredentialVault {
     private verify = verifyHelper,
     private controller: KeychainControllerAccess = keychainController,
     private prepare: (file: string) => PreparedKeychainHelper = prepareKeychainHelper,
+    private options: { reuseVerifiedHelper?: boolean } = {},
   ) {}
+  /** Retire only executable code. In-flight readers release their own lease. */
+  disposeVerifiedHelper(): void {
+    const retained = this.retained;
+    if (!retained) return;
+    this.retained = undefined;
+    retained.retired = true;
+    clearTimeout(retained.timer);
+    if (retained.users === 0)
+      void retained.ready.then(
+        (helper) => helper.dispose(),
+        () => {},
+      );
+  }
+  private async acquireHelper(): Promise<{ helper: PreparedKeychainHelper; release(): void }> {
+    if (!this.options.reuseVerifiedHelper) {
+      const helper = this.prepare(this.file);
+      try {
+        await this.verify(helper.file, this.requirement);
+        return { helper, release: () => helper.dispose() };
+      } catch (error) {
+        helper.dispose();
+        throw error;
+      }
+    }
+    const retained: RetainedHelper = (this.retained ??= {
+      users: 0,
+      retired: false,
+      ready: (async () => {
+        const helper = this.prepare(this.file);
+        try {
+          if (!helper.assertCurrent) throw new Error('Unpinned helper');
+          helper.assertCurrent();
+          await this.verify(helper.file, this.requirement);
+          helper.assertCurrent();
+          return helper;
+        } catch (error) {
+          helper.dispose();
+          throw error;
+        }
+      })(),
+    });
+    clearTimeout(retained.timer);
+    retained.users++;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      if (--retained.users !== 0) return;
+      if (retained.retired)
+        void retained.ready.then(
+          (helper) => helper.dispose(),
+          () => {},
+        );
+      else {
+        retained.timer = setTimeout(() => this.disposeVerifiedHelper(), 30_000);
+        retained.timer.unref();
+      }
+    };
+    try {
+      const helper = await retained.ready;
+      if (retained.retired) throw new Error('Retired helper');
+      helper.assertCurrent!();
+      return { helper, release };
+    } catch (error) {
+      if (this.retained === retained) this.disposeVerifiedHelper();
+      release();
+      throw error;
+    }
+  }
   private async call(request: HelperRequest, signal?: AbortSignal) {
     signal?.throwIfAborted();
-    let helper: PreparedKeychainHelper | undefined;
+    let lease: Awaited<ReturnType<MacKeychainVault['acquireHelper']>>;
     try {
-      helper = this.prepare(this.file);
-      await this.verify(helper.file, this.requirement);
+      lease = await this.acquireHelper();
     } catch {
-      helper?.dispose();
       throw new Error('Apple Keychain helper is unavailable');
     }
     let result: {
@@ -112,18 +187,22 @@ export class MacKeychainVault implements CredentialVault {
     };
     try {
       const authorization = await this.controller.authorization();
+      signal?.throwIfAborted();
+      if (this.options.reuseVerifiedHelper) lease.helper.assertCurrent!();
       const input = {
         ...request,
         authorization,
         ...(this.controller.namespace ? { namespace: this.controller.namespace } : {}),
       };
       result = JSON.parse(
-        await (signal ? this.run(helper.file, input, signal) : this.run(helper.file, input)),
+        await (signal
+          ? this.run(lease.helper.file, input, signal)
+          : this.run(lease.helper.file, input)),
       );
     } catch {
       throw new KeychainUnavailableError('unavailable');
     } finally {
-      helper.dispose();
+      lease.release();
     }
     if (result?.ok !== true)
       throw new KeychainUnavailableError(

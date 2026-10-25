@@ -9,7 +9,8 @@ const mocks = vi.hoisted(() => ({
   permissionHandler: vi.fn(),
   conversationOptions: undefined as Record<string, unknown> | undefined,
 }));
-vi.mock('../codex-conversation-store.js', () => ({
+vi.mock('../codex-conversation-store.js', async (original) => ({
+  ...(await original<typeof import('../codex-conversation-store.js')>()),
   CodexConversationStore: class {
     recoverAtStartup() {}
   },

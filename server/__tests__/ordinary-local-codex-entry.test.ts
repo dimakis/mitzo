@@ -35,6 +35,8 @@ import {
   OrdinaryLocalCodexTarget,
 } from '../ordinary-local-codex-capabilities.js';
 import { createOwnedLocalCodexEntryRouter } from '../ordinary-local-codex-entry.js';
+import { observeLocalCodexPhase } from '../local-codex-observation.js';
+vi.mock('../local-codex-observation.js', { spy: true });
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import { EventStore } from '../event-store.js';
 import { SessionSseRegistry } from '../session-sse-registry.js';
@@ -410,6 +412,10 @@ it('exposes and dispatches API billing through the actual Local Codex entry', as
 it('dispatches explicit Local with server-owned identities through the existing wrapper', async () => {
   const response = await send();
   expect(response.status).toBe(202);
+  expect(observeLocalCodexPhase).toHaveBeenCalledWith(
+    'repository_reservation',
+    expect.any(Function),
+  );
   const sessionId = nativeStartupSessionId(`repository:${workspaceId}`);
   const resolution = catalog.resolve(input().runtime);
   if (resolution.status !== 'compatible') throw Error('Expected configured fixture route');

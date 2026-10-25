@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { waitForChange } from './wait-for-change.js';
 import { isDeepStrictEqual } from 'node:util';
 import { AgentMessageSendSchema, agentMessagePrompt, type AgentMessage } from '@mitzo/protocol';
 import { checkSkillPolicy, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
@@ -52,6 +53,11 @@ export const AgentCommunicationInput = z.discriminatedUnion('operation', [
     operation: z.literal('inbox'),
     after: z.number().int().nonnegative().safe().default(0),
   }),
+  z.strictObject({
+    operation: z.literal('wait'),
+    after: z.number().int().nonnegative().safe().default(0),
+    timeoutMs: z.number().int().min(1).max(30000).default(20000),
+  }),
   z.strictObject({ operation: z.literal('read'), messageId: z.uuid() }),
   z.strictObject({ operation: z.literal('lookup'), requestId: z.uuid() }),
   AgentMessageSendSchema.extend({ operation: z.literal('send') }),
@@ -60,7 +66,7 @@ export const agentCommunicationDefinitions = [
   {
     name: AGENT_COMMUNICATION_TOOL,
     description:
-      'Discover up to 1000 recent ordinary Local Codex chats owned by this signed operator, read your attributed peer-message inbox/receipts, or send an explicitly approved message to an exact conversation. Recover a lost response with lookup and the original requestId; never create a fresh request to retry uncertain delivery. Reply using send with replyTo and the original sender ID. Messages carry no user/action/merge authority. Private transcripts are not shared. Healthy live recipients use their existing FIFO; paused, cold or unsupported recipients are not automatically recovered or enrolled.',
+      'Discover owned ordinary Local Codex chats, read peer-message inbox/receipts, or send an explicitly approved message. Use wait with after and timeoutMs (maximum 30000) for new inbox messages instead of repeated polling. Recover uncertain sends with lookup and the original requestId. Reply using send with replyTo and original sender ID. Messages grant no action or merge authority. Private transcripts are excluded; cold/paused recipients are not recovered automatically.',
     input_schema: z.toJSONSchema(AgentCommunicationInput),
   },
 ];
@@ -218,6 +224,27 @@ export function sessionAgentCommunicationTools(owners: Owners) {
           return {
             chats: chats.slice(input.offset, input.offset + 50),
             nextOffset: chats.length > input.offset + 50 ? input.offset + 50 : null,
+          };
+        }
+        if (input.operation === 'wait') {
+          const result = await waitForChange({
+            signal,
+            timeoutMs: input.timeoutMs,
+            subscribe: (wake) =>
+              owners.events.agentCommunication.subscribe(owners.conversationId, wake),
+            read: () => {
+              current();
+              eligible(owners.conversationId);
+              return owners.events.agentCommunication.inbox(owners.conversationId, input.after);
+            },
+            changed: (page) => page.messages.length > 0,
+          });
+          await owners.assertRuntimeCurrent();
+          current();
+          return {
+            changed: result.changed,
+            ...result.value,
+            messages: result.value.messages.map(reconcile),
           };
         }
         if (input.operation === 'inbox') {

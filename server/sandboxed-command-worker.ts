@@ -1,3 +1,4 @@
+import { privateRepositoryCheckoutCommand } from './private-repository-checkout.js';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { Writable } from 'node:stream';
@@ -11,6 +12,7 @@ import {
   type SandboxRuntimeConfig,
 } from '@anthropic-ai/sandbox-runtime';
 import { AuthoritySnapshot, type SerializedAuthority } from './sandbox-authority.js';
+import { privateNativeFileHelperCommand } from './native-file-operation.js';
 
 export interface SandboxWorkerPayload {
   cwd: string;
@@ -23,6 +25,9 @@ export interface SandboxWorkerPayload {
   filesystemOnly?: boolean;
   /** Trusted parent has approved this command's general network effects. */
   networkAccess?: 'approved-command';
+  /** Fixed private helper only, never arbitrary Bash's authority bypass. */
+  privateNativeFileRequestJson?: string;
+  privateRepositoryCheckoutJson?: string;
 }
 
 interface WorkerDependencies {
@@ -76,6 +81,21 @@ export async function runSandboxedWorker(
     throw new Error('Invalid command network authorization');
   if (payload.networkAccess && payload.filesystemOnly)
     throw new Error('Command network authorization cannot change SDK isolation');
+  if (
+    payload.privateNativeFileRequestJson !== undefined &&
+    (payload.filesystemOnly ||
+      payload.networkAccess ||
+      payload.command !== privateNativeFileHelperCommand(payload.privateNativeFileRequestJson))
+  )
+    throw Error('Invalid private native file helper');
+  if (
+    payload.privateRepositoryCheckoutJson !== undefined &&
+    (payload.filesystemOnly ||
+      payload.networkAccess ||
+      payload.privateNativeFileRequestJson !== undefined ||
+      payload.command !== privateRepositoryCheckoutCommand(payload.privateRepositoryCheckoutJson))
+  )
+    throw Error('Invalid private repository checkout');
   if (payload.filesystemOnly !== undefined && typeof payload.filesystemOnly !== 'boolean')
     throw new Error('Invalid filesystem-only sandbox mode');
   if (payload.filesystemOnly && (dependencies.platform ?? process.platform) !== 'darwin')

@@ -1,0 +1,45 @@
+{
+  "archive": "assembly-conflicts.zip",
+  "sha256": "23904cf7dfe57f0d71529ebea23ea80422e2ae96c5a68dcdf69b6b71b86a6398",
+  "mergesAborted": true,
+  "productionEdits": false,
+  "records": [
+    {
+      "attempt": "accepted-main8a7 + published S5b1048/688d9a57",
+      "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+      "candidate": "688d9a57e756939b001ce41d7f3838997b3e1688",
+      "result": "unresolved production merge conflicts; no resolution guessed",
+      "owners": {
+        "S5b": "df0d5bb2ec46416b",
+        "ordinary-owner": "current accepted ordinary admission/prewarm source"
+      },
+      "paths": [
+        "frontend/src/hooks/useExplicitLocalChat.ts",
+        "server/app.ts",
+        "server/connections/reviewed-handler-artifacts.ts",
+        "server/repository-workspace-runtime.ts",
+        "server/repository-workspaces.ts"
+      ],
+      "states": {
+        "acceptedMainQualified": false,
+        "candidateCombinationQualified": false,
+        "fullS9Accepted": false
+      }
+    },
+    {
+      "left": "688d9a57e756939b001ce41d7f3838997b3e1688",
+      "right": "aaaa006fcd5897e844e1b264bd21d5d5aba491be",
+      "result": "conflicted; no production resolution guessed",
+      "paths": [
+        "frontend/src/hooks/useExplicitLocalChat.ts",
+        "packages/protocol/src/index.ts",
+        "server/app.ts",
+        "server/codex-chat-session.ts",
+        "server/connections/reviewed-handler-artifacts.ts",
+        "server/repository-workspace-runtime.ts",
+        "server/repository-workspaces.ts",
+        "server/telos-work-delegation.ts"
+      ]
+    }
+  ]
+}

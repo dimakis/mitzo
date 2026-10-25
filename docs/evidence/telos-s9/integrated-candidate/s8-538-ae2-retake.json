@@ -1,0 +1,878 @@
+{
+  "productionSource": "ae2b7088445e20050a1847eb98909b3bcc0748e4",
+  "productionTree": "fa616502229695bb444637030142f13f14c6178c",
+  "directParent": "538e6bc9fe5bfc8cf4fcde43fe2bba5170d8a8a7",
+  "parent538DirectParent": "a6f93a1007ae9719c64815897accd409d57a0661",
+  "baseAncestor": "d525a3647bc6470d29b4e0433826998b2a932d84",
+  "fourProfileExecutionHead": "967c7a9ca6f8c4645b5fbcf04381809f2749d88e",
+  "chooserAndHydrationExecutionHead": "4531e5e57916cdcca35084757f5e829da02ed4cc",
+  "frozen113ChooserSha256": "0bec2bcba048f74280d905435dc7ddc9fe94bf73c56c68ebab3bb2db37a9cc67",
+  "sameChooser": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/same-frozen-chooser/run.json",
+    "sha256": "a3bb2e03747a2a92187e1c786d8f18bbb66a4fa1dc9fb9dedd1df9b6e74d8621",
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 18090.283166,
+    "failureSummaries": []
+  },
+  "profiles": [
+    {
+      "scenario": "mobile-dark",
+      "profile": {
+        "width": 320,
+        "theme": "dark",
+        "motion": "reduce",
+        "touch": true
+      },
+      "result": {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-dark/run.json",
+        "sha256": "1dc451b16a8591254b45a9783e70e4e5932192dbdfb282e1f83f4fc8ea69b887",
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "durationMs": 9744.028792000001,
+        "failureSummaries": []
+      },
+      "observationsSha256": "836a9a418134e8b0be6a93df280d17d4525f7ac694833e29f8188517336ba4a2",
+      "treeRows": [
+        {
+          "text": "Recording programme\nCoordinator\n1 child\nP5\nactive",
+          "rowWidth": 280,
+          "title": "Recording programme",
+          "titleWidth": 131.46875,
+          "titleLineCount": 1,
+          "height": 95,
+          "status": "active",
+          "priority": "P5",
+          "titleBox": {
+            "x": 72,
+            "y": 317,
+            "width": 131.46875,
+            "height": 44,
+            "top": 317,
+            "right": 203.46875,
+            "bottom": 361,
+            "left": 72
+          },
+          "statusBox": {
+            "x": 72,
+            "y": 383,
+            "width": 200.5625,
+            "height": 12,
+            "top": 383,
+            "right": 272.5625,
+            "bottom": 395,
+            "left": 72
+          },
+          "priorityBox": {
+            "x": 280.5625,
+            "y": 337,
+            "width": 19.4375,
+            "height": 18,
+            "top": 337,
+            "right": 300,
+            "bottom": 355,
+            "left": 280.5625
+          }
+        }
+      ],
+      "chooserPresentation": [
+        {
+          "id": "planning",
+          "label": "Originating conversation",
+          "primaryText": "Studio planning\nOriginating conversation \u00b7 Offline personal \u00b7 Offline fixture\nCreated Oct 20, 2026",
+          "roleLine": "Originating conversation \u00b7 Offline personal \u00b7 Offline fixture",
+          "detailLine": "Created Oct 20, 2026",
+          "actualCreatedAt": 1792462149571,
+          "expectedCreated": "2026-10-20T02:09:09.571Z",
+          "provenanceText": "Recorded origin link\nLinked 2026-10-20T02:09:11.204Z \u00b7 operator:b248fc54-0085-4988-851a-2735a514ad44\nSource snapshot d193bfa900a3d953ff75eeb507e3e53810acde347e3986b11b21794218909ca7\nConversation created 2026-10-20T02:09:09.571Z \u00b7 Author unknown",
+          "summaryBox": {
+            "x": 36,
+            "y": 517,
+            "width": 248,
+            "height": 44
+          },
+          "focusAfterOpen": true,
+          "focusAfterClose": true
+        },
+        {
+          "id": "88729d43-e60a-8215-a16e-6622b409ca01",
+          "label": "Assigned lead",
+          "primaryText": "Studio planning lead\nAssigned lead \u00b7 Offline personal \u00b7 Offline fixture\nOrdinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "roleLine": "Assigned lead \u00b7 Offline personal \u00b7 Offline fixture",
+          "detailLine": "Ordinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "actualCreatedAt": 1792462151282,
+          "expectedCreated": "2026-10-20T02:09:11.282Z",
+          "provenanceText": "Recorded lead link\nLinked 2026-10-20T02:09:11.303Z \u00b7 operator:b248fc54-0085-4988-851a-2735a514ad44",
+          "summaryBox": {
+            "x": 36,
+            "y": 678,
+            "width": 248,
+            "height": 44
+          },
+          "focusAfterOpen": true,
+          "focusAfterClose": true
+        },
+        {
+          "id": "a7567627-2bb3-80e1-aace-442e0d0d16c9",
+          "label": "Additional lead conversation",
+          "primaryText": "Additional acoustic discussion\nAdditional lead conversation \u00b7 Offline personal \u00b7 Offline fixture\nOrdinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "roleLine": "Additional lead conversation \u00b7 Offline personal \u00b7 Offline fixture",
+          "detailLine": "Ordinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "actualCreatedAt": 1792462151368,
+          "expectedCreated": "2026-10-20T02:09:11.368Z",
+          "provenanceText": "Recorded lead link\nLinked 2026-10-20T02:09:11.384Z \u00b7 operator:b248fc54-0085-4988-851a-2735a514ad44",
+          "summaryBox": {
+            "x": 36,
+            "y": 855,
+            "width": 248,
+            "height": 44
+          },
+          "focusAfterOpen": true,
+          "focusAfterClose": true
+        }
+      ],
+      "captures": [
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-dark/chooser-loading.png",
+          "sha256": "c1709c3b4d27facb84e1609714b617753426bd5753edcc2c35dc753dcf22bc5c"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-dark/chooser-ready.png",
+          "sha256": "4f494152305e1f54e596a0425cb8c40ad85f8a4b386e25e311455bdb0f46deed"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-dark/chooser-provenance.png",
+          "sha256": "92719059c9fbf8860332e2338c7116defbfa8586a8a710ab7c4826c946c6e7cd"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-dark/chat-collapsed.png",
+          "sha256": "2291607f29055b8451e250bb7e59a8130c9132866f2f911e5cef0b806151f614"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-dark/settings-main.png",
+          "sha256": "6684530ec39cb048b138bdc4666c6acc0e17c4ec851ccd14627d644b2ce2de8e"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-dark/settings-model.png",
+          "sha256": "8e06e779ed885e93e6684a48fbb4d8a1c4c50c83cf8d8229d9480531adc35258"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-dark/chat-tree-open.png",
+          "sha256": "84712930d249fa5c70d23930eecdd22143e052b9f35cae0d09bce7eb1dc8c850"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-dark/chat-tree-closed.png",
+          "sha256": "cbbabe5a0bae8e23a6f6e3d500f4d6eff12ac5bb06e688a39af550d8dacfd637"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-dark/resources-sources.png",
+          "sha256": "da1ceab473b123fbf4c70d5001f87da1879828fab7f50cb3bdb39b057f10267b"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-dark/resources-context.png",
+          "sha256": "ab10e4930bfcae7d39f5dffd11d03c2dcbbd5e724b0b8b1c64b9c2c092790c56"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-dark/saved-artifact-readable.png",
+          "sha256": "28ddbeca724a87911edc61cb085a9a8c1f8b2381b6744907070983b0c5595a3d"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-dark/saved-artifact-real-refusal.png",
+          "sha256": "49d39df2742862e50781f128f8222448c769aa90e79a4bd4df2fbf5ff52b968f"
+        }
+      ],
+      "touchActivations": 3,
+      "nativeLaunches": 1
+    },
+    {
+      "scenario": "mobile-light",
+      "profile": {
+        "width": 320,
+        "theme": "light",
+        "motion": "no-preference",
+        "touch": true
+      },
+      "result": {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-light/run.json",
+        "sha256": "7dd8ea60535da7163815133f332f53f9f9f269a6461fb32602e2f03196c78bb4",
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "durationMs": 9926.782916,
+        "failureSummaries": []
+      },
+      "observationsSha256": "d2dbbfab1de06b27618a44f2e3057a6a988910765b1d46a7d28ecf00609eb450",
+      "treeRows": [
+        {
+          "text": "Recording programme\nCoordinator\n1 child\nP5\nactive",
+          "rowWidth": 280,
+          "title": "Recording programme",
+          "titleWidth": 140.4375,
+          "titleLineCount": 1,
+          "height": 95,
+          "status": "active",
+          "priority": "P5",
+          "titleBox": {
+            "x": 72,
+            "y": 317,
+            "width": 140.4375,
+            "height": 44,
+            "top": 317,
+            "right": 212.4375,
+            "bottom": 361,
+            "left": 72
+          },
+          "statusBox": {
+            "x": 72,
+            "y": 383,
+            "width": 201.78125,
+            "height": 12,
+            "top": 383,
+            "right": 273.78125,
+            "bottom": 395,
+            "left": 72
+          },
+          "priorityBox": {
+            "x": 281.78125,
+            "y": 336.5,
+            "width": 18.21875,
+            "height": 19,
+            "top": 336.5,
+            "right": 300,
+            "bottom": 355.5,
+            "left": 281.78125
+          }
+        }
+      ],
+      "chooserPresentation": [
+        {
+          "id": "planning",
+          "label": "Originating conversation",
+          "primaryText": "Studio planning\nOriginating conversation \u00b7 Offline personal \u00b7 Offline fixture\nCreated Oct 20, 2026",
+          "roleLine": "Originating conversation \u00b7 Offline personal \u00b7 Offline fixture",
+          "detailLine": "Created Oct 20, 2026",
+          "actualCreatedAt": 1792462160208,
+          "expectedCreated": "2026-10-20T02:09:20.208Z",
+          "provenanceText": "Recorded origin link\nLinked 2026-10-20T02:09:21.747Z \u00b7 operator:86b7108d-0189-4a43-b155-9d871e9fe817\nSource snapshot 3354841446ea78a03f625a7ad0608a96a87fdec5d6c04b1404ba059301a1bc48\nConversation created 2026-10-20T02:09:20.208Z \u00b7 Author unknown",
+          "summaryBox": {
+            "x": 36,
+            "y": 512,
+            "width": 248,
+            "height": 44
+          },
+          "focusAfterOpen": true,
+          "focusAfterClose": true
+        },
+        {
+          "id": "761e874c-f95e-8747-b6fb-4802b19b59ea",
+          "label": "Assigned lead",
+          "primaryText": "Studio planning lead\nAssigned lead \u00b7 Offline personal \u00b7 Offline fixture\nOrdinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "roleLine": "Assigned lead \u00b7 Offline personal \u00b7 Offline fixture",
+          "detailLine": "Ordinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "actualCreatedAt": 1792462161865,
+          "expectedCreated": "2026-10-20T02:09:21.865Z",
+          "provenanceText": "Recorded lead link\nLinked 2026-10-20T02:09:21.884Z \u00b7 operator:86b7108d-0189-4a43-b155-9d871e9fe817",
+          "summaryBox": {
+            "x": 36,
+            "y": 668,
+            "width": 248,
+            "height": 44
+          },
+          "focusAfterOpen": true,
+          "focusAfterClose": true
+        },
+        {
+          "id": "08ecae7f-20b4-871f-999b-31359542da38",
+          "label": "Additional lead conversation",
+          "primaryText": "Additional acoustic discussion\nAdditional lead conversation \u00b7 Offline personal \u00b7 Offline fixture\nOrdinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "roleLine": "Additional lead conversation \u00b7 Offline personal \u00b7 Offline fixture",
+          "detailLine": "Ordinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "actualCreatedAt": 1792462161956,
+          "expectedCreated": "2026-10-20T02:09:21.956Z",
+          "provenanceText": "Recorded lead link\nLinked 2026-10-20T02:09:21.971Z \u00b7 operator:86b7108d-0189-4a43-b155-9d871e9fe817",
+          "summaryBox": {
+            "x": 36,
+            "y": 839,
+            "width": 248,
+            "height": 44
+          },
+          "focusAfterOpen": true,
+          "focusAfterClose": true
+        }
+      ],
+      "captures": [
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-light/chooser-loading.png",
+          "sha256": "cef7e0b03923d7110f4e271080b8fa7559256616b181ee90dc5d93b20c030d0e"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-light/chooser-ready.png",
+          "sha256": "c68b1b666f8a73190c801cb6dffeac106447f59591e08c51368821b125dd034c"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-light/chooser-provenance.png",
+          "sha256": "a7d5bd94edeea98bb7d1d7d4080ec07bff4e4f5c4d0a4259c1e79bd64f949c09"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-light/chat-collapsed.png",
+          "sha256": "27e06d60829e665414f69ac1c7edf5f9cd478593f7ca51859acb8c5247a61624"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-light/settings-main.png",
+          "sha256": "451262dafe26debf2478fb3b7d82356ec1edfdc47e6bf67e145b672c73aa8d18"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-light/settings-model.png",
+          "sha256": "766d816f6bb791872dcf4af2c74866635782dcc73e2475dedb996d79745d7f3c"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-light/chat-tree-open.png",
+          "sha256": "c485c02c58f9676e3f0cecbc09e834c6417d45b9094c18c38b3c272645cfef3d"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-light/chat-tree-closed.png",
+          "sha256": "f4f6a9eaa522e31a678559310fc221a1e80203b75c36260eca963f13221a4d2b"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-light/resources-sources.png",
+          "sha256": "32ff1d6c122c97b123dbb3bda8b808eb6c4d12400ed56cef5215469795813433"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-light/resources-context.png",
+          "sha256": "bdc940251802f05b741d4d17ae12ce2caedcf46063c3de30fbb4e8bef59df6cd"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-light/saved-artifact-readable.png",
+          "sha256": "931fb1c62424b655b2794b97b4a28db861a7f0d3a886537220e2cc9d52ec3756"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/mobile-light/saved-artifact-real-refusal.png",
+          "sha256": "1d5f2a8742140afc84f14ad03e1136a3834ebfbc796fcd2039a4b021e7a3403b"
+        }
+      ],
+      "touchActivations": 3,
+      "nativeLaunches": 1
+    },
+    {
+      "scenario": "desktop-dark",
+      "profile": {
+        "width": 1280,
+        "theme": "dark",
+        "motion": "no-preference",
+        "touch": false
+      },
+      "result": {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-dark/run.json",
+        "sha256": "f6a331d11547e4b9f8af57d59e8de927fa22721cba465dc46b268ef6abd47cec",
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "durationMs": 10938.723125,
+        "failureSummaries": []
+      },
+      "observationsSha256": "43e95a582c3a8ad32bcdb403f18a5a98f28dc85a4225e9f1bc990eb468985445",
+      "treeRows": [
+        {
+          "text": "Recording programme\nCoordinator\n1 child\nP5\nactive",
+          "rowWidth": 279,
+          "title": "Recording programme",
+          "titleWidth": 131.46875,
+          "titleLineCount": 1,
+          "height": 95,
+          "status": "active",
+          "priority": "P5",
+          "titleBox": {
+            "x": 997,
+            "y": 317,
+            "width": 131.46875,
+            "height": 44,
+            "top": 317,
+            "right": 1128.46875,
+            "bottom": 361,
+            "left": 997
+          },
+          "statusBox": {
+            "x": 997,
+            "y": 383,
+            "width": 199.5625,
+            "height": 12,
+            "top": 383,
+            "right": 1196.5625,
+            "bottom": 395,
+            "left": 997
+          },
+          "priorityBox": {
+            "x": 1204.5625,
+            "y": 337,
+            "width": 19.4375,
+            "height": 18,
+            "top": 337,
+            "right": 1224,
+            "bottom": 355,
+            "left": 1204.5625
+          }
+        }
+      ],
+      "chooserPresentation": [
+        {
+          "id": "planning",
+          "label": "Originating conversation",
+          "primaryText": "Studio planning\nOriginating conversation \u00b7 Offline personal \u00b7 Offline fixture\nCreated Oct 20, 2026",
+          "roleLine": "Originating conversation \u00b7 Offline personal \u00b7 Offline fixture",
+          "detailLine": "Created Oct 20, 2026",
+          "actualCreatedAt": 1792462171391,
+          "expectedCreated": "2026-10-20T02:09:31.391Z",
+          "provenanceText": "Recorded origin link\nLinked 2026-10-20T02:09:32.844Z \u00b7 operator:31597293-e094-47a7-8f8e-fab60adf2539\nSource snapshot 747d2e63b8b34f4e4b5481485da5610d50f992f90e3fe57426dcd7eec27d3fcb\nConversation created 2026-10-20T02:09:31.391Z \u00b7 Author unknown",
+          "summaryBox": {
+            "x": 208,
+            "y": 390,
+            "width": 680,
+            "height": 44
+          },
+          "focusAfterOpen": true,
+          "focusAfterClose": true
+        },
+        {
+          "id": "bff9d4f3-a97c-8f2f-92f8-1d9a611420ac",
+          "label": "Assigned lead",
+          "primaryText": "Studio planning lead\nAssigned lead \u00b7 Offline personal \u00b7 Offline fixture\nOrdinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "roleLine": "Assigned lead \u00b7 Offline personal \u00b7 Offline fixture",
+          "detailLine": "Ordinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "actualCreatedAt": 1792462172967,
+          "expectedCreated": "2026-10-20T02:09:32.967Z",
+          "provenanceText": "Recorded lead link\nLinked 2026-10-20T02:09:32.988Z \u00b7 operator:31597293-e094-47a7-8f8e-fab60adf2539",
+          "summaryBox": {
+            "x": 208,
+            "y": 521,
+            "width": 680,
+            "height": 44
+          },
+          "focusAfterOpen": true,
+          "focusAfterClose": true
+        },
+        {
+          "id": "0117a75e-1562-8e57-8c5d-30c483457bc8",
+          "label": "Additional lead conversation",
+          "primaryText": "Additional acoustic discussion\nAdditional lead conversation \u00b7 Offline personal \u00b7 Offline fixture\nOrdinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "roleLine": "Additional lead conversation \u00b7 Offline personal \u00b7 Offline fixture",
+          "detailLine": "Ordinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "actualCreatedAt": 1792462173074,
+          "expectedCreated": "2026-10-20T02:09:33.074Z",
+          "provenanceText": "Recorded lead link\nLinked 2026-10-20T02:09:33.090Z \u00b7 operator:31597293-e094-47a7-8f8e-fab60adf2539",
+          "summaryBox": {
+            "x": 208,
+            "y": 652,
+            "width": 680,
+            "height": 44
+          },
+          "focusAfterOpen": true,
+          "focusAfterClose": true
+        }
+      ],
+      "captures": [
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-dark/chooser-loading.png",
+          "sha256": "6eee28ac8235b0f5ae7d29d788b2967f3761151d60b1e8425f89c62cb739c469"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-dark/chooser-ready.png",
+          "sha256": "c3608a8877643136ace8e8c4086c7b8d0a2561fc7bd09b6396aec83533bce65d"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-dark/chooser-provenance.png",
+          "sha256": "c24f74bda6b13a273eabe8d619118ac7c8627e67640e00b45ad2b3aab0acdf78"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-dark/chat-collapsed.png",
+          "sha256": "d94cffed1e998c9944eb153f4a82fddc791f03ddcd2af4073829fe08cb7250b4"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-dark/settings-main.png",
+          "sha256": "d8711e78324d3d3e199ed5b4e574dd884af2392d21409e551db015ba9d6fd707"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-dark/settings-model.png",
+          "sha256": "d2cd5748e4fcf3d9488c35a219d822c15ec99825515850f9858151c5b7152501"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-dark/chat-tree-open.png",
+          "sha256": "ae7a751aaa11498065e471e1ac9142ef293f5f1cae04cde25a71197fa442da32"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-dark/chat-tree-closed.png",
+          "sha256": "484a79cc4159e551b67e1ae4021f9978128ab5af5ee4011f8f23062449fdcd6a"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-dark/resources-sources.png",
+          "sha256": "0a04361f396ebc1286238d9670de2a33ec6a451e00d0df63637ca94a83331ac3"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-dark/resources-context.png",
+          "sha256": "0e4c148c9bce255205ee927752e774b1ce7805791e49d4b10c14eb4095d2bc4c"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-dark/saved-artifact-readable.png",
+          "sha256": "082956efeeee4b66745f53fe85cba92216482c24abea8ad695f80a12f88c1b05"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-dark/saved-artifact-real-refusal.png",
+          "sha256": "a3aa3f8d3a49bebada94e963ab0811795f1008a083f147cbd77d24794df0cb9c"
+        }
+      ],
+      "touchActivations": 0,
+      "nativeLaunches": 1
+    },
+    {
+      "scenario": "desktop-light",
+      "profile": {
+        "width": 1280,
+        "theme": "light",
+        "motion": "reduce",
+        "touch": false
+      },
+      "result": {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-light/run.json",
+        "sha256": "b3efc3eb1acc20900bb5a81128aa2c59fbeeefb0bc383bc6d394a7dbf210a3fc",
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "durationMs": 9379.569416999999,
+        "failureSummaries": []
+      },
+      "observationsSha256": "96c4750a41f1c5afad85448383aac0ca65032782190d232640ec5f6a167b3d78",
+      "treeRows": [
+        {
+          "text": "Recording programme\nCoordinator\n1 child\nP5\nactive",
+          "rowWidth": 279,
+          "title": "Recording programme",
+          "titleWidth": 140.4375,
+          "titleLineCount": 1,
+          "height": 95,
+          "status": "active",
+          "priority": "P5",
+          "titleBox": {
+            "x": 997,
+            "y": 317,
+            "width": 140.4375,
+            "height": 44,
+            "top": 317,
+            "right": 1137.4375,
+            "bottom": 361,
+            "left": 997
+          },
+          "statusBox": {
+            "x": 997,
+            "y": 383,
+            "width": 200.78125,
+            "height": 12,
+            "top": 383,
+            "right": 1197.78125,
+            "bottom": 395,
+            "left": 997
+          },
+          "priorityBox": {
+            "x": 1205.78125,
+            "y": 336.5,
+            "width": 18.21875,
+            "height": 19,
+            "top": 336.5,
+            "right": 1224,
+            "bottom": 355.5,
+            "left": 1205.78125
+          }
+        }
+      ],
+      "chooserPresentation": [
+        {
+          "id": "planning",
+          "label": "Originating conversation",
+          "primaryText": "Studio planning\nOriginating conversation \u00b7 Offline personal \u00b7 Offline fixture\nCreated Oct 20, 2026",
+          "roleLine": "Originating conversation \u00b7 Offline personal \u00b7 Offline fixture",
+          "detailLine": "Created Oct 20, 2026",
+          "actualCreatedAt": 1792462183341,
+          "expectedCreated": "2026-10-20T02:09:43.341Z",
+          "provenanceText": "Recorded origin link\nLinked 2026-10-20T02:09:44.730Z \u00b7 operator:7a4a7ec3-ddc6-4204-93aa-db245aa03e32\nSource snapshot e4dc36280a75a8ed1e6102342a08771a969b41b5736e2434b168afb58c9dc0d4\nConversation created 2026-10-20T02:09:43.341Z \u00b7 Author unknown",
+          "summaryBox": {
+            "x": 208,
+            "y": 384,
+            "width": 680,
+            "height": 44
+          },
+          "focusAfterOpen": true,
+          "focusAfterClose": true
+        },
+        {
+          "id": "41fbd686-b64a-8aa2-a98c-b7b315067e95",
+          "label": "Assigned lead",
+          "primaryText": "Studio planning lead\nAssigned lead \u00b7 Offline personal \u00b7 Offline fixture\nOrdinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "roleLine": "Assigned lead \u00b7 Offline personal \u00b7 Offline fixture",
+          "detailLine": "Ordinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "actualCreatedAt": 1792462184834,
+          "expectedCreated": "2026-10-20T02:09:44.834Z",
+          "provenanceText": "Recorded lead link\nLinked 2026-10-20T02:09:44.852Z \u00b7 operator:7a4a7ec3-ddc6-4204-93aa-db245aa03e32",
+          "summaryBox": {
+            "x": 208,
+            "y": 512,
+            "width": 680,
+            "height": 44
+          },
+          "focusAfterOpen": true,
+          "focusAfterClose": true
+        },
+        {
+          "id": "47a770d9-6a3e-8fb2-be10-f836a1b31fe2",
+          "label": "Additional lead conversation",
+          "primaryText": "Additional acoustic discussion\nAdditional lead conversation \u00b7 Offline personal \u00b7 Offline fixture\nOrdinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "roleLine": "Additional lead conversation \u00b7 Offline personal \u00b7 Offline fixture",
+          "detailLine": "Ordinary work \u00b7 Local Mac \u00b7 Created Oct 20, 2026",
+          "actualCreatedAt": 1792462184928,
+          "expectedCreated": "2026-10-20T02:09:44.928Z",
+          "provenanceText": "Recorded lead link\nLinked 2026-10-20T02:09:44.943Z \u00b7 operator:7a4a7ec3-ddc6-4204-93aa-db245aa03e32",
+          "summaryBox": {
+            "x": 208,
+            "y": 640,
+            "width": 680,
+            "height": 44
+          },
+          "focusAfterOpen": true,
+          "focusAfterClose": true
+        }
+      ],
+      "captures": [
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-light/chooser-loading.png",
+          "sha256": "e3e8b4489244df91ec948feac1730c6e016e22d4b6b13bdfa249d21ecaaa8584"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-light/chooser-ready.png",
+          "sha256": "e15e869410cbdd5cbb7ee98c09b26d8755a3b22dc52c8ba3e24278e827d8ab29"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-light/chooser-provenance.png",
+          "sha256": "c2b6bef0894264153c1107c0d909b2789a23c1e72898eea027d5ec64fac01af0"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-light/chat-collapsed.png",
+          "sha256": "3be7783c175978a6de255cd5568081871fe264bd91ca2178e0b2a8e007c4dc0c"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-light/settings-main.png",
+          "sha256": "d3b8ef607e02b87c6d468b90858802e9f47ac884162e15cebf4529d91a96f3fe"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-light/settings-model.png",
+          "sha256": "a56720871277be422436e94b5e461a9879573d6e2dbaf8d35bf5fe70fca08b52"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-light/chat-tree-open.png",
+          "sha256": "ef4abe0fe0bdd4368991664389d92d9eef6dffb2770402d2837fb31f842848cd"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-light/chat-tree-closed.png",
+          "sha256": "b56368f84766c2c7304bf17eff0e177a290677c0b73cc62f2a3599a640b5fc68"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-light/resources-sources.png",
+          "sha256": "ab90ef55c897fd7a850070858c0ef559703abc5c03cfad160dd7e7548350e8c2"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-light/resources-context.png",
+          "sha256": "f2b14189720e4a390180a5a2889f15e1b4559d233ce789217c7a636eda6671a0"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-light/saved-artifact-readable.png",
+          "sha256": "ffe0e6685f78ea4ed5704a136c266f9f9e939d6ebcac942c2e72f92f2ec75272"
+        },
+        {
+          "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/four-profile-retake/desktop-light/saved-artifact-real-refusal.png",
+          "sha256": "ad56952878d878ede46fecd1f0a7ce5674028deb17bf229d227913b2fa00ae2e"
+        }
+      ],
+      "touchActivations": 0,
+      "nativeLaunches": 1
+    }
+  ],
+  "hydrationRed": {
+    "result": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S8-AE2-DIAGNOSTICS/owned-loopback-navigation/run.json",
+      "sha256": "1aa449f461e6c4d3f637402af5342c01ae58c3c0b90061ee4d8f0b545b3fbb0c",
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0,
+      "durationMs": 7122.001458000001,
+      "failureSummaries": [
+        "AssertionError: interactive chooser must not remount during parent hydration: expected false to be true // Object.is equality",
+        "AssertionError: keyboard focus must remain on the disclosure: expected false to be true // Object.is equality",
+        "AssertionError: open provenance must remain open: expected false to be true // Object.is equality"
+      ]
+    },
+    "observations": {
+      "lead": "afa471ce-f065-8ffe-aa50-ad6f195f3774",
+      "before": {
+        "focused": true,
+        "connected": true,
+        "open": true
+      },
+      "after": {
+        "originalConnected": false,
+        "current": {
+          "focused": false,
+          "connected": true,
+          "open": false,
+          "activeTag": "BODY"
+        }
+      },
+      "navigation": {
+        "url": "http://127.0.0.1:54021/todos/hydration-parent",
+        "oldChooserConnected": false,
+        "oldHeadingCount": 0,
+        "delayedNavigationReads": 2
+      },
+      "apiTransportTarget": {
+        "address": "127.0.0.1",
+        "port": 54021,
+        "kind": "owned-private-loopback"
+      },
+      "delayedCollectionReads": 3,
+      "collectionStatus": 200,
+      "collectionBody": {
+        "profiles": [],
+        "items": [
+          {
+            "id": "hydration-parent",
+            "summary": "Recording programme",
+            "intent": "",
+            "rationale": "",
+            "acceptanceCriteria": [],
+            "profile": "manual",
+            "urgency": 0,
+            "priority": 5,
+            "starred": false,
+            "status": "active",
+            "ageDays": 4,
+            "parentId": null,
+            "children": [
+              {
+                "id": "studio",
+                "summary": "Home studio",
+                "intent": "Record music",
+                "rationale": "Make music",
+                "acceptanceCriteria": ["Approved plan"],
+                "profile": "manual",
+                "urgency": 0,
+                "priority": 8,
+                "starred": false,
+                "status": "active",
+                "ageDays": 4,
+                "parentId": "hydration-parent",
+                "children": [],
+                "childCount": 0,
+                "completedChildCount": 0,
+                "sources": [],
+                "links": [
+                  {
+                    "type": "artifact",
+                    "url": "/api/telos/artifacts/6d8e589baeeb4f928fe135831d8eb2fb",
+                    "title": "Acoustic plan",
+                    "description": "Versioned Telos document: acoustic-plan.md"
+                  }
+                ],
+                "contextHints": {
+                  "repos": [],
+                  "paths": [],
+                  "issues": [],
+                  "docIds": [],
+                  "people": ["Original person"],
+                  "jiraKeys": [],
+                  "keywords": [],
+                  "taskHint": "Original hint",
+                  "sessionIds": []
+                },
+                "goalId": null
+              }
+            ],
+            "childCount": 1,
+            "completedChildCount": 0,
+            "sources": [],
+            "links": [],
+            "contextHints": {
+              "repos": [],
+              "paths": [],
+              "issues": [],
+              "docIds": [],
+              "people": [],
+              "jiraKeys": [],
+              "keywords": [],
+              "taskHint": "",
+              "sessionIds": []
+            },
+            "goalId": null
+          }
+        ]
+      },
+      "nativeLaunches": 0,
+      "pageErrors": [],
+      "source": "Actual App/canonical3077/private CLI/authHTTP/SSE. Only collection transport delayed then continued; no owned response fulfilled or provider launched."
+    },
+    "observationsSha256": "677543f595f84c7b3c5856b96b6848546eb2790d651598b55ebf416ba292cafd"
+  },
+  "findings": {
+    "S9-UX-COMPACT-TREE-01": "Bounded candidate correction verified: desktop title one line at131.47/140.44px versus original56.5/65.33px four lines; active/P5 remain visible and non-overlapping. Full accepted-main UX pending.",
+    "S9-UX-CHOOSER-METADATA-02": "Approved primary role/account/model then profile/target/actual-created hierarchy verified against real stored createdAt ISO values; raw link actor/time and source provenance retained in accessible44px native disclosure. No fabricated created date/author.",
+    "S9-UX-PROVENANCE-FOCUS-03": "Candidateae2 verified in actualApp: all12 disclosures across4profiles retain continuous open/close keyboard focus (24checks), no post-activation/close manual refocus. Original538 RED/native baseline preserved.",
+    "S9-UX-CHOOSER-HYDRATION-04": "Still RED onae2 with no manual refocus; three preservation assertions fail after actual collection200. TrueSPA newitemnavigation guard independently passes (oldheading/chooser removed, pendingtargetread observed, newrecord200/correctheading). Root routes integration correction to S8 soleeditor1057; S7read-onlysharedcontractadvice."
+  },
+  "captureDiagnostic": {
+    "source": "1f8ef94917ea3368f8ff23ffd91aa41b541d5306",
+    "observed": [
+      {
+        "name": "motion-popover-in",
+        "target": "DL",
+        "rects": 1,
+        "visible": false,
+        "enclosingDetailsOpen": false,
+        "playState": "idle",
+        "currentTime": null,
+        "endTime": 150
+      },
+      {
+        "name": "motion-popover-in",
+        "target": "DL",
+        "rects": 1,
+        "visible": true,
+        "enclosingDetailsOpen": true,
+        "playState": "running",
+        "currentTime": 0,
+        "endTime": 150
+      }
+    ],
+    "explanation": "Normal-motion capture had waited on idle hidden closed-details DL animation, currentTimenull/end150. Capture helper now waits only rendered active finite animations, without disabling, fast-forwarding or editing production motion. Original timeouts retained; not classified as product motion failures."
+  },
+  "fixtureDiagnostics": [
+    "Initial hard focus failures retained atcab/dad/d9 and controlledpre-ae2 observation.",
+    "Unexpected501 before classification atf487 retained as test endpoint isolation diagnostic, not feature acceptance RED. Shared S9 helper now uses positively owned existing127.0.0.1 front.server.",
+    "Pending newitem record shows legacy summary while actual target record is deliberately delayed. Observer now checks no old entity while pending, then correct heading after actual200; failed premature-heading observer and unhandled wait diagnostic retained.",
+    "Unused pre-existing helper imports removed; focused lint/format now passes."
+  ],
+  "sourceProof": "S9-S8-AE2-SOURCE-PROOF.json",
+  "sourceScope": "Production exactae2; dedicated S9 additions plus4byte-identical publishedfaad test/fixture exceptions. Original9 selected case files/driver and frozen113 bytes unchanged. Fourprofiles qualified on967; current453 onlychanges separatehydration and privateIPv4helper/unusedimports, no false whole9 or re-execution claim.",
+  "states": {
+    "codeMerged": "private ownercandidate, not acceptedmain",
+    "offlineIntegration": "scoped samechooser+4profiles verified; independenthydration04 RED",
+    "uxAccepted": "pending04 and remaining UX22/fullmatrix",
+    "liveRuntimeQualified": "pending separately authorized single-runtime window",
+    "S9": "active",
+    "parent": "active"
+  },
+  "modelCalls": 0,
+  "producerEdits": false,
+  "outgoingMessages": false,
+  "next": [
+    "S8 soleproducer frozenhydration04 correction then SAME controlledcase with continuousfocus and trueitemnavigation guard.",
+    "Existing1048 source/required9CI adoption ownedS5b afterproductiondependencies; exactheadCI/CentaurfinalLGTMmerge0/Appgate andacceptedmain repeat pending.",
+    "Resume bounded healthyvoice/image edit-save/guarded native delivery via real service paths with deterministic externalfakes only.",
+    "FullUX22/sharedcoexistence/recovery/device and separateCT19 remain pending."
+  ]
+}

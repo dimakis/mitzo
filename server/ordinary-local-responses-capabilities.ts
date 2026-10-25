@@ -8,6 +8,7 @@ import { readPrivateRuntimeSettings } from './ordinary-local-codex-host-runtime.
 import { reviewedHandlerSourceArtifacts } from './connections/reviewed-handler-artifacts.js';
 import {
   resolveOrdinarySessionRuntime,
+  resolveNewOrdinarySessionRuntime,
   type OrdinarySessionRuntimeCatalog,
 } from './ordinary-session-runtime.js';
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -70,9 +71,10 @@ export class OrdinaryLocalResponsesTarget {
     };
   }
 }
-export function localResponsesCapabilities(
+function responsesCapabilities(
   profiles: AccountProfiles,
   target: OrdinaryLocalResponsesTarget,
+  newWork: boolean,
 ) {
   const accounts =
     target.harness === 'gemini'
@@ -93,6 +95,8 @@ export function localResponsesCapabilities(
       location,
     })),
   };
+  const resolve = (request: unknown) =>
+    (newWork ? resolveNewOrdinarySessionRuntime : resolveOrdinarySessionRuntime)(request, catalog);
   const inventory = {
     version: 1 as const,
     authority: 'configuration-only' as const,
@@ -115,8 +119,46 @@ export function localResponsesCapabilities(
       },
     ],
   };
+  if (newWork && target.harness === 'responses') {
+    inventory.routes = inventory.routes.filter(
+      (route) =>
+        resolve({
+          account: route.account,
+          targetId: route.targetId,
+          harness: route.harness,
+          mode: 'agent',
+        }).status === 'compatible',
+    );
+    inventory.capabilityRevision = digest([
+      'ordinary-local-new-work-capabilities-v1',
+      inventory.capabilityRevision,
+      inventory.routes,
+    ]);
+    if (!inventory.routes.length)
+      inventory.locations = [
+        { location: 'local', status: 'unavailable', reason: 'supported_harness_unavailable' },
+      ];
+  }
   return {
     inventory: () => structuredClone(inventory),
-    resolve: (request: unknown) => resolveOrdinarySessionRuntime(request, catalog),
+    resolve,
   };
+}
+
+/** Retained legacy engine compatibility. Do not use for new-entry admission. */
+export function localResponsesCapabilities(
+  profiles: AccountProfiles,
+  target: OrdinaryLocalResponsesTarget,
+) {
+  return responsesCapabilities(profiles, target, false);
+}
+
+/** Strict new-entry projection; retained histories keep their original engine.
+ * Native Gemini replacement is deferred, so its existing route remains supported.
+ */
+export function newLocalResponsesCapabilities(
+  profiles: AccountProfiles,
+  target: OrdinaryLocalResponsesTarget,
+) {
+  return responsesCapabilities(profiles, target, true);
 }

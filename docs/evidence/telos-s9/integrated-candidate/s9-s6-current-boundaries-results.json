@@ -1,0 +1,298 @@
+{
+  "numTotalTestSuites": 3,
+  "numPassedTestSuites": 3,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 24,
+  "numPassedTests": 24,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1792449822364,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps unbound ordinary chats lazy and preserves S4 standalone worker admission",
+          "status": "passed",
+          "title": "keeps unbound ordinary chats lazy and preserves S4 standalone worker admission",
+          "duration": 29.033582999999993,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses incomplete S5 linkage before real ordinary command admission without repairing it",
+          "status": "passed",
+          "title": "refuses incomplete S5 linkage before real ordinary command admission without repairing it",
+          "duration": 20.49204199999997,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses a marked S5 allocation before role retention or task linkage, including after restart",
+          "status": "passed",
+          "title": "refuses a marked S5 allocation before role retention or task linkage, including after restart",
+          "duration": 21.01245799999998,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses a delegation marker for another attempt or allocation before command admission",
+          "status": "passed",
+          "title": "refuses a delegation marker for another attempt or allocation before command admission",
+          "duration": 42.31570799999997,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "proves exact first and continuation scope from both durable owners across restart",
+          "status": "passed",
+          "title": "proves exact first and continuation scope from both durable owners across restart",
+          "duration": 24.025374999999997,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses mismatched durable mapping or account without admitting a command",
+          "status": "passed",
+          "title": "refuses mismatched durable mapping or account without admitting a command",
+          "duration": 19.156791,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "uses the proven worker task for TaskStatus and leaves TaskComplete pending independent review",
+          "status": "passed",
+          "title": "uses the proven worker task for TaskStatus and leaves TaskComplete pending independent review",
+          "duration": 20.126999999999953,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT11: a replaced worker loses command and completion authority while its original attempt remains attributable after restart",
+          "status": "passed",
+          "title": "CT11: a replaced worker loses command and completion authority while its original attempt remains attributable after restart",
+          "duration": 24.446708,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT11: replacing a lead changes current routing without rewriting or revoking an already delegated worker",
+          "status": "passed",
+          "title": "CT11: replacing a lead changes current routing without rewriting or revoking an already delegated worker",
+          "duration": 23.614416000000006,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT10: a queued command cannot dispatch changed scope; running context and completion retain the original reviewed revision after restart",
+          "status": "passed",
+          "title": "CT10: a queued command cannot dispatch changed scope; running context and completion retain the original reviewed revision after restart",
+          "duration": 24.95670899999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT10: parent brief changes also fence future dispatch without rewriting the retained worker packet",
+          "status": "passed",
+          "title": "CT10: parent brief changes also fence future dispatch without rewriting the retained worker packet",
+          "duration": 22.275915999999995,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT12: a dispatch hold also fences an already allocated but unstarted worker, while leaving previously dispatched workers continuing under their captured context",
+          "status": "passed",
+          "title": "CT12: a dispatch hold also fences an already allocated but unstarted worker, while leaving previously dispatched workers continuing under their captured context",
+          "duration": 37.82845900000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792449824608,
+      "endTime": 1792449824917.8284,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s6-candidate-acceptance/server/__tests__/telos-work-command-scope.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT12: transports an exact current-session control command and refuses authority/application fields",
+          "status": "passed",
+          "title": "CT12: transports an exact current-session control command and refuses authority/application fields",
+          "duration": 24.432125000000013,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT12: uncertainty stays an error and returned receipts must match the selected operation",
+          "status": "passed",
+          "title": "CT12: uncertainty stays an error and returned receipts must match the selected operation",
+          "duration": 0.3424579999999935,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792449825120,
+      "endTime": 1792449825144.4321,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s6-candidate-acceptance/server/__tests__/telos-work-control-tools.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT12: holds only five selected attached outcomes, keeps requested distinct from applied, and retains release across restart",
+          "status": "passed",
+          "title": "CT12: holds only five selected attached outcomes, keeps requested distinct from applied, and retains release across restart",
+          "duration": 97.09195899999997,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT11/CT12: lead replacement reroutes pending evidence, rejects retired holders and preserves historical acknowledgements",
+          "status": "passed",
+          "title": "CT11/CT12: lead replacement reroutes pending evidence, rejects retired holders and preserves historical acknowledgements",
+          "duration": 79.31845799999996,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT12: nested coordinators cannot select siblings, unrelated work or broaden/reuse a control identity",
+          "status": "passed",
+          "title": "CT12: nested coordinators cannot select siblings, unrelated work or broaden/reuse a control identity",
+          "duration": 64.21633400000007,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT12: only verified host evidence applies a worker hold, duplicates stay monotonic, and release requires exact current-main validation",
+          "status": "passed",
+          "title": "CT12: only verified host evidence applies a worker hold, duplicates stay monotonic, and release requires exact current-main validation",
+          "duration": 78.54262500000004,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT12: real HTTP control commands derive the current conversation and reject forged actors, host proof and unrelated inbox reads",
+          "status": "passed",
+          "title": "CT12: real HTTP control commands derive the current conversation and reject forged actors, host proof and unrelated inbox reads",
+          "duration": 678.1692080000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT12: the actual host denial boundary records only its exact recipient applied, while other workers remain pending",
+          "status": "passed",
+          "title": "CT12: the actual host denial boundary records only its exact recipient applied, while other workers remain pending",
+          "duration": 64.67724999999996,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT12: a new dispatch consumes the coordinator hold before any allocation intent, and does not block an existing receipt lookup",
+          "status": "passed",
+          "title": "CT12: a new dispatch consumes the coordinator hold before any allocation intent, and does not block an existing receipt lookup",
+          "duration": 59.80945799999995,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT12: a nested coordinator cannot claim an applied subtree before its attached outcome lead and worker have host evidence",
+          "status": "passed",
+          "title": "CT12: a nested coordinator cannot claim an applied subtree before its attached outcome lead and worker have host evidence",
+          "duration": 65.8815410000002,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT11/CT12: operator reparenting removes former coordinator control authority without routing a hold into unrelated Job work",
+          "status": "passed",
+          "title": "CT11/CT12: operator reparenting removes former coordinator control authority without routing a hold into unrelated Job work",
+          "duration": 74.76829099999986,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT12: acknowledgement and its durable replay retain only the authenticated recipient view",
+          "status": "passed",
+          "title": "CT12: acknowledgement and its durable replay retain only the authenticated recipient view",
+          "duration": 78.66533400000003,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792449822988,
+      "endTime": 1792449824329.6653,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s6-candidate-acceptance/server/__tests__/telos-work-controls.test.ts"
+    }
+  ]
+}

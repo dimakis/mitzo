@@ -110,7 +110,8 @@ export class SendOutbox {
             ...entry,
             body,
             ...(ordinaryDelivery ? { ordinaryDelivery } : {}),
-            uncertain: true,
+            uncertain:
+              entry.localReceipt?.state === 'consumed' && entry.uncertain === false ? false : true,
           };
         });
       } else if (Array.isArray(saved))
@@ -215,6 +216,11 @@ export class SendOutbox {
       ? this.entries.find((entry) => entry.body.clientMsgId === commandId)
       : this.selectedLocalEntry();
     if (!entry || this.activeLocalEntry === entry || this.localReady.includes(entry)) return false;
+    if (entry.localReceipt?.state === 'consumed' && entry.uncertain === false) {
+      // Admission is already proven. Retry only the retained source assignment.
+      this.retireLocal(entry);
+      return true;
+    }
     this.localReady.push(entry);
     void this.pump();
     return true;
@@ -408,7 +414,11 @@ export class SendOutbox {
       )
         return;
       entry.localReceipt = { sessionId: receipt.data.sessionId, state: 'consumed' };
-      if (!this.persist()) return;
+      entry.uncertain = false;
+      if (!this.persist()) {
+        entry.uncertain = true;
+        return;
+      }
       this.retireLocal(entry, true);
     } catch {
       // Observation failure never resends a command or overwrites its UI state.
@@ -435,6 +445,22 @@ export class SendOutbox {
       this.persist();
       this.notifyLocal(entry, 'uncertain');
       return;
+    }
+    const payload = entry.body.payload as
+      { sourceSnapshots?: Array<{ kind?: string }> } | undefined;
+    if (
+      !entry.ordinaryDelivery &&
+      !('sessionId' in entry.body) &&
+      entry.localReceipt?.state === 'consumed' &&
+      entry.uncertain === false &&
+      payload?.sourceSnapshots?.[0]?.kind === 'briefing'
+    ) {
+      try {
+        // Sensitive launch proof can retire only after the outbox removal is durable.
+        this.config.notify({ type: '_local_command_retired', clientMsgId: entry.body.clientMsgId });
+      } catch {
+        // Cleanup failure cannot resurrect admitted work or overwrite its success.
+      }
     }
     // Exact consumed acceptance releases only this original HTTP wait. Its
     // finally block can then admit the next explicit command immediately.
@@ -504,7 +530,11 @@ export class SendOutbox {
         (typeof entry.body.sessionId !== 'string' || raw?.sessionId === entry.body.sessionId);
       if (matching && response.status === 202 && success.success) {
         entry.localReceipt = { sessionId: success.data.sessionId, state: success.data.state };
-        if (!this.persist()) throw Error('Local receipt could not be retained');
+        if (success.data.state === 'consumed') entry.uncertain = false;
+        if (!this.persist()) {
+          entry.uncertain = true;
+          throw Error('Local receipt could not be retained');
+        }
         if (success.data.state === 'consumed') this.retireLocal(entry);
         else this.notifyLocal(entry, success.data.state, true);
         this.persist();

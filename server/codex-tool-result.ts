@@ -93,7 +93,7 @@ export function codexToolResultContentItems(result: CodexToolResult): CodexToolC
 function boundedText(text: string, remaining: number): string {
   if (Buffer.byteLength(text) <= remaining) return text;
   const marker = '\n[Output truncated]';
-  if (remaining < Buffer.byteLength(marker)) return '';
+  if (remaining < Buffer.byteLength(marker)) throw new CodexToolResultBoundError();
   const bytes = Buffer.from(text);
   let end = remaining - Buffer.byteLength(marker);
   while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--;
@@ -102,12 +102,20 @@ function boundedText(text: string, remaining: number): string {
 
 /** Only inline image bytes cross this boundary. Resource links, audio and other
  * output types cannot trigger a network request or local file read. */
-export function normalizeMcpToolResult(content: unknown, isError: boolean): CodexToolResult {
+export function normalizeMcpToolResult(
+  content: unknown,
+  isError: boolean,
+  projectText?: (text: string) => string,
+): CodexToolResult {
   try {
     if (!Array.isArray(content)) {
       const text = JSON.stringify(content ?? '');
       return {
-        content: text.length > 65536 ? text.slice(0, 65536) + '\n[Output truncated]' : text,
+        content: projectText
+          ? projectText(text)
+          : text.length > 65536
+            ? text.slice(0, 65536) + '\n[Output truncated]'
+            : text,
         isError,
       };
     }
@@ -120,7 +128,11 @@ export function normalizeMcpToolResult(content: unknown, isError: boolean): Code
         })
         .join('\n');
       return {
-        content: text.length > 65536 ? text.slice(0, 65536) + '\n[Output truncated]' : text,
+        content: projectText
+          ? projectText(text)
+          : text.length > 65536
+            ? text.slice(0, 65536) + '\n[Output truncated]'
+            : text,
         isError,
       };
     }

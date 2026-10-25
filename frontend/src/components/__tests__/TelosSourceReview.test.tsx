@@ -118,6 +118,39 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it('labels worker provenance without selecting it and carries the reviewed material scope into approval', async () => {
+  const materialScopeSha256 = 'e'.repeat(64);
+  api.getSourcePermission.mockResolvedValueOnce({
+    ...review,
+    materialScopeSha256,
+    operation: { kind: 'adopt', itemId: 'slice', expectedRevision: 'f'.repeat(64) },
+    artifacts: [
+      {
+        ...review.artifacts[0],
+        sessionId: 'exact-worker',
+        workerOutput: { itemId: 'slice', title: 'Exact worker slice' },
+      },
+    ],
+  });
+  render(<PermissionBanner {...props} toolName="TelosAdoptSource" />);
+  const material = await screen.findByRole('checkbox', {
+    name: /Worker output · Exact worker slice/,
+  });
+  expect((material as HTMLInputElement).checked).toBe(false);
+  expect(screen.getByRole('button', { name: 'Review selected source' }).matches(':disabled')).toBe(
+    true,
+  );
+  fireEvent.click(material);
+  await selectAndPreview();
+  expect(api.previewSourcePermission.mock.calls[0][1]).toMatchObject({
+    materialScopeSha256,
+    selection: { artifacts: [{ artifactId: 'material-one', revision: 3, sha256: 'd'.repeat(64) }] },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+  await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(1));
+  expect(api.approveSourcePermission.mock.calls[0][1]).toMatchObject({ materialScopeSha256 });
+});
+
 it.each([false, true])(
   'announces a late confirmed receipt after banner removal only in the same login (auth lost: %s)',
   async (authLost) => {

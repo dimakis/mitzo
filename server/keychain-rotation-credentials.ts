@@ -4,6 +4,7 @@ import { KeychainController } from './keychain-controller.js';
 import { MacKeychainVault, KeychainUnavailableError } from './keychain-vault.js';
 import { z } from 'zod';
 import { CredentialReferenceSchema, type CredentialReference } from './credentials.js';
+import { observeLocalCodexPhase } from './local-codex-observation.js';
 import {
   OpenAIKeychainAuthorizationRequired,
   type VersionedKeychain,
@@ -11,6 +12,7 @@ import {
 
 /** Use the existing authenticated, signed Mitzo helper. There is no interpreter fallback. */
 type Run = (stdin: string, signal: AbortSignal) => Promise<string>;
+let retainedVault: { identity: string; vault: MacKeychainVault } | undefined;
 const nativeRun: Run = async (stdin, signal) => {
   signal.throwIfAborted();
   const file = process.env.MITZO_KEYCHAIN_HELPER;
@@ -32,13 +34,23 @@ const nativeRun: Run = async (stdin, signal) => {
     version?: string;
     expectedVersion?: string | null;
   };
-  const vault = new MacKeychainVault(
-    file,
-    `identifier "com.mitzo.keychain-helper" and anchor apple generic and certificate leaf[subject.OU] = "${team}"`,
-    undefined,
-    undefined,
-    new KeychainController(undefined, namespace),
-  );
+  const identity = JSON.stringify([file, team, namespace]);
+  if (retainedVault?.identity !== identity) {
+    retainedVault?.vault.disposeVerifiedHelper();
+    retainedVault = {
+      identity,
+      vault: new MacKeychainVault(
+        file,
+        `identifier "com.mitzo.keychain-helper" and anchor apple generic and certificate leaf[subject.OU] = "${team}"`,
+        undefined,
+        undefined,
+        new KeychainController(undefined, namespace),
+        undefined,
+        { reuseVerifiedHelper: true },
+      ),
+    };
+  }
+  const vault = retainedVault.vault;
   try {
     const result = await vault.rotateOpenAI(
       { service: request.service, account: request.account },
@@ -118,7 +130,11 @@ export class KeychainRotationCredentials implements VersionedKeychain {
   }
   async read(reference: CredentialReference, signal: AbortSignal) {
     try {
-      return Secret.parse(await this.request(reference, 'read', signal));
+      return Secret.parse(
+        await observeLocalCodexPhase('keychain_read', () =>
+          this.request(reference, 'read', signal),
+        ),
+      );
     } catch (error) {
       if (error instanceof OpenAIKeychainAuthorizationRequired) throw error;
       throw new Error('Keychain unavailable');

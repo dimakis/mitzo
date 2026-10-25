@@ -154,7 +154,10 @@ export function useExplicitLocalChat(
     setError('');
     void Promise.resolve()
       .then(async () => {
-        const response = await apiFetch('/api/chat/runtime/capabilities?workspaceDefaults=1', {
+        const capabilityUrl =
+          '/api/chat/runtime/capabilities?workspaceDefaults=1' +
+          (sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : '');
+        const response = await apiFetch(capabilityUrl, {
           signal: controller.signal,
         });
         return response.status === 404

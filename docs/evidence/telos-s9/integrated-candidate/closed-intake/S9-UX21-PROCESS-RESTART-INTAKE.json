@@ -1,0 +1,601 @@
+{
+  "scope": "Independent read-only review of complete new five-file restart harness/case plus retained execution evidence",
+  "outcome": "PASS",
+  "execution": "f428b18eb87a90d05f0d16c02b00b1e65577435e",
+  "tree": "e402a2142854a0038bfac9bad85812908080f222",
+  "baseline": "a1fe8eff3afa502f5afaa565cdb73c239dc8e80b",
+  "checks": {
+    "only_five_dedicated_test_paths_from_baseline": true,
+    "immutable_tree": true,
+    "nested_and_standalone_source_proof_equal": true,
+    "all_twenty_inventory_hashes": true,
+    "all_prior_66_integration_files_exact": true,
+    "workflow_and_manifest_unchanged": true,
+    "all_667_actual_pins": true,
+    "all_13_protected_hashes": true,
+    "result_four_capture_two_archive_hashes_sizes": true,
+    "raw_one_PASS_zero_FAIL_SKIP_TODO": true,
+    "observations_deep_equal_report": true,
+    "lifecycle_deep_equal_report": true,
+    "distinct_killed_reaped_same_paths_signed_auth": true,
+    "selected_effect_counts": true,
+    "actual_native_running_to_interrupted_same_identity_attempt": true,
+    "same_thread_and_null_completion_recovery_marker": true,
+    "actual202_consumed_readback_without_dispatch": true,
+    "original_allocation_preparation_admission_tasks_retained": true,
+    "one_original_user_no_assistant_result": true,
+    "unrelated_item_retained_no_page_errors": true,
+    "real_canonical_reads_before_and_after": true,
+    "all_nine_historical_raw_hashes_and_counts": true,
+    "all_diagnostic_effect_totals_disclosed": true,
+    "dirty_diagnostic_patch_retained_labelled": true,
+    "source_archive_all_tracked_files_exact_execution": true,
+    "archive_source_proof_exact": true,
+    "eight_harness_history_archive_patches_exact": true,
+    "all_97_diagnostic_archive_members_exact_retained_files": true
+  },
+  "sourceInventory": [
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/process-restart-browser.contract.ts",
+      "sha256": "2a01e6b85a7ae5c433ce9a562d18f27c5667d8503e083eae811774a1f3c7b824"
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/process-restart-fixture.ts",
+      "sha256": "20b35b5edf90ad445a3b1fa4f68ff36cfcea04dff7704bbf6a638ed9d2b98e57"
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/restart-child-app.mjs",
+      "sha256": "19387c78a519136c771a56ade7cd5c1238e9ae1f7a5760644e15441d90826dc1"
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs",
+      "sha256": "652fb56e7ad3b799420759a2569183c3166f615b43b060988d0698a7d08a64ee"
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/vitest.process-restart.config.ts",
+      "sha256": "831e3b8e039aacd37ea5fc036388bca3b253a562ff9838178d1d0297e491557b"
+    },
+    {
+      "path": "server/app.ts",
+      "sha256": "6c03db0e00aa800acc01b65f6ef1c6434134d95aac260a34961585fe40abb4de"
+    },
+    {
+      "path": "server/chat.ts",
+      "sha256": "23c01ecd59766bcffa208fc2dba866412d25f7b16443731bc1d54cee64df094c"
+    },
+    {
+      "path": "server/codex-chat-session.ts",
+      "sha256": "1bebc84590a319b5b8ba5d0a2b2c8718a48324b22b88e17bea13e2ac085f3386"
+    },
+    {
+      "path": "server/codex-conversation-store.ts",
+      "sha256": "95a04cadca100de9b781b80dfdd2e73ba442d6a1805015bba51d647aa8c03779"
+    },
+    {
+      "path": "server/ordinary-local-codex-entry.ts",
+      "sha256": "c7accc3efc53e64874c79c03217ba8bf356834d4477b6c98a38d85923a95e411"
+    },
+    {
+      "path": "server/repository-workspace-runtime.ts",
+      "sha256": "5f840bd1d8074b6e63c21c12f88b7e966a28d6cd6cfb83b5dcb9cd01a1ade414"
+    },
+    {
+      "path": "server/credential-sdk-boundary.ts",
+      "sha256": "a0b2ed52adda81a5ad99ea5544829862df2dd0716ceb5f57d8d3d43512833e46"
+    },
+    {
+      "path": "server/protected-sdk-command.ts",
+      "sha256": "e7c59a2ebfd3fde4b0c7c8cdf7f69f9d231e2e5f1819a61e0514cd707bc6c32f"
+    },
+    {
+      "path": "server/workspace-runtime-private-paths.ts",
+      "sha256": "5839c75aa2e5d325218af40547c28395ec92a56205fd50a023497330aa44811c"
+    },
+    {
+      "path": "server/telos-artifact-store.ts",
+      "sha256": "df5f1bc68bf16822e3e4c6a0d998c1bc32dd460e19ad9e995bf71c94905a1865"
+    },
+    {
+      "path": "server/connections/reviewed-handler-artifacts.ts",
+      "sha256": "b5be7bfe23fe9d5871451545c972c803b66ee44e86b47782944e66be355ea7c0"
+    },
+    {
+      "path": "packages/protocol/src/event-store.ts",
+      "sha256": "b5c585e4934cb6faa5a646ba094f77709d1364a233b54b7bb06a07402b312fc8"
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "sha256": "95e4ec1b903a6419ff357cdfbd743a49c86a92efe0336ea860ba8ea337c51e66"
+    },
+    {
+      "path": "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "sha256": "32f7430bfe25aa9c6ebe03e6cc8fc4952e92b32618891255bd743e2332bb11c5"
+    },
+    {
+      "path": "server/__tests__/fixtures/telos-canonical-advisor.ts",
+      "sha256": "81026a8705f60f56facf3272e617b3820a805d3219c02abf946ee323756526f9"
+    }
+  ],
+  "pinCount": 667,
+  "pinMismatches": [],
+  "protections": [
+    {
+      "path": "docs/design/approved/chat-settings/quick-sheet.html",
+      "sha256": "281eaad8d89684cd7c16583cb9ca2c082cdfb64ab1cd3acb7647abc289c2736e",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/chat-settings/approved-mock-dark.png",
+      "sha256": "c93d33e6512dd8894a8e27aca542b5a88579f37534a6b8c5eca225ec7e6a4847",
+      "match": true
+    },
+    {
+      "path": "frontend/src/components/__tests__/QuickChatSettings.test.tsx",
+      "sha256": "beb34896b1fb88690215c0a04a766993f53e2b6b2e9db4157b9644a205d63462",
+      "match": true
+    },
+    {
+      "path": "tests/offline/chat-settings-surface.spec.ts",
+      "sha256": "723801bf293794ea06ca3cff7a5fe9287bfc69e75982102464d269c4c0396d08",
+      "match": true
+    },
+    {
+      "path": "frontend/src/styles/__tests__/approved-designs.test.ts",
+      "sha256": "ee25f7e4111e60dd4cfb4d0da5d9d30a4d6dbd745eae6c0cfeabaa85f9b7b941",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/telos-priority-scale/priority-scale.svg",
+      "sha256": "2bc9fb6bda585f4f66c8f7eab3f8dfdfa7881d6ab52da8b86831de8de2bb62a1",
+      "match": true
+    },
+    {
+      "path": "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+      "sha256": "c1ab0bd0174975e67a3af37692e06c9851aa694295b54281b6d6c9e4c741382a",
+      "match": true
+    },
+    {
+      "path": "frontend/src/pages/__tests__/TodoPriorityOrdering.test.tsx",
+      "sha256": "779365ef8c25b4fdfd90fb68839b0236fc06076b471b47012bc8251c85495970",
+      "match": true
+    },
+    {
+      "path": "tests/offline/telos-priority.spec.ts",
+      "sha256": "a69a0647dfa64f4b4504a5693c3e435c4981cd4612bfd2d761fae6e5d0011894",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/symposium/fresh-agent-review.html",
+      "sha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/symposium/approved-context-review.png",
+      "sha256": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+      "match": true
+    },
+    {
+      "path": "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+      "sha256": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+      "match": true
+    },
+    {
+      "path": "tests/offline/symposium-approved-design.spec.ts",
+      "sha256": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+      "match": true
+    }
+  ],
+  "evidence": [
+    {
+      "kind": "result",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-recovery-marker/run.json",
+      "sha256": "d9b16e4c0b16bbef2e0089e2527039fee2e3ab47e50d268b3d79cd49a889bc33",
+      "bytes": 1200,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-recovery-marker/before-crash-retained-command.png",
+      "sha256": "d8481e5a1633e19565d50f990ccd27e9b9032941812c848ed7d49a5f1711c216",
+      "bytes": 43356,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-recovery-marker/exact-ui-retry-retained-owner-proof.png",
+      "sha256": "b37774a33a56afe94be356532dc61726c3f1ff1a563fabb856f62ab240e5bfa2",
+      "bytes": 51036,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-recovery-marker/fresh-app-real-ui-retains-uncertainty.png",
+      "sha256": "fb9413f857f870650671bcdc6bb29fd16d3c0ecbfa95ad188c48e3be24322bdf",
+      "bytes": 38705,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-recovery-marker/unrelated-job-draft-after-real-process-restart.png",
+      "sha256": "4ce948c27d73f8a9a51e7a8a290035dd3928794bac9233d4fb7c9d6ba3ae6922",
+      "bytes": 30759,
+      "match": true
+    },
+    {
+      "kind": "archive",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-SOURCE.zip",
+      "sha256": "3c12728be24f277c9e7574dcc0129bde6f126e8ecfa1bf608afcc1e633f04441",
+      "bytes": 3006736,
+      "match": true
+    },
+    {
+      "kind": "archive",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS.zip",
+      "sha256": "22626b1c5ca4968d52c77e14a904d9439838fc4ca0e57dd72bbd8bb21be63541",
+      "bytes": 746416,
+      "match": true
+    }
+  ],
+  "selectedResult": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 16862.6572265625
+  },
+  "selectedEffectCounts": {
+    "preflight.close": 2,
+    "native.launch": 1,
+    "thread/start": 1,
+    "turn/start": 1
+  },
+  "diagnosticEffectTotals": {
+    "native.close": 1,
+    "preflight.close": 12,
+    "native.launch": 6,
+    "thread/start": 6,
+    "turn/start": 6
+  },
+  "lifecycle": [
+    {
+      "event": "ready",
+      "type": "ready",
+      "pid": 68535,
+      "generation": 1,
+      "port": 53304,
+      "authId": "4460ee9f-4ce4-44f5-89eb-c349c2e63e0c",
+      "statePaths": {
+        "repo": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-XATxL6/controller-workspace",
+        "canonicalDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-restart-canonical-xIO9Lr/canonical-retained.db",
+        "nativeCustody": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-XATxL6/native-custody",
+        "accountProfiles": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-XATxL6/profiles.json",
+        "taskDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-XATxL6/controller-workspace/.mitzo/tasks.db"
+      },
+      "startupRecovery": {
+        "stale": 0,
+        "orphaned": 0
+      },
+      "owners": [
+        "App/REST",
+        "EventStore",
+        "TaskStore/WorkloadStore",
+        "SessionRegistry",
+        "ConnectionRegistry",
+        "SSE",
+        "auth revocations",
+        "ordinary workspace custody",
+        "native conversation/command ledger",
+        "native driver (lazy on explicit command)"
+      ],
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
+    },
+    {
+      "event": "exit",
+      "pid": 68535,
+      "generation": 1,
+      "code": null,
+      "signal": "SIGKILL"
+    },
+    {
+      "event": "ready",
+      "type": "ready",
+      "pid": 68593,
+      "generation": 2,
+      "port": 53399,
+      "authId": "4460ee9f-4ce4-44f5-89eb-c349c2e63e0c",
+      "statePaths": {
+        "repo": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-XATxL6/controller-workspace",
+        "canonicalDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-restart-canonical-xIO9Lr/canonical-retained.db",
+        "nativeCustody": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-XATxL6/native-custody",
+        "accountProfiles": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-XATxL6/profiles.json",
+        "taskDb": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-XATxL6/controller-workspace/.mitzo/tasks.db"
+      },
+      "startupRecovery": {
+        "stale": 1,
+        "orphaned": 0
+      },
+      "owners": [
+        "App/REST",
+        "EventStore",
+        "TaskStore/WorkloadStore",
+        "SessionRegistry",
+        "ConnectionRegistry",
+        "SSE",
+        "auth revocations",
+        "ordinary workspace custody",
+        "native conversation/command ledger",
+        "native driver (lazy on explicit command)"
+      ],
+      "exclusions": [
+        "index.ts host services",
+        "production bundle",
+        "real native/provider process"
+      ]
+    },
+    {
+      "event": "exit",
+      "pid": 68593,
+      "generation": 2,
+      "code": null,
+      "signal": "SIGKILL"
+    }
+  ],
+  "historicalDiagnostics": [
+    {
+      "stage": "initial",
+      "source": "42572845",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/initial/run.json",
+      "sha256": "3dc1ef3b87abfc24dc59d293dc862bd6d39a2a965ab6eee483d4aa81ef5a43ac",
+      "match": true,
+      "counts": [
+        0,
+        1,
+        0
+      ],
+      "countsMatch": true
+    },
+    {
+      "stage": "async-loader",
+      "source": "3c87acec",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/async-loader/run.json",
+      "sha256": "a1dc9ece81717a95969908dfd381fd99bd01ad0aedabc341fe666e4d86986c7d",
+      "match": true,
+      "counts": [
+        0,
+        1,
+        0
+      ],
+      "countsMatch": true
+    },
+    {
+      "stage": "real-http",
+      "source": "df366d6f",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/real-http/run.json",
+      "sha256": "f1b0c4e9ee2a2212affd960db9141a4be34ece5da1ed47317399deaae9543542",
+      "match": true,
+      "counts": [
+        1,
+        0,
+        0
+      ],
+      "countsMatch": true
+    },
+    {
+      "stage": "canonical-read",
+      "source": "7e26702e",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/canonical-read/run.json",
+      "sha256": "0ad826fca393c2f0bafae1eb340be25238676f9410658577cb301b9238f16df6",
+      "match": true,
+      "counts": [
+        0,
+        1,
+        0
+      ],
+      "countsMatch": true
+    },
+    {
+      "stage": "retained-canonical-root",
+      "source": "8e012e3a",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/retained-canonical-root/run.json",
+      "sha256": "644900c0d488d4a46eeb90f66e618dd50ff1190e578c2b0a6c83c2d5e4ee7ff9",
+      "match": true,
+      "counts": [
+        1,
+        0,
+        0
+      ],
+      "countsMatch": true
+    },
+    {
+      "stage": "native-owner-proof",
+      "source": "8e012e3a+dirty22804636",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/native-owner-proof/run.json",
+      "sha256": "4fdc89b8793e309868e86134e4fc89814250b5af8659bae1acd5f8541f4806b9",
+      "match": true,
+      "counts": [
+        0,
+        1,
+        0
+      ],
+      "countsMatch": true
+    },
+    {
+      "stage": "frozen-native-owner",
+      "source": "f1d40fd5",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-native-owner/run.json",
+      "sha256": "32f77a157f7d0a83c078b0cbe22a67afa01125db5c9ac395837f588b0f9c8b20",
+      "match": true,
+      "counts": [
+        0,
+        1,
+        0
+      ],
+      "countsMatch": true
+    },
+    {
+      "stage": "existing-recovery-contract",
+      "source": "c64ef164",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/existing-recovery-contract/run.json",
+      "sha256": "49c4b554be301df2f3649fe220e232814105ad0b9f94227f4b0436ef14febf40",
+      "match": true,
+      "counts": [
+        0,
+        1,
+        0
+      ],
+      "countsMatch": true
+    },
+    {
+      "stage": "frozen-recovery-marker",
+      "source": "f428b18e",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-recovery-marker/run.json",
+      "sha256": "d9b16e4c0b16bbef2e0089e2527039fee2e3ab47e50d268b3d79cd49a889bc33",
+      "match": true,
+      "counts": [
+        1,
+        0,
+        0
+      ],
+      "countsMatch": true
+    }
+  ],
+  "dirtyDiagnosticPatchSHA256": "22804636cb432bb62b51b933630913ae3fc7d87e63e582625c68f1cb8426a4a6",
+  "sourceArchiveTrackedFiles": 243,
+  "sourceArchiveMismatches": [],
+  "harnessHistoryArchivePatches": [
+    {
+      "path": "custody/harness-history/initial.patch",
+      "sha256": "2e78ac346c3b915f93b65706e010e5836fa78f58eee2fd9d890c976cb723f89d",
+      "exactImmutableCumulativeDiff": true
+    },
+    {
+      "path": "custody/harness-history/async-loader.patch",
+      "sha256": "6495690be3abf16b89779a4163dc0864d2830afa81fc831450d68b67e87f63f6",
+      "exactImmutableCumulativeDiff": true
+    },
+    {
+      "path": "custody/harness-history/real-http.patch",
+      "sha256": "dc4757aaf8389b227435ce4a2dccba53e4636439dd6d15912f48d2322a9a4a11",
+      "exactImmutableCumulativeDiff": true
+    },
+    {
+      "path": "custody/harness-history/canonical-read.patch",
+      "sha256": "12f5e525a7bff138f7dff0bd98c260648c06ef4ba4c90508f561ee3eafea89f3",
+      "exactImmutableCumulativeDiff": true
+    },
+    {
+      "path": "custody/harness-history/retained-canonical-root.patch",
+      "sha256": "8ee7597bd8bddb8e9d0114207505ca882b19619e1e36bacb5b3a07ac32180f30",
+      "exactImmutableCumulativeDiff": true
+    },
+    {
+      "path": "custody/harness-history/frozen-native-owner.patch",
+      "sha256": "9a548a32251c9a017ff0f36ed28d1157f2b678abbaeb7a7c6bffcab85be6523a",
+      "exactImmutableCumulativeDiff": true
+    },
+    {
+      "path": "custody/harness-history/existing-recovery-contract.patch",
+      "sha256": "0696908f9106ebea4670dc96a4f66ec1fa7007e3e44cc851a4b0cd4664435b40",
+      "exactImmutableCumulativeDiff": true
+    },
+    {
+      "path": "custody/harness-history/frozen-recovery-marker.patch",
+      "sha256": "3517a7ead89604598ad9b6f5f8147454bca8c20a4f7546345fe0be0c2a52b557",
+      "exactImmutableCumulativeDiff": true
+    }
+  ],
+  "diagnosticArchiveFiles": 97,
+  "diagnosticArchiveMismatches": [],
+  "limits": [
+    "Root bounded review of frozen five-file harness/case/proof and exact observations; no self-accepted fullUX closure.",
+    "Actual accepted-main combined/CI/CentaurApp qualification and owning source PR adoption, no private candidate PR/push/merge.",
+    "Delegated worker allocation/native execution/task progress/result recovery, actual running unrelated native peer, repository loss/revocation/backup/other UX21 variants remain separate pending coverage; TaskBoard here is a separate pending control.",
+    "Test App backend process generations with actual owners plus real native command ledger; external native process/provider only simulated. index host lifecycle, production bundle, real provider cancellation/terminal proof not qualified.",
+    "Desktop/device/WebKit/fullUX/coexistence breadth and separately selected authorized live CT19 runtime/window remain open."
+  ],
+  "claimPrecision": [
+    "Request equality is decoded JSON value equality; no independent raw wire-byte identity assertion.",
+    "Case permits honest retained409 readback refusal; this selected execution specifically returned actual202 consumed/dispatchedfalse.",
+    "App source process restart excludes index host services/production bundle/real native process.",
+    "Pending TaskBoard control is separate from delegated worker execution/result."
+  ],
+  "reviewerNewExecutions": 0,
+  "additionalEvidenceHashes": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-recovery-marker/process-restart-observations.json",
+      "sha256": "51fa4a2abe72869ce7dfd2574f597184c5d38e56a0d84b2b633f8cb96610b8dc",
+      "bytes": 164113
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-recovery-marker/child-lifecycle.json",
+      "sha256": "eefff59375bb7fa92c885f7aa33911a4688613e2cc059cc96503c51190afacbe",
+      "bytes": 2922
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-recovery-marker/external-native-effects.jsonl",
+      "sha256": "faa53b87c23c9724a01df384bf6fa8ff8abaa44f2386d07bc1dc9af1a63ea95d",
+      "bytes": 425
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-recovery-marker/actual-http-observations.json",
+      "sha256": "6f1ece300df89da7484aed2f4f8a17c8f84a2fc704db169bcdab2ff41569202d",
+      "bytes": 23586
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-recovery-marker/canonical-cli-1.json",
+      "sha256": "03e6b79e7ab3e4b50c9c3a2a3006846a042fe13a69395ce1b8197eb9d7a6566f",
+      "bytes": 61
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-recovery-marker/canonical-cli-2.json",
+      "sha256": "03e6b79e7ab3e4b50c9c3a2a3006846a042fe13a69395ce1b8197eb9d7a6566f",
+      "bytes": 61
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-DIAGNOSTICS/frozen-recovery-marker/mgmt-cli-pins.json",
+      "sha256": "ae573543d4a09166b0ce31cb1840c43e068ee9c14a178663bb4b5df0cfd4aaf0",
+      "bytes": 4994
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-RESULT.json",
+      "sha256": "da902fb8f12e080ed855bad84d6337a947532c340db25454b3c22eea5d2fa8f2",
+      "bytes": 194960
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-UX21-PROCESS-RESTART-SOURCE-PROOF.json",
+      "sha256": "b21c6c89e6b53208aab184910edd9da3151f91560b5e33e852e0f611d3381d91",
+      "bytes": 5368
+    }
+  ],
+  "sourceReview": {
+    "allFiveFilesReadCompletely": true,
+    "loaderOverridesOnlyExternalModules": [
+      "auto-rename.ts",
+      "mcp-config.ts",
+      "notify.ts",
+      "pushover.ts",
+      "goal-client.ts"
+    ],
+    "externalNativeOverrides": [
+      "CodexAppServerClient.launchIsolated",
+      "CodexAppServerClient.launchPreflight"
+    ],
+    "forbiddenAlternateNativeFactories": [
+      "launch",
+      "launchOpenShell"
+    ],
+    "ownedAuthorityAndStateFabricated": false,
+    "parentProxy": "Node HTTP stream forwarding to current child, no response synthesis",
+    "restart": "SIGKILL + wait for exit + process.kill(pid,0) refusal, then fresh fork; initial seed handles closed and no reseed",
+    "nativeStartupRecovery": "Real getCodexConversationStore -> recoverAtStartup; generic EventStore recovery invoked before readiness",
+    "testScope": "Actual source App process restart, not index.ts host-services/production bundle/real provider process"
+  },
+  "nonblockingClaimQualifications": [
+    "Final report says byte-identical request; complete case records postDataJSON() and asserts value equality. This verifies exact decoded request identity/payload, not independent raw wire bytes.",
+    "A future run can pass with an honest retained409 response through an explicit branch; selected frozen observations establish actual202 readback specifically."
+  ]
+}

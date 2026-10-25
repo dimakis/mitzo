@@ -1,0 +1,351 @@
+{
+  "scope": "Read-only SAME-case UX19 candidate GREEN evidence intake; no test execution or product re-review",
+  "outcome": "PASS",
+  "execution": "eea1cee020ce2ec1b624213743bcf7c88ea3805a",
+  "tree": "6f24708fddc8fd2544ad4df28656afbcb4e261a5",
+  "retainedRedExecution": "1309fe81ecbd58784386f2251eb05aefb85ee650",
+  "baseProducer": "72c20ef2b6eb70217953356f58be98619fac2d92",
+  "reviewedCorrection": "f47eab6bb2cd8ca6aa3b5a892f109fd44d3e97a3",
+  "checks": {
+    "execution_tree": true,
+    "all_66_integration_files_exact_RED": true,
+    "case_config_exact_hashes": true,
+    "only_dedicated_S9_four_retained_faad_and_three_correction_paths": true,
+    "four_faad_exact_retained_RED": true,
+    "store_and_dedicated_test_exact_reviewed_f47": true,
+    "store_diff_exact_narrow_hunk": true,
+    "667_pin_keys_preserved_only_store_changed": true,
+    "all_667_actual_pins_match": true,
+    "twelve_path_inventory_eleven_unchanged_only_reviewed_store_changes": true,
+    "thirteen_active_protection_hashes_match": true,
+    "raw_observations_nine_captures_two_archives_hashes_sizes": true,
+    "raw_one_PASS_zero_FAIL_SKIP_TODO": true,
+    "observations_deep_equal_report": true,
+    "original_alias_Added_after_edit_and_owner_restart": true,
+    "r2_distinct_user_edit_and_r1_source_packet_retained": true,
+    "no_native_models_page_errors": true,
+    "root_source_correction_reviews_exact_retained": true,
+    "retained_RED_hash_same_case_one_UX19_failure": true,
+    "no_producer_f47_or_accepted_402d_ancestry_import": true,
+    "archive_members_verified": true
+  },
+  "pinCount": 667,
+  "pinMismatches": [],
+  "changedPinKeys": [
+    "../telos-artifact-store.ts"
+  ],
+  "integrationFileCount": 66,
+  "sourceInventory": [
+    {
+      "path": "server/telos-artifact-store.ts",
+      "sha256": "df5f1bc68bf16822e3e4c6a0d998c1bc32dd460e19ad9e995bf71c94905a1865",
+      "matchesExpected": true
+    },
+    {
+      "path": "server/telos-artifact-routes.ts",
+      "sha256": "27c18f41fa4f750b97c7b7527d28628d1833a4bd51d9a5bb1fca65e098ecd5ba",
+      "matchesExpected": true
+    },
+    {
+      "path": "server/telos-work-store.ts",
+      "sha256": "0aa5ff7956c122b3b898d0366e9eabb662f31c9aefdce9b140b1e1137264f408",
+      "matchesExpected": true
+    },
+    {
+      "path": "frontend/src/components/TelosItemSources.tsx",
+      "sha256": "03abba949c3cc42c377a136c268f049d74fc2a858821af07fb7ef26f59271ebc",
+      "matchesExpected": true
+    },
+    {
+      "path": "frontend/src/components/SessionWorkLink.tsx",
+      "sha256": "2f8f334d977d32d40d2226831cfef7ecd2f06a755b3240c2f0cf4e27095f28e4",
+      "matchesExpected": true
+    },
+    {
+      "path": "frontend/src/components/ChatArea.tsx",
+      "sha256": "6265d9ba5bd3f684f0956b100a0b4eeffd421e9dcde7f2a9535818f9f14b06e3",
+      "matchesExpected": true
+    },
+    {
+      "path": "frontend/src/components/TelosItemWorkspace.tsx",
+      "sha256": "d2f3d3e96a0d74a044dd01aad1df4fe99d2fb76a8af563fe2880ee5a730674c8",
+      "matchesExpected": true
+    },
+    {
+      "path": "frontend/src/components/WorkOutputs.tsx",
+      "sha256": "47933708c3613e0815b1fae093eb0239b8e8905edcc09faddc409b7ee13d6140",
+      "matchesExpected": true
+    },
+    {
+      "path": "frontend/src/components/SavedArtifactDialog.tsx",
+      "sha256": "4f3cb5204c11db0ce409eb7469e359cbbd5440c63a09b0ab9ad91b3e99a70ce8",
+      "matchesExpected": true
+    },
+    {
+      "path": "frontend/src/components/SavedArtifactRouteDialog.tsx",
+      "sha256": "60d77cfbcd42e901886260edce142a0a533d8123fa51a7d62c630753a7d09165",
+      "matchesExpected": true
+    },
+    {
+      "path": "frontend/src/hooks/TelosSourceNavigation.tsx",
+      "sha256": "dac7bb547165c32a1c14f023a34ed371de281c9fab1c9ab41a93f522f6d60598",
+      "matchesExpected": true
+    },
+    {
+      "path": "packages/client/src/telos-work-api.ts",
+      "sha256": "3e51db24e9269fda0aaeaaf1087ff1b3a388692c98d463792941fdeff0761692",
+      "matchesExpected": true
+    }
+  ],
+  "activeProtections": [
+    {
+      "path": "docs/design/approved/chat-settings/quick-sheet.html",
+      "sha256": "281eaad8d89684cd7c16583cb9ca2c082cdfb64ab1cd3acb7647abc289c2736e",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/chat-settings/approved-mock-dark.png",
+      "sha256": "c93d33e6512dd8894a8e27aca542b5a88579f37534a6b8c5eca225ec7e6a4847",
+      "match": true
+    },
+    {
+      "path": "frontend/src/components/__tests__/QuickChatSettings.test.tsx",
+      "sha256": "beb34896b1fb88690215c0a04a766993f53e2b6b2e9db4157b9644a205d63462",
+      "match": true
+    },
+    {
+      "path": "tests/offline/chat-settings-surface.spec.ts",
+      "sha256": "723801bf293794ea06ca3cff7a5fe9287bfc69e75982102464d269c4c0396d08",
+      "match": true
+    },
+    {
+      "path": "frontend/src/styles/__tests__/approved-designs.test.ts",
+      "sha256": "ee25f7e4111e60dd4cfb4d0da5d9d30a4d6dbd745eae6c0cfeabaa85f9b7b941",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/telos-priority-scale/priority-scale.svg",
+      "sha256": "2bc9fb6bda585f4f66c8f7eab3f8dfdfa7881d6ab52da8b86831de8de2bb62a1",
+      "match": true
+    },
+    {
+      "path": "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+      "sha256": "c1ab0bd0174975e67a3af37692e06c9851aa694295b54281b6d6c9e4c741382a",
+      "match": true
+    },
+    {
+      "path": "frontend/src/pages/__tests__/TodoPriorityOrdering.test.tsx",
+      "sha256": "779365ef8c25b4fdfd90fb68839b0236fc06076b471b47012bc8251c85495970",
+      "match": true
+    },
+    {
+      "path": "tests/offline/telos-priority.spec.ts",
+      "sha256": "a69a0647dfa64f4b4504a5693c3e435c4981cd4612bfd2d761fae6e5d0011894",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/symposium/fresh-agent-review.html",
+      "sha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/symposium/approved-context-review.png",
+      "sha256": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+      "match": true
+    },
+    {
+      "path": "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+      "sha256": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+      "match": true
+    },
+    {
+      "path": "tests/offline/symposium-approved-design.spec.ts",
+      "sha256": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+      "match": true
+    }
+  ],
+  "evidence": [
+    {
+      "kind": "raw",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-DIAGNOSTICS/same-frozen-case/run.json",
+      "sha256": "1cc5b47390140792bc00bc93350df97f85f87b7ebb29a861d06beb712cef25bd",
+      "bytes": 1193,
+      "match": true
+    },
+    {
+      "kind": "observations",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-DIAGNOSTICS/same-frozen-case/origin-material-observations.json",
+      "sha256": "dfd88d3d3c8fd7b327ca165e7805c0929c5f23b98776b428896e12e0ba48a31e",
+      "bytes": 29813,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-DIAGNOSTICS/same-frozen-case/actual-files-save-new-revision.png",
+      "sha256": "62210cfb2d45c03b6361f0db83b4d245aa43f3d6da6b71716cd6ec544f72d200",
+      "bytes": 25498,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-DIAGNOSTICS/same-frozen-case/exact-original-exchange-anchor.png",
+      "sha256": "806f1d221be87eefb2304001014ab993384b51f00a0f1b6520f51dce6a013252",
+      "bytes": 67534,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-DIAGNOSTICS/same-frozen-case/failure-before-auth-teardown.png",
+      "sha256": "f7d5ec3318012df7d3bff4889007b79e30536ce80e9f097a19b4cd4c8de7cfdc",
+      "bytes": 53412,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-DIAGNOSTICS/same-frozen-case/last-page.png",
+      "sha256": "a87e875000dc3cf0e5c5de59799cc5ce054226a53b45a32d10c330db118e9ba8",
+      "bytes": 7069,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-DIAGNOSTICS/same-frozen-case/latest-output-provenance-separate-from-origin.png",
+      "sha256": "70c6742e45529a9947012bdbf0d52969d14adac82966142975cb4c7643043472",
+      "bytes": 61546,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-DIAGNOSTICS/same-frozen-case/missing-version-real-refusal.png",
+      "sha256": "f7d5ec3318012df7d3bff4889007b79e30536ce80e9f097a19b4cd4c8de7cfdc",
+      "bytes": 53412,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-DIAGNOSTICS/same-frozen-case/ordinary-origin-recorded-item-backlink.png",
+      "sha256": "6f776a6cf0e9bb922202d7d75b2aae947fbd5cdeb8cbd20a4b38941ebe25215b",
+      "bytes": 53190,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-DIAGNOSTICS/same-frozen-case/restart-retains-selected-original-version.png",
+      "sha256": "15ad12028ae3366d5ab2e3395ab15ae490c2fca37c492583966b149a14aacd48",
+      "bytes": 50966,
+      "match": true
+    },
+    {
+      "kind": "capture",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-DIAGNOSTICS/same-frozen-case/selected-original-version-hash-date-source.png",
+      "sha256": "79264514e71b84e580b4fbb777abd656b96babdc266f1deb948519e363636213",
+      "bytes": 55677,
+      "match": true
+    },
+    {
+      "kind": "archive",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-SOURCE.zip",
+      "sha256": "81012697df52576b310895a401769b0d62c4aab23f4ef16c864064d5fb08f43d",
+      "bytes": 2901925,
+      "match": true
+    },
+    {
+      "kind": "archive",
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-DIAGNOSTICS.zip",
+      "sha256": "2414465a472fb3475108d572af75b2124aac83f7c57957c06354215d80a816bc",
+      "bytes": 432941,
+      "match": true
+    }
+  ],
+  "rootReviewChecks": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-MATERIAL-ADDED-DATE-CORRECTION-REVIEW.md",
+      "match": true
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-MATERIAL-ADDED-DATE-CORRECTION-INTAKE.json",
+      "match": true
+    }
+  ],
+  "selectedRawResult": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 13370.26725
+  },
+  "retainedAddedAt": "2026-10-20T04:13:01.096Z",
+  "newRevisionCreatedAt": "2026-10-20T04:13:08.577Z",
+  "pending": [
+    "Actual source adoption by existing1047 Files owner; current CI, exact-head Centaur final LGTM/merge0/configuredApp and accepted-main App repeat. S9 private candidate not pushed or put in a new PR.",
+    "Broader UX07/19 provenance/author/date/migration/backup variants and fullUX/device/WebKit remain open; this is one320px synthetic canonical journey.",
+    "Artifact/work-owner restart plus full browser reload only, not whole application/chat/native process restart. No publication/delivery proof.",
+    "Strict required9 unchanged/notrerun/notexpanded; no new journey or native work.",
+    "Separately authorized single-runtime Telos/Symposium CT19 window remains pending; S9 and parent stay ACTIVE."
+  ],
+  "limitations": [
+    "Candidate-specific acceptance, not accepted-main qualification",
+    "S9 independently owns acceptance; review verifies retained evidence only",
+    "Artifact/work owner restart plus browser reload, not full App/chat/native process restart",
+    "No full UX/device/WebKit/live or publication claim",
+    "Strict nine-case runner unchanged and not rerun"
+  ],
+  "archivesContentIntegrity": {
+    "sourceArchiveFileCount": 241,
+    "diagnosticArchiveFileCount": 17,
+    "diagnosticArchiveAllMembersExactRetainedFiles": true,
+    "diagnosticArchiveMismatches": [],
+    "sourceArchiveTrackedFileCount": 234,
+    "sourceArchiveTrackedFilesExactExecution": true,
+    "custodyCopies": {
+      "custody/S9-ORIGIN-MATERIAL-F47E-SOURCE-PROOF.json": {
+        "originalPath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-SOURCE-PROOF.json",
+        "match": true
+      },
+      "custody/S9-MATERIAL-ADDED-DATE-01-CANDIDATE-PREPARATION.json": {
+        "originalPath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-MATERIAL-ADDED-DATE-01-CANDIDATE-PREPARATION.json",
+        "match": true
+      },
+      "custody/root/S9-MATERIAL-ADDED-DATE-CORRECTION-REVIEW.md": {
+        "originalPath": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-MATERIAL-ADDED-DATE-CORRECTION-REVIEW.md",
+        "match": true
+      },
+      "custody/root/S9-MATERIAL-ADDED-DATE-CORRECTION-INTAKE.json": {
+        "originalPath": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-MATERIAL-ADDED-DATE-CORRECTION-INTAKE.json",
+        "match": true
+      },
+      "custody/producer/receipt.json": {
+        "originalPath": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-parallel-workstream-read-2/artifact-added-date-handoff/receipt.json",
+        "match": true
+      },
+      "custody/producer/store-only.patch": {
+        "originalPath": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-parallel-workstream-read-2/artifact-added-date-handoff/store-only.patch",
+        "match": true
+      },
+      "custody/producer/artifact-added-date.patch": {
+        "originalPath": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-parallel-workstream-read-2/artifact-added-date-handoff/artifact-added-date.patch",
+        "match": true
+      }
+    },
+    "allSevenCustodyCopiesExactRetained": true
+  },
+  "retainedRedResult": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-72C-DIAGNOSTICS/added-date-contract/run.json",
+    "sha256": "e830b8234eb8a33c4dbbdc375928289077c522ec05d20c02c61a7d2781e897f6",
+    "passed": 0,
+    "failed": 1,
+    "skipped": 0,
+    "failureMessage": [
+      "AssertionError: UX19: editing must retain the existing document link Added date: expected '2026-10-20T03:57:35.504Z' to be '2026-10-20T03:57:28.208Z' // Object.is equality\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/origin-material-versions-browser.contract.ts:366:8\n    at file:///Users/dsaridak/tools/mitzo-releases/main-d0b06dc200a1/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+    ]
+  },
+  "sourceProofReceipts": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-RESULT.json",
+      "sha256": "aad718a6b11a0df967664e3678f74e1adb9f39ebd629bc6ebbc05ede10f3c38d"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ORIGIN-MATERIAL-F47E-SOURCE-PROOF.json",
+      "sha256": "9974c15485e0f25d20c5d84bc064bf6ceea37b61e4583cbde64e36d9cbc22102"
+    }
+  ]
+}

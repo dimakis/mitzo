@@ -1,3 +1,8 @@
+import {
+  ApiHarnessConnectionSchema,
+  apiHarnessConnection,
+  subscriptionHarnessConnection,
+} from './account-harness-connection.js';
 import { protectCodexProfileRoots } from './codex-private-path.js';
 import { readReadyOpenAIAccountProfiles } from './openai-account-enrollment.js';
 import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
@@ -121,6 +126,7 @@ const ApiProfile = z
     id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
     label: z.string().min(1),
     provider: z.literal('openai'),
+    connection: ApiHarnessConnectionSchema.optional(),
     credentialRef: CredentialReferenceSchema,
     sandboxProvider: z
       .string()
@@ -173,6 +179,7 @@ function routingRevision(profile: z.infer<typeof Profile>): string {
                 profile.credentialRef,
                 profile.sandboxProvider,
                 profile.sandboxProviderId,
+                ...(profile.connection ? [profile.connection] : []),
               ]
             : [
                 profile.provider,
@@ -187,13 +194,10 @@ function routingRevision(profile: z.infer<typeof Profile>): string {
     .digest('hex');
 }
 
-function supportedModels(
-  provider: z.infer<typeof Profile>['provider'],
-  models: z.infer<typeof CatalogModel>[],
-) {
+function supportedModels(profile: z.infer<typeof Profile>, models: z.infer<typeof CatalogModel>[]) {
   // API sessions always expose tools. Nano models reject requests that include
   // tool_search, so reject both current and dated aliases before execution.
-  return provider === 'openai'
+  return profile.provider === 'openai' && !profile.connection
     ? models.filter((model) => !/(?:^|-)nano(?:$|-)/i.test(model.id))
     : models;
 }
@@ -381,7 +385,7 @@ export class AccountProfiles {
     return this.options.codexEnabled
       ? [
           ...subscriptions,
-          ...this.ordinaryLocalResponsesInventory().map((account) => ({
+          ...this.ordinaryApiInventory().map((account) => ({
             ...account,
             planType: 'api' as const,
           })),
@@ -402,9 +406,7 @@ export class AccountProfiles {
             profileRevision: routingRevision(profile),
           },
           label: profile.label,
-          models: structuredClone(
-            supportedModels(profile.provider, discovered?.models ?? profile.models),
-          ),
+          models: structuredClone(supportedModels(profile, discovered?.models ?? profile.models)),
           modelDiscovery: {
             source: discovered?.models ? ('cached' as const) : ('configured' as const),
             stale: !!discovered?.error,
@@ -415,7 +417,17 @@ export class AccountProfiles {
     });
   }
 
+  /** Retained legacy Responses supports only its original official endpoint. */
   ordinaryLocalResponsesInventory() {
+    const official = new Set(
+      this.profiles
+        .filter((profile) => profile.provider === 'openai' && !profile.connection)
+        .map((profile) => profile.id),
+    );
+    return this.ordinaryApiInventory().filter((entry) => official.has(entry.account.accountId));
+  }
+
+  private ordinaryApiInventory() {
     return this.profiles.flatMap((profile) => {
       if (profile.provider !== 'openai') return [];
       const discovered = cachedModels(JSON.stringify(profile));
@@ -427,9 +439,7 @@ export class AccountProfiles {
             profileRevision: routingRevision(profile),
           },
           label: profile.label,
-          models: structuredClone(
-            supportedModels(profile.provider, discovered?.models ?? profile.models),
-          ),
+          models: structuredClone(supportedModels(profile, discovered?.models ?? profile.models)),
           modelDiscovery: {
             source: discovered?.models ? ('cached' as const) : ('configured' as const),
             stale: !!discovered?.error,
@@ -469,6 +479,7 @@ export class AccountProfiles {
         };
       } else if (
         profile.provider === 'openai' &&
+        !profile.connection &&
         openaiApi &&
         profile.sandboxProvider &&
         profile.sandboxProviderId
@@ -485,9 +496,7 @@ export class AccountProfiles {
         {
           account,
           label: profile.label,
-          models: structuredClone(
-            supportedModels(profile.provider, discovered?.models ?? profile.models),
-          ),
+          models: structuredClone(supportedModels(profile, discovered?.models ?? profile.models)),
           modelDiscovery: {
             source: discovered?.models ? ('cached' as const) : ('configured' as const),
             stale: !!discovered?.error,
@@ -503,6 +512,14 @@ export class AccountProfiles {
       .filter((p) => p.provider !== 'openai-codex' || this.options.codexEnabled)
       .map((profile) => {
         const { id, label, provider } = profile;
+        let qualified = true;
+        if (profile.provider === 'openai' && profile.connection) {
+          try {
+            apiHarnessConnection(profile.connection);
+          } catch {
+            qualified = false;
+          }
+        }
         const discovered = cachedModels(JSON.stringify(profile));
         return {
           id,
@@ -519,7 +536,7 @@ export class AccountProfiles {
                 ? 'openai-api'
                 : 'google-cloud',
           models: supportedModels(
-            provider,
+            profile,
             provider === 'anthropic-vertex'
               ? profile.models
               : (discovered?.models ?? profile.models),
@@ -533,8 +550,8 @@ export class AccountProfiles {
                 (!profile.nativeCatalogRevision || !!profile.nativeCatalogStale)),
           },
           capabilities: {
-            streaming: provider !== 'google-vertex',
-            tools: true,
+            streaming: qualified && provider !== 'google-vertex',
+            tools: qualified,
             images: provider === 'anthropic-vertex' || provider === 'openai-codex',
           },
         };
@@ -724,7 +741,7 @@ export class AccountProfiles {
       this.profiles
         .filter(
           (p) =>
-            (p.provider === 'openai' && options.discoverApi !== false) ||
+            (p.provider === 'openai' && !p.connection && options.discoverApi !== false) ||
             (p.provider === 'openai-codex' && this.options.codexEnabled),
         )
         .map((profile) =>
@@ -941,7 +958,7 @@ export class AccountProfiles {
     if (profile.provider === 'openai-codex' && !this.options.codexEnabled)
       throw new Error('Codex execution is not enabled; development acceptance is required');
     const selectableModels = supportedModels(
-      profile.provider,
+      profile,
       configured || profile.provider === 'anthropic-vertex'
         ? profile.models
         : (cachedModels(JSON.stringify(profile))?.models ?? profile.models),
@@ -1031,8 +1048,9 @@ export class AccountProfiles {
   localCodexProfile(binding: AccountBinding, historical = false): CodexAccountProfile {
     if (binding.provider !== 'openai')
       return historical ? this.codexRoutingProfile(binding) : this.codexProfile(binding);
+    this.harnessConnection(binding);
     if (historical) this.apiRoutingProfile(binding);
-    else this.apiProfile(binding);
+    else this.apiProfile(binding, { allowCustomEndpoint: true });
     return {
       accountId: binding.accountId,
       accountLabel: binding.accountLabel,
@@ -1077,6 +1095,15 @@ export class AccountProfiles {
     };
   }
 
+  /** Configuration-only projection. No credentials, target or process ownership. */
+  harnessConnection(binding: AccountBinding) {
+    this.resumeRouting(binding);
+    const profile = this.profiles.find((p) => p.id === binding.accountId)!;
+    if (profile.provider === 'openai') return apiHarnessConnection(profile.connection);
+    if (profile.provider === 'openai-codex') return subscriptionHarnessConnection();
+    throw Error('Account requires its existing provider harness');
+  }
+
   apiCredential(binding: AccountBinding) {
     return this.apiProfile(binding).credentialRef;
   }
@@ -1086,10 +1113,31 @@ export class AccountProfiles {
     return this.profiles.map((profile) => profile.id);
   }
 
+  /** All API resource custody, independent of endpoint or key-rotation eligibility. */
+  openAIKeyResourceAccounts(): readonly import('./openai-key-management.js').OpenAIKeyResourceAccount[] {
+    return Object.freeze(
+      this.profiles.flatMap((profile) =>
+        profile.provider === 'openai'
+          ? [
+              Object.freeze({
+                id: profile.id,
+                profileRevision: routingRevision(profile),
+                credentialRef: Object.freeze(structuredClone(profile.credentialRef)),
+                providerName: profile.sandboxProvider,
+                providerId: profile.sandboxProviderId,
+              }),
+            ]
+          : [],
+      ),
+    );
+  }
+
   /** Legacy rotation only; fresh enrolled custody has its own immutable readiness authority. */
   openAIKeyManagementAccounts(): import('./openai-key-management.js').ManagedOpenAIAccount[] {
     return this.profiles.flatMap((profile) =>
-      profile.provider === 'openai' && !this.isEnrolledOpenAIAccount(profile.id)
+      profile.provider === 'openai' &&
+      !profile.connection &&
+      !this.isEnrolledOpenAIAccount(profile.id)
         ? [
             {
               id: profile.id,
@@ -1110,17 +1158,24 @@ export class AccountProfiles {
     if (!profile || profile.provider !== 'openai') throw Error('Not an OpenAI API account');
     return {
       credentialRef: profile.credentialRef,
+      ...(profile.connection ? { connection: structuredClone(profile.connection) } : {}),
       sandboxProvider: profile.sandboxProvider,
       sandboxProviderId: profile.sandboxProviderId,
     };
   }
 
-  apiProfile(binding: AccountBinding) {
+  apiProfile(binding: AccountBinding, options?: { allowCustomEndpoint: boolean }) {
     this.resume(binding);
     const profile = this.profiles.find((p) => p.id === binding.accountId);
     if (!profile || profile.provider !== 'openai') throw new Error('Not an OpenAI API account');
+    if (profile.connection) {
+      if (!options?.allowCustomEndpoint)
+        throw Error('Custom endpoint requires the shared Codex harness');
+      apiHarnessConnection(profile.connection);
+    }
     return {
       credentialRef: profile.credentialRef,
+      ...(profile.connection ? { connection: structuredClone(profile.connection) } : {}),
       sandboxProvider: profile.sandboxProvider,
       sandboxProviderId: profile.sandboxProviderId,
     };

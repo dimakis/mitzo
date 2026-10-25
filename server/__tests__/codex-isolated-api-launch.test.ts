@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { FrozenHostCodexExecutable } from '../frozen-host-codex-executable.js';
-const processes = vi.hoisted(() => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
+const processes = vi.hoisted(() => ({
+  spawn: vi.fn(),
+  spawnSync: vi.fn(),
+  execFile: vi.fn(),
+  execFileSync: vi.fn(),
+}));
 vi.mock('node:child_process', () => processes);
 import { CodexAppServerClient, SUPPORTED_CODEX_CLI_VERSION } from '../codex-app-server-client.js';
 
@@ -134,6 +139,60 @@ it('authenticates the existing API account over private RPC without secrets in a
     'not supported',
   );
   expect(children[0].sent).toHaveLength(4);
+});
+
+it('uses synchronous ownership fences around qualified key resolution and retains both post-RPC checks', async () => {
+  const o = options();
+  const assertCurrentSync = vi.fn(() => undefined);
+  const result = await CodexAppServerClient.launchIsolatedApi({ ...o, assertCurrentSync });
+  closes.push(() => result.client.close());
+  expect(o.resolveKey).toHaveBeenCalledExactlyOnceWith(binding, o.signal);
+  expect(assertCurrentSync).toHaveBeenCalledTimes(2);
+  expect(o.assertCurrent).toHaveBeenCalledTimes(2);
+});
+
+it('rejects ownership changes during qualified key resolution before process launch', async () => {
+  const o = options();
+  let revoked = false;
+  o.resolveKey.mockImplementation(async () => {
+    revoked = true;
+    return 'SYNTHETIC_SELECTED_KEY';
+  });
+  await expect(
+    CodexAppServerClient.launchIsolatedApi({
+      ...o,
+      assertCurrentSync: () => {
+        if (revoked) throw Error('revoked');
+      },
+    }),
+  ).rejects.toThrow('API Codex authentication unavailable');
+  expect(processes.spawn).not.toHaveBeenCalled();
+});
+
+it.each([1, 2])(
+  'retains current credential validation after RPC boundary %i',
+  async (rejection) => {
+    const o = options();
+    if (rejection === 2) o.assertCurrent.mockResolvedValueOnce(undefined);
+    o.assertCurrent.mockRejectedValueOnce(Error('revoked after RPC'));
+    await expect(
+      CodexAppServerClient.launchIsolatedApi({ ...o, assertCurrentSync: () => undefined }),
+    ).rejects.toThrow('API Codex authentication unavailable');
+    expect(children[0].p.kill).toHaveBeenCalledOnce();
+    expect(children[0].sent.some((r) => r.method === 'account/login/start')).toBe(rejection === 2);
+  },
+);
+
+it('rejects a purported synchronous ownership fence that returns asynchronous work', async () => {
+  const o = options();
+  await expect(
+    CodexAppServerClient.launchIsolatedApi({
+      ...o,
+      assertCurrentSync: (() => Promise.resolve()) as never,
+    }),
+  ).rejects.toThrow('API Codex authentication unavailable');
+  expect(o.resolveKey).not.toHaveBeenCalled();
+  expect(processes.spawn).not.toHaveBeenCalled();
 });
 
 it.each(['openai-codex', 'google-vertex', 'unavailable'])(
@@ -291,5 +350,140 @@ it.each(['auth.json', 'config.toml'])(
     );
     expect(o.resolveKey).not.toHaveBeenCalled();
     expect(processes.spawn).not.toHaveBeenCalled();
+  },
+);
+
+const gateway = {
+  endpoint: 'https://gateway.example.test/v1',
+  protocol: 'responses' as const,
+  qualification: {
+    source: 'operator' as const,
+    streaming: true,
+    toolCalls: true,
+    continuation: true,
+    cancellation: true,
+  },
+};
+it('pins a qualified endpoint through bootstrap and cold resume without inheriting another destination', async () => {
+  const o = { ...options(), connection: structuredClone(gateway) };
+  o.resolveKey.mockImplementation(async () => {
+    o.connection.endpoint = 'https://mutated.example.test/v1';
+    return 'SYNTHETIC_SELECTED_KEY';
+  });
+  const launched = await CodexAppServerClient.launchIsolatedApi(o);
+  closes.push(() => launched.client.close());
+  expect(processes.spawn.mock.calls[0][1]).toContain(
+    'openai_base_url="https://gateway.example.test/v1"',
+  );
+  expect(processes.spawn.mock.calls[0][1]).toContain('model_provider="openai"');
+  expect(processes.spawn.mock.calls[0][1]).not.toContain(
+    'openai_base_url="https://api.openai.com/v1"',
+  );
+  const resumed = CodexAppServerClient.launchIsolatedApiResume(
+    o.privateHome,
+    o.base,
+    o.lifecycle,
+    o.executable,
+    gateway,
+  );
+  closes.push(() => resumed.close());
+  expect(processes.spawn.mock.calls[1][1]).toContain(
+    'openai_base_url="https://gateway.example.test/v1"',
+  );
+  expect(children[1].sent).toEqual([]);
+});
+it.each([
+  { ...gateway, protocol: 'messages' },
+  { ...gateway, qualification: undefined },
+  { ...gateway, endpoint: 'https://user:secret@gateway.example.test/v1' },
+  { ...gateway, qualification: { ...gateway.qualification, continuation: false } },
+])(
+  'rejects unsupported launch connection before credentials or process effects %j',
+  async (connection) => {
+    const o = { ...options(), connection };
+    await expect(CodexAppServerClient.launchIsolatedApi(o as never)).rejects.toThrow(
+      'API Codex authentication unavailable',
+    );
+    expect(o.resolveKey).not.toHaveBeenCalled();
+    expect(processes.spawn).not.toHaveBeenCalled();
+    expect(() =>
+      CodexAppServerClient.launchIsolatedApiResume(
+        o.privateHome,
+        o.base,
+        o.lifecycle,
+        o.executable,
+        connection as never,
+      ),
+    ).toThrow();
+    expect(processes.spawn).not.toHaveBeenCalled();
+  },
+);
+
+it('isolates concurrent API accounts with distinct endpoints and credential references', async () => {
+  const a = { ...options('gateway-a'), connection: structuredClone(gateway) };
+  const b = {
+    ...options('gateway-b'),
+    connection: { ...gateway, endpoint: 'https://other.example.test/responses-api' },
+  };
+  b.binding.accountId = 'other-gateway-account';
+  a.resolveKey.mockResolvedValue('SYNTHETIC_ACCOUNT_A_KEY');
+  b.resolveKey.mockResolvedValue('SYNTHETIC_ACCOUNT_B_KEY');
+  const results = await Promise.all([
+    CodexAppServerClient.launchIsolatedApi(a),
+    CodexAppServerClient.launchIsolatedApi(b),
+  ]);
+  results.forEach((result) => closes.push(() => result.client.close()));
+  const calls = processes.spawn.mock.calls;
+  for (const [index, selected] of [a, b].entries()) {
+    expect(calls[index][1]).toContain(
+      `openai_base_url=${JSON.stringify(selected.connection.endpoint)}`,
+    );
+    expect(calls[index][2].env.CODEX_HOME).toBe(selected.privateHome);
+    expect(
+      children[index].sent.find((request) => request.method === 'account/login/start')?.params
+        ?.apiKey,
+    ).toBe(index === 0 ? 'SYNTHETIC_ACCOUNT_A_KEY' : 'SYNTHETIC_ACCOUNT_B_KEY');
+  }
+  expect(a.resolveKey).toHaveBeenCalledWith(a.binding, a.signal);
+  expect(b.resolveKey).toHaveBeenCalledWith(b.binding, b.signal);
+});
+
+it.each(['///', '/////'])(
+  'uses one account endpoint through profile projection, fresh launch and cold resume with trailing %s',
+  async (suffix) => {
+    const { AccountProfiles } = await import('../account-profiles.js');
+    const profiles = new AccountProfiles([
+      {
+        id: 'slash-gateway',
+        label: 'Slash gateway',
+        provider: 'openai',
+        credentialRef: { provider: 'keychain', service: 'synthetic-slash-fixture', account: 'key' },
+        connection: { ...gateway, endpoint: `https://gateway.example.test/api${suffix}` },
+        models: [{ id: 'fixture-model', label: 'Fixture model' }],
+      },
+    ]);
+    const binding = profiles.resolve('slash-gateway', 'fixture-model');
+    const projection = profiles.harnessConnection(binding);
+    if (projection.authentication !== 'api-key') throw Error('API fixture required');
+    const connection = profiles.apiRoutingProfile(binding).connection!;
+    const selected = { ...options(), binding, connection };
+    const launched = await CodexAppServerClient.launchIsolatedApi(selected);
+    closes.push(() => launched.client.close());
+    const resumed = CodexAppServerClient.launchIsolatedApiResume(
+      selected.privateHome,
+      selected.base,
+      selected.lifecycle,
+      selected.executable,
+      connection,
+    );
+    closes.push(() => resumed.close());
+    const endpointArguments = processes.spawn.mock.calls.map((call) =>
+      call[1].find((argument: string) => argument.startsWith('openai_base_url=')),
+    );
+    expect(endpointArguments).toEqual([
+      `openai_base_url=${JSON.stringify(projection.endpoint)}`,
+      `openai_base_url=${JSON.stringify(projection.endpoint)}`,
+    ]);
+    expect(projection.endpoint).toBe('https://gateway.example.test/api');
   },
 );

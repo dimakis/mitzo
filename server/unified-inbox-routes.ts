@@ -19,14 +19,13 @@ export function unifiedInboxRouter(
   router.get('/feed', (req, res) => {
     const parsed = InboxQuery.safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid Inbox filters' });
-    center.feed('needs');
-    if (inbox.reconcile()) center.changed();
+    center.reconcile();
     const feed = center.store.inboxFeed(parsed.data);
     res.json(feed);
   });
   router.get('/records/:id', (req, res) => {
-    center.feed('needs');
-    const item = inbox.get(req.params.id);
+    center.reconcile();
+    const item = center.store.get(req.params.id);
     if (!item) return res.status(404).json({ error: 'Inbox item not found' });
     res.json(item);
   });

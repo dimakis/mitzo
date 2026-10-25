@@ -1,0 +1,34 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-integrated-candidate-acceptance
+
+{"level":30,"time":1792449465531,"pid":97694,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-peer-app-Z1UQGV/.mitzo/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792449465531,"pid":97694,"hostname":"Dimitris-MacBook-Pro","module":"workload-store","msg":"WorkloadStore initialized (shared DB)"}
+{"level":40,"time":1792449465586,"pid":97694,"hostname":"Dimitris-MacBook-Pro","module":"server","route":"/:id/messages","method":"POST","status":503,"durationMs":0.73,"aborted":false,"msg":"API request failed"}
+{"level":30,"time":1792449465588,"pid":97694,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+{"level":30,"time":1792449465588,"pid":97694,"hostname":"Dimitris-MacBook-Pro","module":"session-sse","streams":0,"msg":"Destroying SessionSseRegistry"}
+ ❯ tests/integration/telos-s9/integrated-candidate/peer-messaging.required-contract.ts (3 tests | 1 failed) 2833ms
+   ✓ actual app: authenticated durable reads preserve separate ordinary histories and redact private fields 13ms
+   ✓ actual app: message text cannot replace interactive or internal authority 5ms
+   × REQUIRED RED: the actual app admits an explicitly directed message instead of its unconditional unavailable response 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/telos-s9/integrated-candidate/peer-messaging.required-contract.ts > REQUIRED RED: the actual app admits an explicitly directed message instead of its unconditional unavailable response
+AssertionError: {"code":"execution_unavailable","error":"Fresh-agent preparation and ordinary delivery are not wired. No session or model is started.","execution":{"enabled":false,"reason":"Fresh-agent preparation and ordinary delivery are not wired. No session or model is started."}}: expected 503 to be less than 300
+ ❯ tests/integration/telos-s9/integrated-candidate/peer-messaging.required-contract.ts:163:58
+    161|     }, null, 2) + '\n');
+    162|   expect(chat.registry.getActiveSessions()).toHaveLength(0);
+    163|   expect(response.status, JSON.stringify(response.body)).toBeLessThan(…
+       |                                                          ^
+    164|   // Durable sender attribution, native delivery/ACK, idle/busy, unkno…
+    165|   // reverse reply and restart remain pending the published peer trans…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  23:37:42
+   Duration  3.33s (transform 2.02s, setup 0ms, import 402ms, tests 2.83s, environment 0ms)
+
+JSON report written to /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-PEER-REQUIRED-RESULTS.json

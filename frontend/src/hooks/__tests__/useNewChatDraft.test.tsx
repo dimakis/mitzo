@@ -294,3 +294,27 @@ it('retains reviewed Library sources through ordinary account and settings chang
   rerender({ id: null, generation: 1 });
   expect(result.current.draft.settings.sourceSnapshots).toBeUndefined();
 });
+
+it('does not rewrite or broadcast an unchanged launch when settings arrive in a different property order', () => {
+  const draft = { ...createChatDraft(), text: 'Retained briefing preview' };
+  draft.settings.launch = {
+    prompt: draft.text,
+    context: 'Morning briefing',
+    briefing: { date: '2026-10-15', revision: 'a'.repeat(64) },
+    accountSelection: { accountId: 'work', model: 'luna' },
+  };
+  saveChatDraft(draft);
+  const original = localStorage.getItem(`mitzo-chat-draft:${draft.id}`);
+  const { result } = renderHook(() => useNewChatDraft(draft.id, 0, true));
+  const write = vi.spyOn(Storage.prototype, 'setItem');
+  try {
+    const reordered = Object.fromEntries(
+      Object.entries(getChatDraft(draft.id)!.settings).reverse(),
+    ) as typeof draft.settings;
+    for (let index = 0; index < 3; index++) act(() => result.current.saveSettings(reordered));
+    expect(write).not.toHaveBeenCalled();
+    expect(localStorage.getItem(`mitzo-chat-draft:${draft.id}`)).toBe(original);
+  } finally {
+    write.mockRestore();
+  }
+});
