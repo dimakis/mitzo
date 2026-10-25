@@ -2,8 +2,12 @@ import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-priv
 import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import { z } from 'zod';
-import { SessionRuntimeBindingV1Schema, SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
-import { retainLocalApiChatBinding } from './local-api-chat-continuity.js';
+import { SessionRuntimeBindingV1Schema } from '@mitzo/protocol';
+import {
+  retainLocalApiChatBinding,
+  retainedLocalApiTargetRevision,
+  reviewedLegacyLocalApiTargetRevisions,
+} from './local-api-chat-continuity.js';
 import type { AccountProfiles } from './account-profiles.js';
 import { readPrivateRuntimeSettings } from './ordinary-local-codex-host-runtime.js';
 import { reviewedHandlerSourceArtifacts } from './connections/reviewed-handler-artifacts.js';
@@ -88,6 +92,8 @@ function responsesCapabilities(
       ? profiles.ordinaryLocalGeminiInventory()
       : profiles.ordinaryLocalResponsesInventory();
   const targets = [target.descriptor()];
+  const declaration = target.admissionDeclaration();
+  const reviewedLegacy = reviewedLegacyLocalApiTargetRevisions(target.harness, declaration);
   const catalog: OrdinarySessionRuntimeCatalog = {
     deployment: 'ordinary',
     enabledHarnesses: [target.harness],
@@ -111,6 +117,7 @@ function responsesCapabilities(
             catalog,
           ),
           newWork ? undefined : retainedBinding,
+          reviewedLegacy,
         );
   const inventory = {
     version: 1 as const,
@@ -156,14 +163,15 @@ function responsesCapabilities(
       ];
   }
   return {
-    declaration: {
-      ...target.admissionDeclaration(),
-      ...(retainedBinding === undefined
-        ? {}
-        : {
-            targetRevision:
-              SessionRuntimeBindingV2Schema.parse(retainedBinding).execution.targetRevision,
-          }),
+    get declaration() {
+      return {
+        ...declaration,
+        targetRevision: retainedLocalApiTargetRevision(
+          declaration.targetRevision,
+          retainedBinding,
+          reviewedLegacy,
+        ),
+      };
     },
     inventory: () => structuredClone(inventory),
     resolve,

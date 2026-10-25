@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.690-chat-upgrade-continuity';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.691-local-chat-host-continuity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,11 +24,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-api-chat-continuity.ts':
-    '9597b62110c632da61a1c617d4b827dfc043a7e8ee407d09bde744546dea5d55',
+    '3d25d62ca10c9f8cce1074bef93954f4d69d9e76f57d0f94405ce648343ebd8c',
   '../__tests__/ordinary-codex-continuation-status.test.ts':
     '4963f867eab909c57fa17f9e88966335938ad4b9f714f5a9c1f6b66dc2197e8b',
   '../__tests__/local-api-chat-continuity.test.ts':
-    '0b848b584925f788616ebaf4da24b4f3cf8375473a6c24f7a10cef2392fb6a3f',
+    '82f2a71ee64417cd77176c647d5ac7e7ec9419f298603619ee6c6a7b072b0494',
   '../__tests__/openshell-chat-continuity.test.ts':
     '64d16f4fec83f680f799d472cd7488b1f227c562b15109d563f804e952a4b917',
   '../openshell-chat-continuity.ts':
@@ -1284,7 +1285,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-lifecycle-controller.ts':
     'a064563244ca9757a114b92874f578a3852d32dd4eca30f87142f8212eac5c05',
   '../ordinary-codex-continuation-status.ts':
-    '58d7ceb10838059b3eea52db809513ae34cf255f136660ec95147a2f540e3139',
+    'c8fc75746db3c6353e6c764b2da2fd6934fc5b49eaea75e4dfd4070a9d0da4a3',
   '../ordinary-openshell-codex-entry-owner.ts':
     '3e9bba36d9c3849d7fb6b1bb227637f379b6193d8b376d95c4e54aeed2c01961',
   '../ordinary-openshell-codex-entry.ts':
@@ -1307,7 +1308,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-responses-store.ts':
     '18335d42422f6c145f830dd2ce6a516b473184767483f2067ae7d1a8b7351046',
   '../ordinary-local-responses-capabilities.ts':
-    '092b92cf5efb6b8b27a4b8c975c830c93e883b350e293705a5ded97a8623288f',
+    '3bf23043c15e04236413087d28aa3787cbf1406c9d0650bbb79da157cff79985',
   '../ordinary-local-responses-owned-runtime.ts':
     '438b5f325c4463766a07def47de1e98bf516f344c10b915c67b02e4dfc3388f5',
   '../ordinary-local-responses-queue.ts':
@@ -1331,7 +1332,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-command-owner.ts':
     '7a631c564810af3198bde300697e5ed13c07e9185a85d10e1859c6678919fa5e',
   '../ordinary-local-vertex-capabilities.ts':
-    'ecef88a7906e10197b9f19e8ede95bfe8abf4b931eabd60d520d5e8f62b4c053',
+    '41f9f534dac0bb13c6ab5cb30abe11dca60045d54a20226dba04339405bf0386',
   '../ordinary-local-vertex-queue.ts':
     'a3cd6f4b1785ca8401c5c6e728e32ec531c6e0263aae9daff5643515912b59d1',
   '../ordinary-local-vertex-sdk-process.ts':

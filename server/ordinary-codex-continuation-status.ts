@@ -29,7 +29,6 @@ import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-ent
 import { projectOrdinaryOpenShellCodexCapabilities } from './ordinary-openshell-codex-route.js';
 import { resolveOrdinarySessionRuntime } from './ordinary-session-runtime.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
-import { retainLocalApiChatBinding } from './local-api-chat-continuity.js';
 
 /** Read-only action support; dispatch always requalifies the original authority. */
 export function ordinaryCodexContinuationStatus(
@@ -75,9 +74,12 @@ export function ordinaryCodexContinuationStatus(
       mode: meta.mode,
     };
     if (binding.harness.implementation === 'claude-sdk')
-      resolved = localVertexCapabilities(profiles, new OrdinaryLocalVertexTarget()).resolve(
-        request,
-      );
+      resolved = localVertexCapabilities(
+        profiles,
+        new OrdinaryLocalVertexTarget(),
+        [],
+        binding,
+      ).resolve(request);
     else if (['responses', 'gemini'].includes(binding.harness.implementation))
       resolved = localResponsesCapabilities(
         profiles,
@@ -85,6 +87,7 @@ export function ordinaryCodexContinuationStatus(
           process.env,
           binding.harness.implementation === 'gemini' ? 'gemini' : 'responses',
         ),
+        binding,
       ).resolve(request);
     else if (location === 'local')
       resolved = new OrdinaryLocalCodexCapabilityCatalog(
@@ -139,22 +142,6 @@ export function ordinaryCodexContinuationStatus(
       } catch {
         return blocked('The original account or execution configuration has changed.');
       }
-    }
-    if (
-      resolved.status === 'compatible' &&
-      !isDeepStrictEqual(resolved.binding, binding) &&
-      location === 'local' &&
-      ['claude-sdk', 'gemini'].includes(binding.harness.implementation)
-    ) {
-      if (!authSessionId)
-        return blocked('Sign in with the original login to resume this conversation.');
-      const owner = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
-      const authorized =
-        (owner?.authSessionId === authSessionId && owner.location === 'local') ||
-        (binding.harness.implementation === 'claude-sdk'
-          ? canResumeOwnedLocalVertexDriver(sessionId, authSessionId)
-          : canResumeOwnedLocalResponsesDriver(sessionId, authSessionId));
-      if (authorized) resolved = retainLocalApiChatBinding(resolved, binding);
     }
     if (resolved.status !== 'compatible' || !isDeepStrictEqual(resolved.binding, binding))
       return blocked('The original account or execution configuration has changed.');

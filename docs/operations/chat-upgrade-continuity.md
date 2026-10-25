@@ -22,9 +22,12 @@ target needs no legacy bridge, including an initial command retry before native
 custody has been persisted.
 
 Local Claude and deferred Gemini targets similarly separate host/protocol identity
-from deployment attestation. Their continuation catalogs preserve the original
-binding after current account/target compatibility resolves; native owners still
-verify original credentials, login, history and workspace before effects. Retired
+from deployment attestation. Stable v2 host/protocol identities must match exactly.
+Their continuation catalogs can reconstruct only reviewed v1 declarations from
+accepted releases, using the same original host ID, target ID and label. The
+reviewed source closures are listed below. Unknown revisions, changed hosts or
+unprovable original legacy labels stay blocked; native owners still verify
+original credentials, login, history and workspace before effects. Retired
 Responses execution remains retired. Existing Host Mac Codex continuity remains
 with its native owner and its reviewed compatibility contract.
 
@@ -34,6 +37,25 @@ Failed metadata refresh stays blocked and keeps the previous selection. Catalog
 failures direct users to Refresh models instead of asking them to change a locked
 account.
 
+## Reviewed local legacy declarations
+
+The v1 target hash includes the full declaration. Reconstruction uses its exact
+property order and current server-owned host/target/label with these reviewed
+historical contract hashes. A different stable v2 host/protocol hash cannot match
+the v1 preimage. No arbitrary retained target revision is accepted. Claude custody,
+capability declaration and SDK history protocols are unchanged between the two
+older accepted releases and the accepted base.
+
+| Accepted release                           | Sorted source-closure SHA-256                                      | Supported legacy engine |
+| ------------------------------------------ | ------------------------------------------------------------------ | ----------------------- |
+| `86916da4af1c2e17fdbe9132543afaa3dadec88b` | `860f9c40af4d13bde50cee3df429e4f4b72f5267ec67dd99fd875c32e4473d80` | Claude and Gemini       |
+| `c42ce72a2c84e94bac1b14ecba3585789f320264` | `17db03d4e5e03a84bc2d6ac7155122f3add253fe1ac5d9b4923771d8f568d6a6` | Claude                  |
+| `263cfea8bb65e48801b88fdd1b45fd3256f1b2ee` | `c4463e7e0a509a3c63be60f01b9780622f7f1adb978e98fabf0f957e505a0915` | Claude                  |
+
+Read-only diagnosis matched both retained local Claude conversation identities to
+the two older releases. This observation grants no admission authority; the
+compiled reconstruction and native owners qualify every explicit command.
+
 ## Verification
 
 Synthetic server regressions cover legacy OpenShell restart and new command
@@ -41,7 +63,8 @@ admission for repository and default workspaces, unchanged receipts/native
 thread/physical runtime, duplicate-command acknowledgement and rejected authority
 drift. The preparation test exercises the actual capture/assert and inventory
 composition and rejects a foreign workspace or changed gateway. Local catalog
-regressions cover compatible source/label edits and changed account identity.
+regressions cover compatible source/label edits, the reviewed legacy declarations,
+changed account identity, host/protocol drift and unknown legacy revisions.
 
 The intercepted `chat-upgrade-continuity` browser test renders the real responsive
 chat routes, settings and composer. On 320px mobile WebKit/Chromium and desktop

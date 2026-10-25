@@ -7,8 +7,12 @@ import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-priv
 import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import { z } from 'zod';
-import { SessionRuntimeBindingV1Schema, SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
-import { retainLocalApiChatBinding } from './local-api-chat-continuity.js';
+import { SessionRuntimeBindingV1Schema } from '@mitzo/protocol';
+import {
+  retainLocalApiChatBinding,
+  retainedLocalApiTargetRevision,
+  reviewedLegacyLocalApiTargetRevisions,
+} from './local-api-chat-continuity.js';
 import type { AccountProfiles } from './account-profiles.js';
 import { readPrivateRuntimeSettings } from './ordinary-local-codex-host-runtime.js';
 import { reviewedHandlerSourceArtifacts } from './connections/reviewed-handler-artifacts.js';
@@ -93,6 +97,8 @@ export function localVertexCapabilities(
     { contextRecipes: 'none' },
   );
   const targets = [target.descriptor()];
+  const declaration = target.admissionDeclaration();
+  const reviewedLegacy = reviewedLegacyLocalApiTargetRevisions('claude-sdk', declaration);
   const catalog: OrdinarySessionRuntimeCatalog = {
     deployment: 'ordinary',
     enabledHarnesses: ['claude-sdk'],
@@ -135,17 +141,22 @@ export function localVertexCapabilities(
     ],
   };
   return {
-    declaration: {
-      ...target.admissionDeclaration(),
-      ...(retainedBinding === undefined
-        ? {}
-        : {
-            targetRevision:
-              SessionRuntimeBindingV2Schema.parse(retainedBinding).execution.targetRevision,
-          }),
+    get declaration() {
+      return {
+        ...declaration,
+        targetRevision: retainedLocalApiTargetRevision(
+          declaration.targetRevision,
+          retainedBinding,
+          reviewedLegacy,
+        ),
+      };
     },
     inventory: () => structuredClone(inventory),
     resolve: (request: unknown) =>
-      retainLocalApiChatBinding(resolveOrdinarySessionRuntime(request, catalog), retainedBinding),
+      retainLocalApiChatBinding(
+        resolveOrdinarySessionRuntime(request, catalog),
+        retainedBinding,
+        reviewedLegacy,
+      ),
   };
 }
