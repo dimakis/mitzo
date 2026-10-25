@@ -1,0 +1,731 @@
+{
+  "schemaVersion": 1,
+  "additiveOverlay": true,
+  "executionHead": "2f6e33a8054e7fcfda324846950c7e7d230a0366",
+  "productionSource": "d525a3647bc6470d29b4e0433826998b2a932d84",
+  "approvedMockSha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab",
+  "rows": [
+    {
+      "id": "UX01",
+      "requirement": "Work first opens All outcomes with pinned category filters, discovery and search.",
+      "sliceOwners": ["57b0894e0379ab95"],
+      "slices": ["S7"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX01",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "tree-priority078/source858",
+      "verifiedScope": "Actual four-level discovery/pin/filter/search/reload; owner loading/empty/unavailable checks reused.",
+      "outstandingException": "Final combined discovery visual conformance and accepted-main repeat pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX02",
+      "requirement": "Explicit recursive tree distinguishes Coordinator, Outcome and Work item; selecting opens the right workspace.",
+      "sliceOwners": ["847cb038d1e46d16", "57b0894e0379ab95"],
+      "slices": ["S2", "S7"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX02",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "tree-priority078/source858",
+      "verifiedScope": "Actual recursive canonical kinds and DOM ancestry; workspace selection.",
+      "outstandingException": "Complete final combined tree UX pending; compact-panel finding is separate.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX03",
+      "requirement": "One minimal back chevron plus optional breadcrumbs; back restores the previous item/list/chat context.",
+      "sliceOwners": ["57b0894e0379ab95", "b47a0c568f1d98ba"],
+      "slices": ["S7", "S8"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX03",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "S8 b8fd/sourceD525 + UX2f6/sourceD525",
+      "verifiedScope": "Real source navigation/Back and actual item return hint; keyboard tree Escape restores focus/transcript width.",
+      "outstandingException": "Full list scroll/filter/search context restoration and all navigation surfaces pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": ["mobile-dark", "mobile-light", "desktop-dark", "desktop-light"],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX04",
+      "requirement": "Overview retains outcome, why it matters, done when, task hint, context and origin/dates.",
+      "sliceOwners": ["d4e0bf084cd61139", "57b0894e0379ab95"],
+      "slices": ["S3", "S7"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX04",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "tree-priority078/source858",
+      "verifiedScope": "Actual original brief/source fields and unknown author/date treatment retained.",
+      "outstandingException": "Full current-main Overview/reference comparison pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX05",
+      "requirement": "Lead assignment reuses ordinary Agent, Account, Model, Thinking, Run on and derived Runs with controls.",
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "slices": ["S4", "S8"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX05",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "S8 b8fd/sourceD525 + UX2f6/sourceD525",
+      "verifiedScope": "Real reviewed ordinary role setup and retained settings; actual main/model settings editor/draft.",
+      "outstandingException": "Full setup controls, named-model marks and locked/unavailable action matrix pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": ["mobile-dark", "mobile-light", "desktop-dark", "desktop-light"],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX06",
+      "requirement": "Originating chat is separate from an assigned lead. Home studio can be source-only and unassigned.",
+      "sliceOwners": ["d4e0bf084cd61139", "4cd96f8d0f5a5f3f"],
+      "slices": ["S3", "S4"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX06",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "nonGit85c/source858 + UX2f6/sourceD525",
+      "verifiedScope": "Source captured separately; assigned/additional roles created only by explicit setup, no native launch on setup.",
+      "outstandingException": "Full source-only visual path on accepted main pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX07",
+      "requirement": "Item opens exact originating conversation/exchange; original conversation links back to the created item; adopted context/revisions remain stable.",
+      "sliceOwners": ["847cb038d1e46d16", "d4e0bf084cd61139"],
+      "slices": ["S2", "S3"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX07",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "nonGit85c/source858 + S8b8fd/sourceD525",
+      "verifiedScope": "Exact reviewed source/context/material and source-open/Back assertions retained.",
+      "outstandingException": "All original-exchange backlink surfaces on accepted main pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX08",
+      "requirement": "Refine and Add child use full normal advisor chats with item, parent and overall goal context.",
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "slices": ["S4", "S8"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX08",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "nonGit85c/source858",
+      "verifiedScope": "Real ordinary advisor first Send and reviewed draft/source/material association.",
+      "outstandingException": "Full Refine/Add-child visual journeys/reference parity pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX09",
+      "requirement": "Lead has an explicit collaboration/delegation/review mandate and corresponding scoped host behavior.",
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "cf8dc85a4b6afaad"],
+      "slices": ["S4", "S5"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX09",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "nonGit/repository85c/source858",
+      "verifiedScope": "Real lead/worker authority and native admission boundary within retained scopes.",
+      "outstandingException": "Full mandate UX/host behavior on accepted main pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX10",
+      "requirement": "\u201cStart slice one\u201d creates one ordinary worker chat for exactly that item, returns a worker link and keeps the user in the lead chat.",
+      "sliceOwners": ["cf8dc85a4b6afaad"],
+      "slices": ["S5"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX10",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "nonGit/repository85c/source858",
+      "verifiedScope": "Exact persisted child allocation/native worker and no unrelated launch, retained lead context.",
+      "outstandingException": "All user-facing lead-to-worker navigation on accepted main pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX11",
+      "requirement": "Worker receives reviewed brief/parent criteria/sources and links back to item and lead.",
+      "sliceOwners": ["847cb038d1e46d16", "4cd96f8d0f5a5f3f", "cf8dc85a4b6afaad"],
+      "slices": ["S2", "S4", "S5"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX11",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "nonGit/repository85c/source858",
+      "verifiedScope": "Reviewed context/material/workspace and worker/item/lead identities retained.",
+      "outstandingException": "Complete visible worker brief/return UX on accepted main pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX12",
+      "requirement": "Multiple chats for a smallest item are listed immediately on the item's Chat tab with no default selection. Selecting opens full chat; Back returns to list.",
+      "sliceOwners": ["b47a0c568f1d98ba"],
+      "slices": ["S8"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX12",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "S8b8fd + UX2f6/sourceD525",
+      "verifiedScope": "Actual multiple-chat chooser/no autochoice, correct labels, selection, independent state; loading observed at real delayed read.",
+      "outstandingException": "Chooser metadata comparison02 pending; full accepted-main chooser UX pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": ["mobile-dark", "mobile-light", "desktop-dark", "desktop-light"],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX13",
+      "requirement": "One non-origin chat can open directly; source-only items expose origin and lead assignment. Counts match the actual unique linked conversations.",
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "slices": ["S4", "S8"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX13",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "S8b8fd + UX2f6/sourceD525",
+      "verifiedScope": "Unique actual linked counts and assigned/additional/origin rows; explicit selection.",
+      "outstandingException": "Direct-single/source-only full matrix and metadata comparison02 pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": ["mobile-dark", "mobile-light", "desktop-dark", "desktop-light"],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX14",
+      "requirement": "New chat creates another conversation for the same item; Change worker explicitly replaces current assignment. Both preserve prior chats.",
+      "sliceOwners": ["847cb038d1e46d16", "4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "slices": ["S2", "S4", "S8"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX14",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "S8b8fd/sourceD525",
+      "verifiedScope": "Additional versus explicit replacement preserves prior chats and authoritative assignment; frozen exactcase passes.",
+      "outstandingException": "Full visual replacement/recovery matrix on accepted main pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX15",
+      "requirement": "Each chat keeps its own drafts, history, account/model/runtime/workspace and attributed outputs across navigation/restart.",
+      "sliceOwners": ["847cb038d1e46d16", "4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "slices": ["S2", "S4", "S8"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX15",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "S8b8fd/sourceD525 + recovery8cf/source84",
+      "verifiedScope": "Independent drafts/profile/settings plus response-loss/full-document reload/SSE reattach retained.",
+      "outstandingException": "Server/native restart, full per-chat outputs and accepted-main matrix pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX16",
+      "requirement": "Chat has compact standard controls plus one slim item/chats/work row; work tree is closed by default and collapsible.",
+      "sliceOwners": ["b47a0c568f1d98ba"],
+      "slices": ["S8"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX16",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "UX2f6/sourceD525",
+      "verifiedScope": "One slim item/chats/work row, tree initially closed, toggle/Escape/focus/draft/transcript width restoration all four profiles.",
+      "outstandingException": "Confirmed compact desktop tree discrepancy01; full UX pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": ["mobile-dark", "mobile-light", "desktop-dark", "desktop-light"],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX17",
+      "requirement": "Coordinator asks priority and routes scoped controls through child leads; requested/acknowledged/applied/released are distinct and retained.",
+      "sliceOwners": ["335551581dbf1e93"],
+      "slices": ["S6"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX17",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "publishedS6faad on85c/source858",
+      "verifiedScope": "Actual App V2 coordinator/control guard evidence with scoped receipt stages retained.",
+      "outstandingException": "Complete six-outcome visual workflow and final publication revalidation pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX18",
+      "requirement": "Unrelated outcomes remain unaffected; release requires appropriate upstream revalidation.",
+      "sliceOwners": ["335551581dbf1e93"],
+      "slices": ["S6"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX18",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "publishedS6faad on85c/source858",
+      "verifiedScope": "Actual App current/additional/retired control fences and unrelated-scope evidence retained.",
+      "outstandingException": "Complete unrelated-outcome coexistence/publication-release UX pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX19",
+      "requirement": "Materials retain document revision/hash, author, source, created/added/updated dates; Outputs, Sources and Links stay distinct.",
+      "sliceOwners": ["d4e0bf084cd61139", "57b0894e0379ab95"],
+      "slices": ["S3", "S7"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX19",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "tree078/source858 + UX2f6/sourceD525",
+      "verifiedScope": "Actual Materials/revision/hash/unknown provenance separation; exact saved26bytes and real missing-version refusal.",
+      "outstandingException": "Full author/date/version/change/restart matrix on accepted main pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": ["mobile-dark", "mobile-light", "desktop-dark", "desktop-light"],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX20",
+      "requirement": "Legacy items retain IDs, hierarchy, original fields/status/profile/links/context and explicit references; unknown provenance stays unknown.",
+      "sliceOwners": ["847cb038d1e46d16", "d4e0bf084cd61139"],
+      "slices": ["S2", "S3"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX20",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "prior canonical migration evidence retained",
+      "verifiedScope": "Original44 rows and historical migration evidence remain unchanged.",
+      "outstandingException": "No new full legacy migration/backup restoration UX qualification in this probe.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX21",
+      "requirement": "Requests/retries/restart cannot duplicate item links, current assignments or worker allocations; uncertain results stay uncertain.",
+      "sliceOwners": ["847cb038d1e46d16", "cf8dc85a4b6afaad"],
+      "slices": ["S2", "S5"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX21",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "repository85c/source858 + recovery8cf/source84",
+      "verifiedScope": "Consumed samePOST idempotent retry; actual lost-response uncertainty/full reload/original-command recovery no extra native start.",
+      "outstandingException": "Native/server process restart, revocation/offscreen/repository-loss matrix pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX22",
+      "requirement": "Ordinary chat controls retain full parity, including Resources, context, Access, voice, skills, attachments, queued turns and stop/interrupt.",
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "slices": ["S4", "S8"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX22",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "UX2f6/sourceD525 + scoped owner proofs",
+      "verifiedScope": "Actual ordinary Resources Sources/Context, main/model settings, first Send and retained unsent draft.",
+      "outstandingException": "Voice/skills/attachments/queued turns/stop/interrupt/Access parity and named brands unexercised here.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": ["mobile-dark", "mobile-light", "desktop-dark", "desktop-light"],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX23",
+      "requirement": "Exact final mock remains retained and retrievable by artifact ID, revision and hash. Any product-facing deviation needs explicit approval.",
+      "sliceOwners": ["accd3d6f834c164d", "b896d14d79d52682"],
+      "slices": ["S1", "S9"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX23",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "immutable approved references read",
+      "verifiedScope": "Exact mock97efd/contractdc048 and active quick-sheet reference retained; actual captures kept distinct.",
+      "outstandingException": "No global UX approval; discrepancies01/02 open. No file mock rendering/alternate server workaround.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": [],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    },
+    {
+      "id": "UX24",
+      "requirement": "Desktop and mobile conform, including narrow layout, full-width transcript after closing tree, keyboard and touch navigation.",
+      "sliceOwners": ["57b0894e0379ab95", "b47a0c568f1d98ba", "b896d14d79d52682"],
+      "slices": ["S7", "S8", "S9"],
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX24",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "sourceAndTestScope": "UX2f6/sourceD525",
+      "verifiedScope": "Four actual Chromium contexts320x900/1280x900 light/dark and normal/reduced motion; finite animations settle; keyboard Escape/focus and3 real mobile taps; no document horizontal overflow.",
+      "outstandingException": "Desktop compact-tree discrepancy01; physical iOS/WebKit/additional viewports/all controls/full UX pending.",
+      "states": {
+        "codeMerged": "mixed owner dependency stack; current production D525 is candidate, not accepted-main",
+        "offlineIntegration": "bounded evidence only; see exact per-source scopes",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending separately authorized single-runtime window"
+      },
+      "visualEvidence": {
+        "currentProfiles": ["mobile-dark", "mobile-light", "desktop-dark", "desktop-light"],
+        "captureManifest": "S9-UX-D525-RESULT.json profiles/captures",
+        "allRowVisualSignoff": false
+      }
+    }
+  ],
+  "originalLedgerUnchanged": true,
+  "note": "Four observation profiles are not four additional required integration contracts or full UX acceptance. Original44 UX/CT rows, review/amendment/154plan/S5a ratification/history remain untouched."
+}

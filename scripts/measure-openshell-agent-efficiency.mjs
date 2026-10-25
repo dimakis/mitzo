@@ -48,12 +48,20 @@ const run = spawnSync(
     timeout: 10 * 60 * 1000,
   },
 );
-writeFileSync(logFile, (run.stdout ?? '') + (run.stderr ?? ''));
-let metrics, tests;
-try {
-  metrics = JSON.parse(readFileSync(metricsFile, 'utf8'));
-  tests = JSON.parse(readFileSync(testsFile, 'utf8'));
-} catch {}
+writeFileSync(
+  logFile,
+  (run.stdout ?? '') + (run.stderr ?? '') + (run.error ? String(run.error) : ''),
+);
+const readReport = (file) => {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    return undefined;
+  }
+};
+// A missing measurement must not hide completed tests or import failures.
+const metrics = readReport(metricsFile),
+  tests = readReport(testsFile);
 const measured =
   Number.isFinite(metrics?.schemaByteReduction) && Number.isFinite(metrics?.outputByteReduction);
 const success =
@@ -62,8 +70,11 @@ const reportFile = join(directory, 'report.json');
 const report = {
   ...metrics,
   success,
+  exitCode: run.status,
+  signal: run.signal,
   testCount: tests?.numPassedTests ?? 0,
   failedTests: tests?.numFailedTests ?? null,
+  failedSuites: tests?.numFailedTestSuites ?? null,
   durationMs: Math.round(performance.now() - start),
   platform: process.platform,
   suites,

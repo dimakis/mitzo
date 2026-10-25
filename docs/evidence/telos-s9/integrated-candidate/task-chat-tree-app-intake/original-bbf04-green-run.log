@@ -1,0 +1,12 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate
+
+ ✓ tests/integration/telos-s9/integrated-candidate/task-chat-tree-app.contract.ts (1 test) 29256ms
+   ✓ retains readable real task review and the exact attempt-associated worker chat-tree row across restart and approval  29255ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  11:12:58
+   Duration  30.37s (transform 1.91s, setup 0ms, import 975ms, tests 29.26s, environment 0ms)
+
+JSON report written to /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-TASK-CHAT-TREE-S8-RETAKE-DIAGNOSTICS/exact-s8-correction/run.json

@@ -1,0 +1,11 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s6-candidate-acceptance
+
+ ✓ server/__tests__/codex-chat-session.test.ts (101 tests | 99 skipped) 32ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed | 99 skipped (101)
+   Start at  23:44:15
+   Duration  1.86s (transform 1.12s, setup 0ms, import 1.72s, tests 32ms, environment 0ms)
+
+JSON report written to /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-S6-CURRENT-NATIVE-BOUNDARY-RESULTS.json

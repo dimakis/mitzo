@@ -1,0 +1,626 @@
+{
+  "head": "c5ed402cc808a826472509581c36c30832b910cc",
+  "productionSource": "d525a3647bc6470d29b4e0433826998b2a932d84",
+  "productionTree": "56f6a186201174eedca13677c58ef5199a9a83c5",
+  "test": "tests/integration/telos-s9/integrated-candidate/ordinary-parity-browser.contract.ts",
+  "testSha256": "cc5d5b23a60e92d8451d23cf1b8abc457b47b95969cedb67b44dc8a4976ebd11",
+  "result": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-PARITY-D525-DIAGNOSTICS/decoded-attachment/run.json",
+    "sha256": "f4896b7ef9491cfd4d25c626dbc9906c3fc33a3b9955a258d50e38c667a17896",
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 8812.970625
+  },
+  "observations": {
+    "source": "same actual ChatView, account/model/profile/runtime binding, distinct ordinary workspaces; non-Telos prepared by published ordinary fixture stores, Telos by actual reviewed setup HTTP",
+    "meta": [
+      {
+        "sessionId": "d9a82afe-a4a4-810b-92ad-8da3599ac9cf",
+        "runtimeBinding": {
+          "version": 2,
+          "account": {
+            "accountId": "ordinary-personal",
+            "provider": "openai-codex",
+            "profileRevision": "443d2cdb31c96cc3ce46550842e3edb5498ff48b87ce35569040e8f5175fae80"
+          },
+          "harness": {
+            "implementation": "codex"
+          },
+          "execution": {
+            "location": "local",
+            "targetId": "ordinary-fixture-local",
+            "targetRevision": "a26f9649529321c03d07d5ce22fca56646ef778d6a3f24dbf31c4b4ee01b90cd"
+          }
+        },
+        "runtimeCommandScope": "prepared-first-command",
+        "agentProfile": {
+          "profileId": "ordinary-worker",
+          "revision": 1,
+          "definition": {
+            "name": "Ordinary work",
+            "descriptor": "Offline fixture",
+            "role": "agent",
+            "instructions": "Use the retained material and preserve ownership.",
+            "expectedOutput": "A retained report",
+            "acceptanceCriteria": ["Evidence"],
+            "modelPolicyRole": "agent"
+          },
+          "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
+        },
+        "sessionType": "chat",
+        "branch": null,
+        "wtId": null,
+        "cwd": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-pgQwbX/tasks/ordinary-492af6a9-56ac-4c8e-b33d-9e8ecca7a9a7",
+        "ordinaryWorkspaceId": "492af6a9-56ac-4c8e-b33d-9e8ecca7a9a7",
+        "mode": "agent",
+        "isActive": true,
+        "isHidden": false,
+        "state": "ENDED",
+        "totalTokens": 0,
+        "accountBinding": {
+          "accountId": "ordinary-personal",
+          "accountLabel": "Offline personal",
+          "provider": "openai-codex",
+          "model": "fixture-model",
+          "profileRevision": "443d2cdb31c96cc3ce46550842e3edb5498ff48b87ce35569040e8f5175fae80"
+        },
+        "modelSelection": {
+          "model": "fixture-model",
+          "models": [
+            {
+              "id": "fixture-model",
+              "label": "Offline fixture",
+              "reasoningEfforts": ["low"]
+            }
+          ],
+          "reasoningEffort": "low"
+        },
+        "codexQueue": {
+          "paused": true,
+          "connected": false,
+          "recovering": false,
+          "queued": 0,
+          "interrupted": 0,
+          "failed": 0
+        },
+        "totalCostUsd": 0,
+        "numTurns": 0
+      },
+      {
+        "sessionId": "fccaaebd-e920-848c-9f54-989084074569",
+        "telosWorkRoleContext": {
+          "version": 1,
+          "itemId": "studio",
+          "itemKind": "outcome",
+          "role": "lead",
+          "brief": {
+            "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+            "sha256": "fc17c83cfa48cbdfa4c5a1936464983b992911501732b3abc3e703c1b972634e",
+            "text": "{\"summary\":\"Home studio\",\"intent\":\"Record music\",\"rationale\":\"Make music\",\"acceptanceCriteria\":[\"Approved plan\"],\"taskHint\":\"Original hint\"}"
+          },
+          "parentCriteria": [],
+          "overallGoal": {
+            "itemId": "studio",
+            "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+            "text": "Record music"
+          },
+          "sources": [],
+          "artifacts": []
+        },
+        "telosWorkRolePresentation": {
+          "presentation": {
+            "version": 1,
+            "contextSha256": "4d152e9802ecdd73375f0427268f9a757ebdef90686e31320dee0d841d8fd497",
+            "reviewedAt": "2026-10-20T01:40:18.804Z",
+            "item": {
+              "itemId": "studio",
+              "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+              "title": "Home studio"
+            },
+            "overallGoal": {
+              "itemId": "studio",
+              "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+              "title": "Home studio"
+            },
+            "parents": [],
+            "sources": [],
+            "artifacts": []
+          },
+          "presentationRef": {
+            "id": "ea93909b-5d18-479d-933c-56be1f5a1430",
+            "sha256": "31021a7d2164106aaa364010714db89cd2b458f8a02cd1eadefa12bb663f6051"
+          }
+        },
+        "runtimeBinding": {
+          "version": 2,
+          "account": {
+            "accountId": "ordinary-personal",
+            "provider": "openai-codex",
+            "profileRevision": "443d2cdb31c96cc3ce46550842e3edb5498ff48b87ce35569040e8f5175fae80"
+          },
+          "harness": {
+            "implementation": "codex"
+          },
+          "execution": {
+            "location": "local",
+            "targetId": "ordinary-fixture-local",
+            "targetRevision": "a26f9649529321c03d07d5ce22fca56646ef778d6a3f24dbf31c4b4ee01b90cd"
+          }
+        },
+        "runtimeCommandScope": "prepared-first-command",
+        "agentProfile": {
+          "profileId": "ordinary-worker",
+          "revision": 1,
+          "definition": {
+            "name": "Ordinary work",
+            "descriptor": "Offline fixture",
+            "role": "agent",
+            "instructions": "Use the retained material and preserve ownership.",
+            "expectedOutput": "A retained report",
+            "acceptanceCriteria": ["Evidence"],
+            "modelPolicyRole": "agent"
+          },
+          "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
+        },
+        "sessionType": "chat",
+        "branch": null,
+        "wtId": null,
+        "cwd": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-pgQwbX/tasks/ordinary-78f899eb-d14d-4c73-8046-5f0473d0056a",
+        "ordinaryWorkspaceId": "78f899eb-d14d-4c73-8046-5f0473d0056a",
+        "mode": "agent",
+        "isActive": true,
+        "isHidden": false,
+        "state": "ENDED",
+        "totalTokens": 0,
+        "accountBinding": {
+          "accountId": "ordinary-personal",
+          "accountLabel": "Offline personal",
+          "provider": "openai-codex",
+          "model": "fixture-model",
+          "profileRevision": "443d2cdb31c96cc3ce46550842e3edb5498ff48b87ce35569040e8f5175fae80"
+        },
+        "modelSelection": {
+          "model": "fixture-model",
+          "models": [
+            {
+              "id": "fixture-model",
+              "label": "Offline fixture",
+              "reasoningEfforts": ["low"]
+            }
+          ],
+          "reasoningEffort": "low"
+        },
+        "codexQueue": {
+          "paused": true,
+          "connected": false,
+          "recovering": false,
+          "queued": 0,
+          "interrupted": 0,
+          "failed": 0
+        },
+        "totalCostUsd": 0,
+        "numTurns": 0
+      }
+    ],
+    "observations": [
+      {
+        "label": "ordinary",
+        "sessionId": "d9a82afe-a4a4-810b-92ad-8da3599ac9cf",
+        "interruptReplacementButtons": 0,
+        "runningQueueEnabled": true,
+        "guardedQueue": {
+          "request": {
+            "version": 2,
+            "runOn": "local",
+            "sessionId": "d9a82afe-a4a4-810b-92ad-8da3599ac9cf",
+            "workspace": {
+              "kind": "ordinary",
+              "workspaceId": "492af6a9-56ac-4c8e-b33d-9e8ecca7a9a7"
+            },
+            "clientMsgId": "5092351b-6ac1-4a57-99c3-c09c992d8d73",
+            "capabilityRevision": "8ffe9b1e22d56b3e613decfc662abaf8418a8612dafab495d85d78faeb1d7c83",
+            "runtime": {
+              "account": {
+                "accountId": "ordinary-personal",
+                "provider": "openai-codex",
+                "profileRevision": "443d2cdb31c96cc3ce46550842e3edb5498ff48b87ce35569040e8f5175fae80"
+              },
+              "harness": "codex",
+              "targetId": "ordinary-fixture-local",
+              "mode": "agent"
+            },
+            "selection": {
+              "version": 1,
+              "agent": {
+                "profileId": "ordinary-worker",
+                "revision": 1
+              },
+              "context": {
+                "source": "none",
+                "revision": null
+              },
+              "permission": {
+                "mode": "agent",
+                "revision": 0
+              },
+              "model": "fixture-model",
+              "thinking": "low"
+            },
+            "payload": {
+              "text": "Admit this ordinary follow-up through guarded native FIFO."
+            }
+          },
+          "receipt": {
+            "ok": true,
+            "clientMsgId": "5092351b-6ac1-4a57-99c3-c09c992d8d73",
+            "sessionId": "d9a82afe-a4a4-810b-92ad-8da3599ac9cf",
+            "dispatched": true,
+            "state": "consumed"
+          },
+          "fifoTurns": 2,
+          "noEarlySecondTurn": true
+        },
+        "stopAvailable": true,
+        "commandsDisabled": true,
+        "attachmentPreviewAndRemoval": true,
+        "decodedImage": {
+          "width": 1,
+          "height": 1
+        },
+        "resourceTabs": ["Sources", "Context", "Outputs", "Mockups", "References"],
+        "accessEvidence": {
+          "sessionId": "d9a82afe-a4a4-810b-92ad-8da3599ac9cf",
+          "observedAt": 1792460421563,
+          "state": "current",
+          "account": {
+            "accountId": "ordinary-personal",
+            "accountLabel": "Offline personal",
+            "provider": "openai-codex"
+          },
+          "model": "fixture-model",
+          "mode": "agent",
+          "grants": [],
+          "skillCeiling": null,
+          "pending": [],
+          "attachments": null,
+          "tools": null,
+          "limits": null,
+          "readiness": {
+            "version": 1,
+            "sessionId": "d9a82afe-a4a4-810b-92ad-8da3599ac9cf",
+            "observedAt": 1792460421563,
+            "revision": "c0f7dd74054e8405b0a92ab4ad275bb36de99147f7676cee3f5abe837e38e2df",
+            "session": {
+              "state": "observed",
+              "account": {
+                "accountId": "ordinary-personal",
+                "accountLabel": "Offline personal",
+                "provider": "openai-codex",
+                "profileRevision": "443d2cdb31c96cc3ce46550842e3edb5498ff48b87ce35569040e8f5175fae80"
+              },
+              "model": "fixture-model",
+              "mode": "agent",
+              "grants": [],
+              "skillCeiling": null
+            },
+            "execution": {
+              "state": "configured",
+              "binding": {
+                "version": 2,
+                "account": {
+                  "accountId": "ordinary-personal",
+                  "provider": "openai-codex",
+                  "profileRevision": "443d2cdb31c96cc3ce46550842e3edb5498ff48b87ce35569040e8f5175fae80"
+                },
+                "harness": {
+                  "implementation": "codex"
+                },
+                "execution": {
+                  "location": "local",
+                  "targetId": "ordinary-fixture-local",
+                  "targetRevision": "a26f9649529321c03d07d5ce22fca56646ef778d6a3f24dbf31c4b4ee01b90cd"
+                }
+              }
+            },
+            "capabilities": {
+              "state": "unknown",
+              "reason": "not_observed"
+            }
+          }
+        },
+        "voiceButtons": 0,
+        "serviceHealth": {
+          "services": [],
+          "checkedAt": 0
+        },
+        "draftRetained": true
+      },
+      {
+        "label": "telos",
+        "sessionId": "fccaaebd-e920-848c-9f54-989084074569",
+        "interruptReplacementButtons": 0,
+        "runningQueueEnabled": true,
+        "guardedQueue": {
+          "request": {
+            "version": 2,
+            "runOn": "local",
+            "sessionId": "fccaaebd-e920-848c-9f54-989084074569",
+            "workspace": {
+              "kind": "ordinary",
+              "workspaceId": "78f899eb-d14d-4c73-8046-5f0473d0056a"
+            },
+            "clientMsgId": "f341d060-ab9c-4f5e-a1d4-fd5954da55e1",
+            "capabilityRevision": "8ffe9b1e22d56b3e613decfc662abaf8418a8612dafab495d85d78faeb1d7c83",
+            "runtime": {
+              "account": {
+                "accountId": "ordinary-personal",
+                "provider": "openai-codex",
+                "profileRevision": "443d2cdb31c96cc3ce46550842e3edb5498ff48b87ce35569040e8f5175fae80"
+              },
+              "harness": "codex",
+              "targetId": "ordinary-fixture-local",
+              "mode": "agent"
+            },
+            "selection": {
+              "version": 1,
+              "agent": {
+                "profileId": "ordinary-worker",
+                "revision": 1
+              },
+              "context": {
+                "source": "none",
+                "revision": null
+              },
+              "permission": {
+                "mode": "agent",
+                "revision": 0
+              },
+              "model": "fixture-model",
+              "thinking": "low"
+            },
+            "payload": {
+              "text": "Admit this telos follow-up through guarded native FIFO."
+            }
+          },
+          "receipt": {
+            "ok": true,
+            "clientMsgId": "f341d060-ab9c-4f5e-a1d4-fd5954da55e1",
+            "sessionId": "fccaaebd-e920-848c-9f54-989084074569",
+            "dispatched": true,
+            "state": "consumed"
+          },
+          "fifoTurns": 2,
+          "noEarlySecondTurn": true
+        },
+        "stopAvailable": true,
+        "commandsDisabled": true,
+        "attachmentPreviewAndRemoval": true,
+        "decodedImage": {
+          "width": 1,
+          "height": 1
+        },
+        "resourceTabs": ["Sources", "Context", "Outputs", "Mockups", "References"],
+        "accessEvidence": {
+          "sessionId": "fccaaebd-e920-848c-9f54-989084074569",
+          "observedAt": 1792460423857,
+          "state": "current",
+          "account": {
+            "accountId": "ordinary-personal",
+            "accountLabel": "Offline personal",
+            "provider": "openai-codex"
+          },
+          "model": "fixture-model",
+          "mode": "agent",
+          "grants": [],
+          "skillCeiling": null,
+          "pending": [],
+          "attachments": null,
+          "tools": null,
+          "limits": null,
+          "readiness": {
+            "version": 1,
+            "sessionId": "fccaaebd-e920-848c-9f54-989084074569",
+            "observedAt": 1792460423857,
+            "revision": "072a2cb11a1c533138995fc22818868eef315ebdd8f50458356e973d65e83fb0",
+            "session": {
+              "state": "observed",
+              "account": {
+                "accountId": "ordinary-personal",
+                "accountLabel": "Offline personal",
+                "provider": "openai-codex",
+                "profileRevision": "443d2cdb31c96cc3ce46550842e3edb5498ff48b87ce35569040e8f5175fae80"
+              },
+              "model": "fixture-model",
+              "mode": "agent",
+              "grants": [],
+              "skillCeiling": null
+            },
+            "execution": {
+              "state": "configured",
+              "binding": {
+                "version": 2,
+                "account": {
+                  "accountId": "ordinary-personal",
+                  "provider": "openai-codex",
+                  "profileRevision": "443d2cdb31c96cc3ce46550842e3edb5498ff48b87ce35569040e8f5175fae80"
+                },
+                "harness": {
+                  "implementation": "codex"
+                },
+                "execution": {
+                  "location": "local",
+                  "targetId": "ordinary-fixture-local",
+                  "targetRevision": "a26f9649529321c03d07d5ce22fca56646ef778d6a3f24dbf31c4b4ee01b90cd"
+                }
+              }
+            },
+            "capabilities": {
+              "state": "unknown",
+              "reason": "not_observed"
+            }
+          }
+        },
+        "voiceButtons": 0,
+        "serviceHealth": {
+          "services": [],
+          "checkedAt": 0
+        },
+        "draftRetained": true
+      }
+    ],
+    "nativeLaunches": 2,
+    "pageErrors": [],
+    "limitations": "Equality establishes inherited current states, not full UX22 acceptance. Actual guarded Queue admission and two native FIFO turns are exercised for each chat. Replacement interrupts, available microphone/STT/TTS, skill execution and attachment delivery remain pending. No fallback route or real provider/model calls."
+  },
+  "observationsSha256": "690de369514da9093dd30ec0a39f8120833de8618624f839744aca81e5abaa96",
+  "controls": [
+    {
+      "control": "Queue",
+      "ordinary": "Actual Queue button -> authenticated guarded continuation202 consumed -> durable command/admission -> native FIFO, second turn starts only after first completes",
+      "telos": "Same; identical runtime/selection/workspace retained within each chat, distinct chat/workspace across pair",
+      "classification": "supported behavior retained; no legacy queue replay/fallback",
+      "boundary": "Shared ChatInput.handleQueue -> ChatView guarded ordinary sender -> ordinary-local-codex-entry -> owned native admission/runtime"
+    },
+    {
+      "control": "Stop",
+      "ordinary": "Available while running; separate c476 actual Stop isolation proof",
+      "telos": "Available while running; separate c476 selected-cancellation proof",
+      "classification": "current pure cancellation supported; this pair does not repeat Stop action",
+      "boundary": "Shared ChatView/store -> authREST -> handleStopV2/owned cancellation"
+    },
+    {
+      "control": "Interrupt-and-send replacement",
+      "ordinary": "Absent with localBound",
+      "telos": "Absent with same localBound",
+      "classification": "inherited shared limitation; UX22 still pending, no Telos-specific parity loss demonstrated",
+      "boundary": "ChatView localBound guard/handleInterrupt/onInterrupt; chat runtime-bound control admits pure cancellation but refuses accompanying replacement input/settings. S5b owns guarded command/runtime foundation; S8 composition must consume a future supported contract, not bypass it."
+    },
+    {
+      "control": "Commands/skills",
+      "ordinary": "Commands disabled when guardedConversation",
+      "telos": "Same disabled state",
+      "classification": "inherited shared restriction; supported guarded skill execution is pending",
+      "boundary": "ChatInput commandsDisabled=boundedFirstCommand || guardedConversation || textOnly; guarded command owner S5b; ordinary renderer/consumer S4/S8"
+    },
+    {
+      "control": "Resources",
+      "ordinary": "Actual Sources/Context/Outputs/Mockups/References tabs and Context content open/close",
+      "telos": "Same tabs/Context path; independent draft retained",
+      "classification": "bounded interaction parity demonstrated; full resource/context mutation matrix pending",
+      "boundary": "Shared ChatInput/SessionResourcesDialog and actual session/context APIs"
+    },
+    {
+      "control": "Attachments",
+      "ordinary": "Real input selection, checksum-valid PNG decode1x1, enabled editor Save, cancel and removal; unsent draft retained",
+      "telos": "Same",
+      "classification": "local preview/removal parity demonstrated; image delivery/markup save/provider behavior pending",
+      "boundary": "Shared ChatInput image input/ImageAttachmentEditor; no provider send performed"
+    },
+    {
+      "control": "Access",
+      "ordinary": "Real session-specific accessHTTP200/current; dialog preserves unknown service/tool inventory rather than inventing grants",
+      "telos": "Same path/current observation using its own session ID",
+      "classification": "bounded read-only evidence interaction parity; full approval/revocation matrix pending",
+      "boundary": "Shared SessionAccess -> actual /api/sessions/:id/access; owner session access/auth stores"
+    },
+    {
+      "control": "Voice",
+      "ordinary": "No Record voice button; service-health contains no healthy Yapper observation (services=[], checkedAt0)",
+      "telos": "Same",
+      "classification": "inherited unreported capability state, not demonstrated available voice support or Telos regression",
+      "boundary": "Shared useVoice derives available from yapper.ok and stt capability; MicButton hides when unavailable. Healthy-service/microphone/STT/TTS fake-effect journey remains pending."
+    }
+  ],
+  "driver": {
+    "head": "c5ed402cc808a826472509581c36c30832b910cc",
+    "runner": "tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs",
+    "groups": 7,
+    "requiredCases": 9,
+    "originalEightSelectionsUnchanged": true,
+    "exactFileCountZeroSkipGuardsUnchanged": true,
+    "stopCaseAdded": {
+      "name": "stop-isolation",
+      "config": "vitest.stop-isolation.config.ts",
+      "file": "stop-isolation-browser.contract.ts"
+    },
+    "cases": [
+      {
+        "name": "non-git",
+        "config": "vitest.joined.config.ts",
+        "file": "non-git-browser.contract.ts"
+      },
+      {
+        "name": "repository",
+        "config": "vitest.repository-joined.config.ts",
+        "file": "repository-browser.contract.ts"
+      },
+      {
+        "name": "lost-response-recovery",
+        "config": "vitest.recovery-joined.config.ts",
+        "file": "lost-response-browser.contract.ts"
+      },
+      {
+        "name": "tree-priority",
+        "config": "vitest.tree-priority-joined.config.ts",
+        "file": "tree-priority-browser.contract.ts"
+      },
+      {
+        "name": "s8-chooser",
+        "config": "vitest.s8-joined.config.ts",
+        "file": "s8-chooser-browser.contract.ts"
+      },
+      {
+        "name": "stop-isolation",
+        "config": "vitest.stop-isolation.config.ts",
+        "file": "stop-isolation-browser.contract.ts"
+      },
+      {
+        "name": "s6-app-owners",
+        "config": "vitest.s6-app-owners.config.ts",
+        "files": [
+          "server/__tests__/telos-ordinary-canonical-journey.test.ts",
+          "server/__tests__/agent-communication-nongit-app.test.ts",
+          "server/__tests__/telos-coordinator-v2-native-journey.test.ts"
+        ]
+      }
+    ],
+    "runnerSha256": "a08dfd1eed9b735c27c989780b2b3b3d2f8e71f876e6a4411616774416c55476",
+    "wholeNineRunExecuted": false,
+    "hostedOwner": "Existing S5b #1048; adoption after production dependencies; no workflow edited",
+    "note": "Parity observation is a separate bounded comparison, not a tenth required case."
+  },
+  "sourceDelta": [
+    "tests/integration/telos-s9/integrated-candidate/ordinary-parity-browser.contract.ts",
+    "tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs",
+    "tests/integration/telos-s9/integrated-candidate/vitest.ordinary-parity.config.ts"
+  ],
+  "providerEffects": "Only deterministic fake native RPCs; continuation receives distinct fake turn identity. Actual App/Vite/auth/HTTP/SSE/native scheduler/outbox/store/queue/editor/access remain owned.",
+  "modelCalls": 0,
+  "priorRuns": [
+    {
+      "head": "fd90d09296fe97d798785c4d4abc0182a2f5d95d",
+      "directory": "frozen-first",
+      "scope": "1PASS before actual Queue action was added; attachment editor open/cancel only."
+    },
+    {
+      "head": "24efc835c8c154203b3e90efb616d710ac9c3ae8",
+      "directory": "guarded-queue",
+      "scope": "1PASS actual Queue/FIFO and controls; attachment preview capture caught undecoded fixture. PNG IDAT checksum invalid, corrected atc5ed. Earlier scopes retained; no producer defect inferred."
+    }
+  ],
+  "states": {
+    "S9": "active",
+    "parent": "active",
+    "offlineIntegration": "bounded same-account/runtime comparison verified",
+    "uxAccepted": "pending fullUX22 and existingS8 findings",
+    "liveRuntimeQualified": "pending separate single-runtime authorization"
+  },
+  "pending": [
+    "Atomic guarded replacement interrupts and guarded skill execution remain unavailable across shared bound ordinary/Telos routes; no bypass or waiver.",
+    "Available voice and attachment delivery/markup-save behavior remain pending.",
+    "S8 compact-tree/chooser-metadata correction and SAME scoped frozen-source retake.",
+    "Required9case final combined hosted/accepted-main run and exact-headCI/CentaurfinalLGTMmerge0/Appgate; no duplicate whole campaign now.",
+    "Full Telos/Symposium coexistence/recovery/device/CT19 windows remain pending."
+  ]
+}

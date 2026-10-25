@@ -74,7 +74,10 @@ function owner(context: NativeHostToolContext, root: string) {
   };
 }
 
-async function signedReadPositive(tool: 'DiscoverLocalRepository' | 'InspectLocalRepository') {
+async function signedReadPositive(
+  tool: 'DiscoverLocalRepository' | 'InspectLocalRepository',
+  detachedViewer = false,
+) {
   const runs = offlineHelper();
   let failure: unknown;
   const inspect = metadata.inspectLocalRepositoryGitMetadata;
@@ -97,13 +100,17 @@ async function signedReadPositive(tool: 'DiscoverLocalRepository' | 'InspectLoca
   });
   let source = '';
   let original: NativeHostToolContext | undefined;
-  const f = await localRepositoryNativeToolFixture(cleanups, async (context, input) => {
-    original = context;
-    const tools = sessionLocalRepositoryTools(owner(context, source));
-    const result = await tools.execute(context.toolName, input, context.signal);
-    expect(result).toBeDefined();
-    return result!;
-  });
+  const f = await localRepositoryNativeToolFixture(
+    cleanups,
+    async (context, input) => {
+      original = context;
+      const tools = sessionLocalRepositoryTools(owner(context, source));
+      const result = await tools.execute(context.toolName, input, context.signal);
+      expect(result).toBeDefined();
+      return result!;
+    },
+    { separateViewer: detachedViewer },
+  );
   source = join(f.f.root, 'read-tools-source');
   await mkdir(source);
   // A disposable, unenrolled source under the additional fixture-only ceiling.
@@ -135,6 +142,7 @@ async function signedReadPositive(tool: 'DiscoverLocalRepository' | 'InspectLoca
   git('init', '--template=', '-q', '-b', 'main');
   git('add', '.');
   git('commit', '-qm', 'fixture');
+  if (detachedViewer) f.detachViewer();
   const result = await f.a.call({ path: source }, { tool });
   expect(original?.nativeBaseReadScope).toBeDefined();
   expect(
@@ -179,6 +187,10 @@ async function signedReadPositive(tool: 'DiscoverLocalRepository' | 'InspectLoca
 it.runIf(process.platform === 'darwin')(
   'uses the actual signed native reader for discovery and joins cleanup before returning facts',
   () => signedReadPositive('DiscoverLocalRepository'),
+);
+it.runIf(process.platform === 'darwin')(
+  'keeps subscription discovery under the admitted operator after its viewer disconnects',
+  () => signedReadPositive('DiscoverLocalRepository', true),
 );
 // Retained diagnostic: full source-mode inspection can exceed the unchanged
 // operation deadline. It does not qualify the actual registered SRT path.

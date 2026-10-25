@@ -436,8 +436,8 @@
     "source": "Telos",
     "required": false,
     "behavior": "read",
-    "routes": [],
-    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires explicit native selection, a current retained lead and its current canonical assignment for this item or exact direct child, plus request-only approval. Writes retain fresh revision, evidence and original receipt checks; selection grants no completion authority."
   },
   {
     "id": "mitzo:TelosUpdateItem",
@@ -447,8 +447,8 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [],
-    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires explicit native selection, a current retained lead and its current canonical assignment for this item or exact direct child, plus request-only approval. Writes retain fresh revision, evidence and original receipt checks; selection grants no completion authority."
   },
   {
     "id": "mitzo:TelosSaveArtifact",

@@ -1,0 +1,31 @@
+{
+  "frozenExecution": "e4ef207b418b46e9a650422c1d9ee0fcb3541fad",
+  "entries": [
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-WORKER-REPLACEMENT-INTAKE-REVIEW.md",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/worker-replacement-intake/root-intake-review.md",
+      "sha256": "4abf66e09e530aa3e0681299ccfacaf80956a6b552992abec184879710308ed9",
+      "bytes": 6777
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-WORKER-REPLACEMENT-INTAKE.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/worker-replacement-intake/root-intake.json",
+      "sha256": "22a5bebc3ff92795189bc6e0a700bfeeebc1e064f606635702d83562703454a4",
+      "bytes": 11050
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-WORKER-REPLACEMENT-RESULT.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/worker-replacement-intake/original-producer-result-e4ef.json",
+      "sha256": "748e36d5d04931e819142823051643b143b5ce7730c5de287d16761433399e1c",
+      "bytes": 371089
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-WORKER-REPLACEMENT-SOURCE-PROOF.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/worker-replacement-intake/original-source-proof-e4ef.json",
+      "sha256": "08e58e9ec0d3bcf402f804bbf75a0cc0322b052024a8485c17c0dc332a87d95e",
+      "bytes": 7499
+    }
+  ],
+  "closedScope": "One historical private-candidate functional journey1PASS0skip; not a fresh composed-source runtime pass",
+  "reportRevision": "Originalproducerreport748e retained; rootP3 correction overlay separate; do not attribute overlay to originalarchives"
+}

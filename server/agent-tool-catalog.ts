@@ -104,6 +104,8 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                 'TelosAdoptSource',
                 'TelosSaveArtifact',
                 'TelosReadArtifact',
+                'TelosGetItem',
+                'TelosUpdateItem',
               ].includes(tool.name)
               ? ['codex-owned-local']
               : []
@@ -131,7 +133,9 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                   ].includes(tool.name)
                 ? 'Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store.'
                 : source === 'Telos'
-                  ? 'Explicit profile selection is not supported on this native OpenShell route.'
+                  ? ['TelosGetItem', 'TelosUpdateItem'].includes(tool.name)
+                    ? 'Requires explicit native selection, a current retained lead and its current canonical assignment for this item or exact direct child, plus request-only approval. Writes retain fresh revision, evidence and original receipt checks; selection grants no completion authority.'
+                    : 'Explicit profile selection is not supported on this native OpenShell route.'
                   : [
                         'ConnectionRequest',
                         'ConnectionWebSocket',

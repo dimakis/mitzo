@@ -169,6 +169,26 @@ it.each(['TelosStartSlice', 'TelosWorkControl'])(
   },
 );
 
+it.each(['TelosGetItem', 'TelosUpdateItem'])(
+  'enrolls %s only as an explicitly selected owned-local current-lead operation',
+  (name) => {
+    const definition = { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never;
+    expect(agentToolCatalog().find((entry) => entry.name === name)).toMatchObject({
+      routes: ['codex-owned-local'],
+      requirement: expect.stringContaining('current retained lead'),
+    });
+    expect(() => assertAgentToolRoute(definition, 'codex-owned-local')).not.toThrow();
+    for (const route of ['local-api', 'codex', 'openshell', 'claude-sdk', 'symposium'])
+      expect(() => assertAgentToolRoute(definition, route)).toThrow();
+    expect(() =>
+      assertAgentToolRoute(
+        { tools: [{ id: `mitzo:${name}`, version: 2 }] } as never,
+        'codex-owned-local',
+      ),
+    ).toThrow();
+  },
+);
+
 it.each(['DiscoverLocalRepository', 'InspectLocalRepository'])(
   'classifies %s as an explicitly selected owned-local read with no generic route',
   (name) => {

@@ -1,0 +1,108 @@
+{
+  "numTotalTestSuites": 3,
+  "numPassedTestSuites": 3,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 5,
+  "numPassedTests": 5,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1792449494501,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT09: actual canonical non-Git advisor-to-worker journey retains file bytes, review and verified completion",
+          "status": "passed",
+          "title": "CT09: actual canonical non-Git advisor-to-worker journey retains file bytes, review and verified completion",
+          "duration": 7626.778083,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792449494719,
+      "endTime": 1792449502345.778,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s5b-candidate-acceptance/server/__tests__/telos-ordinary-canonical-journey.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT03 accepted-source full boundary: definite real HTTP stale rejection permits fresh review of the same retained draft after reload",
+          "status": "passed",
+          "title": "CT03 accepted-source full boundary: definite real HTTP stale rejection permits fresh review of the same retained draft after reload",
+          "duration": 868.0901250000002,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT04 real committed response loss stays uncertain until exact hook/client/HTTP replay recovers the original allocation",
+          "status": "passed",
+          "title": "CT04 real committed response loss stays uncertain until exact hook/client/HTTP replay recovers the original allocation",
+          "duration": 887.5969580000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT04 post-intent HTTP conflict retains the original request across reload and cannot start a fresh review",
+          "status": "passed",
+          "title": "CT04 post-intent HTTP conflict retains the original request across reload and cannot start a fresh review",
+          "duration": 634.386458,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792449504510,
+      "endTime": 1792449506900.3865,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s5b-candidate-acceptance/tests/integration/telos-s9/accepted-foundations/recovery.test.tsx"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT06/17/18 partial: origin and actual advisor-created child reach accepted delegation, retained result and explicit task review without pre-seeding the child",
+          "status": "passed",
+          "title": "CT06/17/18 partial: origin and actual advisor-created child reach accepted delegation, retained result and explicit task review without pre-seeding the child",
+          "duration": 1406.1565,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792449507620,
+      "endTime": 1792449509026.1565,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s5b-candidate-acceptance/tests/integration/telos-s9/accepted-foundations/vertical.test.ts"
+    }
+  ]
+}

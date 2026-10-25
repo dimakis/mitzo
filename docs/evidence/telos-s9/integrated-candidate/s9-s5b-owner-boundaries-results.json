@@ -1,0 +1,466 @@
+{
+  "numTotalTestSuites": 5,
+  "numPassedTestSuites": 5,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 39,
+  "numPassedTests": 39,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1792449568083,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "prepares through authenticated real readiness while Git enrollment stays off and creates no extra session or native command",
+          "status": "passed",
+          "title": "prepares through authenticated real readiness while Git enrollment stays off and creates no extra session or native command",
+          "duration": 67.20495900000003,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "gives an actionable unsupported target denial before touching preparation or allocation",
+          "status": "passed",
+          "title": "gives an actionable unsupported target denial before touching preparation or allocation",
+          "duration": 24.983334000000013,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses forged account scope, unknown client grants and physical paths without a session or command effect",
+          "status": "passed",
+          "title": "refuses forged account scope, unknown client grants and physical paths without a session or command effect",
+          "duration": 28.422208999999953,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects internal/absent auth and cross-origin JSON through the actual operator and origin middleware",
+          "status": "passed",
+          "title": "rejects internal/absent auth and cross-origin JSON through the actual operator and origin middleware",
+          "duration": 23.94100000000003,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rechecks private persistent operator revocation after actual readiness and does not return preparation authority",
+          "status": "passed",
+          "title": "rechecks private persistent operator revocation after actual readiness and does not return preparation authority",
+          "duration": 29.880667000000017,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "uses the existing global workspace owner for ordinary preparation without enabling repository enrollment",
+          "status": "passed",
+          "title": "uses the existing global workspace owner for ordinary preparation without enabling repository enrollment",
+          "duration": 26.62195799999995,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792449575866,
+      "endTime": 1792449576066.622,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s5b-candidate-acceptance/server/__tests__/ordinary-workspace-preparation-http.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT01: fresh advisor refine round-trips all canonical fields through HTTP and the typed client",
+          "status": "passed",
+          "title": "CT01: fresh advisor refine round-trips all canonical fields through HTTP and the typed client",
+          "duration": 67.713416,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT01: fresh advisor child round-trips all canonical fields through HTTP and the typed client",
+          "status": "passed",
+          "title": "CT01: fresh advisor child round-trips all canonical fields through HTTP and the typed client",
+          "duration": 37.056916,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT01: upgraded advisor refine round-trips all canonical fields through HTTP and the typed client",
+          "status": "passed",
+          "title": "CT01: upgraded advisor refine round-trips all canonical fields through HTTP and the typed client",
+          "duration": 33.97524999999996,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT01: upgraded advisor child round-trips all canonical fields through HTTP and the typed client",
+          "status": "passed",
+          "title": "CT01: upgraded advisor child round-trips all canonical fields through HTTP and the typed client",
+          "duration": 39.264082999999914,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792449576557,
+      "endTime": 1792449576734.2642,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s5b-candidate-acceptance/server/__tests__/telos-canonical-advisor-http.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT06: canonical advisor save through real ordinary dispatch retains output, pending review and explicit verified completion",
+          "status": "passed",
+          "title": "CT06: canonical advisor save through real ordinary dispatch retains output, pending review and explicit verified completion",
+          "duration": 1710.1043750000003,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792449573401,
+      "endTime": 1792449575111.1045,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s5b-candidate-acceptance/server/__tests__/telos-canonical-journey.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "retains actual MGMT fresh schema invariants",
+          "status": "passed",
+          "title": "retains actual MGMT fresh schema invariants",
+          "duration": 3.8456249999999983,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "retains actual MGMT upgraded schema invariants",
+          "status": "passed",
+          "title": "retains actual MGMT upgraded schema invariants",
+          "duration": 0.7645420000000058,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792449576835,
+      "endTime": 1792449576838.8457,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s5b-candidate-acceptance/server/__tests__/telos-canonical-schema-fixtures.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "delegates only the selected canonical child to one independent non-Git workspace, chat and real task without a turn",
+          "status": "passed",
+          "title": "delegates only the selected canonical child to one independent non-Git workspace, chat and real task without a turn",
+          "duration": 197.2398330000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "concurrent duplicate and canonical/task-owner restart recover the exact original V2 child identities",
+          "status": "passed",
+          "title": "concurrent duplicate and canonical/task-owner restart recover the exact original V2 child identities",
+          "duration": 136.40887500000008,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses unsupported requirements before the V2 exact-child attempt/allocation journal or any session/task effects",
+          "status": "passed",
+          "title": "refuses unsupported requirements before the V2 exact-child attempt/allocation journal or any session/task effects",
+          "duration": 60.019250000000284,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "recovers the exact V2 worker after a lost committed ordinary preparation response and all owners reopen",
+          "status": "passed",
+          "title": "recovers the exact V2 worker after a lost committed ordinary preparation response and all owners reopen",
+          "duration": 92.83554200000026,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "requires explicit predecessor retry and retains earlier ordinary workers, output and attempt history",
+          "status": "passed",
+          "title": "requires explicit predecessor retry and retains earlier ordinary workers, output and attempt history",
+          "duration": 101.77041700000018,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "retains a cancelled V2 reservation and recovers only its original allocation under renewed request authority",
+          "status": "passed",
+          "title": "retains a cancelled V2 reservation and recovers only its original allocation under renewed request authority",
+          "duration": 95.56941700000016,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses revoked actual operator authority before retaining a V2 child intent or allocating",
+          "status": "passed",
+          "title": "refuses revoked actual operator authority before retaining a V2 child intent or allocating",
+          "duration": 60.4848750000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects invalid thinking before a V2 child attempt or reservation using the same real account authority",
+          "status": "passed",
+          "title": "rejects invalid thinking before a V2 child attempt or reservation using the same real account authority",
+          "duration": 50.81729200000018,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses a hidden original V2 worker on replay while retaining its task and workspace identity",
+          "status": "passed",
+          "title": "refuses a hidden original V2 worker on replay while retaining its task and workspace identity",
+          "duration": 88.00575000000026,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "fails closed when the existing task-binding inventory cannot be read and preserves the original ready attempt",
+          "status": "passed",
+          "title": "fails closed when the existing task-binding inventory cannot be read and preserves the original ready attempt",
+          "duration": 95.38170899999977,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses committed replay with readable missing_binding inventory without creating a replacement task",
+          "status": "passed",
+          "title": "refuses committed replay with readable missing_binding inventory without creating a replacement task",
+          "duration": 98.5102079999997,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses committed replay with readable empty_restored_database inventory without creating a replacement task",
+          "status": "passed",
+          "title": "refuses committed replay with readable empty_restored_database inventory without creating a replacement task",
+          "duration": 106.58591699999988,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses committed replay with readable mismatched_binding inventory without creating a replacement task",
+          "status": "passed",
+          "title": "refuses committed replay with readable mismatched_binding inventory without creating a replacement task",
+          "duration": 101.94033300000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses committed replay with readable mismatched_task_session inventory without creating a replacement task",
+          "status": "passed",
+          "title": "refuses committed replay with readable mismatched_task_session inventory without creating a replacement task",
+          "duration": 98.91745899999978,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "requires the owning original-task verifier even when the canonical delegation receipt is already committed",
+          "status": "passed",
+          "title": "requires the owning original-task verifier even when the canonical delegation receipt is already committed",
+          "duration": 78.9536250000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses committed delegation replay with claiming while retaining original allocation",
+          "status": "passed",
+          "title": "refuses committed delegation replay with claiming while retaining original allocation",
+          "duration": 93.2305409999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses committed delegation replay with replaced-directory while retaining original allocation",
+          "status": "passed",
+          "title": "refuses committed delegation replay with replaced-directory while retaining original allocation",
+          "duration": 111.73112499999979,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses committed delegation replay with symlink-directory while retaining original allocation",
+          "status": "passed",
+          "title": "refuses committed delegation replay with symlink-directory while retaining original allocation",
+          "duration": 94.03795799999989,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses committed delegation replay with replaced-root while retaining original allocation",
+          "status": "passed",
+          "title": "refuses committed delegation replay with replaced-root while retaining original allocation",
+          "duration": 101.62458300000026,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses committed delegation replay with symlink-root while retaining original allocation",
+          "status": "passed",
+          "title": "refuses committed delegation replay with symlink-root while retaining original allocation",
+          "duration": 87.37833299999966,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "replays the same claimed delegation workspace while preserving legitimate files",
+          "status": "passed",
+          "title": "replays the same claimed delegation workspace while preserving legitimate files",
+          "duration": 97.85474999999997,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rechecks delegation authority after custody readiness: abort",
+          "status": "passed",
+          "title": "rechecks delegation authority after custody readiness: abort",
+          "duration": 83.32850000000008,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rechecks delegation authority after custody readiness: revoke",
+          "status": "passed",
+          "title": "rechecks delegation authority after custody readiness: revoke",
+          "duration": 88.00220900000022,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "recovers the canonical default-start attempt when a new request selects another genuinely valid account, model and task root",
+          "status": "passed",
+          "title": "recovers the canonical default-start attempt when a new request selects another genuinely valid account, model and task root",
+          "duration": 98.14587500000016,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses changed V2 preparation-attempt authority before any command without changing the task or receipt",
+          "status": "passed",
+          "title": "refuses changed V2 preparation-attempt authority before any command without changing the task or receipt",
+          "duration": 80.23883300000034,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses changed V2 work-allocation authority before any command without changing the task or receipt",
+          "status": "passed",
+          "title": "refuses changed V2 work-allocation authority before any command without changing the task or receipt",
+          "duration": 82.4037500000004,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792449570110,
+      "endTime": 1792449572592.4038,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-s5b-candidate-acceptance/server/__tests__/telos-ordinary-work-delegation.test.ts"
+    }
+  ]
+}

@@ -1,0 +1,154 @@
+{
+  "executionHead": "e4ef207b418b46e9a650422c1d9ee0fcb3541fad",
+  "executionTree": "d6b6b13fe45b599b4b4b0ac581d840b48de749da",
+  "baseline": "99a8ab4ec03a83c62c11875468fa092d0b3cc5cc",
+  "onlyFourNewDedicatedTestFiles": true,
+  "allPriorIntegrationFilesUnchanged": 85,
+  "actualSourcePins": 667,
+  "protectedReferences": [
+    {
+      "path": "docs/design/approved/chat-settings/quick-sheet.html",
+      "sha256": "281eaad8d89684cd7c16583cb9ca2c082cdfb64ab1cd3acb7647abc289c2736e",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/chat-settings/approved-mock-dark.png",
+      "sha256": "c93d33e6512dd8894a8e27aca542b5a88579f37534a6b8c5eca225ec7e6a4847",
+      "match": true
+    },
+    {
+      "path": "frontend/src/components/__tests__/QuickChatSettings.test.tsx",
+      "sha256": "beb34896b1fb88690215c0a04a766993f53e2b6b2e9db4157b9644a205d63462",
+      "match": true
+    },
+    {
+      "path": "tests/offline/chat-settings-surface.spec.ts",
+      "sha256": "723801bf293794ea06ca3cff7a5fe9287bfc69e75982102464d269c4c0396d08",
+      "match": true
+    },
+    {
+      "path": "frontend/src/styles/__tests__/approved-designs.test.ts",
+      "sha256": "ee25f7e4111e60dd4cfb4d0da5d9d30a4d6dbd745eae6c0cfeabaa85f9b7b941",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/telos-priority-scale/priority-scale.svg",
+      "sha256": "2bc9fb6bda585f4f66c8f7eab3f8dfdfa7881d6ab52da8b86831de8de2bb62a1",
+      "match": true
+    },
+    {
+      "path": "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+      "sha256": "c1ab0bd0174975e67a3af37692e06c9851aa694295b54281b6d6c9e4c741382a",
+      "match": true
+    },
+    {
+      "path": "frontend/src/pages/__tests__/TodoPriorityOrdering.test.tsx",
+      "sha256": "779365ef8c25b4fdfd90fb68839b0236fc06076b471b47012bc8251c85495970",
+      "match": true
+    },
+    {
+      "path": "tests/offline/telos-priority.spec.ts",
+      "sha256": "a69a0647dfa64f4b4504a5693c3e435c4981cd4612bfd2d761fae6e5d0011894",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/symposium/fresh-agent-review.html",
+      "sha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+      "match": true
+    },
+    {
+      "path": "docs/design/approved/symposium/approved-context-review.png",
+      "sha256": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+      "match": true
+    },
+    {
+      "path": "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+      "sha256": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+      "match": true
+    },
+    {
+      "path": "tests/offline/symposium-approved-design.spec.ts",
+      "sha256": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+      "match": true
+    }
+  ],
+  "productionWorkflowPrior85AndStrictNineUnchanged": true,
+  "productionComposition": "Private72c20ef2b6eb70217953356f58be98619fac2d92 + frozenf47e store/test/composedpin; no production edit.",
+  "newFiles": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/worker-replacement-browser.contract.ts",
+      "sha256": "567bcf13c4bfa2765ea1c6ebdcd7640a966b562bce4fac7a3e8ce7a69a89d1eb",
+      "size": 15788
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/vitest.worker-replacement.config.ts",
+      "sha256": "9a0bfa6127e96158b786620dfd46af068916de278b76385fba7a064defb0a9e3",
+      "size": 310
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/worker-replacement-process-fixture.ts",
+      "sha256": "5db8907a2e24b2697e422eafb50af638dfdd4a4c13080b63c55c38dca4372bc7",
+      "size": 15537
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/tests/integration/telos-s9/integrated-candidate/worker-replacement-child-app.mjs",
+      "sha256": "71d73a676ef881af3da5d6c6a2e5465b01bb63a0fd166a76d5e04039792a2c08",
+      "size": 11668
+    }
+  ],
+  "readObserverDelta": "Dedicated copies of accepted8b3 fixture/child change only names/paths/type and read-only snapshot omission of unadmitted native read/commands. Actual role/session/workspace/event/task owners are read; descriptive marker explicitly not a native state or empty command list. Existing actual TaskOrchestrator/MCP transport/provider fakes unchanged and no native execution occurs.",
+  "bothSelectedAndAllDiagnosticAppPidsReaped": true,
+  "sameRootsSignedAuthAndStableBrowserOrigin": true,
+  "sourceOwners": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-work-routes.ts",
+      "sha256": "341ca2354c075caf18b79865d8cc520d3ac36284d9b47bfb216f90c651427677",
+      "size": 17315
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-work-store.ts",
+      "sha256": "0aa5ff7956c122b3b898d0366e9eabb662f31c9aefdce9b140b1e1137264f408",
+      "size": 77525
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-work-delegation.ts",
+      "sha256": "dc881b3ccb8335a4becd1c45dda8c612ae056639365193caad0cc09b896156ee",
+      "size": 22889
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-work-role-context.ts",
+      "sha256": "d21fb6e7b3ae8e46f7c4fc2022a6278d7262acf949272893f91271f6590dfdbd",
+      "size": 7856
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/telos-work-role-review.ts",
+      "sha256": "badfdb971c6f67d4dc0f6d7fa6fe2b2dfced3e70590c9cf1f4fa3d8bfe62cacd",
+      "size": 6571
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/server/app.ts",
+      "sha256": "6c03db0e00aa800acc01b65f6ef1c6434134d95aac260a34961585fe40abb4de",
+      "size": 195863
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/hooks/useTelosChatSetup.ts",
+      "sha256": "451a3b563e1c786c29723649b59d1bd43ded09b6489a8231c226c67358c71317",
+      "size": 1252
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosRoleSetup.tsx",
+      "sha256": "dd88d2194a07070ddfc6ca385acea2332bff2f928f9bc7f254ffad80412f82aa",
+      "size": 9095
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/components/TelosChatList.tsx",
+      "sha256": "488b027baa3f9fe8dd8ca6126966004ff2a560b1a8a06a570b685e476e93defe",
+      "size": 6897
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-joined-candidate/frontend/src/lib/telos-chat-rows.ts",
+      "sha256": "c7a31faa96b46c2992baadb43e06f968cdac9e54e19957ceb7372b9afca9ebe8",
+      "size": 3400
+    }
+  ]
+}
