@@ -40,7 +40,7 @@ export function assertOwnedCodexQueueControl(owners: Owners, id: string, auth?: 
     const custody = owners.custody(id, account, binding);
     if (
       !custody ||
-      !(binding.execution.location === 'local' && binding.harness.implementation === 'codex'
+      !(binding.harness.implementation === 'codex'
         ? ordinaryOperatorOwnsConversation(custody.authSessionId, auth.id)
         : custody.authSessionId === auth.id) ||
       (custody.binding && !isDeepStrictEqual(custody.binding, binding))

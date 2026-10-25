@@ -56,18 +56,30 @@ it('retains legacy control behavior for conversations without an explicit bindin
   expect(f.custody).not.toHaveBeenCalled();
 });
 
-it('allows current primary-operator control of retained Local Codex queues across device logins only', () => {
-  const local = { ...binding, execution: { ...binding.execution, location: 'local' as const } };
-  const f = {
-    ...fixture(),
-    runtimeBinding: () => local,
-    custody: () => ({ authSessionId: 'phone-login', binding: local }),
-  };
-  const web = { id: 'web-login', expiresAt: Date.now() + 10000 };
-  expect(() => assertOwnedCodexQueueControl(f, 'session', web)).toThrow();
-  auth.primaryActor = true;
-  expect(() => assertOwnedCodexQueueControl(f, 'session', web)).not.toThrow();
-  expect(() => assertOwnedCodexQueueControl(fixture(), 'session', web)).toThrow();
-  auth.revoked = true;
-  expect(() => assertOwnedCodexQueueControl(f, 'session', web)).toThrow();
-});
+it.each(['local', 'openshell'] as const)(
+  'allows current primary-operator control of retained %s Codex queues across device logins only',
+  (location) => {
+    const local = { ...binding, execution: { ...binding.execution, location } };
+    const f = {
+      ...fixture(),
+      runtimeBinding: () => local,
+      custody: () => ({ authSessionId: 'phone-login', binding: local }),
+    };
+    const web = { id: 'web-login', expiresAt: Date.now() + 10000 };
+    expect(() => assertOwnedCodexQueueControl(f, 'session', web)).toThrow();
+    auth.primaryActor = true;
+    expect(() => assertOwnedCodexQueueControl(f, 'session', web)).not.toThrow();
+    expect(() =>
+      assertOwnedCodexQueueControl(
+        {
+          ...f,
+          runtimeBinding: () => ({ ...local, harness: { implementation: 'responses' as const } }),
+        },
+        'session',
+        web,
+      ),
+    ).toThrow();
+    auth.revoked = true;
+    expect(() => assertOwnedCodexQueueControl(f, 'session', web)).toThrow();
+  },
+);

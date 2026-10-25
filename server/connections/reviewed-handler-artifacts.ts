@@ -1311,7 +1311,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-openshell-codex-entry-owner.ts':
     '3e9bba36d9c3849d7fb6b1bb227637f379b6193d8b376d95c4e54aeed2c01961',
   '../ordinary-openshell-codex-entry.ts':
-    '00968fd9cd14e11c4e28861f52f13e86531616db44614c7d537aaed281bd9a2d',
+    '014bb5b17e2765d60f79682dd164f85a5389a701e239f958b79084b2f113b1bb',
   '../ordinary-openshell-codex-owned-runtime.ts':
     '18f1a32ba8ce3cce3feef7189704d31b84e70bff245c090332d336600543dec1',
   '../ordinary-openshell-codex-route.ts':
@@ -1321,7 +1321,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-registry.ts': 'd91b89354926d0ec7355e73fcae4f41066008d63097ca00077f37022fc554ccf',
   '../approved-url-fetch.ts': '523bbd692e74a9c16b7fd851b6b4b1cdc6be5581e083c04f9549662e11548ee3',
   '../owned-codex-queue-control.ts':
-    '072704806e394d24cf1c5f811738612a5f3cdc0a732a5fa45d13a3ad3457353a',
+    '4b2c01fc4e72ffbb2760e86b6a27f0d4dcd1355090cbc3725c542b55d524f6f8',
   '../public-web-fetch.ts': '781732b498e47ea120337d98ca96b9c127e78ea93dbb9e0ae6545a858ffe7dac',
   '../ordinary-codex-agent-context.ts':
     'fcf7bc0b5c5942913671ee9c0212b7122d0cdf769ce49806a1047f14158a841c',
@@ -1382,7 +1382,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/repository-chat-preparation.ts':
     'ac1c621aa445c844ecc18e04c106f3cd2e414a8ca4f9115183e6bc32e6d42c98',
   '../ordinary-command-historical-ack.ts':
-    'eac764b9c786250a8e911a9e9b4d0f1d2ed343286d718152590672a98dd6ee2a',
+    'e017fc710ad7af4bf0440a3048d04c16f06c0f3896953693f2bdbb1061b2cb10',
   '../../frontend/src/components/RepositoryChatPicker.css':
     '900f02aff92df6eb1ad5ad7e3abfb56ae268a3dc20f28798d5170a8c61044928',
   '../../frontend/src/components/AgentSettingsPicker.css':
@@ -2409,7 +2409,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/openshell-secret-vault.test.ts':
     '6430ea04caef479332891e7ecd2865418eac59bae975c5d5ab42cbf2f47bcc48',
   '../__tests__/ordinary-openshell-codex-owned-runtime.test.ts':
-    'dd66dd3d8bc1b08d27655db50211c43d4f036bf20095fa50bd76c43d4ef12c13',
+    '976a0ceff0ea40079be7a389581f9564bd4b03f575e9ab27af1b9569f8c604c6',
   '../__tests__/secret-relay-artifacts.test.ts':
     '5d5cc05b95e5db78e25418520c16a13b7b68d137d002ea88d2cb468ddf2246e7',
   '../__tests__/secret-relay-browser-driver.test.ts':

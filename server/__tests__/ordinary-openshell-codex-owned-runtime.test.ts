@@ -620,6 +620,17 @@ it('acknowledges a retained consumed OpenShell command after catalog retirement 
   expect(() =>
     assertOrdinaryHistoricalAcknowledgement(f.events, 'session', 'foreign-operator', wire, false),
   ).toThrow();
+  const actor = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
+  if (!actor) throw Error('Fixture login failed');
+  logins.push(actor);
+  expect(assertOrdinaryHistoricalAcknowledgement(f.events, 'session', actor.id, wire, false)).toBe(
+    true,
+  );
+  revokeAuthSession(actor);
+  expect(() =>
+    assertOrdinaryHistoricalAcknowledgement(f.events, 'session', actor.id, wire, false),
+  ).toThrow();
+
   expect(() =>
     assertOrdinaryHistoricalAcknowledgement(
       f.events,

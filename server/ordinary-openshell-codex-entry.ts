@@ -109,7 +109,7 @@ export async function sendOwnedOpenShellCodexCommand(input: {
     throw unavailable();
   resolveOwnedTelosWorkCommandScope(input.sessionId);
   // A second device authorizes only this explicit command. Keep the native
-  // attachment and creating login intact, and cancel queued work on logout.
+  // attachment and creating login intact, and cancel pending admission on logout.
   const operation = captureAgentLibraryOperation(input.operatorConnectionId);
   try {
     const signal = input.signal
