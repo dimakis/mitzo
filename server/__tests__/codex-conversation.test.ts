@@ -7231,3 +7231,38 @@ it('invokes the genuine retained prepared admission despite its poisoned origina
   expect(f.c.queue().some((c) => c.id === 'counterfeit-child')).toBe(false);
   expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
 });
+
+it('rechecks a host readiness receipt after the idle transport probe before native enqueue', async () => {
+  const { c, rpc, requests } = await setup();
+  const original = rpc.request.getMockImplementation()!;
+  let release!: () => void;
+  let entered!: () => void;
+  const blocked = new Promise<void>((done) => {
+    release = done;
+  });
+  const probing = new Promise<void>((done) => {
+    entered = done;
+  });
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'config/read') {
+      entered();
+      await blocked;
+    }
+    return original(method, params);
+  });
+  let current = true;
+  const admission = c.admitExplicitSend(
+    { id: 'private-ready', prompt: 'Safe readiness only' },
+    undefined,
+    () => {
+      if (!current) throw Error('Private setup expired or revoked');
+    },
+  );
+  const rejected = expect(admission).rejects.toThrow('Private setup expired or revoked');
+  await probing;
+  current = false;
+  release();
+  await rejected;
+  expect(c.queue()).toEqual([]);
+  expect(requests.filter(({ method }) => method === 'turn/start')).toEqual([]);
+});

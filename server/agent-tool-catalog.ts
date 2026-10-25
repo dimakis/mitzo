@@ -27,6 +27,7 @@ const reads = new Set([
   'ListConnections',
   'GetConnectionGuide',
   'GetConnectionSetup',
+  'GetSecretRelay',
   'ListRepositories',
   'GetRepositoryChatPreparation',
   'SymposiumReadProfiles',

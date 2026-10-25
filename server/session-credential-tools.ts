@@ -112,7 +112,8 @@ export function sessionCredentialTools(
       !(
         (name === 'ConnectionRequest' ||
           name === 'HomeAssistantDashboard' ||
-          name === 'ConnectionWebSocket') &&
+          name === 'ConnectionWebSocket' ||
+          name === 'ApplySecretRelay') &&
         effectivePermissionMode(session) === 'ask' &&
         method &&
         !['GET', 'HEAD'].includes(method)
@@ -133,7 +134,10 @@ export function sessionCredentialTools(
           await assertRuntimeCurrent?.();
           const current = owner();
           if (!current || !credentialAllowed(name))
-            return Promise.resolve({ behavior: 'deny', message: 'Session unavailable' });
+            return Promise.resolve({
+              behavior: 'deny',
+              message: 'Session unavailable',
+            });
           const decision = await buildPermissionHandler(current.clientId, registry)(
             toolPrefix + name,
             input,
@@ -166,6 +170,16 @@ export function sessionCredentialTools(
         (name === 'ConnectionWebSocket' || name === 'HomeAssistantDashboard')
       )
         return unavailable();
+      if (
+        assertRuntimeCurrent &&
+        (name === 'PrepareSecretRelay' || name === 'PrepareConnectionSetup') &&
+        !session.ordinaryRuntimeOwner?.notifyCredentialSetup
+      )
+        return {
+          content:
+            'Private setup continuation is unavailable for this runtime. Use a supported originating chat before entering credentials.',
+          isError: true,
+        };
       if (!agentToolAllowed(session, name))
         return {
           content: 'Tool is not selected by this session’s published agent profile',
@@ -188,7 +202,7 @@ export function sessionCredentialTools(
         );
       if (!parsed.success) return { content: 'Invalid connection tool input', isError: true };
       const method =
-        name === 'ConnectionWebSocket'
+        name === 'ConnectionWebSocket' || name === 'ApplySecretRelay'
           ? 'POST'
           : 'operation' in parsed.data
             ? parsed.data.operation === 'save'

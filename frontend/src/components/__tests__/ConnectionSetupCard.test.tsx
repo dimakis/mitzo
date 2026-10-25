@@ -83,3 +83,39 @@ it('keeps the secure setup action visible when tool operations are collapsed', (
   );
   expect(screen.getByRole('link', { name: 'Add Home Assistant key' })).toBeTruthy();
 });
+
+it('shows a private relay request from the owning chat and rejects substituted links', () => {
+  const relay = {
+    id: 'relay-a',
+    sessionId: 'chat-a',
+    status: 'pending',
+    expiresAt: Date.now() + 60000,
+    setupUrl: '/connections/secrets/relay-a',
+    label: 'MQTT password',
+  };
+  const request = {
+    ...block,
+    toolName: 'PrepareSecretRelay',
+    toolResult: JSON.stringify({ relay }),
+  };
+  const view = render(
+    <MemoryRouter>
+      <ConnectionSetupCard block={request} sessionId="chat-a" />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'Add password or token' }).getAttribute('href')).toBe(
+    relay.setupUrl,
+  );
+  view.rerender(
+    <MemoryRouter>
+      <ConnectionSetupCard
+        block={{
+          ...request,
+          toolResult: JSON.stringify({ relay: { ...relay, setupUrl: 'https://evil.test' } }),
+        }}
+        sessionId="chat-a"
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.queryByRole('link')).toBeNull();
+});

@@ -49,6 +49,7 @@ it('replays durable readiness after startup and stops retrying after dispatch su
     'origin-client',
     expect.stringContaining('context-only'),
     'connection-setup:setup-a',
+    expect.any(Function),
   );
   await vi.advanceTimersByTimeAsync(6000);
   expect(f.send).toHaveBeenCalledOnce();

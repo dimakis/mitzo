@@ -64,6 +64,7 @@ import {
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from './owned-local-codex-native-policy.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
+import type { CredentialSetupNotification } from './credential-setup-continuation.js';
 
 const unavailable = () => new Error('Owned local Codex runtime unavailable');
 function strictSync(result: unknown): void {
@@ -93,6 +94,7 @@ export interface OrdinaryLocalCodexOwnedDispatch<K extends LocalWorkspaceKind = 
   resume?: boolean;
   preparationSignal?: AbortSignal;
   agentMessageId?: string;
+  assertCredentialSetupCurrent?: () => void;
 }
 interface Owners<K extends LocalWorkspaceKind = 'repository'> {
   enabled: boolean;
@@ -1096,10 +1098,12 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
     raw: unknown,
     preparationSignal?: AbortSignal,
     peer?: { messageId: string; assertCurrent(): void },
+    assertCredentialSetupCurrent?: () => void,
   ): Promise<{ dispatched: boolean }> {
     const assertAdmissionCurrent = () => {
       preparationSignal?.throwIfAborted();
       peer?.assertCurrent();
+      assertCredentialSetupCurrent?.();
       this.assertCurrent();
     };
     try {
@@ -1268,6 +1272,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
               commandId,
               preparationSignal,
               ...(peer ? { agentMessageId: peer.messageId } : {}),
+              assertCredentialSetupCurrent,
             });
             assertAdmissionCurrent();
           },
@@ -1277,6 +1282,53 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       // A rejected future choice must not dispose the original conversation.
       throw unavailable();
     }
+  }
+
+  /** Host-only readiness uses the latest consumed settings and the ordinary
+   * admission coordinator, without claiming peer-message provenance. */
+  async notifyCredentialSetup(notice: CredentialSetupNotification): Promise<boolean> {
+    notice.assertCurrent();
+    this.assertCurrent();
+    const events = this.owners.eventStore;
+    const id = this.#reservation.conversationId;
+    const saved = events.getOrdinaryLocalCommandAdmission(notice.messageId);
+    if (saved && saved.state !== 'consumed') return false;
+    const current = saved ?? events.getLatestOrdinaryCommandAdmission(id);
+    if (
+      current?.state !== 'consumed' ||
+      !this.#expected ||
+      current.binding.execution.location !== 'local' ||
+      current.binding.harness.implementation !== 'codex' ||
+      events.getSession(id)?.mode !== current.selection.permission.mode
+    )
+      throw unavailable();
+    const catalog = new OrdinaryLocalCodexCapabilityCatalog(
+      loadAccountProfiles(),
+      this.#runtime.target(),
+      'ordinary',
+    );
+    const result = await this.admitContinuation(
+      {
+        clientMsgId: notice.messageId,
+        capabilityRevision: catalog.inventory().capabilityRevision,
+        runtime: {
+          account: current.binding.account,
+          harness: 'codex',
+          targetId: current.binding.execution.targetId,
+          mode: current.selection.permission.mode,
+        },
+        selection: current.selection,
+        payload: { text: notice.prompt },
+      },
+      notice.signal,
+      undefined,
+      notice.assertCurrent,
+    );
+    notice.assertCurrent();
+    return (
+      result.dispatched ||
+      events.getOrdinaryLocalCommandAdmission(notice.messageId)?.state === 'consumed'
+    );
   }
 
   /** A separately approved native agent tool may enqueue exactly its retained
