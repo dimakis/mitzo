@@ -388,9 +388,10 @@ export async function captureLocalRepositoryPreparationObjects(
           // Optional accelerators/markers never enter the private Git context.
           if (
             directory.name === 'pack' &&
-            new RegExp(`^pack-[a-f0-9]{${oidLength}}\\.(rev|bitmap|keep|promisor)$`).test(
-              entry.name,
-            )
+            (entry.name === 'multi-pack-index' ||
+              new RegExp(`^pack-[a-f0-9]{${oidLength}}\\.(rev|bitmap|keep|promisor|mtimes)$`).test(
+                entry.name,
+              ))
           )
             continue;
           const valid =

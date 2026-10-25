@@ -146,7 +146,7 @@ def run(request):
                             os.mkdir(name,0o700,dir_fd=target)
                             destination=os.open(name,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=target)
                         for child in children:
-                            if name=='pack' and re.fullmatch('pack-[a-f0-9]{'+str(oid_length)+'}\.(rev|bitmap|keep|promisor)',child): continue
+                            if name=='pack' and (child=='multi-pack-index' or re.fullmatch('pack-[a-f0-9]{'+str(oid_length)+'}\.(rev|bitmap|keep|promisor|mtimes)',child)): continue
                             expression='pack-[a-f0-9]{'+str(oid_length)+'}\.(pack|idx)' if name=='pack' else '[a-f0-9]{'+str(oid_length-2)+'}'
                             if not re.fullmatch(expression,child): raise RuntimeError()
                             allowed(os.path.join(objects_path,name,child))
