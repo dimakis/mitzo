@@ -119,6 +119,7 @@ export async function publicationJourney(
     // External remote main changes while the real Once is pending. The real
     // adapter must inspect again and admit the newly observed normal-rules main.
     external.state.currentMain = advancedMain;
+    external.state.base = advancedMain;
     await app.record('fake-external-main-advanced-during-actual-publication-once', {
       advancedMain,
     });
