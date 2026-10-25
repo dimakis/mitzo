@@ -885,7 +885,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-codex-first-command.ts':
     '9e383cf9c96a3cb8ea5bfe732c7ca7c4070cc52c051d80d9d3246fa718a28a0c',
   '../ordinary-local-codex-entry.ts':
-    'da3b2d31fc52159c1366bec778f1c062d9591b7a641525f9b93d0fa4638b1c39',
+    'c16fd87efcca0f0d2696364e2c6c33ed496bd713d34364e78d8e220b1ffa1bda',
   '../ordinary-local-codex-metadata.ts':
     '0ccfe315aa4bd8b5360608a3a588c3c0545c3fb7a34b3673c9db0156c610283a',
   '../ordinary-repository-startup.ts':

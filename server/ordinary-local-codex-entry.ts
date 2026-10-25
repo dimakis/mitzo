@@ -147,7 +147,11 @@ function inventory(
       target: configured.target,
       deployment: 'ordinary',
     });
-    if (retainedBinding && continuation) {
+    if (
+      retainedBinding &&
+      continuation &&
+      retainedBinding.execution.targetRevision !== configured.target.targetRevision
+    ) {
       const meta = eventStore.getSession(continuation.conversationId);
       if (
         !meta?.accountBinding ||
