@@ -66,11 +66,14 @@ vi.mock(
     return {
       ...actual,
       GitHubCliHostPublisher: class extends actual.GitHubCliHostPublisher {
-        constructor() {
-          super((...args) => {
-            if (!effects.repository) throw Error('Private GitHub effect not installed');
-            return effects.repository(...args);
-          });
+        constructor(run?: ConstructorParameters<typeof actual.GitHubCliHostPublisher>[0]) {
+          super(
+            run ??
+              ((...args) => {
+                if (!effects.repository) throw Error('Private GitHub effect not installed');
+                return effects.repository(...args);
+              }),
+          );
         }
       },
     };
