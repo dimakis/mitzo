@@ -296,7 +296,9 @@ jobs:
   ordinary-journey:
     name: Telos canonical ordinary journey (macOS)
     runs-on: macos-26
-    timeout-minutes: 20
+    # Add two mandatory 120s journeys plus their process/setup allowance.
+    # Individual acceptance, first-response and reader deadlines stay unchanged.
+    timeout-minutes: 25
     permissions:
       contents: read
     env:
