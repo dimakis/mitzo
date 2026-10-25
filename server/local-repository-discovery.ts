@@ -325,34 +325,69 @@ async function context(request: ReadRequest) {
         signal: request.signal,
         deadline,
       });
-  for (const root of [...roots]) {
-    try {
-      await readAccess.pinRoot(root);
-    } catch (error) {
-      request.signal?.throwIfAborted();
-      if (error instanceof LocalRepositoryGitInspectionError && error.kind === 'limit') throw error;
-      roots.splice(roots.indexOf(root), 1);
-      diagnostics.push({ path: '', reason: 'unavailable-access-root' });
-    }
-  }
+  const requestedSource =
+    'explicitPath' in request ? request.explicitPath : 'path' in request ? request.path : undefined;
+  // Native capture must happen before pinning roots, but inside the explicit
+  // discovery result classifier. Preserve the original reader/owner and join
+  // one initialization; failures never enable an ambient fallback.
+  let initialization: Promise<void> | undefined;
+  const initialize = () =>
+    (initialization ??= (async () => {
+      if (nativeReader?.captureRepositoryObservation && typeof requestedSource === 'string') {
+        await canonical(requestedSource);
+        await readAccess.captureRepositoryObservation({
+          mode: 'explicitPath' in request ? 'discovery' : 'orientation',
+          sourcePath: requestedSource,
+          readableRoots: hostWide ? ['/'] : roots,
+          additionalDeniedRoots: suppliedDenials,
+        });
+      }
+      for (const root of [...roots]) {
+        try {
+          await readAccess.pinRoot(root);
+        } catch (error) {
+          request.signal?.throwIfAborted();
+          if (error instanceof LocalRepositoryGitInspectionError && error.kind === 'limit')
+            throw error;
+          roots.splice(roots.indexOf(root), 1);
+          diagnostics.push({ path: '', reason: 'unavailable-access-root' });
+        }
+      }
+    })());
+  if (!nativeReader?.captureRepositoryObservation || typeof requestedSource !== 'string')
+    await initialize();
   const inspected = new Map<string, LocalRepositoryGitMetadata>();
   const metadata = async (cwd: string) => {
     if (!inspected.has(cwd)) {
-      inspected.set(
-        cwd,
-        await inspectLocalRepositoryGitMetadata({
-          path: cwd,
-          assertReadable: async (path) => {
-            if (!isAbsolute(path) || !allowed(path))
-              throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
-            await authorize(path);
-          },
-          signal: request.signal,
-          readAccess,
-          maxEntries: limits.maxGitMetadataEntries,
-          timeoutMs: Math.max(1, deadline - Date.now()),
-        }),
-      );
+      // Orientation consumes reference metadata, never object/status evidence.
+      // Preserve source indirection refusal without recursively enumerating
+      // every unconsumed Git object fanout directory.
+      const qualified = await inspectLocalRepositoryGitMetadata({
+        mode: 'head',
+        path: cwd,
+        assertReadable: async (path) => {
+          if (!isAbsolute(path) || !allowed(path))
+            throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+          await authorize(path);
+        },
+        signal: request.signal,
+        readAccess,
+        maxEntries: limits.maxGitMetadataEntries,
+        timeoutMs: Math.max(1, deadline - Date.now()),
+      });
+      for (const name of ['objects/info/alternates', 'objects/info/http-alternates']) {
+        try {
+          if (
+            (await readAccess.read(join(qualified.commonDirectory, name), 65536))
+              .toString('utf8')
+              .trim()
+          )
+            throw new LocalRepositoryGitInspectionError('unsafe', 'alternate-storage-unavailable');
+        } catch (error) {
+          if (errorCode(error) !== 'ENOENT') throw error;
+        }
+      }
+      inspected.set(cwd, qualified);
     }
     return inspected.get(cwd)!;
   };
@@ -366,6 +401,7 @@ async function context(request: ReadRequest) {
     check,
     canonical,
     readAccess,
+    initialize,
     metadata,
     deniedContent,
     authorize,
@@ -391,6 +427,7 @@ export async function discoverLocalRepository(
     if (!result.limitReasons.includes(reason)) result.limitReasons.push(reason);
   };
   const candidate = async (path: string) => {
+    await ctx.initialize();
     await ctx.readAccess.pinRoot(path);
     const metadata = await ctx.metadata(path);
     await readLocalRepositoryGitFacts(metadata, {
@@ -592,6 +629,7 @@ export async function inspectLocalRepository(
   request: ReadRequest & { path: string },
 ): Promise<LocalRepositoryInspection> {
   const ctx = await context(request);
+  await ctx.initialize();
   const cwd = await ctx.canonical(request.path);
   await ctx.readAccess.pinRoot(cwd);
   const metadata = await ctx.metadata(cwd);

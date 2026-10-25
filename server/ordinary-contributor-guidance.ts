@@ -2,8 +2,18 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { AccountBinding } from '@mitzo/protocol';
 
-interface GuidanceReader {
+export interface GuidanceReader {
+  getOrdinaryContributorContextEvents?(
+    sessionId: string,
+  ): Array<{ type: string; payload: Record<string, unknown> }>;
   getSessionEvents(sessionId: string): Array<{ type: string; payload: Record<string, unknown> }>;
+}
+/** Production stores select only relevant durable records in SQLite. Small
+ * in-memory owners keep the same full duplicate/conflict validation. */
+export function readOrdinaryContributorContextEvents(store: GuidanceReader, sessionId: string) {
+  return store.getOrdinaryContributorContextEvents
+    ? store.getOrdinaryContributorContextEvents(sessionId)
+    : store.getSessionEvents(sessionId);
 }
 interface GuidanceWriter extends GuidanceReader {
   append(sessionId: string, type: string, payload: Record<string, unknown>): number;
@@ -41,12 +51,9 @@ export function resolveOrdinaryContributorGuidance(
 ): string | undefined {
   if (requested !== undefined && Buffer.byteLength(requested, 'utf8') > 100_000)
     throw new Error('Contributor guidance exceeds the supported size');
-  const records = sessionId
-    ? store.getSessionEvents(sessionId).filter((event) => event.type === 'contributor_guidance')
-    : [];
-  const roleRecords = sessionId
-    ? store.getSessionEvents(sessionId).filter((event) => event.type === 'telos_work_role_context')
-    : [];
+  const events = sessionId ? readOrdinaryContributorContextEvents(store, sessionId) : [];
+  const records = events.filter((event) => event.type === 'contributor_guidance');
+  const roleRecords = events.filter((event) => event.type === 'telos_work_role_context');
   if (
     roleRecords.length &&
     (!records.length ||
@@ -81,7 +88,7 @@ export function saveOrdinaryContributorGuidance(
   guidance: string,
 ): void {
   if (!binding) throw new Error('Contributor guidance requires an explicit account binding');
-  const events = store.getSessionEvents(sessionId);
+  const events = readOrdinaryContributorContextEvents(store, sessionId);
   if (
     events.some(
       (event) => event.type === 'telos_work_role_context' && event.payload.guidance !== guidance,
@@ -98,7 +105,11 @@ export function saveOrdinaryContributorGuidance(
     binding,
     guidance,
   );
-  if (store.getSessionEvents(sessionId).some((event) => event.type === 'contributor_guidance'))
+  if (
+    readOrdinaryContributorContextEvents(store, sessionId).some(
+      (event) => event.type === 'contributor_guidance',
+    )
+  )
     return;
   store.append(
     sessionId,

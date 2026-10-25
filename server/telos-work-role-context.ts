@@ -7,6 +7,8 @@ import type { AccountBinding } from '@mitzo/protocol';
 import {
   saveOrdinaryContributorGuidance,
   resolveOrdinaryContributorGuidance,
+  readOrdinaryContributorContextEvents,
+  type GuidanceReader,
 } from './ordinary-contributor-guidance.js';
 
 export const TelosWorkRoleContextSelectionSchema = SharedRoleContextSchema.superRefine(
@@ -19,9 +21,7 @@ export const TelosWorkRoleContextSelectionSchema = SharedRoleContextSchema.super
   },
 );
 export type { TelosWorkRoleContextSelection } from '@mitzo/protocol';
-interface Reader {
-  getSessionEvents(id: string): Array<{ type: string; payload: Record<string, unknown> }>;
-}
+type Reader = GuidanceReader;
 interface Writer extends Reader {
   append(id: string, type: string, payload: Record<string, unknown>): number;
 }
@@ -66,9 +66,9 @@ function readRoleSelection(
   sessionId: string,
   binding: AccountBinding | undefined,
 ): TelosWorkRoleContextSelection | undefined {
-  const events = store
-    .getSessionEvents(sessionId)
-    .filter((event) => event.type === 'telos_work_role_context');
+  const events = readOrdinaryContributorContextEvents(store, sessionId).filter(
+    (event) => event.type === 'telos_work_role_context',
+  );
   if (!events.length) return undefined;
   if (!binding)
     throw new Error('Retained Telos role context requires its original account binding');

@@ -1,11 +1,27 @@
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import {
+  captureRepositoryObservation,
+  verifyRepositoryObservation,
+  freezeRepositoryObservationPlan,
+  type RepositoryObservationCapture,
+  type RepositoryObservationInput,
+} from './native-repository-observation.js';
+import {
+  preparationObjectStoreCommand,
+  parsePreparationObjectStoreCapture,
+  type PreparationObjectStoreCapture,
+} from './native-repository-object-store.js';
+import { localRepositoryReadDirectoryExclusionNames } from './local-repository-read-exclusions.js';
+import { mkdtemp, realpath, rm, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { NativeBaseReadScope } from './codex-conversation.js';
 import type { PreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
 import type { LocalRepositoryReadAuthority } from './local-repository-read-access.js';
 import { AuthoritySnapshot } from './sandbox-authority.js';
-import { executeSandboxedCommand } from './sandboxed-command.js';
+import {
+  executeSandboxedCommand,
+  executePrivateRepositoryObservation,
+} from './sandboxed-command.js';
 import {
   captureNativeReadAnchor,
   executeNativeAnchoredReadOperation,
@@ -34,6 +50,23 @@ type NativeReaderPathAuthorization = Readonly<{
 // Provenance only, never a retained authorization result. The registered entry
 // starts with the full fresh original-owner fence before any path effect/await.
 const nativePathAuthorizations = new WeakMap<object, NativeReaderPathAuthorization>();
+const repositoryBaseCaptures = new WeakMap<object, object>();
+const nativeObservationReaders = new WeakMap<
+  object,
+  (capture: Readonly<RepositoryObservationCapture>, path: string) => void
+>();
+/** Parsing immutable captured data causes no filesystem effect. Only the exact
+ * factory reader can supply this facet for its own capture. Full owner checks
+ * remain at capture, physical verification and outward use. */
+export function captureNativeObservationParser(
+  reader: LocalRepositoryReadAuthority,
+  capture: Readonly<RepositoryObservationCapture>,
+) {
+  const parse = nativeObservationReaders.get(reader);
+  if (!parse || !captureNativeReaderPathAuthorization(reader)) return;
+  parse(capture, capture.plan.sourcePath);
+  return (path: string) => parse(capture, path);
+}
 export function captureNativeReaderPathAuthorization(
   reader: LocalRepositoryReadAuthority,
 ): NativeReaderPathAuthorization | undefined {
@@ -129,11 +162,18 @@ export async function captureLocalRepositoryReader(
         current();
         request.signal.throwIfAborted();
         custody.verify();
-        const result = await executeSandboxedCommand({
+        const input = JSON.parse(request.requestJson);
+        const observation = [
+          'CaptureRepositoryObservation',
+          'VerifyRepositoryObservation',
+        ].includes(input.operation);
+        const run = observation ? executePrivateRepositoryObservation : executeSandboxedCommand;
+        const result = await run({
+          requestJson: request.requestJson,
           command: request.command,
           cwd: directory,
           writableRoots: [directory],
-          deniedRoots: [...exclusions],
+          deniedRoots: observation ? [...input.repositoryPlan.deniedRoots] : [...exclusions],
           // Omission is justified by this original immutable '/' scope ONLY.
           env: { PATH: '/usr/bin:/bin' },
           signal: request.signal,
@@ -175,7 +215,116 @@ export async function captureLocalRepositoryReader(
       scratch: NativePreparationObservationScratch;
     }>
   >();
+  const repositoryCaptures = new WeakSet<object>();
+  const objectStores = new WeakMap<object, Parameters<typeof preparationObjectStoreCommand>[0]>();
   const reader: LocalRepositoryReadAuthority & { dispose(): Promise<void> } = {
+    capturePreparationObjectStore: async (source, objectFormat) => {
+      await authorize(source.rootPath);
+      await revalidate();
+      current();
+      custody.verify();
+      const rootPath = await mkdtemp(join(directory, 'objects-'));
+      const info = await lstat(rootPath, { bigint: true });
+      custody.capture(rootPath);
+      custody.verify();
+      current();
+      const target = Object.freeze({
+        rootPath,
+        identity: Object.freeze({ dev: String(info.dev), ino: String(info.ino) }),
+      });
+      const plan = {
+        version: 'preparation-object-store-v1',
+        source,
+        target,
+        objectFormat,
+        deniedRoots,
+      };
+      const input = { operation: 'capture', plan };
+      const result = await transport(deniedRoots)({
+        command: preparationObjectStoreCommand(input),
+        requestJson: JSON.stringify({ operation: 'CapturePreparationObjectStore' }),
+        signal,
+        timeoutMs: Math.max(1, Math.min(30000, deadline - Date.now())),
+        maxOutputBytes: 4 * 1024 * 1024,
+      });
+      current();
+      if (result.isError) throw unavailable();
+      const captured = parsePreparationObjectStoreCapture(JSON.parse(result.stdout), target);
+      objectStores.set(captured, plan);
+      return captured;
+    },
+    verifyPreparationObjectStore: async (captured: Readonly<PreparationObjectStoreCapture>) => {
+      current();
+      const plan = objectStores.get(captured);
+      if (!plan) throw unavailable();
+      const input = { operation: 'verify', plan, digest: captured.digest };
+      const result = await transport(deniedRoots)({
+        command: preparationObjectStoreCommand(input),
+        requestJson: JSON.stringify({ operation: 'VerifyPreparationObjectStore' }),
+        signal,
+        timeoutMs: Math.max(1, Math.min(30000, deadline - Date.now())),
+        maxOutputBytes: 32768,
+      });
+      if (result.isError) throw unavailable();
+      const value = JSON.parse(result.stdout);
+      if (value.verified !== true || Object.keys(value).length !== 1) throw unavailable();
+      current();
+    },
+    captureRepositoryObservation: async (input: RepositoryObservationInput) => {
+      current();
+      await authorize(input.sourcePath);
+      if (input.taskRoot) await authorize(input.taskRoot);
+      const plan = freezeRepositoryObservationPlan({
+        mode: input.mode,
+        sourcePath: input.sourcePath,
+        ...(input.taskRoot ? { taskRoot: input.taskRoot } : {}),
+        ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        version: 'repository-read-v1',
+        readableRoots: input.readableRoots ?? ['/'],
+        deniedRoots: [...new Set([...deniedRoots, ...(input.additionalDeniedRoots ?? [])])],
+        excludedNames: [...localRepositoryReadDirectoryExclusionNames],
+      });
+      const captured = await captureRepositoryObservation(
+        plan,
+        signal,
+        Math.max(1, Math.min(30000, deadline - Date.now())),
+        transport(deniedRoots),
+      );
+      current();
+      repositoryCaptures.add(captured);
+      if (plan.mode === 'base') repositoryBaseCaptures.set(captured, scope!);
+      return captured;
+    },
+    verifyRepositoryBaseObservation: async (captured) => {
+      current();
+      if (
+        repositoryBaseCaptures.get(captured) !== scope ||
+        captured.plan.mode !== 'base' ||
+        JSON.stringify(captured.plan.deniedRoots) !== JSON.stringify(deniedRoots) ||
+        JSON.stringify(captured.plan.readableRoots) !== JSON.stringify(['/'])
+      )
+        throw unavailable();
+      await verifyRepositoryObservation(
+        captured.plan,
+        captured.digest,
+        signal,
+        Math.max(1, Math.min(30000, deadline - Date.now())),
+        transport(deniedRoots),
+      );
+      current();
+    },
+    verifyRepositoryObservation: async (captured) => {
+      current();
+      if (!repositoryCaptures.has(captured)) throw unavailable();
+      await verifyRepositoryObservation(
+        captured.plan,
+        captured.digest,
+        signal,
+        Math.max(1, Math.min(30000, deadline - Date.now())),
+        transport(deniedRoots),
+      );
+      current();
+    },
     deniedRoots,
     signal,
     deadline,
@@ -359,5 +508,17 @@ export async function captureLocalRepositoryReader(
       assertCurrentSync: current,
     }),
   );
+  nativeObservationReaders.set(reader, (capture, path) => {
+    signal.throwIfAborted();
+    if (
+      disposed ||
+      Date.now() >= deadline ||
+      !repositoryCaptures.has(capture) ||
+      !canonicalPath(path) ||
+      !capture.plan.readableRoots.some((root) => contains(root, path)) ||
+      capture.plan.deniedRoots.some((root) => contains(root, path))
+    )
+      throw unavailable();
+  });
   return reader;
 }

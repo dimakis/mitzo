@@ -12,7 +12,12 @@ import {
   type SandboxRuntimeConfig,
 } from '@anthropic-ai/sandbox-runtime';
 import { AuthoritySnapshot, type SerializedAuthority } from './sandbox-authority.js';
-import { privateNativeFileHelperCommand } from './native-file-operation.js';
+import {
+  privateNativeFileHelperCommand,
+  privateNativeFileProgramCommand,
+  nativeFileHelperProgram,
+  projectPrivateNativeFileHelperRequest,
+} from './native-file-operation.js';
 
 export interface SandboxWorkerPayload {
   cwd: string;
@@ -27,6 +32,7 @@ export interface SandboxWorkerPayload {
   networkAccess?: 'approved-command';
   /** Fixed private helper only, never arbitrary Bash's authority bypass. */
   privateNativeFileRequestJson?: string;
+  privateNativeFileProgram?: { programPath: string; requestPath: string };
   privateRepositoryCheckoutJson?: string;
 }
 
@@ -85,7 +91,15 @@ export async function runSandboxedWorker(
     payload.privateNativeFileRequestJson !== undefined &&
     (payload.filesystemOnly ||
       payload.networkAccess ||
-      payload.command !== privateNativeFileHelperCommand(payload.privateNativeFileRequestJson))
+      (payload.privateNativeFileProgram
+        ? payload.command !==
+            privateNativeFileProgramCommand(
+              payload.privateNativeFileProgram.programPath,
+              payload.privateNativeFileProgram.requestPath,
+            ) ||
+          projectPrivateNativeFileHelperRequest(payload.privateNativeFileRequestJson) !==
+            payload.privateNativeFileRequestJson
+        : payload.command !== privateNativeFileHelperCommand(payload.privateNativeFileRequestJson)))
   )
     throw Error('Invalid private native file helper');
   if (
@@ -101,6 +115,25 @@ export async function runSandboxedWorker(
   if (payload.filesystemOnly && (dependencies.platform ?? process.platform) !== 'darwin')
     throw new Error('Filesystem-only SDK isolation requires macOS');
   const authority = AuthoritySnapshot.restore(payload.authority);
+  if (payload.privateNativeFileProgram) {
+    const { programPath, requestPath } = payload.privateNativeFileProgram;
+    const root = dirname(process.env.HOME ?? '');
+    if (
+      !payload.privateNativeFileRequestJson ||
+      dirname(programPath) !== root ||
+      dirname(requestPath) !== root ||
+      programPath !== join(root, 'helper.py') ||
+      requestPath !== join(root, 'request.json')
+    )
+      throw Error('Invalid private native helper program');
+    authority.verify();
+    if (
+      readFileSync(programPath, 'utf8') !== nativeFileHelperProgram ||
+      readFileSync(requestPath, 'utf8') !== payload.privateNativeFileRequestJson
+    )
+      throw Error('Invalid private native helper program');
+  }
+
   const config = SandboxRuntimeConfigSchema.parse(payload.config);
   const dependenciesCheck = manager.checkDependencies();
   if (dependenciesCheck.errors.length || dependenciesCheck.warnings.length)

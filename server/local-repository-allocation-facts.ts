@@ -57,6 +57,13 @@ export async function captureLocalRepositoryAllocationFacts(
     if (!validPath(sourcePath) || !validPath(taskRoot) || contains(sourcePath, taskRoot))
       throw unavailable();
     const access = new LocalRepositoryReadAccess(authority); // Retain, never spread the owner.
+    if (authority.captureRepositoryObservation)
+      await access.captureRepositoryObservation({
+        mode: 'allocation',
+        sourcePath,
+        taskRoot,
+        workspaceId,
+      });
     // Independent original roots use the same current owner and existing
     // transport. Join BOTH operations on refusal before disposal/publication.
     const anchors = await Promise.allSettled([

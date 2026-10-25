@@ -1,6 +1,6 @@
 import { lstatSync, realpathSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
-import { basename, isAbsolute, join, relative } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import type { RepositoryTaskCheckout } from './repository-task-checkout.js';
 import type { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import { inspectLocalRepositoryGitMetadata } from './local-repository-git-inspection.js';
@@ -37,6 +37,16 @@ export async function assertPreparedRepositoryTaskTopology(
     linked.directory !== join(source.commonDirectory, 'worktrees', basename(task.directory))
   )
     throw unavailable();
+  const taskName = /^repo-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/.exec(
+    basename(task.directory),
+  );
+  if (access.canCaptureRepositoryObservation && taskName)
+    await access.captureRepositoryObservation({
+      mode: 'topology',
+      sourcePath: source.path,
+      taskRoot: dirname(task.directory),
+      workspaceId: taskName[1],
+    });
   const roots = [
     [task.directory, task.root],
     [source.path, source.root],
@@ -62,7 +72,10 @@ export async function assertPreparedRepositoryTaskTopology(
     metadata.commonDirectory !== source.commonDirectory
   )
     throw unavailable();
-  await access.preloadDirectories(roots.map(([path]) => path));
+  // The topology snapshot deliberately contains only the task's .git marker.
+  // Its fixed metadata paths are already captured; never request a whole task listing.
+  if (access.repositoryObservationMode !== 'topology')
+    await access.preloadDirectories(roots.map(([path]) => path));
   const pointer = join(task.directory, '.git');
   const entry = await access.stat(pointer);
   if (entry?.kind !== 'file' || entry.nlink !== 1 || !equal(entry.identity, task.git))

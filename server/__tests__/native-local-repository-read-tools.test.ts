@@ -41,7 +41,7 @@ vi.setConfig({ testTimeout: 30000 });
 // protocol evidence, not another kernel-enforcement qualification.
 function offlineHelper(beforeSpawn?: () => void, boundaries?: NativeReadBoundaryProfile) {
   const runs: Array<Parameters<typeof sandbox.executeSandboxedCommand>[0]> = [];
-  vi.spyOn(sandbox, 'executeSandboxedCommand').mockImplementation(async (request) => {
+  const execute = async (request: Parameters<typeof sandbox.executeSandboxedCommand>[0]) => {
     runs.push(request);
     beforeSpawn?.();
     await request.beforeSpawnAsync?.();
@@ -67,7 +67,9 @@ function offlineHelper(beforeSpawn?: () => void, boundaries?: NativeReadBoundary
     } finally {
       finish?.(success);
     }
-  });
+  };
+  vi.spyOn(sandbox, 'executeSandboxedCommand').mockImplementation(execute);
+  vi.spyOn(sandbox, 'executePrivateRepositoryObservation').mockImplementation(execute);
   return runs;
 }
 
@@ -102,6 +104,7 @@ function owner(context: NativeHostToolContext, root: string) {
 async function signedReadPositive(
   tool: 'DiscoverLocalRepository' | 'InspectLocalRepository',
   detachedViewer = false,
+  pathCase: 'root' | 'nested' | 'missing' | 'missing-parent' = 'root',
 ) {
   const started = performance.now();
   let phase: 'setup' | 'call' | 'verification' = 'setup';
@@ -182,6 +185,9 @@ async function signedReadPositive(
     git('init', '--template=', '-q', '-b', 'main');
     git('add', '.');
     git('commit', '-qm', 'fixture');
+    const requestedPath = pathCase === 'root' ? source : join(source, pathCase, 'child');
+    if (pathCase === 'nested') await mkdir(requestedPath, { recursive: true });
+    if (pathCase === 'missing') await mkdir(join(source, pathCase));
     if (detachedViewer) f.detachViewer();
     metrics = f.a.metrics;
     setupMetrics = metricSnapshot(metrics);
@@ -194,7 +200,7 @@ async function signedReadPositive(
     callStarted = performance.now();
     let result: Awaited<ReturnType<typeof f.a.call>>;
     try {
-      result = await f.a.call({ path: source }, { tool });
+      result = await f.a.call({ path: requestedPath }, { tool });
     } finally {
       callEnded = performance.now();
       phase = 'verification';
@@ -204,7 +210,14 @@ async function signedReadPositive(
       result.response.success,
       JSON.stringify({ value: result.value, helpers: runs.length, metrics: f.a.metrics, failure }),
     ).toBe(true);
-    if (tool === 'DiscoverLocalRepository')
+    if (pathCase === 'missing' || pathCase === 'missing-parent')
+      expect(result.value).toMatchObject({
+        state: 'missing',
+        candidates: [],
+        needed: ['source', 'destination'],
+        diagnostics: [expect.objectContaining({ reason: 'repository-not-found' })],
+      });
+    else if (tool === 'DiscoverLocalRepository')
       expect(
         result.value,
         JSON.stringify({
@@ -215,6 +228,7 @@ async function signedReadPositive(
         }),
       ).toMatchObject({ state: 'selected', candidates: [{ path: source }] });
     else {
+      expect(result.value.cwd).toBe(requestedPath);
       expect(
         result.value,
         JSON.stringify({
@@ -246,6 +260,7 @@ async function signedReadPositive(
       JSON.stringify({
         tool,
         detachedViewer,
+        pathCase,
         passed,
         phase,
         setupElapsedMs: Number(((callStarted ?? ended) - started).toFixed(3)),
@@ -276,6 +291,16 @@ it.runIf(process.platform === 'darwin')(
 it.runIf(process.platform === 'darwin')(
   'keeps subscription discovery under the admitted operator after its viewer disconnects',
   () => signedReadPositive('DiscoverLocalRepository', true),
+);
+it
+  .runIf(process.platform === 'darwin')
+  .each(['DiscoverLocalRepository', 'InspectLocalRepository'] as const)(
+  'resolves a nested cwd through the registered native %s consumer',
+  (tool) => signedReadPositive(tool, false, 'nested'),
+);
+it.runIf(process.platform === 'darwin').each(['missing', 'missing-parent'] as const)(
+  'classifies a physically missing explicit source (%s) through the registered native consumer',
+  (pathCase) => signedReadPositive('DiscoverLocalRepository', false, pathCase),
 );
 // Retained diagnostic: full source-mode inspection can exceed the unchanged
 // operation deadline. It does not qualify the actual registered SRT path.

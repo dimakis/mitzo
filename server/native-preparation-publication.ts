@@ -8,7 +8,7 @@ import type {
   NativeReadIdentity,
 } from './native-file-operation.js';
 import {
-  projectNativeTreeEntries,
+  projectNativeRepositoryTreeEntries,
   rejectNativeTreeExclusions,
   type NativeExclusiveTreeRequest,
 } from './native-tree-publication.js';
@@ -364,7 +364,7 @@ export function projectNativePreparationPublicationPlan(
     [sourcePath, commonAnchor.rootPath, taskRoot.rootPath, staging],
     deniedRoots,
   );
-  const entries = projectNativeTreeEntries(tree.entries);
+  const entries = projectNativeRepositoryTreeEntries(tree.entries);
   const metadata = Object.freeze(
     array(item.metadata, 6).map((value) => payload(value, 16 * 1024 * 1024)),
   );
@@ -437,7 +437,7 @@ export function projectNativePreparationPublicationPlan(
   const receiptJson = pythonJson(receipt),
     ascii = pythonJson(receiptJson);
   if (
-    Buffer.byteLength(JSON.stringify(plan)) > 120 * 1024 ||
+    Buffer.byteLength(JSON.stringify(plan)) > 2 * 1024 * 1024 ||
     Buffer.byteLength(
       JSON.stringify({ version: 1, directories: receipt.directories, files: receipt.files }),
     ) > 16384 ||

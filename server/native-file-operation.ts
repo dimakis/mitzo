@@ -1,4 +1,9 @@
 import {
+  repositoryObservationPython,
+  projectRepositoryObservationRequest,
+  type RepositoryObservationPlan,
+} from './native-repository-observation.js';
+import {
   nativePreparationPublicationPython,
   projectNativePreparationPublicationPlan,
   type NativePreparationPublicationPlan,
@@ -468,6 +473,7 @@ def publish_tree(request, preflight_only=False, deadline=None, target_fd=None, p
         if target_root is not None: os.close(target_root)
 
 ${nativePreparationObservationPython}
+${repositoryObservationPython}
 
 def anchored_read(request, deadline=None, budget=None):
     deadline = time.monotonic() + request['timeoutMs'] / 1000 if deadline is None else deadline
@@ -636,6 +642,8 @@ def execute(request):
         return content
     if request['operation'] in ('CapturePreparationObservation', 'VerifyPreparationObservation'):
         return preparation_observation(request)
+    if request['operation'] in ('CaptureRepositoryObservation', 'VerifyRepositoryObservation'):
+        return repository_observation(request)
     if request['operation'] == 'ListDirectoryBatch':
         items = request['items']
         if not isinstance(items, list) or not 1 <= len(items) <= 8 or len({item['file_path'] for item in items}) != len(items) or any(item['operation'] != 'ListDirectory' for item in items):
@@ -749,7 +757,7 @@ request = None
 try:
     request = json.load(sys.stdin)
     envelope = json.dumps({'content': execute(request), 'is_error': False})
-    if request['operation'] in ('CapturePreparationObservation', 'VerifyPreparationObservation') and len((envelope + '\n').encode('utf-8')) > 64 * 1024 * 1024:
+    if request['operation'] in ('CapturePreparationObservation', 'VerifyPreparationObservation', 'CaptureRepositoryObservation', 'VerifyRepositoryObservation') and len((envelope + '\n').encode('utf-8')) > 64 * 1024 * 1024:
         raise RuntimeError('Preparation observation unavailable')
     if request['operation'] == 'ListDirectoryBatch' and len((envelope + '\n').encode('utf-8')) > 8 * 1024 * 1024:
         raise RuntimeError('Anchored directory batch unavailable')
@@ -758,7 +766,8 @@ try:
     print(envelope)
 except Exception as error:
     # OS errors may contain filenames, but never file contents or request payloads.
-    content = 'Exclusive file unavailable' if isinstance(request, dict) and request.get('operation') in ('CreateFile', 'PublishTree', 'PublishPreparedRepository') else ('Anchored directory batch unavailable' if isinstance(request, dict) and request.get('operation') == 'ListDirectoryBatch' else ('Preparation observation unavailable' if isinstance(request, dict) and request.get('operation') in ('CapturePreparationObservation', 'VerifyPreparationObservation') else str(error)))
+    content = 'Exclusive file unavailable' if isinstance(request, dict) and request.get('operation') in ('CreateFile', 'PublishTree', 'PublishPreparedRepository') else ('Anchored directory batch unavailable' if isinstance(request, dict) and request.get('operation') == 'ListDirectoryBatch' else ('Preparation observation unavailable' if isinstance(request, dict) and request.get('operation') in ('CapturePreparationObservation', 'VerifyPreparationObservation') else ('Repository read access required' if isinstance(request, dict) and request.get('operation') in ('CaptureRepositoryObservation', 'VerifyRepositoryObservation') and isinstance(error, PermissionError) else str(error))))
+    if isinstance(error, RepositorySourceMissingError): content = 'Repository source missing'
     print(json.dumps({'content': content, 'is_error': True}))
 `;
 
@@ -777,13 +786,26 @@ function helperCommand(requestJson: string) {
   const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
   return `/usr/bin/printf '%s' ${quote(requestJson)} | /usr/bin/python3 -I -c ${quote(helper)}`;
 }
+/** A fixed read-only program, never an arbitrary command or effect helper. */
+export function privateRepositoryObservationCommand(requestJson: string) {
+  if (typeof requestJson !== 'string' || Buffer.byteLength(requestJson) > 128 * 1024)
+    throw Error('Repository observation unavailable');
+  return helperCommand(
+    JSON.stringify(projectRepositoryObservationRequest(JSON.parse(requestJson))),
+  );
+}
 
 /** Narrow private runner input: the program is always this embedded helper.
  * Legacy/public file or arbitrary shell operations cannot select this branch. */
 export function projectPrivateNativeFileHelperRequest(requestJson: string): string {
-  if (typeof requestJson !== 'string' || Buffer.byteLength(requestJson) > 128 * 1024)
+  if (typeof requestJson !== 'string' || Buffer.byteLength(requestJson) > 2 * 1024 * 1024)
     throw Error('Private file helper unavailable');
   const request = JSON.parse(requestJson);
+  if (
+    request?.operation !== 'PublishPreparedRepository' &&
+    Buffer.byteLength(requestJson) > 128 * 1024
+  )
+    throw Error('Private file helper unavailable');
   if (
     !request ||
     typeof request !== 'object' ||
@@ -894,19 +916,42 @@ export function projectPrivateNativeFileHelperRequest(requestJson: string): stri
 }
 export function privateNativeFileHelperCommand(requestJson: string) {
   const command = helperCommand(projectPrivateNativeFileHelperRequest(requestJson));
-  if (Buffer.byteLength(command) > 192 * 1024) throw Error('Private file helper unavailable');
+  const maximum =
+    JSON.parse(requestJson).operation === 'PublishPreparedRepository'
+      ? 8 * 1024 * 1024
+      : 192 * 1024;
+  if (Buffer.byteLength(command) > maximum) throw Error('Private file helper unavailable');
   return command;
+}
+
+/** Fixed trusted program, carried in owned immutable private files for the
+ * approved effect runner. Large repository manifests never become shell argv. */
+export const nativeFileHelperProgram = helper;
+export function privateNativeFileProgramCommand(programPath: string, requestPath: string) {
+  for (const value of [programPath, requestPath])
+    if (
+      typeof value !== 'string' ||
+      !value.startsWith('/') ||
+      /[\0\r\n]/.test(value) ||
+      value.length > 4096 ||
+      value.split('/').some((part) => part === '.' || part === '..')
+    )
+      throw Error('Private helper program unavailable');
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  return `/usr/bin/python3 -I ${quote(programPath)} < ${quote(requestPath)}`;
 }
 
 export function executeNativeFileOperation(
   request: {
     operation: string;
     preparationPlan?: NativePreparationPublicationPlan;
+    repositoryPlan?: RepositoryObservationPlan;
+    repositoryDigest?: string;
     observationPlan?: NativePreparationObservationPlan;
     observationScratch?: NativePreparationObservationScratch;
     observationWitness?: NativePreparationObservationWitness;
     identity: { dev: string; ino: string } | null;
-    parentIdentity: { dev: string; ino: string };
+    parentIdentity?: { dev: string; ino: string };
     file_path: string;
     limit: number;
     content?: string;
@@ -964,6 +1009,13 @@ export function executeNativeFileOperation(
       return Promise.reject(Error('Prepared repository publication unavailable'));
     }
   }
+  if (['CaptureRepositoryObservation', 'VerifyRepositoryObservation'].includes(request.operation)) {
+    try {
+      request = projectRepositoryObservationRequest(request);
+    } catch {
+      return Promise.reject(Error('Repository observation unavailable'));
+    }
+  }
   if (
     ['CapturePreparationObservation', 'VerifyPreparationObservation'].includes(request.operation)
   ) {
@@ -983,13 +1035,18 @@ export function executeNativeFileOperation(
       'ListDirectoryBatch',
       'CapturePreparationObservation',
       'VerifyPreparationObservation',
+      'CaptureRepositoryObservation',
+      'VerifyRepositoryObservation',
     ].includes(request.operation) &&
     typeof privateTransport !== 'function'
   )
     return Promise.reject(Error('Private helper transport unavailable'));
-  const maxBuffer = ['CapturePreparationObservation', 'VerifyPreparationObservation'].includes(
-    request.operation,
-  )
+  const maxBuffer = [
+    'CapturePreparationObservation',
+    'VerifyPreparationObservation',
+    'CaptureRepositoryObservation',
+    'VerifyRepositoryObservation',
+  ].includes(request.operation)
     ? nativePreparationObservationLimits.responseBytes
     : [
           'CaptureReadAnchor',

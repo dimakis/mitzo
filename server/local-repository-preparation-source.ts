@@ -1,3 +1,4 @@
+import type { RepositoryObservationCapture } from './native-repository-observation.js';
 import { createHash } from 'node:crypto';
 import {
   captureNativeHostReadOwner,
@@ -13,7 +14,10 @@ import {
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import { preparationReadDeadline } from './local-repository-preparation-read-policy.js';
 import { inspectLocalRepositoryGitMetadata } from './local-repository-git-inspection.js';
-import { readLocalRepositoryPreparationBaseReferences } from './local-repository-git-snapshot.js';
+import {
+  readLocalRepositoryPreparationBaseReferences,
+  readLocalRepositoryGitFacts,
+} from './local-repository-git-snapshot.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
 import type { NativeReadIdentity } from './native-file-operation.js';
 import {
@@ -132,26 +136,41 @@ export async function captureNativeLocalRepositoryPreparationSource(
     objectFormat: initial.facts.source.objectFormat,
     comparisonConfig: initial.facts.source.comparisonConfig ?? {},
   });
+  let baseObservation: Readonly<RepositoryObservationCapture> | undefined;
   const baseCurrent = (earlierDeadline: number) =>
     read(async (reader) => {
-      const access = await LocalRepositoryReadAccess.capturePreparationBase(reader, {
-        version: 'preparation-base-observation-v1',
-        sourceAnchor: initial.facts.source.sourceAnchor,
-        gitDirectory: initial.facts.source.gitDirectory,
-        commonAnchor: initial.facts.source.commonAnchor,
-        deniedRoots: reader.deniedRoots,
-      });
+      if (baseObservation && reader.verifyRepositoryBaseObservation) {
+        // Data witness only. The exact original factory scope must match, and
+        // every call performs a new physical read under fresh owner checks.
+        await reader.verifyRepositoryBaseObservation(baseObservation);
+        return;
+      }
+      const access = reader.captureRepositoryObservation
+        ? new LocalRepositoryReadAccess(reader)
+        : await LocalRepositoryReadAccess.capturePreparationBase(reader, {
+            version: 'preparation-base-observation-v1',
+            sourceAnchor: initial.facts.source.sourceAnchor,
+            gitDirectory: initial.facts.source.gitDirectory,
+            commonAnchor: initial.facts.source.commonAnchor,
+            deniedRoots: reader.deniedRoots,
+          });
+      if (reader.captureRepositoryObservation)
+        await access.captureRepositoryObservation({ mode: 'base', sourcePath: intent.sourcePath });
       const sourceAnchor = await access.pinRoot(intent.sourcePath);
       const metadata = await inspectLocalRepositoryGitMetadata({
         path: intent.sourcePath,
-        mode: 'preparation',
+        mode: reader.captureRepositoryObservation ? 'head' : 'preparation',
         readAccess: access,
         assertReadable: (path) => access.assertPath(path),
         signal: reader.signal,
         timeoutMs: Math.max(1, reader.deadline - Date.now()),
       });
       const commonAnchor = await access.pinRoot(metadata.commonDirectory);
-      const { branch, head } = await readLocalRepositoryPreparationBaseReferences(metadata, {
+      const { branch, head } = await (
+        reader.captureRepositoryObservation
+          ? readLocalRepositoryGitFacts
+          : readLocalRepositoryPreparationBaseReferences
+      )(metadata, {
         readAccess: access,
         signal: reader.signal,
         timeoutMs: Math.max(1, reader.deadline - Date.now()),
@@ -173,6 +192,8 @@ export async function captureNativeLocalRepositoryPreparationSource(
         comparisonConfig: metadata.comparisonConfig ?? {},
       };
       if (hash(actual) !== originalBaseHash) throw unavailable();
+      if (reader.verifyRepositoryBaseObservation)
+        baseObservation = access.repositoryBaseObservation;
     }, earlierDeadline);
   return Object.freeze({
     ...original,

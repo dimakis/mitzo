@@ -120,6 +120,13 @@ export async function captureQualifiedLocalRepositoryTask(
   publication: QualifiedLocalRepositoryPublication,
 ): Promise<Readonly<RepositoryTaskCheckout>> {
   try {
+    if (access.canCaptureRepositoryObservation)
+      await access.captureRepositoryObservation({
+        mode: 'adoption',
+        sourcePath: facts.source.path,
+        taskRoot: facts.taskRoot.rootPath,
+        workspaceId: facts.workspaceId,
+      });
     const receipt = snapshotQualifiedLocalRepositoryPublication(publication);
     if (
       !facts.existingDirectories ||

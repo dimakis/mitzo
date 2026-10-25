@@ -352,3 +352,17 @@ it('preserves ordinary listing coverage for numerous optional pack accelerators'
   expect(preload.mock.calls.every(([paths]) => !paths.includes(pack))).toBe(true);
   expect(f.reads.some((path) => path.endsWith('.keep'))).toBe(false);
 }, 60000);
+
+it('bounds expanded checkout content independently of unrelated historical blobs', async () => {
+  await writeFile(join(source, 'historical-large'), Buffer.alloc(16 * 1024 * 1024 + 1, 65));
+  git('add', 'historical-large');
+  git('commit', '-qm', 'large historical file');
+  git('rm', '-q', 'historical-large');
+  git('commit', '-qm', 'remove historical file');
+  const f = await fixture();
+  await expect(
+    withLocalRepositoryPreparationObjects(f.metadata, f.options, async (view) => {
+      expect(view.entries.some((entry) => entry.path === 'historical-large')).toBe(false);
+    }),
+  ).resolves.toBeUndefined();
+}, 30000);
