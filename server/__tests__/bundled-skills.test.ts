@@ -4,6 +4,8 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { SkillRegistry, SKILL_SIZE_LIMIT } from '../skills.js';
 import { renderSkillPrompt, resolveSlashCommand } from '../slash-commands.js';
+import { SessionRegistry } from '../session-registry.js';
+import { checkSkillPolicy, setSkillPolicy } from '../skill-policy.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILLS_DIR = join(__dirname, '..', '..', 'skills');
@@ -206,7 +208,30 @@ describe('bundled skills', () => {
       expect(result.renderedPrompt).toContain('## Final gate and merge');
       expect(new Set(result.allowedTools)).toEqual(new Set(registry.get('land-pr')?.allowedTools));
       expect(registry.get(name)?.mutating).toBe(true);
-      expect(result.allowedTools).not.toContain('Agent');
+    },
+  );
+
+  it.each(['land-pr', 'autopilot', 'pr-shepherd', 'auto-pr-shepherd'])(
+    '/%s admits local review delegation without admitting unrelated tools',
+    (name) => {
+      const result = resolveSlashCommand(`/${name} 1090 --prepare-only`, registry, new Set());
+      if (result.type !== 'skill') throw Error('Expected a landing skill');
+      const sessions = new SessionRegistry();
+      try {
+        sessions.register('review', {
+          transport: { send: () => {}, isOpen: () => true },
+          abortController: new AbortController(),
+          mode: 'agent',
+          sessionAllowList: new Set(),
+        });
+        setSkillPolicy(sessions, 'review', result.allowedTools!);
+        for (const tool of ['Agent', 'TaskOutput', 'TaskStop']) {
+          expect(checkSkillPolicy(sessions, 'review', tool)).toBe('allow');
+        }
+        expect(checkSkillPolicy(sessions, 'review', 'mcp__unrelated__write')).toBe('deny');
+      } finally {
+        sessions.dispose();
+      }
     },
   );
 

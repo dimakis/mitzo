@@ -9,46 +9,57 @@ allowed-tools:
   - Grep
   - Glob
   - Bash
+  - Agent
+  - TaskOutput
+  - TaskStop
 ---
 
 # Land PR
 
-Resolve `$ARGUMENTS` as a PR URL, repository plus number, or the current branch's PR. Read repository instructions and refresh the live head, base, CI, review threads and merge state. Attach the selected PR when the host supports attachments.
+Resolve `$ARGUMENTS` as PR URL, repository/number or current-branch PR. Read repository instructions; refresh head, base, CI, threads and merge state. Attach the PR where supported.
 
 ## Scope and ownership
 
-- A request to land or merge this PR authorizes the final merge after its gates pass. Do not ask again merely because the change is large or touches CI. A request to inspect, review or prepare does not authorize merge.
+- Landing/merging authorizes merge after gates pass, regardless of size or CI changes. Inspection, review and preparation do not authorize merge.
 - `--prepare-only` fixes and verifies, but never marks a draft ready, enables auto-merge or merges. Existing `autopilot` calls retain this mode unless the user explicitly changes it.
-- Work only the selected PRs. No-argument invocation resolves the current branch; `--all` is a read-only inventory unless the user has selected a batch for action. Do not create goal trees, scheduled jobs or additional shepherd sessions implicitly.
-- Keep one owner per PR. Check available session/task/queue state before taking over; if another owner is active, coordinate instead of pushing or requesting a duplicate review. State ownership and the next blocker in this session. This convention is not a distributed lock.
-- Independent coding, branch refreshes, offline tests, CI, reviews and PR preparation may proceed concurrently within each task's resource limits, authority and dependencies. Coordinate only actual merges, one at a time per repository, and verify the previous merge before the next. Do not pause whole sessions, require a global test lane or impose a central preparation slot.
+- Work only selected PRs. No argument selects the current branch; `--all` inventories read-only unless the user selects a batch. Do not implicitly create goal trees, schedules or shepherd sessions.
+- Keep one owner per PR. Check session/task/queue state before taking over; coordinate with an active owner before pushing or requesting review. State ownership and the next blocker. This is not a distributed lock.
+- Coding, branch refreshes, offline tests, CI, reviews and preparation may run concurrently within task limits, authority and dependencies. Serialize actual merges per repository, verifying each before the next. Do not pause whole sessions or impose global test/preparation slots.
 
 ## Work the blockers together
 
-1. Refresh the remote PR branch before editing; preserve other worktrees and uncommitted work. Resolve clear conflicts, then investigate active findings and actual failing CI logs. Batch known fixes into one push where practical.
+1. Refresh the remote PR branch before editing; preserve other worktrees and uncommitted work. Resolve clear conflicts; investigate active findings and failing CI logs.
 2. Integrate the base when required by a dependency, an actual conflict, a known upstream fix, or when this PR reaches its final landing turn and strict protection requires it. Do not rebase every waiting PR whenever main moves. Prefer a merge of the base that preserves remote history; never force-push as a routine shepherd action.
-3. Investigate every active finding against the code. Fix valid in-scope blockers and verify them. Reject invalid or already resolved findings only with concrete evidence. Distinguish blocking findings from explicitly non-blocking follow-ups; record follow-ups without manufacturing another blocking review round. Do not silently downgrade a blocker.
+3. Investigate every active finding against the code. Fix and verify valid in-scope blockers. Reject invalid/resolved findings with concrete evidence. Record explicitly non-blocking follow-ups without adding a blocking round; never silently downgrade a blocker.
 4. Ask only when a genuine unresolved product/security/data decision prevents a correct fix. Routine implementation fixes already within the user's task do not need another approval. Reply to and resolve review threads only where authorized by the task or invoked workflow; never pretend a reviewer approved a fix.
-5. Run focused offline checks that prove the fix, respecting repository resource limits, then push and wait for required CI. Never remove coverage, weaken checks or mark failures green to get through the gate. CI optimizations may change how checks run while retaining their coverage.
+5. Run focused offline checks within repository resource limits; complete local review below, then push and await required CI. Never remove coverage, weaken checks or mark failures green. CI optimizations must retain coverage.
 
-Repository deployment and live-test restrictions continue to apply. Landing is not deployment authorization. Real model-backed tests require the user's configured test model and account rules; ordinary code review is a separate workflow.
+Preserve deployment/live-test restrictions; landing does not authorize deployment. Real model-backed tests follow the user's test model/account rules; ordinary review is separate.
+
+## Local review before push
+
+Before the first reviewable push, run two read-only subagents concurrently within host capacity: correctness/integration/affected callers, and behavior/test adequacy/failure cases. Each must be independent of implementation in its scope. Add security review for concrete permission/security/data risks. These focused roles alone do not satisfy the full-pass rule below.
+
+Give both the diff, requirements, repository instructions, base and candidate SHA (or a fingerprint of all intended tracked/untracked content). Keep the candidate stable. Record reviewer/report identity, scope, coverage limits and concrete findings with severity, location, failure scenario and evidence. Consolidate findings; fix blockers together and document rejected/resolved dispositions. Ask relevant reviewers for a focused follow-up on batched fixes, affected callers and prior findings; reuse unchanged coverage. Repeat only for unresolved blockers or material scope changes; report persistent blockers without progress instead of looping.
+
+For pushed PRs, complete missing local coverage while CI runs. Reuse qualifying independent passes and follow-ups; verify coverage of the actual candidate before pushing. Use only exposed, permitted delegation tools; respect resource/live-test limits, avoiding parallel broad suites. If unavailable/denied, report unfinished local coverage and continue other preparation; obtain independent review through an authorized host before pushing. Never bypass via another CLI or claim self-approval. Local reviews do not replace Centaur or change its timing, configuration or final gate.
 
 ## Review convergence
 
 - Require **one thorough approved review** of the PR, followed by verification of subsequent changes. Preserve its review ID and SHA as the baseline. A qualifying follow-up completes coverage of the changed head; it need not rescan unchanged work.
 - Require a second independent full pass for material security/permission changes, destructive data migrations, breaking shared protocols, merge/review enforcement changes, or similarly high-impact changes. State the concrete risk; repository rules may require more. Reuse completed qualifying passes rather than restarting an approval count after every push.
 - Read the trusted reviewer's actual report, commit identity, unresolved threads and review/check state. `COMMENTED` can carry a valid Centaur LGTM; a green job named `centaur` is not the final LGTM gate. A new blocker must be fixed and verified; it does not erase completed review of unchanged work.
-- When PR-owned code changes, review the delta and its affected callers, dependencies and prior findings. Batch known fixes into one push. Request a full pass only if the initial thorough review is missing, the change materially invalidates it, or a required independent pass is missing.
+- Review PR-owned deltas, affected callers, dependencies and prior findings; batch fixes into one push. Request a full pass only when missing or materially invalidated, including a missing required independent pass.
 - Main advancing does not invalidate the baseline review. For a clean integration, inspect the upstream delta for changes to assumptions, APIs, dependencies, shared contracts and security/data behavior. Preserve the baseline and request targeted integration review where relevant. Conflict resolutions and extra merge edits are new PR-owned changes and must be reviewed.
 - Use trusted service continuity reconciliation when it can prove an independent accepted-base merge without PR-owned edits. This is reuse of an earlier approval, not a new independent review. Never infer safety merely from disjoint filenames, a clean Git merge, a new SHA or green CI. If the service cannot prove reuse, obtain its focused follow-up instead of a redundant whole-PR pass.
-- Before requesting, check for an active/queued job for this PR and SHA. A CI wait is not a missing review. If request outcome is uncertain, inspect job/review state before retrying. Do not request another review after qualifying evidence exists.
-- Prefer automatic follow-up after a fix. If the automatic cycle limit is reached, use the deployed service's documented forced follow-up mode with a concrete reason, preserving its safety checks. A cycle limit alone is not a reason for a full review. Use the configured service and credentials without exposing secrets or changing its model configuration.
+- Before requesting review, check active/queued jobs for this PR/SHA. A CI wait is not missing review. Inspect uncertain outcomes before retrying; never duplicate qualifying review.
+- Prefer automatic follow-up after fixes. At its cycle limit, use the deployed service's documented forced follow-up with a concrete reason and intact safety checks; the cap does not warrant full review. Preserve configured service, credentials and model; never expose secrets.
 
 ## Final gate and merge
 
 For Centaur-governed repositories, require the trusted publisher's non-dismissed **final LGTM**, recommendation **`merge`**, and **zero new and unresolved blocking findings** for the exact live head. That report may combine the retained thorough review with verified follow-ups or explicit trusted continuity evidence; a fresh full pass on every SHA is not required. `fix`, `human_decision`, missing or stale evidence blocks merge. Verify the repository's required `Centaur final LGTM` status and its configured App identity, not only text in a comment. Use a repository-provided gate helper where available, after checking it implements the current contract.
 
-If a valid current-head review exists but its required status remains pending, inspect the configured status writer. Use its documented PR-scoped reconciliation trigger when available; do not request another model review or write a replacement approval status yourself. A scheduled reconciliation is not a guaranteed deadline.
+For a valid current-head review with pending status, inspect the status writer and use its documented PR-scoped reconciliation trigger. Do not request another model review or write replacement approval yourself. Scheduled reconciliation has no guaranteed deadline.
 
 Validate the combined PR plus current base before merging. Prefer a native merge queue where the repository supports it and all required checks (including the trusted review gate) support its merge-group contract. Do not enable a queue before those checks are wired and tested. On a repository without queue support, retain strict up-to-date protection: integrate the latest base at the final landing turn and run required CI on that combined result. Do not refresh every waiting branch when main advances. Preserve completed review; re-evaluate only the relevant integration delta.
 
