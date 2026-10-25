@@ -350,8 +350,10 @@ jobs:
           }
           NODE
       - name: Run all required joined Telos acceptance cases
+        if: ${{ !cancelled() }}
         run: node tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs
       - name: Verify signed native operator lifetime and repository tools
+        if: ${{ !cancelled() }}
         run: |
           npx vitest run server/__tests__/native-host-operator-lifetime.test.ts server/__tests__/native-local-repository-preparation-registration-dispatch.test.ts server/__tests__/native-local-repository-read-tools.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/native-host-authorization.json
           node --input-type=module <<'NODE'

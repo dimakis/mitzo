@@ -70,7 +70,7 @@ function runtimeFixture(types = ['mitzo-openai-keychain-spike']) {
         : { kind: 'api' as const, provider: data.providers[0].name, model: 'offline-model' },
   };
   let detailReads = 0;
-  const run = vi.fn(async (args: readonly string[]) => {
+  const run = vi.fn(async (args: readonly string[], _signal?: AbortSignal) => {
     if (args[0] === 'sandbox' && args.includes('get')) {
       detailReads++;
       return JSON.stringify({
@@ -124,6 +124,161 @@ function runtimeFixture(types = ['mitzo-openai-keychain-spike']) {
   });
   return { manager, runtime, conversation, run, data, approvals, config };
 }
+
+it.each(['mitzo-openai-keychain-spike', 'openai-codex-oauth'])(
+  'overlaps initial inventory and profile catalog reads for %s without crossing final fences',
+  async (type) => {
+    const f = runtimeFixture([type]);
+    const original = f.run.getMockImplementation()!;
+    const started = new Set<string>();
+    let inventoryReads = 0;
+    let catalogReads = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.run.mockImplementation(async (args, signal) => {
+      const output = await original(args, signal);
+      const initialInventory =
+        args[0] === 'provider' &&
+        args.includes('list') &&
+        ++inventoryReads === (type === 'openai-codex-oauth' ? 2 : 1);
+      const initialCatalog = args.includes('list-profiles') && ++catalogReads === 1;
+      if (initialInventory || initialCatalog) {
+        started.add(initialInventory ? 'inventory' : 'catalog');
+        await gate;
+      }
+      return output;
+    });
+    const pending = f.manager.observeContract(
+      f.conversation,
+      f.runtime,
+      new AbortController().signal,
+    );
+    try {
+      await vi.waitFor(() => expect(started.size).toBe(2), { timeout: 500 });
+      expect(catalogReads).toBe(1);
+      release();
+      await expect(pending).resolves.toHaveProperty('attestation');
+      expect(catalogReads).toBe(2);
+      expect(f.run.mock.calls.filter(([args]) => args.includes('export'))).toHaveLength(2);
+    } finally {
+      release();
+      await pending.catch(() => {});
+    }
+  },
+);
+
+it.each(['inventory', 'catalog', 'cancel'] as const)(
+  'settles both initial observation reads on %s failure before exporting or attesting',
+  async (failure) => {
+    const f = runtimeFixture();
+    const original = f.run.getMockImplementation()!;
+    const controller = new AbortController();
+    const started = new Set<string>(),
+      settled = new Set<string>();
+    const refused = Error('offline observation refused');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.run.mockImplementation(async (args, signal) => {
+      const operation =
+        args[0] === 'provider' && args.includes('list')
+          ? 'inventory'
+          : args.includes('list-profiles')
+            ? 'catalog'
+            : undefined;
+      if (!operation) return original(args, signal);
+      started.add(operation);
+      try {
+        if (operation === failure) {
+          await gate;
+          throw refused;
+        }
+        return await new Promise<never>((_resolve, reject) => {
+          if (signal!.aborted) reject(signal!.reason);
+          else signal!.addEventListener('abort', () => reject(signal!.reason), { once: true });
+        });
+      } finally {
+        settled.add(operation);
+      }
+    });
+    const pending = f.manager.observeContract(f.conversation, f.runtime, controller.signal);
+    const rejected = expect(pending).rejects.toBe(refused);
+    try {
+      await vi.waitFor(() => expect(started.size).toBe(2), { timeout: 500 });
+      if (failure === 'cancel') controller.abort(refused);
+      else release();
+      await rejected;
+      expect([...settled].sort()).toEqual(['catalog', 'inventory']);
+      expect(f.run.mock.calls.some(([args]) => args.includes('export'))).toBe(false);
+    } finally {
+      release();
+      controller.abort(refused);
+      await pending.catch(() => {});
+    }
+  },
+);
+
+it.each(['inventory', 'catalog'] as const)(
+  'rejects %s drift after the overlapping initial snapshots',
+  async (changed) => {
+    const f = runtimeFixture();
+    const original = f.run.getMockImplementation()!;
+    const started = new Set<string>();
+    let inventoryReads = 0,
+      catalogReads = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.run.mockImplementation(async (args, signal) => {
+      const output = await original(args, signal);
+      const inventory = args[0] === 'provider' && args.includes('list') && ++inventoryReads === 1;
+      const catalog = args.includes('list-profiles') && ++catalogReads === 1;
+      if (inventory || catalog) {
+        started.add(inventory ? 'inventory' : 'catalog');
+        await gate;
+      }
+      if (changed === 'catalog' && args.includes('list-profiles') && catalogReads === 2) {
+        const profiles = JSON.parse(output);
+        profiles[0].resource_version++;
+        return JSON.stringify(profiles);
+      }
+      if (
+        changed === 'inventory' &&
+        args[0] === 'provider' &&
+        args.includes('list') &&
+        inventoryReads === 2
+      ) {
+        const providers = JSON.parse(output);
+        providers[0].id = 'replacement-provider';
+        return JSON.stringify(providers);
+      }
+      return output;
+    });
+    const pending = f.manager.observeContract(
+      f.conversation,
+      f.runtime,
+      new AbortController().signal,
+    );
+    const rejected = expect(pending).rejects.toThrow(
+      changed === 'catalog'
+        ? 'catalog changed during attestation'
+        : 'provider identity changed during attestation',
+    );
+    try {
+      await vi.waitFor(() => expect(started.size).toBe(2), { timeout: 500 });
+      release();
+      await rejected;
+    } finally {
+      release();
+      await pending.catch(() => {});
+    }
+  },
+);
+
 it.each([
   { types: ['mitzo-openai-keychain-spike'] },
   { types: ['mitzo-openai-keychain-spike', 'github', 'mitzo-google-workspace-spike'] },

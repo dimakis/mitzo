@@ -171,7 +171,7 @@ async function fixture(initialSession: string | null = 'child') {
   };
 }
 
-it('keeps idle child text, images and context until an exact ordinary receipt and preserves a refused claim', async () => {
+it('shows submitted text immediately while retaining the draft until an exact receipt and restoring a refused claim', async () => {
   const f = await fixture();
   await f.compose('Ordinary refused input', 'input.png');
   fireEvent.click(screen.getByText('Select context'));
@@ -182,7 +182,12 @@ it('keeps idle child text, images and context until an exact ordinary receipt an
     images: [{ data: 'input.png', mediaType: 'image/png' }],
     contextBlocks: ['exact context'],
   });
-  expect(f.input()).toHaveProperty('value', 'Ordinary refused input');
+  expect(f.input()).toHaveProperty('value', '');
+  fireEvent(window, new Event('pagehide'));
+  expect(localStorage.getItem('mitzo-draft-child')).toBe('Ordinary refused input');
+  expect(f.store.getState().messages.messages.at(-1)?.blocks[0].content).toBe(
+    'Ordinary refused input',
+  );
   f.reject();
   expect(f.input()).toHaveProperty('value', 'Ordinary refused input');
   expect(screen.getByAltText('Attachment 1')).toBeTruthy();
@@ -215,7 +220,9 @@ it('cannot clear an ordinary draft with a foreign-session echo or refusal sharin
     clientMsgId: command.clientMsgId,
     error: 'Foreign',
   });
-  expect(f.input()).toHaveProperty('value', 'Owned input');
+  expect(f.input()).toHaveProperty('value', '');
+  fireEvent(window, new Event('pagehide'));
+  expect(localStorage.getItem('mitzo-draft-child')).toBe('Owned input');
   expect(screen.getByAltText('Attachment 1')).toBeTruthy();
   f.receive({
     type: 'user_message',
@@ -251,6 +258,58 @@ it('retains a refused ordinary payload in the explicit retry queue without overw
   fireEvent.click(screen.getByText('Edit'));
   expect(f.input()).toHaveProperty('value', 'Refused payload');
   expect(screen.getByAltText('Attachment 1')).toBeTruthy();
+});
+
+it('preserves an identical next draft pasted while the original send is pending', async () => {
+  const f = await fixture();
+  await f.compose('Repeat this');
+  fireEvent.keyDown(f.input(), { key: 'Enter' });
+  const command = f.command();
+  expect(f.input()).toHaveProperty('value', '');
+  await f.compose('Repeat this');
+  expect(f.input()).toHaveProperty('value', 'Repeat this');
+  f.receive({
+    type: 'user_message',
+    sessionId: 'child',
+    messageId: command.clientMsgId,
+    text: 'Repeat this',
+  });
+  expect(f.delivery).toHaveBeenCalledExactlyOnceWith('accepted');
+  expect(f.input()).toHaveProperty('value', 'Repeat this');
+});
+
+it.each(['attachment', 'context'] as const)(
+  'keeps submitted text hidden through a pending %s edit and clears only that text on acceptance',
+  async (edit) => {
+    const f = await fixture();
+    await f.compose('Already submitted', 'original.png');
+    fireEvent.keyDown(f.input(), { key: 'Enter' });
+    const command = f.command();
+    if (edit === 'attachment') {
+      fireEvent.click(screen.getByRole('button', { name: 'Remove attachment 1' }));
+    } else fireEvent.click(screen.getByText('Select context'));
+    expect(f.input()).toHaveProperty('value', '');
+    f.receive({
+      type: 'user_message',
+      sessionId: 'child',
+      messageId: command.clientMsgId,
+      text: 'Already submitted',
+    });
+    expect(f.input()).toHaveProperty('value', '');
+    if (edit === 'attachment') expect(screen.queryByAltText('Attachment 1')).toBeNull();
+    else expect(screen.getByText('exact context')).toBeTruthy();
+    fireEvent(window, new Event('pagehide'));
+    expect(localStorage.getItem('mitzo-draft-child')).not.toBe('Already submitted');
+  },
+);
+
+it('leaves a synchronously refused submission visible', async () => {
+  const f = await fixture();
+  f.onSend.mockImplementationOnce(() => false);
+  await f.compose('Keep my unsent message');
+  fireEvent.keyDown(f.input(), { key: 'Enter' });
+  expect(f.input()).toHaveProperty('value', 'Keep my unsent message');
+  expect(f.store.getState().messages.messages).toHaveLength(0);
 });
 
 it.each(['auto', 'Send Now'] as const)(
@@ -295,7 +354,7 @@ it('does not apply old refusal to a newer conversation or consume its draft', as
   expect(screen.queryByText('Old input')).toBeNull();
 });
 
-it('keeps new-chat input through assignment, then clears only its exact saved receipt', async () => {
+it('keeps new-chat text submitted through assignment, then consumes only its exact saved receipt', async () => {
   const f = await fixture(null);
   await f.compose('New conversation', 'new.png');
   fireEvent.keyDown(f.input(), { key: 'Enter' });
@@ -303,7 +362,9 @@ it('keeps new-chat input through assignment, then clears only its exact saved re
   expect(command.sessionId).toBeNull();
   f.receive({ type: 'session_id', sessionId: 'assigned', clientMsgId: command.clientMsgId });
   f.renderScope('assigned');
-  expect(f.input()).toHaveProperty('value', 'New conversation');
+  expect(f.input()).toHaveProperty('value', '');
+  fireEvent(window, new Event('pagehide'));
+  expect(localStorage.getItem('mitzo-draft-assigned')).toBe('New conversation');
   f.receive({
     type: 'user_message',
     sessionId: 'assigned',
@@ -323,7 +384,9 @@ it('keeps an ended reasoning send pending across its correlated ordinary-session
   f.receive({ type: 'session_id', sessionId: 'new-chat', clientMsgId: c.clientMsgId });
   f.renderScope('new-chat');
   expect(f.delivery).not.toHaveBeenCalled();
-  expect(f.input()).toHaveProperty('value', 'Fork this input');
+  expect(f.input()).toHaveProperty('value', '');
+  fireEvent(window, new Event('pagehide'));
+  expect(localStorage.getItem('mitzo-draft-new-chat')).toBe('Fork this input');
   expect(screen.getByAltText('Attachment 1')).toBeTruthy();
   expect(screen.getByText('exact context')).toBeTruthy();
   f.receive({
@@ -547,7 +610,9 @@ it('accepts a native command only from its correlated result, leaving later inpu
     command: 'skills',
     content: 'Generic result',
   });
-  expect(f.input()).toHaveProperty('value', '/skills');
+  expect(f.input()).toHaveProperty('value', '');
+  fireEvent(window, new Event('pagehide'));
+  expect(localStorage.getItem('mitzo-draft-child')).toBe('/skills');
   f.receive({
     type: 'native_command_result',
     sessionId: 'foreign',
@@ -555,7 +620,7 @@ it('accepts a native command only from its correlated result, leaving later inpu
     command: 'skills',
     content: 'Wrong session',
   });
-  expect(f.input()).toHaveProperty('value', '/skills');
+  expect(f.input()).toHaveProperty('value', '');
   f.receive({
     type: 'native_command_result',
     sessionId: 'child',
@@ -710,7 +775,7 @@ it('binds an HTTP fork acceptance to its exact old command and ignores a foreign
     clientMsgId: c.clientMsgId,
   });
   expect(f.delivery).not.toHaveBeenCalled();
-  expect(f.input()).toHaveProperty('value', 'HTTP fork');
+  expect(f.input()).toHaveProperty('value', '');
   f.receive({
     type: '_send_accepted',
     sessionId: 'assigned-http',
