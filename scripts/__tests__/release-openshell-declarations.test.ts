@@ -19,6 +19,7 @@ import * as openshell from '../../server/ordinary-openshell-codex-entry-owner.js
 import * as shell from '../../server/openshell-runtime.js';
 import * as native from '../../server/frozen-host-codex-executable.js';
 import { ordinaryOpenShellCodexTarget } from '../../server/ordinary-openshell-codex-route.js';
+import * as shellRoute from '../../server/ordinary-openshell-codex-route.js';
 import { SUPPORTED_CODEX_CLI_VERSION } from '../../server/codex-app-server-client.js';
 import {
   prepareRuntimeDeclarations,
@@ -27,7 +28,7 @@ import {
 } from '../lib/release-runtime-declarations.mjs';
 import { readAcceptedOpenShellSource } from '../lib/release-openshell-source.mjs';
 import { parse } from 'dotenv';
-const runtime = { codex, responses, vertex, openshell, shell, native };
+const runtime = { codex, responses, vertex, openshell, shell, shellRoute, native };
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true })));
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -128,6 +129,7 @@ function fixture(wrappedRevision = false) {
       .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
       .join('\n') + '\nSECRET=synthetic-only\n';
   writeFileSync(join(candidate, '.env'), source, { mode: 0o600 });
+  writeFileSync(join(previous, '.env'), source, { mode: 0o600 });
   return { candidate, previous, env, source, declaration, cli, policy, stack, commit, git };
 }
 it('renews an OpenShell-only release after proving its original accepted CLI contract and preserves its target identity', () => {
@@ -197,6 +199,21 @@ it('reads prior source only from accepted Git objects, never from executable rel
       .revision,
   ).toBe('previous-reviewed-release');
 });
+it.each(['OPENSHELL_WORKSPACE', 'OPENSHELL_GATEWAY', 'MITZO_OPENSHELL_CLI'])(
+  'refuses source renewal that would change the retained %s target identity',
+  (name) => {
+    const f = fixture();
+    let next = 'another-namespace';
+    if (name === 'MITZO_OPENSHELL_CLI') {
+      next = join(f.previous, 'copied-cli');
+      writeFileSync(next, readFileSync(f.cli), { mode: 0o700 });
+    }
+    const source = f.source + `${name}=${JSON.stringify(next)}\n`;
+    writeFileSync(join(f.candidate, '.env'), source, { mode: 0o600 });
+    expect(() => prepareRuntimeDeclarations(f.candidate, source, runtime)).toThrow();
+    expect(readPrivateEnvironment(join(f.candidate, '.env'))).toBe(source);
+  },
+);
 it('accepts the wrapped revision literal used by previous accepted releases', () => {
   const f = fixture(true);
   expect(

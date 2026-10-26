@@ -148,6 +148,14 @@ export function prepareRuntimeDeclarations(root, source, runtime) {
     );
     if (previous.runtimeContractRevision !== revision) {
       const source = readAcceptedOpenShellSource(root, env[name]);
+      const priorEnv = parse(readPrivateEnvironment(join(source.releaseRoot, '.env')));
+      assert.equal(priorEnv[name], env[name]);
+      const priorConfig = runtime.shell.openShellRuntimeConfig(priorEnv);
+      assert(priorConfig);
+      assert.deepEqual(
+        runtime.shellRoute.ordinaryOpenShellCodexTarget({ ...previous, config }),
+        runtime.shellRoute.ordinaryOpenShellCodexTarget({ ...previous, config: priorConfig }),
+      );
       assert.equal(
         previous.runtimeContractRevision,
         previousOpenShellContract(config, measurement.sha256, source),

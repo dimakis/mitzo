@@ -64,6 +64,7 @@ try {
       vertex: await load('ordinary-local-vertex-capabilities.js'),
       openshell: await load('ordinary-openshell-codex-entry-owner.js'),
       shell: await load('openshell-runtime.js'),
+      shellRoute: await load('ordinary-openshell-codex-route.js'),
       native: await load('frozen-host-codex-executable.js'),
     };
     const result =

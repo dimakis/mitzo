@@ -51,7 +51,7 @@ export function readAcceptedOpenShellSource(root, selector) {
   assert.equal(entries[1].replace(pair, '').replace(/[\s,]/g, ''), '');
   const codexVersion = git('show', `${commit}:docs/spikes/openshell-codex/runtime-codex-version`);
   assert(/^\d+\.\d+\.\d+$/.test(codexVersion));
-  return { revision: revision[1], artifacts, codexVersion };
+  return { revision: revision[1], artifacts, codexVersion, releaseRoot: dirname(directory) };
 }
 
 export function previousOpenShellContract(config, cliSha256, source) {
