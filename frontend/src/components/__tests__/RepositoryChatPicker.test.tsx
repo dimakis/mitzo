@@ -1046,3 +1046,42 @@ it('does not release a restored checkout belonging to another selected runtime',
   );
   await screen.findByText(/original execution choices/);
 });
+
+it('explains a required repository catalog failure and retries without preparing a workspace', async () => {
+  api.fetch.mockRejectedValueOnce(new Error('Offline')).mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        available: true,
+        location: 'local',
+        repositories: [
+          {
+            connectionId: 'local',
+            repositoryId: 'primary',
+            repository: 'local/primary',
+            label: 'Mitzo',
+          },
+        ],
+      }),
+    ),
+  );
+  const onChange = vi.fn();
+  render(<RepositoryChatPicker accountId="account" model="model" required onChange={onChange} />);
+  expect(await screen.findByRole('alert')).toHaveProperty(
+    'textContent',
+    'Repository choices could not load. Retry to choose a repository.',
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Retry repository choices' }));
+  expect(await screen.findByRole('button', { name: 'Add repository' })).toBeTruthy();
+  expect(api.fetch).toHaveBeenCalledTimes(2);
+  expect(api.fetch.mock.calls.every(([, options]) => !options?.method)).toBe(true);
+  expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ blocked: false }));
+});
+
+it('explains when a required repository is unavailable instead of hiding its selector', async () => {
+  api.fetch.mockResolvedValue(new Response(JSON.stringify({ available: false, repositories: [] })));
+  render(<RepositoryChatPicker accountId="account" model="model" required onChange={vi.fn()} />);
+  expect(
+    await screen.findByText('Repository choices are unavailable for this account.'),
+  ).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Retry repository choices' })).toBeTruthy();
+});

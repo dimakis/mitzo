@@ -242,3 +242,33 @@ it.each(['expired', 'stale'])(
     expect(mocks.request.mock.calls.filter(([url]) => url.endsWith('/discard'))).toHaveLength(1);
   },
 );
+
+it('explains missing legacy execution details without claiming that zero commands were pending', async () => {
+  const { review } = fixture();
+  mocks.request.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        ...review,
+        historicalStateUnavailable: true,
+        retainedPendingCommands: 0,
+      }),
+    ),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Continue with Codex' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Prepare native workspace' }));
+  fireEvent.change(screen.getByLabelText('New request'), {
+    target: { value: 'Inspect actual state' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Review native continuation' }));
+  expect(
+    await screen.findByText(/Earlier queued work cannot be counted from the saved conversation/),
+  ).toBeTruthy();
+  expect(screen.queryByText(/0 pending commands remain/)).toBeNull();
+  expect(
+    (
+      screen.getByRole('button', {
+        name: 'Start reviewed native continuation',
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+});

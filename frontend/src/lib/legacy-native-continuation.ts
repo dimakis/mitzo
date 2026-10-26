@@ -17,6 +17,7 @@ export const NativeContinuationReviewSchema = z.object({
   }),
   command: OrdinaryCodexFirstCommandSchema,
   uncertainOutcomes: z.boolean(),
+  historicalStateUnavailable: z.boolean().optional(),
   selectionChanged: z.boolean(),
   retainedPendingCommands: z.number().int().nonnegative(),
   omittedNonTextBlocks: z.number().int().nonnegative(),
