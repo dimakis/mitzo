@@ -128,7 +128,7 @@ signing. The initial PR base was the deployed baseline
 5d1538df55cb7d71b3532380cbef76050270c041. During landing, accepted main advanced
 to 7d36d4c8dd56c823a6597ad2d70749da34559aef (repository-read performance #1131).
 The branch integrates that accepted base, retains both source-fingerprint sets
-and selects runtime revision v1.0.697-composer-receipt-efficiency. This branch
+and selects runtime revision v1.0.698-composer-receipt-efficiency. This branch
 uses unsigned local commits without changing signing settings.
 Required CI, trusted review, merge and deployment remain separate gates.
 
@@ -170,3 +170,53 @@ restoration, recursion and timing tests pass; hosted qualification is required.
 Duplicate path canonicalization and the native resolver alternative did not
 show sufficient benefit and were left unchanged. Generic fresh owner checks
 continue to bracket mutable callbacks and physical effects.
+
+Trusted review correction: ordinary acceptance and unavailable storage
+Centaur review 5646123859 identified two valid gaps in the original correction.
+Ordinary delivery callbacks survive navigation, but replacement recovery had
+only been wired to local-command props. Also, failed durable proof capture could
+leave an unchanged mounted composer populated after ordinary acceptance.
+
+Exact ordinary acceptance now journals the current durable owner before notifying
+same-document replacements; future mounts also consume the marker. Explicit
+session assignment retains proof-backed owner mapping through later navigation.
+Storage-unavailable acceptance can clear only the original unchanged mount,
+using local and same-document edit generations plus readable storage baselines.
+Source and destination generations both survive an exact assignment. It cannot
+delete persisted draft payloads or turn failed token revocation into authority.
+Normal metadata revision fences continue to operate after a volatile clear.
+
+Both findings reproduced RED before correction. The final 135-test focused pass
+includes actual mobile/desktop ordinary HTTP outbox callers, rich drafts,
+assignment/navigation, same-text ABA, foreign editors, unavailable storage and
+failed revocation. Two independent reviewers approved the complete five-file
+delta and the extra source-ABA assignment correction. Strict focused TypeScript,
+ESLint and formatting pass. Design checks: 108 passed, one skipped. The existing
+intercepted composer fixture passes 14 checks across all three browser projects;
+accepted-empty and same-valued-newer screenshots were inspected on phone/desktop
+in dark Mint/System and light Teal/Georgia. No layout, reference or protected
+assertion changed. Generic ordinary reload before acceptance still lacks its own
+persisted composer proof; that broader existing client-persistence work is deferred.
+
+On combined head 1d07c0cd0, both hosted native account workflows passed their
+unchanged 240-second deadline. A complete focused local API run also passed
+against an isolated physical clone with 5,307 tracked leaves, 6,054 policy
+compositions, real OS fences and synthetic RPC; it took 122.24 seconds. The first
+local attempt could not inspect the shared checkout and is not counted as a pass.
+These outcomes validate the contract; they do not isolate a causal live speedup.
+Fresh exact-head CI and trusted review remain required for the composer changes.
+
+Desktop Library draft hydration regression
+The desktop layout failure on 1d07c0cd0 captured its retained task draft before
+asynchronous runtime capabilities finished hydrating. The later comparison
+correctly observed accountReference:null, combined-caps-r1 and sandbox; identity,
+content, revision and execution state were unchanged. Existing settings unit
+tests explicitly require this hydration without dirtying the task.
+
+The browser test now gates one capability response, proves the pending runtime,
+then waits for the exact hydrated runtime before retaining the full snapshot.
+It also compares every non-runtime field across that transition. Its original
+full draft equality after navigation/reload and server/idempotency assertions
+remain intact. The controlled pre-hydration snapshot reproduced the CI failure
+RED; the corrected test passes all three browser projects plus both startup
+checks (five passes). No product behavior or protected assertion was changed.

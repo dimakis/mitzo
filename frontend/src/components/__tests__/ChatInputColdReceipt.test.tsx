@@ -26,7 +26,7 @@ afterEach(() => {
 });
 
 it.each(['ordinary', 'rich'] as const)(
-  'leaves cleanup to the same-owner replacement when an unmounted %s callback accepts late',
+  'notifies the same-owner replacement when an unmounted %s callback accepts late',
   (kind) => {
     const draft = {
       ...createChatDraft(),
@@ -60,11 +60,8 @@ it.each(['ordinary', 'rich'] as const)(
     fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
     expect(proof).toBeDefined();
     first.unmount();
-    const replacement = render(<ChatInput {...props} />);
+    render(<ChatInput {...props} />);
     act(() => receipt?.('accepted'));
-    if (kind === 'rich') expect(getChatDraft(draft.id)?.text).toBe(draft.text);
-    else expect(localStorage.getItem('mitzo-draft-chat')).toBe(draft.text);
-    replacement.rerender(<ChatInput {...props} acceptedComposerDraft={proof} />);
     expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
     expect(screen.queryByAltText('Attachment 1')).toBeNull();
     if (kind === 'rich') expect(getChatDraft(draft.id)).toBeNull();
@@ -351,3 +348,474 @@ it.each([false, true])(
     expect(getChatDraft(draft.id)).toBeNull();
   },
 );
+
+it.each(['text', 'revision', 'all'] as const)(
+  'clears an unchanged mounted ordinary composer after acceptance with unavailable %s storage',
+  (failure) => {
+    const write = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      if (
+        failure === 'all' ||
+        (failure === 'text' ? key === 'mitzo-draft-chat' : key.startsWith('mitzo-draft-revision:'))
+      )
+        throw Error('Storage unavailable');
+      write.call(this, key, value);
+    });
+    let receipt: SendMessageOptions['onDelivery'];
+    let proof: SendMessageOptions['composerDraft'];
+    render(
+      <ChatInput
+        sessionId="chat"
+        running={false}
+        onStop={() => {}}
+        onSend={(_text, _images, _context, callback, _assigned, captured) => {
+          receipt = callback;
+          proof = captured;
+          return true;
+        }}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Accepted without storage' },
+    });
+    fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+    expect(proof).toBeUndefined();
+    act(() => receipt?.('accepted'));
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+  },
+);
+
+it('recovers ordinary late acceptance on a later rich-owner mount without a local command prop', () => {
+  const draft = {
+    ...createChatDraft(),
+    text: 'Navigate before acceptance',
+    images: [{ data: 'image', preview: 'data:image/png;base64,aW1hZ2U=', mediaType: 'image/png' }],
+    contextBlocks: ['Submitted context'],
+  };
+  saveChatDraft(draft);
+  let receipt: SendMessageOptions['onDelivery'];
+  const props = { savedChatDraft: draft, running: false, onStop: () => {}, onSend: () => false };
+  const first = render(
+    <ChatInput
+      {...props}
+      onSend={(_text, _images, _context, callback) => {
+        receipt = callback;
+        return true;
+      }}
+    />,
+  );
+  fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+  first.unmount();
+  act(() => receipt?.('accepted'));
+  render(<ChatInput {...props} />);
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+  expect(screen.queryByAltText('Attachment 1')).toBeNull();
+  expect(getChatDraft(draft.id)).toBeNull();
+});
+
+it.each(['failed', 'uncertain', 'same-text', 'context', 'foreign'] as const)(
+  'preserves a volatile draft after %s instead of using stale in-memory acceptance',
+  (change) => {
+    const write = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      if (key === 'mitzo-draft-chat') throw Error('Draft unavailable');
+      write.call(this, key, value);
+    });
+    let receipt: SendMessageOptions['onDelivery'];
+    const props = {
+      sessionId: 'chat',
+      running: false,
+      onStop: () => {},
+      onSend: (
+        _text: string,
+        _images: unknown,
+        _context: unknown,
+        callback: SendMessageOptions['onDelivery'],
+      ) => {
+        receipt = callback;
+        return true;
+      },
+    };
+    const view = render(<ChatInput {...props} />);
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Volatile submitted text' },
+    });
+    fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+    if (change === 'same-text')
+      fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+        target: { value: 'Volatile submitted text' },
+      });
+    if (change === 'context')
+      view.rerender(<ChatInput {...props} externalContextBlocks={['New context']} />);
+    if (change === 'foreign') {
+      const other = renderHook(() => useDraft('chat'));
+      act(() => other.result.current[1]('Foreign draft'));
+      other.unmount();
+    }
+    act(() => receipt?.(change === 'failed' || change === 'uncertain' ? change : 'accepted'));
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty(
+      'value',
+      'Volatile submitted text',
+    );
+  },
+);
+
+it.each([
+  [false, false],
+  [true, false],
+  [false, true],
+  [true, true],
+] as const)(
+  'cleans only mounted rich memory when proof persistence fails (foreign edit=%s, external context=%s)',
+  (foreign, external) => {
+    const draft = {
+      ...createChatDraft(),
+      text: 'Submitted rich text',
+      images: [
+        { data: 'image', preview: 'data:image/png;base64,aW1hZ2U=', mediaType: 'image/png' },
+      ],
+      contextBlocks: ['Submitted context'],
+    };
+    saveChatDraft(draft);
+    const write = Storage.prototype.setItem;
+    const fault = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key,
+      value,
+    ) {
+      if (key.startsWith('mitzo-draft-revision:')) throw Error('Revision unavailable');
+      write.call(this, key, value);
+    });
+    let receipt: SendMessageOptions['onDelivery'];
+    render(
+      <ChatInput
+        savedChatDraft={draft}
+        externalContextBlocks={external ? draft.contextBlocks : undefined}
+        running={false}
+        onStop={() => {}}
+        onSend={(_text, _images, _context, callback, _assigned, proof) => {
+          expect(proof).toBeUndefined();
+          receipt = callback;
+          return true;
+        }}
+      />,
+    );
+    fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+    fault.mockRestore();
+    const retained = foreign
+      ? { ...draft, text: 'Foreign rich text', contextBlocks: ['Foreign context'] }
+      : draft;
+    if (foreign) saveChatDraft(retained);
+    act(() => receipt?.('accepted'));
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty(
+      'value',
+      foreign ? draft.text : '',
+    );
+    expect(screen.queryByAltText('Attachment 1') !== null).toBe(foreign);
+    expect(getChatDraft(draft.id)).toMatchObject({
+      text: retained.text,
+      images: retained.images,
+      contextBlocks: retained.contextBlocks,
+      settings: retained.settings,
+    });
+  },
+);
+
+it.each([false, true])(
+  'preserves a newer replacement on late ordinary acceptance (same text=%s)',
+  (sameText) => {
+    let receipt: SendMessageOptions['onDelivery'];
+    const props = { sessionId: 'chat', running: false, onStop: () => {}, onSend: () => false };
+    const first = render(
+      <ChatInput
+        {...props}
+        onSend={(_text, _images, _context, callback) => {
+          receipt = callback;
+          return true;
+        }}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Submitted original' },
+    });
+    fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+    first.unmount();
+    render(<ChatInput {...props} />);
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'Newer draft' } });
+    if (sameText)
+      fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+        target: { value: 'Submitted original' },
+      });
+    act(() => receipt?.('accepted'));
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty(
+      'value',
+      sameText ? 'Submitted original' : 'Newer draft',
+    );
+  },
+);
+
+it('never clears a replacement through volatile acceptance from an unmounted composer', () => {
+  const write = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+    if (key.startsWith('mitzo-draft-revision:')) throw Error('Revision unavailable');
+    write.call(this, key, value);
+  });
+  let receipt: SendMessageOptions['onDelivery'];
+  const props = { sessionId: 'chat', running: false, onStop: () => {}, onSend: () => false };
+  const first = render(
+    <ChatInput
+      {...props}
+      onSend={(_text, _images, _context, callback) => {
+        receipt = callback;
+        return true;
+      }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+    target: { value: 'Original volatile text' },
+  });
+  fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+  first.unmount();
+  render(<ChatInput {...props} />);
+  act(() => receipt?.('accepted'));
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Original volatile text');
+});
+
+it.each(['text', 'revision'] as const)(
+  'retains volatile authority through its exact ordinary assignment with %s write failure',
+  (failure) => {
+    const write = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      if (failure === 'text' ? key === 'mitzo-draft-new' : key.startsWith('mitzo-draft-revision:'))
+        throw Error('Storage unavailable');
+      write.call(this, key, value);
+    });
+    let receipt: SendMessageOptions['onDelivery'];
+    let assign: SendMessageOptions['onSessionAssigned'];
+    const props = {
+      running: false,
+      onStop: () => {},
+      onSend: (
+        _text: string,
+        _images: unknown,
+        _context: unknown,
+        callback: SendMessageOptions['onDelivery'],
+        assignment: SendMessageOptions['onSessionAssigned'],
+      ) => {
+        receipt = callback;
+        assign = assignment;
+        return true;
+      },
+    };
+    const view = render(<ChatInput {...props} />);
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'First ordinary message' },
+    });
+    fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+    act(() => assign?.('assigned-chat'));
+    view.rerender(<ChatInput {...props} sessionId="assigned-chat" />);
+    act(() => receipt?.('accepted'));
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+  },
+);
+
+it('does not replace failed revocation of an existing token with volatile acceptance', () => {
+  let receipt: SendMessageOptions['onDelivery'];
+  render(
+    <ChatInput
+      sessionId="chat"
+      running={false}
+      onStop={() => {}}
+      onSend={(_text, _images, _context, callback, _assigned, proof) => {
+        expect(proof).toBeUndefined();
+        receipt = callback;
+        return true;
+      }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+    target: { value: 'Keep the existing authority' },
+  });
+  const write = Storage.prototype.setItem;
+  const remove = Storage.prototype.removeItem;
+  const isRevision = (key: string) => key.startsWith('mitzo-draft-revision:');
+  const writeFault = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+    this: Storage,
+    key,
+    value,
+  ) {
+    if (isRevision(key)) throw Error('Cannot replace revision');
+    write.call(this, key, value);
+  });
+  const removeFault = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (
+    this: Storage,
+    key,
+  ) {
+    if (isRevision(key)) throw Error('Cannot revoke revision');
+    remove.call(this, key);
+  });
+  fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+  act(() => receipt?.('accepted'));
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty(
+    'value',
+    'Keep the existing authority',
+  );
+  expect(localStorage.getItem('mitzo-draft-chat')).toBe('Keep the existing authority');
+  writeFault.mockRestore();
+  removeFault.mockRestore();
+});
+
+it('keeps known durable authority guarded when later volatile attempts cannot read storage', () => {
+  const write = Storage.prototype.setItem;
+  let receipt: SendMessageOptions['onDelivery'];
+  render(
+    <ChatInput
+      sessionId="chat"
+      running={false}
+      onStop={() => {}}
+      onSend={(_text, _images, _context, callback) => {
+        receipt = callback;
+        return true;
+      }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+    target: { value: 'Keep known durable authority' },
+  });
+  const fault = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+    this: Storage,
+    key,
+    value,
+  ) {
+    if (key === 'mitzo-draft-chat') throw Error('Draft unavailable');
+    write.call(this, key, value);
+  });
+  fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+  act(() => receipt?.('failed'));
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    throw Error('Storage unreadable');
+  });
+  fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+  act(() => receipt?.('accepted'));
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty(
+    'value',
+    'Keep known durable authority',
+  );
+  fault.mockRestore();
+});
+
+it.each([false, true])(
+  'preserves foreign same-text ABA when revision persistence is unavailable (assigned=%s)',
+  (assigned) => {
+    const write = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      if (key.startsWith('mitzo-draft-revision:')) throw Error('Revision unavailable');
+      write.call(this, key, value);
+    });
+    let receipt: SendMessageOptions['onDelivery'];
+    let assign: SendMessageOptions['onSessionAssigned'];
+    const props = {
+      sessionId: assigned ? undefined : 'chat',
+      running: false,
+      onStop: () => {},
+      onSend: (
+        _text: string,
+        _images: unknown,
+        _context: unknown,
+        callback: SendMessageOptions['onDelivery'],
+        assignment: SendMessageOptions['onSessionAssigned'],
+      ) => {
+        receipt = callback;
+        assign = assignment;
+        return true;
+      },
+    };
+    const view = render(<ChatInput {...props} />);
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Same text in another editor' },
+    });
+    fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+    const other = renderHook(() => useDraft(props.sessionId));
+    act(() => {
+      other.result.current[1]('Foreign intermediate text');
+      other.result.current[1]('Same text in another editor');
+      other.result.current[3]();
+    });
+    other.unmount();
+    if (assigned) {
+      act(() => assign?.('assigned-chat'));
+      view.rerender(<ChatInput {...props} sessionId="assigned-chat" />);
+    }
+    act(() => receipt?.('accepted'));
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty(
+      'value',
+      'Same text in another editor',
+    );
+  },
+);
+
+it.each([false, true])(
+  'recovers durable acceptance after exact session assignment and unmount (replacement first=%s)',
+  (replacementFirst) => {
+    let receipt: SendMessageOptions['onDelivery'];
+    let assign: SendMessageOptions['onSessionAssigned'];
+    const props = { running: false, onStop: () => {}, onSend: () => false };
+    const first = render(
+      <ChatInput
+        {...props}
+        onSend={(_text, _images, _context, callback, assigned) => {
+          receipt = callback;
+          assign = assigned;
+          return true;
+        }}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Assigned ordinary request' },
+    });
+    fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+    act(() => assign?.('assigned-chat'));
+    first.rerender(<ChatInput {...props} sessionId="assigned-chat" />);
+    first.unmount();
+    if (replacementFirst) render(<ChatInput {...props} sessionId="assigned-chat" />);
+    act(() => receipt?.('accepted'));
+    if (!replacementFirst) render(<ChatInput {...props} sessionId="assigned-chat" />);
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+    expect(localStorage.getItem('mitzo-draft-assigned-chat')).toBeNull();
+  },
+);
+
+it('retains the exact assigned receipt owner after the same mount navigates elsewhere', () => {
+  let receipt: SendMessageOptions['onDelivery'];
+  let assign: SendMessageOptions['onSessionAssigned'];
+  const props = { running: false, onStop: () => {}, onSend: () => false };
+  const first = render(
+    <ChatInput
+      {...props}
+      onSend={(_text, _images, _context, callback, assigned) => {
+        receipt = callback;
+        assign = assigned;
+        return true;
+      }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+    target: { value: 'Assigned request before navigation' },
+  });
+  fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+  act(() => assign?.('assigned-chat'));
+  first.rerender(<ChatInput {...props} sessionId="assigned-chat" />);
+  first.rerender(<ChatInput {...props} sessionId="other-chat" />);
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+    target: { value: 'Keep the other conversation' },
+  });
+  act(() => receipt?.('accepted'));
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty(
+    'value',
+    'Keep the other conversation',
+  );
+  first.unmount();
+  render(<ChatInput {...props} sessionId="assigned-chat" />);
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+  expect(localStorage.getItem('mitzo-draft-assigned-chat')).toBeNull();
+});

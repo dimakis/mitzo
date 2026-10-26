@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.697-composer-receipt-efficiency';
+  'v1.0.698-composer-receipt-efficiency';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,9 +24,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/composer-draft-proof.ts':
-    '60ed34dd696b358842a544cb73ae5dde3b2a036dabf67ed8c3bff72c499f8bb8',
+    '92f99447111b00a4e0a1d2e5fe324cd353c1c5b3e0f80af8188b9720336d7395',
   '../../frontend/src/components/__tests__/ChatInputColdReceipt.test.tsx':
-    '6378ec93bad1ffc0e1c71823a0133023ab7f4a3bd042dab39837e988e17e573a',
+    '1297292344be22022f1a58be240a9f6cb519cd57641237eb82b71ccbb0bbe066',
   '../../packages/client/src/__tests__/local-receipt-recheck.test.ts':
     'e832495ac09bab7ddf5f839989ec3669d162d03262b52044b2411196a9e63c10',
   '../../tests/offline/composer-receipt.spec.ts':
@@ -864,7 +864,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    'e980db0dc75d169637c6b103d7e219795448aebba9dc3f1d04dd6b737a39d8e5',
+    '48a5ce8ef1cf3565fdf2f6d328fe2295cbbdea18e7dfd37130fdc1fd2b1f47a3',
   '../../frontend/src/components/ComposerTools.tsx':
     'f939155993b0783c1a231a693de30c13d9594ff558cacc27a23c17a781315245',
   '../../frontend/src/components/ContextPanel.tsx':
@@ -890,7 +890,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/launch-draft-delivery.ts':
     'd15081e3eb3dd4c2bae69a16d58ac371cfb15cd5d4cc8e39fd20ef90fec0eb47',
   '../../frontend/src/hooks/useDraft.ts':
-    '6000be7a80b6da04001bd82725e7c90b50370a8877df0595d35ccea4a72c0e43',
+    'bdbafb254b34a75a6879120f1ee0b6f2a20935a89275db28c904b2e28745e311',
   '../../frontend/src/hooks/usePendingLaunch.ts':
     '2c404fd87c407e7003004e2ed302555c79e4e6487e6f3f1d80c4fff2218599dd',
   '../../frontend/src/hooks/useStageChatLaunch.ts':
@@ -2243,7 +2243,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useNewChatDraft.test.tsx':
     '3942ae3873900aae93c862fe665dcd44feae3e29c8a0212e4c3fe94dc56d7ac7',
   '../../frontend/src/pages/__tests__/ChatViewSavedDrafts.test.tsx':
-    'df798f338b6dec2c641a0f6269b73295c114ba3621f85894ce27e558a246edd3',
+    '1f628dc5b6260f77204976fe103712dffcab1794081efc8ae001dd7e21397382',
   '../../scripts/__tests__/ci-native-operator.test.ts':
     '4865779905d81e1ddba9038366966044705c273ca49f54904af6a74b999466c4',
   '../__tests__/agent-tool-catalog.test.ts':
@@ -2269,7 +2269,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/worker-first-completion/vitest.config.ts':
     '006a4943ce2ace645b0121b661c1418a8c30e8ce817cd29cc9dc4be54fb449b7',
   '../../tests/offline/agent-library-builder.spec.ts':
-    '18c0ed53d27d0e2f5295346fc9e6172d4c9b86376ca9b4a443ddfe68edbe2dae',
+    '94f4cc42198c4dca6ce562a518cd493aaceee8b4cc23b624f1f87f2ab556ae91',
   '../../tests/integration/telos-s9/integrated-candidate/native-complete-callbacks.test.ts':
     '63242462b5b95d64947a7dc8ed542a7ecf7b35f1486f8ad34397fd96556cb81b',
   '../../tests/integration/telos-s9/integrated-candidate/native-complete-non-git.contract.ts':

@@ -250,6 +250,8 @@ export function ChatInput({
   }, [savedChatDraft, savedOwnerChanging, useExternal]);
   const {
     capture: captureDraft,
+    captureVolatile: captureVolatileDraft,
+    recordAcceptance: recordDraftAcceptance,
     consume: consumeDraftReceipt,
     ownsCurrent: ownsCurrentDraft,
     revise: reviseDraft,
@@ -263,6 +265,10 @@ export function ChatInput({
     if (!useExternal) setContextBlocks([]);
   }, [draftReceipt.consumedRevision, useExternal]);
   const settingsSignature = JSON.stringify(savedChatDraft?.settings);
+  const volatileClearedDraft = useRef<{
+    settingsSignature: string;
+    externalContextBlocks?: string[];
+  } | null>(null);
   const attachmentRevision = useRef({
     images,
     contextBlocks: activeContextBlocks,
@@ -352,6 +358,16 @@ export function ChatInput({
   // Keep the save acknowledgement and composer geometry settled before paint.
   useLayoutEffect(() => {
     if (!savedChatDraft || savedOwnerChanging) return;
+    if (
+      volatileClearedDraft.current?.settingsSignature === settingsSignature &&
+      !text &&
+      !images.length &&
+      (volatileClearedDraft.current.externalContextBlocks
+        ? volatileClearedDraft.current.externalContextBlocks === activeContextBlocks
+        : !activeContextBlocks.length)
+    )
+      return;
+    volatileClearedDraft.current = null;
     const current = getChatDraft(savedChatDraft.id) ?? savedChatDraft;
     const draft = {
       ...current,
@@ -362,7 +378,7 @@ export function ChatInput({
     };
     const saved = saveChatDraft(draft);
     setSaveResult({ draft, failed: !saved, stored: saved && getChatDraft(draft.id) !== null });
-  }, [savedChatDraft, savedOwnerChanging, text, images, activeContextBlocks]);
+  }, [savedChatDraft, savedOwnerChanging, settingsSignature, text, images, activeContextBlocks]);
   // A prior revision's successful write cannot confirm current edits or a new owner.
   const currentSave =
     savedChatDraft &&
@@ -532,6 +548,7 @@ export function ChatInput({
       const submitted = latestDraft.current;
       const submittedSavedDraft = savedChatDraft ? getChatDraft(savedChatDraft.id) : null;
       const composerDraft = queued ? undefined : captureDraft();
+      const consumeVolatile = !queued && !composerDraft ? captureVolatileDraft() : undefined;
       const pending: { assignedSessionId?: string } = {};
       sendPending.current = pending;
       if (!queued)
@@ -567,7 +584,24 @@ export function ChatInput({
         const draftEdited = latest.revision !== submitted.revision + (assigned ? 1 : 0);
         const textEdited = latest.textRevision !== submitted.textRevision + (assigned ? 1 : 0);
         if (status === 'accepted') {
-          if (!mounted.current || !composerDraft || !ownsDraft) return;
+          // The original callback remains attached to the exact command even
+          // after navigation. A replacement consumes only its matching token.
+          if (composerDraft && (!mounted.current || !ownsDraft)) {
+            recordDraftAcceptance(composerDraft);
+            return;
+          }
+          if (!mounted.current || !ownsDraft) return;
+          if (!composerDraft) {
+            if (!draftEdited && consumeVolatile?.()) {
+              volatileClearedDraft.current = {
+                settingsSignature,
+                externalContextBlocks: useExternal ? activeContextBlocks : undefined,
+              };
+              setImages([]);
+              if (!useExternal) setContextBlocks([]);
+            }
+            return;
+          }
           if (!draftEdited) {
             // Warm callbacks use the same durable revision fence as cold
             // recovery. Another editor may have changed this storage owner
@@ -647,8 +681,13 @@ export function ChatInput({
       draftStorageKey,
       savedChatDraft,
       captureDraft,
+      captureVolatileDraft,
+      recordDraftAcceptance,
       consumeDraftReceipt,
       ownsCurrentDraft,
+      settingsSignature,
+      useExternal,
+      activeContextBlocks,
       boundedFirstCommand,
       sendDisabledReason,
     ],

@@ -8,6 +8,9 @@ import {
   replaceComposerDraftRevision,
   composerDraftProof,
   type ComposerDraftProof,
+  COMPOSER_DRAFT_ACCEPTED,
+  recordAcceptedComposerDraft,
+  composerDraftMemoryRevision,
 } from '../lib/composer-draft-proof';
 import {
   type Dispatch,
@@ -29,6 +32,9 @@ const KEY_PREFIX = 'mitzo-draft-';
 const DEBOUNCE_MS = 400;
 interface DraftReceiptControl {
   capture(): ComposerDraftProof | undefined;
+  /** Optional-storage fallback: exact local memory only, never a durable receipt. */
+  captureVolatile(): (() => boolean) | undefined;
+  recordAcceptance(proof: ComposerDraftProof): boolean;
   consume(proof: ComposerDraftProof): boolean;
   ownsCurrent(proof: ComposerDraftProof): boolean;
   revise(): void;
@@ -153,7 +159,19 @@ export function useDraft(
     return { key, token, submittedToken: token };
   });
   const revisionRef = useRef<DraftRevision>(initialRevision);
+  const localRevision = useRef(0);
+  const durableTokenSeen = useRef(!!initialRevision.token);
+  const volatileAssignedFrom = useRef<string | undefined>(undefined);
+  const volatileAssignmentBaseline = useRef<
+    | {
+        draft: string | null | undefined;
+        revision: string | null | undefined;
+        memoryRevision: number;
+      }
+    | undefined
+  >(undefined);
   const assignedFromKey = useRef<string | undefined>(undefined);
+  const assignedProofOwners = useRef(new Map<string, { from: string; to: string }>());
   const mountedRef = useRef(false);
 
   // Only an ordinary assignment transfers ownership. Navigation
@@ -162,6 +180,7 @@ export function useDraft(
   useLayoutEffect(() => {
     const previous = storageRef.current;
     if (previous.key === key) return;
+    volatileAssignmentBaseline.current = undefined;
     clearTimeout(timerRef.current);
     if (dirty.current) saveDraft(previous.key, textRef.current, previous.scoped);
     dirty.current = false;
@@ -175,6 +194,8 @@ export function useDraft(
         (assignment?.toSessionId === sessionId &&
           previous.key === draftKey(assignment.fromSessionId)));
     if (!assigningOrdinaryDraft) {
+      localRevision.current++;
+      volatileAssignedFrom.current = undefined;
       assignedFromKey.current = undefined;
       storageRef.current = { key, scoped };
       const restored = readDraft(key, initialText, scoped);
@@ -191,8 +212,11 @@ export function useDraft(
     // If we had a draft under the old key, migrate it
     const oldKey = previous.key;
     const newKey = key;
+    volatileAssignedFrom.current = oldKey;
     try {
       if (!allowComposerDraftPersistence(oldKey) || !allowComposerDraftPersistence(newKey)) {
+        localRevision.current++;
+        volatileAssignedFrom.current = undefined;
         // An unrelated destination remains usable; never copy edited bytes
         // beneath the old proof when its revocation is still unavailable.
         const restored = readDraft(newKey);
@@ -203,6 +227,8 @@ export function useDraft(
       }
       const existing = localStorage.getItem(newKey);
       if (existing) {
+        localRevision.current++;
+        volatileAssignedFrom.current = undefined;
         // New session already has a draft — use it
         textRef.current = existing;
         revisionRef.current = { key, token: readRevision(newKey, existing) };
@@ -217,6 +243,7 @@ export function useDraft(
             if (raw && replaceComposerDraftRevision(newKey, raw)) {
               revisionRef.current = { ...oldRevision, key };
               assignedFromKey.current = oldKey;
+              assignedProofOwners.current.set(oldRevision.token, { from: oldKey, to: newKey });
             }
           }
           // Don't change text state — it's the same draft, just moved
@@ -225,6 +252,22 @@ export function useDraft(
       localStorage.removeItem(oldKey);
     } catch {
       // localStorage unavailable — ignore
+    } finally {
+      if (volatileAssignedFrom.current === oldKey) {
+        let draft: string | null | undefined;
+        let revision: string | null | undefined;
+        try {
+          draft = localStorage.getItem(newKey);
+          revision = localStorage.getItem(revisionKey(newKey));
+        } catch {
+          // Unreadable assignment cannot weaken a readable original snapshot.
+        }
+        volatileAssignmentBaseline.current = {
+          draft,
+          revision,
+          memoryRevision: composerDraftMemoryRevision(newKey),
+        };
+      }
     }
   }, [key, scoped, initialText, sessionId, assignment]);
 
@@ -259,8 +302,10 @@ export function useDraft(
   }, []);
 
   const rotateRevision = useCallback((next: string) => {
+    localRevision.current++;
     const owner = storageRef.current.key;
     const previous = revisionRef.current;
+    if (previous.token) durableTokenSeen.current = true;
     let submittedToken: string | undefined;
     try {
       const durable = JSON.parse(localStorage.getItem(revisionKey(owner)) ?? 'null');
@@ -277,6 +322,7 @@ export function useDraft(
       // Unreadable ancestry cannot authorize a partial receipt cleanup.
     }
     revisionRef.current = { key: owner, token: writeRevision(owner, next), submittedToken };
+    if (revisionRef.current.token) durableTokenSeen.current = true;
   }, []);
 
   const setText = useCallback<Dispatch<SetStateAction<string>>>(
@@ -319,13 +365,82 @@ export function useDraft(
     rotateRevision(textRef.current);
   }, [rotateRevision]);
   const capture = useCallback(() => {
+    if (revisionRef.current.token) durableTokenSeen.current = true;
     clearTimeout(timerRef.current);
     const owner = storageRef.current;
     if (!saveDraft(owner.key, textRef.current, owner.scoped)) return undefined;
     dirty.current = false;
     const token = writeRevision(owner.key, textRef.current, true);
     revisionRef.current = { key: owner.key, token, submittedToken: token };
+    if (token) durableTokenSeen.current = true;
     return token ? { storageKey: owner.key, revisionToken: token } : undefined;
+  }, []);
+  const captureVolatile = useCallback(() => {
+    const owner = storageRef.current.key;
+    const revision = localRevision.current;
+    const memoryRevision = composerDraftMemoryRevision(owner);
+    let baseline: string | null | undefined;
+    let draftBaseline: string | null | undefined;
+    try {
+      draftBaseline = localStorage.getItem(owner);
+      baseline = localStorage.getItem(revisionKey(owner));
+      // A failed replacement of existing durable authority cannot become
+      // weaker in-memory authority. Successful revocation leaves no token.
+      const token = JSON.parse(baseline ?? 'null')?.revisionToken;
+      durableTokenSeen.current = !!token;
+      if (token && (composerDraftRevocationPending(owner) || token !== revisionRef.current.token))
+        return undefined;
+    } catch {
+      if (durableTokenSeen.current) return undefined;
+    }
+    return () => {
+      const currentOwner = storageRef.current.key;
+      if (
+        (currentOwner !== owner && volatileAssignedFrom.current !== owner) ||
+        localRevision.current !== revision ||
+        // Assignment cannot erase a foreign edit to the submitted source.
+        composerDraftMemoryRevision(owner) !== memoryRevision
+      )
+        return false;
+      const assigned = currentOwner !== owner ? volatileAssignmentBaseline.current : undefined;
+      if (
+        currentOwner !== owner &&
+        (!assigned ||
+          (assigned.revision === undefined && baseline !== undefined) ||
+          (assigned.draft === undefined && draftBaseline !== undefined))
+      )
+        return false;
+      const expectedRevision = assigned ? assigned.revision : baseline;
+      const expectedDraft = assigned ? assigned.draft : draftBaseline;
+      if (
+        composerDraftMemoryRevision(currentOwner) !==
+        (assigned ? assigned.memoryRevision : memoryRevision)
+      )
+        return false;
+      try {
+        if (
+          localStorage.getItem(revisionKey(currentOwner)) !== expectedRevision ||
+          localStorage.getItem(currentOwner) !== expectedDraft
+        )
+          return false;
+      } catch {
+        if (expectedRevision !== undefined || expectedDraft !== undefined) return false;
+      }
+      // This authority belongs solely to this mount. Never delete durable
+      // bytes or manufacture a receipt usable by another editor.
+      clearTimeout(timerRef.current);
+      dirty.current = false;
+      textRef.current = '';
+      setTextRaw('');
+      localRevision.current++;
+      return true;
+    };
+  }, []);
+  const recordAcceptance = useCallback((proof: ComposerDraftProof) => {
+    const assignment = assignedProofOwners.current.get(proof.revisionToken);
+    if (assignment?.from === proof.storageKey)
+      return recordAcceptedComposerDraft({ ...proof, storageKey: assignment.to });
+    return recordAcceptedComposerDraft(proof);
   }, []);
   const consume = useCallback(
     (proof: ComposerDraftProof) => {
@@ -375,20 +490,29 @@ export function useDraft(
     }
   }, []);
   useLayoutEffect(() => {
-    try {
-      const marker = composerDraftProof(
-        JSON.parse(localStorage.getItem(acceptedComposerDraftKey(key)) ?? 'null'),
-      );
-      if (marker) consume(marker);
-    } catch {
-      // An unreadable local receipt does not authorize clearing a draft.
-    }
+    const recover = () => {
+      try {
+        const marker = composerDraftProof(
+          JSON.parse(localStorage.getItem(acceptedComposerDraftKey(key)) ?? 'null'),
+        );
+        if (marker) consume(marker);
+      } catch {
+        // An unreadable local receipt does not authorize clearing a draft.
+      }
+    };
+    recover();
+    window.addEventListener(COMPOSER_DRAFT_ACCEPTED, recover);
+    window.addEventListener('storage', recover);
+    return () => {
+      window.removeEventListener(COMPOSER_DRAFT_ACCEPTED, recover);
+      window.removeEventListener('storage', recover);
+    };
   }, [key, consume]);
   return [
     text,
     setText,
     clearDraft,
     flushDraft,
-    { capture, consume, ownsCurrent, revise, consumedRevision },
+    { capture, captureVolatile, recordAcceptance, consume, ownsCurrent, revise, consumedRevision },
   ];
 }
