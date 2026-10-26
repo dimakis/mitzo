@@ -104,6 +104,7 @@ it('installs every real stage before construction without invoking owners and re
     [RepositoryWorkspaces.prototype, 'getHostReservation'],
     [RepositoryWorkspaces.prototype, 'snapshotHostInput'],
     [RepositoryWorkspaces.prototype, 'getHostRecord'],
+    [RepositoryWorkspaces.prototype, 'getReadonlyHostRecord'],
     [RepositoryWorkspaces.prototype, 'getForConversation'],
     [RepositoryWorkspaces.prototype, 'validateHostTask'],
   ].map(([target, key]) => ({

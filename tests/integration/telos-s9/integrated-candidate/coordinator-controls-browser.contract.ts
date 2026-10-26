@@ -449,7 +449,21 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
     await capture('unrelated-job-completed-reloaded');
     canonical.restartOwners();
     await page.goto(front.origin + '/chat/' + coordinatorId);
-    await page.reload();
+    // The restarted inbox hydrates after the document commits. Start the
+    // existing heading oracle only after that document reads its exact receipt.
+    const restartedAcknowledgedInboxResponse = await observeNavigatedControlInbox(
+      page,
+      acknowledged.coordinatorItemId,
+      () => page.reload(),
+    );
+    expect(restartedAcknowledgedInboxResponse.status).toBe(200);
+    const restartedAcknowledgedInbox = TelosWorkControlViewSchema.array().parse(
+      restartedAcknowledgedInboxResponse.body,
+    );
+    expect(restartedAcknowledgedInbox).toEqual([acknowledged]);
+    await record('browser-loaded-exact-restarted-acknowledged-inbox', {
+      restartedAcknowledgedInbox,
+    });
     expect(await control({ operation: 'read', controlId: requested.controlId })).toEqual(
       acknowledged,
     );

@@ -249,7 +249,7 @@ joined cases and 36 native authorization tests passed, with one existing skip.
 
 Retain compiled profile SELECT statements and the existing revision schema,
 while still executing fresh database reads and definition validation on every
-lookup. Cache only validated deeply frozen original transition facts, their
+lookup. Reuse validated deeply frozen original transition facts, their
 immutable projections and one exact bounded original materialized-record string
 per live facts owner. Current database rows, markers, decisions, receipts,
 reservations, pointers, callbacks and physical authority remain freshly checked.
@@ -269,8 +269,55 @@ altering receivers, return values or Promise identity. The later local profile
 observed 87,924 repository-record reads taking 6.79 seconds during handoff.
 A proposed general decoded-row cache was rejected: on an actual adopted custody
 fixture, cloning its 31,380-byte row took longer than fresh JSON parsing.
-No mutable authority observation or decoded current database row is cached.
+That rejected design did not change mutable public database reads.
 CI now uploads the same sanitized native evidence immediately after that phase,
 including failures, without waiting for the remaining independent joined cases.
 Qualification coverage, assertions, deadlines and the final artifact stay intact.
 Fresh exact-head CI and trusted approval remain required before merge.
+
+Follow-up measured custody decoding and restart readiness
+On 8b0bd3fd5, hosted subscription completed in 216.23 seconds; API still hit the
+240-second limit during continued handoff inspection. Both preparations were
+materialized. All later joined cases in the canonical native job and its native
+authorization checks passed.
+The finer API profile attributed 18.85 seconds to 78,278 repository-record reads
+and 13.06 exclusive seconds to 18,340 adopted-custody assertions.
+
+The final internal optimization retains one bounded private frozen JSON decoding
+projection per repository store. Only the two synchronous read-only validators
+use it. Every invocation queries SQL afresh, compares the entire current record
+string, and checks row identity and the current SQL conversation pointer. It
+caches no permission, currentness result or error. Public mutable reads remain
+fresh independent objects, and returned reservation descriptors are freshly
+validated copies. Full graph qualification precedes freezing; oversized, deep,
+object-heavy and non-string inputs retain the uncached path without new refusal.
+Close releases the retained projection. Warm tests cover SQL-only pointer drift,
+changed bytes, deletion, malformed rows, descriptor/public mutation, separate
+stores, exact replacement and accepted fallback cases.
+
+Fresh marker facts that exactly equal the already validated immutable facts do
+not rebuild that same schema projection. Header and materialized-byte bounds
+still validate each time; unequal facts run the original complete schema.
+Receipt, decision, pointer, reservation, callback and physical checks remain.
+Nine rotating-order paired rounds of 500 actual public adopted assertions on a
+31,380-byte fixture row measured median 170.79 to 126.87 ms, with 26.65% median
+paired improvement. This is an isolated assertion result; it does not prove an
+end-to-end or hosted deadline improvement.
+
+The supplemental coordinator failure on 8b0 occurred after owner restart while
+the browser's exact acknowledged inbox was still hydrating. Retained responses
+and the later screenshot show the expected receipt, with no browser errors or
+failed HTTP response. The test now observes the restarted document's first exact
+inbox response before its unchanged canonical equality and five-second heading
+assertion. It requires status 200, the complete schema and exact receipt equality;
+it cannot skip a failed first response. The full local scenario passed in 76.11
+seconds with 11 native launches, no page errors and no real model calls. Two
+independent reviewers approved this test-only correction. No UI timeout,
+assertion, scenario or native qualification deadline was removed or increased.
+
+The final complete local API journey passed in 109.27 seconds process time
+against a new physical clone with 5,310 tracked leaves, real OS fences and
+synthetic RPC. Preparation, handoff, continued tools, revocation and cleanup
+completed. The custody/transition/workspace-owner batch passed 68 tests; the
+profiler passed seven. This validates the composed implementation locally; fresh
+exact-head hosted CI and trusted final LGTM still gate merge.

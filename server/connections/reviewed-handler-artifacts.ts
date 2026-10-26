@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.701-composer-receipt-efficiency';
+  'v1.0.702-composer-receipt-efficiency';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1211,7 +1211,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '8d334e7f2e465ffbb66d4424f09adc04ca4695ce131fbd50d85226ccbf175d16',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '67c286127895774cb81c4b5611ff06823cae4670c659b1a39e09355c09ba060a',
-  '../repository-workspaces.ts': 'ec1ee59124e11bc7b5f4adac48aa28fa32802d14478c9a4a14c12c602be44040',
+  '../repository-workspaces.ts': '08b8a4af1142a429f39f79e75dfd14605e4133fe498e19bb69a594aadd15820c',
   '../../packages/protocol/src/session-metadata-store.ts':
     '019598b360106c0dd8babc08e9366e40c95c1dd4dca9ea649c37bc7d096b8358',
   '../../packages/protocol/src/event-store.ts':
@@ -1659,7 +1659,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-directory-verification-batch.test.ts':
     'e47f7310524224a555e8786f83824f4f742f5838f5666a461e95a5b99ec647fa',
   '../__tests__/prepared-repository-custody.test.ts':
-    '4c965e134adcc3878bc6c1df51c8aad3e2dbce6231760c1f31abb0215ecf33cd',
+    'a4de4a0effa64e9be59e602262788df56c62770d29fdea5329173b1d59d7a379',
   '../__tests__/native-host-read-owner.test.ts':
     '7eeb0b94edcd36a2e80488c242d3ebc7bd3606c1e71ae5f2f4f7100919c5bf8d',
   '../__tests__/session-create-runtime-selection.test.ts':
@@ -2055,7 +2055,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/closed-supplemental-selection.json':
     '9c31914b2f4de2d76ac0b2cce569fe80e8e7bc2e01fc14826edc3a00e00a0e12',
   '../../tests/integration/telos-s9/integrated-candidate/coordinator-controls-browser.contract.ts':
-    '9d5ae3bdee835df5e47d6d8dd011bdc8f54057009ce7666da28e9e6af8fccd4b',
+    '96db2b02899195f58a52c25bb5ea755d3e217864034ab5ad0a168aec7600f7d3',
   '../../tests/integration/telos-s9/integrated-candidate/coordinator-controls.acceptance-plan.json':
     'df5a9e25d3c067c56bf7cd511ff074dbb5146889099413f0d82a808c3fc79543',
   '../../tests/integration/telos-s9/integrated-candidate/coordinator-refresh-browser.contract.ts':
@@ -2295,11 +2295,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-conversation-store-statements.test.ts':
     'f4e9d9ff8edcc9016d442157347049c875812e3cd47c5bbcb7217bd1d4a32d84',
   '../__tests__/fixtures/synchronous-stage-profiler.ts':
-    '909ed44848c79c9b69e8f53e92ecd818da7e54b30831c29d4a6179dadc86d989',
+    'cfe4170ad057b553a0c6041ca130c25bd6b86428c240e507386735c3fbc659ab',
   '../__tests__/native-reader-path-authorization.test.ts':
     '1c5bb59f30e9c4b81725ecf1f46057aebebc88be7c55dfcf4e257cf4ffe4fcd9',
   '../__tests__/synchronous-stage-profiler.test.ts':
-    '096bb51cc9269aef58fa577d3b7f7e71d99176cdc94da0bed7482a0ba2874db1',
+    '527589437bf36dd0a852432f3be0d1aed2d9ac8863008dbfed09b02815fa4020',
   '../local-repository-native-reader.ts':
     'a676201b64050db555880abd9b41acd2182e9fdeb2295fefc3520807a7842817',
   '../__tests__/agent-flow-consolidation.test.ts':

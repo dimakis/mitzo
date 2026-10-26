@@ -280,6 +280,7 @@ export function installSignedNativeReadStages(
       [RepositoryWorkspaces.prototype, 'getHostReservation', 'repository.reservation'],
       [RepositoryWorkspaces.prototype, 'snapshotHostInput', 'repository.reservationInput'],
       [RepositoryWorkspaces.prototype, 'getHostRecord', 'repository.record'],
+      [RepositoryWorkspaces.prototype, 'getReadonlyHostRecord', 'repository.record.readonly'],
       [RepositoryWorkspaces.prototype, 'getForConversation', 'repository.current'],
       // Async entries measure only their synchronous prefix and preserve the
       // exact Promise; the existing workspace_check phase retains wall timing.

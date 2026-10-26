@@ -344,6 +344,226 @@ it('reuses only immutable transition projections while rechecking the current ad
   expect(() => f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId)).toThrow();
 });
 
+it('reuses only a private readonly decode while every SQL read and mutable result stays fresh', async () => {
+  const f = await fixture(),
+    p = await f.pending();
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+  f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
+  const bytes = f.raw(p.record.id).record;
+  const parse = vi.spyOn(JSON, 'parse');
+  const statementPrototype = Object.getPrototypeOf(f.db.prepare('SELECT 1')) as Database.Statement;
+  const gets = vi.spyOn(statementPrototype, 'get');
+  for (let index = 0; index < 3; index++)
+    f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
+  expect(
+    gets.mock.contexts.filter(
+      (statement) =>
+        (statement as Database.Statement).source ===
+        'SELECT record, conversation_id FROM repository_workspaces WHERE id=?',
+    ),
+  ).toHaveLength(9);
+  // Only getForConversation returns a fresh mutable row on each assertion.
+  expect(parse.mock.calls.filter(([value]) => value === bytes)).toHaveLength(3);
+  parse.mockRestore();
+  gets.mockRestore();
+  const expected = {
+    id: p.record.id,
+    binding,
+    conversationId: f.conversationId,
+    taskRoot: f.taskRoot,
+    runtimeBinding: runtime,
+  };
+  const descriptor = f.service.getHostReservation(expected);
+  const original = structuredClone(descriptor);
+  expect(Object.isFrozen(descriptor.binding)).toBe(false);
+  expect(Object.isFrozen(descriptor.hostReservation.rootIdentity)).toBe(false);
+  descriptor.binding.accountId = 'caller mutation';
+  descriptor.hostReservation.rootIdentity.ino++;
+  expect(f.service.getHostReservation(expected)).toEqual(original);
+  const publicRow = f.service.get(p.record.id);
+  const primary = f.service.getForConversation(f.conversationId)!;
+  expect(publicRow).not.toBe(primary);
+  expect(publicRow.binding).not.toBe(primary.binding);
+  expect(Object.isFrozen(publicRow.binding)).toBe(false);
+  expect(Object.isFrozen(primary.binding)).toBe(false);
+  publicRow.binding.accountId = 'public caller mutation';
+  primary.hostReservation!.rootIdentity.ino++;
+  expect(f.service.get(p.record.id).binding).toEqual(binding);
+  expect(f.service.getForConversation(f.conversationId)!.hostReservation!.rootIdentity).toEqual(
+    original.hostReservation.rootIdentity,
+  );
+  expect(() =>
+    f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId),
+  ).not.toThrow();
+});
+
+it('keeps one readonly decode per store while fresh SQL identities, changes and failures remain current', async () => {
+  const f = await fixture(),
+    p = await f.pending();
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+  const expected = {
+    id: p.record.id,
+    binding,
+    conversationId: f.conversationId,
+    taskRoot: f.taskRoot,
+    runtimeBinding: runtime,
+  };
+  const original = f.raw(p.record.id);
+  f.service.getHostReservation(expected);
+  const second = new RepositoryWorkspaces(join(f.root, 'private'), f.deps);
+  cleanups.push(() => second.close());
+  const parse = vi.spyOn(JSON, 'parse');
+  second.getHostReservation(expected);
+  f.service.getHostReservation(expected);
+  expect(parse.mock.calls.filter(([value]) => value === original.record)).toHaveLength(1);
+  const changed = JSON.parse(original.record) as RepositoryWorkspace;
+  Object.defineProperty(changed, '__proto__', { value: { retained: true }, enumerable: true });
+  const changedBytes = JSON.stringify(changed);
+  const write = (bytes: string | Buffer) =>
+    f.db.prepare('UPDATE repository_workspaces SET record=? WHERE id=?').run(bytes, p.record.id);
+  write(changedBytes);
+  f.service.getHostReservation(expected);
+  f.service.getHostReservation(expected);
+  expect(parse.mock.calls.filter(([value]) => value === changedBytes)).toHaveLength(1);
+  write(original.record);
+  parse.mockClear();
+  f.service.getHostReservation(expected);
+  expect(parse.mock.calls.filter(([value]) => value === original.record)).toHaveLength(1);
+  f.db.prepare('UPDATE repository_workspaces SET conversation_id=NULL WHERE id=?').run(p.record.id);
+  expect(() => f.service.getHostReservation(expected)).toThrow('ledger identity changed');
+  f.db
+    .prepare('UPDATE repository_workspaces SET conversation_id=? WHERE id=?')
+    .run(original.conversation_id, p.record.id);
+  const wrongId = { ...changed, id: 'different-ledger-id' };
+  write(JSON.stringify(wrongId));
+  expect(() => f.service.getHostReservation(expected)).toThrow('ledger identity changed');
+  write('{malformed');
+  for (let attempt = 0; attempt < 2; attempt++)
+    expect(() => f.service.getHostReservation(expected)).toThrow();
+  write(original.record);
+  expect(() => f.service.getHostReservation(expected)).not.toThrow();
+  f.db.prepare('DELETE FROM repository_workspaces WHERE id=?').run(p.record.id);
+  expect(() => f.service.getHostReservation(expected)).toThrow('reservation unavailable');
+  f.db
+    .prepare('INSERT INTO repository_workspaces(id,record,conversation_id) VALUES(?,?,?)')
+    .run(p.record.id, original.record, original.conversation_id);
+  expect(() => f.service.getHostReservation(expected)).not.toThrow();
+});
+
+it('falls back to uncached original decoding for oversized, deep, object-heavy and nonstring SQL data', async () => {
+  const f = await fixture(),
+    p = await f.pending();
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+  const expected = {
+    id: p.record.id,
+    binding,
+    conversationId: f.conversationId,
+    taskRoot: f.taskRoot,
+    runtimeBinding: runtime,
+  };
+  f.service.getHostReservation(expected);
+  const original = f.raw(p.record.id).record;
+  let deep: unknown = {};
+  for (let index = 0; index < 40; index++) deep = { child: deep };
+  const variants: Array<string | Buffer> = [
+    JSON.stringify({ ...JSON.parse(original), retained: 'é'.repeat(131073) }),
+    JSON.stringify({ ...JSON.parse(original), retained: deep }),
+    JSON.stringify({ ...JSON.parse(original), retained: Array.from({ length: 4096 }, () => ({})) }),
+    Buffer.from(original),
+  ];
+  const parse = vi.spyOn(JSON, 'parse');
+  for (const bytes of variants) {
+    f.db.prepare('UPDATE repository_workspaces SET record=? WHERE id=?').run(bytes, p.record.id);
+    parse.mockClear();
+    for (let attempt = 0; attempt < 2; attempt++)
+      expect(() => f.service.getHostReservation(expected)).not.toThrow();
+    expect(
+      parse.mock.calls.filter(([value]) =>
+        Buffer.isBuffer(bytes) ? Buffer.isBuffer(value) : value === bytes,
+      ),
+    ).toHaveLength(2);
+  }
+});
+
+it('validates each fresh adopted marker without rebuilding equal immutable facts', async () => {
+  const f = await fixture(),
+    p = await f.pending();
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+  f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
+  const stringify = vi.spyOn(JSON, 'stringify');
+  const current = vi.spyOn(f.service, 'getForConversation');
+  const reservation = vi.spyOn(f.service, 'getHostReservation');
+  for (let index = 0; index < 3; index++)
+    f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
+  const rebuiltFacts = stringify.mock.calls.filter(
+    ([value]) => value?.version === 'prepared-repository-transition-v1',
+  );
+  expect(current).toHaveBeenCalledTimes(3);
+  expect(reservation).toHaveBeenCalledTimes(3);
+  expect(rebuiltFacts).toHaveLength(0);
+});
+
+it('retains full fresh marker validation after warming equal adoption facts', async () => {
+  const f = await fixture(),
+    p = await f.pending();
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+  f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
+  const original = JSON.parse(f.raw(p.record.id).record) as RepositoryWorkspace;
+  const write = (record: RepositoryWorkspace) =>
+    f.db
+      .prepare('UPDATE repository_workspaces SET record=? WHERE id=?')
+      .run(JSON.stringify(record), record.id);
+  type Marker = NonNullable<RepositoryWorkspace['preparedRepositoryTransitionAdoption']>;
+  const mutations: Array<(marker: Marker) => void> = [
+    (marker) => {
+      Object.assign(marker, { facts: null });
+    },
+    (marker) => {
+      Reflect.deleteProperty(marker, 'facts');
+    },
+    (marker) => {
+      Object.assign(marker, { facts: [] });
+    },
+    (marker) => {
+      Object.assign(marker.facts, { unknown: true });
+    },
+    (marker) => {
+      Object.assign(marker.facts.newWorkspace.taskIdentity.root, { ino: 'wrong-type' });
+    },
+    (marker) => {
+      marker.facts.oldWorkspace.directory = '/canonical/../different';
+    },
+    (marker) => {
+      marker.facts.oldWorkspace.directory = '/' + 'x'.repeat(65536);
+    },
+    (marker) => {
+      Object.assign(marker, { unknown: true });
+    },
+    (marker) => {
+      Object.assign(marker, { version: '1' });
+    },
+    (marker) => {
+      marker.factsSha256 = 'invalid';
+    },
+    (marker) => {
+      marker.childCommandId = 'different';
+    },
+    (marker) => {
+      marker.materializedRecord = 'é'.repeat(131073);
+    },
+  ];
+  for (const mutate of mutations) {
+    const changed = structuredClone(original);
+    mutate(changed.preparedRepositoryTransitionAdoption!);
+    write(changed);
+    expect(() => f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId)).toThrow();
+    write(original);
+    expect(() =>
+      f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId),
+    ).not.toThrow();
+  }
+});
+
 it.each(['ordinary', 'repository'] as const)(
   'atomically adopts %s→repository while retaining dirty old task and historical ownership',
   async (kind) => {

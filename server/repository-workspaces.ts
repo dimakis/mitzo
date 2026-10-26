@@ -274,6 +274,7 @@ const transitionAdoptionSchema = z.strictObject({
   materializedRecord: transitionMaterializedRecordSchema,
   facts: transitionFactsSchema,
 });
+const equalFactsAdoptionSchema = transitionAdoptionSchema.extend({ facts: z.unknown() });
 interface ImmutableTransitionProjection {
   facts: z.infer<typeof transitionFactsSchema>;
   childId: string;
@@ -553,6 +554,7 @@ interface Dependencies {
 /** Durable preparations are bound to the exact selected AI account and GitHub connection revision. */
 export class RepositoryWorkspaces {
   private db: Database.Database;
+  private readonlyLedgerProjection?: { bytes: string; record: RepositoryWorkspace };
   private ordinaryWorkspaceCustody?: OrdinaryWorkspaceCustody;
   private activeOperations = 0;
   private released = false;
@@ -954,6 +956,7 @@ export class RepositoryWorkspaces {
   }
   close() {
     this.db.close();
+    this.readonlyLedgerProjection = undefined;
   }
   private save(record: RepositoryWorkspace, expectedRecord?: string) {
     if (expectedRecord === undefined) {
@@ -2135,13 +2138,66 @@ export class RepositoryWorkspaces {
       throw new Error('Host repository ledger identity changed');
     return record;
   }
+  /** Pure JSON decoding only, private to the two synchronous readonly consumers.
+   * Every call still reads SQL and checks its current identity/pointer. Public
+   * mutable row reads keep the original fresh JSON.parse path above. */
+  private getReadonlyHostRecord(id: string): RepositoryWorkspace {
+    const row = this.db
+      .prepare('SELECT record, conversation_id FROM repository_workspaces WHERE id=?')
+      .get(id) as { record: string; conversation_id: string | null } | undefined;
+    if (!row) throw new Error('Host repository reservation unavailable');
+    const retained =
+      typeof row.record === 'string' && this.readonlyLedgerProjection?.bytes === row.record
+        ? this.readonlyLedgerProjection.record
+        : undefined;
+    const parsed: unknown = retained ?? JSON.parse(row.record);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+      throw new Error('Host repository ledger record is invalid');
+    const record = parsed as RepositoryWorkspace;
+    if (record.id !== id || row.conversation_id !== primaryConversation(record))
+      throw new Error('Host repository ledger identity changed');
+    if (
+      !retained &&
+      typeof row.record === 'string' &&
+      row.record.length <= 262144 &&
+      Buffer.byteLength(row.record, 'utf8') <= 262144
+    ) {
+      // JSON.parse produced plain data with no accessors/proxies. Qualify the
+      // entire graph before freezing anything; larger/deeper data uses the
+      // original uncached result without introducing a new refusal.
+      const objects: object[] = [],
+        pending: Array<{ value: unknown; depth: number }> = [{ value: record, depth: 0 }];
+      let eligible = true;
+      while (pending.length) {
+        const { value, depth } = pending.pop()!;
+        if (depth > 32) {
+          eligible = false;
+          break;
+        }
+        if (value && typeof value === 'object') {
+          if (objects.length >= 4096) {
+            eligible = false;
+            break;
+          }
+          objects.push(value);
+          for (const child of Object.values(value))
+            pending.push({ value: child, depth: depth + 1 });
+        }
+      }
+      if (eligible) {
+        for (const object of objects.reverse()) Object.freeze(object);
+        this.readonlyLedgerProjection = { bytes: row.record, record };
+      }
+    }
+    return record;
+  }
   getHostReservation(
     input: Omit<HostRepositoryReservationInput, 'signal'>,
   ): HostRepositoryReservation {
     this.assertAvailable();
     const expected = this.snapshotHostInput(input);
     this.assertNoOrdinaryPrimary(expected.conversationId);
-    const record = this.getHostRecord(expected.id);
+    const record = this.getReadonlyHostRecord(expected.id);
     if (primaryConversation(record) !== expected.conversationId)
       throw Error('Historical repository ownership is not current custody');
     const descriptor = this.reservationDescriptor(record);
@@ -2441,8 +2497,20 @@ export class RepositoryWorkspaces {
       request = facts.request;
     if (childCommandId !== transitionChildId(facts))
       throw Error('Prepared repository child changed');
-    const record = this.getHostRecord(facts.newWorkspace.id),
-      marker = transitionAdoptionSchema.parse(record.preparedRepositoryTransitionAdoption);
+    const record = this.getReadonlyHostRecord(facts.newWorkspace.id),
+      currentMarker = record.preparedRepositoryTransitionAdoption,
+      currentFacts =
+        currentMarker && typeof currentMarker === 'object'
+          ? Object.getOwnPropertyDescriptor(currentMarker, 'facts')
+          : undefined;
+    // This marker comes only from the freshly read SQL row bytes above.
+    // Exact equality to the fully validated immutable facts proves their pure
+    // schema refinements without rebuilding that equal tree. Validate every
+    // header/byte bound afresh; mismatches retain complete validation/refusal.
+    const marker =
+      currentFacts && 'value' in currentFacts && isDeepStrictEqual(currentFacts.value, facts)
+        ? equalFactsAdoptionSchema.parse(currentMarker)
+        : transitionAdoptionSchema.parse(currentMarker);
     const receipt = PendingHostTaskReceiptSchema.parse(record.pendingHostTask),
       decision = PendingHostTaskDecisionSchema.parse(record.pendingHostTaskDecision);
     if (
