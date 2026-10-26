@@ -220,7 +220,10 @@ continuity migration; deployment cannot silently change their conversation ident
 All enabled local Codex, Responses, Vertex and Gemini targets must validate before
 an atomic `.env` selector update. The original `.env` is retained in a private
 `.env.before-runtime-*` backup; previous releases and retained custody records remain
-untouched. Failed preparation retains private diagnostic files without selecting
+untouched. The credential-isolated SDK boundary denies reads and writes to both
+`.env.before-runtime-*` and `.env.runtime-*` in the current release, including
+copies created after the boundary is selected and files retained across restart.
+Failed preparation retains private diagnostic files without selecting
 them. A repeated preparation of valid release-local declarations is read-only.
 Conflicting local runtime selectors in the launcher or invoking environment and
 alternate dotenv loaders are rejected, so preflight cannot validate a different

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.709-chat-reliability-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.710-protect-runtime-environment';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/credential-sdk-runtime-authority.test.ts':
+    'acd04063ee9c604bc568df422cce201dafbbbd21a98675573c10d94af9b85f28',
   '../../tests/integration/telos-s9/integrated-candidate/joined-conversation-ready.ts':
     'aee1f95a1bd8f7b01f772d1fa04c5c38ab4908f23ff13e95b58109000d25fd81',
   '../__tests__/legacy-native-source-composition.test.ts':
@@ -1223,7 +1225,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../workspace-runtime-client.ts':
     'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
   '../credential-sdk-boundary.ts':
-    '6c9541f72345f6242c7e18cfcb85e65ee447462b461329989afa7a919f03929f',
+    '3a5c2a48097be6af8c7db27c4a7fe5673d66c623452792da2e583c992946de84',
   '../sandboxed-command-worker.ts':
     '4824b0ff8a6b15aeb3af9631dcb7e4eda3aedc90f2aeaafc22c31922822f03f1',
   '../protected-sdk-command.ts': 'e7c59a2ebfd3fde4b0c7c8cdf7f69f9d231e2e5f1819a61e0514cd707bc6c32f',
