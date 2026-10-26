@@ -72,6 +72,9 @@ export function LegacyNativeContinuation(props: Props) {
         if (
           controller.signal.aborted ||
           meta.runtimeBinding ||
+          // Account provider alone does not identify a historical harness.
+          // Unknown native presence must not offer a potentially false migration.
+          meta.hasNativeCodexConversation !== false ||
           meta.symposiumConfig ||
           meta.isHidden
         )

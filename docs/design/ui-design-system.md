@@ -44,6 +44,13 @@ The intercepted pre-runtime fixture covers metadata fallback, this warning and
 successful simulated ordinary admission. [Phone review](assets/native-continuation-transcript-only-mobile.png)
 shows the same shared review surface at larger text.
 
+An OpenAI account alone does not identify a historical Responses conversation.
+For pre-runtime metadata, offer continuation only after the server confirms that
+no native Codex conversation exists. An existing native row or an unavailable
+presence read suppresses the migration banner; server preview and commit rechecks
+also exclude existing native conversations. This presentation check grants no
+command authority and does not create a runtime binding.
+
 The form uses semantic surface/text/border roles, shared spacing/type/radius tokens,
 the shared code font and 44px checkbox rows. The all-intercept
 `legacy-native-continuation` fixture renders the actual component at narrow phone

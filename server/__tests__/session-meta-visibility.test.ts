@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import type { EventStore } from '../event-store.js';
 
 const catalog = vi.hoisted(() => ({ refresh: vi.fn(async () => {}), catalog: () => [] }));
+const native = vi.hoisted(() => ({ hasConversation: vi.fn(() => false) }));
 vi.mock('../account-profiles.js', async (original) => ({
   ...(await original<object>()),
   loadAccountProfiles: () => ({ ...catalog, privateCodexRoots: () => [] }),
@@ -14,6 +15,7 @@ vi.mock('../account-profiles.js', async (original) => ({
 vi.mock('../codex-chat-session.js', async (original) => ({
   ...(await original<object>()),
   readCodexQueue: () => undefined,
+  getCodexConversationStore: () => native,
 }));
 vi.mock('../auth.js', async (original) => ({
   ...(await original<object>()),
@@ -30,6 +32,35 @@ vi.mock('../internal-token.js', () => ({
 let app: Express;
 let store: EventStore;
 let root: string;
+
+it.each([false, true, 'unavailable'])(
+  'projects native presence for pre-runtime OpenAI metadata (%s) without inventing a runtime',
+  async (presence) => {
+    const id = `pre-runtime-${presence}`;
+    store.upsertSession({
+      sessionId: id,
+      cwd: '/sandbox/workspaces/mgmt',
+      accountBinding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'offline-fixture',
+        profileRevision: 'fixture',
+      },
+    });
+    if (presence === 'unavailable')
+      native.hasConversation.mockImplementationOnce(() => {
+        throw Error('Native read unavailable');
+      });
+    else native.hasConversation.mockReturnValueOnce(presence);
+    const response = await request(app).get(`/api/sessions/${id}/meta`);
+    expect(response.status).toBe(200);
+    if (presence === 'unavailable')
+      expect(response.body).not.toHaveProperty('hasNativeCodexConversation');
+    else expect(response.body.hasNativeCodexConversation).toBe(presence);
+    expect(store.getSessionRuntimeBinding(id)).toBeNull();
+  },
+);
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-meta-visibility-'));
   vi.stubEnv('REPO_PATH', root);

@@ -256,7 +256,7 @@
     "id": "mitzo:PrepareRepositoryChat",
     "version": 1,
     "name": "PrepareRepositoryChat",
-    "description": "Prepare a separate repository chat for a user-requested task. Supply only an authorized repository name or canonical GitHub HTTPS URL and the task prompt. Returns a draft review link; the user starts the new chat. Does not switch the current workspace, grant integration access, execute the task, or publish changes. Requires Agent or Auto mode.",
+    "description": "Prepare a separate repository chat for a user-requested task. Supply only an authorized repository name or canonical GitHub HTTPS URL and the task prompt (at most 64000 characters). For longer briefs, include their Telos artifact IDs and revisions for retrieval. Returns a draft review link; the user starts the new chat. Does not switch the current workspace, grant integration access, execute the task, or publish changes. Requires Agent or Auto mode.",
     "source": "Repositories",
     "required": false,
     "behavior": "write",

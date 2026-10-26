@@ -125,6 +125,52 @@ function fixture(beforeOpenNative?: () => boolean) {
   return { review, command };
 }
 
+it.each([true, undefined, false])(
+  'offers pre-runtime migration only after native absence is known (%s)',
+  async (hasNativeCodexConversation) => {
+    fixture();
+    cleanup();
+    let observed = false;
+    mocks.request.mockImplementationOnce(async () => {
+      observed = true;
+      return new Response(
+        JSON.stringify({
+          sessionId: 'older-chat',
+          cwd: '/sandbox/workspaces/mgmt',
+          accountBinding: {
+            accountId: 'work',
+            provider: 'openai',
+            accountLabel: 'Work',
+            model: 'offline-fixture',
+            profileRevision: 'r1',
+          },
+          mode: 'agent',
+          hasNativeCodexConversation,
+        }),
+      );
+    });
+    const store = createTestStore();
+    render(
+      <MitzoStoreProvider value={store}>
+        <MemoryRouter>
+          <LegacyNativeContinuation
+            sourceSessionId="older-chat"
+            binding={null}
+            model="offline-fixture"
+            thinking={null}
+            mode="agent"
+          />
+        </MemoryRouter>
+      </MitzoStoreProvider>,
+    );
+    await waitFor(() => expect(observed).toBe(true));
+    await act(async () => {});
+    if (hasNativeCodexConversation === false)
+      expect(screen.getByRole('button', { name: 'Continue with Codex' })).toBeTruthy();
+    else expect(screen.queryByText(/Historical Responses execution is retired/)).toBeNull();
+  },
+);
+
 it('requires review of displayed context and explicit uncertainty and changed-selection acknowledgements', async () => {
   fixture();
   fireEvent.click(screen.getByRole('button', { name: 'Continue with Codex' }));

@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
   custody: vi.fn(),
   queue: vi.fn(),
   replay: vi.fn(),
+  hasNative: vi.fn(() => false),
+}));
+vi.mock('../codex-chat-session.js', async (original) => ({
+  ...(await original<Record<string, unknown>>()),
+  getCodexConversationStore: () => ({ hasConversation: mocks.hasNative }),
 }));
 vi.mock('../legacy-native-continuation-routes.js', () => ({
   createLegacyNativeContinuationRouter: (deps: { source(id: string): LegacyNativeSource }) => {
@@ -82,4 +87,21 @@ it('does not turn a private binding or history read failure into missing histori
     throw Error('Private history binding changed');
   });
   expect(f.read).toThrow('Private history binding changed');
+});
+
+it('refuses to migrate an already native pre-runtime chat after its owner closes', () => {
+  const f = fixture();
+  mocks.hasNative.mockReturnValueOnce(true);
+  expect(f.read).toThrow(/already.*native Codex/i);
+  expect(mocks.load).not.toHaveBeenCalled();
+  expect(mocks.replay).not.toHaveBeenCalled();
+});
+
+it('does not treat a failed native presence read as historical Responses evidence', () => {
+  const f = fixture();
+  mocks.hasNative.mockImplementationOnce(() => {
+    throw Error('Native metadata unavailable');
+  });
+  expect(f.read).toThrow('Native metadata unavailable');
+  expect(mocks.load).not.toHaveBeenCalled();
 });
