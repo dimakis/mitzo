@@ -224,7 +224,7 @@ describe('getSessionsCached', () => {
       ]);
       mockEventStore.getLatestEvent.mockReturnValue({ payload: { text: 'Fix calendar sync' } });
       const { getSessionsCached } = await import('../chat.js');
-      expect(getSessionsCached().sessions[0].summary).toBe('Calendar Fix Sync');
+      expect(getSessionsCached().sessions[0].summary).toBe('Fix calendar sync');
       expect(mockListSessions).not.toHaveBeenCalled();
       expect(mockUpsertSession).not.toHaveBeenCalled();
     },
