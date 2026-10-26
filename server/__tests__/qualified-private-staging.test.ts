@@ -119,9 +119,8 @@ it.each(['revoked', 'missing'] as const)(
       if (String(path).endsWith('/file-0')) {
         pendingStarted();
         await held;
-        if (failure === 'revoked') f.controller.abort(refused);
-        else throw refused;
       }
+      if (failure === 'missing' && String(path).endsWith('/file-1')) throw refused;
       return f.info as never;
     });
     let settled = false;
@@ -130,7 +129,10 @@ it.each(['revoked', 'missing'] as const)(
       return error;
     });
     await started;
-    await Promise.resolve();
+    if (failure === 'revoked') f.controller.abort(refused);
+    // Let a fail-fast join settle while file-0 remains held. The actual
+    // allSettled boundary must keep both cleanup and metadata writes waiting.
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(settled).toBe(false);
     expect(f.dispose).not.toHaveBeenCalled();
     expect(fs.writeFile).not.toHaveBeenCalled();
