@@ -1,3 +1,4 @@
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import {
   resolveTelosWorkRoleContext,
   resolveTelosWorkSystemPrompt,
@@ -6,7 +7,10 @@ import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { isDeepStrictEqual } from 'node:util';
 import { OrdinaryCodexFirstCommandSchema } from '@mitzo/protocol';
 import type { SessionTransport } from '@mitzo/harness';
-import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
+import {
+  captureAgentLibraryAuthorization,
+  captureAgentLibraryOperation,
+} from './agent-library-transport.js';
 import { buildAgentProfilePrompt } from './agent-library-prompt.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
 import {
@@ -74,7 +78,8 @@ export function canResumeOwnedOpenShellCodexDriver(
     const native = getCodexConversationStore();
     const custody = native.readOpenShellCustody(sessionId, meta.accountBinding);
     return (
-      custody?.authSessionId === authSessionId &&
+      !!custody &&
+      ordinaryOperatorOwnsConversation(custody.authSessionId, authSessionId) &&
       isDeepStrictEqual(custody.binding, binding) &&
       Boolean(native.read(sessionId, meta.accountBinding).threadId) &&
       !native.hasRunningCommand(sessionId, meta.accountBinding)
@@ -98,20 +103,30 @@ export async function sendOwnedOpenShellCodexCommand(input: {
   if (
     !owner ||
     owner.location !== 'openshell' ||
-    owner.authSessionId !== captured.auth.id ||
-    session?.ownedLocalAuthSessionId !== captured.auth.id
+    !ordinaryOperatorOwnsConversation(owner.authSessionId, captured.auth.id) ||
+    !ordinaryOperatorOwnsConversation(session?.ownedLocalAuthSessionId, captured.auth.id)
   )
     throw unavailable();
   resolveOwnedTelosWorkCommandScope(input.sessionId);
-  const result = await owner.admit(structuredClone(input.command), input.signal);
-  captured.assertCurrent();
-  resolveOwnedTelosWorkCommandScope(input.sessionId);
-  if (result.dispatched) {
-    const native = getCodexRuntime(session);
-    if (!native) throw unavailable();
-    await native.resumeAfterExplicitSend();
+  // A second device authorizes only this explicit command. Keep the native
+  // attachment and creating login intact, and cancel pending admission on logout.
+  const operation = captureAgentLibraryOperation(input.operatorConnectionId);
+  try {
+    const signal = input.signal
+      ? AbortSignal.any([input.signal, operation.signal])
+      : operation.signal;
+    const result = await owner.admit(structuredClone(input.command), signal);
+    operation.assertCurrent();
+    resolveOwnedTelosWorkCommandScope(input.sessionId);
+    if (result.dispatched) {
+      const native = getCodexRuntime(session);
+      if (!native) throw unavailable();
+      await native.resumeAfterExplicitSend();
+    }
+    return { ...result, sessionId: input.sessionId };
+  } finally {
+    operation.dispose();
   }
-  return { ...result, sessionId: input.sessionId };
 }
 
 export async function startOwnedOpenShellCodexCommand(

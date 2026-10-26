@@ -12,6 +12,10 @@ it.each([
   ['openshell', 'ack-pending'],
   ['local', 'history-pending'],
   ['openshell', 'history-pending'],
+  ['local', 'history-failure'],
+  ['openshell', 'history-failure'],
+  ['local', 'stale-history-failure'],
+  ['openshell', 'stale-history-failure'],
 ] as const)('streams %s startup exactly once when %s completes first', async (runOn, order) => {
   let welcome!: (event: MessageEvent) => void;
   const source = {
@@ -30,6 +34,9 @@ it.each([
   let restore!: (response: Response) => void;
   let acknowledge!: (response: Response) => void;
   let history!: (response: Response) => void;
+  let failHistory!: (error: Error) => void;
+  const delayedHistory =
+    order === 'history-pending' || order === 'history-failure' || order === 'stale-history-failure';
   const transcript = (content: string, cursor: number) => ({
     messages: [],
     cursor,
@@ -53,10 +60,7 @@ it.each([
       ),
     );
   const fetch = vi.fn((url: string, _init?: RequestInit) => {
-    if (
-      (order === 'ack-pending' || order === 'history-pending') &&
-      url.endsWith('/reconnect-snapshot-applied')
-    )
+    if ((order === 'ack-pending' || delayedHistory) && url.endsWith('/reconnect-snapshot-applied'))
       return new Promise<Response>((resolve) => {
         acknowledge = resolve;
       });
@@ -68,9 +72,10 @@ it.each([
       return new Promise<Response>((resolve) => {
         restore = resolve;
       });
-    if (order === 'history-pending' && url.includes('/messages'))
-      return new Promise<Response>((resolve) => {
+    if (delayedHistory && url.includes('/messages'))
+      return new Promise<Response>((resolve, reject) => {
         history = resolve;
+        failHistory = reject;
       });
     if (url.includes('/messages'))
       return Promise.resolve(
@@ -156,7 +161,7 @@ it.each([
     expect(fetch.mock.calls.some(([url]) => url.endsWith('/reconnect-snapshot-applied'))).toBe(
       false,
     );
-    if (order === 'ack-pending' || order === 'history-pending') {
+    if (order === 'ack-pending' || delayedHistory) {
       restore(Response.json(transcript('Prefix', 5)));
       await vi.waitFor(() => expect(acknowledge).toBeTypeOf('function'));
       emit({
@@ -170,7 +175,7 @@ it.each([
         prevSessionSeq: 5,
       });
       acceptReceipt();
-      if (order === 'history-pending') {
+      if (delayedHistory) {
         await vi.waitFor(() => expect(history).toBeTypeOf('function'));
         expect(store.getState().sessions.active).toBe('chat');
       } else {
@@ -183,6 +188,21 @@ it.each([
       acknowledge(Response.json({ applied: true }));
       // ACK confirmation is asynchronous; a duplicate would appear only after it resolves.
       await new Promise((resolve) => setTimeout(resolve, 0));
+      if (order === 'history-failure' || order === 'stale-history-failure') {
+        if (order === 'stale-history-failure') store.getState().newSession();
+        failHistory(new Error('offline history failure'));
+        if (order === 'stale-history-failure') {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          expect(source.close).not.toHaveBeenCalled();
+          expect(store.getState().historyError).toBeNull();
+          return;
+        }
+        await vi.waitFor(() => expect(source.close).toHaveBeenCalled());
+        expect(store.getState().historyError).toBe(
+          'Could not restore this conversation. Please retry.',
+        );
+        return;
+      }
       if (order === 'history-pending') {
         history(Response.json(transcript('PrefixSuffix', 6)));
         await vi.waitFor(() =>

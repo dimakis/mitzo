@@ -86,3 +86,11 @@ render again. Later events render normally. A subsequent bounded restore replace
 the recorded boundary exactly, even if older; new offers and replay/session
 clearing discard coverage. Rejected or lost ACKs retain recovery fencing. This
 uses the existing delivery protocol and does not acknowledge missing events.
+
+A receipt history request that is still pending at ACK confirmation can fail
+without installing its prefix. Current receipt recovery failures now surface the
+history error and reconnect for an authoritative snapshot; stale failures do
+neither. Bounded restore failures keep their existing timeout fencing, avoiding
+an immediate reconnect loop. Local/OpenShell success, failure and stale-failure
+fixtures cover these orderings. The launch fixture now creates a fresh HTTP
+Response for each request instead of reusing a consumed response body.

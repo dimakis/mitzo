@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { login, authenticateToken, revokeAuthSession } from '../auth.js';
 import { AccountProfiles } from '../account-profiles.js';
 import {
   OrdinaryLocalCodexTarget,
@@ -148,7 +149,7 @@ it('explains an unresolved dispatch without enabling a replacement command', () 
   expect(f.resume).not.toHaveBeenCalled();
 });
 
-it('offers continuation for an upgraded OpenShell chat only through the original native custody', () => {
+it('offers continuation for an upgraded OpenShell chat only through the original native custody', async () => {
   setup();
   vi.stubEnv('MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED', '1');
   const profiles = new AccountProfiles([
@@ -201,6 +202,19 @@ it('offers continuation for an upgraded OpenShell chat only through the original
   f.openshellResume.mockReturnValue(true);
   expect(ordinaryCodexContinuationStatus('conversation', 'original')).toEqual({ available: true });
   expect(f.continuationTarget).toHaveBeenCalledWith('conversation', 'original', f.openshell);
+  const actor = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
+  if (!actor) throw Error('Fixture login failed');
+  try {
+    f.live = {
+      session: { ordinaryRuntimeOwner: { location: 'openshell', authSessionId: 'original' } },
+    };
+    expect(ordinaryCodexContinuationStatus('conversation', actor.id)).toEqual({ available: true });
+    revokeAuthSession(actor);
+    expect(ordinaryCodexContinuationStatus('conversation', actor.id).available).toBe(false);
+  } finally {
+    revokeAuthSession(actor);
+    f.live = undefined;
+  }
   f.continuationTarget.mockImplementation(() => {
     throw Error('foreign custody');
   });

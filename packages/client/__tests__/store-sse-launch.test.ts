@@ -31,7 +31,7 @@ describe('SSE launch handoff', () => {
         return Promise.resolve(Response.json({ applied: true }));
       });
       const store = createMitzoStore({
-        transport: { fetch: vi.fn().mockResolvedValue(Response.json([])), connectWs: vi.fn() },
+        transport: { fetch: vi.fn(() => Promise.resolve(Response.json([]))), connectWs: vi.fn() },
         wsConfig: {
           buildUrl: () => '',
           createWebSocket: () => {

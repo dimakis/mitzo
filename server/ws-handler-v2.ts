@@ -1664,13 +1664,12 @@ export function handlePermissionResponseV2(
           (found ? getOwnerConnection(found.clientId) : undefined);
         const binding = ctx.eventStore.getSessionRuntimeBinding?.(pendingSessionId);
         const samePrimaryOperator =
-          binding?.execution.location === 'local' &&
-          binding.harness.implementation === 'codex' &&
+          binding?.harness.implementation === 'codex' &&
           ordinaryOperatorOwnsConversation(
             found?.session?.ownedLocalAuthSessionId,
             liveTransportAuthSessionId(connectionId),
           );
-        // A live authenticated operator device may answer its watched Local
+        // A live authenticated operator device may answer its watched
         // Codex card without transferring the native execution attachment.
         const sameOwnerWatcher =
           ownerConnection !== undefined &&

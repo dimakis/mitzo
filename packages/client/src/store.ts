@@ -933,11 +933,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           console.warn('[mitzo] message recovery fetch failed', err);
         }
         if (
-          (replace || throughSeq !== undefined) &&
+          (replace || throughSeq !== undefined || onApplied) &&
           request === historyRequest &&
           store.getState().sessions.active === sessionId
-        )
+        ) {
           store.setState({ historyError: 'Could not restore this conversation. Please retry.' });
+          // A receipt may select the chat after its background snapshot ACK was
+          // sent. Recover an authoritative prefix if that receipt's history fails.
+          if (onApplied && throughSeq === undefined) connection.checkAndReconnect(true);
+        }
       })
       .finally(() => {
         if (boundedRestore === currentBoundedRestore) boundedRestore = undefined;

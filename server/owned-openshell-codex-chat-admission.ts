@@ -1,3 +1,4 @@
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { SourceSnapshotsSchema } from '@mitzo/protocol';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
@@ -116,6 +117,7 @@ export class OwnedOpenShellCodexChatAdmission {
   #session?: OwnedOpenShellCodexOptions['session'];
   #opened = false;
   #resume = false;
+  #resumeCustody?: z.infer<typeof OpenShellCodexCustodySchema>;
   #retained?: ArtifactRuntime;
   private constructor(
     private readonly owner: Owner,
@@ -143,7 +145,7 @@ export class OwnedOpenShellCodexChatAdmission {
       !custody ||
       !artifact ||
       !owner.expectedRetained ||
-      custody.authSessionId !== owner.authSessionId ||
+      !ordinaryOperatorOwnsConversation(custody.authSessionId, owner.authSessionId) ||
       (custody.workspaceKind ?? 'repository') !== (owner.workspaceKind ?? 'repository') ||
       !isDeepStrictEqual(custody.binding, owner.expected.binding) ||
       !isDeepStrictEqual(custody.workspace, owner.expected.workspace) ||
@@ -162,6 +164,7 @@ export class OwnedOpenShellCodexChatAdmission {
     owner.assertRetainedAuthority(artifact);
     const result = new OwnedOpenShellCodexChatAdmission(owner, commandId);
     result.#resume = true;
+    result.#resumeCustody = structuredClone(custody);
     result.register(commandId, owner.expected);
     for (const queued of owner.nativeStore
       .commands(owner.sessionId, owner.account)
@@ -196,14 +199,14 @@ export class OwnedOpenShellCodexChatAdmission {
     if (!this.#retained) throw unavailable();
     const snapshot = OpenShellCodexCustodySchema.parse({
       version: 1,
-      authSessionId: this.owner.authSessionId,
+      authSessionId: this.#resumeCustody?.authSessionId ?? this.owner.authSessionId,
       binding: this.#expected.binding,
       workspace: this.#expected.workspace,
       ...(this.owner.workspaceKind === 'ordinary' ? { workspaceKind: 'ordinary' } : {}),
       physicalIdentitySha256: openShellPhysicalCustodyFingerprint(this.#retained),
       ...(this.#resume
         ? (() => {
-            const original = store.readOpenShellCustody(this.owner.sessionId, this.owner.account);
+            const original = this.#resumeCustody;
             return {
               ...(original?.agentProfileSha256
                 ? { agentProfileSha256: original.agentProfileSha256 }
@@ -217,6 +220,7 @@ export class OwnedOpenShellCodexChatAdmission {
     });
     if (this.#resume) {
       if (
+        !isDeepStrictEqual(snapshot, this.#resumeCustody) ||
         !isDeepStrictEqual(
           store.readOpenShellCustody(this.owner.sessionId, this.owner.account),
           snapshot,
