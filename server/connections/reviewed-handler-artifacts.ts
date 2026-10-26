@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.697-openshell-operator-continuation';
+  'v1.0.698-openshell-continuation-preparation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,10 +23,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/qualified-private-staging.test.ts':
+    'bc0a85497bb02c580ccda4f2b1b5b8b1bc19cac5dbebb11c3cff0f8125fc8a5e',
   '../__tests__/ordinary-openshell-login-continuation.test.ts':
     '93d3023e2a6180d6ee2e634c876bd0d1b241b83a722f152cd496b29299d78f72',
   '../__tests__/fixtures/native-repository-registered-workflow.ts':
-    'b89e513b19aaffc8f3f9d07c02c49b7b9723540b8a6f928f22b75ee51de1b969',
+    '7f116cb4bbcc9465316ae8bb526faebb102f9ce43b4a8f17c7fc9f28c58f8457',
   '../__tests__/native-local-repository-read-registration-api.test.ts':
     'a9727a723647947bef931292a467765a910a09361ad6b1651032813552b87a15',
   '../__tests__/native-repository-object-store.test.ts':
@@ -136,7 +138,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../private-repository-checkout.ts':
     'b050a69f85ce16064ac1b462d2f1952990a8f1a411e7ed5027005e28701574d6',
   '../qualified-local-repository-actor.ts':
-    '3e814d9913d4d79333e3c2c4abf7264d6394c53bfe7c7e7273e53bb7bdb1a94d',
+    '5b601d085ca8a112c0c6e31e5fa8055bb558bcd48792b5856ae16c12903d34cf',
   '../qualified-local-repository-task.ts':
     '96643b091fd7cb4d87a8ca24d947e396fd0ec241467818e2ac210360a605a437',
   '../__tests__/native-exclusive-tree.test.ts':
