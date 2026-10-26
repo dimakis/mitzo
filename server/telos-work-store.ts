@@ -1150,9 +1150,15 @@ export class TelosWorkStore {
       const values: Array<string | null> = [input.cursor ?? ''];
       if (input.query) {
         conditions.push(
-          "instr(lower(coalesce(summary,'') || ' ' || coalesce(intent,'') || ' ' || coalesce(rationale,'') || ' ' || coalesce(acceptance_criteria,'')),lower(?)) > 0",
+          `(
+            instr(lower(coalesce(summary,'') || ' ' || coalesce(intent,'') || ' ' || coalesce(rationale,'')),lower(?)) > 0
+            OR EXISTS (
+              SELECT 1 FROM json_each(CASE WHEN json_valid(items.acceptance_criteria) THEN items.acceptance_criteria ELSE '[]' END) AS criterion
+              WHERE criterion.type='text' AND instr(lower(criterion.value),lower(?)) > 0
+            )
+          )`,
         );
-        values.push(input.query);
+        values.push(input.query, input.query);
       }
       if (input.status) {
         conditions.push('status=?');

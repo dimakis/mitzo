@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.705-telos-backlog-maintenance';
+  'v1.0.706-telos-backlog-maintenance';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -681,7 +681,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/telos-work-api.ts':
     'a056db2f52a0ccff2271263cb188723a308e73a8131bfbc087244ca5b3ae1351',
   '../telos-work-schema.ts': '99334ce746b53a8c7e79bcd710e94ae0db7df912ab2a7256513cb2679eaacf83',
-  '../telos-work-store.ts': '7774fdd2e70f2fe78f9689f511a8f166e69f557f8b54cca8b9cbfd2cc247a1d7',
+  '../telos-work-store.ts': '66b70cad95e5954cd301468d294b8a48dae0faaac79b8ce18b6e00e7cd65d249',
   '../../packages/protocol/src/telos-work-api.ts':
     'dfed9673113e8f532a253b57ea1696508e339bbfdd83ab98fb2e791a69daf27f',
   '../tool-input-error.ts': '3fa8bc111278d03dd33014cadc8535069c49a12ce636cbbc33126b76190bd3dd',
@@ -2507,7 +2507,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-backlog-tools.test.ts':
     '60f5e6ec17e0ea8c10fd0b4a6c6967963965ed2b3322dc4c8212fcc81a54ed33',
   '../__tests__/telos-backlog.test.ts':
-    'ba984bf420173d68a1a2e6dd05b092d14607446be89ce5113c0259d0eaf08349',
+    'e682d8e975298dd997b05183e6b676cefe9fd9944f229cee1f2f6f235237f32e',
   '../__tests__/telos-work-routes.test.ts':
     '1845d02f97a5015e9ad02222b102fffc3fe6d82729f7e555b8e8804665fdf5dd',
   '../telos-backlog-tools.ts': '41a987d98b5a2250f6c69700e524b758cf1cdc8ef19e03a6162095175baf9367',

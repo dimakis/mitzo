@@ -258,6 +258,17 @@ for (const { software, regression } of [
             return route.fulfill({ json: [] });
           }
         }
+        if (path === '/api/telos/work/records' && route.request().method() === 'POST') {
+          const { itemIds } = route.request().postDataJSON() as { itemIds: string[] };
+          const records = itemIds.map((id) => {
+            const found = [record, child, reconnectChild, resumeChild].find(
+              (item) => item.itemId === id,
+            );
+            if (!found) throw Error('Unknown collection fixture item: ' + id);
+            return found;
+          });
+          return route.fulfill({ json: { records, failures: [] } });
+        }
         if (route.request().method() !== 'GET') {
           writes.push(path);
           return route.fulfill({ status: 405, json: { error: 'No implicit writes allowed' } });

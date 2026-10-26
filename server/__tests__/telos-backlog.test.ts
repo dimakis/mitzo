@@ -61,6 +61,27 @@ it('omits archived subtrees from active discovery and retains their status and c
   expect(f.work.listItems({ view: 'archive' }, f.actor).items.map((i) => i.id)).toEqual(['a', 'b']);
   expect(f.items.read('a')).toEqual(before);
 });
+it('searches decoded criteria containing quotes, backslashes and escaped Unicode', () => {
+  const f = fixture();
+  f.db
+    .prepare('UPDATE items SET acceptance_criteria=? WHERE id=?')
+    .run(
+      String.raw`["Review \"Proposal\" before approval","Inspect C:\\plans\\draft","Read caf\u00e9 notes"]`,
+      'a',
+    );
+  f.db
+    .prepare('UPDATE items SET acceptance_criteria=? WHERE id=?')
+    .run('legacy malformed JSON', 'b');
+  for (const query of [
+    'Review "Proposal" before approval',
+    String.raw`C:\plans\draft`,
+    'café notes',
+  ])
+    expect(f.work.listItems({ query }, f.actor).items.map((item) => item.id)).toEqual(['a']);
+  expect(f.work.listItems({ query: 'Panel layout' }, f.actor).items.map((item) => item.id)).toEqual(
+    ['b'],
+  );
+});
 it('keeps discovery concise even when a legacy title contains a wall of text', () => {
   const f = fixture();
   const summary = 'Original explanation '.repeat(5000) + 'searchable tail';
