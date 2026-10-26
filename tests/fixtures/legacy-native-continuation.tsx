@@ -46,7 +46,7 @@ function Fixture() {
       </label>
       <LegacyNativeContinuation
         sourceSessionId="legacy-source"
-        binding={binding}
+        binding={new URLSearchParams(window.location.search).has('pre-runtime') ? null : binding}
         model="luna-fixture"
         thinking="low"
         mode="agent"

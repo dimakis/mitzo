@@ -41,6 +41,7 @@ type RestartMessage =
   RestartReady | { type: 'snapshot'; id: string; value: RestartSnapshot; error?: string };
 import express from 'express';
 import { createJoinedFrontend, createJoinedBrowser } from './joined-browser-target';
+import { observePreparedConversations } from './joined-conversation-ready';
 import { installPrivateCanonicalReadCli } from './joined-canonical-cli';
 
 vi.mock('../../../../server/mcp-config.js', () => ({
@@ -275,6 +276,7 @@ export async function createProcessRestartFixture() {
   });
   resources.closeBrowser = () => browser.browser.close();
   await browser.page.addInitScript(() => localStorage.setItem('mitzo:transport', 'sse'));
+  const waitForPreparedConversation = observePreparedConversations(browser.page);
   const pageErrors: string[] = [];
   browser.page.on('pageerror', (error) => pageErrors.push(error.message));
   const httpObservations: Array<Record<string, unknown>> = [];
@@ -322,6 +324,7 @@ export async function createProcessRestartFixture() {
     front,
     browser,
     page: browser.page,
+    waitForPreparedConversation,
     pageErrors,
     api: new TelosWorkApiClient(http),
     ordinary: new OrdinaryWorkspaceApiClient(http),

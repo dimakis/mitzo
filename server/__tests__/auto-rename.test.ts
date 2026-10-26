@@ -96,7 +96,7 @@ describe('extractRecentPrompts', () => {
     }));
     const prompts = extractRecentPrompts(events);
     expect(prompts).toHaveLength(8);
-    expect(prompts[0]).toBe('prompt 5');
+    expect(prompts[0]).toBe('prompt 1');
     expect(prompts[7]).toBe('prompt 12');
   });
 });
@@ -264,5 +264,5 @@ it('names the readable prompt rather than attached reference content', () => {
     '<context name="Reference" source="/workspace/guide.md">\n' +
     'Architecture documentation agent capability background\n</context>\n\n' +
     '---CONTEXT_END---\nFix calendar sync';
-  expect(generateSessionNameFallback([assembled])).toBe('Calendar Fix Sync');
+  expect(generateSessionNameFallback([assembled])).toBe('Fix calendar sync');
 });

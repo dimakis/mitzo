@@ -352,6 +352,9 @@ export interface SessionContextUsage {
 export interface Session {
   id: string;
   summary: string;
+  /** Recorded model choice, never inferred from the engine or a global default. */
+  model?: string;
+  accountLabel?: string;
   lastModified: number;
   branch?: string;
   isActive?: boolean;
@@ -374,6 +377,8 @@ export interface SessionActivity {
   sessionId: string;
   clientId: string;
   title: string;
+  model?: string;
+  accountLabel?: string;
   repo?: string;
   state: SessionActivityState;
   flags: SessionActivityState[];
@@ -424,6 +429,8 @@ export interface StoredEvent {
 export interface SessionSearchResult {
   sessionId: string;
   summary: string | null;
+  model?: string;
+  accountLabel?: string;
   snippet: string;
   matchedAt: number; // timestamp of the matching event
   updatedAt: number;

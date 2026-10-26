@@ -1,7 +1,23 @@
+.native-continuation-dialog .home-dialog-content {
+  display: flex;
+  flex-direction: column;
+  /* Subtract the dialog borders so only its body scrolls. */
+  max-height: calc(100dvh - 2 * var(--page-gutter) - 2px);
+}
+.native-continuation-dialog header {
+  flex: none;
+}
 .native-continuation-form {
   display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: var(--space-4);
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-1);
+  margin-inline: calc(-1 * var(--space-1));
   margin-top: var(--space-4);
 }
 .native-continuation-form fieldset {
@@ -59,4 +75,50 @@
 .native-continuation-form :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: var(--space-1);
+}
+
+/* These pickers normally sit in the settings sheet. Give their standalone
+   continuation controls the same shared geometry and readable input type. */
+.native-continuation-form :is(select, textarea) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background-color: var(--color-panel);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-base);
+}
+.native-continuation-form .chat-agent-profile {
+  align-items: stretch;
+}
+.native-continuation-form .chat-agent-profile label {
+  flex: 1 1 100%;
+  align-items: stretch;
+  flex-direction: column;
+}
+.native-continuation-form button {
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-panel);
+  color: var(--color-text);
+  font: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.native-continuation-form .repository-chat-picker {
+  margin: 0;
+  padding: var(--space-3);
+  gap: var(--space-3);
+  border-radius: var(--radius-control);
+  overflow: visible;
+}
+.native-continuation-form .repository-chat-hint {
+  margin: 0;
+  font-size: var(--text-sm);
 }

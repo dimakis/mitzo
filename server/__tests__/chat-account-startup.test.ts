@@ -105,7 +105,7 @@ it('delivers the exact dated briefing snapshot to the mocked Codex provider and 
       .find((event) => event.type === 'user_message');
     expect(user?.payload.sourceSnapshots).toEqual([snapshot]);
     expect(user?.payload.text).toBe('Discuss the saved report');
-    expect(chat.eventStore.getSession(sessionId)?.summary).toBe('Discuss Report Saved');
+    expect(chat.eventStore.getSession(sessionId)?.summary).toBe('Discuss the saved report');
     const restored = await chat.getMessages(sessionId);
     expect(restored.filter((message) => message.role === 'user')).toHaveLength(1);
     expect(restored[0].sourceSnapshots).toEqual([snapshot]);

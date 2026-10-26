@@ -604,6 +604,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let historyRequest = 0;
   let historyAbort: AbortController | undefined;
   let recoveryInFlight = false;
+  const backgroundSnapshotReads = new Map<string, object>();
   const pendingOptimisticMessageIds = new Set<string>();
   // Completion belongs to a command, not a session that can accept later sends.
   // Keep observations across HTTP uncertainty, retries and view navigation.
@@ -794,6 +795,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     throughSeq?: number,
     replace = false,
     onApplied?: () => void,
+    loadedTranscript?: ReturnType<MitzoApiClient['getReconnectTranscript']>,
   ) {
     if (recoveryInFlight && throughSeq === undefined) return;
     recoveryInFlight = true;
@@ -817,9 +819,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         .messages.messages.map((m) => [messageIdentity(m.messageId, m.symposiumProvenance), m]),
     );
     const transcript =
-      throughSeq === undefined
+      loadedTranscript ??
+      (throughSeq === undefined
         ? api.getSessionTranscript(sessionId)
-        : api.getReconnectTranscript(sessionId, throughSeq);
+        : api.getReconnectTranscript(sessionId, throughSeq));
     transcript
       .then(({ messages: msgs, current, currents = [], cursor }) => {
         if (Array.isArray(msgs)) confirmPersistedDelivery(sessionId, msgs);
@@ -937,8 +940,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             if (replayed.resyncRequired) throw new Error('Unsafe reconnect seat transcript');
             return { messages: replayed };
           });
-          if (throughSeq === undefined && cursor !== undefined)
-            connection.commitTranscriptCursor(sessionId, cursor);
+          if (appliedCursor !== undefined)
+            connection.commitTranscriptCursor(sessionId, appliedCursor);
           onApplied?.();
         }
       })
@@ -947,11 +950,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           console.warn('[mitzo] message recovery fetch failed', err);
         }
         if (
-          (replace || throughSeq !== undefined) &&
+          (replace || throughSeq !== undefined || onApplied) &&
           request === historyRequest &&
           store.getState().sessions.active === sessionId
-        )
+        ) {
           store.setState({ historyError: 'Could not restore this conversation. Please retry.' });
+          // A receipt may select the chat after its background snapshot ACK was
+          // sent. Recover an authoritative prefix if that receipt's history fails.
+          if (onApplied && throughSeq === undefined) connection.checkAndReconnect(true);
+        }
       })
       .finally(() => {
         if (boundedRestore === currentBoundedRestore) boundedRestore = undefined;
@@ -972,23 +979,32 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     } = {},
     ordinaryDelivery?: OrdinaryCommandDelivery,
   ): boolean {
+    const reject = (message: string): false => {
+      store.setState({ sendError: message });
+      return false;
+    };
     let frozen: LocalCommandRequest;
     try {
       frozen = parseLocalCommandDelivery(request, ordinaryDelivery);
     } catch {
-      return false;
+      return reject('The message could not be prepared. Review its settings. Your draft was kept.');
     }
+    if (!localOutbox) return reject('Message delivery is unavailable. Your draft was kept.');
+    if (!reviewedAuthenticated) return reject('Sign in again before sending. Your draft was kept.');
+    if (!connection.getConnectionId())
+      return reject(
+        'The execution connection is unavailable. Reconnect before sending. Your draft was kept.',
+      );
     if (
-      !localOutbox ||
-      !reviewedAuthenticated ||
-      !connection.getConnectionId() ||
-      (ordinaryDelivery?.version === 1
+      ordinaryDelivery?.version === 1
         ? parserState.currentSessionId !== ordinaryDelivery.sessionId
         : 'sessionId' in frozen
           ? parserState.currentSessionId !== frozen.sessionId
-          : !!parserState.currentSessionId)
+          : !!parserState.currentSessionId
     )
-      return false;
+      return reject(
+        'The conversation changed before sending. Reopen this chat. Your draft was kept.',
+      );
     const briefingLaunch =
       !('sessionId' in frozen) &&
       !ordinaryDelivery &&
@@ -997,13 +1013,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       briefingLaunch &&
       (!opts.draftId || options.launchDrafts?.prepare(opts.draftId, frozen) !== true)
     )
-      return false;
+      return reject('The briefing delivery identity could not be saved. Your draft was kept.');
     const handoff = frozen.payload.sourceSnapshots?.length
       ? options.sendHandoff?.prepare(frozen)
       : undefined;
     if ((briefingLaunch && handoff !== true) || handoff === false) {
       if (briefingLaunch) options.launchDrafts?.settle(frozen.clientMsgId, 'failed');
-      return false;
+      return reject('The reviewed message context could not be saved. Your draft was kept.');
     }
     const sessionId = localCommandSessionId(
       frozen,
@@ -1025,7 +1041,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     );
     if (!sent) {
       settleDelivery(frozen.clientMsgId, 'failed', 'local');
-      return false;
+      const messages = {
+        storage: 'Device storage could not retain the outgoing message. Your draft was kept.',
+        blocked:
+          'Saved message recovery is unavailable. Keep your draft and pending messages for recovery.',
+        inactive: 'Message delivery is paused. Sign in again before sending. Your draft was kept.',
+        pending:
+          'This chat already has a pending message. Review its delivery before sending again.',
+        invalid: 'The message could not be prepared. Review its settings. Your draft was kept.',
+        full: 'The outgoing message queue is full. Review pending messages before sending again.',
+      };
+      return reject(messages[localOutbox.getEnqueueFailure() ?? 'invalid']);
     }
     pendingOptimisticMessageIds.add(frozen.clientMsgId);
     store.setState((s) => ({
@@ -2051,6 +2077,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     const eventSessionId = msg.sessionId as string | undefined;
+    if (msg.type === 'session_reconnect_snapshot' && eventSessionId)
+      backgroundSnapshotReads.delete(eventSessionId);
     if (
       eventSessionId &&
       ['message_start', 'session_end', 'ordinary_provider_dispatch_started'].includes(
@@ -2101,7 +2129,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (msg.type === 'session_id' || (!origin?.sessionId && !selectedEventSession)) return true;
       }
     }
-    if (
+    const deferredLocalSession =
       typeof eventSessionId === 'string' &&
       !selectedEventSession &&
       [...deliveryOrigins.values()].some(
@@ -2109,9 +2137,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           origin.delivery === 'local' &&
           !origin.sessionId &&
           origin.observedSessionId === eventSessionId,
-      )
-    )
-      return true;
+      );
+    // A snapshot is a transport fence, even before the command receipt may
+    // select this chat. Restore its bounded prefix below without adopting the
+    // draft, so its unacknowledged offer cannot hold output until timeout.
+    if (deferredLocalSession && msg.type !== 'session_reconnect_snapshot') return true;
     // A control refusal for another view is handled, not a replay failure.
     if (msg.type === 'session_control_rejected') {
       if (
@@ -2252,25 +2282,51 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.type === 'session_reconnect_snapshot' &&
       typeof eventSessionId === 'string' &&
       eventSessionId !== parserState.currentSessionId &&
-      hasPendingDelivery(eventSessionId) &&
+      (hasPendingDelivery(eventSessionId) || deferredLocalSession) &&
       typeof msg.cursor === 'number' &&
       Number.isSafeInteger(msg.cursor) &&
       msg.cursor >= 0
     ) {
       const cursor = msg.cursor;
+      const read = {};
+      const connectionId = connection.getConnectionId();
+      backgroundSnapshotReads.set(eventSessionId, read);
+      const isCurrent = () =>
+        backgroundSnapshotReads.get(eventSessionId) === read &&
+        connection.getConnectionId() === connectionId;
+      const acknowledge = () =>
+        connection.acknowledgeReconnectSnapshot(
+          eventSessionId,
+          cursor,
+          typeof msg.offerId === 'string' ? msg.offerId : undefined,
+        );
       void api
         .getReconnectTranscript(eventSessionId, cursor)
-        .then(({ messages }) => {
-          confirmPersistedDelivery(eventSessionId, messages);
-          connection.commitTranscriptCursor(eventSessionId, cursor);
-          connection.acknowledgeReconnectSnapshot(
-            eventSessionId,
-            cursor,
-            typeof msg.offerId === 'string' ? msg.offerId : undefined,
-          );
+        .then((transcript) => {
+          if (!isCurrent()) return;
+          confirmPersistedDelivery(eventSessionId, transcript.messages);
+          if (parserState.currentSessionId === eventSessionId) {
+            // The receipt/navigation may have installed a newer transcript while
+            // this read was pending. Restore this exact prefix before releasing
+            // its buffered suffix, replacing the competing restore generation.
+            fetchAndRestoreMessages(
+              eventSessionId,
+              cursor,
+              true,
+              acknowledge,
+              Promise.resolve(transcript),
+            );
+          } else {
+            connection.commitTranscriptCursor(eventSessionId, cursor);
+            acknowledge();
+          }
         })
         .catch(() => {
-          connection.checkAndReconnect(true);
+          if (isCurrent()) connection.checkAndReconnect(true);
+        })
+        .finally(() => {
+          if (backgroundSnapshotReads.get(eventSessionId) === read)
+            backgroundSnapshotReads.delete(eventSessionId);
         });
       return true;
     }

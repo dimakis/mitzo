@@ -22,6 +22,28 @@ and uncertainty acknowledgements. Claimed or uncertain attempts remain observati
 only. [Phone recovery](assets/legacy-native-continuation-preclaim-mobile.png) shows
 the shared secondary action after a rejected review is restored across reload.
 
+The continuation dialog keeps its heading and Close action outside the scrolling
+form body. Standalone picker controls use the shared control height and base text
+size so phone input focus does not zoom the page. A required repository picker
+shows loading, unavailable and failed catalog states with a read-only **Retry
+repository choices** action; retry never prepares a checkout or sends a command.
+Optional repository pickers retain their existing enrollment behavior. Offline
+captures show [phone setup](assets/native-continuation-setup-mobile-dark.png),
+[large-text phone review](assets/native-continuation-review-mobile-large-light.png)
+and [desktop catalog retry](assets/native-continuation-retry-desktop-light.png).
+The fixture verifies successful native admission, catalog retry, preserved drafts,
+non-overlapping review rows, readable inputs and reachable Close at 320px width.
+
+Pre-runtime conversations with a retained visible transcript can be reviewed even
+when they predate the private Responses history store. Review explicitly says that
+earlier queued work cannot be counted and earlier commands will not run. Missing
+private history always requires the existing uncertainty acknowledgement; it is
+never synthesized into a provider checkpoint or queue. An explicitly bound runtime
+with missing private history still refuses. Source changes invalidate the review.
+The intercepted pre-runtime fixture covers metadata fallback, this warning and
+successful simulated ordinary admission. [Phone review](assets/native-continuation-transcript-only-mobile.png)
+shows the same shared review surface at larger text.
+
 The form uses semantic surface/text/border roles, shared spacing/type/radius tokens,
 the shared code font and 44px checkbox rows. The all-intercept
 `legacy-native-continuation` fixture renders the actual component at narrow phone
@@ -1025,6 +1047,46 @@ Native task selects reuse the context editor's explicit token-based height becau
 WebKit ignores their minimum height; offline geometry checks require 44px targets.
 
 ## Session library and context summaries
+
+Recent/search rows lead their secondary metadata with the recorded model choice
+and account label. The saved picker selection takes precedence over the original
+binding model; live-only rows receive identity through activity updates. Missing
+model records stay absent rather than inheriting an engine name or global default.
+Inactive search hits outside the loaded history page receive their recorded model
+and aliased account directly from search, including the selected desktop preview.
+Search-provided account aliases remain authoritative when the same chat also has
+a live activity record; the live model choice still takes precedence. The clicked
+desktop preview reuses that same search projection. These fields reuse the muted
+type scale and wrap long identifiers within the row.
+
+The Chats **Needs you** filter and overview badges count confirmed permission
+(including structured question) and review requests. Finished assistant replies,
+uncommitted changes and generic blocked/dependency waits do not establish a user
+request. Rows retain their specific Permission needed, Review needed or Blocked
+state. A pending review anywhere within the selected goal subtree remains an
+explicit request even when another task makes the aggregate goal blocked. Paused
+spec approval also remains visible; unrelated goals do not contribute and pending
+permissions retain priority. The broader Today attention feed keeps its existing notice semantics.
+
+Focused nested-tree and spec-approval regressions cover the producer state and
+request precedence. Intercepted browser checks verify search/activity alias
+collisions without changing controls, tokens or layout. Inspected captures:
+[phone search alias](assets/session-search-live-alias-mobile-dark.png) and
+[desktop search alias](assets/session-search-live-alias-desktop-light.png).
+
+Offline session-library checks cover model/account labels, the explicit-request
+count and clearing answered requests in mobile WebKit/Chromium and desktop
+Chromium, dark Mint/Georgia and light Blue/Arial. Focused regressions and design
+guards pass. The full `test:ui` frontend type build exceeded the required local
+1 GiB heap, so broad build/integration acceptance remains in CI. Inspected
+captures: [mobile model metadata](assets/session-model-mobile-dark.png) and
+[desktop model metadata](assets/session-model-desktop-light.png).
+
+The off-page search regression passes 199 route/component/identity checks, 108
+design guards (one existing skip), and eight offline browser/startup checks across
+both themes and all three browsers. Inspected search captures:
+[mobile search identity](assets/session-search-model-mobile-dark.png) and
+[desktop search identity](assets/session-search-model-desktop-light.png).
 
 Today pins outside the recent page read their recorded observation by session ID, without resuming a provider. Disabled context display makes no extra reads; obsolete requests abort, and missing or failed observations remain explicitly unavailable. Confirmed deletion clears the selected preview, and a confirmed rename updates off-page pin snapshots and the selected title. Failed mutations preserve the saved selection and title.
 
@@ -2229,3 +2291,20 @@ and 1280px desktop Chromium, dark Mint/System and light Teal/Georgia, keyboard r
 Escape/focus restoration, retained drafts, wrapping and editable next-message settings.
 Inspected captures: [mobile error](assets/chat-model-settings-error-mobile-dark.png)
 and [desktop choices](assets/chat-model-settings-ready-desktop-light.png).
+
+## Ordinary first-command failure feedback
+
+Ordinary and new-chat composers surface refusals through their existing
+`CodexQueueStatus` and `ChatStatusMessage` beside retained draft content. Preparation, authentication, conversation-scope and queue
+refusals preserve the draft and display bounded public copy; raw provider and
+storage exceptions never enter the UI. This reuses shared status typography,
+semantic danger/text roles and composer layout, without changing Chat settings.
+
+The all-intercept first-command-feedback fixture exercises the real store, outbox,
+ordinary conversation wrapper and composer with text and an image. It proves that
+a storage refusal sends nothing, retains the draft, and allows exactly one later
+explicit send after recovery. Mobile WebKit, mobile Chromium and desktop Chromium
+pass in dark Mint/System and light Teal/Georgia. Inspected captures:
+[phone](assets/first-command-feedback-mobile-dark.png) and
+[desktop](assets/first-command-feedback-desktop-light.png). Full-app builds and the
+complete offline matrix remain CI gates; these checks use no backend or models.

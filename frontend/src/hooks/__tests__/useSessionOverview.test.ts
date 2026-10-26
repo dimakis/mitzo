@@ -96,7 +96,7 @@ describe('useSessionOverview', () => {
     expect(result.current.activities[1].state).toBe('working');
   });
 
-  it('computes attendCount from waiting sessions', () => {
+  it('counts explicit user requests without treating every wait as actionable', () => {
     let activityHandler: ((data: unknown) => void) | null = null;
     mockOn.mockImplementation((_event: string, handler: (data: unknown) => void) => {
       activityHandler = handler;
@@ -107,9 +107,17 @@ describe('useSessionOverview', () => {
 
     act(() => {
       activityHandler!([
-        makeActivity({ sessionId: 's1', state: 'waiting' }),
-        makeActivity({ sessionId: 's2', state: 'waiting' }),
+        makeActivity({ sessionId: 's1', state: 'waiting', waitReason: 'permission' }),
+        makeActivity({ sessionId: 's2', state: 'waiting', waitReason: 'review' }),
         makeActivity({ sessionId: 's3', state: 'working' }),
+        makeActivity({ sessionId: 's4', state: 'waiting', waitReason: 'blocked' }),
+        makeActivity({ sessionId: 's5', state: 'waiting' }),
+        makeActivity({
+          sessionId: 's6',
+          state: 'done',
+          awaitingReply: true,
+          uncommittedWork: true,
+        }),
       ]);
     });
 

@@ -127,6 +127,16 @@ function createSdkBoundary(
   trustedExecutableRoots.forEach(validatePath);
   deniedRoots.forEach(validatePath);
   Object.freeze(deniedRoots);
+  // Deployment retains complete environment copies. Fixed family patterns also
+  // fence interrupted/future copies across restart without scanning the directory.
+  const privateEnvironmentPatterns: string[] = [];
+  if (credentialIsolation) {
+    const environmentRoot = canonical(process.cwd());
+    validatePath(environmentRoot);
+    privateEnvironmentPatterns.push(
+      ...['.env.before-runtime-*', '.env.runtime-*'].map((name) => join(environmentRoot, name)),
+    );
+  }
   return {
     credentialIsolation,
     deniedRoots,
@@ -204,11 +214,12 @@ function createSdkBoundary(
         env: targetEnv,
         config: {
           filesystem: {
-            denyRead: [...launchDeniedRoots, temporary],
+            denyRead: [...launchDeniedRoots, ...privateEnvironmentPatterns, temporary],
             allowRead: [],
             allowWrite: ['/'],
             denyWrite: [
               ...launchDeniedRoots,
+              ...privateEnvironmentPatterns,
               ...runtime.writeRoots,
               ...selectedWriteRoots,
               ...runtime.patterns,

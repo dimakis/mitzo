@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 
 export NODE_ENV="${NODE_ENV:-production}"
 node scripts/verify-openshell-production.mjs .env
+node scripts/release-runtime-declarations.mjs --check
 
 LOGDIR="logs"
 mkdir -p "$LOGDIR"

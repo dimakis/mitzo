@@ -169,8 +169,8 @@ export function shouldAutoRename(promptCount: number, manuallyRenamed: boolean):
 }
 
 /**
- * Extract the text of recent user prompts from the event store.
- * Returns at most MAX_RECENT_PROMPTS entries.
+ * Keep the first meaningful request plus recent context for naming.
+ * Acknowledgements must not push the original task out of the naming window.
  */
 export function extractRecentPrompts(events: StoredEvent[]): string[] {
   const prompts: string[] = [];
@@ -184,56 +184,62 @@ export function extractRecentPrompts(events: StoredEvent[]): string[] {
       prompts.push(evt.payload.text);
     }
   }
-  // Keep only the most recent prompts
   if (prompts.length > MAX_RECENT_PROMPTS) {
-    return prompts.slice(-MAX_RECENT_PROMPTS);
+    const first = prompts.findIndex((prompt) => requestTitle(prompt) !== '');
+    const recentStart = prompts.length - MAX_RECENT_PROMPTS;
+    if (first >= 0 && first < recentStart) {
+      return [prompts[first], ...prompts.slice(-(MAX_RECENT_PROMPTS - 1))];
+    }
+    return prompts.slice(recentStart);
   }
   return prompts;
 }
 
 /**
- * Generate a short session name from recent prompts using keyword extraction.
- * This is the fallback when the LLM call fails.
+ * Use a faithful request excerpt when semantic naming is unavailable.
+ * Preserve grammar and technical identifiers instead of ranking keywords.
  */
 export function generateSessionNameFallback(prompts: string[]): string {
-  if (prompts.length === 0) return '';
-
-  // Collect word frequencies across all prompts
-  const freq = new Map<string, number>();
   for (const prompt of prompts) {
-    const readablePrompt = splitContextPrompt(prompt)?.text ?? prompt;
-    const words = readablePrompt
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, ' ')
-      .split(/\s+/)
-      .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+    const title = requestTitle(prompt);
+    if (title) return title;
+  }
+  return '';
+}
 
-    // Use a set per prompt to avoid over-counting repeated words in a single prompt
-    const seen = new Set<string>();
-    for (const word of words) {
-      if (!seen.has(word)) {
-        freq.set(word, (freq.get(word) || 0) + 1);
-        seen.add(word);
-      }
+function requestTitle(prompt: string): string {
+  const prose = (splitContextPrompt(prompt)?.text ?? prompt).replace(/```[\s\S]*?```/g, '\n');
+  for (const line of prose.split(/\n/)) {
+    let title = line
+      .replace(/^\s*(?:#{1,6}\s+|[-*]\s+|\d+[.)]\s+)/, '')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/`/g, '')
+      .trim();
+    if (/^(?:--?\w|https?:\/\/|[/{<])/.test(title)) continue;
+    title = title
+      .replace(/^(?:hi|hey|hello)[,!\s]+/i, '')
+      .replace(/^(?:can|could|would|will) you (?:please )?/i, '')
+      .replace(/^(?:please |let['’]?s |i (?:want|need) (?:you )?to |i['’]d like (?:you )?to )/i, '')
+      .replace(/\b[0-9a-f]{16,}\b|\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi, '')
+      .replace(/(?:^|\s)--\S+/g, ' ')
+      .split(/[.!?](?=\s|$)/)[0]
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (
+      /^(?:(?:hi|hello|hey|yes|yeah|yea|yep|sure|ok|okay|thanks|thank you|done|fixed now|looks good|go ahead|do it)[\s,.!]*)+$/i.test(
+        title,
+      )
+    )
+      continue;
+    const words = title.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+    if (!words.some((word) => !STOP_WORDS.has(word))) continue;
+    if (title.length > MAX_NAME_LENGTH) {
+      const end = title.lastIndexOf(' ', MAX_NAME_LENGTH);
+      title = title.slice(0, end > 0 ? end : MAX_NAME_LENGTH).trim();
     }
+    if (title) return title.charAt(0).toUpperCase() + title.slice(1);
   }
-
-  // Sort by frequency (descending), then alphabetically for stability
-  const sorted = [...freq.entries()].sort((a, b) => {
-    if (b[1] !== a[1]) return b[1] - a[1];
-    return a[0].localeCompare(b[0]);
-  });
-
-  // Take top words and capitalize
-  const topWords = sorted.slice(0, 6).map(([word]) => word.charAt(0).toUpperCase() + word.slice(1));
-
-  if (topWords.length === 0) return '';
-
-  const name = topWords.join(' ');
-  if (name.length > MAX_NAME_LENGTH) {
-    return name.slice(0, MAX_NAME_LENGTH).trim();
-  }
-  return name;
+  return '';
 }
 
 /**
@@ -285,7 +291,7 @@ Title: Cross-Repo PR Status Check`;
 
 /**
  * Generate a short session name using Claude Haiku.
- * Falls back to keyword extraction if the API call fails.
+ * Falls back to a request excerpt if the API call fails.
  */
 export async function generateSessionName(prompts: string[]): Promise<string> {
   if (prompts.length === 0) return '';
@@ -324,7 +330,7 @@ export async function generateSessionName(prompts: string[]): Promise<string> {
       raw: rawName.slice(0, 80),
     });
   } catch (err: unknown) {
-    log.warn('Haiku auto-rename failed, falling back to keyword extraction', {
+    log.warn('Haiku auto-rename failed, falling back to request excerpt', {
       error: err instanceof Error ? err.message : 'unknown',
     });
   }

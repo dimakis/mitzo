@@ -33,6 +33,10 @@ it('keeps an additional worker distinct from explicit replacement and retains th
       });
   };
   const composer = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  const fillDraft = async (text: string) => {
+    await composer.fill(text);
+    await browserExpect(composer).toHaveValue(text);
+  };
   const workerRow = (label: string) =>
     page.locator('.telos-chat-row').filter({ has: page.getByText(label, { exact: true }) });
   const chooserRows: Array<Record<string, unknown>> = [];
@@ -71,6 +75,10 @@ it('keeps an additional worker distinct from explicit replacement and retains th
     });
     expect(response.status()).toBe(200);
     await browserExpect(page).toHaveURL(/\/chat\/[a-f0-9-]+/);
+    // A changed URL precedes BrowserRouter's committed conversation render.
+    await browserExpect(
+      page.getByRole('region', { name: 'Work conversation setup', exact: true }),
+    ).not.toBeVisible();
     return { id: new URL(page.url()).pathname.split('/').at(-1)!, submitted, body };
   };
   const chooser = async () => {
@@ -193,13 +201,13 @@ it('keeps an additional worker distinct from explicit replacement and retains th
       { role: 'worker', revision: 1, conversation: { conversationId: originalId } },
     ]);
     await page.goto(front.origin + '/chat/' + peerId);
-    await composer.fill('Keep the unrelated item draft through worker replacement.');
+    await fillDraft('Keep the unrelated item draft through worker replacement.');
     await page.goto(front.origin + '/chat/' + leadId);
-    await composer.fill(
+    await fillDraft(
       'Keep the lead planning draft; replacing a worker is not a new delegation attempt.',
     );
     await page.goto(front.origin + allocation.workerPath);
-    await composer.fill('Keep the original delegated worker draft.');
+    await fillDraft('Keep the original delegated worker draft.');
     await chooser();
     await browserExpect(
       page.getByRole('heading', { name: 'Chats · 1', exact: true }),
@@ -211,7 +219,7 @@ it('keeps an additional worker distinct from explicit replacement and retains th
     const afterAdditional = await api.read('recording-slice');
     expect(afterAdditional.assignments).toEqual(workOriginal.assignments);
     expect(afterAdditional.attempts).toEqual(workOriginal.attempts);
-    await composer.fill('Keep the additional worker draft without assigning it.');
+    await fillDraft('Keep the additional worker draft without assigning it.');
     await chooser();
     await browserExpect(
       page.getByRole('heading', { name: 'Chats · 2', exact: true }),
@@ -223,7 +231,7 @@ it('keeps an additional worker distinct from explicit replacement and retains th
     const replacement = await configure('Assign worker & open chat');
     expect(replacement.submitted.input.role).toBe('worker');
     expect(replacement.submitted.input.expectedAssignmentRevision).toBe(1);
-    await composer.fill('Keep the explicitly assigned replacement draft.');
+    await fillDraft('Keep the explicitly assigned replacement draft.');
     const replaced = await api.read('recording-slice');
     expect(replaced.assignments).toMatchObject([
       { role: 'worker', revision: 2, conversation: { conversationId: replacement.id } },

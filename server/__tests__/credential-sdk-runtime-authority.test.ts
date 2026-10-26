@@ -12,7 +12,7 @@ import {
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { credentialSdkBoundary, runtimeFilesystemSdkBoundary } from '../credential-sdk-boundary.js';
@@ -165,6 +165,65 @@ async function installedMacSrt() {
   const directory = dirname(require.resolve('@anthropic-ai/sandbox-runtime'));
   return import(pathToFileURL(join(directory, 'sandbox', 'macos-sandbox-utils.js')).href);
 }
+
+it('protects retained and future runtime environment siblings without denying ordinary work', async () => {
+  vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '1');
+  const files = ['.env', '.env.before-runtime-retained', '.env.runtime-interrupted'].map((name) =>
+    join(root, name),
+  );
+  for (const file of files) writeFileSync(file, 'synthetic credential', { mode: 0o600 });
+  const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
+  let filesystem: ReturnType<typeof policy>;
+  try {
+    filesystem = policy();
+  } finally {
+    cwd.mockRestore();
+  }
+  const { wrapCommandWithSandboxMacOS } = await installedMacSrt();
+  // These copies do not exist even when SRT generates the persistent profile.
+  const future = [join(root, '.env.before-runtime-future'), join(root, '.env.runtime-future')];
+  files.push(...future);
+  const report = join(root, 'work', 'report.md');
+  writeFileSync(report, 'ordinary report');
+  const script = `
+      const fs=require('node:fs'),cp=require('node:child_process');
+      function denied(action,code){try{action();process.exit(code)}catch{}}
+      for(const file of ${JSON.stringify(files)}) {
+        denied(()=>fs.readFileSync(file),70);
+        denied(()=>cp.execFileSync('/bin/cat',[file],{stdio:'pipe'}),71);
+        denied(()=>fs.writeFileSync(file,'changed credential'),72);
+        denied(()=>fs.renameSync(file,${JSON.stringify(join(root, 'work', 'moved-env'))}),74);
+        denied(()=>fs.unlinkSync(file),75);
+      }
+      if(fs.readFileSync(${JSON.stringify(report)},'utf8')!=='ordinary report')process.exit(73);
+      fs.writeFileSync(${JSON.stringify(report)},'updated report');
+      process.stdout.write('runtime-environment-fenced');
+    `;
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  const wrapped: string = wrapCommandWithSandboxMacOS({
+    command: [process.execPath, '-e', script].map(quote).join(' '),
+    needsNetworkRestriction: false,
+    binShell: '/bin/sh',
+    readConfig: { denyOnly: filesystem.denyRead },
+    writeConfig: { allowOnly: filesystem.allowWrite, denyWithinAllow: filesystem.denyWrite },
+  });
+  for (const pattern of ['.env.before-runtime-*', '.env.runtime-*']) {
+    expect(filesystem.denyRead).toContain(join(root, pattern));
+    expect(filesystem.denyWrite).toContain(join(root, pattern));
+  }
+  expect(wrapped).toContain('file-write-unlink file-write-create');
+  if (process.platform !== 'darwin' || process.env.MITZO_TEST_OS_SANDBOX !== '1') return;
+  for (const file of future) writeFileSync(file, 'synthetic credential', { mode: 0o600 });
+  const result = spawnSync('/bin/sh', ['-c', wrapped], {
+    env: { PATH: '/usr/bin:/bin' },
+    encoding: 'utf8',
+    timeout: 5000,
+  });
+  expect(result.status).toBe(0);
+  expect(result.stdout).toBe('runtime-environment-fenced');
+  for (const file of files) expect(readFileSync(file, 'utf8')).toBe('synthetic credential');
+  expect(readFileSync(report, 'utf8')).toBe('updated report');
+});
 
 function selectorFixture() {
   const directory = join(root, 'selector-box');

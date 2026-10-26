@@ -164,6 +164,7 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
     return { id, submitted };
   };
   const firstSend = async (id: string, text: string) => {
+    await h.waitForPreparedConversation(id);
     const before = nativeSessions.length;
     await page.getByRole('textbox', { name: 'Message Mitzo' }).fill(text);
     const [response] = await Promise.all([

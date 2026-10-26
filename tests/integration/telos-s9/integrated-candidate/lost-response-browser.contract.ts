@@ -1,3 +1,4 @@
+import { waitForPreparedConversation } from './joined-conversation-ready';
 import { afterAll, afterEach, expect, it as platformTest, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { installPrivateCanonicalReadCli } from './joined-canonical-cli';
@@ -473,6 +474,7 @@ it('CT18 actual browser: consumed first-command response loss, document reload a
   });
   const originalPrompt = 'Inspect only the reviewed acoustic plan; retain the exact source.';
   const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
+  await waitForPreparedConversation(page, browserNetwork, advisorId);
   await composer.fill(originalPrompt);
   await browserExpect(
     page.getByRole('button', { name: 'Send message', exact: true }),

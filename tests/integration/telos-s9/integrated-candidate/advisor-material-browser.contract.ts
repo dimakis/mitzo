@@ -269,6 +269,7 @@ it('carries a preexisting reviewed source and exact r1 material through normal a
       'Refine the existing recording sample against the preexisting reviewed acoustic-plan revision one. Preserve that exact r1 despite the newer room-dimension r2. Do not create a child or dispatch a worker.';
     const assistantText =
       'Agreed refinement: Review one acoustic sample using the retained acoustic-plan r1. Desired outcome: retain one reviewed sample and listening notes against the exact original plan, independently of the later r2 edit. Update this existing item only; do not start a worker.';
+    await h.waitForPreparedConversation(advisorId);
     await composer.fill(userText);
     const [sendResponse] = await Promise.all([
       page.waitForResponse(

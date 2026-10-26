@@ -180,6 +180,7 @@ it('uses healthy real service/proxy paths for synthetic voice and delivers saved
       transcript = 'Synthetic ' + label + ' voice transcript.';
     external.setTranscript(transcript);
     await page.goto(front.origin + '/chat/' + id);
+    await h.waitForPreparedConversation(id);
     await composer.fill('Independent ' + label + ' prefix.');
     await page.getByRole('button', { name: 'Record voice message', exact: true }).click();
     await vi.waitFor(() => expect(external.recordings[index]?.bytes).toBeGreaterThan(0));

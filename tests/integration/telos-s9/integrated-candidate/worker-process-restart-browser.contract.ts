@@ -87,6 +87,7 @@ it('recovers the original delegated worker, bound execution task, attempt and ad
     const composer = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
     const peerDraft = 'Keep the unrelated Job draft during the other process failure.';
     await page.goto(front.origin + '/chat/' + peerId);
+    await h.waitForPreparedConversation(peerId);
     await composer.fill(peerDraft);
     const peerBefore = await api.read('quiet-job');
     await api.execute({
@@ -98,6 +99,7 @@ it('recovers the original delegated worker, bound execution task, attempt and ad
     });
     await page.goto(front.origin + '/chat/' + leadId);
     const leadDraft = 'Keep the lead planning draft; delegate only this reviewed child.';
+    await h.waitForPreparedConversation(leadId);
     await composer.fill(leadDraft);
     const workerReview = await api.reviewRoleContext({
       itemId: 'recording-slice',
@@ -174,6 +176,7 @@ it('recovers the original delegated worker, bound execution task, attempt and ad
     await page.goto(front.origin + '/chat/' + sessionId);
     const prompt =
       'Perform only the reviewed recording slice; retain uncertainty until a result exists.';
+    await h.waitForPreparedConversation(sessionId);
     await composer.fill(prompt);
     await Promise.all([
       page.waitForEvent('requestfailed', {

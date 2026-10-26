@@ -12,6 +12,8 @@ const sessions = Array.from({ length: 12 }, (_, index) => ({
       : `Conversation ${index}`,
   lastModified: Date.now() - index * 3600000,
   cwd: '/workspace/mgmt',
+  model: index % 2 ? 'claude-opus-4-8' : 'gpt-6.1-sol',
+  accountLabel: index % 2 ? 'Work' : 'Personal',
   totalTokens: 1200000,
   isActive: false,
   telosTaskId: index === 1 ? 'work-one' : undefined,
@@ -49,7 +51,17 @@ for (const theme of ['dark', 'light'])
     await page.addInitScript(
       ({ theme, accent, font }) => {
         class OfflineEventSource extends EventTarget {
-          readyState = 2;
+          readyState = 1;
+          constructor() {
+            super();
+            window.addEventListener('offline-session-activity', (event) => {
+              this.dispatchEvent(
+                new MessageEvent('session_activity', {
+                  data: JSON.stringify((event as CustomEvent).detail),
+                }),
+              );
+            });
+          }
           close() {}
         }
         window.EventSource = OfflineEventSource as unknown as typeof EventSource;
@@ -117,8 +129,11 @@ for (const theme of ['dark', 'light'])
             {
               sessionId: 'search-only',
               summary: 'Search-only conversation',
+              model: 'gpt-6-luna',
+              accountLabel: 'Home archive',
               snippet: 'Matching saved message',
-              updatedAt: 1,
+              matchedAt: Date.now() - 90 * 86400000,
+              updatedAt: Date.now() - 90 * 86400000,
             },
           ],
         },
@@ -172,6 +187,38 @@ for (const theme of ['dark', 'light'])
     const first = page.getByRole(isMobile ? 'link' : 'button', {
       name: `${isMobile ? 'Open' : 'Preview'} ${sessions[0].summary}`,
     });
+    await expect(first.getByLabel('Model: gpt-6.1-sol')).toBeVisible();
+    await expect(first.getByText('Personal', { exact: true })).toBeVisible();
+    const activity = (index: number, state: string, extra: Record<string, unknown> = {}) => ({
+      sessionId: sessions[index].id,
+      clientId: `client-${index}`,
+      title: sessions[index].summary,
+      state,
+      flags: [],
+      lastEventAt: sessions[index].lastModified,
+      ...extra,
+    });
+    await page.evaluate(
+      (activities) => {
+        window.dispatchEvent(new CustomEvent('offline-session-activity', { detail: activities }));
+      },
+      [
+        activity(1, 'waiting', { waitReason: 'permission' }),
+        activity(2, 'done', { awaitingReply: true }),
+        activity(3, 'idle', { uncommittedWork: true }),
+        activity(4, 'waiting', { waitReason: 'blocked' }),
+      ],
+    );
+    await expect(page.getByRole('button', { name: 'Needs you 1', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Needs you 1', exact: true }).click();
+    await expect(page.locator('.session-list .session-item-navigation')).toHaveCount(1);
+    await expect(page.locator('.session-list').getByText('Permission needed')).toBeVisible();
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('offline-session-activity', { detail: [] }));
+    });
+    await expect(page.getByRole('button', { name: 'Needs you 0', exact: true })).toBeVisible();
+    await expect(page.getByText('Nothing needs you right now')).toBeVisible();
+    await page.getByRole('button', { name: 'All', exact: true }).click();
     if (isMobile) {
       await expect(first.locator('.session-item-summary')).toHaveCSS('display', 'block');
       const box = await first.boundingBox();
@@ -258,8 +305,26 @@ for (const theme of ['dark', 'light'])
     // Opening works directly from recent, pinned and search rows. Single desktop
     // clicks keep previewing; a mobile tap keeps its existing immediate navigation.
     for (const kind of ['recent', 'pin', 'search']) {
-      if (kind === 'search')
+      if (kind === 'search') {
+        await page.evaluate(() => {
+          window.dispatchEvent(
+            new CustomEvent('offline-session-activity', {
+              detail: [
+                {
+                  sessionId: 'search-only',
+                  title: 'Search-only conversation',
+                  state: 'working',
+                  model: 'gpt-6-luna',
+                  accountLabel: 'Raw archive',
+                  lastEventAt: Date.now(),
+                  flags: [],
+                },
+              ],
+            }),
+          );
+        });
         await page.getByRole('searchbox', { name: 'Search conversations' }).fill('Matching');
+      }
       const row =
         kind === 'pin'
           ? page
@@ -268,6 +333,13 @@ for (const theme of ['dark', 'light'])
           : page.getByRole(isMobile ? 'link' : 'button', {
               name: `${isMobile ? 'Open' : 'Preview'} ${kind === 'search' ? 'Search-only conversation' : 'Conversation 2'}`,
             });
+      if (kind === 'search') {
+        await expect(row.getByText('gpt-6-luna', { exact: true })).toBeVisible();
+        await expect(row.getByText('Home archive', { exact: true })).toBeVisible();
+        await page.screenshot({
+          path: testInfo.outputPath(`session-search-identity-${theme}.png`),
+        });
+      }
       if (isMobile) await row.tap();
       else await row.click();
       if (!isMobile) {
@@ -282,6 +354,10 @@ for (const theme of ['dark', 'light'])
                   : 'Conversation 2',
           }),
         ).toBeVisible();
+        if (kind === 'search') {
+          await expect(row.getByText('Home archive', { exact: true })).toBeVisible();
+          await expect(row.getByText('Raw archive', { exact: true })).toHaveCount(0);
+        }
         await row.dblclick();
       }
       await expect(page.getByRole('button', { name: 'Opened conversation' })).toBeVisible();

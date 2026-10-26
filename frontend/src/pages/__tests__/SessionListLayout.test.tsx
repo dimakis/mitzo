@@ -3,11 +3,19 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { SessionList } from '../SessionList';
+import type { SessionSearchResult } from '@mitzo/protocol';
 
 const mocks = vi.hoisted(() => ({
+  inspect: vi.fn(),
   list: {
     sessions: [
-      { id: 'one', summary: 'Review UI', lastModified: 30 },
+      {
+        id: 'one',
+        summary: 'Review UI',
+        lastModified: 30,
+        model: 'gpt-6.1-sol',
+        accountLabel: 'Personal',
+      },
       { id: 'two', summary: 'Older chat', lastModified: 10 },
     ],
     quickActions: [],
@@ -36,6 +44,8 @@ const mocks = vi.hoisted(() => ({
         lastEventAt: 50,
         awaitingReply: false,
         uncommittedWork: false,
+        model: 'claude-opus-4-8',
+        accountLabel: 'Work',
       },
     ],
     connected: true,
@@ -43,7 +53,7 @@ const mocks = vi.hoisted(() => ({
   search: {
     query: '',
     setQuery: vi.fn(),
-    results: [],
+    results: [] as SessionSearchResult[],
     searching: false,
     active: false,
     error: null as string | null,
@@ -54,6 +64,15 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../hooks/useSessionList', () => ({ useSessionList: () => mocks.list }));
 vi.mock('../../hooks/useSessionOverview', () => ({ useSessionOverview: () => mocks.overview }));
 vi.mock('../../hooks/useSessionSearch', () => ({ useSessionSearch: () => mocks.search }));
+vi.mock('../../components/SessionInspector', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../components/SessionInspector')>();
+  return {
+    SessionInspector: (props: Parameters<typeof actual.SessionInspector>[0]) => {
+      mocks.inspect(props.session);
+      return <actual.SessionInspector {...props} />;
+    },
+  };
+});
 afterEach(cleanup);
 function mount() {
   render(
@@ -89,9 +108,109 @@ it('renders a single list including live chats outside the loaded history page',
   expect(screen.queryByText('Quick Actions')).toBeNull();
   expect(screen.queryByText('Active Sessions')).toBeNull();
 });
+it('shows each chat’s actual model and account, including live-only sessions', () => {
+  mount();
+  const saved = screen.getByRole('link', { name: 'Open Review UI' });
+  expect(within(saved).getByText('gpt-6.1-sol')).toBeTruthy();
+  expect(within(saved).getByText('Personal')).toBeTruthy();
+  const live = screen.getByRole('link', { name: 'Open Live chat outside history page' });
+  expect(within(live).getByText('claude-opus-4-8')).toBeTruthy();
+  expect(within(live).getByText('Work')).toBeTruthy();
+  expect(within(saved).queryByText('openai-codex')).toBeNull();
+});
+it.each([
+  { desktop: false, sessionId: 'off-page-chat' },
+  { desktop: true, sessionId: 'off-page-chat' },
+  { desktop: true, sessionId: 'two' },
+  { desktop: false, sessionId: 'three' },
+  { desktop: true, sessionId: 'three' },
+])(
+  'retains search identity in its row and preview ($sessionId, desktop=$desktop)',
+  ({ desktop, sessionId }) => {
+    const previous = { active: mocks.search.active, results: mocks.search.results };
+    mocks.search.active = true;
+    mocks.search.results = [
+      {
+        sessionId,
+        summary: 'Older matching conversation',
+        snippet: 'matched history',
+        matchedAt: 1000,
+        updatedAt: 2000,
+        model: 'gpt-6.1-sol',
+        accountLabel: 'Home',
+      },
+    ];
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({
+        matches: desktop,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => [] })),
+    );
+    mocks.inspect.mockClear();
+    try {
+      mount();
+      if (desktop)
+        expect(mocks.inspect).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            id: sessionId,
+            model: sessionId === 'three' ? 'claude-opus-4-8' : 'gpt-6.1-sol',
+            accountLabel: 'Home',
+          }),
+        );
+      const row = screen.getByRole(desktop ? 'button' : 'link', {
+        name: `${desktop ? 'Preview' : 'Open'} Older matching conversation`,
+      });
+      expect(
+        within(row).getByText(sessionId === 'three' ? 'claude-opus-4-8' : 'gpt-6.1-sol'),
+      ).toBeTruthy();
+      expect(within(row).getByText('Home')).toBeTruthy();
+      expect(within(row).queryByText('openai-codex')).toBeNull();
+      if (desktop) {
+        fireEvent.click(row);
+        expect(mocks.inspect).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            id: sessionId,
+            model: sessionId === 'three' ? 'claude-opus-4-8' : 'gpt-6.1-sol',
+            accountLabel: 'Home',
+          }),
+        );
+      }
+    } finally {
+      Object.assign(mocks.search, previous);
+      vi.unstubAllGlobals();
+    }
+  },
+);
+it('falls back to live search identity when the search result has no saved identity', () => {
+  const previous = { active: mocks.search.active, results: mocks.search.results };
+  mocks.search.active = true;
+  mocks.search.results = [
+    {
+      sessionId: 'three',
+      summary: 'Search live conversation',
+      snippet: 'match',
+      matchedAt: 1000,
+      updatedAt: 2000,
+    },
+  ];
+  try {
+    mount();
+    const row = screen.getByRole('link', { name: 'Open Search live conversation' });
+    expect(within(row).getByText('claude-opus-4-8')).toBeTruthy();
+    expect(within(row).getByText('Work')).toBeTruthy();
+  } finally {
+    Object.assign(mocks.search, previous);
+  }
+});
 it('filters by activity and attention without duplicating rows', () => {
   mount();
-  fireEvent.click(screen.getByRole('button', { name: /^Needs attention/ }));
+  fireEvent.click(screen.getByRole('button', { name: /^Needs you/ }));
   expect(screen.getByText('Review UI')).toBeTruthy();
   expect(screen.queryByText('Older chat')).toBeNull();
   expect(screen.queryByText('Live chat outside history page')).toBeNull();
@@ -122,10 +241,10 @@ it('does not claim synthetic activity rows are detached when attachment is unkno
 });
 
 it.each([
-  ['done', true, false, true],
-  ['idle', true, false, true],
-  ['done', false, true, true],
-  ['idle', false, true, true],
+  ['done', true, false, false],
+  ['idle', true, false, false],
+  ['done', false, true, false],
+  ['idle', false, true, false],
   ['working', true, true, false],
   ['done', false, false, false],
 ] as const)(
@@ -135,7 +254,7 @@ it.each([
     mocks.overview.activities = [{ ...previous[0], state, awaitingReply, uncommittedWork }];
     try {
       mount();
-      fireEvent.click(screen.getByRole('button', { name: /^Needs attention/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^Needs you/ }));
       expect(screen.queryByText('Review UI') !== null).toBe(expected);
     } finally {
       mocks.overview.activities = previous;

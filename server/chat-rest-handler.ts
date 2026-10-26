@@ -169,7 +169,6 @@ export function mountApplicationChatRestTransport(
         if (!meta?.accountBinding) throw Error('Retained conversation unavailable');
         const native = getNativeResponsesStore();
         const state = native.load(id, meta.accountBinding);
-        if (!state) throw Error('Retained conversation history unavailable');
         const events = ctx.eventStore.getSessionEvents(id);
         const custody = native.readOrdinaryCustody(id, meta.accountBinding);
         const queue = custody ? native.queue(id, meta.accountBinding) : undefined;

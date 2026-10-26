@@ -21,6 +21,7 @@ import type { LoopStatus } from './task-orchestrator.js';
 import type { TaskStore } from './task-store.js';
 import { hasUncommittedWorkAsync } from './worktree.js';
 import { createLogger } from './logger.js';
+import { sessionModelIdentity } from './session-list-metadata.js';
 
 export type { SessionActivity, SessionActivityState, WaitReason } from '@mitzo/protocol';
 
@@ -233,15 +234,20 @@ export class SessionOverviewEmitter {
         if (loopStatus.progress) {
           progress = loopStatus.progress;
         }
-        if (loopStatus.awaitingApproval) {
-          states.push('waiting');
-          if (!waitReason) waitReason = 'review';
-        }
       }
     }
 
     if (loopStatus.state === 'paused' && session.taskContext?.goalId === loopStatus.goalId) {
       states.push('paused');
+    }
+
+    if (
+      (loopStatus.state === 'running' || loopStatus.state === 'paused') &&
+      loopStatus.awaitingApproval &&
+      session.taskContext?.goalId === loopStatus.goalId
+    ) {
+      states.push('waiting');
+      if (waitReason !== 'permission') waitReason = 'review';
     }
 
     // 4. Transport/streaming state
@@ -300,6 +306,8 @@ export class SessionOverviewEmitter {
       sessionId,
       clientId: session.clientId,
       title,
+      model: session.model,
+      accountLabel: session.accountLabel,
       repo,
       state: primaryState,
       flags,
@@ -336,6 +344,7 @@ export class SessionOverviewEmitter {
       sessionId: meta.sessionId,
       clientId: meta.sessionId, // No live clientId — use sessionId
       title,
+      ...sessionModelIdentity(meta),
       repo,
       state,
       flags: [],
@@ -439,21 +448,31 @@ export class SessionOverviewEmitter {
   }
 
   /**
-   * Check if any child task of a goal is blocked or pending_review.
+   * Keep explicit review requests visible independently of aggregate task status.
    */
   private checkTaskWaitState(goalId: string): WaitReason | null {
-    const tree = this.deps.taskStore.getTree();
-    const goal = tree.find((t) => t.id === goalId);
+    const pending = [...this.deps.taskStore.getTree()];
+    let goal;
+    while (pending.length) {
+      const task = pending.pop()!;
+      if (task.id === goalId) {
+        goal = task;
+        break;
+      }
+      pending.push(...task.children);
+    }
     if (!goal) return null;
 
-    // Check the goal and direct children only (single-level task decomposition)
-    for (const task of tree) {
-      if (task.id === goalId || task.parentId === goalId) {
-        if (task.status === 'pending_review') return 'review';
-        if (task.status === 'blocked') return 'blocked';
-      }
+    pending.length = 0;
+    pending.push(goal);
+    let blocked = false;
+    while (pending.length) {
+      const task = pending.pop()!;
+      if (task.status === 'pending_review') return 'review';
+      if (task.status === 'blocked') blocked = true;
+      pending.push(...task.children);
     }
-    return null;
+    return blocked ? 'blocked' : null;
   }
 
   destroy(): void {

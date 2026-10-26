@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { eventBus } from '../lib/event-bus-singleton';
+import { sessionNeedsYouReason } from '../lib/session-attention';
 import type { SessionActivity } from '@mitzo/protocol';
 
 export type { SessionActivity, SessionActivityState, WaitReason } from '@mitzo/protocol';
@@ -52,7 +53,7 @@ export function useSessionOverview(): UseSessionOverviewReturn {
 
   const sorted = useMemo(() => sortByTier(activities), [activities]);
   const attendCount = useMemo(
-    () => activities.filter((a) => a.state === 'waiting').length,
+    () => activities.filter((a) => sessionNeedsYouReason(a) !== null).length,
     [activities],
   );
 

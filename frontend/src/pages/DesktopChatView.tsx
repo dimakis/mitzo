@@ -569,23 +569,24 @@ export function DesktopChatView() {
     modeChangeReady,
     storeSetMode,
   ]);
+  // The route owns the composer immediately, before the session store hydrates.
   const [boundDraftOwner, setBoundDraftOwner] = useState<{
     sessionId: string | null;
     draftId: string | null;
   }>({ sessionId: null, draftId: null });
   useEffect(() => {
     const refresh = () => {
-      const draftId = activeSessionId ? (getSessionChatDraft(activeSessionId)?.id ?? null) : null;
+      const draftId = commandSessionId ? (getSessionChatDraft(commandSessionId)?.id ?? null) : null;
       setBoundDraftOwner((previous) =>
-        previous.sessionId === activeSessionId && previous.draftId === draftId
+        previous.sessionId === commandSessionId && previous.draftId === draftId
           ? previous
-          : { sessionId: activeSessionId, draftId },
+          : { sessionId: commandSessionId, draftId },
       );
     };
     refresh();
     window.addEventListener(CHAT_DRAFTS_CHANGED, refresh);
     return () => window.removeEventListener(CHAT_DRAFTS_CHANGED, refresh);
-  }, [activeSessionId]);
+  }, [commandSessionId]);
   const savedChatDraft = useMemo(
     () =>
       draftEnabled && !newChatDraft.missing
@@ -612,12 +613,12 @@ export function DesktopChatView() {
               search: settingsSearch,
             },
           }
-        : activeSessionId &&
-            (boundDraftOwner.sessionId !== activeSessionId || boundDraftOwner.draftId !== null)
-          ? (getSessionChatDraft(activeSessionId) ?? undefined)
+        : commandSessionId &&
+            (boundDraftOwner.sessionId !== commandSessionId || boundDraftOwner.draftId !== null)
+          ? (getSessionChatDraft(commandSessionId) ?? undefined)
           : undefined,
     [
-      activeSessionId,
+      commandSessionId,
       boundDraftOwner,
       draftEnabled,
       newChatDraft.draft,
@@ -1939,7 +1940,7 @@ export function DesktopChatView() {
                     isWorktree={messages.isWorktree}
                     wtId={messages.wtId || undefined}
                     sessionId={
-                      repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)
+                      repositoryHandoff.present ? undefined : (commandSessionId ?? undefined)
                     }
                     tokenState={tokens}
                     messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
