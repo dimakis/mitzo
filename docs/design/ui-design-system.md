@@ -2271,3 +2271,20 @@ and 1280px desktop Chromium, dark Mint/System and light Teal/Georgia, keyboard r
 Escape/focus restoration, retained drafts, wrapping and editable next-message settings.
 Inspected captures: [mobile error](assets/chat-model-settings-error-mobile-dark.png)
 and [desktop choices](assets/chat-model-settings-ready-desktop-light.png).
+
+## Ordinary first-command failure feedback
+
+Ordinary and new-chat composers render their existing `ChatStatusMessage` beside
+retained draft content. Preparation, authentication, conversation-scope and queue
+refusals preserve the draft and display bounded public copy; raw provider and
+storage exceptions never enter the UI. This reuses shared status typography,
+semantic danger/text roles and composer layout, without changing Chat settings.
+
+The all-intercept first-command-feedback fixture exercises the real store, outbox,
+ordinary conversation wrapper and composer with text and an image. It proves that
+a storage refusal sends nothing, retains the draft, and allows exactly one later
+explicit send after recovery. Mobile WebKit, mobile Chromium and desktop Chromium
+pass in dark Mint/System and light Teal/Georgia. Inspected captures:
+[phone](assets/first-command-feedback-mobile-dark.png) and
+[desktop](assets/first-command-feedback-desktop-light.png). Full-app builds and the
+complete offline matrix remain CI gates; these checks use no backend or models.
