@@ -130,7 +130,7 @@ it('loads older saved documents and earlier revisions without losing their selec
   fireEvent.click(await screen.findByRole('button', { name: 'Load older saved documents' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Preview Report' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Load earlier versions' }));
-  await screen.findByRole('option', { name: 'Version 1', exact: true });
+  await screen.findByRole('option', { name: /^Version 1$/ });
   fireEvent.change(screen.getByRole('combobox', { name: 'Saved version' }), {
     target: { value: '1' },
   });
@@ -187,5 +187,5 @@ it('retains an exact old selection when newer versions fill the first history pa
     '1',
   );
   fireEvent.click(screen.getByRole('button', { name: 'Load earlier versions' }));
-  await screen.findByRole('option', { name: 'Version 2', exact: true });
+  await screen.findByRole('option', { name: /^Version 2$/ });
 });

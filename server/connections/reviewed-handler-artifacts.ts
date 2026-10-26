@@ -2503,7 +2503,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/session-documents-api.ts':
     '8703e5b5e88e8a880428350a091896a71056ea6fe5261e2525be76c956642610',
   '../../frontend/src/components/__tests__/SessionDocuments.test.tsx':
-    '3af16ec1b9dea5725003072f36f21a6a43508365310f653a650f8953b34818f3',
+    '4124954f30973af3d2f666464e1c66e063b16b7dd92ae71aaaf10989cd6b4ec8',
   '../../tests/fixtures/session-documents.tsx':
     '112f7a9736f76b087e5d158af1a97df29d600e5d47c0c760064f0166fd8f5eb5',
   '../../tests/offline/session-documents.spec.ts':
