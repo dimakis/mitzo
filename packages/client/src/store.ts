@@ -2,6 +2,8 @@ import {
   parseLocalCommandDelivery,
   localCommandSessionId,
   OrdinaryCommandDeliverySchema,
+  ComposerDraftReceiptSchema,
+  type ComposerDraftReceipt,
   type OrdinaryCommandPhase,
   type OrdinaryCommandDelivery,
   type LocalCommandRequest,
@@ -67,6 +69,8 @@ import { messageIdentity } from './message-identity.js';
 // ─── Store state ─────────────────────────────────────────────────────────────
 
 export interface SendMessageOptions {
+  /** Exact local edited revision; retained by the outbox and never sent to the server. */
+  composerDraft?: ComposerDraftReceipt;
   /** Local ownership metadata; never sent as provider input. */
   launchDraftId?: string;
   agentProfile?: import('@mitzo/protocol').AgentProfileSelection;
@@ -144,20 +148,27 @@ export interface MitzoStoreState {
     state: string;
     sessionId?: string;
     originDraftId?: string;
+    composerDraft?: ComposerDraftReceipt;
   } | null;
   sendLocalFirstCommand(
     request: OrdinaryRuntimeFirstCommand | OrdinaryRuntimeContinuationCommand,
-    observers?: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned'> & { draftId?: string },
+    observers?: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned' | 'composerDraft'> & {
+      draftId?: string;
+    },
   ): boolean;
   sendPreparedRepositoryCommand(
     request: OrdinaryRuntimeFirstCommand,
     sessionId: string,
-    observers?: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned'> & { draftId?: string },
+    observers?: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned' | 'composerDraft'> & {
+      draftId?: string;
+    },
   ): boolean;
   sendOrdinaryWorkspaceCommand(
     request: OrdinaryWorkspaceFirstCommand,
     phase: OrdinaryCommandPhase,
-    observers?: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned'> & { draftId?: string },
+    observers?: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned' | 'composerDraft'> & {
+      draftId?: string;
+    },
   ): boolean;
   recoverLocalCommand(): boolean;
   selectLocalCommandDraft(draftId: string): void;
@@ -399,12 +410,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             }
             let request: LocalCommandRequest | undefined;
             let ordinaryDelivery: OrdinaryCommandDelivery | undefined;
+            let composerDraft: ComposerDraftReceipt | undefined;
             try {
               ordinaryDelivery =
                 event.ordinaryDelivery === undefined
                   ? undefined
                   : OrdinaryCommandDeliverySchema.parse(event.ordinaryDelivery);
               request = parseLocalCommandDelivery(event.request, ordinaryDelivery);
+              composerDraft =
+                event.composerDraft === undefined
+                  ? undefined
+                  : ComposerDraftReceiptSchema.parse(event.composerDraft);
             } catch {
               /* Invalid retained intent is visible and blocks replacement. */
             }
@@ -437,6 +453,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               store.setState({
                 localCommand: {
                   request,
+                  ...(composerDraft ? { composerDraft } : {}),
                   ...(ordinaryDelivery ? { ordinaryPhase: ordinaryDelivery.phase } : {}),
                   ...(ordinaryDelivery?.version === 1
                     ? { preparedSessionId: ordinaryDelivery.sessionId }
@@ -957,7 +974,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
   function sendOwnedLocalCommand(
     request: unknown,
-    opts: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned'> & { draftId?: string } = {},
+    opts: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned' | 'composerDraft'> & {
+      draftId?: string;
+    } = {},
     ordinaryDelivery?: OrdinaryCommandDelivery,
   ): boolean {
     let frozen: LocalCommandRequest;
@@ -1004,7 +1023,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         : undefined;
     visibleLocalCommandId = frozen.clientMsgId;
     observeDelivery(frozen.clientMsgId, opts, 'send', 'local');
-    const sent = localOutbox.enqueue(frozen, Date.now(), opts.draftId, ordinaryDelivery);
+    const sent = localOutbox.enqueue(
+      frozen,
+      Date.now(),
+      opts.draftId,
+      ordinaryDelivery,
+      opts.composerDraft,
+    );
     if (!sent) {
       settleDelivery(frozen.clientMsgId, 'failed', 'local');
       return false;
@@ -2008,6 +2033,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // evicted it from memory, losing in-memory state), re-fetch messages from
     // the REST API if we have an active session but no messages in the store.
     if (msg.type === '_foreground') {
+      localOutbox?.wake();
       const { sessions, historyLoading } = store.getState();
       // An opening transcript or bounded reconnect already owns history. A
       // second foreground restore would invalidate that request and can leave
@@ -2018,6 +2044,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       return true;
     }
+
+    if (msg.type === '_open') localOutbox?.wake();
 
     if (msg.type === 'session_resumed') {
       if (typeof console !== 'undefined') {

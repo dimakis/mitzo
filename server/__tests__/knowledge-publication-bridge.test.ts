@@ -3,6 +3,19 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, realpath } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+const readBoundary = vi.hoisted(() => ({
+  before: undefined as undefined | ((path: string) => Promise<void>),
+}));
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    readFile: async (...args: Parameters<typeof actual.readFile>) => {
+      await readBoundary.before?.(String(args[0]));
+      return actual.readFile(...args);
+    },
+  };
+});
 import {
   KnowledgePublicationBridge,
   KnowledgePublicationUnavailableError,
@@ -11,6 +24,7 @@ import {
 const roots: string[] = [];
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 afterEach(async () => {
+  readBoundary.before = undefined;
   vi.restoreAllMocks();
   for (const root of roots) await rm(root, { recursive: true, force: true });
   roots.length = 0;
@@ -94,6 +108,107 @@ async function addPublished(s: Awaited<ReturnType<typeof setup>>, path: string) 
     new Response(JSON.stringify({ current: { ...s.selection, manifestSha256: hash(raw) } })),
   );
 }
+
+async function gateSourceReads(count: number) {
+  const s = await setup({ optionalPaths: ['context/'] });
+  for (let index = 1; index < count; index++) await addPublished(s, `context/${index}.md`);
+  const pending: { path: string; release(): void; reject(error: Error): void }[] = [];
+  let started = 0;
+  readBoundary.before = async (path) => {
+    if (!path.startsWith(join(s.directory, 'source') + '/')) return;
+    started++;
+    await new Promise<void>((release, reject) => pending.push({ path, release, reject }));
+  };
+  return { ...s, pending, started: () => started };
+}
+
+it.each(['reconcile', 'prewarm'] as const)(
+  'bounds concurrent source reads to eight and verifies seventeen files in three waves for %s',
+  async (method) => {
+    const s = await gateSourceReads(17);
+    const operation = s.bridge[method](new AbortController().signal);
+    const outcome = operation.catch(() => undefined);
+    try {
+      for (const count of [8, 8, 1]) {
+        await vi.waitFor(() => expect(s.pending).toHaveLength(count));
+        expect(s.adapt).not.toHaveBeenCalled();
+        s.pending.splice(0).forEach((read) => read.release());
+      }
+      await expect(operation).resolves.toHaveProperty('sourceCommit', s.selection.revision);
+      expect(s.started()).toBe(17);
+      expect(s.adapt).toHaveBeenCalledOnce();
+    } finally {
+      readBoundary.before = undefined;
+      s.pending.splice(0).forEach((read) => read.release());
+      await outcome;
+    }
+  },
+);
+
+it('settles the whole read wave and preserves manifest failure order before rejecting', async () => {
+  const s = await gateSourceReads(9);
+  let settled = false;
+  const operation = s.bridge.reconcile(new AbortController().signal);
+  const outcome = operation.catch(() => undefined).finally(() => (settled = true));
+  try {
+    await vi.waitFor(() => expect(s.pending).toHaveLength(8));
+    const [first, second, ...remaining] = s.pending.splice(0);
+    second.reject(new Error('later manifest read failed'));
+    first.reject(new Error('first manifest read failed'));
+    remaining.slice(0, -1).forEach((read) => read.release());
+    // The last physical read remains in this admission's custody after failure.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    remaining.at(-1)!.release();
+    await expect(operation).rejects.toThrow('first manifest read failed');
+    expect(s.started()).toBe(8);
+    expect(s.adapt).not.toHaveBeenCalled();
+  } finally {
+    readBoundary.before = undefined;
+    s.pending.splice(0).forEach((read) => read.release());
+    await outcome;
+  }
+});
+
+it('settles active source reads after cancellation without starting another wave or adaptation', async () => {
+  const s = await gateSourceReads(9);
+  const abort = new AbortController();
+  let settled = false;
+  const operation = s.bridge.reconcile(abort.signal);
+  const outcome = operation.catch(() => undefined).finally(() => (settled = true));
+  try {
+    await vi.waitFor(() => expect(s.pending).toHaveLength(8));
+    abort.abort(new Error('admission cancelled'));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    s.pending.splice(0).forEach((read) => read.release());
+    await expect(operation).rejects.toThrow('admission cancelled');
+    expect(s.started()).toBe(8);
+    expect(s.adapt).not.toHaveBeenCalled();
+  } finally {
+    readBoundary.before = undefined;
+    s.pending.splice(0).forEach((read) => read.release());
+    await outcome;
+  }
+});
+
+it('rejects a source changed while a full read wave is active before adaptation', async () => {
+  const s = await gateSourceReads(9);
+  const operation = s.bridge.reconcile(new AbortController().signal);
+  const outcome = operation.catch(() => undefined);
+  try {
+    await vi.waitFor(() => expect(s.pending).toHaveLength(8));
+    await writeFile(s.pending.at(-1)!.path, '# changed after manifest verification');
+    s.pending.splice(0).forEach((read) => read.release());
+    await expect(operation).rejects.toThrow('Publication content changed');
+    expect(s.started()).toBe(8);
+    expect(s.adapt).not.toHaveBeenCalled();
+  } finally {
+    readBoundary.before = undefined;
+    s.pending.splice(0).forEach((read) => read.release());
+    await outcome;
+  }
+});
 it('permits absent optional guidance paths', async () => {
   const s = await setup({
     optionalPaths: ['CLAUDE.md', 'context/', 'spoke/AGENTS.md', 'spoke/context/'],

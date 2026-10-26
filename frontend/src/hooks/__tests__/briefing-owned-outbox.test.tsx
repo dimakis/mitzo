@@ -885,7 +885,11 @@ it.each(['exact', 'session', 'client', 'source', 'account', 'runtime'] as const)
       drift === 'exact' ? 'consumed' : 'uncertain',
     );
     expect(dispatches).toBe(1);
-    expect(apiFetch).toHaveBeenCalledTimes(calls);
+    const observations = vi.mocked(apiFetch).mock.calls.slice(calls);
+    expect(observations).toHaveLength(1);
+    expect(observations[0][0]).toBe('/api/chat/local-codex/send/receipt');
+    expect(observations[0][1]?.method).toBe('POST');
+    expect(JSON.parse(String(observations[0][1]?.body))).toEqual(command);
     expect(
       Object.keys(localStorage).some((key) => key.startsWith('mitzo-local-first-command-outbox:')),
     ).toBe(drift !== 'exact');
@@ -992,7 +996,11 @@ it.each(['exact', 'other-session', 'cleanup-failure'] as const)(
     );
     expect(dispatches).toBe(1);
     expect(registrations).toBe(1);
-    expect(apiFetch).toHaveBeenCalledTimes(calls);
+    const observations = vi.mocked(apiFetch).mock.calls.slice(calls);
+    expect(observations).toHaveLength(1);
+    expect(observations[0][0]).toBe('/api/chat/local-codex/send/receipt');
+    expect(observations[0][1]?.method).toBe('POST');
+    expect(JSON.parse(String(observations[0][1]?.body))).toEqual(command);
     expect(localStorage.getItem(unrelatedKey)).toBe(unrelated);
     if (drift !== 'other-session') {
       expect(intentKey).toBeDefined();

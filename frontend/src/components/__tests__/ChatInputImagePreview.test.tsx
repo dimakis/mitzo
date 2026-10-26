@@ -193,6 +193,7 @@ it.each(['Cancel preview', 'Save preview'])(
       undefined,
       expect.any(Function),
       expect.any(Function),
+      undefined,
     );
     expect(onInterrupt).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Current draft');
@@ -268,6 +269,7 @@ it.each(['session', 'generation', 'storage'] as const)(
       undefined,
       expect.any(Function),
       expect.any(Function),
+      undefined,
     );
   },
 );

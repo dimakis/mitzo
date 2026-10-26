@@ -1,11 +1,16 @@
 import { vi } from 'vitest';
 import { FrozenHostCodexBootstrapAuthority } from '../../frozen-host-codex-bootstrap.js';
 import { FrozenHostCodexLogin } from '../../frozen-host-codex-login.js';
+import { FrozenHostCodexApiLogin } from '../../frozen-host-codex-api-login.js';
 import { FrozenHostCodexExecutable } from '../../frozen-host-codex-executable.js';
 import { OrdinaryLocalCodexHostRuntime } from '../../ordinary-local-codex-host-runtime.js';
 import { OwnedLocalCodexChatAdmission } from '../../owned-local-codex-chat-admission.js';
 import { CodexConversationStore } from '../../codex-conversation-store.js';
 import { EventStore } from '../../event-store.js';
+import { OrdinaryLocalCodexSelectionOwner } from '../../ordinary-local-codex-selection-owner.js';
+import { OrdinaryLocalWorkspaceOwner } from '../../ordinary-local-workspace-owner.js';
+import { PreparedRepositoryWorkspaceOwner } from '../../prepared-repository-workspace-owner.js';
+import { RepositoryWorkspaces } from '../../repository-workspaces.js';
 import * as accountProfiles from '../../account-profiles.js';
 import * as nativeReaders from '../../local-repository-native-read.js';
 type SyncFunction = (...args: never[]) => unknown;
@@ -248,8 +253,38 @@ export function installSignedNativeReadStages(
         'bootstrap.coldIdentity',
       ],
       [FrozenHostCodexLogin.prototype, 'assertFilesCurrent', 'login.files'],
+      [FrozenHostCodexApiLogin.prototype, 'assertFiles', 'apiLogin.files'],
       [FrozenHostCodexExecutable.prototype, 'assertCurrent', 'executable.current'],
       [OrdinaryLocalCodexHostRuntime.prototype, 'assertCurrentSync', 'runtime.current'],
+      [OrdinaryLocalCodexSelectionOwner.prototype, 'assertCurrentSync', 'selection.current'],
+      [OrdinaryLocalCodexSelectionOwner.prototype, 'preparedPrimary', 'selection.preparedPrimary'],
+      [
+        OrdinaryLocalCodexSelectionOwner.prototype,
+        'assertPreparedPrimary',
+        'selection.adoptedPrimary',
+      ],
+      [OrdinaryLocalCodexSelectionOwner.prototype, 'assertToolCurrent', 'selection.tool.entry'],
+      [OrdinaryLocalWorkspaceOwner.prototype, 'assertCurrentSync', 'workspace.current'],
+      [OrdinaryLocalWorkspaceOwner.prototype, 'get', 'workspace.get'],
+      [
+        PreparedRepositoryWorkspaceOwner.prototype,
+        'assertCurrentSync',
+        'preparedWorkspace.current',
+      ],
+      [PreparedRepositoryWorkspaceOwner.prototype, 'get', 'preparedWorkspace.get'],
+      [
+        RepositoryWorkspaces.prototype,
+        'assertPreparedRepositoryTransitionAdopted',
+        'repository.adopted',
+      ],
+      [RepositoryWorkspaces.prototype, 'getHostReservation', 'repository.reservation'],
+      [RepositoryWorkspaces.prototype, 'snapshotHostInput', 'repository.reservationInput'],
+      [RepositoryWorkspaces.prototype, 'getHostRecord', 'repository.record'],
+      [RepositoryWorkspaces.prototype, 'getReadonlyHostRecord', 'repository.record.readonly'],
+      [RepositoryWorkspaces.prototype, 'getForConversation', 'repository.current'],
+      // Async entries measure only their synchronous prefix and preserve the
+      // exact Promise; the existing workspace_check phase retains wall timing.
+      [RepositoryWorkspaces.prototype, 'validateHostTask', 'repository.validate.entry'],
       [OwnedLocalCodexChatAdmission.prototype, 'assertReceipt', 'admission.receipt'],
       [OwnedLocalCodexChatAdmission.prototype, 'assertCurrentSync', 'admission.current'],
       [CodexConversationStore.prototype, 'pendingNativeHostTool', 'nativeStore.pendingTool'],

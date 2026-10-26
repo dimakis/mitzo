@@ -313,6 +313,8 @@ export interface InternalSdkExecutionIdentity {
   purpose: 'web_search';
   cwd: string;
 }
+const INTERNAL_SDK_EXECUTION_SELECT = `SELECT sdk_session_id AS sdkSessionId, parent_session_id AS parentSessionId,
+      operation_id AS operationId, purpose, cwd FROM internal_sdk_executions WHERE sdk_session_id = ?`;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS internal_sdk_executions (
@@ -439,6 +441,7 @@ export class EventStore {
     latestWorktreePath: Database.Statement;
     recentConversationText: Database.Statement;
     getSession: Database.Statement;
+    getInternalSdkExecution: Database.Statement;
     listSessions: Database.Statement;
     listSessionsLimited: Database.Statement;
     markInactive: Database.Statement;
@@ -1858,6 +1861,7 @@ export class EventStore {
       this.log.info('EventStore initialized', { dbPath });
 
       this.stmts = {
+        getInternalSdkExecution: db.prepare(INTERNAL_SDK_EXECUTION_SELECT),
         append: db.prepare(
           'INSERT INTO events (session_id, type, payload, seat_id, symposium_provenance) VALUES (?, ?, ?, ?, ?)',
         ),
@@ -7333,12 +7337,12 @@ export class EventStore {
   }
 
   getInternalSdkExecution(sdkSessionId: string): InternalSdkExecutionIdentity | null {
-    return (
-      (this.db!.prepare(
-        `SELECT sdk_session_id AS sdkSessionId, parent_session_id AS parentSessionId,
-      operation_id AS operationId, purpose, cwd FROM internal_sdk_executions WHERE sdk_session_id = ?`,
-      ).get(sdkSessionId) as InternalSdkExecutionIdentity | undefined) ?? null
-    );
+    // Retain only the query plan for this owner's connection. Every invocation
+    // still executes SQL and returns its fresh row; early constructor callbacks
+    // use the original path until the owner's statements are initialized.
+    const statement =
+      this.stmts?.getInternalSdkExecution ?? this.db!.prepare(INTERNAL_SDK_EXECUTION_SELECT);
+    return (statement.get(sdkSessionId) as InternalSdkExecutionIdentity | undefined) ?? null;
   }
 
   private assertConversationIdentity(sessionId: string): void {

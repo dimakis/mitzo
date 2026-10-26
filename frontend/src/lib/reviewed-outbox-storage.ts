@@ -1,5 +1,6 @@
 import { V2SendMessage } from '@mitzo/protocol';
 import { parseLocalCommandDelivery } from '@mitzo/client';
+import { acceptedComposerDraftKey, composerDraftProof } from './composer-draft-proof';
 
 type Disk = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 'removeItem'>;
 type Entry = {
@@ -7,6 +8,8 @@ type Entry = {
   scope: number;
   uncertain?: boolean;
   ordinaryDelivery?: unknown;
+  composerDraft?: unknown;
+  localReceipt?: { state?: unknown };
 };
 const MAX_ENTRY_BYTES = 16 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 32 * 1024 * 1024;
@@ -96,7 +99,22 @@ export function createReviewedOutboxStorage(
       if (added.length > 1) throw new Error('Reviewed commands must be retained individually');
       for (const [id, value] of next)
         if (existing.has(id) && existing.get(id) !== value) disk.setItem(key(id), value);
-      for (const id of owned) if (!next.has(id)) disk.removeItem(key(id));
+      for (const id of owned) {
+        if (next.has(id)) continue;
+        const raw = existing.get(id);
+        const retired = raw ? decode(raw) : undefined;
+        const proof = composerDraftProof(retired?.composerDraft);
+        if (
+          route === 'local' &&
+          proof &&
+          retired?.localReceipt?.state === 'consumed' &&
+          retired.uncertain === false
+        )
+          // Commit local completion before dropping its last durable receipt.
+          // A WebView can disappear before the composer's React effect runs.
+          disk.setItem(acceptedComposerDraftKey(proof.storageKey), JSON.stringify(proof));
+        disk.removeItem(key(id));
+      }
       for (const [id, value] of added) disk.setItem(key(id), value);
       owned = new Set(next.keys());
     },

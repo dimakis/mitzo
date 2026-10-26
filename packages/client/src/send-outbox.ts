@@ -1,5 +1,7 @@
 import {
   OrdinaryCommandDeliverySchema,
+  ComposerDraftReceiptSchema,
+  type ComposerDraftReceipt,
   parseLocalCommandDelivery,
   localCommandSessionId,
   type OrdinaryCommandDelivery,
@@ -18,6 +20,7 @@ interface Entry {
   localReceipt?: { sessionId: string; state: 'reserved' | 'uncertain' | 'consumed' };
   localDraftId?: string;
   ordinaryDelivery?: OrdinaryCommandDelivery;
+  composerDraft?: ComposerDraftReceipt;
 }
 interface Config {
   url: string;
@@ -57,6 +60,7 @@ export class SendOutbox {
   private localReady: Entry[] = [];
   private activeLocalEntry?: Entry;
   private receiptReads = new Map<Entry, AbortController>();
+  private receiptRechecks = new Set<Entry>();
   private completingLocal = new Map<Entry, number>();
 
   constructor(private config: Config) {
@@ -80,6 +84,7 @@ export class SendOutbox {
                   'localReceipt',
                   'localDraftId',
                   'ordinaryDelivery',
+                  'composerDraft',
                 ].includes(key),
             )
           )
@@ -110,6 +115,9 @@ export class SendOutbox {
             ...entry,
             body,
             ...(ordinaryDelivery ? { ordinaryDelivery } : {}),
+            ...(entry.composerDraft !== undefined
+              ? { composerDraft: ComposerDraftReceiptSchema.parse(entry.composerDraft) }
+              : {}),
             uncertain:
               entry.localReceipt?.state === 'consumed' && entry.uncertain === false ? false : true,
           };
@@ -136,6 +144,7 @@ export class SendOutbox {
       else {
         const entry = this.selectedLocalEntry();
         if (entry) this.notifyLocal(entry, 'uncertain');
+        this.wake();
       }
       return;
     }
@@ -145,6 +154,19 @@ export class SendOutbox {
   /** Verified connectivity supersedes offline backoff, never an in-flight
    * request or a guarded command's deliberate recovery decision. */
   wake(): void {
+    if (this.config.localFirstCommand) {
+      // Connectivity and view selection permit observation only. They never
+      // replay retained intent, including an already completed device action.
+      const entry = this.selectedLocalScope ? this.selectedLocalEntry() : undefined;
+      if (
+        this.active &&
+        entry &&
+        this.activeLocalEntry !== entry &&
+        !this.localReady.includes(entry)
+      )
+        void this.reconcileLocalCommand(String(entry.body.clientMsgId));
+      return;
+    }
     if (
       !this.active ||
       this.config.localFirstCommand ||
@@ -201,6 +223,7 @@ export class SendOutbox {
           : 'uncertain',
       );
     else this.config.notify({ type: '_local_command_state', state: 'idle' });
+    this.wake();
   }
 
   /** Deliberate recovery resubmits only the frozen request, never a rebuilt draft. */
@@ -229,6 +252,7 @@ export class SendOutbox {
   stop(): void {
     for (const controller of this.receiptReads.values()) controller.abort();
     this.receiptReads.clear();
+    this.receiptRechecks.clear();
     this.active = false;
     this.localReady = [];
     if (this.timer) clearTimeout(this.timer);
@@ -241,6 +265,7 @@ export class SendOutbox {
     scope: number,
     localDraftId?: string,
     ordinaryDelivery?: OrdinaryCommandDelivery,
+    composerDraft?: ComposerDraftReceipt,
   ): boolean {
     if (this.config.durableLaunches && body.sessionId !== null) return false;
     if (this.config.localFirstCommand) {
@@ -265,6 +290,7 @@ export class SendOutbox {
         body = structuredClone(parseLocalCommandDelivery(body, ordinaryDelivery));
         if (ordinaryDelivery)
           ordinaryDelivery = OrdinaryCommandDeliverySchema.parse(ordinaryDelivery);
+        if (composerDraft) composerDraft = ComposerDraftReceiptSchema.parse(composerDraft);
       } catch {
         return false;
       }
@@ -277,6 +303,9 @@ export class SendOutbox {
       ...(this.config.localFirstCommand ? { uncertain: false } : {}),
       ...(this.config.localFirstCommand && localDraftId ? { localDraftId } : {}),
       ...(ordinaryDelivery ? { ordinaryDelivery: structuredClone(ordinaryDelivery) } : {}),
+      ...(this.config.localFirstCommand && composerDraft
+        ? { composerDraft: structuredClone(composerDraft) }
+        : {}),
     };
     this.entries.push(entry);
     const durable = this.persist();
@@ -311,6 +340,7 @@ export class SendOutbox {
   rejectAll(error: string): void {
     for (const controller of this.receiptReads.values()) controller.abort();
     this.receiptReads.clear();
+    this.receiptRechecks.clear();
     this.active = false;
     this.generation++;
     this.localReady = [];
@@ -361,6 +391,7 @@ export class SendOutbox {
       state,
       ...(acknowledged ? { acknowledged: true } : {}),
       request: structuredClone(entry.body),
+      ...(entry.composerDraft ? { composerDraft: structuredClone(entry.composerDraft) } : {}),
       ...(entry.ordinaryDelivery
         ? { ordinaryDelivery: structuredClone(entry.ordinaryDelivery) }
         : {}),
@@ -375,8 +406,13 @@ export class SendOutbox {
    */
   async reconcileLocalCommand(commandId: string): Promise<void> {
     const entry = this.entries.find((item) => item.body.clientMsgId === commandId);
-    if (!this.active || !this.config.localFirstCommand || !entry || this.receiptReads.has(entry))
+    if (!this.active || !this.config.localFirstCommand || !entry) return;
+    if (this.receiptReads.has(entry)) {
+      // Later output may prove that an earlier pending observation is stale.
+      // Coalesce hints into one follow-up read instead of dropping the final hint.
+      this.receiptRechecks.add(entry);
       return;
+    }
     const generation = this.generation;
     const controller = new AbortController();
     this.receiptReads.set(entry, controller);
@@ -424,7 +460,17 @@ export class SendOutbox {
       // Observation failure never resends a command or overwrites its UI state.
     } finally {
       if (timer) clearTimeout(timer);
-      if (this.receiptReads.get(entry) === controller) this.receiptReads.delete(entry);
+      if (this.receiptReads.get(entry) === controller) {
+        this.receiptReads.delete(entry);
+        const recheck = this.receiptRechecks.delete(entry);
+        if (
+          recheck &&
+          generation === this.generation &&
+          this.active &&
+          this.entries.includes(entry)
+        )
+          void this.reconcileLocalCommand(String(entry.body.clientMsgId));
+      }
     }
   }
   private retireLocal(entry: Entry, releaseTransport = false): void {

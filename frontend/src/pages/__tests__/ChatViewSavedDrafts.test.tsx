@@ -711,3 +711,72 @@ for (const Page of [ChatView, DesktopChatView]) {
     expect(getSessionChatDraft('confirmed-role-chat')).toBeNull();
   });
 }
+
+for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} recovers ordinary rich acceptance after navigation through the real HTTP outbox`, async () => {
+    const draft = {
+      ...createChatDraft(),
+      text: 'Ordinary send before navigation',
+      images: [
+        { data: 'ZmFrZQ==', preview: 'data:image/png;base64,ZmFrZQ==', mediaType: 'image/png' },
+      ],
+      contextBlocks: ['Accepted selected resource'],
+    };
+    draft.settings.selection = { accountId: 'work', model: 'luna', reasoningEffort: 'high' };
+    saveChatDraft(draft);
+    let resolveSend!: (response: Response) => void;
+    let submitted: Record<string, unknown> | undefined;
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url === '/api/chat/send') {
+        submitted = JSON.parse(String(init?.body));
+        return new Promise<Response>((resolve) => {
+          resolveSend = resolve;
+        });
+      }
+      return Promise.resolve(new Response('{}'));
+    });
+    const store = createTestStore({
+      sseConfig: {
+        baseUrl: '',
+        fetch,
+        createEventSource: () =>
+          Object.assign(new EventTarget(), { close() {} }) as unknown as EventSource,
+        outboxStorage: localStorage,
+      },
+    });
+    const show = (entry: string) =>
+      render(
+        <MitzoStoreProvider value={store}>
+          <MemoryRouter initialEntries={[entry]}>
+            <Routes>
+              <Route path="/chat/:sessionId?" element={<Page />} />
+            </Routes>
+          </MemoryRouter>
+        </MitzoStoreProvider>,
+      );
+    const first = show(`/chat?draft=${draft.id}`);
+    openAgentSettings();
+    fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start session' }));
+    await waitFor(() => expect(submitted?.prompt).toBe(draft.text));
+    expect(submitted).not.toHaveProperty('composerDraft');
+    first.unmount();
+    await act(async () =>
+      resolveSend(
+        new Response(
+          JSON.stringify({
+            accepted: true,
+            clientMsgId: submitted!.clientMsgId,
+            sessionId: 'accepted-ordinary-chat',
+          }),
+          { status: 202 },
+        ),
+      ),
+    );
+    show(`/chat?draft=${draft.id}`);
+    await waitFor(() => expect(getChatDraft(draft.id)).toBeNull());
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+    expect(screen.queryByAltText('Attachment 1')).toBeNull();
+    store.getState().invalidateAuthentication();
+  });
+}

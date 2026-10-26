@@ -319,7 +319,7 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
   };
   const assertCurrentSync = (expected: OrdinaryOpenShellCodexExpectation) => {
     assertCurrentIdentitySync(expected);
-    assertOrdinaryOpenShellCodexRoute({
+    return assertOrdinaryOpenShellCodexRoute({
       binding: expected.binding,
       account: input.account,
       profiles: loadAccountProfiles(),
@@ -331,17 +331,7 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
     });
   };
   const assertCurrent = async (expected: OrdinaryOpenShellCodexExpectation) => {
-    assertCurrentSync(expected);
-    const route = assertOrdinaryOpenShellCodexRoute({
-      binding: expected.binding,
-      account: input.account,
-      profiles: loadAccountProfiles(),
-      catalog: projection.catalog,
-      target,
-      model: expected.selection.model,
-      reasoningEffort: expected.selection.thinking,
-      mode: expected.selection.permission.mode,
-    });
+    const route = assertCurrentSync(expected);
     if (route.kind === 'chatgpt-subscription') {
       const manager = new OpenShellRuntimeManager({
         ...configured.config,
@@ -355,13 +345,15 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
       const profile = currentProfiles.apiRoutingProfile(input.account);
       if (!profile.sandboxProviderId) throw unavailable();
       const authority = openAIAccountKeyAuthority(input.account, currentProfiles);
-      await authority.assertReady(signal);
       const manager = new OpenShellRuntimeManager({
         ...configured.config,
         account: route,
         connectionAccountId: input.account.accountId,
       });
       await manager.verifyAPIAccountProvider(profile.sandboxProviderId, signal);
+      // Provider inventory is read-only. Qualify credential custody once after
+      // that observation, before inspection or workspace startup can proceed.
+      // Keep this fresh on every call; no readiness survives an operation.
       await authority.assertReady(signal);
     }
     const artifact = input.readRetained();
