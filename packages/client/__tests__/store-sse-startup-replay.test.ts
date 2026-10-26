@@ -18,10 +18,15 @@ it.each(['local', 'openshell'] as const)(
     const emit = (data: Record<string, unknown>) =>
       source.onmessage?.(new MessageEvent('message', { data: JSON.stringify(data) }));
     let accept!: (response: Response) => void;
-    const fetch = vi.fn((url: string) => {
+    let restore!: (response: Response) => void;
+    const fetch = vi.fn((url: string, _init?: RequestInit) => {
       if (url === '/local/send' || url === '/api/chat/runtime/send')
         return new Promise<Response>((resolve) => {
           accept = resolve;
+        });
+      if (url.includes('throughSeq=5'))
+        return new Promise<Response>((resolve) => {
+          restore = resolve;
         });
       if (url.includes('/messages'))
         return Promise.resolve(Response.json({ messages: [], current: null, cursor: 5 }));
@@ -79,6 +84,19 @@ it.each(['local', 'openshell'] as const)(
       ).toBe(true);
       emit({ type: 'session_id', sessionId: 'chat', clientMsgId: 'startup' });
       emit({
+        type: 'user_message',
+        sessionId: 'chat',
+        messageId: 'startup',
+        text: 'Inspect',
+        seq: 1,
+        prevSessionSeq: 0,
+      });
+      // The stream reconnects during the original HTTP send, after observing
+      // its correlated echo but before the receipt may adopt the chat.
+      welcome(
+        new MessageEvent('welcome', { data: JSON.stringify({ connectionId: 'reconnected' }) }),
+      );
+      emit({
         type: 'session_reconnect_snapshot',
         sessionId: 'chat',
         cursor: 5,
@@ -86,11 +104,22 @@ it.each(['local', 'openshell'] as const)(
         offerId: 'startup-offer',
         state: 'running',
       });
+      await vi.waitFor(() => expect(restore).toBeTypeOf('function'));
+      expect(fetch.mock.calls.some(([url]) => url.endsWith('/reconnect-snapshot-applied'))).toBe(
+        false,
+      );
+      restore(Response.json({ messages: [], current: null, cursor: 5 }));
       await vi.waitFor(() =>
         expect(fetch.mock.calls.some(([url]) => url.endsWith('/reconnect-snapshot-applied'))).toBe(
           true,
         ),
       );
+      const ack = fetch.mock.calls.find(([url]) => url.endsWith('/reconnect-snapshot-applied'))!;
+      expect(JSON.parse(String(ack[1]?.body))).toMatchObject({
+        sessionId: 'chat',
+        cursor: 5,
+        offerId: 'startup-offer',
+      });
       expect(store.getState().sessions.active).toBeNull();
       expect(assigned).not.toHaveBeenCalled();
       expect(delivered).not.toHaveBeenCalledWith('accepted');
