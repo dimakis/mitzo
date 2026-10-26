@@ -1,3 +1,4 @@
+import { waitForPreparedConversation } from './joined-conversation-ready';
 import { prepareNativeProviderToolCall } from '../../../../server/__tests__/fixtures/native-provider-tool-call.js';
 import { afterAll, afterEach, expect, it as platformTest, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
@@ -443,6 +444,7 @@ it('CT07/09 joined candidate: actual advisor, lead and worker pages retain sourc
   const advisorId = (await api.read('studio')).links.find((l) => l.role === 'advisor')!.conversation
     .conversationId;
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + advisorId));
+  await waitForPreparedConversation(page, browserNetwork, advisorId);
   const advisorPrompt = 'Please retain the acoustic plan and create the reviewed recording slice.';
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill(advisorPrompt);
   await browserExpect(
@@ -589,6 +591,7 @@ it('CT07/09 joined candidate: actual advisor, lead and worker pages retain sourc
   const leadId = (await api.read('studio')).assignments.find((a) => a.role === 'lead')!.conversation
     .conversationId;
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + leadId));
+  await waitForPreparedConversation(page, browserNetwork, leadId);
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
   expect(nativeSessions).toHaveLength(1);
   await page
@@ -701,6 +704,7 @@ it('CT07/09 joined candidate: actual advisor, lead and worker pages retain sourc
   expect(workerContext!.sources).toEqual([originalSource]);
   expect(workerContext!.artifacts).toContainEqual(material);
   await page.goto(front.origin + '/chat/' + workerId);
+  await waitForPreparedConversation(page, browserNetwork, workerId);
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
   await page
     .getByRole('textbox', { name: 'Message Mitzo' })

@@ -94,3 +94,20 @@ neither. Bounded restore failures keep their existing timeout fencing, avoiding
 an immediate reconnect loop. Local/OpenShell success, failure and stale-failure
 fixtures cover these orderings. The launch fixture now creates a fresh HTTP
 Response for each request instead of reusing a consumed response body.
+
+## Combined-base acceptance
+
+The combined branch includes main's composer-receipt changes at `01c3126d`.
+Two non-Git browser journeys filled their departing composer immediately after
+route navigation, before the destination draft owner committed. CI retained empty
+destination composers after that fill, with successful metadata and no runtime
+refusal. The journey fixtures now wait for exact destination metadata/transcript
+reads, the committed session selection and cleared loading state before the first
+advisor, lead or worker input. They retain every send, receipt and native-dispatch
+assertion and do not retry input. No rendered product code changes are involved.
+
+The same CI attempt's native API repository workflow exceeded its existing
+240-second outer test budget after successful preparation (141.3s) and handoff
+(36.8s), while inspection was still reading successfully. Its timings matched the
+earlier intermittent failure that passed unchanged on retry. No native deadlines,
+assertions or execution policy were relaxed. Qualification remains required.

@@ -1,3 +1,4 @@
+import { waitForPreparedConversation } from './joined-conversation-ready';
 import {
   allowNativeCompleteCallbacks,
   publishNativeCompleteAdvisorProfile,
@@ -485,6 +486,7 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
     .conversationId;
   expect(chat.eventStore.getSession(advisorId)!.agentProfile).toEqual(originalAdvisorProfile);
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + advisorId));
+  await waitForPreparedConversation(page, browserNetwork, advisorId);
   const advisorPrompt = 'Please retain the acoustic plan and create the reviewed recording slice.';
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill(advisorPrompt);
   await browserExpect(
@@ -638,6 +640,7 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
   const leadId = (await api.read('studio')).assignments.find((a) => a.role === 'lead')!.conversation
     .conversationId;
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + leadId));
+  await waitForPreparedConversation(page, browserNetwork, leadId);
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
   expect(nativeSessions).toHaveLength(1);
   await page
@@ -764,6 +767,7 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
   expect(workerContext!.sources).toEqual([originalSource]);
   expect(workerContext!.artifacts).toContainEqual(material);
   await page.goto(front.origin + '/chat/' + workerId);
+  await waitForPreparedConversation(page, browserNetwork, workerId);
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
   await page
     .getByRole('textbox', { name: 'Message Mitzo' })
