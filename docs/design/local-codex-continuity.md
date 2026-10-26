@@ -202,3 +202,36 @@ exact-head Centaur/MGMT acceptance gate and separately reviewed provider/tool
 qualification remain required. Staging remains stood down; production activation
 requires a separate explicit user action. Any later real model test must select
 a supported Luna model and name its charged account before execution.
+
+## Deployment declaration renewal
+
+The canonical `scripts/create-release.sh` delegates activation to `scripts/deploy.sh`.
+After the accepted-source guard and server build, deployment runs
+`node scripts/release-runtime-declarations.mjs --prepare` followed by `--check`,
+before replacing launchd configuration or stopping the running service.
+The preparation copies already selected, enabled local declarations into private
+`.runtime-targets/release-*` files in the candidate release and renews their source
+contract revisions using that release's compiled runtime validators. It preserves
+host IDs, target IDs, native executable paths and both native hashes, account
+settings and continuity contracts. It does not enroll disabled routes or adopt
+replacement binaries. Stale Codex v1 declarations require an explicitly reviewed
+continuity migration; deployment cannot silently change their conversation identity.
+
+All enabled local Codex, Responses, Vertex and Gemini targets must validate before
+an atomic `.env` selector update. The original `.env` is retained in a private
+`.env.before-runtime-*` backup; previous releases and retained custody records remain
+untouched. Failed preparation retains private diagnostic files without selecting
+them. A repeated preparation of valid release-local declarations is read-only.
+Conflicting local runtime selectors in the launcher or invoking environment and
+alternate dotenv loaders are rejected, so preflight cannot validate a different
+configuration from the daemon's. The canonical private `.env` must be an owned,
+non-symlink, single-link file with mode 0600.
+
+`scripts/start.sh` runs the read-only `--check` again before starting the server.
+It never renews declarations on restart. Do not invoke `--prepare` against an
+unaccepted checkout; declaration renewal belongs to an explicitly authorized
+production deployment after source acceptance. These checks validate the selected
+runtime and pinned native bytes without starting a model or accessing an account.
+After activation, separately verify account/model discovery and the composer route
+for the selected runtime. Any real prompt canary still requires an authorized
+target and an explicitly selected supported Luna model/account.

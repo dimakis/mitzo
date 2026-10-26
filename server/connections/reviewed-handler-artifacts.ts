@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.708-codex-startup-replay';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.709-chat-reliability-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -929,9 +929,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     '9ae4a871c24c4c850185bac8ba8245008205727814087f7e5f4c82b04d4024e5',
   '../../frontend/src/pages/ChatView.tsx':
-    '073e8641fa9921883079d30f434c49119f477e82c6f26e5370bddc74c3b2d0cd',
+    'a4438100fea47d6212e6ee31e8af702c3db97cf8501744293394c9440bd56a0c',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'fc19f1953bd573e735473d4176cf939bfacb635f7e5a2a85d3e3191976d92cd2',
+    '32c1fcdbb89aa92669ee86bfc2aa488d270fddb7fe71feeef8f94aea8ac0937c',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
@@ -2266,7 +2266,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useNewChatDraft.test.tsx':
     '3942ae3873900aae93c862fe665dcd44feae3e29c8a0212e4c3fe94dc56d7ac7',
   '../../frontend/src/pages/__tests__/ChatViewSavedDrafts.test.tsx':
-    '1f628dc5b6260f77204976fe103712dffcab1794081efc8ae001dd7e21397382',
+    'b4b3f592bfb0c236d4defe966987c6603077016d234794f13d54449b29fdc7d6',
   '../../scripts/__tests__/ci-native-operator.test.ts':
     '4865779905d81e1ddba9038366966044705c273ca49f54904af6a74b999466c4',
   '../__tests__/agent-tool-catalog.test.ts':

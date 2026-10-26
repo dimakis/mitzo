@@ -22,6 +22,10 @@ node scripts/check-knowledge-enrollment.mjs \
 echo "Building packages + server..."
 npm run build:server
 
+echo "Preparing local runtime declarations for this accepted release..."
+node scripts/release-runtime-declarations.mjs --prepare
+node scripts/release-runtime-declarations.mjs --check
+
 echo "Building frontend..."
 npm run build
 

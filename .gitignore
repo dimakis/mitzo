@@ -7,6 +7,9 @@ frontend/dist-ios/
 *.db-shm
 *.tsbuildinfo
 .env
+.env.before-runtime-*
+.env.runtime-*
+.runtime-targets/
 frontend/.env.ios
 frontend/ios/local.xcconfig
 mcp-server/build/
