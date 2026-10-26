@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-meta-visibility.test.ts':
-    'b540be555b1e158258ec8ea85bbbb1138ca169f3a2db63fe3eb998b955f4eb41',
+    '3c3f5f8c6b4e0d187a391ab7574e1f86432895eae6285b0f3385e6dc55d914fb',
   '../session-overview.ts': '930f9bceda110d6083485e889f318b0feb3cba2ab8e0fe691474218e1a28d81e',
   '../__tests__/credential-sdk-runtime-authority.test.ts':
     'acd04063ee9c604bc568df422cce201dafbbbd21a98675573c10d94af9b85f28',

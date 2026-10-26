@@ -33,7 +33,7 @@ let app: Express;
 let store: EventStore;
 let root: string;
 
-it.each([false, true, 'unavailable'])(
+it.each([false, true, 'unavailable'] as const)(
   'projects native presence for pre-runtime OpenAI metadata (%s) without inventing a runtime',
   async (presence) => {
     const id = `pre-runtime-${presence}`;
