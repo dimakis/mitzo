@@ -1,3 +1,4 @@
+import { chatModelSettings } from '../lib/chat-model-settings';
 import { LegacyNativeContinuation } from '../components/LegacyNativeContinuation';
 import { reviewedBriefingLaunch } from '../lib/launch-draft-delivery';
 import { localCommandSessionId } from '@mitzo/client';
@@ -1011,6 +1012,31 @@ export function DesktopChatView() {
     `${tokens.numCompactions}:${tokens.compactionPhase ?? ''}:${messages.running}`,
   );
   const [agentLabel, setAgentLabel] = useState<string | undefined>(undefined);
+  const modelSettings = chatModelSettings({
+    activeSessionId,
+    sessionId,
+    roleSetupLocked,
+    localBound,
+    metadataPending: localRuntime.metadataPending,
+    metadataUnavailable: localRuntime.metadataUnavailable,
+    commandAvailable: localRuntime.commandAvailable,
+    preparedFirst: localRuntime.preparedFirst,
+    runtimeReason: localRuntime.reason,
+    nativeConstraintReason: localRuntime.nativeConstraint?.reason,
+    modelSettingsReadOnlyReason: localRuntime.modelSettingsReadOnlyReason,
+    repositoryLoading: repositoryHandoff.loading,
+    briefingLocked: briefingChat.selectionLocked && !briefingOwnedDraft,
+    briefingLoading: briefingChat.loading,
+    briefingError: briefingChat.error,
+    briefingLaunchReason,
+    launchSending,
+    starting: messages.running && !activeSessionId,
+  });
+  const retryModelSettings = localRuntime.metadataUnavailable
+    ? localRuntime.refresh
+    : briefingChat.error && !briefingOwnedDraft
+      ? briefingChat.retry
+      : undefined;
   const accountModelControl =
     !repositoryHandoff.present || activeSessionId || repositoryHandoff.preparation ? (
       <AccountModelPicker
@@ -1102,15 +1128,10 @@ export function DesktopChatView() {
         onChange={selectAccount}
         onSessionHydrated={hydrateAccount}
         onSummaryChange={setWorkspaceSummary}
-        disabled={
-          localRuntime.preparedFirst ||
-          (messages.running && !localRuntime.continuation) ||
-          controlsBlocked ||
-          repositoryHandoff.loading ||
-          (briefingChat.selectionLocked && !briefingOwnedDraft) ||
-          !!briefingLaunchReason ||
-          launchSending
-        }
+        disabled={!!modelSettings.disabledReason}
+        disabledReason={modelSettings.disabledReason}
+        notice={modelSettings.notice}
+        onRetry={retryModelSettings}
       />
     ) : (
       <span>Waiting for repository preparation…</span>
