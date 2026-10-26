@@ -3,13 +3,20 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
   MAX_SESSION_DOCUMENT_BYTES,
+  SessionDocumentSchema,
   type SessionDocument,
   type SessionDocumentWrite,
 } from './session-document.js';
 
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const columns =
-  'id,session_id AS sessionId,title,filename,revision,sha256,size,source_key AS sourceKey,source_path AS sourcePath,created_at AS createdAt';
+  'id,session_id AS sessionId,title,filename,revision,sha256,size,source_key AS sourceKey,source_path AS sourcePath,created_at AS createdAt,source_account AS sourceAccount';
+type DocumentRow = Omit<SessionDocument, 'sourceAccount'> & { sourceAccount: string | null };
+const metadata = (row: DocumentRow): SessionDocument =>
+  SessionDocumentSchema.parse({
+    ...row,
+    sourceAccount: row.sourceAccount ? JSON.parse(row.sourceAccount) : null,
+  });
 const filename = z
   .string()
   .min(1)
@@ -22,6 +29,7 @@ const write = z.object({
   filename,
   sourceKey: z.string().min(1).max(8192),
   sourcePath: z.string().max(4096).nullable(),
+  sourceAccount: SessionDocumentSchema.shape.sourceAccount,
 });
 
 /** Shares the event owner's connection, transaction, backup and retention lifecycle. */
@@ -30,7 +38,7 @@ export class SessionDocumentStore {
     db.exec(`CREATE TABLE IF NOT EXISTS session_document_revisions (
       id TEXT NOT NULL, session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
       title TEXT NOT NULL,filename TEXT NOT NULL,revision INTEGER NOT NULL,sha256 TEXT NOT NULL,
-      size INTEGER NOT NULL,source_key TEXT NOT NULL,source_path TEXT,created_at INTEGER NOT NULL,bytes BLOB NOT NULL,
+      size INTEGER NOT NULL,source_key TEXT NOT NULL,source_path TEXT,created_at INTEGER NOT NULL,source_account TEXT,bytes BLOB NOT NULL,
       PRIMARY KEY(session_id,id,revision));
       CREATE TABLE IF NOT EXISTS session_document_requests (
         session_id TEXT NOT NULL,request_id TEXT NOT NULL,intent TEXT NOT NULL,id TEXT NOT NULL,revision INTEGER NOT NULL,
@@ -66,11 +74,12 @@ export class SessionDocumentStore {
           previous.sha256 !== sha256 ||
           previous.title !== value.title ||
           previous.filename !== value.filename ||
-          previous.sourcePath !== value.sourcePath
+          previous.sourcePath !== value.sourcePath ||
+          JSON.stringify(previous.sourceAccount) !== JSON.stringify(value.sourceAccount)
         ) {
           const revision = (previous?.revision ?? 0) + 1;
           this.db
-            .prepare('INSERT INTO session_document_revisions VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+            .prepare('INSERT INTO session_document_revisions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
             .run(
               id,
               sessionId,
@@ -82,6 +91,7 @@ export class SessionDocumentStore {
               value.sourceKey,
               value.sourcePath,
               Date.now(),
+              value.sourceAccount ? JSON.stringify(value.sourceAccount) : null,
               bytes,
             );
           saved = this.metadata(sessionId, id, revision);
@@ -94,29 +104,31 @@ export class SessionDocumentStore {
       .immediate();
   }
   list(sessionId: string): SessionDocument[] {
-    return this.db
+    const rows = this.db
       .prepare(
         `SELECT ${columns} FROM session_document_revisions d WHERE session_id=?
       AND revision=(SELECT MAX(revision) FROM session_document_revisions WHERE session_id=d.session_id AND id=d.id)
       ORDER BY created_at DESC,id LIMIT 100`,
       )
-      .all(sessionId) as SessionDocument[];
+      .all(sessionId) as DocumentRow[];
+    return rows.map(metadata);
   }
   versions(sessionId: string, id: string, before = Number.MAX_SAFE_INTEGER): SessionDocument[] {
-    return this.db
+    const rows = this.db
       .prepare(
         `SELECT ${columns} FROM session_document_revisions WHERE session_id=? AND id=? AND revision<? ORDER BY revision DESC LIMIT 50`,
       )
-      .all(sessionId, id, before) as SessionDocument[];
+      .all(sessionId, id, before) as DocumentRow[];
+    return rows.map(metadata);
   }
   private metadata(sessionId: string, id: string, revision: number): SessionDocument {
     const row = this.db
       .prepare(
         `SELECT ${columns} FROM session_document_revisions WHERE session_id=? AND id=? AND revision=?`,
       )
-      .get(sessionId, id, revision) as SessionDocument | undefined;
+      .get(sessionId, id, revision) as DocumentRow | undefined;
     if (!row) throw new Error('Saved document not found');
-    return row;
+    return metadata(row);
   }
   read(sessionId: string, id: string, revision: number) {
     const metadata = this.metadata(sessionId, id, revision);

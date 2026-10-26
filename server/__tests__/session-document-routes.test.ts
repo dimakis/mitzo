@@ -66,6 +66,11 @@ describe('shared conversation document routes', () => {
       });
       const kept = await post('/keep', input);
       expect(kept.status).toBe(200);
+      expect(kept.body.document.sourceAccount).toMatchObject({
+        accountId: `${provider}:work`,
+        provider,
+        profileRevision: '1',
+      });
       expect((await get()).body.saved).toEqual([kept.body.document]);
     },
   );

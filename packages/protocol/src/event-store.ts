@@ -2713,7 +2713,10 @@ export class EventStore {
   }
   keepSessionDocument(sessionId: string, input: SessionDocumentWrite) {
     this.assertDocumentConversation(sessionId);
-    return this.sessionDocuments.keep(sessionId, input);
+    return this.sessionDocuments.keep(sessionId, {
+      ...input,
+      sourceAccount: this.getSession(sessionId)?.accountBinding ?? null,
+    });
   }
   readSessionDocumentDraft(
     sessionId: string,

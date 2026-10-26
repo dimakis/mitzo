@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { AccountBindingSchema } from './account-binding.js';
+import type { AccountBinding } from './account-binding.js';
 
 export const MAX_SESSION_DOCUMENT_BYTES = 5 * 1024 * 1024;
 export const SessionDocumentSchema = z.object({
@@ -12,6 +14,9 @@ export const SessionDocumentSchema = z.object({
   sourceKey: z.string(),
   sourcePath: z.string().nullable(),
   createdAt: z.number().int(),
+  sourceAccount: AccountBindingSchema.extend({ provider: z.string().min(1) })
+    .nullable()
+    .default(null),
 });
 export type SessionDocument = z.infer<typeof SessionDocumentSchema>;
 export interface SessionDocumentWrite {
@@ -22,4 +27,5 @@ export interface SessionDocumentWrite {
   sourceKey: string;
   sourcePath: string | null;
   bytes: Buffer;
+  sourceAccount?: AccountBinding | null;
 }
