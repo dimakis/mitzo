@@ -255,9 +255,12 @@ export function sessionHistoryTools(owners: Owners) {
         let consumed = request.afterSeq;
         let nextAfterSeq: number | null = null;
         let blockedEvent: { seq: number; reason: 'event_exceeds_output_bound' } | undefined;
+        // This bounded projection is synchronous and publishes nothing. The
+        // refresh below rechecks operator and every target before the next
+        // await and again before returning; repeating the full host custody
+        // fence for each raw delta blocks unrelated chats on the event loop.
         for (const row of page) {
           const entry = publicEntry(row, owners.projectPublicText);
-          current();
           if (entry) {
             // Reserve room for explicit continuation/overflow metadata.
             if (

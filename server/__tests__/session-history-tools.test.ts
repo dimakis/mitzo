@@ -85,6 +85,60 @@ function event(
 }
 
 describe('authorized durable session history tools', () => {
+  it('keeps synchronous history-page authorization work bounded independently of row count', async () => {
+    const f = fixture();
+    vi.mocked(f.access.readBoundary).mockReturnValue(100);
+    const read = () =>
+      f.tools.execute('ReadPastSession', { conversationId: 'past-1' }, f.signal, f.call);
+    f.setRows([event(1, 'block_delta', { blockType: 'text', delta: 'part' })]);
+    expect((await read())?.isError).toBe(false);
+    const singleRowChecks = vi.mocked(f.access.assertCurrent).mock.calls.length;
+    vi.mocked(f.access.assertCurrent).mockClear();
+    f.setRows(
+      Array.from({ length: 100 }, (_, index) =>
+        event(index + 1, 'block_delta', { blockType: 'text', delta: 'part' }),
+      ),
+    );
+    const result = await read();
+    expect(result?.isError).toBe(false);
+    expect(JSON.parse(result!.content).entries).toHaveLength(100);
+    expect(vi.mocked(f.access.assertCurrent).mock.calls.length).toBeLessThanOrEqual(
+      singleRowChecks + 2,
+    );
+  });
+
+  it.each(['revoked', 'aborted'] as const)(
+    'withholds the entire history page when authority is %s during synchronous projection',
+    async (reason) => {
+      const f = fixture();
+      f.setRows([
+        event(1, 'user_message', { text: 'first' }),
+        event(2, 'user_message', { text: 'second' }),
+      ]);
+      const tools = sessionHistoryTools({
+        store: f.store,
+        capture: () => f.access,
+        projectPublicText: (text) => {
+          if (text === 'second') {
+            if (reason === 'revoked') f.revoke();
+            else f.abort.abort();
+          }
+          return text;
+        },
+      });
+      const result = await tools.execute(
+        'ReadPastSession',
+        { conversationId: 'past-1' },
+        f.signal,
+        f.call,
+      );
+      expect(result?.isError).toBe(true);
+      expect(result!.content).not.toContain('first');
+      expect(result!.content).not.toContain('second');
+      expect(f.access.dispose).toHaveBeenCalledOnce();
+    },
+  );
+
   it('does not reveal session membership from hidden reasoning or redacted summary markers with the real EventStore', async () => {
     const f = fixture();
     const store = new EventStore(':memory:');
