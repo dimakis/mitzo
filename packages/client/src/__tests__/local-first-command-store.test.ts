@@ -137,6 +137,36 @@ it('explains a first-command persistence refusal without dispatching or losing i
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it('explains lost authentication without sending through a stale live connection', () => {
+  const { store, fetch, readStorage } = setup();
+  channel.id = 'previously-live';
+  channel.listener({ type: '_open' });
+  store.getState().invalidateAuthentication();
+  expect(store.getState().sendLocalFirstCommand(request, { draftId: 'kept' })).toBe(false);
+  expect(store.getState().sendError).toMatch(/Sign in again/);
+  expect(fetch).not.toHaveBeenCalled();
+  expect(readStorage()).toEqual([]);
+});
+
+it('keeps the original uncertain command when a replacement is refused for its draft', async () => {
+  const { store, fetch, readStorage } = setup();
+  channel.id = 'live';
+  channel.listener({ type: '_open' });
+  fetch.mockRejectedValue(Error('Synthetic response loss'));
+  expect(store.getState().sendLocalFirstCommand(request, { draftId: 'same-draft' })).toBe(true);
+  await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('uncertain'));
+  const retained = readStorage();
+  expect(
+    store
+      .getState()
+      .sendLocalFirstCommand({ ...request, clientMsgId: 'replacement' }, { draftId: 'same-draft' }),
+  ).toBe(false);
+  expect(store.getState().sendError).toMatch(/already has a pending message/);
+  expect(readStorage()).toEqual(retained);
+  expect(store.getState().localCommand?.request?.clientMsgId).toBe(request.clientMsgId);
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
 it.each(['_open', '_foreground'])(
   'observes the accepted selected follow-up again on %s after a pending receipt',
   async (event) => {
