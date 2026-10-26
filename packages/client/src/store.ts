@@ -726,7 +726,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   const hasPendingDelivery = (sessionId: string) =>
     [...deliverySessions.values()].includes(sessionId) ||
     [...deliveryOrigins].some(
-      ([id, origin]) => deliveryObservers.has(id) && origin.observedSessionId === sessionId,
+      ([id, origin]) =>
+        deliveryObservers.has(id) && (origin.sessionId ?? origin.observedSessionId) === sessionId,
     );
   function isLocalDelivery(id: string): boolean {
     return (
@@ -1908,9 +1909,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       connection.setRecoverySession?.(sessionId);
       for (const id of pendingOptimisticMessageIds) {
         if (isLocalDelivery(id)) continue;
+        const origin = deliveryOrigins.get(id);
+        // Assignment of one forked command cannot retarget another frozen send.
+        if (origin?.sessionId && origin.sessionId !== sessionId) continue;
         observePreparation(id, sessionId);
         if (deliveryObservers.has(id)) deliverySessions.set(id, sessionId);
-        const origin = deliveryOrigins.get(id);
         if (origin && !origin.sessionId) origin.sessionId = sessionId;
       }
       retainSessionInterest(sessionId);

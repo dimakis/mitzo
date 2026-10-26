@@ -469,3 +469,53 @@ it.each(['selected', 'offscreen'] as const)(
     }
   },
 );
+
+it('retains the parent for a second already-submitted command until its own receipt settles after a fork', async () => {
+  const f = fixture();
+  try {
+    await f.store.getState().switchSession('parent');
+    f.store.getState().sendMessage('first');
+    const first = f.store.getState().messages.messages.at(-1)!.messageId;
+    f.store.getState().sendMessage('second');
+    const second = f.store.getState().messages.messages.at(-1)!.messageId;
+    await vi.waitFor(() => expect(f.posts('send')).toHaveLength(1));
+    f.receipt(
+      Response.json({ accepted: true, clientMsgId: first, sessionId: 'fork' }, { status: 202 }),
+    );
+    await vi.waitFor(() => expect(f.posts('send')).toHaveLength(2));
+    expect(f.posts('send')[1]).toMatchObject({
+      clientMsgId: second,
+      sessionId: 'parent',
+      prompt: 'second',
+    });
+    f.store.getState().sendSuspend();
+    await vi.waitFor(() =>
+      expect(
+        f
+          .posts('suspend')
+          .at(-1)
+          ?.sessions.map((x: { sessionId: string }) => x.sessionId)
+          .sort(),
+      ).toEqual(['fork', 'parent']),
+    );
+    expect(f.posts('unwatch').some((x) => x.sessionId === 'parent')).toBe(false);
+    f.receipt(
+      Response.json({ accepted: true, clientMsgId: second, sessionId: 'parent' }, { status: 202 }),
+    );
+    await vi.waitFor(() =>
+      expect(f.posts('unwatch').some((x) => x.sessionId === 'parent')).toBe(true),
+    );
+    expect(f.store.getState().sessions.active).toBe('fork');
+    f.store.getState().sendSuspend();
+    await vi.waitFor(() =>
+      expect(
+        f
+          .posts('suspend')
+          .at(-1)
+          ?.sessions.map((x: { sessionId: string }) => x.sessionId),
+      ).toEqual(['fork']),
+    );
+  } finally {
+    f.store.getState().invalidateAuthentication();
+  }
+});
