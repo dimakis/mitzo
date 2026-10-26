@@ -91,7 +91,7 @@ it('renders a single list including live chats outside the loaded history page',
 });
 it('filters by activity and attention without duplicating rows', () => {
   mount();
-  fireEvent.click(screen.getByRole('button', { name: /^Needs attention/ }));
+  fireEvent.click(screen.getByRole('button', { name: /^Needs you/ }));
   expect(screen.getByText('Review UI')).toBeTruthy();
   expect(screen.queryByText('Older chat')).toBeNull();
   expect(screen.queryByText('Live chat outside history page')).toBeNull();
@@ -122,10 +122,10 @@ it('does not claim synthetic activity rows are detached when attachment is unkno
 });
 
 it.each([
-  ['done', true, false, true],
-  ['idle', true, false, true],
-  ['done', false, true, true],
-  ['idle', false, true, true],
+  ['done', true, false, false],
+  ['idle', true, false, false],
+  ['done', false, true, false],
+  ['idle', false, true, false],
   ['working', true, true, false],
   ['done', false, false, false],
 ] as const)(
@@ -135,7 +135,7 @@ it.each([
     mocks.overview.activities = [{ ...previous[0], state, awaitingReply, uncommittedWork }];
     try {
       mount();
-      fireEvent.click(screen.getByRole('button', { name: /^Needs attention/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^Needs you/ }));
       expect(screen.queryByText('Review UI') !== null).toBe(expected);
     } finally {
       mocks.overview.activities = previous;
