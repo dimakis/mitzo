@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.715-first-command-release-qualification';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.716-repository-chat-briefs';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1143,7 +1142,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c9c5fadf380fc72edc81ec7b762d1f69620d06dff5ca40a949568ee61a2a068c',
   '../../packages/protocol/src/symposium.ts':
     '129fd172bc38c895e31d0835adf799933ef7641a200c33a3b8135a2e318b848a',
-  '../repository-chat-tools.ts': '4b529b10ac23f679ab932d02df4211064066db21ddd5e0eb4d373ef7343427bc',
+  '../repository-chat-tools.ts': '05054d482ba6cd9961448b8e2c475ee360d612d74c236bc18fb83d5e45f7430a',
+  '../__tests__/repository-chat-tools.test.ts':
+    '26c1d61a3dafd72b372881fea037654b45dc3ed2947c7c1d52dd7327cc34f4b0',
+  '../__tests__/repository-chat-handoff.integration.test.ts':
+    '87f2d234447f61bc0df833f4d17026f195a359e710409c935d568157e900a7f1',
   '../repository-task-copy.ts': '0d89600b791719bae79e763eac851a037b6e51c56ae37f52384cf3192a3ac43f',
   '../credential-connection-schema.ts':
     '3489ff131cd0bc28de23d85e1ed7cd4749fcb12f062bdc76407bedc0efe28f47',
