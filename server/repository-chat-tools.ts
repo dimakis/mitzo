@@ -21,7 +21,7 @@ import {
 import type { RepositoryChatPreparation } from './repository-workspaces.js';
 
 export const REPOSITORY_CHAT_INSTRUCTIONS =
-  '\nFor repository work, call ListRepositories then PrepareRepositoryChat. The user reviews the draft to start a separate chat. If input validation rejects a call before preparation starts, correct the input and retry once; no draft recovery is needed for that rejected call. Otherwise call GetRepositoryChatPreparation once to recover a missing ID; omit preparationId. Never repeat preparation after execution starts or repeatedly poll.\n';
+  '\nRepository work: ListRepositories then PrepareRepositoryChat; user reviews a separate chat draft. On input validation rejection, correct and retry once. Otherwise use GetRepositoryChatPreparation once for a missing ID; omit preparationId. Do not repeat execution or poll.\n';
 
 // Retained build briefs must fit alongside the handoff instructions. Keep a
 // bounded input, but do not force ordinary documents through an 8,000-char cap.

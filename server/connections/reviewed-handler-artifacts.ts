@@ -1145,7 +1145,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c9c5fadf380fc72edc81ec7b762d1f69620d06dff5ca40a949568ee61a2a068c',
   '../../packages/protocol/src/symposium.ts':
     '129fd172bc38c895e31d0835adf799933ef7641a200c33a3b8135a2e318b848a',
-  '../repository-chat-tools.ts': '05054d482ba6cd9961448b8e2c475ee360d612d74c236bc18fb83d5e45f7430a',
+  '../repository-chat-tools.ts': '7ed720f77a74fde6ca83a99acf6792e4dc487395069ca3ddd6705da9ad6c7112',
   '../__tests__/repository-chat-tools.test.ts':
     '26c1d61a3dafd72b372881fea037654b45dc3ed2947c7c1d52dd7327cc34f4b0',
   '../__tests__/repository-chat-handoff.integration.test.ts':
