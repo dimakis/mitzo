@@ -18,6 +18,8 @@ import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { loadAccountProfiles } from '../account-profiles.js';
 import { executeSandboxedCommand } from '../sandboxed-command.js';
 import { executeTrustedGitCommit, executeTrustedGitHubRead } from '../trusted-native-operation.js';
+import { captureLocalRepository } from '../local-repository-worktree.js';
+import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
 const repositoryTasks = vi.hoisted(() => ({ read: vi.fn(), validate: vi.fn() }));
 vi.mock('../repository-workspace-runtime.js', () => ({
   readRepositoryWorkspaceForConversation: repositoryTasks.read,
@@ -313,6 +315,51 @@ describe('native tool execution through session permissions', () => {
     });
     expect(executeTrustedGitCommit).not.toHaveBeenCalled();
   });
+  it.each([false, true])(
+    'runs the real commit on a retained linked task after approval (branch changed: %s)',
+    async (changeBranch) => {
+      const canonical = await realpath(root);
+      const repo = join(canonical, 'source');
+      const worktree = join(canonical, 'worktree');
+      const git = (cwd: string, ...args: string[]) =>
+        execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+      execFileSync('git', ['init', '-q', repo]);
+      git(repo, 'config', 'user.name', 'Offline fixture');
+      git(repo, 'config', 'user.email', 'offline@example.invalid');
+      git(repo, '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'initial');
+      const base = git(repo, 'rev-parse', 'HEAD');
+      const { localSource } = await captureLocalRepository('test', repo, abort.signal, 'HEAD');
+      const branch = 'mitzo/retained-task';
+      git(repo, 'worktree', 'add', '-b', branch, worktree);
+      const task = await snapshotRepositoryTaskCheckout(worktree, branch, localSource);
+      repositoryTasks.read.mockReturnValue({ id: 'controller-claim' });
+      repositoryTasks.validate.mockResolvedValue(task);
+      const actual = await vi.importActual<typeof import('../trusted-native-operation.js')>(
+        '../trusted-native-operation.js',
+      );
+      vi.mocked(executeTrustedGitCommit).mockImplementationOnce(actual.executeTrustedGitCommit);
+      await writeFile(join(worktree, 'change.txt'), 'approved change');
+      await writeFile(join(worktree, 'unselected.txt'), 'keep uncommitted');
+      const pending = executor()(
+        call('GitCommit', { files: ['change.txt'], message: 'test: retained linked task' }),
+        abort.signal,
+      );
+      await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+      expect(git(worktree, 'rev-parse', 'HEAD')).toBe(base);
+      if (changeBranch) git(worktree, 'switch', '-c', 'mitzo/changed');
+      resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+      expect(await pending).toMatchObject({ is_error: changeBranch });
+      if (changeBranch) expect(git(worktree, 'rev-parse', 'HEAD')).toBe(base);
+      else {
+        expect(git(worktree, 'show', 'HEAD:change.txt')).toBe('approved change');
+        expect(git(worktree, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD')).toBe(
+          'change.txt',
+        );
+      }
+      expect(git(repo, 'rev-parse', 'HEAD')).toBe(base);
+      expect(git(worktree, 'status', '--porcelain')).toContain('?? unselected.txt');
+    },
+  );
   it('rejects GitCommit directories before approval or recursive staging', async () => {
     await mkdir(join(root, 'worktree/changes'));
     await writeFile(join(root, 'worktree/changes/.env'), 'SECRET=synthetic');

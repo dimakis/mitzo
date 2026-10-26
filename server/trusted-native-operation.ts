@@ -289,12 +289,14 @@ async function linkedMetadata(cwd: string, task?: RepositoryTaskCheckout) {
   const marker = join(cwd, '.git');
   const markerInfo = await lstat(marker, { bigint: true });
   let admin: string, common: string;
-  if (task && !markerInfo.isDirectory())
-    throw new Error('Retained repository task metadata changed');
-  if (markerInfo.isDirectory()) {
+  // Retained tasks can be standalone checkouts or registered local worktrees.
+  // Validate their captured shape and identities before resolving write paths.
+  if (task || markerInfo.isDirectory()) {
     await validateRepositoryTaskCheckout(cwd, task);
     if (markerInfo.dev !== BigInt(task!.git.dev) || markerInfo.ino !== BigInt(task!.git.ino))
       throw new Error('Retained repository task metadata changed');
+  }
+  if (markerInfo.isDirectory()) {
     if ((await realpath(marker)) !== marker)
       throw new Error('Standalone Git metadata must remain inside the workspace');
     admin = common = marker;
@@ -339,6 +341,21 @@ async function linkedMetadata(cwd: string, task?: RepositoryTaskCheckout) {
     const backlink = (await readFile(join(admin, 'gitdir'), 'utf8')).trim();
     if (backlink !== marker || (await realpath(backlink)) !== marker)
       throw new Error('Git worktree registration does not match the approved workspace');
+    if (task) {
+      const adminInfo = await lstat(admin, { bigint: true });
+      const commonInfo = await lstat(common, { bigint: true });
+      if (
+        !task.localSource ||
+        !task.linkedGit ||
+        admin !== task.linkedGit.directory ||
+        common !== task.localSource.commonDirectory ||
+        adminInfo.dev !== BigInt(task.linkedGit.identity.dev) ||
+        adminInfo.ino !== BigInt(task.linkedGit.identity.ino) ||
+        commonInfo.dev !== BigInt(task.localSource.commonRoot.dev) ||
+        commonInfo.ino !== BigInt(task.localSource.commonRoot.ino)
+      )
+        throw new Error('Retained repository task metadata changed');
+    }
   }
   const objects = join(common, 'objects');
   const objectsInfo = await lstat(objects, { bigint: true });
@@ -348,7 +365,7 @@ async function linkedMetadata(cwd: string, task?: RepositoryTaskCheckout) {
   const branch = /^ref: (refs\/heads\/[A-Za-z0-9._/-]+)$/.exec(head)?.[1];
   if (!branch || branch.includes('..') || branch.includes('//'))
     throw new Error('Trusted commits require a valid symbolic branch');
-  if (markerInfo.isDirectory() && branch !== `refs/heads/${task!.featureBranch}`)
+  if (task && branch !== `refs/heads/${task.featureBranch}`)
     throw new Error('Repository task branch changed');
   await validateRefUpdatePaths(common, branch);
   return {
