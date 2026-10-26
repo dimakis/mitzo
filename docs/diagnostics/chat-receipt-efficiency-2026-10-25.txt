@@ -220,3 +220,18 @@ full draft equality after navigation/reload and server/idempotency assertions
 remain intact. The controlled pre-hydration snapshot reproduced the CI failure
 RED; the corrected test passes all three browser projects plus both startup
 checks (five passes). No product behavior or protected assertion was changed.
+
+Final same-key New/reset boundary
+CI on da71fee8e exposed one valid existing SendReceipt regression: genuine New
+advanced composer generation while reusing the unassigned storage key and text.
+The late acceptance journal could therefore notify a current same-token draft
+without the callback's old in-memory generation fence. Genuine New/reset now
+rotates the existing draft ownership revision even if identical text produces
+no DOM edit. This fences durable journals, direct cold proofs and local volatile
+authority while preserving exact assignment and distinct-owner navigation.
+
+The unchanged existing test and new ordinary/rich reset regressions reproduced
+RED, then passed. All 15 ChatInput suites plus saved-page, useDraft and
+useNewChatDraft suites pass: 18 files, 290 tests, one worker and a 1 GiB heap.
+Strict focused TypeScript and changed-file ESLint pass. No prior assertion or
+coverage was removed. Runtime review revision advances to v1.0.699.

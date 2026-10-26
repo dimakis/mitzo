@@ -273,17 +273,25 @@ export function ChatInput({
     images,
     contextBlocks: activeContextBlocks,
     settingsSignature,
+    composerGeneration,
   });
   useLayoutEffect(() => {
     const previous = attachmentRevision.current;
     if (
       previous.images !== images ||
       previous.contextBlocks !== activeContextBlocks ||
-      previous.settingsSignature !== settingsSignature
+      previous.settingsSignature !== settingsSignature ||
+      // Genuine New may reuse both the storage key and identical text.
+      previous.composerGeneration !== composerGeneration
     )
       reviseDraft();
-    attachmentRevision.current = { images, contextBlocks: activeContextBlocks, settingsSignature };
-  }, [images, activeContextBlocks, settingsSignature, reviseDraft]);
+    attachmentRevision.current = {
+      images,
+      contextBlocks: activeContextBlocks,
+      settingsSignature,
+      composerGeneration,
+    };
+  }, [images, activeContextBlocks, settingsSignature, composerGeneration, reviseDraft]);
   useLayoutEffect(() => {
     // This also handles a verified receipt arriving before the composer mounts.
     // Durable revision equality protects edits from earlier mounts and other tabs.

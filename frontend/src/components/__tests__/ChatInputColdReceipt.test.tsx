@@ -819,3 +819,62 @@ it('retains the exact assigned receipt owner after the same mount navigates else
   expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
   expect(localStorage.getItem('mitzo-draft-assigned-chat')).toBeNull();
 });
+
+it.each(['ordinary', 'rich'] as const)(
+  'revokes the submitted %s revision when genuine New reuses its storage owner and text',
+  (kind) => {
+    const draft = {
+      ...createChatDraft(),
+      text: 'Same intended prompt',
+      images: [
+        { data: 'image', preview: 'data:image/png;base64,aW1hZ2U=', mediaType: 'image/png' },
+      ],
+      contextBlocks: ['Keep this context'],
+    };
+    if (kind === 'rich') saveChatDraft(draft);
+    let receipt: SendMessageOptions['onDelivery'];
+    let proof: SendMessageOptions['composerDraft'];
+    const props = {
+      sessionId: undefined,
+      savedChatDraft: kind === 'rich' ? draft : undefined,
+      running: false,
+      onStop: () => {},
+      onSend: () => false,
+    };
+    const view = render(
+      <ChatInput
+        {...props}
+        composerGeneration={0}
+        onSend={(_text, _images, _context, callback, _assignment, captured) => {
+          receipt = callback;
+          proof = captured;
+          return true;
+        }}
+      />,
+    );
+    if (kind === 'ordinary')
+      fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: draft.text } });
+    fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+    expect(proof).toBeDefined();
+    view.rerender(<ChatInput {...props} composerGeneration={1} />);
+    // Same-value input can be a DOM no-op; New itself must revoke the receipt.
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: draft.text } });
+    act(() => receipt?.('accepted'));
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', draft.text);
+    expect(localStorage.getItem(acceptedComposerDraftKey(proof!.storageKey))).toBeNull();
+    if (kind === 'rich') {
+      expect(screen.getByAltText('Attachment 1')).toBeTruthy();
+      expect(getChatDraft(draft.id)).toMatchObject({
+        text: draft.text,
+        images: draft.images,
+        contextBlocks: draft.contextBlocks,
+      });
+    }
+    // Neither a retained journal nor a direct cold receipt may revive the
+    // superseded generation after its composer leaves.
+    localStorage.setItem(acceptedComposerDraftKey(proof!.storageKey), JSON.stringify(proof));
+    view.unmount();
+    render(<ChatInput {...props} composerGeneration={1} acceptedComposerDraft={proof} />);
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', draft.text);
+  },
+);
