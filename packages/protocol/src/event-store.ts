@@ -1,5 +1,5 @@
 import { SessionDocumentStore } from './session-document-store.js';
-import type { SessionDocumentWrite } from './session-document.js';
+import type { SessionDocumentWrite, SessionDocumentCursor } from './session-document.js';
 import {
   openTelosOwnedDatabase,
   beginTelosDeletionReferenceScope,
@@ -2732,6 +2732,10 @@ export class EventStore {
   listSessionDocuments(sessionId: string) {
     this.assertDocumentConversation(sessionId);
     return this.sessionDocuments.list(sessionId);
+  }
+  sessionDocumentPage(sessionId: string, before?: SessionDocumentCursor) {
+    this.assertDocumentConversation(sessionId);
+    return this.sessionDocuments.page(sessionId, before);
   }
   readSessionDocument(sessionId: string, id: string, revision: number) {
     this.assertDocumentConversation(sessionId);

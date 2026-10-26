@@ -50,6 +50,42 @@ function draft(store: EventStore, text: string) {
   store.append('chat', 'message_end', { messageId: 'm' });
 }
 describe('shared conversation document routes', () => {
+  it('exposes bounded saved catalog/history continuations and rejects malformed cursors', async () => {
+    const { store, get } = setup();
+    let latest;
+    for (let i = 0; i < 51; i++)
+      latest = store.keepSessionDocument('chat', {
+        requestId: `revision-${i}`,
+        intent: `revision-${i}`,
+        title: 'Report',
+        filename: 'report.md',
+        sourceKey: 'report',
+        sourcePath: '/task/report.md',
+        bytes: Buffer.from(String(i)),
+      });
+    const history = await get(`/saved/${latest!.id}/versions`);
+    expect(history.body).toMatchObject({ hasMore: true, cursor: 2 });
+    expect((await get(`/saved/${latest!.id}/versions?before=2`)).body.versions[0].revision).toBe(1);
+    for (let i = 0; i < 100; i++)
+      store.keepSessionDocument('chat', {
+        requestId: `file-${i}`,
+        intent: `file-${i}`,
+        title: 'File',
+        filename: 'file.md',
+        sourceKey: `file-${i}`,
+        sourcePath: '/task/file.md',
+        bytes: Buffer.from('FILE'),
+      });
+    const first = await get();
+    expect(first.body.saved).toHaveLength(100);
+    expect(first.body.savedHasMore).toBe(true);
+    const next = await get(
+      `/saved?before=${encodeURIComponent(JSON.stringify(first.body.savedCursor))}`,
+    );
+    expect(next.body.documents).toHaveLength(1);
+    expect(next.body.hasMore).toBe(false);
+    expect((await get('/saved?before=invalid')).status).toBe(400);
+  });
   it.each(['anthropic-vertex', 'google-vertex', 'openai', 'openai-codex'])(
     'keeps documents under the original %s account without a model call',
     async (provider) => {

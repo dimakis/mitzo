@@ -3,7 +3,11 @@ import { createHash } from 'node:crypto';
 import { basename } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
-import { MAX_SESSION_DOCUMENT_BYTES, SessionOutputSourceSchema } from '@mitzo/protocol';
+import {
+  MAX_SESSION_DOCUMENT_BYTES,
+  SessionOutputSourceSchema,
+  SessionDocumentCursorSchema,
+} from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import { discoverSessionDocuments, isDocumentPath } from './session-document-discovery.js';
 import type { TelosArtifactMetadata } from './telos-artifact-store.js';
@@ -53,7 +57,10 @@ function preview(bytes: Buffer, filename: string) {
 /** Authenticated human operations only: no model/account credentials, task creation or runtime recovery. */
 export function createSessionDocumentRouter(options: {
   store: EventStore;
-  readFile(sessionId: string, path: string): Promise<{ path: string; bytes: Buffer }>;
+  readFile(
+    sessionId: string,
+    path: string,
+  ): Promise<{ path: string; bytes: Buffer; assertCurrentSync?: () => void }>;
   listTelos(sessionId: string): { artifacts: TelosArtifactMetadata[]; hasMore: boolean };
 }) {
   const { store } = options;
@@ -80,6 +87,7 @@ export function createSessionDocumentRouter(options: {
     const scope = current(id);
     const file = await options.readFile(id, requested);
     if (!isDeepStrictEqual(scope, current(id))) throw conflict();
+    file.assertCurrentSync?.();
     if (file.bytes.length > MAX_SESSION_DOCUMENT_BYTES)
       throw Object.assign(new Error('Too large'), { status: 413 });
     if (!isDocumentPath(file.path))
@@ -99,14 +107,34 @@ export function createSessionDocumentRouter(options: {
       } catch {
         telosError = 'Saved Work documents could not be checked. Refresh to retry.';
       }
+      const saved = store.sessionDocumentPage(id);
       res.json({
-        saved: store.listSessionDocuments(id),
+        saved: saved.documents,
+        savedCursor: saved.cursor,
+        savedHasMore: saved.hasMore,
         workspace: discoverSessionDocuments(store, id),
         telos,
         telosError,
         telosHasMore,
         discoveryLimit: 100,
       });
+    } catch (error) {
+      failure(res, error);
+    }
+  });
+  router.get('/saved', (req: Request, res) => {
+    let cursor;
+    try {
+      cursor =
+        req.query.before === undefined
+          ? undefined
+          : SessionDocumentCursorSchema.parse(JSON.parse(String(req.query.before)));
+    } catch {
+      res.status(400).json({ error: 'Invalid saved document cursor.' });
+      return;
+    }
+    try {
+      res.json(store.sessionDocumentPage(req.params.id as string, cursor));
     } catch (error) {
       failure(res, error);
     }
@@ -141,6 +169,7 @@ export function createSessionDocumentRouter(options: {
       if (input.source.kind === 'file') {
         const file = await read(id, input.source.path);
         if (hash(file.bytes) !== input.source.sha256) throw conflict();
+        file.assertCurrentSync?.();
         bytes = file.bytes;
         filename = basename(file.path);
         sourcePath = file.path;
@@ -191,9 +220,13 @@ export function createSessionDocumentRouter(options: {
     if (!id.success || (before && !before.success))
       return void res.status(400).json({ error: 'Invalid saved version.' });
     try {
-      res.json({
-        versions: store.sessionDocumentVersions(req.params.id as string, id.data, before?.data),
-      });
+      const versions = store.sessionDocumentVersions(
+        req.params.id as string,
+        id.data,
+        before?.data,
+      );
+      const hasMore = versions.length === 50 && versions.at(-1)!.revision > 1;
+      res.json({ versions, hasMore, cursor: hasMore ? versions.at(-1)!.revision : null });
     } catch (error) {
       failure(res, error);
     }
@@ -218,7 +251,7 @@ export function createSessionDocumentRouter(options: {
         res.setHeader('Content-Type', 'application/octet-stream');
         res.setHeader(
           'Content-Disposition',
-          `attachment; filename*=UTF-8''${encodeURIComponent(document.filename)}`,
+          `attachment; filename*=UTF-8''${encodeURIComponent(document.filename).replace(/['()*]/g, (char) => '%' + char.charCodeAt(0).toString(16).toUpperCase())}`,
         );
         res.send(bytes);
       } else res.json({ document, ...preview(bytes, document.filename) });

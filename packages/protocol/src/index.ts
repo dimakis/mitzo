@@ -399,6 +399,7 @@ export {
 
 export {
   MAX_SESSION_DOCUMENT_BYTES,
+  SessionDocumentCursorSchema,
   SessionDocumentSchema,
   type SessionDocument,
 } from './session-document.js';

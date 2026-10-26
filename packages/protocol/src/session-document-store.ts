@@ -4,6 +4,8 @@ import { z } from 'zod';
 import {
   MAX_SESSION_DOCUMENT_BYTES,
   SessionDocumentSchema,
+  SessionDocumentCursorSchema,
+  type SessionDocumentCursor,
   type SessionDocument,
   type SessionDocumentWrite,
 } from './session-document.js';
@@ -21,7 +23,13 @@ const filename = z
   .string()
   .min(1)
   .max(200)
-  .refine((value) => !/[\\/\x00-\x1f\x7f]/.test(value) && value !== '.' && value !== '..');
+  .refine(
+    (value) =>
+      !/[\\/]/.test(value) &&
+      [...value].every((char) => char.charCodeAt(0) >= 32 && char.charCodeAt(0) !== 127) &&
+      value !== '.' &&
+      value !== '..',
+  );
 const write = z.object({
   requestId: z.string().min(1).max(200),
   intent: z.string().min(1).max(8192),
@@ -104,14 +112,29 @@ export class SessionDocumentStore {
       .immediate();
   }
   list(sessionId: string): SessionDocument[] {
+    return this.page(sessionId).documents;
+  }
+  page(sessionId: string, before?: SessionDocumentCursor) {
+    const cursor = before === undefined ? undefined : SessionDocumentCursorSchema.parse(before);
     const rows = this.db
       .prepare(
         `SELECT ${columns} FROM session_document_revisions d WHERE session_id=?
       AND revision=(SELECT MAX(revision) FROM session_document_revisions WHERE session_id=d.session_id AND id=d.id)
-      ORDER BY created_at DESC,id LIMIT 100`,
+      ${cursor ? 'AND (created_at<? OR (created_at=? AND id>?))' : ''}
+      ORDER BY created_at DESC,id LIMIT 101`,
       )
-      .all(sessionId) as DocumentRow[];
-    return rows.map(metadata);
+      .all(
+        sessionId,
+        ...(cursor ? [cursor.createdAt, cursor.createdAt, cursor.id] : []),
+      ) as DocumentRow[];
+    const documents = rows.slice(0, 100).map(metadata),
+      last = documents.at(-1);
+    const hasMore = rows.length > 100;
+    return {
+      documents,
+      hasMore,
+      cursor: hasMore && last ? { createdAt: last.createdAt, id: last.id } : null,
+    };
   }
   versions(sessionId: string, id: string, before = Number.MAX_SAFE_INTEGER): SessionDocument[] {
     const rows = this.db

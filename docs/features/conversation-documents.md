@@ -24,7 +24,10 @@ opening Outputs never imports or saves a file.
 
 Preview verifies the selected conversation's original workspace authority and
 reads at most 5 MiB through the existing descriptor-relative no-follow helper.
-Host workspace reads do not require a live model session. Remote reads use the
+Host workspace reads do not require a live model session. Recorded secondary
+repository worktrees retain the same conversation-scoped access as Files. The
+original directory inode is pinned before capture; custody/private-path policy
+and the exact file witness are renewed after the asynchronous read. Remote reads use the
 original retained runtime/account receipt and report unavailable workspaces
 without recreating them or substituting another account. Existing private-path
 and custody checks still apply. Supported deliverables include Markdown/text,
@@ -51,7 +54,9 @@ Legacy conversations without a recorded account retain a null account reference.
 Changed content/metadata creates an immutable revision for the same canonical
 source file. Unchanged saves deduplicate. Historical revisions remain selectable
 and downloadable after the workspace is gone. APIs require an exact revision;
-there is no silently changing latest-version download. Downloads use attachment
+there is no silently changing latest-version download. Saved-document catalogs
+use bounded keyset continuation after 100 records; version history loads earlier
+pages after the first 50 without changing the selected revision. Downloads use attachment
 disposition, octet-stream, nosniff and private/no-store caching.
 
 Browser session storage retains only opaque request IDs and intent fingerprints

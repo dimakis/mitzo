@@ -1,5 +1,5 @@
 import { createSessionDocumentRouter } from './session-document-routes.js';
-import { readHostWorkspaceDocument } from './workspace-document-reader.js';
+import { createSessionWorkspaceDocumentReader } from './workspace-document-reader.js';
 import { sessionModelSettingsReason } from './session-model-settings.js';
 import { adviserExecutionProjection } from './adviser-harness-runtime.js';
 import { initializeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
@@ -3410,15 +3410,13 @@ app.use(
   operatorAuthMiddleware,
   createSessionDocumentRouter({
     store: eventStore,
-    readFile: async (sessionId, requestedPath) => {
-      if (isRemoteSessionArtifact(sessionId))
-        return readRemoteSessionArtifact(sessionId, requestedPath);
-      const root = sessionArtifactRoot(sessionId);
-      const filePath = resolveArtifactPath(requestedPath, sessionId);
-      if (!root || !containsPath(root, filePath) || !isAllowedPath(filePath, sessionId))
-        throw new OpenShellArtifactReadError(403, 'Path is outside this conversation workspace');
-      return readHostWorkspaceDocument(root, filePath);
-    },
+    readFile: createSessionWorkspaceDocumentReader({
+      remote: isRemoteSessionArtifact,
+      readRemote: readRemoteSessionArtifact,
+      resolve: (id, path) => resolveArtifactPath(path, id),
+      root: (id, path) => (sessionArtifactRoot(id) ? sessionArtifactBrowserRoot(path, id) : null),
+      allowed: (id, path) => isAllowedPath(path, id),
+    }),
     listTelos: (sessionId) => {
       const store = new TelosArtifactStore(telosDatabasePath());
       try {

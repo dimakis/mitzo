@@ -9,6 +9,8 @@ import {
   documentCatalog,
   documentJson,
   documentPreview,
+  documentPage,
+  readDocumentVersions,
   keepDocument,
   type DocumentCatalog,
   type DocumentPreview,
@@ -27,6 +29,7 @@ type Selection = {
   saved?: SessionDocument;
   content?: string | null;
   versions?: SessionDocument[];
+  versionsBefore?: number | null;
 };
 /** Files and durable copies use the same host contract on every provider and account. */
 export function SessionDocuments({
@@ -55,9 +58,12 @@ export function SessionDocuments({
   } | null>(null);
   const [attempt, setAttempt] = useState(0),
     [page, setPage] = useState(0);
+  const [draftSelection, setDraftSelection] = useState<{
+    sessionId: string;
+    candidate: SessionOutputCandidate;
+  } | null>(null);
   const [path, setPath] = useState(''),
-    [title, setTitle] = useState(''),
-    [draftIndex, setDraftIndex] = useState(0);
+    [title, setTitle] = useState('');
   const active = useRef(sessionId);
   active.current = sessionId;
   const operation = useRef(0);
@@ -68,6 +74,14 @@ export function SessionDocuments({
   const selected = selection?.sessionId === sessionId ? selection : null;
   const state = feedback?.sessionId === sessionId ? feedback : null;
   const base = documentBase(sessionId);
+  const selectedDraft =
+    draftSelection?.sessionId === sessionId ? draftSelection.candidate : drafts[0];
+  const draftKey = (draft: SessionOutputCandidate) => JSON.stringify(draft.source);
+  const draftOptions =
+    selectedDraft && !drafts.some((draft) => draftKey(draft) === draftKey(selectedDraft))
+      ? [selectedDraft, ...drafts]
+      : drafts;
+
   useEffect(() => {
     if (selected) previewHeading.current?.focus({ preventScroll: true });
     else returnFocus.current?.focus({ preventScroll: true });
@@ -77,7 +91,7 @@ export function SessionDocuments({
     setPage(0);
     setPath('');
     setTitle('');
-    setDraftIndex(0);
+    setDraftSelection(null);
     return () => {
       operation.current = -1;
     };
@@ -138,18 +152,86 @@ export function SessionDocuments({
         received.sha256 !== document.sha256
       )
         throw Error('Saved version changed. Refresh the list.');
-      const versions = await documentJson(`${base}/saved/${document.id}/versions`);
-      const rows = SessionDocumentSchema.array().max(50).parse(versions.versions);
-      if (rows.some((row) => row.sessionId !== sessionId || row.id !== document.id))
-        throw Error('Saved version history changed.');
+      const retained = selected?.saved?.id === document.id ? selected : undefined;
+      const rows = retained?.versions ?? (await readDocumentVersions(sessionId, document.id));
+      const versionsBefore = retained?.versions
+        ? retained.versionsBefore
+        : (rows.at(-1)?.revision ?? 1) > 1
+          ? rows.at(-1)!.revision
+          : null;
+      const versions = [
+        ...new Map([...rows, received].map((row) => [row.revision, row])).values(),
+      ].sort((a, b) => b.revision - a.revision);
       if (active.current === sessionId)
         setSelection({
           sessionId,
           title: document.title,
           saved: received,
           content: body.content,
-          versions: rows,
+          versions,
+          versionsBefore,
         });
+    });
+  }
+  async function loadEarlierVersions() {
+    if (!selected?.saved || !selected.versionsBefore) return;
+    const id = selected.saved.id,
+      before = selected.versionsBefore;
+    await run(async () => {
+      const earlier = await readDocumentVersions(sessionId, id, before);
+      if (active.current === sessionId)
+        setSelection((old) =>
+          old?.saved?.id === id
+            ? {
+                ...old,
+                versions: [
+                  ...new Map(
+                    [...(old.versions ?? []), ...earlier].map((row) => [row.revision, row]),
+                  ).values(),
+                ].sort((a, b) => b.revision - a.revision),
+                versionsBefore:
+                  (earlier.at(-1)?.revision ?? 1) > 1 ? earlier.at(-1)!.revision : null,
+              }
+            : old,
+        );
+    });
+  }
+  async function loadOlderDocuments() {
+    if (!value?.savedCursor) return;
+    await run(async () => {
+      const next = documentPage.parse(
+        await documentJson(
+          `${base}/saved?before=${encodeURIComponent(JSON.stringify(value.savedCursor))}`,
+        ),
+      );
+      const last = next.documents.at(-1);
+      if (
+        next.documents.some((row) => row.sessionId !== sessionId) ||
+        next.hasMore !== !!next.cursor ||
+        (next.cursor &&
+          (!last || next.cursor.id !== last.id || next.cursor.createdAt !== last.createdAt))
+      )
+        throw Error('Saved document history changed. Refresh the list.');
+      if (active.current === sessionId) {
+        setCatalog((old) =>
+          old?.sessionId === sessionId
+            ? {
+                sessionId,
+                value: {
+                  ...old.value,
+                  saved: [
+                    ...new Map(
+                      [...old.value.saved, ...next.documents].map((row) => [row.id, row]),
+                    ).values(),
+                  ],
+                  savedCursor: next.cursor,
+                  savedHasMore: next.hasMore,
+                },
+              }
+            : old,
+        );
+        setPage(Math.floor(value.saved.length / 8));
+      }
     });
   }
   async function keep(title: string, source: Record<string, unknown>) {
@@ -160,7 +242,12 @@ export function SessionDocuments({
           sessionId,
           title,
           saved: document,
-          content: old?.sessionId === sessionId ? old.content : undefined,
+          content:
+            source.kind === 'draft'
+              ? selectedDraft?.content
+              : old?.sessionId === sessionId
+                ? old.content
+                : undefined,
         }));
         setAttempt((value) => value + 1);
       }
@@ -287,6 +374,15 @@ export function SessionDocuments({
               </select>
             </label>
           )}
+          {!!selected.versionsBefore && (
+            <button
+              className="home-secondary"
+              disabled={state?.busy}
+              onClick={() => void loadEarlierVersions()}
+            >
+              Load earlier versions
+            </button>
+          )}
           {selected.content !== undefined &&
             (selected.content === null ? (
               <p>Preview unavailable. Keep or download the original file.</p>
@@ -339,6 +435,15 @@ export function SessionDocuments({
               </button>
             </div>
           )}
+          {value?.savedHasMore && (
+            <button
+              className="home-secondary"
+              disabled={state?.busy}
+              onClick={() => void loadOlderDocuments()}
+            >
+              Load older saved documents
+            </button>
+          )}
           {!!value?.telos.length && <h4>Saved in Work</h4>}
           {value?.telos.map((document) => (
             <div className="chat-resource-row" key={`${document.id}:${document.revision}`}>
@@ -369,17 +474,31 @@ export function SessionDocuments({
               Preview file
             </button>
           </details>
-          {!!drafts.length && (
-            <details>
+          {!!draftOptions.length && (
+            <details
+              onToggle={(event) => {
+                if (
+                  event.currentTarget.open &&
+                  selectedDraft &&
+                  draftSelection?.sessionId !== sessionId
+                )
+                  setDraftSelection({ sessionId, candidate: selectedDraft });
+              }}
+            >
               <summary>Keep a chat response</summary>
               <label>
                 Response
                 <select
-                  value={draftIndex}
-                  onChange={(event) => setDraftIndex(Number(event.target.value))}
+                  value={selectedDraft ? draftKey(selectedDraft) : ''}
+                  onChange={(event) => {
+                    const candidate = draftOptions.find(
+                      (draft) => draftKey(draft) === event.target.value,
+                    );
+                    if (candidate) setDraftSelection({ sessionId, candidate });
+                  }}
                 >
-                  {drafts.map((draft, index) => (
-                    <option key={`${draft.source.messageId}:${draft.source.blockId}`} value={index}>
+                  {draftOptions.map((draft) => (
+                    <option key={draftKey(draft)} value={draftKey(draft)}>
                       {draft.content.slice(0, 100)}
                     </option>
                   ))}
@@ -389,16 +508,17 @@ export function SessionDocuments({
                 Document title
                 <input
                   value={title}
-                  onChange={(event) => setTitle(event.target.value)}
+                  onChange={(event) => {
+                    if (selectedDraft) setDraftSelection({ sessionId, candidate: selectedDraft });
+                    setTitle(event.target.value);
+                  }}
                   maxLength={190}
                 />
               </label>
               <button
                 className="home-secondary"
-                disabled={!title.trim() || state?.busy || !drafts[draftIndex]}
-                onClick={() =>
-                  void keep(title.trim(), { kind: 'draft', ...drafts[draftIndex].source })
-                }
+                disabled={!title.trim() || state?.busy || !selectedDraft}
+                onClick={() => void keep(title.trim(), { kind: 'draft', ...selectedDraft!.source })}
               >
                 Keep response
               </button>

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SessionDocumentSchema } from '@mitzo/protocol';
+import { SessionDocumentSchema, SessionDocumentCursorSchema } from '@mitzo/protocol';
 import { apiFetch } from './api-fetch';
 import { createBrowserId, sha256Hex } from './browser-crypto';
 
@@ -12,6 +12,8 @@ export const documentPreview = z.object({
 });
 export const documentCatalog = z.object({
   saved: z.array(SessionDocumentSchema).max(100),
+  savedCursor: SessionDocumentCursorSchema.nullable().default(null),
+  savedHasMore: z.boolean().default(false),
   workspace: z
     .array(
       z.object({ path: z.string(), title: z.string(), evidence: z.enum(['created', 'linked']) }),
@@ -35,6 +37,24 @@ export const documentCatalog = z.object({
   telosHasMore: z.boolean().optional(),
   discoveryLimit: z.number(),
 });
+export const documentPage = z.object({
+  documents: z.array(SessionDocumentSchema).max(100),
+  cursor: SessionDocumentCursorSchema.nullable(),
+  hasMore: z.boolean(),
+});
+export async function readDocumentVersions(sessionId: string, id: string, before?: number) {
+  const body = await documentJson(
+    `${documentBase(sessionId)}/saved/${id}/versions${before === undefined ? '' : `?before=${before}`}`,
+  );
+  const versions = SessionDocumentSchema.array().max(50).parse(body.versions);
+  let previous = before ?? Number.MAX_SAFE_INTEGER;
+  for (const row of versions) {
+    if (row.sessionId !== sessionId || row.id !== id || row.revision >= previous)
+      throw Error('Saved version history changed.');
+    previous = row.revision;
+  }
+  return versions;
+}
 export type DocumentCatalog = z.infer<typeof documentCatalog>;
 export type DocumentPreview = z.infer<typeof documentPreview>;
 export const documentBase = (sessionId: string) =>

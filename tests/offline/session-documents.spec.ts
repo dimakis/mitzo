@@ -63,6 +63,8 @@ for (const theme of ['dark', 'light'])
         return route.fulfill({
           json: {
             saved: kept && path.includes('/one/') ? [saved] : [],
+            savedHasMore: kept && path.includes('/one/'),
+            savedCursor: kept && path.includes('/one/') ? { createdAt: 1, id: saved.id } : null,
             workspace: path.includes('/one/') ? workspace : [],
             telos: [],
             discoveryLimit: 100,
@@ -88,7 +90,22 @@ for (const theme of ['dark', 'light'])
         }
         return route.fulfill({ json: { document: saved } });
       }
-      if (path.endsWith('/versions')) return route.fulfill({ json: { versions: [saved] } });
+      if (path.endsWith('/saved'))
+        return route.fulfill({
+          json: {
+            documents: [{ ...saved, id: 'c'.repeat(32), title: 'Earlier saved report' }],
+            cursor: null,
+            hasMore: false,
+          },
+        });
+      if (path.endsWith('/versions'))
+        return route.fulfill({
+          json: {
+            versions: url.searchParams.has('before')
+              ? [{ ...saved, revision: 2 }, saved]
+              : Array.from({ length: 50 }, (_, i) => ({ ...saved, revision: 52 - i })),
+          },
+        });
       if (path.endsWith(`/saved/${saved.id}`))
         return route.fulfill({ json: { document: saved, content: '# Report' } });
       if (path.startsWith('/api/')) return route.fulfill({ json: {} });
@@ -126,11 +143,18 @@ for (const theme of ['dark', 'light'])
     await page.reload();
     await page.getByRole('button', { name: 'Open session tray' }).click();
     await page.getByRole('tab', { name: 'Outputs', exact: true }).click();
+    await documents.getByRole('button', { name: 'Load older saved documents' }).click();
+    await expect(
+      documents.getByRole('button', { name: 'Preview Earlier saved report' }),
+    ).toBeVisible();
     await documents
       .getByRole('button', { name: `Preview ${saved.title}`, exact: true })
       .first()
       .click();
     await expect(documents.getByText('# Report', { exact: true })).toBeVisible();
+    await expect(documents.getByRole('combobox', { name: 'Saved version' })).toHaveValue('1');
+    await documents.getByRole('button', { name: 'Load earlier versions' }).click();
+    await expect(documents.getByRole('option', { name: 'Version 2', exact: true })).toHaveCount(1);
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Switch chat' }).click();
     await page.getByRole('button', { name: 'Open session tray' }).click();

@@ -28,6 +28,27 @@ const input = {
 };
 
 describe('conversation document custody', () => {
+  it('paginates all retained copies with a stable tie-breaker and no duplicates', () => {
+    const store = setup();
+    const saved = Array.from({ length: 105 }, (_, i) =>
+      store.keepSessionDocument('chat', {
+        ...input,
+        requestId: `keep-${i}`,
+        intent: `file-${i}`,
+        sourceKey: `file-${i}`,
+      }),
+    );
+    const first = store.sessionDocumentPage('chat');
+    expect(first.documents).toHaveLength(100);
+    expect(first.hasMore).toBe(true);
+    const last = store.sessionDocumentPage('chat', first.cursor!);
+    expect(last.documents).toHaveLength(5);
+    expect(last.hasMore).toBe(false);
+    expect(new Set([...first.documents, ...last.documents].map((row) => row.id)).size).toBe(
+      saved.length,
+    );
+    expect(last.cursor).toBeNull();
+  });
   it('retains bytes in the existing event owner across close/reopen without workspace files or a task', () => {
     const dir = mkdtempSync(join(tmpdir(), 'chat-documents-'));
     dirs.push(dir);

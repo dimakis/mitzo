@@ -1,27 +1,80 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { resolve } from 'node:path';
+import { lstatSync } from 'node:fs';
+import { resolve, relative, isAbsolute, sep } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import {
-  OPEN_SHELL_ARTIFACT_HELPER,
+  captureLocalArtifactFile,
   OpenShellArtifactReadError,
+  type ArtifactCommandRunner,
 } from './openshell-artifact-reader.js';
 
-const execute = promisify(execFile);
-/** The caller supplies a verified session root. Same no-follow/size protections as sandbox uploads. */
-export async function readHostWorkspaceDocument(root: string, path: string) {
-  const { stdout } = await execute(
-    'python3',
-    ['-I', '-c', OPEN_SHELL_ARTIFACT_HELPER, resolve(root), path],
-    { timeout: 15000, maxBuffer: 7 * 1024 * 1024 },
+const changed = () =>
+  new OpenShellArtifactReadError(
+    409,
+    'Original conversation workspace changed. Preview the document again.',
   );
-  const value = JSON.parse(stdout);
-  if (value.error || value.path !== resolve(root, path) || typeof value.data !== 'string')
-    throw new OpenShellArtifactReadError(
-      value.error === 'too_large' ? 413 : value.error === 'not_found' ? 404 : 403,
-      'Workspace document unavailable',
-    );
-  const bytes = Buffer.from(value.data, 'base64');
-  if (bytes.toString('base64') !== value.data)
-    throw new OpenShellArtifactReadError(503, 'Invalid workspace document');
-  return { path: value.path as string, bytes };
+/** Pin the original directory before asynchronous capture, then renew custody and the exact file witness. */
+export async function readHostWorkspaceDocument(
+  root: string,
+  path: string,
+  assertAuthority: () => void = () => {},
+  run?: ArtifactCommandRunner,
+) {
+  root = resolve(root);
+  const identity = () => {
+    const stat = lstatSync(root, { bigint: true });
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw changed();
+    return [stat.dev, stat.ino, stat.uid, stat.gid, stat.mode].map(String);
+  };
+  const original = identity();
+  const assertRoot = () => {
+    assertAuthority();
+    if (!isDeepStrictEqual(identity(), original)) throw changed();
+  };
+  const captured = await captureLocalArtifactFile(root, path, assertRoot, undefined, run);
+  return {
+    path: captured.path,
+    bytes: captured.bytes,
+    assertCurrentSync: () => {
+      assertRoot();
+      captured.assertCurrentSync();
+    },
+  };
+}
+
+/** Root selection is supplied by the existing conversation artifact owner, including recorded secondary repos. */
+export function createSessionWorkspaceDocumentReader(options: {
+  remote(id: string): boolean;
+  readRemote(id: string, path: string): Promise<{ path: string; bytes: Buffer }>;
+  resolve(id: string, path: string): string;
+  root(id: string, path: string): string | null;
+  allowed(id: string, path: string): boolean;
+}) {
+  return async (
+    id: string,
+    requested: string,
+  ): Promise<{ path: string; bytes: Buffer; assertCurrentSync?: () => void }> => {
+    if (options.remote(id)) return options.readRemote(id, requested);
+    const path = options.resolve(id, requested),
+      root = options.root(id, path);
+    const rel = root ? relative(root, path) : '..';
+    if (
+      !root ||
+      rel === '' ||
+      rel === '..' ||
+      rel.startsWith(`..${sep}`) ||
+      isAbsolute(rel) ||
+      !options.allowed(id, path)
+    )
+      throw new OpenShellArtifactReadError(403, 'Path is outside this conversation workspace');
+    const assertAuthority = () => {
+      if (
+        options.remote(id) ||
+        options.resolve(id, requested) !== path ||
+        options.root(id, path) !== root ||
+        !options.allowed(id, path)
+      )
+        throw changed();
+    };
+    return readHostWorkspaceDocument(root, path, assertAuthority);
+  };
 }

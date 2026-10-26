@@ -3,6 +3,11 @@ import { AccountBindingSchema } from './account-binding.js';
 import type { AccountBinding } from './account-binding.js';
 
 export const MAX_SESSION_DOCUMENT_BYTES = 5 * 1024 * 1024;
+export const SessionDocumentCursorSchema = z.strictObject({
+  createdAt: z.number().int().nonnegative().safe(),
+  id: z.string().regex(/^[a-f0-9]{32}$/),
+});
+export type SessionDocumentCursor = z.infer<typeof SessionDocumentCursorSchema>;
 export const SessionDocumentSchema = z.object({
   id: z.string().regex(/^[a-f0-9]{32}$/),
   sessionId: z.string().min(1),
