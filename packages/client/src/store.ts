@@ -2282,7 +2282,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.type === 'session_reconnect_snapshot' &&
       typeof eventSessionId === 'string' &&
       eventSessionId !== parserState.currentSessionId &&
-      (hasPendingDelivery(eventSessionId) || deferredLocalSession) &&
       typeof msg.cursor === 'number' &&
       Number.isSafeInteger(msg.cursor) &&
       msg.cursor >= 0
@@ -2346,7 +2345,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             msg.cursor >= 0
           )
             if (!msg.offerId) connection.acknowledgeReconnectSnapshot(eventSessionId, msg.cursor);
-          return false;
+          // Filtering another chat is successful transport consumption. A
+          // refused event would reconnect and replay the same foreign event.
+          return true;
         }
       } else {
         // Allow session_id (new session assignment) and permission_request
@@ -2362,7 +2363,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             msg.cursor >= 0
           )
             if (!msg.offerId) connection.acknowledgeReconnectSnapshot(eventSessionId, msg.cursor);
-          return false;
+          return true;
         }
       }
     }
