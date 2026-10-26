@@ -275,6 +275,18 @@ describe('deliberate linked native continuation', () => {
       ).status,
     ).toBe(409);
   });
+  it('refuses malformed existing private history rather than treating it as absent legacy history', async () => {
+    current.runtime = undefined;
+    current.state = { status: 'interrupted' } as LegacyNativeSource['state'];
+    expect(
+      (
+        await invoke('/sessions/retained-source/native-continuation/preview', {
+          command: command(),
+        })
+      ).status,
+    ).toBe(409);
+    expect(admit).not.toHaveBeenCalled();
+  });
   it('does not continue an explicitly bound runtime whose private state has disappeared', async () => {
     delete (current as Partial<LegacyNativeSource>).state;
     expect(

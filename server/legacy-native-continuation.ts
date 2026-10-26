@@ -66,7 +66,7 @@ export function assertLegacyNativeSource(source: LegacyNativeSource): AccountBin
   )
     throw Error('A retained OpenAI Responses conversation is required');
   if (
-    !source.state &&
+    source.state === undefined &&
     (runtime ||
       !source.messages.some(
         (message) =>
@@ -145,7 +145,7 @@ export function reviewLegacyNativeContinuation(
     targetId: source.runtime?.version === 2 ? source.runtime.execution.targetId : null,
   };
   const unresolvedCalls = new Set<string>();
-  for (const message of source.state?.history ?? []) {
+  for (const message of source.state === undefined ? [] : source.state.history) {
     if (typeof message.content === 'string') continue;
     for (const block of message.content) {
       if (block.type === 'tool_use') unresolvedCalls.add(block.id);

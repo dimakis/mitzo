@@ -1802,7 +1802,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fusion-transport.test.ts':
     'ca730410cae2d8b7fc8b73be81515dc2ff9385fe046aa84cd960c44551ba1bbd',
   '../__tests__/legacy-native-continuation.test.ts':
-    '3ca77466881c576ba9ced51c3ee66641af07a86a6929bef07de27751197806f2',
+    '0f2fd2970f9d35a5e41cf62f1b8ee63d08ab6ac85a865a8ec236ad4dfb388f8a',
   '../__tests__/native-responses-runner.test.ts':
     '9693afa7fc404cd85a48fc6a25545f79740700255b1fcbac9d78a038f44a40a1',
   '../__tests__/ordinary-local-codex-entry.test.ts':
@@ -1854,7 +1854,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../legacy-native-continuation-routes.ts':
     'c41db0ec44f49e635549978f98df7dae6f6bb6b9ffeb73d010fd3f36bd4cb3b0',
   '../legacy-native-continuation.ts':
-    '083e045bf2ba2395eea00d4b862d28e765a163e9a2c478d40aa354dd6d288868',
+    '5882c6d3a5c4aa11f224bb227295d10e1a225a4530b606141892bd670eeeecae',
   '../native-commands.ts': '72538f21ed2d0e6610fd4ca424218ec1183f312fe17d2ef4b2f91b09125a19ed',
   '../ordinary-scoped-command.ts':
     '1ee43ab888c4343b889201c354a803108334fcfba1e74176e3281415ac502e88',
