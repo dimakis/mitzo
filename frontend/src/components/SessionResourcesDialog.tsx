@@ -1,7 +1,8 @@
 import { AgentLibrarySourceContext } from './AgentLibraryChatSource';
 import { ConversationWorkLinks } from './SessionWorkLink';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { SessionOutputReference } from '@mitzo/protocol';
+import { SessionDocuments } from './SessionDocuments';
+import type { SessionOutputCandidate, SessionOutputReference } from '@mitzo/protocol';
 import type { SessionTrayProps } from './SessionTray';
 import {
   collectSessionResources,
@@ -69,6 +70,7 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
   const [outputView, setOutputView] = useState<{
     sessionId: string;
     outputs: SessionOutputReference[];
+    candidates?: SessionOutputCandidate[];
     error?: string;
     loading: boolean;
   } | null>(null);
@@ -123,7 +125,7 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
       outputs: previous?.sessionId === sessionId ? previous.outputs : [],
       loading: true,
     }));
-    void readApiJson<{ outputs: SessionOutputReference[] }>(
+    void readApiJson<{ outputs: SessionOutputReference[]; candidates?: SessionOutputCandidate[] }>(
       `/api/sessions/${encodeURIComponent(sessionId)}/outputs`,
       controller.signal,
     )
@@ -141,7 +143,12 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
         )
           throw Error('Invalid output evidence');
         if (!controller.signal.aborted)
-          setOutputView({ sessionId, outputs: value.outputs, loading: false });
+          setOutputView({
+            sessionId,
+            outputs: value.outputs,
+            candidates: value.candidates,
+            loading: false,
+          });
       })
       .catch(() => {
         if (!controller.signal.aborted)
@@ -153,7 +160,7 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
           }));
       });
     return () => controller.abort();
-  }, [open, tab, sessionId, outputAttempt]);
+  }, [open, tab, sessionId, outputAttempt, messages.length]);
   const close = () => {
     detailOperation.current?.abort();
     if (detail) setDetail(null);
@@ -483,9 +490,17 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
               )}
               {tab === 'Outputs' && (
                 <>
+                  {sessionId && (
+                    <SessionDocuments
+                      key={sessionId}
+                      sessionId={sessionId}
+                      drafts={outputs?.candidates ?? []}
+                      refreshKey={outputAttempt + messages.length}
+                    />
+                  )}
                   <p className="workspace-muted">
-                    Explicitly registered outputs retained in this conversation. Mentioned URLs and
-                    paths remain References.
+                    Saved documents, workspace files and kept chat responses. Workspace files need a
+                    saved copy to survive workspace removal.
                   </p>
                   {outputs?.loading && <p role="status">Checking retained outputs…</p>}
                   {outputs?.error && <p role="alert">{outputs.error}</p>}
@@ -508,7 +523,7 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
                     </div>
                   ))}
                   {!outputs?.loading && !outputs?.error && !outputs?.outputs.length && (
-                    <p>No retained outputs yet.</p>
+                    <p>No kept conversation references yet.</p>
                   )}
                   {sessionId && (
                     <button
