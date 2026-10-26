@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.696-retained-worktree-git-maintenance';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.697-codex-startup-replay';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -961,7 +960,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '03fef53de70e3594cb948ac6ecbfe010979043411c658446eb5e2217911a38ce',
   '../../packages/client/src/store.ts':
-    'eacadd5895597041af784757d16d380a21b6ea75ff90ec2b5c390551fdef6de3',
+    '5517382b57a1ebff3a74da46761450c008f69b339f65a42cd52fcce1f5c731bc',
   '../../packages/harness/src/permission-handler.ts':
     'ded77a1bb6dc8c81ec80ee8a0cafb2691cc90a6b088b12c3559b06a0c7b4b05a',
   '../../packages/harness/src/permissions.ts':
