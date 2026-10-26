@@ -396,3 +396,9 @@ export {
   PaidReasoningPhaseSelectionsSchema,
   type PaidReasoningPhaseSelection,
 } from './paid-reasoning-selection.js';
+
+export {
+  MAX_SESSION_DOCUMENT_BYTES,
+  SessionDocumentSchema,
+  type SessionDocument,
+} from './session-document.js';

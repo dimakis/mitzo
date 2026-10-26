@@ -1,3 +1,5 @@
+import { SessionDocumentStore } from './session-document-store.js';
+import type { SessionDocumentWrite } from './session-document.js';
 import {
   openTelosOwnedDatabase,
   beginTelosDeletionReferenceScope,
@@ -404,6 +406,7 @@ const SCHEMA = `
 export class EventStore {
   private db: Database.Database | null;
   private readonly sessionOutputs: SessionOutputReferenceStore;
+  private readonly sessionDocuments: SessionDocumentStore;
   private readonly sessionCollaborations: SessionCollaborationStore;
   readonly collaborationConversation: CollaborationConversationStore;
   readonly agentCommunication: AgentCommunicationStore;
@@ -1803,6 +1806,7 @@ export class EventStore {
       this.migrateConversationSource(db);
       this.migrateUserMessageIndex(db);
       this.sessionOutputs = new SessionOutputReferenceStore(db);
+      this.sessionDocuments = new SessionDocumentStore(db);
       this.agentCommunication = new AgentCommunicationStore(db);
       this.sessionCollaborations = new SessionCollaborationStore(db, (membership) =>
         this.collaborationConversation.membershipChanged(membership),
@@ -2699,6 +2703,33 @@ export class EventStore {
   listSessionOutputCandidates(sessionId: string, limit = 10): SessionOutputCandidate[] {
     this.assertConversationIdentity(sessionId);
     return this.getSession(sessionId) ? this.sessionOutputs.candidates(sessionId, limit) : [];
+  }
+
+  private assertDocumentConversation(sessionId: string): void {
+    this.assertConversationIdentity(sessionId);
+    const session = this.getSession(sessionId);
+    if (!session || session.sessionType === 'symposium')
+      throw new Error('Document conversation unavailable');
+  }
+  keepSessionDocument(sessionId: string, input: SessionDocumentWrite) {
+    this.assertDocumentConversation(sessionId);
+    return this.sessionDocuments.keep(sessionId, input);
+  }
+  sessionDocumentReceipt(sessionId: string, requestId: string, intent: string) {
+    this.assertDocumentConversation(sessionId);
+    return this.sessionDocuments.receipt(sessionId, requestId, intent);
+  }
+  listSessionDocuments(sessionId: string) {
+    this.assertDocumentConversation(sessionId);
+    return this.sessionDocuments.list(sessionId);
+  }
+  readSessionDocument(sessionId: string, id: string, revision: number) {
+    this.assertDocumentConversation(sessionId);
+    return this.sessionDocuments.read(sessionId, id, revision);
+  }
+  sessionDocumentVersions(sessionId: string, id: string, before?: number) {
+    this.assertDocumentConversation(sessionId);
+    return this.sessionDocuments.versions(sessionId, id, before);
   }
 
   getOutputContributorBindings(
