@@ -321,3 +321,37 @@ synthetic RPC. Preparation, handoff, continued tools, revocation and cleanup
 completed. The custody/transition/workspace-owner batch passed 68 tests; the
 profiler passed seven. This validates the composed implementation locally; fresh
 exact-head hosted CI and trusted final LGTM still gate merge.
+
+Shared session identity query allocation
+Hosted bb7c811fc retained a completed subscription journey in 192.89 seconds,
+while API still reached the 240-second overall limit. API preparation recorded
+91.46 synchronous seconds versus subscription's 48.33 with the same major call
+counts. Subscription ran first, so a simple first-test cold-start explanation
+does not fit. The artifact does not establish the execution-rate difference's
+cause. API's final helper ran only 1.48 seconds of its 30-second budget before
+SIGKILL; subtracting cleanup leaves 240.014 active seconds. Timeout cleanup is
+strongly implicated, but the artifact alone does not identify the kill issuer.
+
+Every session metadata read also invoked an identity query that compiled the
+same SELECT again. Retain that statement beside the existing per-owner prepared
+statements, while executing a fresh SQL get and the existing public hook on each
+invocation. Connection ownership, transaction visibility, returned object
+mutability and close/reopen behavior remain. Constructor callbacks before the
+statement table exists retain the original prepare/get path. No row, negative
+lookup, permission, currentness result or error is cached.
+
+Nine interleaved rounds of 2,000 actual public calls against file-backed stores
+measured API getSession median 25.30 to 12.65 ms (49.93% paired improvement), and
+runtime-binding reads 23.00 to 11.14 ms (51.41%). Subscription results were
+similar. Tests reproduce repeated compilation RED, then prove one compilation
+with all fresh gets retained, external insert/update/delete visibility, caller
+mutation isolation, rollback, separate owners, close/reopen and the actual
+pre-statements migration callback. The focused protocol/metadata/lifecycle/owner
+batch passed all 359 tests. These are bounded operation and microbenchmark
+results, not proof of overall latency or hosted deadline recovery.
+
+The complete local API journey with the prepared identity statement passed in
+101.32 seconds process time against a new 5,310-leaf physical clone. Real OS
+fences, preparation, handoff, continued tools, revocation and cleanup all passed
+with synthetic RPC and no real model calls. This is a local composed-path pass;
+fresh exact-head hosted CI and trusted final approval remain required.
