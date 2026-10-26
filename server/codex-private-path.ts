@@ -41,6 +41,7 @@ export function privateCodexRoots(extraRoots: string[] = []): string[] {
       '.aws',
       '.ssh',
       '.config/gcloud',
+      '.config/openshell',
       '.config/gws',
       '.config/gh',
       '.cursor/mcp.json',
@@ -70,8 +71,8 @@ export function isPrivateCodexPath(path: string, extraRoots: string[] = []) {
 }
 
 /** Freeze known private roots for one delivery/query, retaining canonical alias checks. */
-export function privateCodexPathSnapshot() {
-  const roots = privateCodexRoots();
+export function privateCodexPathSnapshot(extraRoots: string[] = []) {
+  const roots = privateCodexRoots(extraRoots);
   return {
     roots,
     isPrivate: (path: string) => {

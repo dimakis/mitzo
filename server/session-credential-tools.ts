@@ -56,6 +56,13 @@ export function sessionCredentialTools(
   assertRuntimeCurrentSync?: () => void,
   enableAgentTasks = false,
 ) {
+  // These multi-frame helpers reject owned runtimes before approval because
+  // their transport cannot yet enforce the runtime's final authority fence.
+  const credentialDefinitions = credentialConnectionToolDefinitions.filter(
+    ({ name }) =>
+      !assertRuntimeCurrent ||
+      (name !== 'ConnectionWebSocket' && name !== 'HomeAssistantDashboard'),
+  );
   const taskToolsEnabled = enableAgentTasks && !!assertRuntimeCurrent && !!assertRuntimeCurrentSync;
   const taskTools = taskToolsEnabled
     ? sessionAgentTaskTools(
@@ -105,7 +112,8 @@ export function sessionCredentialTools(
       !(
         (name === 'ConnectionRequest' ||
           name === 'HomeAssistantDashboard' ||
-          name === 'ConnectionWebSocket') &&
+          name === 'ConnectionWebSocket' ||
+          name === 'ApplySecretRelay') &&
         effectivePermissionMode(session) === 'ask' &&
         method &&
         !['GET', 'HEAD'].includes(method)
@@ -126,7 +134,10 @@ export function sessionCredentialTools(
           await assertRuntimeCurrent?.();
           const current = owner();
           if (!current || !credentialAllowed(name))
-            return Promise.resolve({ behavior: 'deny', message: 'Session unavailable' });
+            return Promise.resolve({
+              behavior: 'deny',
+              message: 'Session unavailable',
+            });
           const decision = await buildPermissionHandler(current.clientId, registry)(
             toolPrefix + name,
             input,
@@ -141,7 +152,7 @@ export function sessionCredentialTools(
     : undefined;
   return {
     definitions: filterAgentTools(session, [
-      ...credentialConnectionToolDefinitions,
+      ...credentialDefinitions,
       ...repositoryTools.definitions,
       ...profileToolDefinitions,
       ...(taskToolsEnabled ? agentTaskToolDefinitions : []),
@@ -154,6 +165,21 @@ export function sessionCredentialTools(
       call?: ProfileToolCall,
     ) {
       await assertRuntimeCurrent?.();
+      if (
+        assertRuntimeCurrent &&
+        (name === 'ConnectionWebSocket' || name === 'HomeAssistantDashboard')
+      )
+        return unavailable();
+      if (
+        assertRuntimeCurrent &&
+        (name === 'PrepareSecretRelay' || name === 'PrepareConnectionSetup') &&
+        !session.ordinaryRuntimeOwner?.notifyCredentialSetup
+      )
+        return {
+          content:
+            'Private setup continuation is unavailable for this runtime. Use a supported originating chat before entering credentials.',
+          isError: true,
+        };
       if (!agentToolAllowed(session, name))
         return {
           content: 'Tool is not selected by this session’s published agent profile',
@@ -176,7 +202,7 @@ export function sessionCredentialTools(
         );
       if (!parsed.success) return { content: 'Invalid connection tool input', isError: true };
       const method =
-        name === 'ConnectionWebSocket'
+        name === 'ConnectionWebSocket' || name === 'ApplySecretRelay'
           ? 'POST'
           : 'operation' in parsed.data
             ? parsed.data.operation === 'save'
@@ -191,7 +217,7 @@ export function sessionCredentialTools(
           content: JSON.stringify(
             connectionGuide(
               credentialConnectionSchemas.GetConnectionGuide.parse(input).topic,
-              filterAgentTools(session, credentialConnectionToolDefinitions),
+              filterAgentTools(session, credentialDefinitions),
             ),
           ),
           isError: false,

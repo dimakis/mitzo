@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventStore } from '../event-store.js';
 import { NativeResponsesStore } from '../native-responses-store.js';
-import { NativeResponsesRunner } from '../native-responses-runner.js';
 const roots: string[] = [];
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -87,106 +86,6 @@ it('retains exact signed custody and refuses adopting legacy history or changing
   ).toThrow();
   store.begin('legacy', account);
   expect(() => store.setOrdinaryCustody('legacy', account, custody)).toThrow();
-  store.close();
-});
-it('refuses an unconsumed prepared command before saving history or resolving credentials', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'mitzo-responses-guard-'));
-  roots.push(root);
-  const store = new NativeResponsesStore(join(root, 'native.db'));
-  const getApiKey = vi.fn(async () => 'offline-token');
-  const fetch = vi.fn();
-  vi.stubGlobal('fetch', fetch);
-  const consumed = false;
-  const runner = new NativeResponsesRunner({
-    conversationId: 'conversation',
-    binding: account,
-    getApiKey,
-    store,
-    tools: [],
-    systemPrompt: '',
-    maxTokens: 100,
-    executeTool: vi.fn(),
-    commandAuthority: {
-      assertPrepare: () => {},
-      assertStart: () => {
-        if (!consumed) throw Error('receipt uncertain');
-      },
-      assertEffect: async () => {},
-    },
-  });
-  runner.prepare('child', 'develop', { model: 'next', reasoningEffort: 'high' });
-  await expect(runner.run('develop', undefined, 'child').next()).rejects.toThrow('uncertain');
-  expect(store.load('conversation', account)).toBeUndefined();
-  expect(getApiKey).not.toHaveBeenCalled();
-  expect(fetch).not.toHaveBeenCalled();
-  store.close();
-});
-it('Stop clears prepared authority without publishing a prompt or resolving a key', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'mitzo-responses-stop-'));
-  roots.push(root);
-  const store = new NativeResponsesStore(join(root, 'native.db'));
-  const terminal = vi.fn(),
-    getApiKey = vi.fn(async () => 'offline-token');
-  const runner = new NativeResponsesRunner({
-    conversationId: 'conversation',
-    binding: account,
-    getApiKey,
-    store,
-    systemPrompt: '',
-    maxTokens: 100,
-    tools: [],
-    executeTool: vi.fn(),
-    commandAuthority: {
-      assertPrepare: () => {},
-      assertStart: () => {},
-      assertEffect: async () => {},
-      commandTerminal: terminal,
-    },
-  });
-  runner.prepare('prepared', 'future prompt', { model: 'next', reasoningEffort: 'high' });
-  runner.interrupt();
-  expect(terminal).toHaveBeenCalledExactlyOnceWith('prepared');
-  expect(runner.isRunning()).toBe(false);
-  await expect(runner.run('future prompt', undefined, 'prepared').next()).rejects.toThrow(
-    'identity',
-  );
-  expect(store.load('conversation', account)).toBeUndefined();
-  expect(getApiKey).not.toHaveBeenCalled();
-  store.close();
-});
-it('rechecks consumed authority after exact credential resolution before provider HTTP', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'mitzo-responses-revoke-'));
-  roots.push(root);
-  const store = new NativeResponsesStore(join(root, 'native.db'));
-  let current = true;
-  const getApiKey = vi.fn(async () => {
-    current = false;
-    return 'offline-token';
-  });
-  const fetch = vi.fn();
-  vi.stubGlobal('fetch', fetch);
-  const runner = new NativeResponsesRunner({
-    conversationId: 'conversation',
-    binding: account,
-    getApiKey,
-    store,
-    systemPrompt: '',
-    maxTokens: 100,
-    tools: [],
-    executeTool: vi.fn(),
-    commandAuthority: {
-      assertPrepare: () => {},
-      assertStart: () => {},
-      assertEffect: async () => {
-        if (!current) throw Error('operator revoked');
-      },
-    },
-  });
-  runner.prepare('consumed', 'admitted prompt', { model: 'next', reasoningEffort: 'high' });
-  await expect(runner.run('admitted prompt', undefined, 'consumed').next()).rejects.toThrow();
-  expect(getApiKey).toHaveBeenCalledOnce();
-  expect(fetch).not.toHaveBeenCalled();
-  expect(store.status('conversation', account)).toBe('interrupted');
   store.close();
 });
 it('persists only FIFO identities and never claims an uncertain head or a second active command', () => {

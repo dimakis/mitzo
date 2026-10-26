@@ -9,6 +9,10 @@ export default defineConfig({
         __dirname,
         'packages/protocol/src/database-backup.ts',
       ),
+      '@mitzo/protocol/telos-sqlite-owners': resolve(
+        __dirname,
+        'packages/protocol/src/telos-sqlite-owners.ts',
+      ),
       '@mitzo/protocol/event-store': resolve(__dirname, 'packages/protocol/src/event-store.ts'),
       '@mitzo/protocol/collaboration-forward-custody': resolve(
         __dirname,

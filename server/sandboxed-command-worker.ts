@@ -1,3 +1,4 @@
+import { privateRepositoryCheckoutCommand } from './private-repository-checkout.js';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { Writable } from 'node:stream';
@@ -11,6 +12,12 @@ import {
   type SandboxRuntimeConfig,
 } from '@anthropic-ai/sandbox-runtime';
 import { AuthoritySnapshot, type SerializedAuthority } from './sandbox-authority.js';
+import {
+  privateNativeFileHelperCommand,
+  privateNativeFileProgramCommand,
+  nativeFileHelperProgram,
+  projectPrivateNativeFileHelperRequest,
+} from './native-file-operation.js';
 
 export interface SandboxWorkerPayload {
   cwd: string;
@@ -23,6 +30,10 @@ export interface SandboxWorkerPayload {
   filesystemOnly?: boolean;
   /** Trusted parent has approved this command's general network effects. */
   networkAccess?: 'approved-command';
+  /** Fixed private helper only, never arbitrary Bash's authority bypass. */
+  privateNativeFileRequestJson?: string;
+  privateNativeFileProgram?: { programPath: string; requestPath: string };
+  privateRepositoryCheckoutJson?: string;
 }
 
 interface WorkerDependencies {
@@ -76,11 +87,53 @@ export async function runSandboxedWorker(
     throw new Error('Invalid command network authorization');
   if (payload.networkAccess && payload.filesystemOnly)
     throw new Error('Command network authorization cannot change SDK isolation');
+  if (
+    payload.privateNativeFileRequestJson !== undefined &&
+    (payload.filesystemOnly ||
+      payload.networkAccess ||
+      (payload.privateNativeFileProgram
+        ? payload.command !==
+            privateNativeFileProgramCommand(
+              payload.privateNativeFileProgram.programPath,
+              payload.privateNativeFileProgram.requestPath,
+            ) ||
+          projectPrivateNativeFileHelperRequest(payload.privateNativeFileRequestJson) !==
+            payload.privateNativeFileRequestJson
+        : payload.command !== privateNativeFileHelperCommand(payload.privateNativeFileRequestJson)))
+  )
+    throw Error('Invalid private native file helper');
+  if (
+    payload.privateRepositoryCheckoutJson !== undefined &&
+    (payload.filesystemOnly ||
+      payload.networkAccess ||
+      payload.privateNativeFileRequestJson !== undefined ||
+      payload.command !== privateRepositoryCheckoutCommand(payload.privateRepositoryCheckoutJson))
+  )
+    throw Error('Invalid private repository checkout');
   if (payload.filesystemOnly !== undefined && typeof payload.filesystemOnly !== 'boolean')
     throw new Error('Invalid filesystem-only sandbox mode');
   if (payload.filesystemOnly && (dependencies.platform ?? process.platform) !== 'darwin')
     throw new Error('Filesystem-only SDK isolation requires macOS');
   const authority = AuthoritySnapshot.restore(payload.authority);
+  if (payload.privateNativeFileProgram) {
+    const { programPath, requestPath } = payload.privateNativeFileProgram;
+    const root = dirname(process.env.HOME ?? '');
+    if (
+      !payload.privateNativeFileRequestJson ||
+      dirname(programPath) !== root ||
+      dirname(requestPath) !== root ||
+      programPath !== join(root, 'helper.py') ||
+      requestPath !== join(root, 'request.json')
+    )
+      throw Error('Invalid private native helper program');
+    authority.verify();
+    if (
+      readFileSync(programPath, 'utf8') !== nativeFileHelperProgram ||
+      readFileSync(requestPath, 'utf8') !== payload.privateNativeFileRequestJson
+    )
+      throw Error('Invalid private native helper program');
+  }
+
   const config = SandboxRuntimeConfigSchema.parse(payload.config);
   const dependenciesCheck = manager.checkDependencies();
   if (dependenciesCheck.errors.length || dependenciesCheck.warnings.length)

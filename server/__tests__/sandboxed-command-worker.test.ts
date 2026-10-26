@@ -234,3 +234,130 @@ it('builds runtime-only policy with unrestricted networking and filesystem fenci
   expect(command).toContain(secret);
   expect(manager.initialize).not.toHaveBeenCalled();
 });
+
+it.each(['program', 'operation', 'network'] as const)(
+  'rejects a private helper %s substitution before initializing policy or spawning',
+  async (change) => {
+    const { payload, manager, spawn } = fixture();
+    const request = {
+      operation: 'CreateDirectory',
+      file_path: root + '/child',
+      rootAnchor: { rootPath: root, identity: { dev: '1', ino: '2' } },
+      parentIdentity: { dev: '1', ino: '2' },
+      expectedAbsent: true,
+      deniedRoots: [],
+      identity: null,
+      limit: 1,
+      timeoutMs: 1000,
+    };
+    const { privateNativeFileHelperCommand } = await import('../native-file-operation.js');
+    payload.privateNativeFileRequestJson = JSON.stringify(request);
+    payload.command = privateNativeFileHelperCommand(payload.privateNativeFileRequestJson);
+    if (change === 'program') payload.command = 'arbitrary shell text';
+    if (change === 'operation')
+      payload.privateNativeFileRequestJson = JSON.stringify({ ...request, operation: 'Write' });
+    if (change === 'network') payload.networkAccess = 'approved-command';
+    await expect(runSandboxedWorker(payload, { manager, spawn: spawn as never })).rejects.toThrow();
+    expect(manager.initialize).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['config', 'private-root'] as const)(
+  'refuses private checkout %s replacement across SRT wrapping before spawn',
+  async (change) => {
+    const { payload, manager, spawn } = fixture();
+    const git = join(root, 'git-admin');
+    mkdirSync(git);
+    const config = join(git, 'config');
+    writeFileSync(config, 'SYNTHETIC CONFIG');
+    const authority = new AuthoritySnapshot();
+    authority.capture(root);
+    authority.capture(config, true);
+    payload.authority = authority.serialize();
+    payload.privateRepositoryCheckoutJson = JSON.stringify({
+      scratch: root,
+      baseOid: 'a'.repeat(40),
+      objectFormat: 'sha1',
+    });
+    const { privateRepositoryCheckoutCommand } = await import('../private-repository-checkout.js');
+    payload.command = privateRepositoryCheckoutCommand(payload.privateRepositoryCheckoutJson);
+    manager.wrapWithSandbox.mockImplementation(async () => {
+      if (change === 'config') writeFileSync(config, 'REPLACEMENT CONFIG');
+      else {
+        renameSync(git, git + '-retained');
+        mkdirSync(git);
+        writeFileSync(config, 'SYNTHETIC CONFIG');
+      }
+      return 'wrapped';
+    });
+    await expect(runSandboxedWorker(payload, { manager, spawn: spawn as never })).rejects.toThrow(
+      'Sandbox authority changed',
+    );
+    expect(spawn).not.toHaveBeenCalled();
+    expect(manager.reset).toHaveBeenCalledOnce();
+  },
+);
+it('rejects substituted private checkout commands before sandbox setup', async () => {
+  const { payload, manager, spawn } = fixture();
+  payload.privateRepositoryCheckoutJson = JSON.stringify({
+    scratch: root,
+    baseOid: 'a'.repeat(40),
+    objectFormat: 'sha1',
+  });
+  payload.command = 'git -C /synthetic/forbidden-source status';
+  await expect(runSandboxedWorker(payload, { manager, spawn: spawn as never })).rejects.toThrow(
+    'Invalid private repository checkout',
+  );
+  expect(manager.initialize).not.toHaveBeenCalled();
+  expect(spawn).not.toHaveBeenCalled();
+});
+it('validates fixed private program and request bytes again after asynchronous sandbox wrapping', async () => {
+  const {
+    nativeFileHelperProgram,
+    privateNativeFileProgramCommand,
+    projectPrivateNativeFileHelperRequest,
+  } = await import('../native-file-operation.js');
+  const { payload, manager, spawn } = fixture();
+  vi.stubEnv('HOME', join(root, 'home'));
+  const programPath = join(root, 'helper.py'),
+    requestPath = join(root, 'request.json');
+  const rootInfo = new AuthoritySnapshot();
+  rootInfo.capture(root);
+  const rootIdentity = rootInfo.serialize().find((item) => item.path === root)!.stat!;
+  const requestJson = projectPrivateNativeFileHelperRequest(
+    JSON.stringify({
+      operation: 'CreateDirectory',
+      identity: null,
+      limit: 1,
+      timeoutMs: 1000,
+      file_path: join(root, 'target'),
+      rootAnchor: { rootPath: root, identity: { dev: rootIdentity.dev, ino: rootIdentity.ino } },
+      parentIdentity: { dev: rootIdentity.dev, ino: rootIdentity.ino },
+      expectedAbsent: true,
+      deniedRoots: [],
+    }),
+  );
+  await writeFile(programPath, nativeFileHelperProgram);
+  await writeFile(requestPath, requestJson);
+  rootInfo.capture(programPath, true);
+  rootInfo.capture(requestPath, true);
+  payload.authority = rootInfo.serialize();
+  payload.privateNativeFileRequestJson = requestJson;
+  payload.privateNativeFileProgram = { programPath, requestPath };
+  payload.command = privateNativeFileProgramCommand(programPath, requestPath);
+  try {
+    expect(await runSandboxedWorker(payload, { manager, spawn: spawn as never })).toBe(0);
+    spawn.mockClear();
+    manager.wrapWithSandbox.mockImplementation(async () => {
+      writeFileSync(programPath, 'FOREIGN PROGRAM');
+      return 'wrapped';
+    });
+    await expect(runSandboxedWorker(payload, { manager, spawn: spawn as never })).rejects.toThrow(
+      'Sandbox authority changed',
+    );
+    expect(spawn).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});

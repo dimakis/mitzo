@@ -168,7 +168,7 @@ export function normalizeLocalInventory(data: ExplicitLocalInventory): ChatRunti
         reason:
           candidates.length > 1
             ? 'The configured target identity is ambiguous. Refresh execution choices.'
-            : 'Refresh the selected account and model before sending.',
+            : 'Model availability could not be verified. Use Refresh models to retry.',
         models: route.models ?? configured?.models ?? [],
         agentProfiles: route.agentProfiles,
         agentProfileRejections: route.agentProfileRejections,

@@ -1,0 +1,154 @@
+{
+  "executionCommit": "8ba9eb6696b1ad506a42bf7ffab5d4df3da2bb32",
+  "executionTree": "16fedbead48ffb9bf12d9b97b18627bc07b5ac56",
+  "parents": [
+    "4a93f28da212333c42ee9ea86388b3c573020fcb",
+    "84cf2b33c97bcac26463ec38a98bb8523262abdd"
+  ],
+  "ownerSource": "84cf2b33c97bcac26463ec38a98bb8523262abdd",
+  "ownerTree": "99d5247e98b0c4b2fd516bfe2ffea6f321f72ac2",
+  "exactProductionUnchangedFromOwnerSource": true,
+  "dedicatedOwnedPaths": {
+    "docs/evidence/telos-s9/integrated-candidate/README.md": "3a1e83f341524b4bcec05e46fa7a2f2cb9f7d90d3d6ee2a2609794c86e9657d8",
+    "docs/evidence/telos-s9/integrated-candidate/acceptance-plan.json": "5a0eaf2ae8efe56c240ba94c3ab59546491e5ffef6aee791d3ad5d66cbff82ed",
+    "docs/evidence/telos-s9/integrated-candidate/advisor-material-pin-red.md": "8c38f036cde1a9c515b53b5ac37e9aae2f6ddfc7ba2af9546cb405437b34d77e",
+    "docs/evidence/telos-s9/integrated-candidate/assembly-conflicts-manifest.json": "0d12d74d90696d2acff6d1d22dae7f55b234ab40cbcc82498f6bd1f6887ff594",
+    "docs/evidence/telos-s9/integrated-candidate/assembly-conflicts.zip": "23904cf7dfe57f0d71529ebea23ea80422e2ae96c5a68dcdf69b6b71b86a6398",
+    "docs/evidence/telos-s9/integrated-candidate/joined-first-path.md": "77f4be485021bf544b19ac541c2eaee32bca6bf7edf72714f17a10c46f34a237",
+    "docs/evidence/telos-s9/integrated-candidate/peer-actual-app-observation.json": "d916684aeebc6031c8304d83f955dca36b56b037437d1df5ca38473eb2da5dcc",
+    "docs/evidence/telos-s9/integrated-candidate/s9-accepted-design-pins-results.json": "f7511d6e7a9cdced79ae50b31640024fd8341bedc58e554fcfcf6fcec1f7d908",
+    "docs/evidence/telos-s9/integrated-candidate/s9-accepted-design-pins-run.log": "53d61876195d48a8d4c36dcf08756e39c18202238419c7d1cbe85634ad33123c",
+    "docs/evidence/telos-s9/integrated-candidate/s9-peer-required-results.json": "fe925961f48faff2126824f4ffcac1c836fe8b314cfc6bb2a49ec3865e96b156",
+    "docs/evidence/telos-s9/integrated-candidate/s9-peer-required-run.log": "0f304318947afab35a1b3b7bda49bd2fb1bfc2eb3f0997f5b0f0787ad0faeb56",
+    "docs/evidence/telos-s9/integrated-candidate/s9-s5b-candidate-reuse-results.json": "fdb0486c354c373bba477403d03fd627e8b53d9733743f01e3c8dc44ad3b464a",
+    "docs/evidence/telos-s9/integrated-candidate/s9-s5b-candidate-reuse-run.log": "eda78645549168933b63229a62900fb909697e10cea157919aa7a0a35102badd",
+    "docs/evidence/telos-s9/integrated-candidate/s9-s5b-owner-boundaries-results.json": "392f200db21f397dacf259b9836c4ac275975477b22f35d2cb29affed7900089",
+    "docs/evidence/telos-s9/integrated-candidate/s9-s5b-owner-boundaries-run.log": "219738e88acc06af2a5c8ed11f0ad8c6f1fe368222ae7de58671dad4a81fee4c",
+    "docs/evidence/telos-s9/integrated-candidate/s9-s6-current-boundaries-results.json": "fa3bded57a30db9b27c67d9a1206b4f5e3bc330567eb8f08d6638384928005ea",
+    "docs/evidence/telos-s9/integrated-candidate/s9-s6-current-boundaries-run.log": "c96ffa966c12088575033ab3eef5b008384c2a69a5875c81995b80b2f433e3c9",
+    "docs/evidence/telos-s9/integrated-candidate/s9-s6-current-native-boundary-results.json": "9f8f4c7aa5504b9060be1988113bea75cbd100c487994f9c2250b4cb9e4773f0",
+    "docs/evidence/telos-s9/integrated-candidate/s9-s6-current-native-boundary-run.log": "330b0920f23d03ffc8e456f1bee1863d41afe817ef335836f721b01e5411dad2",
+    "docs/evidence/telos-s9/integrated-candidate/s9-s6-owner-boundaries-results.json": "460bfe8e19e5eb9cd97a1dca4ebebcfa70a97d707f33f5ccaca8f21e187172f1",
+    "docs/evidence/telos-s9/integrated-candidate/s9-s6-owner-boundaries-run.log": "b80d0b05592be19b84fced95f05d6e73505faedfef7829b7d437b7183e74bfa3",
+    "docs/evidence/telos-s9/integrated-candidate/source-manifest.json": "0029104172af7dcf71ec5f1bf2f703d46a2507c3f9d9eef2e846c25aed2d7038",
+    "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts": "212d419e82dd2b3a8e3aa768dc2bff10c467dbe83f788cca8a75e7a115c350bb",
+    "tests/integration/telos-s9/integrated-candidate/joined-canonical-cli.ts": "d1cbb3878854d30a3c02f229278acf0d5e264c4983183bea94f749a15d705b30",
+    "tests/integration/telos-s9/integrated-candidate/non-git-browser.contract.ts": "25244218f42a642acff35581de768453ccba80fd8f6d90ece3ae02f12568cdf3",
+    "tests/integration/telos-s9/integrated-candidate/peer-messaging.required-contract.ts": "b7f8b3cbccd5269b21e8a3d089d039809bfdc8a76dd72d299b63e256a0da0fae",
+    "tests/integration/telos-s9/integrated-candidate/vitest.joined.config.ts": "cfe050a3839c97d79c0fd7c3bbd0e4ccc877c1b60f9f2475f7a51321d7c64ec8",
+    "tests/integration/telos-s9/integrated-candidate/vitest.required.config.ts": "7688c8811fe3593072f4c0d968910205741ef9f0025c18f6cdb957d9b0e7a9c2"
+  },
+  "test": {
+    "path": "tests/integration/telos-s9/integrated-candidate/non-git-browser.contract.ts",
+    "sha256": "25244218f42a642acff35581de768453ccba80fd8f6d90ece3ae02f12568cdf3",
+    "unchangedFromRedCommit": "4a93f28da212333c42ee9ea86388b3c573020fcb"
+  },
+  "result": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-JOINED-84-DIAGNOSTICS/same-case/run.json",
+    "sha256": "29f9f8a1bbeef4b662bf3a85231bf0c2612a8f23e61662a26fc1ae223ac27954",
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 17280.674958
+  },
+  "boundary": {
+    "advisorPreviewStatus": 200,
+    "advisorSaveStatus": 200,
+    "selectedPins": [
+      {
+        "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+        "revision": 1,
+        "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+      },
+      {
+        "artifactId": "4d1e5b43cda1cb8d2acdbc9b8939ad32",
+        "revision": 1,
+        "sha256": "0329e47b253fcad6803c0f6461f2da96410d10b7a9a3f555f39545109ea5d769"
+      }
+    ],
+    "packetSha256": "26dec4e7c6ad0b1e3fcc3cf82f920232a896818bec6e2d89dac0bea255e02bd5",
+    "originalMaterial": {
+      "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+      "revision": 1,
+      "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273",
+      "sourceConversationId": "planning",
+      "sizeBytes": 26,
+      "contentBase64": "VGhlIHJldmlld2VkIHBhbmVsIGxheW91dC4="
+    },
+    "childId": "febed0ca7a645dc3",
+    "savedSources": [
+      {
+        "version": 1,
+        "snapshotId": "a48e838ec70bdc468c3537ee06b8725469c4dba9f6dcc1cf7c00fd008111717d",
+        "itemId": "febed0ca7a645dc3",
+        "source": {
+          "namespace": "mitzo",
+          "conversationId": "ed76eeb3-6463-8eb0-8557-0783d12cef05"
+        },
+        "selection": {
+          "kind": "selected",
+          "messageIds": [
+            "d0f3a16c-e026-409b-8e06-4a247292a2be",
+            "06a45c17-1f30-49ff-b400-b07200a0655b"
+          ],
+          "blockIds": ["b0"],
+          "throughSequence": 14
+        },
+        "adoptedBrief": {
+          "revision": "8e3d8a03d0f54d820eda0f022b23c0723e62a43c99f7715c05b9354d92eb2599",
+          "sha256": "8e3d8a03d0f54d820eda0f022b23c0723e62a43c99f7715c05b9354d92eb2599"
+        },
+        "artifacts": [
+          {
+            "artifactId": "6d8e589baeeb4f928fe135831d8eb2fb",
+            "revision": 1,
+            "sha256": "d5464848a8ce785511ae462adba009d0f3cc10ec862b55d09866ea8637d9d273"
+          },
+          {
+            "artifactId": "4d1e5b43cda1cb8d2acdbc9b8939ad32",
+            "revision": 1,
+            "sha256": "0329e47b253fcad6803c0f6461f2da96410d10b7a9a3f555f39545109ea5d769"
+          },
+          {
+            "artifactId": "dc7352cfd5ae9760216fe80cc0ba10b8",
+            "revision": 1,
+            "sha256": "26dec4e7c6ad0b1e3fcc3cf82f920232a896818bec6e2d89dac0bea255e02bd5"
+          }
+        ],
+        "author": null,
+        "sourceCreatedAt": "2026-10-19T23:30:02.307Z",
+        "adoptedAt": "2026-10-19T23:30:03.260Z"
+      }
+    ],
+    "allOriginalAssertionsUnchanged": true
+  },
+  "sourceProof": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-FIX-84-OWNER-SOURCE-PROOF.json",
+    "sha256": "e0b5032934eb8e4b1f2799f91c17dae7abe110dcde69d0aebfb7a7d2a477531d"
+  },
+  "archives": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-JOINED-8BA9-SOURCE.zip",
+      "sha256": "68cc966c4168537549fc880adda8a7cdd53352f3b288bf5398b15260674f6db4",
+      "size": 301868
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-JOINED-84-DIAGNOSTICS.zip",
+      "sha256": "352f4118b68bde81a1583d124ae78686f0769c9c7ca54f008ecb3d5ae316d2eb",
+      "size": 195157
+    }
+  ],
+  "scope": "Actual frontend main/App/router, advisor review/setup/Send/draft preview/save, lead and worker Send, real auth/HTTP/SSE/storage/outbox/ordinary native admission, private3077 CLI, permission/MCP/task callback, Files edit/save/Back, Tasks Approve, explicit lead canonical verified update, browser/SSE same-worker reattach, consumed replay/no-extra-turn and retained owner reopen. Provider/account discovery RPC and declared external integrations fake only. Origin source adoption, lead delegation, artifact save and final canonical verification remain explicit scripted calls to real owners.",
+  "visual": "Three current captures inspected: actual lead ordinary frame, Files saved editor, task awaiting review. Chromium390x844/reducedmotion/default pointer only; no full desktop/touch/WebKit/theme/frozenUX/prod-bundle acceptance.",
+  "limits": {
+    "newPR": false,
+    "acceptedMainQualified": false,
+    "s9Complete": false,
+    "parentComplete": false,
+    "uxAccepted": false,
+    "liveQualified": false,
+    "realModelCalls": 0,
+    "s6PeerSourceIncluded": false
+  },
+  "next": "Repository counterpart and decisive recovery; then actual S8 chooser/source-return/reconnect plus S6 peer/control on owner-composed source and accepted-main repeat. CT19 separately authorized."
+}

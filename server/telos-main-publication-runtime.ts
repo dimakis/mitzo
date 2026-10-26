@@ -13,6 +13,7 @@ import {
 } from './github-main-merge-selection.js';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
 import { TelosArtifactStore } from './telos-artifact-store.js';
+import { TelosItemStore } from './telos-item-store.js';
 import { TelosSourceCapture } from './telos-source-capture.js';
 import { TelosSourceApprovalStore } from './telos-source-approval-store.js';
 import type { NativeMainPublicationCall } from './telos-main-publication-host.js';
@@ -161,6 +162,35 @@ export class TelosMainPublicationRuntime {
         work.close();
       } catch {
         createLogger('telos-publication').error('Canonical publication connection cleanup failed');
+      }
+    }
+  }
+  async withItems<T>(
+    context: NativeHostToolContext,
+    operation: (owners: {
+      context: NativeHostToolContext;
+      items: TelosItemStore;
+      work: TelosWorkStore;
+    }) => Promise<T>,
+  ): Promise<T> {
+    const scoped = this.bindNativeContext(context);
+    const work = new TelosWorkStore(this.database, {
+      ordinaryConversation: (id) => isAvailableTelosWorkConversation(this.events.getSession(id)),
+    });
+    let items: TelosItemStore | undefined;
+    try {
+      items = new TelosItemStore(this.database);
+      scoped.assertCurrentSync();
+      return await operation({ context: scoped, items, work });
+    } finally {
+      for (const owner of [items, work]) {
+        try {
+          owner?.close();
+        } catch {
+          createLogger('telos-publication').error(
+            'Canonical native item connection cleanup failed',
+          );
+        }
       }
     }
   }

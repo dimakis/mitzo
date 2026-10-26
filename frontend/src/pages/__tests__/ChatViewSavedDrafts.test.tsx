@@ -534,7 +534,7 @@ for (const Page of [ChatView, DesktopChatView]) {
   });
 }
 
-const roleDraftFence = vi.hoisted(() => ({ setup: vi.fn() }));
+const roleDraftFence = vi.hoisted(() => ({ setup: vi.fn(), afterBound: vi.fn() }));
 vi.mock('../../hooks/useTelosRoleSetup', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../hooks/useTelosRoleSetup')>();
   return {
@@ -554,6 +554,7 @@ vi.mock('../../hooks/useTelosRoleSetup', async (importOriginal) => {
       confirm: async () => {
         await roleDraftFence.setup();
         options.onBound?.('confirmed-role-chat');
+        roleDraftFence.afterBound();
       },
       retry: async () => {
         await roleDraftFence.setup();
@@ -563,6 +564,60 @@ vi.mock('../../hooks/useTelosRoleSetup', async (importOriginal) => {
   };
 });
 for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} releases the old role URL owner before a post-binding draft write`, async () => {
+    roleDraftFence.setup.mockReset().mockResolvedValue(undefined);
+    const draft = createChatDraft();
+    draft.settings.selection = { accountId: 'work', model: 'luna', reasoningEffort: 'low' };
+    draft.settings.search = 'telosRoleItem=item&telosRole=lead&telosRoleMode=assign';
+    // Role setup can begin without a first message. Match the browser's saved
+    // runtime selection seed, whose empty body is released by saveChatDraft.
+    localStorage.setItem(`mitzo-chat-draft:${draft.id}`, JSON.stringify(draft));
+    roleDraftFence.afterBound.mockImplementationOnce(() => {
+      // Browser history changes before React commits the bound route. A draft
+      // event in that interval must not restore the old role URL.
+      saveChatDraft({ ...draft, text: 'First message after role binding' });
+    });
+    const { store } = mount(Page, `/chat?draft=${draft.id}&${draft.settings.search}`);
+    await waitFor(() => expect(getChatDraft(draft.id)).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: 'Assign lead & open chat' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/chat/confirmed-role-chat'),
+    );
+    expect(store.getState().sessions.active).toBe('confirmed-role-chat');
+    expect(getChatDraft(draft.id)?.text).toBe('First message after role binding');
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Assign lead & open chat' })).toBeNull();
+  });
+  it(`${Page.name} keeps a successfully bound role composer on its conversation while retaining the rich draft`, async () => {
+    roleDraftFence.setup.mockReset().mockResolvedValue(undefined);
+    const draft = {
+      ...createChatDraft(),
+      text: 'Reviewed work conversation',
+      contextBlocks: ['Retain the reviewed source'],
+    };
+    draft.settings.retainRuntimeIntent = true;
+    draft.settings.search = 'telosRoleItem=item&telosRole=lead&telosRoleMode=assign';
+    saveChatDraft(draft);
+    const { store } = mount(Page, `/chat?draft=${draft.id}&${draft.settings.search}`);
+    fireEvent.click(screen.getByRole('button', { name: 'Assign lead & open chat' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/chat/confirmed-role-chat'),
+    );
+    await waitFor(() => expect(store.getState().sessions.active).toBe('confirmed-role-chat'));
+    expect(getSessionChatDraft('confirmed-role-chat')?.contextBlocks).toEqual([
+      'Retain the reviewed source',
+    ]);
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Perform the reviewed work' },
+    });
+    await waitFor(() =>
+      expect(getSessionChatDraft('confirmed-role-chat')?.text).toBe('Perform the reviewed work'),
+    );
+    expect(screen.getByTestId('location').textContent).toBe('/chat/confirmed-role-chat');
+    expect(screen.queryByRole('button', { name: 'Assign lead & open chat' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeTruthy();
+    expect(roleDraftFence.setup).toHaveBeenCalledOnce();
+  });
   it(`${Page.name} refuses silent role setup when the latest rich draft cannot be saved even though binding records fit`, async () => {
     roleDraftFence.setup.mockClear();
     const draft = {
@@ -654,5 +709,74 @@ for (const Page of [ChatView, DesktopChatView]) {
     );
     expect(getChatDraft(draft.id)?.text).toBe('Persisted before setup');
     expect(getSessionChatDraft('confirmed-role-chat')).toBeNull();
+  });
+}
+
+for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} recovers ordinary rich acceptance after navigation through the real HTTP outbox`, async () => {
+    const draft = {
+      ...createChatDraft(),
+      text: 'Ordinary send before navigation',
+      images: [
+        { data: 'ZmFrZQ==', preview: 'data:image/png;base64,ZmFrZQ==', mediaType: 'image/png' },
+      ],
+      contextBlocks: ['Accepted selected resource'],
+    };
+    draft.settings.selection = { accountId: 'work', model: 'luna', reasoningEffort: 'high' };
+    saveChatDraft(draft);
+    let resolveSend!: (response: Response) => void;
+    let submitted: Record<string, unknown> | undefined;
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url === '/api/chat/send') {
+        submitted = JSON.parse(String(init?.body));
+        return new Promise<Response>((resolve) => {
+          resolveSend = resolve;
+        });
+      }
+      return Promise.resolve(new Response('{}'));
+    });
+    const store = createTestStore({
+      sseConfig: {
+        baseUrl: '',
+        fetch,
+        createEventSource: () =>
+          Object.assign(new EventTarget(), { close() {} }) as unknown as EventSource,
+        outboxStorage: localStorage,
+      },
+    });
+    const show = (entry: string) =>
+      render(
+        <MitzoStoreProvider value={store}>
+          <MemoryRouter initialEntries={[entry]}>
+            <Routes>
+              <Route path="/chat/:sessionId?" element={<Page />} />
+            </Routes>
+          </MemoryRouter>
+        </MitzoStoreProvider>,
+      );
+    const first = show(`/chat?draft=${draft.id}`);
+    openAgentSettings();
+    fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start session' }));
+    await waitFor(() => expect(submitted?.prompt).toBe(draft.text));
+    expect(submitted).not.toHaveProperty('composerDraft');
+    first.unmount();
+    await act(async () =>
+      resolveSend(
+        new Response(
+          JSON.stringify({
+            accepted: true,
+            clientMsgId: submitted!.clientMsgId,
+            sessionId: 'accepted-ordinary-chat',
+          }),
+          { status: 202 },
+        ),
+      ),
+    );
+    show(`/chat?draft=${draft.id}`);
+    await waitFor(() => expect(getChatDraft(draft.id)).toBeNull());
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+    expect(screen.queryByAltText('Attachment 1')).toBeNull();
+    store.getState().invalidateAuthentication();
   });
 }

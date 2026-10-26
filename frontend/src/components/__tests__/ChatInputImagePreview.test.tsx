@@ -193,6 +193,7 @@ it.each(['Cancel preview', 'Save preview'])(
       undefined,
       expect.any(Function),
       expect.any(Function),
+      undefined,
     );
     expect(onInterrupt).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Current draft');
@@ -268,6 +269,7 @@ it.each(['session', 'generation', 'storage'] as const)(
       undefined,
       expect.any(Function),
       expect.any(Function),
+      undefined,
     );
   },
 );
@@ -344,7 +346,9 @@ it('keeps a saved draft image edit after acceptance of the older submitted image
   expect(onSend.mock.calls[0][1]?.[0].data).toBe('original');
   expect(getChatDraft(draft.id)?.images[0].data).toBe('edited');
   expect(screen.getByAltText('Attachment 1').getAttribute('src')).toContain('edited');
-  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', draft.text);
+  // The image edit is new work; the unchanged text already has its exact receipt.
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+  expect(getChatDraft(draft.id)?.text).toBe('');
 });
 
 for (const input of ['file', 'paste'] as const) {

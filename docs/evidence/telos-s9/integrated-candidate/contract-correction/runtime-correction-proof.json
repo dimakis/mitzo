@@ -1,0 +1,178 @@
+{
+  "baseline": "69ce8308e3e8d4d34af7d2d80ed65c7d4bdc606d",
+  "correctionScope": "Seven bounded test/harness paths plus one dedicated pre-aborted regression. Real store reads and stronger assertions; not emitted-JS equivalence. Production source unchanged.",
+  "files": [
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/joined-repository-source.ts",
+      "beforeSha256": "8ff3ca340e4988782946c52aa1431fb16ec55095e7f1d326845ac5e202906bc9",
+      "afterSha256": "fb972ba40c5f0cc6f580066007148cd7a2abe692c43864a020b825e0f2dc506f",
+      "typeOnly": false,
+      "testOnly": true
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/process-restart-browser.contract.ts",
+      "beforeSha256": "96343861c58bc6c1b5a16845a695a24aa48a35838c63ec47acd118d0fcfb2afe",
+      "afterSha256": "e1c1bd9f7e65e66dfa5390f1c2f8b80f418179820c4fd116af4adb97464a4534",
+      "typeOnly": false,
+      "testOnly": true
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/process-restart-fixture.ts",
+      "beforeSha256": "2c92353af39aecfcee934f78c37ea4f27193009005d8b0aff6ee1cb535cd2a02",
+      "afterSha256": "cf4b545274cafb35ce7f92e2b2ac4e55949ee33f52777a1392e38012a6646889",
+      "typeOnly": false,
+      "testOnly": true
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/restart-child-app.mjs",
+      "beforeSha256": "19387c78a519136c771a56ade7cd5c1238e9ae1f7a5760644e15441d90826dc1",
+      "afterSha256": "9e1bdc20f6fb5f5987c68e8fbf989618f194a4d49b95d3e629f7c51a13d0ccc8",
+      "typeOnly": false,
+      "testOnly": true
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/worker-process-restart-browser.contract.ts",
+      "beforeSha256": "bb7e3e37e4fee9ed8a91bfb312e7fad8d80ba2e5db1335a7cdffa115c5ef22c5",
+      "afterSha256": "465253b0b21f1103cb1b8ad7e2771259db64740c1fba0e3f27c1b34cb7c25234",
+      "typeOnly": false,
+      "testOnly": true
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/worker-process-restart-fixture.ts",
+      "beforeSha256": "bb36be3cd9e85b78cccb971e427eca303c82ff6b5120ca4e4c2a517969a58ee0",
+      "afterSha256": "3c3249b89b08f56cecfc5fa6bd1b2bc625a653cff3ee2baa3e11ec049c0c9fb6",
+      "typeOnly": false,
+      "testOnly": true
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/worker-restart-child-app.mjs",
+      "beforeSha256": "c0fd0552b9abd1f7f794ad5ee0c398f685fc5176a1ce9eebdcacc21c9b0e524d",
+      "afterSha256": "e7e32e1eb3e20b7566c7ce4f7ab956fae72f77beb8fbd19a05a2608b9ae86dd8",
+      "typeOnly": false,
+      "testOnly": true
+    },
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/joined-repository-source-abort.test.ts",
+      "beforeSha256": null,
+      "afterSha256": "4cab570a694d6c53e3c221aef2e116bd27880f22e40b931d026531e12172618c",
+      "newDedicatedPreAbortedRegression": true,
+      "testOnly": true
+    }
+  ],
+  "selectedCases": [
+    {
+      "name": "repository-pre-aborted-helper",
+      "counts": {
+        "numPassedTests": 1,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTotalTests": 1
+      },
+      "sha256": "3767de90ca98f54ecfcda817f21f1f32cc8e2bbff691999be021a254cec8df3a",
+      "originalResultPath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/foundation-evidence/acceptance-bounded-retakes/repository-pre-aborted-helper/run.json",
+      "retainedResult": "docs/evidence/telos-s9/integrated-candidate/contract-correction/repository-pre-aborted-helper-run.json"
+    },
+    {
+      "name": "process-restart",
+      "counts": {
+        "numPassedTests": 1,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTotalTests": 1
+      },
+      "sha256": "e33417cfaf7ad20f6f51392fd79f4ec59eace109392bd4ea20bd013f7d3f5758",
+      "originalResultPath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/foundation-evidence/acceptance-bounded-retakes-correct-python/process-restart/run.json",
+      "retainedResult": "docs/evidence/telos-s9/integrated-candidate/contract-correction/process-restart-run.json"
+    },
+    {
+      "name": "worker-process-restart",
+      "counts": {
+        "numPassedTests": 1,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTotalTests": 1
+      },
+      "sha256": "1c6343c8c45c854546b50165db8252c63fdb5ff2dd4b99d3639bc582410dea10",
+      "originalResultPath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/foundation-evidence/acceptance-bounded-retakes-correct-python/worker-process-restart/run.json",
+      "retainedResult": "docs/evidence/telos-s9/integrated-candidate/contract-correction/worker-process-restart-run.json"
+    },
+    {
+      "name": "repository",
+      "counts": {
+        "numPassedTests": 1,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTotalTests": 1
+      },
+      "sha256": "b6c69695cd3d80818fadcda5389a62435222ea3e0b06622a045a28bfd61abd5f",
+      "originalResultPath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/foundation-evidence/acceptance-bounded-retakes-correct-python/repository/run.json",
+      "retainedResult": "docs/evidence/telos-s9/integrated-candidate/contract-correction/repository-run.json"
+    }
+  ],
+  "actualRestartOwners": [
+    {
+      "name": "process-restart",
+      "actualPreparedRuntimeBindingEqualsInitialColdAfter": true,
+      "initialFullProfileAssertedAgainstFixtureAndColdAfterRetained": true,
+      "runtimeBindingSha256": "021132604c3b636b6606bd4fb0c1adec833d05e351926ac41f1e62ef8095faaa",
+      "profileSha256": "4c1beed4094a4cc37b38f95d302e4170ef00ab7501cdbfbd536df3cf545e6595",
+      "childPids": [
+        43425,
+        43678
+      ],
+      "bothChildrenActuallyAbsent": true,
+      "effectCounts": {
+        "native.launch": 1,
+        "preflight.close": 2,
+        "thread/start": 1,
+        "turn/start": 1
+      },
+      "observationsSha256": "8bc521a13f9a29ea48ad43e71e7df92dbb12a69ca98c7d11b7f2e37310653d19",
+      "observationsPath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/foundation-evidence/acceptance-bounded-retakes-correct-python/process-restart/process-restart-observations.json",
+      "lifecycleSha256": "4f6197b5737901565a7d5a35f5bf98e9d1719f257224e539bfa34b006f2d4144"
+    },
+    {
+      "name": "worker-process-restart",
+      "actualPreparedRuntimeBindingEqualsInitialColdAfter": true,
+      "initialFullProfileAssertedAgainstFixtureAndColdAfterRetained": true,
+      "runtimeBindingSha256": "f37ea3ffd8d1fb496d9bcc8b89050ce8a104979da3f51c109547f96b502a1918",
+      "profileSha256": "4c1beed4094a4cc37b38f95d302e4170ef00ab7501cdbfbd536df3cf545e6595",
+      "childPids": [
+        44319,
+        44515
+      ],
+      "bothChildrenActuallyAbsent": true,
+      "effectCounts": {
+        "native.launch": 1,
+        "preflight.close": 2,
+        "thread/start": 1,
+        "turn/start": 1
+      },
+      "observationsSha256": "c63c3813246e7e5dd5ff1d1aeb2309394c017f49cfe63453762d2b57585026ac",
+      "observationsPath": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users/mitzo-s5b-acceptance-final-candidate/foundation-evidence/acceptance-bounded-retakes-correct-python/worker-process-restart/worker-process-restart-observations.json",
+      "lifecycleSha256": "847698b79718e6a55c03af886830a3158080bd5d0c0d9c85046116d7dd78c443"
+    }
+  ],
+  "focusedNoEmitTypes": "PASS actual55integration entries plus new abort test and their imported owners",
+  "focusedLint": "PASS",
+  "originalStrictRedLog": "acceptance-focused-types.log",
+  "priorErasedElevenProof": "acceptance-erased-types-proof.json qualified only at69ce",
+  "initialInfrastructureFailure": {
+    "reason": "Selected nonexistent interpreter path without /venv/; failed canonical CLI install before App/browser startup",
+    "sha256": "28fd07c2ccc96a88d2a9222786f1e2eaffc93a79837169ec0fe399bcd9c9ca0f",
+    "retained": "docs/evidence/telos-s9/integrated-candidate/contract-correction/initial-missing-python-run.json",
+    "notCountedAsPass": true
+  },
+  "python": {
+    "executable": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/s9-read-python-t8rs9r3n/venv/bin/python3",
+    "version": "3.13.7",
+    "yaml": "6.0.3",
+    "cli": "Exact retained accepted3077 bundle, no external MGMT override"
+  },
+  "limits": [
+    "Private candidate only, not accepted-main/full UX/live qualification",
+    "External model/provider effects fake; no inference/account charged",
+    "Original required-nine runner, two-case guard and configuration selection unchanged",
+    "Sync local Git only refuses pre-aborted work; no in-flight synchronous cancellation claim"
+  ]
+}

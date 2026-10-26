@@ -308,6 +308,8 @@ for (const workspaceChoice of ['select', 'default'] as const) {
         repositoryWorkspaceId?: string;
       }> = [];
       const recoveries: unknown[] = [];
+      let holdSend = false;
+      let releaseSend: (() => void) | undefined;
       const selected: Array<{
         runtime: { harness: string; account: { accountId: string } };
         runOn: string;
@@ -347,6 +349,7 @@ for (const workspaceChoice of ['select', 'default'] as const) {
           if (commands.some((entry) => entry.clientMsgId === request.clientMsgId))
             recoveries.push(request);
           else commands.push(request);
+          if (holdSend) await new Promise<void>((resolve) => (releaseSend = resolve));
           if (request.runtime.account.accountId === 'api')
             return route.fulfill({
               status: 409,
@@ -482,7 +485,7 @@ for (const workspaceChoice of ['select', 'default'] as const) {
           await expect(composer).toHaveValue('Develop Mitzo from latest main');
           const recover = page.getByRole('button', { name: 'Retry', exact: true });
           await expect(recover).toBeVisible();
-          await expect(page.getByText('Something went wrong.', { exact: true })).toHaveCount(1);
+          await expect(page.getByText('Delivery not confirmed.', { exact: true })).toHaveCount(1);
           await expect(
             page.getByText(
               /command retained|Review retained|Review the retained|Delivery was not confirmed/,
@@ -584,7 +587,7 @@ for (const workspaceChoice of ['select', 'default'] as const) {
           const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
           await expect(composer).toHaveValue('');
           await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
-          await expect(page.getByText('Something went wrong.', { exact: true })).toHaveCount(0);
+          await expect(page.getByText('Delivery not confirmed.', { exact: true })).toHaveCount(0);
           await settingsHome(page);
           await chooseSetting(page, 'Account', freshAccount);
           await openChatSetting(page, 'execution');
@@ -602,8 +605,22 @@ for (const workspaceChoice of ['select', 'default'] as const) {
               fullPage: true,
             });
           const before = commands.length;
+          holdSend = true;
           await send.click();
           await expect.poll(() => commands.length).toBe(before + 1);
+          await expect(composer).toHaveValue('', { timeout: 1000 });
+          await expect(
+            page.getByText(`Fresh initial send for ${freshAccount}`, { exact: true }),
+          ).toBeVisible();
+          if (freshAccount === 'api')
+            await page.screenshot({
+              path: info.outputPath(`local-send-pending-${theme}.png`),
+              fullPage: true,
+            });
+          holdSend = false;
+          releaseSend!();
+          releaseSend = undefined;
+          await expect(composer).toHaveValue(`Fresh initial send for ${freshAccount}`);
           expect(commands.at(-1)).toMatchObject({
             runOn: 'local',
             runtime: { account: { accountId: freshAccount } },
@@ -673,6 +690,7 @@ for (const [theme, unsupportedContext] of [
       payload: { text: string };
       runtime: { harness: string; account: { accountId: string } };
     }> = [];
+    let releaseSend: (() => void) | undefined;
     const unexpected: string[] = [],
       errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
@@ -697,6 +715,7 @@ for (const [theme, unsupportedContext] of [
         });
       if (path === '/api/chat/runtime/send') {
         commands.push(route.request().postDataJSON());
+        await new Promise<void>((resolve) => (releaseSend = resolve));
         return route.abort('failed');
       }
       if (path.startsWith('/api/')) {
@@ -822,6 +841,16 @@ for (const [theme, unsupportedContext] of [
       await expect(composer).toHaveValue('Hello from the regular mgmt sandbox');
       await page.getByRole('button', { name: 'Start session', exact: true }).click();
       await expect.poll(() => commands.length).toBe(accountId === 'api' ? 1 : 2);
+      await expect(composer).toHaveValue('', { timeout: 1000 });
+      await expect(
+        page.getByText('Hello from the regular mgmt sandbox', { exact: true }),
+      ).toBeVisible();
+      await page.screenshot({
+        path: info.outputPath(`openshell-send-pending-${accountId}-${theme}.png`),
+        fullPage: true,
+      });
+      releaseSend!();
+      releaseSend = undefined;
       expect(commands.at(-1)).toMatchObject({
         runOn: 'openshell',
         runtime: { harness: 'codex', account: { accountId } },

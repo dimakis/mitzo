@@ -9,7 +9,8 @@ const mocks = vi.hoisted(() => ({
   permissionHandler: vi.fn(),
   conversationOptions: undefined as Record<string, unknown> | undefined,
 }));
-vi.mock('../codex-conversation-store.js', () => ({
+vi.mock('../codex-conversation-store.js', async (original) => ({
+  ...(await original<typeof import('../codex-conversation-store.js')>()),
   CodexConversationStore: class {
     recoverAtStartup() {}
   },
@@ -546,6 +547,79 @@ it('composes published API tools through the current connection and canonical ap
     setCredentialConnectionsRuntime(null);
     catalog.close();
     store.close();
+    f.cleanup();
+  }
+});
+
+it('closes both raw MCP peers when the shared Codex adapter loses its registered session', async () => {
+  const f = await selectedCodexToolsFixture();
+  const mcp = await import('../codex-mcp-tools.js');
+  const actual = mcp.connectCodexMcpTools;
+  let entered = 0;
+  let enterBoth!: () => void;
+  let release!: () => void;
+  const bothEntered = new Promise<void>((resolve) => {
+    enterBoth = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const peers = [0, 1].map(() => ({
+    listTools: vi.fn(async () => {
+      if (++entered === 2) enterBoth();
+      await gate;
+      return { tools: [] };
+    }),
+    callTool: vi.fn(),
+    close: vi.fn(async () => {}),
+  }));
+  let nextPeer = 0;
+  const connect = vi.fn(async () => peers[nextPeer++]);
+  const connector = vi
+    .spyOn(mcp, 'connectCodexMcpTools')
+    .mockImplementation((configs, options) => actual(configs, { ...options, connect }));
+  const published = vi.fn();
+  // No published profile: exercise raw parallel MCP startup, rather than the
+  // separate configured-reference admission path.
+  const opening = openCodexChat({
+    ...f.opts,
+    mcpServers: {
+      first: { command: 'offline-first', args: [] },
+      second: { command: 'offline-second', args: [] },
+    },
+  }).then((query) => {
+    published(query);
+    return query;
+  });
+  try {
+    await Promise.race([
+      bothEntered,
+      opening.then(() => {
+        throw Error('Native startup published before held MCP discovery completed');
+      }),
+    ]);
+    expect(connect).toHaveBeenCalledTimes(2);
+    for (const peer of peers) expect(peer.listTools).toHaveBeenCalledOnce();
+    // Exercise the shared adapter's real registered-session identity fence.
+    // This fixture has no ownedLocal admission or account/operator authority.
+    f.registry.register('selected-client', { ...f.opts.session });
+    release();
+    await expect(opening).rejects.toThrow('MCP initialization failed');
+    expect(connect).toHaveBeenCalledTimes(2);
+    for (const peer of peers) {
+      expect(peer.close).toHaveBeenCalledOnce();
+      expect(peer.callTool).not.toHaveBeenCalled();
+    }
+    expect(published).not.toHaveBeenCalled();
+    expect(mocks.initialize).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(f.dispose).toHaveBeenCalledOnce();
+  } finally {
+    release();
+    const query = await opening.catch(() => undefined);
+    query?.close();
+    connector.mockRestore();
+    f.registry.dispose();
     f.cleanup();
   }
 });

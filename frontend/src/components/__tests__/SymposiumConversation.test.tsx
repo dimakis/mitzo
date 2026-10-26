@@ -576,6 +576,7 @@ describe('SymposiumConversation', () => {
         undefined,
         expect.any(Function),
         expect.any(Function),
+        undefined,
       );
       const queueEntryId = JSON.parse(localStorage.getItem('mitzo-queue-session')!)[0].queueEntryId;
       expect(queueEntryId).toMatch(/^[a-f0-9-]{36}$/);

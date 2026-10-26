@@ -54,3 +54,8 @@ unconfirmed actions.
 The secure setup page returns to the originating chat. Credentials and their
 verification remain at the browser/Keychain boundary. Verification failures
 return a generic retry message and do not expose response bodies or keys.
+
+For a password/token that must be applied to several systems without exposing it
+in agent context, use the separate [private secret relay](private-secret-relay.md).
+The current connection setup/authentication flow remains independent of those
+OpenShell-stored relay values.

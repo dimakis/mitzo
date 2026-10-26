@@ -1,0 +1,36 @@
+{
+  "compilerVersion": "5.9.3",
+  "actualCompilerOptions": {
+    "target": 9,
+    "module": 7,
+    "moduleResolution": 100,
+    "esModuleInterop": true,
+    "strict": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": false,
+    "rewriteRelativeImportExtensions": true,
+    "allowJs": true,
+    "checkJs": false,
+    "jsx": 4,
+    "sourceMap": false,
+    "inlineSourceMap": false,
+    "inlineSources": false,
+    "declaration": false,
+    "composite": false,
+    "incremental": false
+  },
+  "frozenSource": "472d5c538c86b506972fbd9b7a7356b46d7277ff",
+  "files": [
+    {
+      "path": "tests/integration/telos-s9/integrated-candidate/advisor-material-process-fixture.ts",
+      "beforeSha256": "1cc619f6204c55579d790100b4ed09bd09926ad2c3e930192ea94d3b6f79af7b",
+      "afterSha256": "5050bf066df75560db5b4165272812969392432128f8043134f74ac032edbc93",
+      "emittedJavaScriptSha256": "4d2578f02d91df11c5feb74092ac37bf9d2cc1dd4d6341689198c89cd4696b9f",
+      "identicalEmittedJavaScript": true
+    }
+  ],
+  "scope": "Only cleanup return typing changes from unknown/Promise<unknown> to void/Promise<void>. No native-state fabrication or runtime assertion change."
+}

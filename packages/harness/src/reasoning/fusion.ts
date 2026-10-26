@@ -16,7 +16,6 @@
  */
 
 import { createLogger } from '../logger.js';
-import { createProvider } from '../providers/index.js';
 import type {
   ModelProvider,
   ProviderResponse,
@@ -29,7 +28,7 @@ const log = createLogger('fusion');
 
 /** Optional server-owned durable boundary; legacy harness callers remain supported. */
 export interface FusionRuntime {
-  createProvider?: (model: string) => ModelProvider;
+  createProvider?: (model: string, role?: string) => ModelProvider;
   call?: (phase: string, invoke: () => Promise<ProviderResponse>) => Promise<ProviderResponse>;
   signal?: AbortSignal;
 }
@@ -46,21 +45,22 @@ export class FusionOrchestrator {
     config: FusionConfig,
     private readonly runtime: FusionRuntime = {},
   ) {
-    const factory = runtime.createProvider ?? createProvider;
+    const factory = runtime.createProvider;
+    if (!factory) throw Error('Explicit selected reasoning harnesses are required');
     this.config = config;
 
     // Create one provider per panel member
-    this.panelProviders = config.panelModels.map((pm) => ({
+    this.panelProviders = config.panelModels.map((pm, index) => ({
       model: pm.model,
-      provider: factory(pm.model),
+      provider: factory(pm.model, `panel-${index}`),
     }));
 
-    this.judgeProvider = factory(config.judgeModel.model);
+    this.judgeProvider = factory(config.judgeModel.model, 'judge');
 
     // Synthesizer defaults to judge if not specified
     this.synthesizerProvider = config.synthesizerModel
-      ? factory(config.synthesizerModel.model)
-      : this.judgeProvider;
+      ? factory(config.synthesizerModel.model, 'synthesizer')
+      : factory(config.judgeModel.model, 'synthesizer');
   }
 
   async run(task: string, context: string): Promise<FusionResult> {

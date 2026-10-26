@@ -118,3 +118,9 @@ it.runIf(process.env.MITZO_TEST_OS_SANDBOX === '1')(
   },
   30_000,
 );
+
+it('protects host OpenShell operator credentials from the entire SDK child tree', async () => {
+  const { homedir } = await import('node:os');
+  vi.stubEnv('MITZO_SECRET_RELAY_ENABLED', '1');
+  expect(credentialSdkBoundary()!.deniedRoots).toContain(join(homedir(), '.config', 'openshell'));
+});

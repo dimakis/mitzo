@@ -84,7 +84,8 @@ function createSdkBoundary(
   ];
   const credentialIsolation =
     !runtimeOnly &&
-    (process.env.MITZO_KEYCHAIN_CONNECTIONS_ENABLED === '1' ||
+    (process.env.MITZO_SECRET_RELAY_ENABLED === '1' ||
+      process.env.MITZO_KEYCHAIN_CONNECTIONS_ENABLED === '1' ||
       !!getCredentialConnectionsRuntime() ||
       storage.some(existsSync));
   if (
@@ -104,6 +105,7 @@ function createSdkBoundary(
               join(process.cwd(), '.env'),
               join(homedir(), '.mitzo', 'internal-token'),
               join(homedir(), 'Library', 'Keychains'),
+              join(homedir(), '.config', 'openshell'),
               ...(process.env.MITZO_KEYCHAIN_HELPER ? [process.env.MITZO_KEYCHAIN_HELPER] : []),
             ]
           : []),

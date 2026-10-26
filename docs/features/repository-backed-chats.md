@@ -63,6 +63,22 @@ default MGMT seed.
 
 ## Conversational preparation
 
+For an admitted native Local Mac chat, repository discovery, inspection and
+preparation retain the startup operator's authenticated login independently of
+the browser's event connection. Suspending or reconnecting a phone does not
+revoke that run's tool authorization. The retained binding is released with the
+chat, including failed startup; it cannot fall back to a viewer after release.
+Logout, expiry and revocation still invalidate it through the existing auth
+registry. Native call, account, workspace, profile and one-use preparation
+approval checks remain required. This applies to Local Mac Codex with API and
+subscription accounts; it does not change queue controls or deployment.
+
+After a cold resume, these tools use the current signed primary operator under
+the same ownership rule as ordinary chat admission. The creating login remains
+unchanged in the custody record; its login ID is not a permanent device ACL.
+The original admission, pending native call and current operator must still be
+valid, including after the viewer disconnects.
+
 An ordinary agent can discover authorized repositories with `ListRepositories`,
 then call `PrepareRepositoryChat` with a repository and a focused task draft.
 Mitzo resolves the account, model and unique GitHub connection from the live chat;

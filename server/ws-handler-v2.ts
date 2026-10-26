@@ -908,6 +908,10 @@ export function handleSendV2(
           void ctx.nativeCommands
             .execute(resolution.name, resolution.arguments, skillRegistry, {
               transport: commandTransport,
+              paidReasoning: {
+                operatorConnectionId: connectionId,
+                phaseSelections: msg.phaseSelections,
+              },
               ...(paidReasoning
                 ? {
                     [resolution.name === 'fuse' ? 'fusion' : 'deliberation']: {
@@ -919,6 +923,7 @@ export function handleSendV2(
                         confirmAmbiguous: msg.confirmAmbiguous,
                         selection: {
                           accountBinding: accountBinding ?? null,
+                          phaseSelections: msg.phaseSelections,
                           model: msg.model ?? null,
                           reasoningEffort: msg.reasoningEffort,
                           cwd,
@@ -1659,13 +1664,12 @@ export function handlePermissionResponseV2(
           (found ? getOwnerConnection(found.clientId) : undefined);
         const binding = ctx.eventStore.getSessionRuntimeBinding?.(pendingSessionId);
         const samePrimaryOperator =
-          binding?.execution.location === 'local' &&
-          binding.harness.implementation === 'codex' &&
+          binding?.harness.implementation === 'codex' &&
           ordinaryOperatorOwnsConversation(
             found?.session?.ownedLocalAuthSessionId,
             liveTransportAuthSessionId(connectionId),
           );
-        // A live authenticated operator device may answer its watched Local
+        // A live authenticated operator device may answer its watched
         // Codex card without transferring the native execution attachment.
         const sameOwnerWatcher =
           ownerConnection !== undefined &&

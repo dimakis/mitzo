@@ -6,6 +6,7 @@ import {
   SessionRuntimeBindingV1Schema,
 } from '@mitzo/protocol';
 import { createBrowserId } from './browser-crypto';
+import { allowComposerDraftPersistence } from './composer-draft-proof';
 import { getDefaultAccountModel } from './account-preference';
 import {
   ChatRuntimeSelectionSchema,
@@ -151,6 +152,7 @@ function changed() {
 }
 export function saveChatDraft(draft: ChatDraft): boolean {
   try {
+    if (!allowComposerDraftPersistence(chatDraftStorageKey(draft.id))) return false;
     if (
       !draft.text.trim() &&
       !draft.images.length &&
@@ -172,6 +174,7 @@ export function saveChatDraft(draft: ChatDraft): boolean {
 }
 export function deleteChatDraft(id: string, options: { preserveText?: boolean } = {}): boolean {
   try {
+    if (!allowComposerDraftPersistence(chatDraftStorageKey(id))) return false;
     localStorage.removeItem(PREFIX + id);
     if (!options.preserveText) localStorage.removeItem(chatDraftTextKey(id));
     changed();

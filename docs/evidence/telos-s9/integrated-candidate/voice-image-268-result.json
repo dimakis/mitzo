@@ -1,0 +1,713 @@
+{
+  "executionHead": "73d5a32217027b20f9ac3b439bc29ae39dd59ab9",
+  "productionSource": "268482b5204399883de092fec99baa1f938e81b8",
+  "productionTree": "5e44e2c1a0758d9bde42385a83f008dc16a7c357",
+  "scope": "One paired same-account ordinary/Telos actual-App browser contract, not two selected tests and not required9macro. Currentprivateproducer268; accepted-main repeat pending.",
+  "result": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-VOICE-IMAGE-268-DIAGNOSTICS/access-admission/run.json",
+    "sha256": "826e1b66d7512a4193f7189995745d485bd6cccece63011c5b12eedf248cef86",
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 13865.76275
+  },
+  "priorRuns": [
+    {
+      "head": "252fbdce",
+      "result": {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-VOICE-IMAGE-268-DIAGNOSTICS/first-probe/run.json",
+        "sha256": "363058019e5692783caeffc9d3cfb0cac018d37bd454ba616dcab00ed582eeba",
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "durationMs": 8606.654458
+      },
+      "classification": "Observer diagnostic, not producer defect: actual synthesized playback plus production one-sample silent unlock counted together; all earlier ordinary recording/markup/delivery assertions reached. Raw failed run retained."
+    },
+    {
+      "head": "31d0d80a",
+      "result": {
+        "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-VOICE-IMAGE-268-DIAGNOSTICS/audio-observer/run.json",
+        "sha256": "d8b678a8743267a0defaead25e5f0e45f35ea6c0e7e1f83de09af02b1e9771b7",
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "durationMs": 13990.258291
+      },
+      "classification": "Paired journey PASS; precise separate real unlock/playback counts. Final73adds explicit admission identity/Access assertions."
+    }
+  ],
+  "files": {
+    "voice-image-browser.contract.ts": "d09af3c3b4f155014db405c6d0abaa9ec6de9330c6a44b0d0d2059d1edbfef48",
+    "joined-fake-voice-effects.ts": "45aed645d6f7887e9fa11275c669c7fcabaa92243d0cae9f2cce48b8fb31049f",
+    "vitest.voice-image.config.ts": "5767d013942b25dde164061378c3b518f66dec2f19ec5a4ec72327314aba0585",
+    "joined-ordinary-application.ts": "33d5bf66c1e0767cd8f61c9950d00286c1d20e2e37d4c70fb5dfbe0989188539",
+    "run-joined-ci.mjs": "a08dfd1eed9b735c27c989780b2b3b3d2f8e71f876e6a4411616774416c55476",
+    "s8-chooser-browser.contract.ts": "0bec2bcba048f74280d905435dc7ddc9fe94bf73c56c68ebab3bb2db37a9cc67"
+  },
+  "sourceProof": {
+    "changedPaths": [
+      "docs/evidence/telos-s9/integrated-candidate/README.md",
+      "docs/evidence/telos-s9/integrated-candidate/acceptance-plan.json",
+      "docs/evidence/telos-s9/integrated-candidate/advisor-material-pin-red.md",
+      "docs/evidence/telos-s9/integrated-candidate/advisor-material-retest-84.json",
+      "docs/evidence/telos-s9/integrated-candidate/assembly-conflicts-manifest.json",
+      "docs/evidence/telos-s9/integrated-candidate/assembly-conflicts.zip",
+      "docs/evidence/telos-s9/integrated-candidate/ci-prerequisites.md",
+      "docs/evidence/telos-s9/integrated-candidate/joined-first-path.md",
+      "docs/evidence/telos-s9/integrated-candidate/lost-response-recovery.md",
+      "docs/evidence/telos-s9/integrated-candidate/ordinary-parity-d525.json",
+      "docs/evidence/telos-s9/integrated-candidate/ordinary-parity-d525.md",
+      "docs/evidence/telos-s9/integrated-candidate/peer-actual-app-observation.json",
+      "docs/evidence/telos-s9/integrated-candidate/repository-prepared-first-red.md",
+      "docs/evidence/telos-s9/integrated-candidate/s8-268-retake.json",
+      "docs/evidence/telos-s9/integrated-candidate/s8-268-retake.md",
+      "docs/evidence/telos-s9/integrated-candidate/s8-538-ae2-retake.json",
+      "docs/evidence/telos-s9/integrated-candidate/s8-538-ae2-retake.md",
+      "docs/evidence/telos-s9/integrated-candidate/s8-actual-chooser.md",
+      "docs/evidence/telos-s9/integrated-candidate/s9-accepted-design-pins-results.json",
+      "docs/evidence/telos-s9/integrated-candidate/s9-accepted-design-pins-run.log",
+      "docs/evidence/telos-s9/integrated-candidate/s9-peer-required-results.json",
+      "docs/evidence/telos-s9/integrated-candidate/s9-peer-required-run.log",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s5b-candidate-reuse-results.json",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s5b-candidate-reuse-run.log",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s5b-owner-boundaries-results.json",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s5b-owner-boundaries-run.log",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s6-current-boundaries-results.json",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s6-current-boundaries-run.log",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s6-current-native-boundary-results.json",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s6-current-native-boundary-run.log",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s6-owner-boundaries-results.json",
+      "docs/evidence/telos-s9/integrated-candidate/s9-s6-owner-boundaries-run.log",
+      "docs/evidence/telos-s9/integrated-candidate/source-manifest.json",
+      "docs/evidence/telos-s9/integrated-candidate/stop-isolation-d525.json",
+      "docs/evidence/telos-s9/integrated-candidate/stop-isolation-d525.md",
+      "docs/evidence/telos-s9/integrated-candidate/tree-priority-actual-app.md",
+      "docs/evidence/telos-s9/integrated-candidate/ux-conformance-d525.json",
+      "docs/evidence/telos-s9/integrated-candidate/ux-conformance-d525.md",
+      "docs/evidence/telos-s9/integrated-candidate/ux-owner-findings-d525.json",
+      "server/__tests__/agent-communication-nongit-app.test.ts",
+      "server/__tests__/agent-communication-nongit-native.test.ts",
+      "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "server/__tests__/telos-coordinator-v2-native-journey.test.ts",
+      "tests/integration/telos-s9/integrated-candidate/chooser-hydration-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-cli-3077.json.gz",
+      "tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-cli-3077.manifest.json",
+      "tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-requirements.txt",
+      "tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts",
+      "tests/integration/telos-s9/integrated-candidate/joined-canonical-cli.ts",
+      "tests/integration/telos-s9/integrated-candidate/joined-fake-voice-effects.ts",
+      "tests/integration/telos-s9/integrated-candidate/joined-ordinary-application.ts",
+      "tests/integration/telos-s9/integrated-candidate/joined-repository-source.ts",
+      "tests/integration/telos-s9/integrated-candidate/lost-response-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/non-git-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/ordinary-parity-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/peer-messaging.required-contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/repository-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs",
+      "tests/integration/telos-s9/integrated-candidate/run-ux-composition.mjs",
+      "tests/integration/telos-s9/integrated-candidate/s8-chooser-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/stop-isolation-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/tree-priority-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/ux-composition-browser.contract.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.chooser-hydration.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.joined.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.ordinary-parity.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.recovery-joined.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.repository-joined.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.required.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.s6-app-owners.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.s8-joined.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.stop-isolation.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.tree-priority-joined.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.ux-composition.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/vitest.voice-image.config.ts",
+      "tests/integration/telos-s9/integrated-candidate/voice-image-browser.contract.ts"
+    ],
+    "productionUnchangedFrom268": true,
+    "publishedFaadExceptionsByteIdentical": [
+      "server/__tests__/agent-communication-nongit-app.test.ts",
+      "server/__tests__/agent-communication-nongit-native.test.ts",
+      "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+      "server/__tests__/telos-coordinator-v2-native-journey.test.ts"
+    ],
+    "required9AndFrozen113UnchangedFrom453": true
+  },
+  "boundaries": [
+    "Actual HealthMonitor.start -> externalhealth HTTP -> real snapshot + /api/service-health/SSE enables useVoice; no fabricated ownedresponse/snapshot.",
+    "Actual silent MediaStream/MediaRecorder -> owned WS proxy upgrade -> fake upstream STT receives webm/opus bytes+END -> actual transcript appended to owned draft, noautoSend.",
+    "Actual imageinput/canvasdecode64x64 -> real pointerstroke -> editor Save -> reopen retains changed PNG, Cancel retains editedattachment -> actual guardedfirstHTTP202/consumed.",
+    "Exact edited PNG bytes/text in actual native turn/start and replayhistory after fullreload. Admission runtime/selection/workspace match selected ownedfixture; one turn/session each.",
+    "Actual Readaloud -> owned HTTP proxy synthesize exact assistanttext/voice -> valid silentPCM WAV -> realdecode/play/Stop; one unlock distinguished. Mictrack cleanup/draftretention observed.",
+    "Real sessionAccess200/current/agent/grants[]/pending[]/unknowninventories; sameaccount/model/profile; distinct workspaces/drafts/history/no foreignreply or extra native turns."
+  ],
+  "observations": {
+    "meta": [
+      {
+        "sessionId": "ba2e4cd3-32f2-8674-8ae5-f7d5d495062f",
+        "createdAt": 1792463798468,
+        "runtimeBinding": {
+          "version": 2,
+          "account": {
+            "accountId": "ordinary-personal",
+            "provider": "openai-codex",
+            "profileRevision": "56f9dc7b6904f2dfd6b06d3c2877db6a0c34540a1a775f1d5e465b55f7ff5e2f"
+          },
+          "harness": {
+            "implementation": "codex"
+          },
+          "execution": {
+            "location": "local",
+            "targetId": "ordinary-fixture-local",
+            "targetRevision": "22aeb92683b5c27ffb6984e0fad10df238ed937e3b8302b9641c2f50ea7664b7"
+          }
+        },
+        "runtimeCommandScope": "prepared-first-command",
+        "agentProfile": {
+          "profileId": "ordinary-worker",
+          "revision": 1,
+          "definition": {
+            "name": "Ordinary work",
+            "descriptor": "Offline fixture",
+            "role": "agent",
+            "instructions": "Use the retained material and preserve ownership.",
+            "expectedOutput": "A retained report",
+            "acceptanceCriteria": ["Evidence"],
+            "modelPolicyRole": "agent"
+          },
+          "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
+        },
+        "sessionType": "chat",
+        "branch": null,
+        "wtId": null,
+        "cwd": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-TiGvS2/tasks/ordinary-7f523438-fe1a-4392-9bb8-1cf0f3eb6e0b",
+        "ordinaryWorkspaceId": "7f523438-fe1a-4392-9bb8-1cf0f3eb6e0b",
+        "mode": "agent",
+        "isActive": true,
+        "isHidden": false,
+        "state": "ENDED",
+        "totalTokens": 0,
+        "accountBinding": {
+          "accountId": "ordinary-personal",
+          "accountLabel": "Offline personal",
+          "provider": "openai-codex",
+          "model": "fixture-model",
+          "profileRevision": "56f9dc7b6904f2dfd6b06d3c2877db6a0c34540a1a775f1d5e465b55f7ff5e2f"
+        },
+        "modelSelection": {
+          "model": "fixture-model",
+          "models": [
+            {
+              "id": "fixture-model",
+              "label": "Offline fixture",
+              "reasoningEfforts": ["low"]
+            }
+          ],
+          "reasoningEffort": "low"
+        },
+        "codexQueue": {
+          "paused": true,
+          "connected": false,
+          "recovering": false,
+          "queued": 0,
+          "interrupted": 0,
+          "failed": 0
+        },
+        "totalCostUsd": 0,
+        "numTurns": 0
+      },
+      {
+        "sessionId": "cbb8db39-5f3c-8216-a748-51b77efc2fe3",
+        "createdAt": 1792463800195,
+        "telosWorkRoleContext": {
+          "version": 1,
+          "itemId": "studio",
+          "itemKind": "outcome",
+          "role": "lead",
+          "brief": {
+            "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+            "sha256": "fc17c83cfa48cbdfa4c5a1936464983b992911501732b3abc3e703c1b972634e",
+            "text": "{\"summary\":\"Home studio\",\"intent\":\"Record music\",\"rationale\":\"Make music\",\"acceptanceCriteria\":[\"Approved plan\"],\"taskHint\":\"Original hint\"}"
+          },
+          "parentCriteria": [],
+          "overallGoal": {
+            "itemId": "studio",
+            "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+            "text": "Record music"
+          },
+          "sources": [],
+          "artifacts": []
+        },
+        "telosWorkRolePresentation": {
+          "presentation": {
+            "version": 1,
+            "contextSha256": "4d152e9802ecdd73375f0427268f9a757ebdef90686e31320dee0d841d8fd497",
+            "reviewedAt": "2026-10-20T02:36:40.095Z",
+            "item": {
+              "itemId": "studio",
+              "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+              "title": "Home studio"
+            },
+            "overallGoal": {
+              "itemId": "studio",
+              "revision": "079353e533cef75c33bba479d3f36de73a36e9b2d9328f4225a725b62e1d7048",
+              "title": "Home studio"
+            },
+            "parents": [],
+            "sources": [],
+            "artifacts": []
+          },
+          "presentationRef": {
+            "id": "31768eb1-ef99-4433-ab8b-ef72a9d694e7",
+            "sha256": "9b92893763be01b5fae87099e8215f313f637aa31c495afac6ab0e067c3fb363"
+          }
+        },
+        "runtimeBinding": {
+          "version": 2,
+          "account": {
+            "accountId": "ordinary-personal",
+            "provider": "openai-codex",
+            "profileRevision": "56f9dc7b6904f2dfd6b06d3c2877db6a0c34540a1a775f1d5e465b55f7ff5e2f"
+          },
+          "harness": {
+            "implementation": "codex"
+          },
+          "execution": {
+            "location": "local",
+            "targetId": "ordinary-fixture-local",
+            "targetRevision": "22aeb92683b5c27ffb6984e0fad10df238ed937e3b8302b9641c2f50ea7664b7"
+          }
+        },
+        "runtimeCommandScope": "prepared-first-command",
+        "agentProfile": {
+          "profileId": "ordinary-worker",
+          "revision": 1,
+          "definition": {
+            "name": "Ordinary work",
+            "descriptor": "Offline fixture",
+            "role": "agent",
+            "instructions": "Use the retained material and preserve ownership.",
+            "expectedOutput": "A retained report",
+            "acceptanceCriteria": ["Evidence"],
+            "modelPolicyRole": "agent"
+          },
+          "contentHash": "16450e01fc01f49e2b4d49945ee16b3ad42662727cadfcf46b27eaf20e058271"
+        },
+        "sessionType": "chat",
+        "branch": null,
+        "wtId": null,
+        "cwd": "/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-ordinary-native-TiGvS2/tasks/ordinary-92e0c680-ac24-4660-b808-c29ea8570eff",
+        "ordinaryWorkspaceId": "92e0c680-ac24-4660-b808-c29ea8570eff",
+        "mode": "agent",
+        "isActive": true,
+        "isHidden": false,
+        "state": "ENDED",
+        "totalTokens": 0,
+        "accountBinding": {
+          "accountId": "ordinary-personal",
+          "accountLabel": "Offline personal",
+          "provider": "openai-codex",
+          "model": "fixture-model",
+          "profileRevision": "56f9dc7b6904f2dfd6b06d3c2877db6a0c34540a1a775f1d5e465b55f7ff5e2f"
+        },
+        "modelSelection": {
+          "model": "fixture-model",
+          "models": [
+            {
+              "id": "fixture-model",
+              "label": "Offline fixture",
+              "reasoningEfforts": ["low"]
+            }
+          ],
+          "reasoningEffort": "low"
+        },
+        "codexQueue": {
+          "paused": true,
+          "connected": false,
+          "recovering": false,
+          "queued": 0,
+          "interrupted": 0,
+          "failed": 0
+        },
+        "totalCostUsd": 0,
+        "numTurns": 0
+      }
+    ],
+    "rows": [
+      {
+        "label": "ordinary",
+        "sessionId": "ba2e4cd3-32f2-8674-8ae5-f7d5d495062f",
+        "text": "Independent ordinary prefix. Synthetic ordinary voice transcript.",
+        "reply": "Synthetic assistant reply for ordinary.",
+        "draft": "Keep this unsent ordinary draft.",
+        "command": {
+          "version": 2,
+          "runOn": "local",
+          "sessionId": "ba2e4cd3-32f2-8674-8ae5-f7d5d495062f",
+          "workspace": {
+            "kind": "ordinary",
+            "workspaceId": "7f523438-fe1a-4392-9bb8-1cf0f3eb6e0b"
+          },
+          "clientMsgId": "6e9d8a8a-b9e7-4103-9586-42a68c99012c",
+          "capabilityRevision": "9dba2cd63ce4b5672c67146a18faf195c68f43450a0a2c0b1aec393814e5c775",
+          "runtime": {
+            "account": {
+              "accountId": "ordinary-personal",
+              "provider": "openai-codex",
+              "profileRevision": "56f9dc7b6904f2dfd6b06d3c2877db6a0c34540a1a775f1d5e465b55f7ff5e2f"
+            },
+            "harness": "codex",
+            "targetId": "ordinary-fixture-local",
+            "mode": "agent"
+          },
+          "selection": {
+            "version": 1,
+            "agent": {
+              "profileId": "ordinary-worker",
+              "revision": 1
+            },
+            "context": {
+              "source": "none",
+              "revision": null
+            },
+            "permission": {
+              "mode": "agent",
+              "revision": 0
+            },
+            "model": "fixture-model",
+            "thinking": "low"
+          },
+          "payload": {
+            "text": "Independent ordinary prefix. Synthetic ordinary voice transcript.",
+            "images": [
+              {
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABo0lEQVR4AezZO04DMRAG4FXOAD2PVFyABmpaJDgHnICKhhbOARItNTRcgCo8eqJcIdEv2VKaRHLWM57fM5FGtpRk4/l2PFnJk4fFcuk5JoPzVwA4L4AhKiAqwLlAbAHnBRBNMLZAbIFCgf+X78Jv2P548RbYvzoevq7fbGdVsLpiAFz75PmiG4SdAJgRsPb12BkAF+mhEkYBZIS/u09MKWM0ALI+uD+l7QlVAIDAuh2qAbAiVAVgRKgOkBF+SRqjCAAQDkkaoxgAEBgaoygAA4I4gHUEFYCMMLt5x9RUqAEg6+nTubknRlUAIFhrjOoA1hCaAGgi4Le2RTMALMrCdmgKYAGhOUBrBBMALRHMAGSE2e0HpmphCgBZTx/PVB+WzAEAQfPfwSSAJoJZAC0E0wAZQfLcwTwAECTPHSgAgCDVGGkApBCoACQQ6AAyQq1zB0oAIGw6d8B7JUELgCRrNEZqgBoI9ABjEboAyAjz1x9Mi6IbAGS9d3mEoSi6AijKPH04ABKE2yEqwO2tT4lHBSQIt0NUgNtbnxKPCkgQtMPYha8AAAD//zLfQs8AAAAGSURBVAMA4FBVkDtiPrMAAAAASUVORK5CYII=",
+                "mediaType": "image/png"
+              }
+            ]
+          }
+        },
+        "editedSha256": "f595da1aa04a444b5a1ae37a2ef3b3a720def3d9d3a08f0a2c0f7e89e7f13457",
+        "originalSha256": "b42c8c45601d19996f10572a8c3180590b069d97b0de8f6d8b7d0e95dc03637c",
+        "media": {
+          "captures": 1,
+          "trackStops": 1,
+          "decoded": 1,
+          "playbackStarts": 1,
+          "unlockStarts": 1,
+          "playbackStops": 1
+        },
+        "access": {
+          "sessionId": "ba2e4cd3-32f2-8674-8ae5-f7d5d495062f",
+          "observedAt": 1792463805403,
+          "state": "current",
+          "account": {
+            "accountId": "ordinary-personal",
+            "accountLabel": "Offline personal",
+            "provider": "openai-codex"
+          },
+          "model": "fixture-model",
+          "mode": "agent",
+          "grants": [],
+          "skillCeiling": null,
+          "pending": [],
+          "attachments": null,
+          "tools": null,
+          "limits": null,
+          "readiness": {
+            "version": 1,
+            "sessionId": "ba2e4cd3-32f2-8674-8ae5-f7d5d495062f",
+            "observedAt": 1792463805403,
+            "revision": "434f7fa56b4ecafa44f62e9add3bb6f6e63345381f42ada6cbd83d045afd3809",
+            "session": {
+              "state": "observed",
+              "account": {
+                "accountId": "ordinary-personal",
+                "accountLabel": "Offline personal",
+                "provider": "openai-codex",
+                "profileRevision": "56f9dc7b6904f2dfd6b06d3c2877db6a0c34540a1a775f1d5e465b55f7ff5e2f"
+              },
+              "model": "fixture-model",
+              "mode": "agent",
+              "grants": [],
+              "skillCeiling": null
+            },
+            "execution": {
+              "state": "configured",
+              "binding": {
+                "version": 2,
+                "account": {
+                  "accountId": "ordinary-personal",
+                  "provider": "openai-codex",
+                  "profileRevision": "56f9dc7b6904f2dfd6b06d3c2877db6a0c34540a1a775f1d5e465b55f7ff5e2f"
+                },
+                "harness": {
+                  "implementation": "codex"
+                },
+                "execution": {
+                  "location": "local",
+                  "targetId": "ordinary-fixture-local",
+                  "targetRevision": "22aeb92683b5c27ffb6984e0fad10df238ed937e3b8302b9641c2f50ea7664b7"
+                }
+              }
+            },
+            "capabilities": {
+              "state": "unknown",
+              "reason": "not_observed"
+            }
+          }
+        }
+      },
+      {
+        "label": "telos",
+        "sessionId": "cbb8db39-5f3c-8216-a748-51b77efc2fe3",
+        "text": "Independent telos prefix. Synthetic telos voice transcript.",
+        "reply": "Synthetic assistant reply for telos.",
+        "draft": "Keep this unsent telos draft.",
+        "command": {
+          "version": 2,
+          "runOn": "local",
+          "sessionId": "cbb8db39-5f3c-8216-a748-51b77efc2fe3",
+          "workspace": {
+            "kind": "ordinary",
+            "workspaceId": "92e0c680-ac24-4660-b808-c29ea8570eff"
+          },
+          "clientMsgId": "d9f1bb37-f3b7-4d64-b9ea-aaac6b1913f6",
+          "capabilityRevision": "9dba2cd63ce4b5672c67146a18faf195c68f43450a0a2c0b1aec393814e5c775",
+          "runtime": {
+            "account": {
+              "accountId": "ordinary-personal",
+              "provider": "openai-codex",
+              "profileRevision": "56f9dc7b6904f2dfd6b06d3c2877db6a0c34540a1a775f1d5e465b55f7ff5e2f"
+            },
+            "harness": "codex",
+            "targetId": "ordinary-fixture-local",
+            "mode": "agent"
+          },
+          "selection": {
+            "version": 1,
+            "agent": {
+              "profileId": "ordinary-worker",
+              "revision": 1
+            },
+            "context": {
+              "source": "none",
+              "revision": null
+            },
+            "permission": {
+              "mode": "agent",
+              "revision": 0
+            },
+            "model": "fixture-model",
+            "thinking": "low"
+          },
+          "payload": {
+            "text": "Independent telos prefix. Synthetic telos voice transcript.",
+            "images": [
+              {
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABn0lEQVR4AezYQUoEQQwF0GYOoRcQdOk9BBF07w10qSCuRBiXegP3CiJ4D5cKXkAXXmHkQxW4Uch0JZVfyUCogunpqbxOpZterL6Xq8ixmIJ/EiB4AUxZAVkBwQVyCwQvgGyCuQVyCwgFnh83hb/wfbh4C+wffk7HR7u+sxKsTgyAc98/vA6DsBYAMwLW/jvWBsBJRqiEWQAV4fpyC1PKmA2ArC+uPmh7QhMAILBuh2YArAhNARgRmgNUBJbGqAIABJbGqAYABIbGqArAgKAO4B3BBKAinJ3sYOoqzACQ9c3dm7snRlMAIHhrjOYA3hC6AFgi4L/+i24AWJSH7dAVwANCd4DeCC4AeiK4AagI56fbmJqFKwBkvbx9N31YcgcABMu7g0sASwS3AFYIrgEqgubrNfcAQNB8vUYBAAStxkgDoIVABaCBQAdQEVo1RkoAIPzVGPGdJGgBkGSLxkgN0AKBHmAuwhAAFeHlaQNTUQwDgKz3Dr4wiGIoAFHm5eAEKBBhh6yAsJe+JJ4VUCDCDlkBYS99STwroEDQDnMX/gMAAP//F4qvkQAAAAZJREFUAwD0e1WQ0AFXegAAAABJRU5ErkJggg==",
+                "mediaType": "image/png"
+              }
+            ]
+          }
+        },
+        "editedSha256": "a07576550773a25115792bb616e2e8f7b14b3eaf5f968fb67d702d3f1033bd08",
+        "originalSha256": "e2ca2f477db76becc9f9aa9109bf1463386ef557d20de423a8f1e5916f0837b5",
+        "media": {
+          "captures": 1,
+          "trackStops": 1,
+          "decoded": 1,
+          "playbackStarts": 1,
+          "unlockStarts": 1,
+          "playbackStops": 1
+        },
+        "access": {
+          "sessionId": "cbb8db39-5f3c-8216-a748-51b77efc2fe3",
+          "observedAt": 1792463808149,
+          "state": "current",
+          "account": {
+            "accountId": "ordinary-personal",
+            "accountLabel": "Offline personal",
+            "provider": "openai-codex"
+          },
+          "model": "fixture-model",
+          "mode": "agent",
+          "grants": [],
+          "skillCeiling": null,
+          "pending": [],
+          "attachments": null,
+          "tools": null,
+          "limits": null,
+          "readiness": {
+            "version": 1,
+            "sessionId": "cbb8db39-5f3c-8216-a748-51b77efc2fe3",
+            "observedAt": 1792463808149,
+            "revision": "41b2e445c2d7f20b19b0e250cf3fa53c57be8bb66c469052b8b660419f9ea103",
+            "session": {
+              "state": "observed",
+              "account": {
+                "accountId": "ordinary-personal",
+                "accountLabel": "Offline personal",
+                "provider": "openai-codex",
+                "profileRevision": "56f9dc7b6904f2dfd6b06d3c2877db6a0c34540a1a775f1d5e465b55f7ff5e2f"
+              },
+              "model": "fixture-model",
+              "mode": "agent",
+              "grants": [],
+              "skillCeiling": null
+            },
+            "execution": {
+              "state": "configured",
+              "binding": {
+                "version": 2,
+                "account": {
+                  "accountId": "ordinary-personal",
+                  "provider": "openai-codex",
+                  "profileRevision": "56f9dc7b6904f2dfd6b06d3c2877db6a0c34540a1a775f1d5e465b55f7ff5e2f"
+                },
+                "harness": {
+                  "implementation": "codex"
+                },
+                "execution": {
+                  "location": "local",
+                  "targetId": "ordinary-fixture-local",
+                  "targetRevision": "22aeb92683b5c27ffb6984e0fad10df238ed937e3b8302b9641c2f50ea7664b7"
+                }
+              }
+            },
+            "capabilities": {
+              "state": "unknown",
+              "reason": "not_observed"
+            }
+          }
+        }
+      }
+    ],
+    "recordings": [
+      {
+        "format": {
+          "format": "webm/opus"
+        },
+        "bytes": 175,
+        "ended": true,
+        "transcript": "Synthetic ordinary voice transcript."
+      },
+      {
+        "format": {
+          "format": "webm/opus"
+        },
+        "bytes": 175,
+        "ended": true,
+        "transcript": "Synthetic telos voice transcript."
+      }
+    ],
+    "externalHttp": [
+      {
+        "path": "/health",
+        "body": null
+      },
+      {
+        "path": "/health",
+        "body": null
+      },
+      {
+        "path": "/v1/voices",
+        "body": null
+      },
+      {
+        "path": "/v1/synthesize",
+        "body": {
+          "text": "Synthetic assistant reply for ordinary.",
+          "voice": "synthetic-silence"
+        }
+      },
+      {
+        "path": "/v1/voices",
+        "body": null
+      },
+      {
+        "path": "/v1/synthesize",
+        "body": {
+          "text": "Synthetic assistant reply for telos.",
+          "voice": "synthetic-silence"
+        }
+      },
+      {
+        "path": "/v1/voices",
+        "body": null
+      },
+      {
+        "path": "/v1/voices",
+        "body": null
+      }
+    ],
+    "health": {
+      "services": [
+        {
+          "name": "yapper",
+          "ok": true,
+          "detail": {
+            "stt": true,
+            "tts": true
+          }
+        },
+        {
+          "name": "contexgin",
+          "ok": true
+        }
+      ],
+      "checkedAt": 1792463800030
+    },
+    "nativeLaunches": 2,
+    "pageErrors": [],
+    "realModelCalls": 0,
+    "limitations": "Bounded offline Chromium synthetic microphone/STT/TTS/native effects. No real device/provider/audio service qualification; replacement interrupt and guarded skills remain pending."
+  },
+  "captures": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-VOICE-IMAGE-268-DIAGNOSTICS/access-admission/ordinary-edited-image-delivered-voice-complete.png",
+      "sha256": "f0a7e40f65cc985209fc15ca5d4190b438d8ae89a3882bba4783335e3c5ca88b"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-VOICE-IMAGE-268-DIAGNOSTICS/access-admission/ordinary-markup-before-save.png",
+      "sha256": "16a4f7be88e5d7b50ca4e4fa721371cf2c48a03ac6b3a79c103e2377a393d0e6"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-VOICE-IMAGE-268-DIAGNOSTICS/access-admission/ordinary-reloaded-owned-history.png",
+      "sha256": "7d7c2b13c8187a3148136bf4724aa42dcb2ed1ab6656cb78017ad7a5f460706a"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-VOICE-IMAGE-268-DIAGNOSTICS/access-admission/telos-edited-image-delivered-voice-complete.png",
+      "sha256": "307f31db4153a5734e6c322324d7cbca0aedb1be010f14ffd6c489b410dd9ab1"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-VOICE-IMAGE-268-DIAGNOSTICS/access-admission/telos-markup-before-save.png",
+      "sha256": "c2a248165744f516786dd284a8d10c53de3019ef84d2293822c60464b1f04dbc"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-VOICE-IMAGE-268-DIAGNOSTICS/access-admission/telos-reloaded-owned-history.png",
+      "sha256": "91898b934b65ad42da2aa9478d6ae5019de71afb3f7b4f73a76b8c885dd377ad"
+    }
+  ],
+  "approvedReference": {
+    "row": "UX22",
+    "contract": "c54d6f2479aab619b163187829b6bdff@r1",
+    "sha256": "dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255"
+  },
+  "remaining": [
+    "Atomic interrupt-and-send replacement and guarded Commands/skills remain unsupported inherited shared contract boundaries, S5b/S8-owned; no workaround.",
+    "Full UX17/18 six-outcome coordinator UI/control workflow remains pending distinct from lower signedAPI/nativeCT12 evidence; S6 ownerinventory pending.",
+    "Complete required9 hosted adoption existing1048, exactheadCI/CentaurfinalLGTMmerge0/configuredAppgate/accepted-main repeat.",
+    "Broader context/permissions/recovery/coexistence/device/fullapprovedUX matrix; real microphone/service/provider not qualified.",
+    "CT19 separately authorized single-runtime Telos/Symposium sequential live window; S9/parent ACTIVE."
+  ],
+  "states": {
+    "codeMerged": "originalS9 PR1032merged; thisjoinedcandidateunpublished, no new PR/push/merge",
+    "offlineIntegration": "bounded paired voice/image PASS",
+    "uxAccepted": "fullUX22 and otherremainingrows pending",
+    "liveRuntimeQualified": "pending separatelyauthorizedwindow"
+  },
+  "realModelCalls": 0,
+  "noProducerEdits": true,
+  "noOutboundMessages": true
+}

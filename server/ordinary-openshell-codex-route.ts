@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { SessionRuntimeBindingV2Schema, type AccountBinding } from '@mitzo/protocol';
 import { sameOpenShellRouteAuthority } from './openshell-route-authority.js';
+import { SUPPORTED_CODEX_CLI_VERSION } from './codex-app-server-client.js';
 import type { AccountProfiles } from './account-profiles.js';
 import type { ArtifactRuntime } from './codex-conversation-store.js';
 import type { OpenShellAccountRoute, OpenShellRuntimeConfig } from './openshell-runtime.js';
@@ -12,21 +13,18 @@ import {
 
 const unavailable = () => new Error('Ordinary OpenShell Codex route unavailable');
 
-/** Configuration projection only. Reuses the existing runtime configuration;
- * this is neither a registry nor evidence of provider enrollment/readiness.
- * A reviewed contract revision covers policy/seed contents and compiler behavior.
- */
-export function ordinaryOpenShellCodexTarget(input: {
+/** Current deployment evidence, checked independently of saved chat identity. */
+export function ordinaryOpenShellCodexDeploymentRevision(input: {
   targetId: string;
   runtimeContractRevision: string;
   config: OpenShellRuntimeConfig;
   openaiApi: 'enabled' | 'disabled';
 }) {
   const { config } = input;
-  const targetRevision = createHash('sha256')
+  return createHash('sha256')
     .update(
       JSON.stringify([
-        'ordinary-openshell-codex-target-v1',
+        'ordinary-openshell-codex-deployment-v1',
         input.targetId,
         input.runtimeContractRevision,
         input.openaiApi,
@@ -48,6 +46,38 @@ export function ordinaryOpenShellCodexTarget(input: {
         config.agentContextPresets,
         [...config.serviceProviders].sort(),
         [...config.grantableServiceProviders].sort(),
+      ]),
+    )
+    .digest('hex');
+}
+
+/** Configuration projection only. Reuses the existing runtime configuration;
+ * this is neither a registry nor evidence of provider enrollment/readiness.
+ * The target identifies the execution namespace and native protocol, not a
+ * release. The entry owner separately attests current code, policy and seed.
+ */
+export function ordinaryOpenShellCodexTarget(input: {
+  targetId: string;
+  runtimeContractRevision: string;
+  config: OpenShellRuntimeConfig;
+  openaiApi: 'enabled' | 'disabled';
+}) {
+  const { config } = input;
+  const targetRevision = createHash('sha256')
+    .update(
+      JSON.stringify([
+        'ordinary-openshell-codex-target-v2',
+        input.targetId,
+        SUPPORTED_CODEX_CLI_VERSION,
+        input.openaiApi,
+        config.cli,
+        config.workspace,
+        config.gateway,
+        config.gatewayEndpoint,
+        config.gatewayInsecure,
+        Object.entries(config.cliEnvironment ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+        config.workdir,
+        config.cliContract,
       ]),
     )
     .digest('hex');

@@ -432,7 +432,7 @@ for (const [name, Screen] of [
         }),
       );
       expect(send).toBeEnabled();
-      expect(screen.queryByText('Something went wrong.')).toBeNull();
+      expect(screen.queryByText('Delivery not confirmed.')).toBeNull();
       expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
       expect(screen.queryByText('Local command retained. Review before retrying.')).toBeNull();
       expect(localSend).not.toHaveBeenCalled();
@@ -474,7 +474,7 @@ for (const [name, Screen] of [
     expect(recovery.closest('.workspace-controls')).toBeNull();
     expect(recovery.closest('.conversation-composer')).toBeTruthy();
     expect(recovery).toBeEnabled();
-    expect(screen.getAllByText('Something went wrong.')).toHaveLength(1);
+    expect(screen.getAllByText('Delivery not confirmed.')).toHaveLength(1);
     expect(
       screen.queryByText(
         /command retained|Review retained|Review the retained|Delivery was not confirmed/,

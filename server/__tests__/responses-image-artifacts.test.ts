@@ -12,7 +12,11 @@ it('pins image admission, durable history and provider serialization in the revi
     '../responses-input.ts',
     '../responses-chat-session.ts',
     '../native-responses-runner.ts',
-    '../../packages/harness/src/providers/responses-session.ts',
+    '../gemini-session.ts',
+    '../codex-chat-session.ts',
+    '../codex-conversation-store.ts',
+    '../codex-conversation.ts',
+    '../codex-ordinary-packet.ts',
     '../../packages/harness/src/providers/session-types.ts',
   ]) {
     const source = await readFile(

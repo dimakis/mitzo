@@ -768,6 +768,53 @@ describe('runQueryLoop', () => {
     expect(sent.some((m: Record<string, unknown>) => m.type === 'tool_call')).toBe(false);
   });
 
+  it('attributes a delayed tool result to its call after a newer thinking message starts', async () => {
+    await runQueryLoop(
+      eventStream([
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'call' } } },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'tool_use', name: 'ConnectionRequest', id: 'request' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-tool' },
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'thinking' } } },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'thinking', thinking: '' },
+          },
+        },
+        {
+          type: 'user',
+          message: {
+            content: [
+              { type: 'tool_result', tool_use_id: 'request', content: 'response' },
+              { type: 'tool_result', tool_use_id: 'unobserved', content: 'legacy result' },
+            ],
+          },
+        },
+        { type: 'result', session_id: 'sess-tool' },
+      ]),
+      clientId,
+      registry,
+      abortController,
+    );
+    expect(transport.sent).toContainEqual(
+      v2msg('tool_result', { messageId: 'call', toolId: 'request', result: 'response' }),
+    );
+    // Preserve the existing attribution contract for calls absent from this loop.
+    expect(transport.sent).toContainEqual(
+      v2msg('tool_result', { messageId: 'thinking', toolId: 'unobserved' }),
+    );
+  });
+
   it('emits tool_result with isError=true when is_error flag set', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-err' } } },

@@ -1,8 +1,8 @@
-import { Profiler } from 'react';
+import { createRef, Profiler } from 'react';
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { ChatInput } from '../ChatInput';
+import { ChatInput, type ChatInputDraftControl } from '../ChatInput';
 import { renderToString } from 'react-dom/server';
 import { createChatDraft, getChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
@@ -14,6 +14,42 @@ afterEach(() => {
   localStorage.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
+});
+
+it('flushes an intentionally removed empty rich draft from its owned settings seed', () => {
+  const draft = createChatDraft();
+  const control = createRef<ChatInputDraftControl>();
+  render(
+    <ChatInput
+      onSend={() => false}
+      onStop={() => {}}
+      running={false}
+      savedChatDraft={draft}
+      draftControl={control}
+    />,
+  );
+  expect(getChatDraft(draft.id)).toBeNull();
+  expect(control.current?.flush?.()).toBe(true);
+  expect(getChatDraft(draft.id)).toBeNull();
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+});
+
+it('refuses rich fallback when an existing stored revision is unreadable', () => {
+  const draft = { ...createChatDraft(), text: 'Owned text' };
+  const control = createRef<ChatInputDraftControl>();
+  render(
+    <ChatInput
+      onSend={() => false}
+      onStop={() => {}}
+      running={false}
+      savedChatDraft={draft}
+      draftControl={control}
+    />,
+  );
+  const key = 'mitzo-chat-draft:' + draft.id;
+  localStorage.setItem(key, 'unreadable newer revision');
+  expect(control.current?.flush?.()).toBe(false);
+  expect(localStorage.getItem(key)).toBe('unreadable newer revision');
 });
 
 it('resizes edited drafts in the layout commit before the browser can paint stale lines', () => {
@@ -141,6 +177,8 @@ it.each(['failed', 'uncertain', 'accepted'] as const)(
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
     expect(send.mock.calls[0][1]).toEqual(draft.images);
     expect(getChatDraft(draft.id)).not.toBeNull();
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+    expect(screen.queryByText('Draft saved on this device')).toBeNull();
     act(() => receipt?.(status));
     view.unmount();
     expect(getChatDraft(draft.id) === null).toBe(status === 'accepted');
@@ -166,6 +204,31 @@ it('retains an edit made while an older message is awaiting confirmation', () =>
   act(() => receipt?.('accepted'));
   view.unmount();
   expect(getChatDraft(draft.id)?.text).toBe('Newer thought');
+});
+it('retains an identical next saved draft after the older send is accepted', () => {
+  const draft = { ...createChatDraft(), text: 'Same next message' };
+  saveChatDraft(draft);
+  let receipt: ((status: 'accepted') => void) | undefined;
+  const view = render(
+    <ChatInput
+      onSend={(_text, _images, _context, callback) => {
+        receipt = callback;
+        return true;
+      }}
+      onStop={() => {}}
+      running={false}
+      savedChatDraft={draft}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+    target: { value: 'Same next message' },
+  });
+  act(() => receipt?.('accepted'));
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Same next message');
+  view.unmount();
+  expect(getChatDraft(draft.id)?.text).toBe('Same next message');
 });
 it('switches saved owners without copying prior text, images or context to the new draft', () => {
   const first = {
@@ -216,14 +279,16 @@ it('keeps the composer and stored content when settings changed while an older s
   expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe('Original');
   expect(getChatDraft(draft.id)?.settings.mode).toBe('ask');
 });
-it('consumes the accepted revision after navigation unmounts the composer', () => {
+it('retains an unmounted accepted revision until a replacement composer can consume its receipt', () => {
   const draft = { ...createChatDraft(), text: 'Original' };
   saveChatDraft(draft);
   let receipt: ((status: 'accepted') => void) | undefined;
+  let proof: import('@mitzo/client').SendMessageOptions['composerDraft'];
   const view = render(
     <ChatInput
-      onSend={(_text, _images, _context, callback) => {
+      onSend={(_text, _images, _context, callback, _assigned, submittedProof) => {
         receipt = callback;
+        proof = submittedProof;
         return true;
       }}
       onStop={() => {}}
@@ -234,7 +299,18 @@ it('consumes the accepted revision after navigation unmounts the composer', () =
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
   view.unmount();
   act(() => receipt?.('accepted'));
+  expect(getChatDraft(draft.id)?.text).toBe('Original');
+  render(
+    <ChatInput
+      onSend={() => false}
+      onStop={() => {}}
+      running={false}
+      savedChatDraft={getChatDraft(draft.id)!}
+      acceptedComposerDraft={proof}
+    />,
+  );
   expect(getChatDraft(draft.id)).toBeNull();
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
 });
 
 import * as draftOwner from '../../lib/chat-drafts';

@@ -17,6 +17,9 @@ export function createTelosCanonicalData(variant: CanonicalVariant = 'fresh') {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'telos-canonical-'));
   const dbPath = join(root, 'telos.db');
   const db = new Database(dbPath);
+  // Match TodoStore's journal policy before constructing concurrent owners.
+  // A first reader must not race another reader's DELETE-to-WAL conversion.
+  db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   const directory = new URL('./telos-canonical-3077b7b4/', import.meta.url);
   const schema = readFileSync(new URL(`${variant}.sql`, directory), 'utf8');

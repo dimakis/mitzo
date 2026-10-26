@@ -1,3 +1,4 @@
+import { withAgentLibraryRecoveryAuthorization } from './agent-library-transport.js';
 import { Router, type RequestHandler } from 'express';
 import {
   TerminalOpenBody,
@@ -46,11 +47,11 @@ export function createTerminalRouter(options: {
     }
   });
   router.get('/destinations', (_req, res) => res.json(options.destinations?.() ?? []));
-  router.get('/context', (req, res) =>
+  router.get('/context', async (req, res) =>
     res.json(
-      options.context?.(
+      (await options.context?.(
         typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined,
-      ) ?? {},
+      )) ?? {},
     ),
   );
   const planHost = options.planAdvisers ?? getTerminalPlanAdviserHost;
@@ -188,10 +189,18 @@ export function createTerminalRouter(options: {
     try {
       options.service.get(res.locals.authSession.id, String(req.params.id));
       if (!options.adviser) throw Error('Adviser unavailable');
-      const result = await options.adviser.ask(
-        res.locals.authSession.id,
-        body.data,
-        AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
+      const result = await withAgentLibraryRecoveryAuthorization(
+        res.locals.authSession,
+        (operatorConnectionId) =>
+          options.adviser!.ask(
+            {
+              authSessionId: res.locals.authSession.id,
+              operatorConnectionId: operatorConnectionId!,
+              feature: { kind: 'terminal', terminalId: String(req.params.id) },
+            },
+            body.data,
+            AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
+          ),
       );
       if (!controller.signal.aborted) res.json(result);
     } catch {

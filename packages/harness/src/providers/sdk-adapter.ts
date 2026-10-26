@@ -1,5 +1,5 @@
 /**
- * SDK Adapter — bridges ModelSession.turn() to the SDK wrapper event shapes
+ * Deferred Gemini Adapter — bridges its retained ModelSession.turn() to the SDK wrapper event shapes
  * that query-loop.ts consumes.
  *
  * query-loop.ts expects five wrapper event types:
@@ -10,7 +10,7 @@
  *   - system: lifecycle events (compaction, etc.)
  *
  * sdkWrapperEmitter() handles a single turn.
- * runAgenticLoop() handles the full tool-use loop.
+ * runDeferredGeminiLoop() handles the full tool-use loop.
  */
 
 import type {
@@ -108,6 +108,8 @@ export async function* sdkWrapperEmitter(
   messages: ConversationMessage[],
   opts: { sessionId?: string; startMs: number },
 ): AsyncGenerator<SdkWrapperEvent> {
+  if (session.provider !== 'google-vertex')
+    throw new Error('Custom provider execution is retired; only deferred Gemini is supported');
   const contentBlocks: ContentBlock[] = [];
   const inputBuffers = new Map<number, string>();
   const usage: SdkUsage = {
@@ -192,19 +194,21 @@ export async function* sdkWrapperEmitter(
   };
 }
 
-// ── runAgenticLoop ──────────────────────────────────────────────
+// ── runDeferredGeminiLoop ──────────────────────────────────────────────
 
 /**
  * Full agentic loop: call ModelSession.turn(), handle tool_use blocks,
  * execute tools, append results, repeat. Yields SDK wrapper events
  * throughout so query-loop.ts can process them in real-time.
  */
-export async function* runAgenticLoop(
+export async function* runDeferredGeminiLoop(
   session: ModelSession,
   initialMessages: ConversationMessage[],
   opts: AgenticLoopOptions,
 ): AsyncGenerator<SdkWrapperEvent> {
   const startMs = Date.now();
+  if (session.provider !== 'google-vertex')
+    throw new Error('Custom provider execution is retired; only deferred Gemini is supported');
   const messages = [...initialMessages];
   const sessionId = opts.sessionId ?? `session-${Date.now()}`;
 

@@ -499,6 +499,34 @@ async function openSettings(page: Page) {
   return settingsHome(page);
 }
 
+async function withSelectedRepositoryCatalog(page: Page, action: () => Promise<unknown>) {
+  // Returning to a draft restores Run on after the initial account-only read.
+  // Finish this document's selected read before its next hard navigation;
+  // WebKit reports a new fetch from a departing document as an access error.
+  const read = page
+    .waitForRequest((request) => {
+      const url = new URL(request.url());
+      return (
+        request.method() === 'GET' &&
+        url.origin === 'https://mitzo-ui.test' &&
+        url.pathname === '/api/repository-workspaces/catalog' &&
+        url.searchParams.get('accountId') === 'personal' &&
+        url.searchParams.get('model') === 'luna-fixture' &&
+        url.searchParams.get('runOn') === 'openshell'
+      );
+    })
+    .then(async (request) => {
+      const response = await request.response();
+      if (!response) throw new Error('Selected repository catalog received no response');
+      expect(response.ok()).toBe(true);
+      expect(await response.finished()).toBeNull();
+    });
+  // If the action fails, preserve that failure while safely retiring its witness.
+  void read.catch(() => {});
+  await action();
+  await read;
+}
+
 async function prepareFirstCommand(page: Page, prompt: string) {
   const panel = await openSettings(page);
   await chooseSetting(page, 'Account', 'personal');
@@ -807,12 +835,14 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(
       page.getByRole('textbox', { name: 'Behavior and instructions', exact: true }),
     ).toHaveValue(unsavedInstructions);
-    await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+    await withSelectedRepositoryCatalog(page, () =>
+      page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click(),
+    );
     await expect(page).toHaveURL(chatUrl);
     await expect(composer).toHaveValue(
       'Keep the exact unsaved instructions and improve the acceptance criteria.',
     );
-    await page.reload();
+    await withSelectedRepositoryCatalog(page, () => page.reload());
     await expect(composer).toHaveValue(
       'Keep the exact unsaved instructions and improve the acceptance criteria.',
     );
@@ -1500,6 +1530,23 @@ test('Library keeps a new task draft independent after leaving an older saved ta
   );
   const originalSaved = structuredClone(fixture.task.saved);
   await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
+  let releaseCapabilities!: () => void;
+  const capabilitiesReleased = new Promise<void>((resolve) => {
+    releaseCapabilities = resolve;
+  });
+  let observeCapabilities!: () => void;
+  const capabilitiesStarted = new Promise<void>((resolve) => {
+    observeCapabilities = resolve;
+  });
+  await page.route(
+    '**/api/chat/runtime/capabilities?workspaceDefaults=1',
+    async (route) => {
+      observeCapabilities();
+      await capabilitiesReleased;
+      await route.fallback();
+    },
+    { times: 1 },
+  );
   await page.getByRole('button', { name: 'Assign task', exact: true }).click();
   await page
     .getByRole('textbox', { name: 'Task name', exact: true })
@@ -1507,9 +1554,37 @@ test('Library keeps a new task draft independent after leaving an older saved ta
   await page
     .getByRole('textbox', { name: 'Objective', exact: true })
     .fill('Retain this unfinished objective while I return to the Builder.');
+  const pending = await page.evaluate(() =>
+    JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!),
+  );
+  await capabilitiesStarted;
+  expect(pending.runtime).toEqual({
+    version: 1,
+    account: null,
+    agentProfile: { profileId: 'bob', revision: 3 },
+    execution: { location: 'openshell', targetId: null },
+    capabilityRevision: null,
+  });
+  const hydratedRuntime = {
+    ...pending.runtime,
+    accountReference: null,
+    execution: { location: 'openshell', targetId: 'sandbox' },
+    capabilityRevision: runtimeInventory.capabilityRevision,
+  };
+  releaseCapabilities();
+  // Compare navigation against settled runtime identity, after the input typed
+  // while catalog hydration was pending has been retained without other changes.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!).runtime,
+      ),
+    )
+    .toEqual(hydratedRuntime);
   const retained = await page.evaluate(() =>
     JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!),
   );
+  expect(retained).toEqual({ ...pending, runtime: hydratedRuntime });
   expect(retained.taskId).not.toBe(originalSaved!.taskId);
   expect(retained.expectedRevision).toBe(0);
   await page.reload();

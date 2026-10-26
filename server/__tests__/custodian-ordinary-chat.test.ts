@@ -64,13 +64,15 @@ it('rejects ordinary Codex before host credential preflight when the child has n
         models: [{ id: 'test-model', label: 'Test' }],
       },
     ]);
-    await chat.startChat({ send, isOpen: () => true }, 'api-ordinary', 'test', {
-      cwd: root,
-      mode: 'agent',
-      accountId: 'api',
-      model: 'test-model',
-      accountProfiles: apiProfiles,
-    });
+    await expect(
+      chat.startChat({ send, isOpen: () => true }, 'api-ordinary', 'test', {
+        cwd: root,
+        mode: 'agent',
+        accountId: 'api',
+        model: 'test-model',
+        accountProfiles: apiProfiles,
+      }),
+    ).rejects.toThrow('Custom Responses execution is retired');
     expect(resolve).not.toHaveBeenCalled();
     expect(launch).not.toHaveBeenCalled();
     expect(JSON.stringify(send.mock.calls)).toContain('dedicated OpenShell');

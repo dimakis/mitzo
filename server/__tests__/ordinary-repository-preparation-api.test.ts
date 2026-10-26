@@ -75,6 +75,7 @@ it.each(['local', 'openshell'] as const)(
   'prepares the existing API key on %s without re-enrollment and rejects later key drift',
   async (runOn) => {
     const { f, binding, selection, authority } = await fixture(runOn);
+    state.key.mockClear();
     const proof = await authority.captureOrdinaryRepositoryPreparation(
       binding,
       selection,
@@ -82,6 +83,7 @@ it.each(['local', 'openshell'] as const)(
     );
     expect(proof.runtimeBinding.execution.location).toBe(runOn);
     expect(state.key).toHaveBeenCalledWith(f.configuration[0].credentialRef);
+    expect(state.key).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(proof)).not.toContain('offline-existing-key');
     await expect(
       authority.assertOrdinaryRepositoryPreparation(proof, binding, f.signal.signal),
@@ -112,6 +114,7 @@ it('keeps a managed legacy account inside its existing credential and mutation o
   expect(ready).not.toHaveBeenCalled();
   expect(mutate).toHaveBeenCalled();
   expect(resolveHostKey).toHaveBeenCalledWith(binding.accountId, f.signal.signal);
+  expect(resolveHostKey).toHaveBeenCalledTimes(1);
   expect(resolveKey).not.toHaveBeenCalled();
   expect(state.key).not.toHaveBeenCalled();
   resolveHostKey.mockRejectedValueOnce(Error('managed credential unavailable'));
@@ -120,7 +123,43 @@ it('keeps a managed legacy account inside its existing credential and mutation o
   ).rejects.toThrow('managed credential unavailable');
   expect(state.key).not.toHaveBeenCalled();
 });
-it('requalifies a persisted legacy workspace proof through its owner without admitting fresh Responses work', async () => {
+it('uses the gateway resolver readiness check and retains a fresh final preparation fence', async () => {
+  const { f, binding, selection, authority } = await fixture('openshell');
+  const order: string[] = [];
+  const resolveKey = vi.fn(async () => {
+    order.push('resolve');
+    return 'offline-managed-key';
+  });
+  const ready = vi.fn(async () => {
+    order.push('ready');
+  });
+  state.runtime = {
+    openAIKeys: { manages: () => true, resolveKey },
+    assertOpenAIKeyReady: ready,
+    service: { assertAccountCredentialReady: ready },
+  };
+  const proof = await authority.captureOrdinaryRepositoryPreparation(
+    binding,
+    selection,
+    f.signal.signal,
+  );
+  expect(proof.runtimeBinding.execution.location).toBe('openshell');
+  expect(order).toEqual(['resolve', 'ready']);
+  expect(resolveKey).toHaveBeenCalledWith(binding.accountId, f.signal.signal);
+  expect(state.key).not.toHaveBeenCalled();
+  ready.mockRejectedValueOnce(Error('gateway changed after credential resolution'));
+  await expect(
+    authority.captureOrdinaryRepositoryPreparation(binding, selection, f.signal.signal),
+  ).rejects.toThrow('gateway changed');
+  resolveKey.mockRejectedValueOnce(Error('credential controller unavailable'));
+  ready.mockClear();
+  await expect(
+    authority.captureOrdinaryRepositoryPreparation(binding, selection, f.signal.signal),
+  ).rejects.toThrow('credential controller unavailable');
+  expect(ready).not.toHaveBeenCalled();
+  expect(state.key).not.toHaveBeenCalled();
+});
+it('retains an immutable legacy workspace proof while refusing retired Responses execution', async () => {
   const { f, binding, selection, authority } = await fixture('local');
   const fresh = await authority.captureOrdinaryRepositoryPreparation(
     binding,
@@ -135,20 +174,28 @@ it('requalifies a persisted legacy workspace proof through its owner without adm
       targetId: 'local-mac',
     },
   };
-  const { localResponsesCapabilities, OrdinaryLocalResponsesTarget } =
+  const { OrdinaryLocalResponsesTarget } =
     await import('../ordinary-local-responses-capabilities.js');
   const { loadAccountProfiles } = await import('../account-profiles.js');
-  const resolved = localResponsesCapabilities(
-    loadAccountProfiles(),
-    new OrdinaryLocalResponsesTarget(f.dependencies.env),
-  ).resolve({ ...legacySelection.runtime, mode: 'agent' });
-  if (resolved.status !== 'compatible') throw Error('Expected historical Responses binding');
+  // Historical evidence is seeded as saved data. A retired catalog cannot mint
+  // an execution binding for a new command, including through a test fixture.
+  const target = new OrdinaryLocalResponsesTarget(f.dependencies.env).descriptor();
+  const historicalRuntime = {
+    version: 2 as const,
+    account: legacySelection.runtime.account,
+    harness: { implementation: 'responses' as const },
+    execution: {
+      location: 'local' as const,
+      targetId: target.targetId,
+      targetRevision: target.targetRevision,
+    },
+  };
   const source = lstatSync(join(f.root, 'repositories', f.reservation.id, 'mgmt'));
   // Seed the existing private owner row as a historical preparation. The same
   // account/key custody was captured above; no new Responses capture is used.
   const proof = {
     ...fresh,
-    runtimeBinding: resolved.binding,
+    runtimeBinding: historicalRuntime,
     sourceIdentity: { dev: source.dev, ino: source.ino },
   };
   const database = new Database(join(f.root, 'repositories', 'workspaces.db'));
@@ -167,9 +214,10 @@ it('requalifies a persisted legacy workspace proof through its owner without adm
     authority.captureOrdinaryRepositoryPreparation(binding, legacySelection, f.signal.signal),
   ).rejects.toThrow('preparation authority unavailable');
   expect(state.key).not.toHaveBeenCalled();
-  await expect(f.workspace.qualifiedStatus(f.reservation.id, binding)).resolves.toMatchObject({
-    id: f.reservation.id,
-  });
+  await expect(f.workspace.qualifiedStatus(f.reservation.id, binding)).rejects.toThrow(
+    'preparation authority unavailable',
+  );
+  expect(state.key).not.toHaveBeenCalled();
   expect(f.workspace.get(f.reservation.id).ordinaryPreparation).toEqual(proof);
   await expect(
     f.workspace.qualifiedStatus(f.reservation.id, { ...binding, accountId: 'foreign' }),
@@ -262,4 +310,103 @@ it('prepares a qualified local Responses endpoint through its selected host key 
     authority.assertOrdinaryRepositoryPreparation(proof, binding, f.signal.signal),
   ).rejects.toThrow();
   expect(state.key).not.toHaveBeenCalled();
+});
+
+it('requalifies an upgraded OpenShell preparation only through the exact retained native conversation and namespace', async () => {
+  const { f, binding, selection, authority } = await fixture('openshell');
+  const config = {
+    cli: '/offline/openshell',
+    image: 'old-image',
+    seed: '/release/old/seed',
+    policy: '/release/old/policy',
+    workspace: 'work',
+    gateway: 'gateway',
+    gatewayInsecure: false,
+    workdir: '/sandbox/workspaces/task',
+    serviceProviders: [],
+    grantableServiceProviders: [],
+    createDetached: true,
+    sandboxIdLength: 13,
+    webSearch: 'disabled',
+  };
+  state.target.config = config;
+  const proof = await authority.captureOrdinaryRepositoryPreparation(
+    binding,
+    selection,
+    f.signal.signal,
+  );
+  const sessionId = 'retained-native-chat';
+  const workspaceId = 'retained-workspace';
+  const artifact = {
+    runtime: {
+      sandboxName: 'original',
+      sandboxId: 'original-physical',
+      cli: config.cli,
+      workspace: config.workspace,
+      gateway: config.gateway,
+      gatewayInsecure: false,
+      workdir: config.workdir,
+      appServerCommand: '/sandbox/run-mitzo-app-server',
+    },
+    route: { kind: 'api', provider: 'same-api-provider', model: binding.model },
+  };
+  const { openShellPhysicalCustodyFingerprint } = await import('../openshell-codex-custody.js');
+  const custody = {
+    version: 1,
+    authSessionId: 'original-login',
+    binding: proof.runtimeBinding,
+    workspace: { workspaceId, cwd: config.workdir },
+    physicalIdentitySha256: openShellPhysicalCustodyFingerprint(artifact as never),
+  };
+  const { eventStore } = await import('../chat.js');
+  vi.spyOn(eventStore, 'getSession').mockReturnValue({ accountBinding: binding } as never);
+  vi.spyOn(eventStore, 'getSessionRuntimeBinding').mockReturnValue(proof.runtimeBinding);
+  const native = await import('../codex-chat-session.js');
+  vi.spyOn(native, 'getCodexConversationStore').mockReturnValue({
+    readOpenShellCustody: () => custody,
+    readArtifactRuntime: () => artifact,
+  } as never);
+  const before = structuredClone(proof);
+  state.target.target.targetRevision = 'upgraded-code';
+  state.target.config = { ...config, seed: '/release/new/seed', policy: '/release/new/policy' };
+  try {
+    await expect(
+      authority.assertOrdinaryRepositoryPreparation(proof, binding, f.signal.signal),
+    ).rejects.toThrow();
+    await expect(
+      authority.assertOrdinaryRepositoryPreparation(
+        proof,
+        binding,
+        f.signal.signal,
+        false,
+        undefined,
+        { conversationId: sessionId, workspaceId },
+      ),
+    ).resolves.toBeUndefined();
+    expect(proof).toEqual(before);
+    await expect(
+      authority.assertOrdinaryRepositoryPreparation(
+        proof,
+        binding,
+        f.signal.signal,
+        false,
+        undefined,
+        { conversationId: sessionId, workspaceId: 'foreign-workspace' },
+      ),
+    ).rejects.toThrow();
+    state.target.config = { ...config, gateway: 'other-gateway' };
+    await expect(
+      authority.assertOrdinaryRepositoryPreparation(
+        proof,
+        binding,
+        f.signal.signal,
+        false,
+        undefined,
+        { conversationId: sessionId, workspaceId },
+      ),
+    ).rejects.toThrow();
+  } finally {
+    state.target.target.targetRevision = 'shell-r1';
+    state.target.config = {};
+  }
 });

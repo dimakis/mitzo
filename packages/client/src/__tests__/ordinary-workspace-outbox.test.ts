@@ -242,5 +242,7 @@ it('retains mismatched acknowledgement and matching409 as observations, sharing 
   expect(f.notify.mock.calls.some(([event]) => event.acknowledged)).toBe(false);
   f.outbox.rejectAll('auth revoked');
   f.outbox.start();
-  expect(f.fetch).toHaveBeenCalledTimes(2);
+  expect(f.fetch.mock.calls.filter(([url]) => !url.endsWith('/receipt'))).toHaveLength(2);
+  expect(f.fetch.mock.calls.at(-1)![0]).toBe('/api/ordinary/workspaces/commands/continue/receipt');
+  f.outbox.stop();
 });

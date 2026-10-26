@@ -1,3 +1,4 @@
+import type { TaskEffectAuthority } from './task-worker-authority.js';
 import type { TaskStore, Task, TaskStatus } from './task-store.js';
 
 /**
@@ -20,6 +21,7 @@ export function handleTaskSet(
   store: TaskStore,
   currentTaskId: string,
   tasks: TaskSetItem[],
+  authority?: TaskEffectAuthority,
 ): string {
   const current = store.get(currentTaskId);
   if (!current) return `Error: task ${currentTaskId} not found`;
@@ -32,12 +34,14 @@ export function handleTaskSet(
   // Delete existing children
   const existingChildren = store.getChildren(currentTaskId);
   for (const child of existingChildren) {
+    authority?.assertCurrent();
     store.delete(child.id);
   }
 
   // Create new children
   const created: Task[] = [];
   for (const item of tasks) {
+    authority?.assertCurrent();
     const task = store.create({
       title: item.title,
       description: item.description,
@@ -58,6 +62,7 @@ export function handleTaskComplete(
   store: TaskStore,
   currentTaskId: string,
   summary: string,
+  authority?: TaskEffectAuthority,
 ): string {
   const current = store.get(currentTaskId);
   if (!current) return `Error: task ${currentTaskId} not found`;
@@ -69,7 +74,9 @@ export function handleTaskComplete(
       ? 'pending_review'
       : 'done';
 
+  authority?.assertCurrent();
   store.update(currentTaskId, { status: targetStatus, summary });
+  authority?.assertCurrent();
   store.cascadeStatus(currentTaskId);
 
   if (targetStatus === 'pending_review') {
@@ -115,14 +122,21 @@ export function handleTaskStatus(store: TaskStore, currentTaskId: string): strin
 /**
  * Mark the current task as blocked with a reason annotation.
  */
-export function handleTaskBlock(store: TaskStore, currentTaskId: string, reason: string): string {
+export function handleTaskBlock(
+  store: TaskStore,
+  currentTaskId: string,
+  reason: string,
+  authority?: TaskEffectAuthority,
+): string {
   const current = store.get(currentTaskId);
   if (!current) return `Error: task ${currentTaskId} not found`;
 
   if (!reason.trim()) return 'Error: reason is required';
 
   const annotations = [...current.annotations, `blocked: ${reason}`];
+  authority?.assertCurrent();
   store.update(currentTaskId, { status: 'blocked', annotations });
+  authority?.assertCurrent();
   store.cascadeStatus(currentTaskId);
 
   return `Task "${current.title}" blocked: ${reason}`;
@@ -137,6 +151,7 @@ export function handleTaskArtifact(
   currentTaskId: string,
   key: string,
   value: string,
+  authority?: TaskEffectAuthority,
 ): string {
   const current = store.get(currentTaskId);
   if (!current) return `Error: task ${currentTaskId} not found`;
@@ -145,6 +160,7 @@ export function handleTaskArtifact(
 
   const artifacts = current.artifacts ? { ...current.artifacts } : {};
   artifacts[key] = value;
+  authority?.assertCurrent();
   store.update(currentTaskId, { artifacts });
 
   return `Artifact stored: ${key} = ${value}`;

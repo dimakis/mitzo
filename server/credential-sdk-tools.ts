@@ -56,6 +56,7 @@ export function credentialSdkPermission(
       !['GET', 'HEAD'].includes(String(input.method))) ||
       (short === 'HomeAssistantDashboard' && input.operation === 'save') ||
       short === 'ConnectionWebSocket' ||
+      short === 'ApplySecretRelay' ||
       short === 'PrepareRepositoryChat' ||
       short === 'SaveKnowledgeDraft')
   )

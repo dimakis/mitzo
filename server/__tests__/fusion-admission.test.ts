@@ -78,7 +78,7 @@ describe('durable fusion', () => {
     release(response);
     await first.completion;
     expect(start().duplicate).toBe(true);
-    expect(createProvider).toHaveBeenCalledTimes(3);
+    expect(createProvider).toHaveBeenCalledTimes(4);
     expect(call).toHaveBeenCalledTimes(4);
   });
   it.each([

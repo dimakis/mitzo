@@ -1,3 +1,5 @@
+import { sessionModelSettingsReason } from './session-model-settings.js';
+import { adviserExecutionProjection } from './adviser-harness-runtime.js';
 import { initializeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { resolveTelosWorkCommandScope } from './telos-work-command-scope.js';
 import { ordinaryWorkspacePreparedCommandStatus } from './ordinary-workspace-prepared-command.js';
@@ -80,6 +82,7 @@ import { canonicalRepositorySelection } from './github-repository-source.js';
 import {
   closeIdleRepositoryWorkspaces,
   getRepositoryWorkspaces,
+  getRepositoryWorkspaceCustody,
   repositoryWorkspaceBinding,
   repositoryWorkspaceCatalog,
 } from './repository-workspace-runtime.js';
@@ -142,7 +145,7 @@ import { createTelosWorkDelegationHost } from './telos-work-delegation-host.js';
 import type { TelosWorkDelegationScope } from './telos-work-delegation.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { resolveTelosWorkRolePresentation } from './telos-work-role-presentation.js';
-import { resolveTelosWorkTaskToolContext } from './telos-work-execution-authority.js';
+import { captureTaskToolExecution, type TaskToolExecution } from './task-worker-authority.js';
 import { TelosWorkError, TelosWorkStore } from './telos-work-store.js';
 import { TelosWorkAdvisorDraft } from './telos-work-advisor-draft.js';
 import { TelosArtifactStore } from './telos-artifact-store.js';
@@ -627,13 +630,60 @@ export function setCredentialConnectionsRuntime(service: CredentialConnections |
   credentialSetupApplication = service
     ? bindConnectionSetupApplication(service, {
         registry,
-        send: (clientId, prompt, messageId) =>
-          sendToChat(clientId, prompt, undefined, undefined, messageId),
-        isBusy: (session) => {
+        canSend: (clientId) => {
+          const session = registry.get(clientId);
+          if (!session?.sessionId) return false;
+          const binding = eventStore.getSessionRuntimeBinding(session.sessionId);
+          const owner = session.ordinaryRuntimeOwner;
+          return binding
+            ? binding.harness.implementation === 'codex' &&
+                owner?.location === binding.execution.location &&
+                !!getCodexRuntime(session) &&
+                !!owner.notifyCredentialSetup
+            : !owner;
+        },
+        send: async (clientId, prompt, messageId, assertCurrent) => {
+          assertCurrent();
+          const session = registry.get(clientId);
+          if (!session?.sessionId) return Promise.resolve(false);
+          const binding = eventStore.getSessionRuntimeBinding(session.sessionId);
+          if (!binding) return sendToChat(clientId, prompt, undefined, undefined, messageId);
+          const owner = session.ordinaryRuntimeOwner;
+          const native = getCodexRuntime(session);
+          if (!owner?.notifyCredentialSetup || !native) return false;
+          const accepted = await owner.notifyCredentialSetup({
+            messageId,
+            prompt,
+            signal: session.abortController.signal,
+            assertCurrent: () => {
+              assertCurrent();
+              if (
+                !session.inputQueue ||
+                registry.get(clientId) !== session ||
+                session.ordinaryRuntimeOwner !== owner ||
+                !isDeepStrictEqual(eventStore.getSessionRuntimeBinding(session.sessionId!), binding)
+              )
+                throw Error('Private setup runtime owner changed');
+            },
+          });
+          assertCurrent();
+          if (!accepted || getCodexRuntime(session) !== native) return false;
+          // Release only already-admitted FIFO work. Unlike an explicit user
+          // send, a private readiness notice never acknowledges paused recovery.
+          await native.startQueued();
+          assertCurrent();
+          return true;
+        },
+        isBusy: (session, notificationId) => {
           const codex = getCodexRuntime(session);
+          const active =
+            codex?.queue().filter((command) => ['queued', 'running'].includes(command.status)) ??
+            [];
+          const ownNotification =
+            !!notificationId && active.some((command) => command.id === notificationId);
           return (
-            !!session.currentSnapshot ||
-            !!codex?.queue().some((command) => ['queued', 'running'].includes(command.status)) ||
+            (!!session.currentSnapshot && !ownNotification) ||
+            active.some((command) => command.id !== notificationId) ||
             !!codex?.isPaused() ||
             !!codex?.isRecovering() ||
             !!getResponsesRuntime(session)?.isRunning()
@@ -792,7 +842,7 @@ try {
   // may already exist
 }
 export const taskStore = new TaskStore(join(mitzoDir, 'tasks.db'));
-setTaskStore(taskStore);
+const assertInstalledTelosChatOwners = setTaskStore(taskStore);
 export const workloadStore = new WorkloadStore(taskStore.getDatabase());
 setTokenStorePath(join(mitzoDir, 'device-tokens.json'));
 
@@ -1943,16 +1993,18 @@ app.delete('/api/tasks/:id', (req, res) => {
 
 // --- Internal task-tool endpoints (MCP server callback) ---
 
-function resolveTaskContext(req: express.Request): string | null {
-  const clientId = req.headers['x-client-id'] as string | undefined;
-  if (!clientId) return null;
-  const session = registry.get(clientId);
-  const taskId = session?.taskContext?.currentTaskId;
-  if (!session?.sessionId || !taskId) return null;
+function resolveTaskContext(req: express.Request): TaskToolExecution | null {
+  const clientId = req.headers['x-client-id'];
+  if (typeof clientId !== 'string') return null;
   let work: TelosWorkStore | undefined;
+  const close = () => {
+    work?.close();
+    work = undefined;
+  };
   try {
-    return resolveTelosWorkTaskToolContext(
+    const execution = captureTaskToolExecution(
       {
+        registry,
         events: eventStore,
         tasks: taskStore,
         work: () =>
@@ -1962,16 +2014,25 @@ function resolveTaskContext(req: express.Request): string | null {
           })),
       },
       {
-        sessionId: session.sessionId,
-        taskId,
-        accountBinding: eventStore.getSession(session.sessionId)?.accountBinding ?? undefined,
+        clientId,
+        expected: { sessionId: req.headers['x-task-session-id'], taskId: req.headers['x-task-id'] },
       },
-      { sessionId: req.headers['x-task-session-id'], taskId: req.headers['x-task-id'] },
     );
+    if (!execution) return null;
+    return {
+      taskId: execution.taskId,
+      assertCurrent() {
+        try {
+          execution.assertCurrent();
+        } finally {
+          close();
+        }
+      },
+    };
   } catch {
     return null;
   } finally {
-    work?.close();
+    close();
   }
 }
 
@@ -1980,12 +2041,13 @@ app.post('/api/internal/task-tools/set', (req, res) => {
     res.status(401).json({ error: 'Internal token required' });
     return;
   }
-  const taskId = resolveTaskContext(req);
-  if (!taskId) {
+  const execution = resolveTaskContext(req);
+  if (!execution) {
     res.status(400).json({ error: 'No active task context' });
     return;
   }
-  const result = handleTaskSet(taskStore, taskId, req.body.tasks ?? []);
+  const taskId = execution.taskId;
+  const result = handleTaskSet(taskStore, taskId, req.body.tasks ?? [], execution);
   res.json({ result });
   onTaskBroadcast?.({
     type: 'task_state',
@@ -1998,13 +2060,15 @@ app.post('/api/internal/task-tools/complete', (req, res) => {
     res.status(401).json({ error: 'Internal token required' });
     return;
   }
-  const taskId = resolveTaskContext(req);
-  if (!taskId) {
+  const execution = resolveTaskContext(req);
+  if (!execution) {
     res.status(400).json({ error: 'No active task context' });
     return;
   }
-  const result = handleTaskComplete(taskStore, taskId, req.body.summary ?? '');
+  const taskId = execution.taskId;
+  const result = handleTaskComplete(taskStore, taskId, req.body.summary ?? '', execution);
   if (orchestrator) {
+    execution.assertCurrent();
     orchestrator.onTaskCompleted(taskId);
   }
   res.json({ result });
@@ -2019,11 +2083,12 @@ app.get('/api/internal/task-tools/status', (req, res) => {
     res.status(401).json({ error: 'Internal token required' });
     return;
   }
-  const taskId = resolveTaskContext(req);
-  if (!taskId) {
+  const execution = resolveTaskContext(req);
+  if (!execution) {
     res.status(400).json({ error: 'No active task context' });
     return;
   }
+  const taskId = execution.taskId;
   const result = handleTaskStatus(taskStore, taskId);
   res.json({ result });
 });
@@ -2033,12 +2098,13 @@ app.post('/api/internal/task-tools/block', (req, res) => {
     res.status(401).json({ error: 'Internal token required' });
     return;
   }
-  const taskId = resolveTaskContext(req);
-  if (!taskId) {
+  const execution = resolveTaskContext(req);
+  if (!execution) {
     res.status(400).json({ error: 'No active task context' });
     return;
   }
-  const result = handleTaskBlock(taskStore, taskId, req.body.reason ?? '');
+  const taskId = execution.taskId;
+  const result = handleTaskBlock(taskStore, taskId, req.body.reason ?? '', execution);
   res.json({ result });
   onTaskBroadcast?.({
     type: 'task_state',
@@ -2051,12 +2117,19 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
     res.status(401).json({ error: 'Internal token required' });
     return;
   }
-  const taskId = resolveTaskContext(req);
-  if (!taskId) {
+  const execution = resolveTaskContext(req);
+  if (!execution) {
     res.status(400).json({ error: 'No active task context' });
     return;
   }
-  const result = handleTaskArtifact(taskStore, taskId, req.body.key ?? '', req.body.value ?? '');
+  const taskId = execution.taskId;
+  const result = handleTaskArtifact(
+    taskStore,
+    taskId,
+    req.body.key ?? '',
+    req.body.value ?? '',
+    execution,
+  );
   res.json({ result });
   onTaskBroadcast?.({
     type: 'task_state',
@@ -2066,6 +2139,14 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
 
 const telosDatabasePath = () =>
   resolve(process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'));
+const lifecycleCanonicalSelection = telosDatabasePath();
+let lifecycleSelectionInvalidated = false;
+function assertInstalledTelosDeletionOwners() {
+  if (telosDatabasePath() !== lifecycleCanonicalSelection) lifecycleSelectionInvalidated = true;
+  if (lifecycleSelectionInvalidated || typeof assertInstalledTelosChatOwners !== 'function')
+    throw new Error('Actual selected Telos owners unavailable');
+  assertInstalledTelosChatOwners();
+}
 initializeTelosMainPublicationRuntime({
   registry,
   events: eventStore,
@@ -2415,7 +2496,29 @@ app.use(createOrdinaryWorkspacePreparationRouter());
 
 app.use(
   createTelosWorkRouter({
-    dbPath: telosDatabasePath,
+    dbPath: () => {
+      const selected = telosDatabasePath();
+      // Observe selection before constructing the request Store: a missing or
+      // rejected alternative cannot hide a change and later revive this App.
+      if (selected !== lifecycleCanonicalSelection) lifecycleSelectionInvalidated = true;
+      return selected;
+    },
+    assertLifecycleQuiescent: (itemId, original) => {
+      try {
+        original.retainLifecycleDeletionFence(
+          itemId,
+          lifecycleCanonicalSelection,
+          eventStore,
+          taskStore,
+          assertInstalledTelosDeletionOwners,
+        );
+      } catch {
+        throw new TelosWorkError(
+          'conflict',
+          'Verified host quiescence required for permanent deletion',
+        );
+      }
+    },
     operatorAuth: operatorAuthMiddleware,
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
@@ -2453,6 +2556,8 @@ app.use(
 
 app.use(
   createTelosSourceRouter({
+    tasks: taskStore,
+    repositoryWorkspaces: getRepositoryWorkspaceCustody,
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
     dbPath: telosDatabasePath,
@@ -2553,8 +2658,15 @@ app.post('/api/loop/spawn', (req, res) => {
     res.status(400).json({ error: 'enabled (boolean) is required' });
     return;
   }
-  orchestrator.setSpawnEnabled(enabled);
-  res.json(orchestrator.getStatus());
+  try {
+    orchestrator.setSpawnEnabled(enabled, res.locals.authSession as AuthSession | undefined);
+    res.json(orchestrator.getStatus());
+  } catch {
+    res.status(403).json({
+      code: 'work_scope_denied',
+      error: 'The initiating operator does not authorize new workers for this conversation',
+    });
+  }
 });
 
 app.post('/api/loop/start', (req, res) => {
@@ -2601,7 +2713,7 @@ app.post('/api/loop/start', (req, res) => {
       code: 'client_id_required',
       error: 'This workflow needs an explicitly selected existing chat',
       requiredField: 'sessionId',
-      hint: 'Pass the selected chat sessionId. Dedicated spawn tasks can start without one when spawning is enabled.',
+      hint: 'Pass the selected ordinary chat sessionId so workers retain its account, model and execution target.',
     });
     return;
   }
@@ -2609,6 +2721,7 @@ app.post('/api/loop/start', (req, res) => {
     const result = orchestrator.start(body.data.goalId, {
       specMode: body.data.specMode,
       clientId,
+      operatorAuth: res.locals.authSession as AuthSession | undefined,
     });
     res.json(result);
   } catch {
@@ -3625,6 +3738,11 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
         }
       : {}),
     ...(modelSelection ? { modelSelection } : {}),
+    modelSettingsReadOnlyReason: sessionModelSettingsReason(
+      meta.accountBinding?.provider,
+      eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation,
+      codexBacked,
+    ),
     ...(codexBacked || responsesBacked ? { codexQueue } : {}),
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,
@@ -4038,19 +4156,28 @@ app.use(
     adviser: new TerminalAdviser(createTerminalAdviserSession),
     accounts: async () => {
       const profiles = loadAccountProfiles();
-      // Subscription CLI agents do not establish an inference-only capability.
+      // Native account selection stays independent of the human terminal destination.
       return [
         ...terminalAdviserCatalog(profiles.catalog()).map((account) => ({
           ...account,
           label: accountAliases.label(account.id, account.label),
         })),
-        ...(getTerminalPlanAdviserHost()?.catalog() ?? []),
+        ...(getTerminalPlanAdviserHost()?.catalog() ?? []).map((account) => ({
+          ...account,
+          adviserMigration: {
+            available: false,
+            message:
+              'Saved registration retained. Select a configured Codex subscription account; no credentials are substituted.',
+          },
+        })),
       ];
     },
-    context: (id) => {
+    context: async (id) => {
       const meta = id ? eventStore.getSession(id) : undefined;
+      const adviserExecution = await adviserExecutionProjection();
       return meta?.accountBinding
         ? {
+            adviserExecution,
             summary: {
               profile: accountAliases.label(
                 meta.accountBinding.accountId,
@@ -4065,7 +4192,7 @@ app.use(
               reasoningEffort: meta.reasoningEffort,
             },
           }
-        : {};
+        : { adviserExecution };
     },
     destinations: () =>
       eventStore

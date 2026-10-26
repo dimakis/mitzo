@@ -338,6 +338,7 @@ export {
 
 export { sessionApprovalServer } from './session-approval-scope.js';
 export * from './ordinary-local-admission.js';
+export * from './prepared-repository-transition.js';
 export * from './local-codex-first-command.js';
 export * from './ordinary-command-timeouts.js';
 
@@ -389,3 +390,9 @@ export * from './ordinary-workspace-public.js';
 export * from './telos-work-controls.js';
 export * from './telos-work-lifecycle.js';
 export * from './agent-communication.js';
+
+export {
+  PaidReasoningPhaseSelectionSchema,
+  PaidReasoningPhaseSelectionsSchema,
+  type PaidReasoningPhaseSelection,
+} from './paid-reasoning-selection.js';

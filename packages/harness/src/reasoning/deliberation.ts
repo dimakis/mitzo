@@ -12,7 +12,6 @@
  */
 
 import { createLogger } from '../logger.js';
-import { createProvider } from '../providers/index.js';
 import type { ModelProvider, ProviderResponse } from '../providers/types.js';
 import type {
   DeliberationConfig,
@@ -25,7 +24,7 @@ const log = createLogger('deliberation');
 
 /** Server-owned admission boundary; the harness has no durable lifecycle of its own. */
 export interface DeliberationRuntime {
-  createProvider?: (model: string) => ModelProvider;
+  createProvider?: (model: string, role?: string) => ModelProvider;
   call?: (phase: string, invoke: () => Promise<ProviderResponse>) => Promise<ProviderResponse>;
   signal?: AbortSignal;
 }
@@ -42,8 +41,9 @@ export class DeliberationOrchestrator {
     private readonly runtime: DeliberationRuntime = {},
   ) {
     this.config = config;
-    this.proposerProvider = (runtime.createProvider ?? createProvider)(config.proposer.model);
-    this.challengerProvider = (runtime.createProvider ?? createProvider)(config.challenger.model);
+    if (!runtime.createProvider) throw Error('Explicit selected reasoning harnesses are required');
+    this.proposerProvider = runtime.createProvider(config.proposer.model, 'proposer');
+    this.challengerProvider = runtime.createProvider(config.challenger.model, 'challenger');
   }
 
   async run(task: string, context: string): Promise<DeliberationResult> {

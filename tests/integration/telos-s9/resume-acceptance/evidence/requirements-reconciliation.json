@@ -1,0 +1,460 @@
+{
+  "recordedAt": "2026-10-24T13:49:22.238010+00:00",
+  "kind": "DERIVED_READONLY_PER_AREA_RECONCILIATION_NOT_AN_ACCEPTANCE_MAP",
+  "authoritativeMap": {
+    "id": "94677289bff9efacb03a9b55369a4d36",
+    "revision": 169,
+    "sha256": "2fa1b7e53f634f79573666a857e104ebdf2fe51032109904aa7dfe0463f2b9a9"
+  },
+  "newCoordinator": "01a16e22-0f2f-7191-96fb-4eedd31d5020",
+  "resumeContract": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-24/okay-so-let-s-have-a/TELOS-RESUME-CONTRACT.txt",
+    "sha256": "b5a3defea0fe03dbec41e6874af01094e73385ca5f326f610d2aa7961fb42d0c"
+  },
+  "all44OriginalIdsCovered": true,
+  "originalRequirementDefinitionsUnchanged": true,
+  "wholeRowsFinallyAcceptedByExistingFlags": 0,
+  "boundedHistoricalClosuresNotDiscarded": true,
+  "areas": [
+    {
+      "area": "Canonical planning, source and recovery",
+      "ids": [
+        "UX04",
+        "UX06",
+        "UX07",
+        "UX08",
+        "UX19",
+        "UX20",
+        "UX21",
+        "CT01",
+        "CT02",
+        "CT03",
+        "CT04",
+        "CT05"
+      ],
+      "retained": "Bounded independent actual advisor/source/save/retry/stale-review/legacy and cold-recovery closures; approved fields and unknown provenance preserved.",
+      "sourceOnly": "Reviewed b37 whole journeys compose original source/advisor/native artifacts and explicit canonical completion.",
+      "open": "Actual full current-source repo/nonGit completion and cold immutable receipts; final accepted-main/source/material variants. Older generic row text is not a fresh defect or current absence claim.",
+      "evidenceKeys": [
+        "latestIndependentCt03ClosureAndCoreReadGap154",
+        "latestCorrectedOriginalJ3WholeCaseActualPass134",
+        "latestIndependentB37SourceClosure169"
+      ],
+      "existingCurrentStates": {
+        "UX04": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX06": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX07": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX08": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX19": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX20": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX21": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT01": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT02": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT03": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT04": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT05": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        }
+      }
+    },
+    {
+      "area": "Roles, exact worker allocation and independent chats",
+      "ids": [
+        "UX05",
+        "UX09",
+        "UX10",
+        "UX11",
+        "UX12",
+        "UX13",
+        "UX14",
+        "UX15",
+        "UX16",
+        "CT07",
+        "CT08",
+        "CT15",
+        "CT16"
+      ],
+      "retained": "Meaningful ordinary/nonGit/native exact-allocation and chat-state cases closed within their recorded scope; complete actor/workspace path is not inferred from reservation metadata alone.",
+      "sourceOnly": "b37 uses real role, auth, workspace, native callback and Task owners; independent physical task roots and current publication lead.",
+      "open": "Two complete current-source journeys with real output/Task approval/verified completion; current chat/profile/workspace provenance and final UI continuity.",
+      "evidenceKeys": [
+        "latestNativeWorkerSaveAndTaskActual",
+        "latestOriginal390ActualAndNextInterruptedIdentification122",
+        "latestIndependentB37SourceClosure169"
+      ],
+      "existingCurrentStates": {
+        "UX05": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX09": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX10": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX11": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX12": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX13": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX14": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX15": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX16": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT07": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT08": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT15": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT16": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        }
+      }
+    },
+    {
+      "area": "Discovery, priority and approved UI",
+      "ids": ["UX01", "UX02", "UX03", "UX22", "UX23", "UX24", "CT13", "CT14", "CT20"],
+      "retained": "Scoped loading/search/mobile/list/Back/priority1\u201310/ordinary parity/Stop/voice and theme witnesses retained, including failures and corrected retakes.",
+      "sourceOnly": "Merged UI implementation and preserved reference-state captures do not substitute a matched final-main visual walk.",
+      "open": "Matched approved-vs-actual desktop/mobile/dark/light, keyboard and touch evidence with precise exceptions on final accepted main. Physical devices remain separate.",
+      "evidenceKeys": [
+        "latestScopedUIActualClosedAndCENPlan138",
+        "latestOfficialFrontendDarkWKAndLifecycle149",
+        "finalAcceptedMainQualificationPlan"
+      ],
+      "existingCurrentStates": {
+        "UX01": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX02": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX03": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX22": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX23": {
+          "offlineIntegration": "bounded_immutable_reference_retrieval_verified",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX24": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT13": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT14": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT20": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        }
+      }
+    },
+    {
+      "area": "Complete repository and nonGit verticals",
+      "ids": ["CT06", "CT09"],
+      "retained": "Prior bounded vertical/report/artifact witnesses remain valid within their own candidates; no splicing into one complete pass.",
+      "sourceOnly": "Two b37 cases are reviewed, including three corrected fixture findings independently closed at source. Mechanical26-file port onto475 is preparation, not current-main acceptance.",
+      "open": "Run these smallest two complete journeys against ready1117/current-main source and matching helper/frontend graph, then prove accepted main.",
+      "evidenceKeys": ["latestIndependentB37SourceClosure169"],
+      "existingCurrentStates": {
+        "CT06": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT09": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        }
+      }
+    },
+    {
+      "area": "Brief change and superseded authority",
+      "ids": ["CT10", "CT11"],
+      "retained": "CT10 queued/running negative old replay and positive reviewed new attempt independently closed; CT11 lateSECONDTaskComplete afterpending_review and leadpendingACK replacement afterworkerlaunch closed with exact branch limitations.",
+      "sourceOnly": "b37 already composes a reviewed replacement publication lead and explicit completion, not the missing CT11 first-completion race.",
+      "open": "CT10 parent-brief/other queue placements and unavailable/stale-readiness variants; CT11 FIRST completion after replacement, cold current-lead/replacement positive command where unproved. Final-main continuity needed, not a repeat of every closed campaign.",
+      "evidenceKeys": [
+        "latestActual0109ReviewedNewAttemptPass159",
+        "latestCt11WorkerClosureAndLeadPendingSource164",
+        "latestActualCt11LeadPending165"
+      ],
+      "existingCurrentStates": {
+        "CT10": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT11": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        }
+      }
+    },
+    {
+      "area": "Scoped controls and shared-owner isolation",
+      "ids": ["UX17", "UX18", "CT12", "CT18"],
+      "retained": "Scoped coordinator/release/old-lead authority and session/context/task/queue/artifact isolation contracts and peer App witnesses retained.",
+      "sourceOnly": "b37 repo publication composes hold, release, current-main, lost external reply and exact receipt; external GitHub effects only are fake.",
+      "open": "Necessary current combined-source isolation regression; no activation or complete Symposium factory/join/count claim while paused.",
+      "evidenceKeys": [
+        "latestOriginalJ6ActualClosedAndMobileOpenTreeSource119",
+        "latestActualCt11LeadPending165",
+        "latestIndependentB37SourceClosure169"
+      ],
+      "existingCurrentStates": {
+        "UX17": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "UX18": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT12": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT18": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        }
+      }
+    },
+    {
+      "area": "Lifecycle purge, final-main and separate live qualification",
+      "ids": ["CT17", "CT19", "CT20"],
+      "retained": "Known409 refusal, archive lost-response/cold review and lifecycle UX histories retained; original REDs not erased.",
+      "sourceOnly": "PR1117 author152/351 offline owner tests are implementation evidence, not S9 actual-App/browser positive-purge acceptance.",
+      "open": "Positive purge of a genuinely eligible unreferenced leaf through real host owners, real commit/lost reply/cold404/exact receipt; preserve unrelated witnesses. Retained-referenced work must stay undeletable. Final accepted-main pack and separately selected liveLuna/account/window remain open.",
+      "evidenceKeys": [
+        "latestActual2929ColdRefusalAndCt03Source152",
+        "latestActual2929Ct03AndColdClosure153"
+      ],
+      "existingCurrentStates": {
+        "CT17": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT19": {
+          "offlineIntegration": "not_run",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        },
+        "CT20": {
+          "offlineIntegration": "bounded_partial",
+          "fullRowAccepted": false,
+          "uxAccepted": false,
+          "acceptedMainQualified": false,
+          "liveRuntimeQualified": false
+        }
+      }
+    }
+  ],
+  "executionAuthorization": "Necessary private offline builds/tests/loopback App fixtures now authorized once actual source prerequisites/reviews are ready; historical source-only holds do not create another blanket approval gate. No live/model/runtime activation/staging/production.",
+  "currentAction": "Mechanicalb37 port on immutable475; prepare eligible-leaf purge/cold404 recovery plus only uncovered CT10/CT11 seams. PR1117 author alone resolves current-main and MITZO_OWNER_BUSY.",
+  "currentAppExecutions": 0,
+  "modelCalls": 0,
+  "s9AndParent": "active"
+}

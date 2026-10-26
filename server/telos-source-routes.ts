@@ -12,6 +12,8 @@ import { TelosWorkStore, TelosWorkError, type TelosWorkActor } from './telos-wor
 import { TelosSourceCapture } from './telos-source-capture.js';
 import { requireSameOriginJson } from './connections-router.js';
 import type { EventStore } from './event-store.js';
+import type { TaskStore } from './task-store.js';
+import type { NativeTelosWorkerMaterialOwners } from './native-telos-worker-materials.js';
 import { TelosSourceApproval, TelosSourceSaveUncertainError } from './telos-source-approval.js';
 import { TelosSourceApprovalStore } from './telos-source-approval-store.js';
 import { z } from 'zod';
@@ -30,6 +32,8 @@ import {
 export function createTelosSourceRouter(options: {
   dbPath(): string;
   events: EventStore;
+  tasks?: Pick<TaskStore, 'get' | 'getTelosExecutionBinding'>;
+  repositoryWorkspaces?: NativeTelosWorkerMaterialOwners['repositoryWorkspaces'];
   operatorAuth: RequestHandler;
   ordinaryConversation(id: string): boolean;
   sourceConversation?(id: string): boolean;
@@ -102,6 +106,8 @@ export function createTelosSourceRouter(options: {
       approvalStore = new TelosSourceApprovalStore(path);
       const approval = new TelosSourceApproval({
         events: options.events,
+        tasks: options.tasks,
+        repositoryWorkspaces: options.repositoryWorkspaces,
         work,
         artifacts,
         assertAuthorized,

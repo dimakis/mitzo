@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "kind": "S9_BOUNDED_ACCEPTANCE_PREPARATION_NOT_EXECUTED",
+  "source": {
+    "production": "268482b5204399883de092fec99baa1f938e81b8",
+    "tree": "5e44e2c1a0758d9bde42385a83f008dc16a7c357",
+    "S9DeliveryBeforePlan": "3df81c5bfb6b08f0f4e79db2cdf20ac6868a78d7",
+    "acceptedMainQualified": false
+  },
+  "references": {
+    "mock": {
+      "artifact": "9d0559132154b92d0bbb427a982a0002@r1",
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab",
+      "pointers": ["activeHold():248", "coordinatorMessages():249"]
+    },
+    "contract": {
+      "artifact": "c54d6f2479aab619b163187829b6bdff@r1",
+      "sha256": "dc048d578f23934af1ce0ddc97f4189cc51f19f15890c17098357cf56c91f255",
+      "rows": ["UX17", "UX18"],
+      "scenario": 6
+    },
+    "S6Inventory": {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-phase-6-we/s6-ux17-18-inventory/UX17-18-CONSUMER-INVENTORY.md",
+      "sha256": "d733a0e44323dd6aae4c28098b9f8180cc8ea41fb80901116f178bd15806def4",
+      "manifestPath": "/Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-phase-6-we/s6-ux17-18-inventory/source-inventory.json",
+      "manifestSha256": "8c2c0f15332bd1bcd28e4f5b9bc8adffeaf7ff2bb4081cc69001fabc408eee0a",
+      "all25SourceHashesIndependentlyMatchS9Producer268": true
+    }
+  },
+  "ownership": {
+    "S9": "b896d14d79d52682 independent actual-App contracts/evidence/map",
+    "S8": "b47a0c568f1d98ba sole UI consumer editor; frozen source not yet published for this workflow",
+    "S6": "86255ad3cd29fcf1 existing control backend/native/interface gaps only",
+    "mainPublication": "Pending separate human decision on proposed new capability; no new owner/permission/endpoint inferred"
+  },
+  "execution": {
+    "state": "PENDING_S8_FROZEN_CONSUMER",
+    "testsExecuted": 0,
+    "skipsAdded": 0,
+    "required9Changed": false,
+    "newSuiteSelected": false,
+    "intendedCase": "coordinator-controls-browser.contract.ts after producer is frozen; do not add guessed selectors or a skipped placeholder",
+    "framework": "Reuse real S9 App/Vite/auth/HTTP/SSE/canonical stores/outbox/native/permission UI. One local worker, Node1GiB, browser outsideSeatbelt. All provider/native effects fake; no real model calls.",
+    "gate": "Inspect frozen producer delta/sourceproof and actual accessible labels/approved design; no production edits. Keep contract in preparation until actual consumer arrives."
+  },
+  "fixture": {
+    "canonicalSchema": "Accepted MGMT3077 synthetic canonical DB from createJoinedOrdinaryApplication only",
+    "tree": "One explicit coordinator, six direct feature outcomes each with worker child; separate unrelated Job outcome/worker. Priority=feature0, held=feature1..5, all exactIDs and canonical composition recorded.",
+    "sessions": "Create actual reviewed V2 current leads through accepted setup APIs; allocate each worker with existing TelosWorkApiClient.delegateOrdinarySlice and its exact retained task/attempt/brief, not fabricated worker role/task bindings. Separate retained context/workspace each. Start only required fake native turns via actual guarded commands.",
+    "positiveControl": "Keep unrelated Job worker actually running with independent draft/history; emit its fake native completion while holds active and verify retained reply/reload, no Stop/interrupt/foreign queue mutation.",
+    "preState": "Snapshot canonical statuses/priorities/assignments, session/workspace IDs, native calls and durable receipts before UI actions."
+  },
+  "contracts": {
+    "public": {
+      "method": "POST",
+      "path": "/api/telos/work/controls",
+      "auth": "Interactive operator middleware; requireSameOriginJson; actor from res.locals.authSession, never request JSON.",
+      "schema": "packages/protocol/src/telos-work-controls.ts TelosWorkControlCommandSchema -> TelosWorkControlResultSchema/ViewSchema",
+      "commands": {
+        "request": [
+          "operation:request",
+          "requestId",
+          "coordinatorItemId",
+          "priorityItemId",
+          "targetItemIds",
+          "scope"
+        ],
+        "inbox": ["operation:inbox", "itemId"],
+        "read": ["operation:read", "controlId"],
+        "release": ["operation:release", "requestId", "controlId"]
+      },
+      "acknowledge": "Schema has operation acknowledge, but operator actor is denied; browser refresh must never send it."
+    },
+    "native": {
+      "tool": "TelosWorkControl",
+      "input": {
+        "command": "Exact acknowledge/read/inbox command only; no caller actor/evidence fields."
+      },
+      "callback": "Native item/tool/call -> standard unchanged-input once permission -> real internal route POST /api/internal/telos/work/control; exact clientId/sessionId + trusted internal token + current ordinary mapping.",
+      "ackFields": [
+        "operation:acknowledge",
+        "requestId",
+        "controlId",
+        "itemId",
+        "assignmentRevision"
+      ],
+      "approval": "Drive actual PermissionBanner Allow Once for exact current selected recipient; do not call resolvePending or manually write ACK/evidence stores.",
+      "authority": "Current exact recipient + assignment revision. Additional/retired/unrelated conversation cannot ACK or broaden read scope.",
+      "fakeBoundary": "Only native provider onRequest/onNotification, never actual tool executor/route/store/receipt.",
+      "networkFence": "Retain helper external-network denial; permit Node fetch only exact test-private existing listener/internal Telos path required by the real executor. Browser stays same-origin; no alternate owned route fulfilment."
+    },
+    "host": {
+      "application": "Only actual host admission/dispatch refusal may call enforceControlAction and persist attributable applied evidence. No recordApplied/recordRevalidation callback in S9 UI fixture.",
+      "safePoint": "assertTelosWorkCommandAdmission runs at new admission and physical dispatch; existing current turn is not interrupted. Existing continue HTTP/UI action must reach this real owner.",
+      "publication": "assertControlAction publication/currentMain and recordControlRevalidationForHost are preparatory private owners; no connected main-publisher on268. No host application/revalidation receipt may be fabricated."
+    }
+  },
+  "journey": [
+    {
+      "step": 1,
+      "action": "Open actual current coordinator chat via item Chat/tree; preserve ordinary composer/draft and closed worktree.",
+      "assert": "Six direct outcomes discoverable. Priority prompt chooses exact feature0, not inferred from child count or canonical P1-P10 item field alone. Merely opening/choosing priority launches no provider/native command."
+    },
+    {
+      "step": 2,
+      "action": "Use approved scope selector Publishing to shared main -> Send hold to five leads.",
+      "assert": "Actual operatorPOST request has exact five attached targets excluding priority/unrelated and scope publication; one retained controlId, all intended current recipient identities/revisions, requested only. No worker ACK, applied event, interrupt or auto provider turn."
+    },
+    {
+      "step": 3,
+      "action": "Check acknowledgements, inspect worktree/child hold card, reload page.",
+      "assert": "Refresh sends read or inbox only, returns actual same retained control. Byte-identical history before/after read; pending recipients stay requested, no fabricated applied or operator ACK. Accessible label/scope/priority/current recipient shown. Reload rediscovery uses actual coordinator inbox."
+    },
+    {
+      "step": 4,
+      "action": "From selected current native lead/worker turns, issue real TelosWorkControl ACK and approve each once in actual UI. Interleave duplicate/delayed responses.",
+      "assert": "Recipient scoped read and assignment revision enforced. Lead ACK does not apply worker; duplicate requestId adds no evidence. Missing recipient stays pending. Current/additional/retired guard already covered by published CT12; reuse it unless producer delta affects it."
+    },
+    {
+      "step": 5,
+      "action": "Run unrelated Job native completion while publication hold active; return coordinator and child.",
+      "assert": "Job finishes and reloads own reply/draft, one native turn, unchanged workspace. Held current workers continue existing turns; publication hold is neither Stop nor safe_point. Child receipt reflects only true ACK history. No broad global pause."
+    },
+    {
+      "step": 6,
+      "action": "Restart canonical owners on same private DB and reload current coordinator UI.",
+      "assert": "Same control/immutable history and assignment revisions rediscovered from real owner; no duplicate hold/native starts. This is canonical-owner restart only, not full server/native process recovery qualification."
+    },
+    {
+      "step": 7,
+      "action": "Release held leads via existing authorized UI release and retry exact same requestId.",
+      "assert": "Actual release receipt stage released, history retained, no provider resume/interrupt/queue change. PublicationRevalidation remains required before and after restart; UI says revalidation required and does not claim validated/published. Late ACK denied, no history rewrite."
+    },
+    {
+      "step": 8,
+      "action": "Bounded supported safe_point branch through same real UI: choose scope, request exact targets; admit one held lead/worker new ordinary command through current accepted route.",
+      "assert": "Actual host admission refusal produces applied evidence for that exact current recipient only; other recipients remain requested/acknowledged according to actual history. Existing current turn survives, unrelated Job still usable. Do not hardcode error status before reading frozen producer route/error contract. Release removes this declared scope only.",
+      "limit": "This branch proves host application through supported nonpublication owner; never relabel as publication applied. If frozen UI lacks the existing scope consumer, record concrete owner gap and leave this step pending."
+    },
+    {
+      "step": 9,
+      "action": "Attempt publication only if a separately approved and implemented main action owner exists.",
+      "assert": "Before such contract, expect truthful required/unvalidated state; no fake GitHub merge/publish endpoint, host callback, grant or fabricated current-main receipt. Future exactitem/currentworkrevision/currentmain revalidation and changed-main refusal remain pending."
+    }
+  ],
+  "capturePlan": [
+    "320px and1280px actualApp only; one normal-motion and one reduced-motion context if affected, no fresh4profile broadcampaign by default.",
+    "Coordinator priority/scope before request, requested receipt, recipient ACK projection/childcard, exact host application denial for nonpublication, release/revalidation required, unrelated Job retained reply.",
+    "Keyboard activation/read/release and44px narrowtouch targets; no manual post-action focus repair, no reference rendering. Hash captures and actual result payloads with exact execution/producer SHAs."
+  ],
+  "qualifiedPriorEvidence": {
+    "S6CT12": "Publishedfaad actual signed V2 setup/native once-approval/internal route current/additional/retired guard for ONEtarget/new_worker_dispatch, not six-outcome UI.",
+    "S6Store": "Six outcomes/fiveheld/scope/duplicate/outoforder/restart/revalidation fakehost unit coverage; retained lower boundary only.",
+    "S9": "Existing9runner and exactchooser/Stop/Queue/peer/role contracts unchanged; no duplicate macro campaign."
+  },
+  "uncoveredApprovedRows": [
+    {
+      "id": "UX01",
+      "owners": ["57b0894e0379ab95"],
+      "requirement": "Work first opens All outcomes with pinned category filters, discovery and search.",
+      "remaining": "Final combined discovery visual conformance and accepted-main repeat pending.",
+      "nextBoundary": "Real list scroll/filter/search restoration after nesteditem/chatreturn; currentfourprofiles do not closeallnavigationcontext."
+    },
+    {
+      "id": "UX07",
+      "owners": ["847cb038d1e46d16", "d4e0bf084cd61139"],
+      "requirement": "Item opens exact originating conversation/exchange; original conversation links back to the created item; adopted context/revisions remain stable.",
+      "remaining": "All original-exchange backlink surfaces on accepted main pending.",
+      "nextBoundary": "Both directions actual originating advisor exchange/itembacklink navigation, preserving exactsource identities."
+    },
+    {
+      "id": "UX19",
+      "owners": ["d4e0bf084cd61139", "57b0894e0379ab95"],
+      "requirement": "Materials retain document revision/hash, author, source, created/added/updated dates; Outputs, Sources and Links stay distinct.",
+      "remaining": "Full author/date/version/change/restart matrix on accepted main pending.",
+      "nextBoundary": "Actualcreated/added/updated/author/version/hash distinction across two retained material revisions and ownerrestart; no latestversion shortcut."
+    },
+    {
+      "id": "UX21",
+      "owners": ["847cb038d1e46d16", "cf8dc85a4b6afaad"],
+      "requirement": "Requests/retries/restart cannot duplicate item links, current assignments or worker allocations; uncertain results stay uncertain.",
+      "remaining": "Native/server process restart, revocation/offscreen/repository-loss matrix pending.",
+      "nextBoundary": "Native/server process restart, revoked/offscreen and repositoryloss remain outside canonical-ownerrestart/lostHTTPresponse proof."
+    },
+    {
+      "id": "UX22",
+      "owners": ["4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "requirement": "Ordinary chat controls retain full parity, including Resources, context, Access, voice, skills, attachments, queued turns and stop/interrupt.",
+      "remaining": "Voice/skills/attachments/queued turns/stop/interrupt/Access parity and named brands unexercised here.",
+      "nextBoundary": "Ledger42 qualifies healthyvoice/image-save/native/reload and earlier Queue/Stop/Resources/Access; guardedreplacementinterrupt and skills/context/permissionmatrix stillpending."
+    },
+    {
+      "id": "UX24",
+      "owners": ["57b0894e0379ab95", "b47a0c568f1d98ba", "b896d14d79d52682"],
+      "requirement": "Desktop and mobile conform, including narrow layout, full-width transcript after closing tree, keyboard and touch navigation.",
+      "remaining": "Desktop compact-tree discrepancy01; physical iOS/WebKit/additional viewports/all controls/full UX pending.",
+      "nextBoundary": "FourboundedChromiumprofiles plus exact268fixes qualified; physicaliOS/WebKit/additionalviewports and completecontrols matrix remainpending."
+    }
+  ],
+  "publicationGap": "UX17/18/scenario6 remain partial until approved shared-main publication/revalidation owner is connected. A read-only unvalidated display is expected and must not be counted as publication success.",
+  "preservation": "No producer edits, new API/capability/design, tests executed, skip placeholder, required9 modification, new PR/push/merge, outgoing session messages, model/live/staging/deploy or status/criteria mutation."
+}

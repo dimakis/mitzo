@@ -49,19 +49,11 @@ describe('calculateCost', () => {
   });
 });
 
-describe('createProvider', () => {
-  it('creates an anthropic provider for Claude models', () => {
-    const provider = createProvider('claude-opus-4-6');
-    expect(provider.name).toBe('anthropic-vertex');
-  });
-
-  it('creates a google provider for Gemini models', () => {
-    const provider = createProvider('gemini-2.5-pro');
-    expect(provider.name).toBe('google-vertex');
-  });
-
-  it('defaults to anthropic for unknown models', () => {
-    const provider = createProvider('unknown-model');
-    expect(provider.name).toBe('anthropic-vertex');
-  });
+describe('retired direct provider factory', () => {
+  it.each(['claude-opus-4-6', 'gemini-2.5-pro', 'unknown-model'])(
+    'refuses %s without selecting credentials or silently choosing another provider',
+    (model) => {
+      expect(() => createProvider(model)).toThrow('retired');
+    },
+  );
 });

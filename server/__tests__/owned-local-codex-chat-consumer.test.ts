@@ -14,6 +14,10 @@ import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstr
 import { openCodexChat } from '../codex-chat-session.js';
 import { createWorktree } from '../worktree.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import * as nativeHost from '../native-host-tool-context.js';
+import * as operatorTransport from '../agent-library-transport.js';
+import { authenticateToken, login, setAuthRevocationStore } from '../auth.js';
+import { AdviserTaskScope } from '../adviser-task-scope.js';
 
 const nativeQueues = vi.hoisted(() => new WeakMap<object, { startQueued(): Promise<void> }>());
 vi.mock('../codex-chat-session.js', () => ({
@@ -316,6 +320,116 @@ function fixture(store?: EventStore, withContext = false) {
     serverOptions: { onEnded: ended },
   };
 }
+
+it.each([false, true])(
+  'retains native-tool startup authorization and releases it on close or startup failure (failure: %s)',
+  async (failStartup) => {
+    const f = fixture();
+    const release = vi.fn();
+    const retain = vi
+      .spyOn(nativeHost, 'retainNativeHostToolOperator')
+      .mockImplementation((session, operatorConnectionId) => {
+        expect(operatorConnectionId).toBe('retained-startup-operator');
+        expect(session.ownerConnectionId).toBe('browser');
+        expect(session.ownedLocalAuthSessionId).toBe('admitted-login');
+        return release;
+      });
+    if (failStartup)
+      vi.mocked(openCodexChat).mockRejectedValueOnce(Error('Offline startup failed'));
+    try {
+      const preparation = chat.prepareOwnedLocalCodexChat(f.transport, f.id, f.input, {
+        operatorConnectionId: 'retained-startup-operator',
+        ownerConnectionId: 'browser',
+        ownerAuthSessionId: 'admitted-login',
+        onEnded: f.ended,
+      });
+      if (failStartup) await expect(preparation).rejects.toThrow();
+      else {
+        const prepared = await preparation;
+        expect(release).not.toHaveBeenCalled();
+        prepared.close();
+        prepared.close();
+      }
+      expect(retain).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      retain.mockRestore();
+    }
+  },
+);
+
+it.each([false, true])(
+  'composes scoped adviser preparation with the exact retained login and cleanup (failure: %s)',
+  async (failStartup) => {
+    const f = fixture();
+    setAuthRevocationStore(chat.eventStore);
+    const token = await login(process.env.AUTH_PASSPHRASE!);
+    const auth = token && (await authenticateToken(token));
+    if (!auth) throw Error('Synthetic interactive login unavailable');
+    const operatorId = `${f.id}:feature-operator`;
+    const viewerId = `${f.id}:viewer`;
+    const releaseOperator = operatorTransport.bindAgentLibraryTransport(operatorId, auth);
+    const releaseViewer = operatorTransport.bindAgentLibraryTransport(viewerId, auth);
+    const authority = operatorTransport.captureAgentLibraryAuthorization(operatorId);
+    const scope = new AdviserTaskScope(
+      {
+        authSessionId: auth.id,
+        feature: { kind: 'terminal', terminalId: 'offline-terminal' },
+        accountId: f.input.lease.binding.accountId,
+        model: f.input.lease.binding.model,
+        reasoningEffort: null,
+        instructions: 'Review only the selected text.',
+        messages: [{ role: 'user', content: 'Exact reviewed context.' }],
+      },
+      () => authority.assertCurrent(),
+      new AbortController().signal,
+    );
+    scope.bindCommand(f.id, f.commandId);
+    const bindings = vi.spyOn(operatorTransport, 'bindAgentLibraryTransport');
+    if (failStartup)
+      vi.mocked(openCodexChat).mockRejectedValueOnce(Error('Offline startup failed'));
+    try {
+      const preparing = chat.prepareOwnedLocalCodexChat(f.transport, f.id, f.input, {
+        ...f.serverOptions,
+        operatorConnectionId: operatorId,
+        ownerConnectionId: viewerId,
+        ownerAuthSessionId: auth.id,
+        adviserScope: scope,
+      });
+      if (failStartup) await expect(preparing).rejects.toThrow();
+      else {
+        const prepared = await preparing;
+        const opened = vi.mocked(openCodexChat).mock.calls.at(-1)![0];
+        expect(opened.adviserScope).toBe(scope);
+        expect(opened.mcpServers).toEqual({});
+        expect(chat.registry.get(f.id)?.ownedLocalAuthSessionId).toBe(auth.id);
+        releaseViewer();
+        expect(() => scope.assertCurrent()).not.toThrow();
+        const [nativeOperator, retainedAuth] = bindings.mock.calls.find(([id]) =>
+          id.startsWith('native-host:'),
+        )!;
+        expect(retainedAuth.id).toBe(auth.id);
+        expect(() =>
+          operatorTransport.captureAgentLibraryAuthorization(nativeOperator).assertCurrent(),
+        ).not.toThrow();
+        prepared.close();
+        prepared.close();
+      }
+      const nativeBindings = bindings.mock.calls.filter(([id]) => id.startsWith('native-host:'));
+      expect(nativeBindings).toHaveLength(1);
+      expect(nativeBindings[0][1].id).toBe(auth.id);
+      expect(() =>
+        operatorTransport.captureAgentLibraryAuthorization(nativeBindings[0][0]),
+      ).toThrow();
+      expect(() => authority.assertCurrent()).not.toThrow();
+      expect(f.ended).toHaveBeenCalledOnce();
+    } finally {
+      releaseViewer();
+      releaseOperator();
+      bindings.mockRestore();
+    }
+  },
+);
 
 it('prepares exact existing native ownership under uncertainty and runs shared stream translation only after consumed', async () => {
   const f = fixture();
@@ -678,6 +792,28 @@ it('never captures an unrelated replacement in the original client slot when the
   } finally {
     chat.setSessionChangeCallback(() => {});
     chat.registry.abort(f.id);
+  }
+});
+
+it('leaves async context qualification to the owned host wrapper while preserving synchronous revocation', async () => {
+  const f = fixture(undefined, true);
+  const prepared = await chat.prepareOwnedCodexChat(
+    f.transport,
+    `client-${f.id}`,
+    f.input,
+    f.serverOptions,
+  );
+  try {
+    const options = vi.mocked(openCodexChat).mock.calls.at(-1)![0];
+    vi.mocked(f.lease.assertCurrent).mockClear();
+    await options.prepareAgentContext!(new AbortController().signal);
+    expect(f.lease.assertCurrent).not.toHaveBeenCalled();
+    vi.mocked(f.lease.assertCurrentSync).mockImplementationOnce(() => {
+      throw Error('Offline owner revoked');
+    });
+    await expect(options.prepareAgentContext!(new AbortController().signal)).rejects.toThrow();
+  } finally {
+    prepared.close();
   }
 });
 

@@ -1,0 +1,186 @@
+{
+  "head": "c4767b981eae656062bc45531b5a1440573817da",
+  "productionSource": "d525a3647bc6470d29b4e0433826998b2a932d84",
+  "productionTree": "56f6a186201174eedca13677c58ef5199a9a83c5",
+  "test": "tests/integration/telos-s9/integrated-candidate/stop-isolation-browser.contract.ts",
+  "testSha256": "13616520e3d403c83531783808a637b520681713c88825622da35ab11a9d684e",
+  "config": "tests/integration/telos-s9/integrated-candidate/vitest.stop-isolation.config.ts",
+  "result": {
+    "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-STOP-D525-DIAGNOSTICS/public-stop-observer/run.json",
+    "sha256": "5366c16a9cbac25509389c6cc22901c019795fb75b2f6804adb83325b1924390",
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 12682.466792000001
+  },
+  "observations": {
+    "ids": ["1b4200da-60cb-8c84-85eb-03d3f9d27b1d", "a2cd4267-d7ee-8f87-a57c-98efed025673"],
+    "commandPosts": [
+      {
+        "path": "/api/ordinary/workspaces/commands/first",
+        "body": {
+          "version": 2,
+          "runOn": "local",
+          "sessionId": "1b4200da-60cb-8c84-85eb-03d3f9d27b1d",
+          "workspace": {
+            "kind": "ordinary",
+            "workspaceId": "b4a71d45-bdad-480a-9ce4-288979d2c851"
+          },
+          "clientMsgId": "59531795-8f76-403a-819a-0a666d575c09",
+          "capabilityRevision": "a1aa8aa41df87f419d6e86797a80108cf3a807c2722188e3742feada64618342",
+          "runtime": {
+            "account": {
+              "accountId": "ordinary-personal",
+              "provider": "openai-codex",
+              "profileRevision": "67291220b80157127dbb203bd3829035543bf308b9e635a2da85e68c9164c71d"
+            },
+            "harness": "codex",
+            "targetId": "ordinary-fixture-local",
+            "mode": "agent"
+          },
+          "selection": {
+            "version": 1,
+            "agent": {
+              "profileId": "ordinary-worker",
+              "revision": 1
+            },
+            "context": {
+              "source": "none",
+              "revision": null
+            },
+            "permission": {
+              "mode": "agent",
+              "revision": 0
+            },
+            "model": "fixture-model",
+            "thinking": "low"
+          },
+          "payload": {
+            "text": "Start only outcome 0 for this offline probe."
+          }
+        }
+      },
+      {
+        "path": "/api/ordinary/workspaces/commands/first",
+        "body": {
+          "version": 2,
+          "runOn": "local",
+          "sessionId": "a2cd4267-d7ee-8f87-a57c-98efed025673",
+          "workspace": {
+            "kind": "ordinary",
+            "workspaceId": "e7aa9073-97c0-4c84-8928-b320d9d9cda5"
+          },
+          "clientMsgId": "e7013cf0-e315-41cb-a159-4bc12817439d",
+          "capabilityRevision": "a1aa8aa41df87f419d6e86797a80108cf3a807c2722188e3742feada64618342",
+          "runtime": {
+            "account": {
+              "accountId": "ordinary-personal",
+              "provider": "openai-codex",
+              "profileRevision": "67291220b80157127dbb203bd3829035543bf308b9e635a2da85e68c9164c71d"
+            },
+            "harness": "codex",
+            "targetId": "ordinary-fixture-local",
+            "mode": "agent"
+          },
+          "selection": {
+            "version": 1,
+            "agent": {
+              "profileId": "ordinary-worker",
+              "revision": 1
+            },
+            "context": {
+              "source": "none",
+              "revision": null
+            },
+            "permission": {
+              "mode": "agent",
+              "revision": 0
+            },
+            "model": "fixture-model",
+            "thinking": "low"
+          },
+          "payload": {
+            "text": "Start only outcome 1 for this offline probe."
+          }
+        }
+      }
+    ],
+    "stopPosts": [
+      {
+        "type": "stop",
+        "sessionId": "1b4200da-60cb-8c84-85eb-03d3f9d27b1d"
+      }
+    ],
+    "queues": [
+      {
+        "key": "mitzo-queue-1b4200da-60cb-8c84-85eb-03d3f9d27b1d",
+        "value": "[{\"text\":\"Retained local queue for outcome 0\",\"contextBlocks\":[],\"queueEntryId\":\"5b7d8e3f-c30b-41fc-a6ac-ff9a974c6805\"}]"
+      },
+      {
+        "key": "mitzo-queue-a2cd4267-d7ee-8f87-a57c-98efed025673",
+        "value": "[{\"text\":\"Retained local queue for outcome 1\",\"contextBlocks\":[],\"queueEntryId\":\"9fd4a656-dca8-4ccb-9aee-2e323fe6f1dd\"}]"
+      }
+    ],
+    "drafts": ["Keep the studio cancellation draft.", "Keep the unrelated quarterly draft."],
+    "afterStopRegistry": [
+      {
+        "id": "1b4200da-60cb-8c84-85eb-03d3f9d27b1d",
+        "attached": false
+      },
+      {
+        "id": "a2cd4267-d7ee-8f87-a57c-98efed025673",
+        "attached": true
+      }
+    ],
+    "nativeLaunches": 2,
+    "selectedCloseCount": 2,
+    "survivorCloseCount": 0,
+    "survivorReply": "The unrelated quarterly conversation completed independently.",
+    "pageErrors": [],
+    "limits": "Bounded ordinary cancellation/current guarded-queue isolation only; no queued replacement/interrupt parity, Symposium coexistence, process restart or live model qualification."
+  },
+  "observationsSha256": "82085a33f0e0d0939029abd8c6d3c0d882184e401a728027e20daa8c9fc24f0d",
+  "captures": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-STOP-D525-DIAGNOSTICS/public-stop-observer/studio-stopped-draft-retained.png",
+      "sha256": "95da536d4224853989fa83b9e9bbae5e1432ede98d15c632864b49dbec111b41",
+      "inspected": true
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-STOP-D525-DIAGNOSTICS/public-stop-observer/quarterly-unaffected-completed.png",
+      "sha256": "deb7e784df151598faf2f73df42095b4fe9e35516439a9c9854d096bc1897350",
+      "inspected": true
+    }
+  ],
+  "fixtureDiagnostic": {
+    "head": "3c0c31a64313cfeeb2761310517ad1addebbf316",
+    "resultSha256": "feecbddaa970615f2737dc929856f1d7f69a5578b55900be79041d8e5c630d81",
+    "status": "1FAIL0SKIP; own observer required one raw RPCclose call. Actual runtime-close and owned-local custody cleanup both close the same RPC. Corrected observer asserts one public Stop receipt, selected closure, and zero unrelated native closure. Initial raw evidence preserved; no producer defect inferred.",
+    "sourcePointers": ["server/codex-conversation.ts:2674", "server/codex-chat-session.ts:1626"]
+  },
+  "scope": {
+    "UX18": "Actual unrelated-outcome cancellation isolation only; not complete coordinator hold/release/publication workflow.",
+    "UX21": "Retained preexisting per-chat local queues do not drain across Stop/other completion/navigation/full reload; no extra commands/turns; process restart/revocation pending.",
+    "UX22": "Actual UI Stop/authREST/native cancellation, independent drafts/history and surviving output ownership; bound current contract has no replacement interrupt. Full voice/skills/attachments/queued/interrupt/Access parity pending.",
+    "CT17": "Bounded actual application cancellation and receipt/queue/chat isolation; not full execution/retry matrix.",
+    "CT20": "Reuses real shared App/auth/REST/SSE/registry/native/store boundaries; two unrelated Telos outcomes only. Full Telos/Symposium coexistence and CT19 remain pending."
+  },
+  "requiredRunner": "Separate bounded probe; existing eight required cases/driver unchanged and not rerun. Hosted inclusion owned by existing1048 after production dependencies.",
+  "pending": [
+    "S8 compact-tree/chooser-metadata findings and same scoped corrected-source retake",
+    "Existing production dependency landings and exact current-head CI/Centaur finalLGTM merge0/Appgate",
+    "Accepted-main full required-case repeat",
+    "Remaining fullUX, recovery and Telos/Symposium coexistence matrix",
+    "Separately selected/authorized CT19 single-runtime window"
+  ],
+  "modelCalls": 0,
+  "producerEdits": false,
+  "sourceProof": "S9-STOP-D525-SOURCE-PROOF.json",
+  "states": {
+    "S9": "active",
+    "parent": "active",
+    "offlineIntegration": "one bounded current-candidate contract verified",
+    "uxAccepted": "pending",
+    "liveRuntimeQualified": "pending"
+  }
+}

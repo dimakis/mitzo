@@ -21,6 +21,101 @@ const controller = {
   forget: async () => {},
 };
 
+it('reuses only pinned verified helper code while reading current authorization and credentials every time', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'keychain-helper-reuse-'));
+  const source = join(root, 'helper');
+  writeFileSync(source, 'signed fixture', { mode: 0o500 });
+  const verify = vi.fn(async () => {});
+  const authorization = vi.fn(async () => 'current-controller');
+  const run = vi.fn(async (_file: string, _request: unknown) =>
+    JSON.stringify({ ok: true, secret: 'first-key' }),
+  );
+  const prepare = vi.fn((file: string) => prepareKeychainHelper(file, join(root, 'private')));
+  const vault = new MacKeychainVault(
+    source,
+    'requirement',
+    run,
+    verify,
+    { ...controller, authorization },
+    prepare,
+    { reuseVerifiedHelper: true },
+  );
+  try {
+    const ref = { service: 'fixture', account: 'fixture' };
+    expect(await vault.read(ref)).toBe('first-key');
+    run.mockResolvedValueOnce(JSON.stringify({ ok: true, secret: 'rotated-key' }));
+    expect(await vault.read(ref)).toBe('rotated-key');
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(authorization).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledTimes(2);
+    chmodSync(run.mock.calls[0][0] as string, 0o700);
+    writeFileSync(run.mock.calls[0][0] as string, 'changed private copy');
+    await expect(vault.read(ref)).rejects.toThrow('helper is unavailable');
+    expect(run).toHaveBeenCalledTimes(2);
+  } finally {
+    vault.disposeVerifiedHelper();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('expires idle verified code and prepares and verifies it again on the next read', async () => {
+  vi.useFakeTimers();
+  const root = mkdtempSync(join(tmpdir(), 'keychain-helper-idle-'));
+  const source = join(root, 'helper');
+  writeFileSync(source, 'signed fixture', { mode: 0o500 });
+  const verify = vi.fn(async () => {});
+  const prepare = vi.fn((file: string) => prepareKeychainHelper(file, join(root, 'private')));
+  const run = vi.fn(async () => JSON.stringify({ ok: true, secret: 'current-key' }));
+  const vault = new MacKeychainVault(source, 'requirement', run, verify, controller, prepare, {
+    reuseVerifiedHelper: true,
+  });
+  try {
+    const ref = { service: 'fixture', account: 'fixture' };
+    await vault.read(ref);
+    const file = prepare.mock.results[0].value.file;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(() => readFileSync(file)).toThrow();
+    await vault.read(ref);
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(verify).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledTimes(2);
+  } finally {
+    vault.disposeVerifiedHelper();
+    vi.useRealTimers();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('refuses a changed source before authorizing reuse of its verified private copy', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'keychain-helper-source-change-'));
+  const source = join(root, 'helper');
+  writeFileSync(source, 'signed fixture', { mode: 0o500 });
+  const authorization = vi.fn(async () => 'current-authorization');
+  const run = vi.fn(async () => JSON.stringify({ ok: true, secret: 'current-key' }));
+  const vault = new MacKeychainVault(
+    source,
+    'requirement',
+    run,
+    async () => {},
+    { ...controller, authorization },
+    (file) => prepareKeychainHelper(file, join(root, 'private')),
+    { reuseVerifiedHelper: true },
+  );
+  try {
+    const ref = { service: 'fixture', account: 'fixture' };
+    await vault.read(ref);
+    chmodSync(source, 0o700);
+    writeFileSync(source, 'changed source');
+    await expect(vault.read(ref)).rejects.toThrow('helper is unavailable');
+    expect(authorization).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledTimes(1);
+  } finally {
+    vault.disposeVerifiedHelper();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it('uses JSON stdin for secrets, verifies the signed helper, and never puts a secret in argv', async () => {
   const run = vi.fn<(file: string, input: unknown) => Promise<string>>(async () =>
     JSON.stringify({

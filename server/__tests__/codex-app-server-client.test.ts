@@ -176,6 +176,7 @@ describe('Codex app-server transport', () => {
       'thread/resume',
       'account/login/start',
       'account/logout',
+      'skills/list',
     ]) {
       const request = client.request(method, {});
       if (sent.length > 2) reply({ id: sent.at(-1)!.id, result: {} });
@@ -217,6 +218,14 @@ describe('Codex app-server transport', () => {
     const ready = client.initialize();
     reply({ id: sent[0].id, result: {} });
     await ready;
+
+    const skills = client.request('skills/list', { cwds: ['/workspace'], forceReload: false });
+    expect(sent.at(-1)).toMatchObject({
+      method: 'skills/list',
+      params: { cwds: ['/workspace'], forceReload: false },
+    });
+    reply({ id: sent.at(-1)!.id, result: { data: [] } });
+    await expect(skills).resolves.toEqual({ data: [] });
 
     const turns = client.request('thread/turns/list', {
       threadId: 'old-thread',

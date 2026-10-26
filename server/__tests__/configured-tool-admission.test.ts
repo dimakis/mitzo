@@ -29,12 +29,65 @@ vi.mock('../native-responses-runner.js', () => ({
     waitUntilIdle = async () => {};
   },
 }));
+vi.mock('../codex-conversation.js', () => ({
+  // The shared native chat owner admits and dispatches tools. Its conversation
+  // is an offline stand-in; no process or model is launched.
+  CodexConversation: class {
+    constructor(
+      private readonly options: {
+        store: import('../codex-conversation-store.js').CodexConversationStore;
+        storedBinding: import('@mitzo/protocol').AccountBinding;
+        conversationId: string;
+        cwd: string;
+        tools: { name: string }[];
+        executeTool(
+          name: string,
+          input: Record<string, unknown>,
+          signal: AbortSignal,
+          context: { turnId: string; callId: string },
+        ): Promise<{ content: string; isError?: boolean }>;
+        onClosed(): void;
+      },
+    ) {
+      capture.options = {
+        tools: options.tools,
+        async executeTool(block, signal) {
+          try {
+            const result = await options.executeTool(block.name, block.input, signal, {
+              turnId: 'offline-turn',
+              callId: block.id,
+            });
+            return { content: result.content, is_error: result.isError };
+          } catch (error) {
+            return {
+              content: error instanceof Error ? error.message : String(error),
+              is_error: true,
+            };
+          }
+        },
+      };
+    }
+    initialize = async () => {
+      this.options.store.create(
+        this.options.conversationId,
+        this.options.storedBinding,
+        this.options.cwd,
+      );
+    };
+    send = async () => {};
+    recoverSavedQueue() {}
+    getTurnDispatchCount = () => 0;
+    close = () => this.options.onClosed();
+  },
+}));
 import { openResponsesChat } from '../responses-chat-session.js';
+import { openCodexChat, getCodexConversationStore } from '../codex-chat-session.js';
 
-it.each(['openai', 'google-vertex'] as const)(
+it.each(['codex', 'google-vertex'] as const)(
   'retains canonical skill policy and scoped grants while filtering and cold resuming on %s',
   async (provider) => {
     const root = mkdtempSync(join(tmpdir(), 'configured-admission-'));
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'native-private'));
     const files = (name: string) => join(root, `${name}.db`);
     let library = new AgentLibraryStore(files('library'));
     let events = new EventStore(files('events'));
@@ -85,12 +138,12 @@ it.each(['openai', 'google-vertex'] as const)(
       });
       setSkillPolicy(registry, clientId, ['mcp__one__search']);
       const input = new AsyncQueue<{ message: { content: string } }>();
-      const chat = await openResponsesChat({
+      const shared = {
         conversationId: 'selected',
         binding: {
           accountId: 'offline-fixture',
           accountLabel: 'Offline',
-          provider,
+          provider: provider === 'codex' ? ('openai-codex' as const) : ('google-vertex' as const),
           model: 'offline-no-model',
           profileRevision: 'fixture',
         },
@@ -110,7 +163,33 @@ it.each(['openai', 'google-vertex'] as const)(
         resume,
         configuredSourceEnv: omitSourceEnv ? undefined : options.env,
         configuredTools: { catalog, ...options },
-      });
+      };
+      const chat =
+        provider === 'codex'
+          ? await openCodexChat({
+              ...shared,
+              profile: {
+                accountId: shared.binding.accountId,
+                accountLabel: shared.binding.accountLabel,
+                email: 'fixture@example.test',
+                model: shared.binding.model,
+                planType: 'plus',
+                credentialRef: '/synthetic/never-read',
+              },
+              messageId: 'offline-command',
+              prompt: 'Inspect selected tools',
+            })
+          : await openResponsesChat({
+              ...shared,
+              gemini: {
+                accountId: 'offline-fixture',
+                projectId: 'offline',
+                region: 'global',
+                getAccessToken: async () => {
+                  throw Error('No live calls');
+                },
+              },
+            });
       sessions.push(chat);
       return capture.options!;
     }
@@ -268,6 +347,8 @@ it.each(['openai', 'google-vertex'] as const)(
       events.close();
       privateStore.close();
       catalog.close();
+      if (provider === 'codex') getCodexConversationStore().close();
+      vi.unstubAllEnvs();
       rmSync(root, { recursive: true, force: true });
     }
   },

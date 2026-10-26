@@ -195,6 +195,34 @@ export const CodexNativeTurnTargetSchema = z.strictObject({
   generation: z.number().int().nonnegative().safe(),
 });
 export type CodexNativeTurnTarget = z.infer<typeof CodexNativeTurnTargetSchema>;
+const CompletedPreparedRepositorySourceSchema = CodexNativeTurnTargetSchema.extend({
+  callId: z.string().min(1).max(200),
+  toolName: z.literal('PrepareLocalRepository'),
+  requestHash: z.string().regex(/^[a-f0-9]{64}$/),
+  resultSha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+/** Historical correlation only; current operator, read and custody authority
+ * must be supplied separately at the completed-turn admission barrier. */
+export type CompletedPreparedRepositorySource = z.infer<
+  typeof CompletedPreparedRepositorySourceSchema
+>;
+/** Private captured original-owner callback. A model packet or descriptive
+ * receipt cannot supply this authority. Native source checks remain independent. */
+export interface PreparedRepositoryPrimarySourceFence {
+  readonly commandId: string;
+  assertCurrentSync(command?: Readonly<CodexCommand>): void;
+}
+export function preparedRepositoryResultSha256(result: CodexToolResult): string {
+  const checked = normalizeCodexToolResult(result);
+  // Match recordToolResult/replayToolResult's durable public projection exactly.
+  // Private executor metadata is deliberately not part of the retained result.
+  const durable = {
+    content: checked.content,
+    isError: checked.isError,
+    ...(checked.contentItems ? { contentItems: checked.contentItems } : {}),
+  };
+  return createHash('sha256').update(JSON.stringify(durable)).digest('hex');
+}
 const NativeTurnHistorySchema = z
   .array(
     CodexNativeTurnTargetSchema.omit({ commandId: true }).extend({
@@ -368,9 +396,49 @@ interface Conversation {
   toolSurfaceRevision: string | null;
   rolloverContext: string | null;
 }
+// Only fixed query programs are retained. Every invocation still executes its
+// original fresh read and validation; no row, binding or ownership result lives
+// in this finite per-store statement registry.
+const hotReadSql = {
+  conversation: `SELECT c.id AS conversationId,c.binding,c.cwd,c.thread_id AS threadId,
+          c.thread_generation AS threadGeneration,c.recovery,
+          c.recovery_strategy AS recoveryStrategy,
+          c.web_search_grant AS webSearchGrant,
+          c.web_search_grant_revision AS webSearchGrantRevision,
+          c.web_search_grant_updated_at AS webSearchGrantUpdatedAt,
+          c.tool_surface_revision AS toolSurfaceRevision,
+          c.rollover_context AS rolloverContext,
+          g.last_completed_turn_id AS lastCompletedTurnId
+        FROM codex_conversations c
+        LEFT JOIN codex_thread_generations g
+          ON g.conversation_id=c.id AND g.generation=c.thread_generation
+        WHERE c.id=?`,
+  hostCustody: 'SELECT owner_kind,host_custody FROM codex_conversations WHERE id=?',
+  threadAcceptances:
+    'SELECT command_id AS commandId, attempt, thread_id AS threadId, turn_id AS turnId, generation, ownership_pending AS ownershipPending, accepted_at AS acceptedAt, terminal_conflict AS terminalConflict FROM codex_thread_acceptances WHERE conversation_id=? ORDER BY accepted_at',
+  nativeTurnTarget:
+    'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+  commandStatus: 'SELECT status FROM codex_commands WHERE conversation_id=? AND id=?',
+  pendingNativeHostTool: `SELECT t.command_id AS commandId,
+        t.turn_id AS turnId,t.tool_name AS toolName,t.request_hash AS requestHash,
+        t.result_content AS resultContent,t.result_is_error AS resultIsError,c.attempt
+        FROM codex_tools t JOIN codex_commands c
+        ON c.conversation_id=t.conversation_id AND c.id=t.command_id
+        WHERE t.conversation_id=? AND t.call_id=? AND c.status='running'`,
+} as const;
+
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
-  private db: Database.Database;
+  private readonly db: Database.Database;
+  private readonly hotReadStatements = new Map<keyof typeof hotReadSql, Database.Statement>();
+  private hotReadStatement(name: keyof typeof hotReadSql): Database.Statement {
+    let statement = this.hotReadStatements.get(name);
+    if (!statement) {
+      statement = this.db.prepare(hotReadSql[name]);
+      this.hotReadStatements.set(name, statement);
+    }
+    return statement;
+  }
   constructor(
     path: string,
     private readonly ownership: { requireOwner?: boolean } = {},
@@ -405,6 +473,12 @@ export class CodexConversationStore {
         PRIMARY KEY(conversation_id,call_id),
         FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
       CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_tool_outputs (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
+      output_id TEXT NOT NULL UNIQUE, tool_name TEXT NOT NULL, source_scope TEXT NOT NULL, content TEXT NOT NULL,
+      created_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS codex_tool_outputs_owner ON codex_tool_outputs(conversation_id,sequence);`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_thread_acceptances (
       conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
       command_id TEXT NOT NULL, attempt INTEGER NOT NULL,
@@ -605,23 +679,8 @@ export class CodexConversationStore {
       ) as { threadId: string; turnId: string } | undefined;
   }
   read(id: string, b: AccountBinding): Conversation {
-    const row = this.db
-      .prepare(
-        `SELECT c.id AS conversationId,c.binding,c.cwd,c.thread_id AS threadId,
-          c.thread_generation AS threadGeneration,c.recovery,
-          c.recovery_strategy AS recoveryStrategy,
-          c.web_search_grant AS webSearchGrant,
-          c.web_search_grant_revision AS webSearchGrantRevision,
-          c.web_search_grant_updated_at AS webSearchGrantUpdatedAt,
-          c.tool_surface_revision AS toolSurfaceRevision,
-          c.rollover_context AS rolloverContext,
-          g.last_completed_turn_id AS lastCompletedTurnId
-        FROM codex_conversations c
-        LEFT JOIN codex_thread_generations g
-          ON g.conversation_id=c.id AND g.generation=c.thread_generation
-        WHERE c.id=?`,
-      )
-      .get(id) as (Conversation & { binding: string }) | undefined;
+    const row = this.hotReadStatement('conversation').get(id) as
+      (Conversation & { binding: string }) | undefined;
     if (!row || row.binding !== this.key(b))
       throw new Error('Codex conversation binding unavailable or changed');
     return {
@@ -800,9 +859,10 @@ export class CodexConversationStore {
   }
   readHostCustody(id: string, binding: AccountBinding): HostCodexCustody | null {
     this.read(id, binding);
-    const row = this.db
-      .prepare('SELECT owner_kind,host_custody FROM codex_conversations WHERE id=?')
-      .get(id) as { owner_kind: string | null; host_custody: string | null };
+    const row = this.hotReadStatement('hostCustody').get(id) as {
+      owner_kind: string | null;
+      host_custody: string | null;
+    };
     if (row.owner_kind !== 'ordinary') throw new Error('Host Codex custody owner unavailable');
     return row.host_custody === null
       ? null
@@ -1371,11 +1431,7 @@ export class CodexConversationStore {
   }
   readThreadAcceptances(id: string, b: AccountBinding) {
     this.read(id, b);
-    const rows = this.db
-      .prepare(
-        'SELECT command_id AS commandId, attempt, thread_id AS threadId, turn_id AS turnId, generation, ownership_pending AS ownershipPending, accepted_at AS acceptedAt, terminal_conflict AS terminalConflict FROM codex_thread_acceptances WHERE conversation_id=? ORDER BY accepted_at',
-      )
-      .all(id) as Array<{
+    const rows = this.hotReadStatement('threadAcceptances').all(id) as Array<{
       commandId: string;
       attempt: number;
       threadId: string;
@@ -2273,11 +2329,7 @@ export class CodexConversationStore {
     attempt: number,
   ): CodexNativeTurnTarget | undefined {
     const current = this.read(id, b);
-    const row = this.db
-      .prepare(
-        'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
-      )
-      .get(id, commandId) as
+    const row = this.hotReadStatement('nativeTurnTarget').get(id, commandId) as
       { status: string; attempt: number; native_turns: string | null } | undefined;
     if (!row || row.status !== 'running' || row.attempt !== attempt) return;
     const targets = this.nativeTurns(row.native_turns).filter((t) => t.attempt === attempt);
@@ -2289,6 +2341,70 @@ export class CodexConversationStore {
       return;
     if (this.pendingThreadOwnership(id, b)) return;
     return this.nativeTarget(commandId, targets[0]);
+  }
+  /** Post-terminal correlation, never a revived callback or read capability.
+   * A later nonqueued command prevents adopting an earlier task behind it. */
+  completedNativeTurnTarget(
+    id: string,
+    binding: AccountBinding,
+  ): CodexNativeTurnTarget | undefined {
+    const state = this.read(id, binding);
+    if (state.recovery || this.pendingThreadOwnership(id, binding)) return;
+    const row = this.db
+      .prepare(
+        `SELECT id,status,attempt,native_turns FROM codex_commands
+      WHERE conversation_id=? AND status!='queued' ORDER BY sequence DESC LIMIT 1`,
+      )
+      .get(id) as
+      { id: string; status: string; attempt: number; native_turns: string | null } | undefined;
+    if (!row || row.status !== 'completed') return;
+    const turns = this.nativeTurns(row.native_turns).filter((turn) => turn.attempt === row.attempt);
+    if (turns.length !== 1) return;
+    const target = this.nativeTarget(row.id, turns[0]);
+    const receipt = this.readNativeExecution(id, binding, { id: row.id, attempt: row.attempt });
+    if (
+      target.threadId !== state.threadId ||
+      target.generation !== state.threadGeneration ||
+      target.turnId !== state.lastCompletedTurnId ||
+      receipt?.phase !== 'accepted' ||
+      receipt.threadId !== target.threadId ||
+      receipt.turnId !== target.turnId ||
+      receipt.generation !== target.generation
+    )
+      return;
+    this.assertNoPendingThreadDispatch(id, binding);
+    return Object.freeze(target);
+  }
+  completedPreparedRepositoryResultSha256(
+    id: string,
+    binding: AccountBinding,
+    target: Readonly<CodexNativeTurnTarget>,
+    callId: string,
+    requestHash: string,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
+  ): string {
+    if (!isDeepStrictEqual(this.completedNativeTurnTarget(id, binding), target))
+      throw Error('Completed prepared repository target changed');
+    const identity = {
+      turnId: target.turnId,
+      toolName: 'PrepareLocalRepository' as const,
+      requestHash,
+    };
+    const result = this.replayToolResult(id, binding, target.commandId, callId, identity);
+    if (!result || result.isError) throw Error('Completed prepared repository result unavailable');
+    const resultSha256 = preparedRepositoryResultSha256(result);
+    this.assertCompletedPreparedRepositorySource(
+      id,
+      binding,
+      {
+        ...target,
+        ...identity,
+        callId,
+        resultSha256,
+      },
+      primarySource,
+    );
+    return resultSha256;
   }
   targetedInterruptReceipt(
     id: string,
@@ -2774,9 +2890,8 @@ export class CodexConversationStore {
     commandId: string,
   ): CodexCommand['status'] | undefined {
     this.read(id, binding);
-    const row = this.db
-      .prepare('SELECT status FROM codex_commands WHERE conversation_id=? AND id=?')
-      .get(id, commandId) as { status: string } | undefined;
+    const row = this.hotReadStatement('commandStatus').get(id, commandId) as
+      { status: string } | undefined;
     if (!row) return undefined;
     return z
       .enum(['queued', 'running', 'completed', 'interrupted', 'failed', 'cancelled'])
@@ -2945,16 +3060,7 @@ export class CodexConversationStore {
   ) {
     return this.db.transaction(() => {
       this.read(id, binding);
-      const row = this.db
-        .prepare(
-          `SELECT t.command_id AS commandId,
-        t.turn_id AS turnId,t.tool_name AS toolName,t.request_hash AS requestHash,
-        t.result_content AS resultContent,t.result_is_error AS resultIsError,c.attempt
-        FROM codex_tools t JOIN codex_commands c
-        ON c.conversation_id=t.conversation_id AND c.id=t.command_id
-        WHERE t.conversation_id=? AND t.call_id=? AND c.status='running'`,
-        )
-        .get(id, callId) as
+      const row = this.hotReadStatement('pendingNativeHostTool').get(id, callId) as
         | {
             commandId: string;
             turnId: string | null;
@@ -2982,6 +3088,210 @@ export class CodexConversationStore {
         toolName: row.toolName,
         requestHash: row.requestHash,
       });
+    })();
+  }
+  /** Verify a completed source without reviving its expired native callback.
+   * This does not authorize a read, a workspace change or another provider turn.
+   * Old queued work is a hard boundary: never silently retarget that work or
+   * place an automatic continuation behind a later explicit user command. */
+  assertCompletedPreparedRepositorySource(
+    id: string,
+    binding: AccountBinding,
+    rawSource: CompletedPreparedRepositorySource,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
+  ): void {
+    this.assertPreparedRepositorySource(id, binding, rawSource, undefined, primarySource);
+  }
+  private assertPreparedRepositorySource(
+    id: string,
+    binding: AccountBinding,
+    rawSource: CompletedPreparedRepositorySource,
+    exactQueuedChildId?: string,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
+  ): void {
+    this.db.transaction(() => {
+      const source = CompletedPreparedRepositorySourceSchema.parse(rawSource);
+      const current = this.read(id, binding);
+      const commands = this.commands(id, binding);
+      const original = commands.find((command) => command.id === source.commandId);
+      const row = this.db
+        .prepare(
+          'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+        )
+        .get(id, source.commandId) as
+        { status: string; attempt: number; native_turns: string | null } | undefined;
+      const fail = () => {
+        throw Error('Completed prepared repository source unavailable');
+      };
+      if (
+        !row ||
+        row.status !== 'completed' ||
+        row.attempt !== source.attempt ||
+        current.threadId !== source.threadId ||
+        current.threadGeneration !== source.generation ||
+        current.lastCompletedTurnId !== source.turnId ||
+        current.recovery ||
+        commands.some(
+          (command) =>
+            command.status === 'running' ||
+            (command.status === 'queued' && command.id !== exactQueuedChildId),
+        ) ||
+        !original?.intent?.trim() ||
+        original.allowedTools ||
+        (original.environmentContinuation && !primarySource) ||
+        commands.filter((command) => command.status !== 'queued').at(-1)?.id !== source.commandId
+      )
+        fail();
+      if (original!.environmentContinuation) {
+        if (
+          !/^prepared-repository-[a-f0-9]{64}$/.test(original!.id) ||
+          primarySource?.commandId !== source.commandId
+        )
+          fail();
+        const assert = primarySource!.assertCurrentSync;
+        const checked: unknown = assert.call(primarySource, structuredClone(original!));
+        if (checked !== undefined) {
+          void Promise.resolve(checked).catch(() => {});
+          fail();
+        }
+        if (
+          primarySource!.assertCurrentSync !== assert ||
+          primarySource!.commandId !== source.commandId
+        )
+          fail();
+      }
+      this.assertNoPendingThreadOwnership(id, binding);
+      this.assertNoPendingThreadDispatch(id, binding);
+      const targets = this.nativeTurns(row!.native_turns).filter(
+        (turn) => turn.attempt === source.attempt,
+      );
+      if (
+        targets.length !== 1 ||
+        !isDeepStrictEqual(this.nativeTarget(source.commandId, targets[0]), {
+          commandId: source.commandId,
+          attempt: source.attempt,
+          threadId: source.threadId,
+          turnId: source.turnId,
+          generation: source.generation,
+        })
+      )
+        fail();
+      const receipt = this.readNativeExecution(id, binding, {
+        id: source.commandId,
+        attempt: source.attempt,
+      });
+      if (
+        receipt?.phase !== 'accepted' ||
+        receipt.threadId !== source.threadId ||
+        receipt.turnId !== source.turnId ||
+        receipt.generation !== source.generation
+      )
+        fail();
+      const result = this.replayToolResult(id, binding, source.commandId, source.callId, source);
+      if (
+        !result ||
+        result.isError ||
+        preparedRepositoryResultSha256(result) !== source.resultSha256
+      )
+        fail();
+    })();
+  }
+  assertQueuedPreparedRepositoryContinuation(
+    id: string,
+    binding: AccountBinding,
+    source: CompletedPreparedRepositorySource,
+    rawInput: CodexCommandInput,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
+  ): void {
+    this.db.transaction(() => {
+      const input = CommandInput.parse(rawInput);
+      if (
+        !/^prepared-repository-[a-f0-9]{64}$/.test(input.id) ||
+        input.environmentContinuation ||
+        input.allowedTools
+      )
+        throw Error('Prepared repository child identity unavailable');
+      const expected = JSON.parse(
+        JSON.stringify({
+          ...input,
+          environmentContinuation: {
+            sourceCommandId: source.commandId,
+            sourceTurnId: source.turnId,
+            sourceThreadId: source.threadId,
+            sourceGeneration: source.generation,
+          },
+        }),
+      );
+      const child = this.commands(id, binding).find((command) => command.id === input.id);
+      if (!child) throw Error('Prepared repository child is not exactly queued');
+      const { status, attempt, ...retained } = child;
+      if (status !== 'queued' || attempt !== 1)
+        throw Error('Prepared repository child is not exactly queued');
+      if (!isDeepStrictEqual(retained, expected))
+        throw Error('Prepared repository queued child changed');
+      this.assertPreparedRepositorySource(id, binding, source, input.id, primarySource);
+    })();
+  }
+  /** Called only after the existing admission owner consumed the exact prepared
+   * child. It shares FIFO's completed-turn/thread-generation fence and can never
+   * insert behind old queued work or turn a child into another automatic loop. */
+  enqueuePreparedRepositoryContinuation(
+    id: string,
+    binding: AccountBinding,
+    source: CompletedPreparedRepositorySource,
+    rawInput: CodexCommandInput,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
+  ): boolean {
+    return this.db.transaction(() => {
+      this.assertCompletedPreparedRepositorySource(id, binding, source, primarySource);
+      const input = CommandInput.parse(rawInput);
+      const original = this.commands(id, binding).find(
+        (command) => command.id === source.commandId,
+      );
+      if (
+        !original?.intent?.trim() ||
+        original.allowedTools ||
+        (original.environmentContinuation && !primarySource) ||
+        input.intent !== original.intent ||
+        input.allowedTools ||
+        input.environmentContinuation ||
+        !/^prepared-repository-[a-f0-9]{64}$/.test(input.id)
+      )
+        throw Error('Prepared repository original task continuation unavailable');
+      return this.enqueue(id, binding, {
+        ...input,
+        environmentContinuation: {
+          sourceCommandId: source.commandId,
+          sourceTurnId: source.turnId,
+          sourceThreadId: source.threadId,
+          sourceGeneration: source.generation,
+        },
+      });
+    })();
+  }
+  /** Expected-old primary CAS for the already guarded repository operation.
+   * Per-command frozen policy/turn history remains historical and unchanged. */
+  adoptPreparedRepositoryWorkspace(
+    id: string,
+    binding: AccountBinding,
+    source: CompletedPreparedRepositorySource,
+    expectedCwd: string,
+    nextCwd: string,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
+  ): void {
+    this.db.transaction(() => {
+      this.assertCompletedPreparedRepositorySource(id, binding, source, primarySource);
+      if (
+        !isAbsolute(nextCwd) ||
+        resolve(nextCwd) !== nextCwd ||
+        nextCwd.includes('\0') ||
+        nextCwd === expectedCwd
+      )
+        throw Error('Prepared repository native workspace invalid');
+      const changed = this.db
+        .prepare('UPDATE codex_conversations SET cwd=? WHERE id=? AND cwd=?')
+        .run(nextCwd, id, expectedCwd);
+      if (changed.changes !== 1) throw Error('Prepared repository native workspace changed');
     })();
   }
   /** A completed host result is persisted before it is exposed to the transport.
@@ -3171,6 +3481,59 @@ export class CodexConversationStore {
         )
         .run(id);
     })();
+  }
+  retainToolOutput(
+    id: string,
+    binding: AccountBinding,
+    toolName: string,
+    content: string,
+    sourceScope: string,
+  ): string {
+    if (!/^[a-f0-9]{64}$/.test(sourceScope)) throw Error('Invalid retained output scope');
+    if (Buffer.byteLength(content) > 4 * 1024 * 1024) throw Error('Tool output retention bound');
+    return this.db
+      .transaction(() => {
+        this.read(id, binding);
+        const outputId = randomUUID();
+        this.db
+          .prepare('DELETE FROM codex_tool_outputs WHERE created_at<?')
+          .run(Date.now() - 86400000);
+        this.db
+          .prepare(
+            'INSERT INTO codex_tool_outputs(conversation_id,output_id,tool_name,source_scope,content,created_at) VALUES(?,?,?,?,?,?)',
+          )
+          .run(id, outputId, toolName, sourceScope, content, Date.now());
+        // At most eight retained outputs per conversation; expiration is explicit on read.
+        this.db
+          .prepare(
+            'DELETE FROM codex_tool_outputs WHERE conversation_id=? AND sequence NOT IN (SELECT sequence FROM codex_tool_outputs WHERE conversation_id=? ORDER BY sequence DESC LIMIT 8)',
+          )
+          .run(id, id);
+        // Sixteen outputs globally also bound cache bytes to at most 64 MiB.
+        this.db
+          .prepare(
+            'DELETE FROM codex_tool_outputs WHERE sequence NOT IN (SELECT sequence FROM codex_tool_outputs ORDER BY sequence DESC LIMIT 16)',
+          )
+          .run();
+        return outputId;
+      })
+      .immediate();
+  }
+  readToolOutput(
+    id: string,
+    binding: AccountBinding,
+    outputId: string,
+  ): { toolName: string; sourceScope: string; content: string } | undefined {
+    this.read(id, binding);
+    const row = this.db
+      .prepare(
+        'SELECT tool_name,source_scope,content FROM codex_tool_outputs WHERE conversation_id=? AND output_id=? AND created_at>=?',
+      )
+      .get(id, z.uuid().parse(outputId), Date.now() - 86400000) as
+      { tool_name: string; source_scope: string; content: string } | undefined;
+    return row
+      ? { toolName: row.tool_name, sourceScope: row.source_scope, content: row.content }
+      : undefined;
   }
   close() {
     this.db.close();

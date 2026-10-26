@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import { GoogleAuth } from 'google-auth-library';
 import { join } from 'node:path';
 
 const services = vi.hoisted(() => ({
@@ -7,9 +8,61 @@ const services = vi.hoisted(() => ({
   library: undefined as unknown,
   manager: { manages: () => true, resolveKey: vi.fn(async () => 'offline-exact-key') },
 }));
-vi.mock('../repository-workspace-runtime.js', async (original) => ({
-  ...(await original<object>()),
+// Model only the external free-space observation for these tiny fixtures. The
+// actual descriptor-relative copy, capacity guard, Git and owner stores execute.
+// The physical host is under disk pressure; this does not qualify its free space.
+vi.mock('node:child_process', async (original) => {
+  const actual = await original<typeof import('node:child_process')>();
+  const capacity = 'os.fstatvfs(parent).f_bavail * os.fstatvfs(parent).f_frsize';
+  return {
+    ...actual,
+    execFile: new Proxy(actual.execFile, {
+      apply(target, receiver, args) {
+        const [file, argv] = args;
+        if (
+          file === 'python3' &&
+          Array.isArray(argv) &&
+          argv[0] === '-I' &&
+          argv[1] === '-c' &&
+          typeof argv[2] === 'string' &&
+          argv[2].includes(capacity)
+        ) {
+          args[1] = [...argv];
+          args[1][2] = argv[2].replace(capacity, String(8 * 1024 ** 3));
+        }
+        return Reflect.apply(target, receiver, args);
+      },
+    }),
+  };
+});
+// Keep the real fixture owner without importing the process-global owner while
+// its mock is initializing: that import cycle can capture the global getter.
+vi.mock('../repository-workspace-runtime.js', () => ({
   getRepositoryWorkspaces: () => services.workspace,
+  getRepositoryWorkspaceCustody: () => services.workspace,
+  repositoryWorkspaceBinding: () => {
+    throw Error('No new repository account selection in this metadata fixture');
+  },
+  repositoryWorkspaceCatalog: () => {
+    throw Error('No new repository catalog selection in this metadata fixture');
+  },
+  getOrdinaryWorkspaces: () => {
+    throw Error('No ordinary workspace selected by this repository fixture');
+  },
+  getLocalRepositoryWorkspaces: () => {
+    throw Error('No local source selected by this repository fixture');
+  },
+  readRepositoryWorkspaceForConversation: (
+    sessionId: string,
+    expectedWorkspaceId?: string | null,
+  ) => {
+    const record = (
+      services.workspace as import('../repository-workspaces.js').RepositoryWorkspaces
+    ).getForConversation(sessionId);
+    if (expectedWorkspaceId && record?.id !== expectedWorkspaceId)
+      throw Error('Repository claim ledger is unavailable or changed; preserve the conversation');
+    return record;
+  },
 }));
 vi.mock('../agent-library-runtime.js', async (original) => ({
   ...(await original<object>()),
@@ -38,7 +91,7 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-it('preserves actual started Responses repository continuation metadata when only Local Codex is disabled', async () => {
+it('preserves actual started Gemini repository continuation metadata when only Local Codex is disabled', async () => {
   vi.resetModules();
   const calls: Array<{
     url: string;
@@ -56,20 +109,24 @@ it('preserves actual started Responses repository continuation metadata when onl
         bodyType: typeof init?.body,
         body: init?.body,
       });
-      if (String(url) !== 'https://api.openai.com/v1/responses') {
+      if (
+        String(url) !==
+        'https://europe-west1-aiplatform.googleapis.com/v1/projects/original-project/locations/europe-west1/publishers/google/models/gemini-2.5-pro:generateContent'
+      ) {
         unexpectedUrls.push(String(url));
         throw Error('Unexpected offline provider URL: ' + String(url));
       }
-      const events = [
-        { type: 'response.created', response: { id: 'metadata-response', model: 'fixture-model' } },
-        {
-          type: 'response.completed',
-          response: { output: [], usage: { input_tokens: 1, output_tokens: 0 } },
-        },
-      ];
       return new Response(
-        events.map((event) => 'data: ' + JSON.stringify(event) + '\n\n').join(''),
-        { headers: { 'content-type': 'text/event-stream' } },
+        JSON.stringify({
+          responseId: 'metadata-response',
+          candidates: [
+            {
+              content: { role: 'model', parts: [{ text: 'Offline answer' }] },
+              finishReason: 'STOP',
+            },
+          ],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+        }),
       );
     }),
   );
@@ -79,9 +136,12 @@ it('preserves actual started Responses repository continuation metadata when onl
     .spyOn(credentials, 'resolve')
     .mockRejectedValue(Error('No host credential fallback'));
   vi.spyOn(AccountProfiles.prototype, 'isEnrolledOpenAIAccount').mockReturnValue(true);
+  const googleToken = vi
+    .spyOn(GoogleAuth.prototype, 'getAccessToken')
+    .mockResolvedValue('offline-google-token');
   const { ownedResponsesRuntimeFixture } =
     await import('./fixtures/owned-local-responses-runtime.js');
-  const f = await ownedResponsesRuntimeFixture(cleanup, { chatRoute: true });
+  const f = await ownedResponsesRuntimeFixture(cleanup, { chatRoute: true, gemini: true });
   services.workspace = f.workspace;
   services.library = f.library;
   vi.stubEnv('MITZO_INTERNAL_TOKEN_PATH', join(f.root, 'internal-token'));
@@ -117,7 +177,7 @@ it('preserves actual started Responses repository continuation metadata when onl
   });
   const { repositoryPreparedCommandStatus } = await import('../repository-prepared-command.js');
   const firstOnlyAuthority = vi.fn(() => {
-    throw Error('Local Codex preparation authority is inapplicable to Responses');
+    throw Error('Local Codex preparation authority is inapplicable to Gemini');
   });
   const firstOnlyWorkspace = vi.fn(() => {
     throw Error('No Local Codex workspace qualification');
@@ -131,7 +191,7 @@ it('preserves actual started Responses repository continuation metadata when onl
       // Observe the real atomic new-session owner BEFORE it records the initial command.
       // Pre-seeding a separate bound session would violate the new-session admission rule.
       expect(chat.eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation).toBe(
-        'responses',
+        'gemini',
       );
       expect(chat.eventStore.getOrdinaryInitialCommandId(meta.sessionId)).toBeUndefined();
       expect(calls).toEqual([]);
@@ -146,7 +206,7 @@ it('preserves actual started Responses repository continuation metadata when onl
   );
   const transport = { send: vi.fn(), isOpen: () => true };
   await expect(
-    chat.startOwnedLocalResponsesCommand(transport, 'metadata-responses', {
+    chat.startOwnedLocalResponsesCommand(transport, 'metadata-gemini', {
       command: f.request,
       reservation: f.reservation,
       operatorConnectionId: f.dependencies.operatorConnectionId,
@@ -165,15 +225,12 @@ it('preserves actual started Responses repository continuation metadata when onl
     { timeout: 5_000 },
   );
   expect(calls[0]).toMatchObject({
-    url: 'https://api.openai.com/v1/responses',
+    url: 'https://europe-west1-aiplatform.googleapis.com/v1/projects/original-project/locations/europe-west1/publishers/google/models/gemini-2.5-pro:generateContent',
     method: 'POST',
     bodyType: 'string',
   });
   expect(JSON.parse(String(calls[0].body))).toMatchObject({
-    model: f.reservation.binding.model,
-    stream: true,
-    store: false,
-    input: expect.arrayContaining([{ role: 'user', content: f.request.payload.text }]),
+    contents: expect.arrayContaining([{ role: 'user', parts: [{ text: f.request.payload.text }] }]),
   });
   await vi.waitFor(() =>
     expect(native.status(f.reservation.conversationId, f.reservation.binding)).toBe('idle'),
@@ -219,7 +276,8 @@ it('preserves actual started Responses repository continuation metadata when onl
   );
   expect(native.load(f.reservation.conversationId, f.reservation.binding)).toEqual(beforeHistory);
   expect(calls).toHaveLength(1);
-  expect(services.manager.resolveKey).toHaveBeenCalledOnce();
+  expect(googleToken).toHaveBeenCalled();
+  expect(services.manager.resolveKey).not.toHaveBeenCalled();
   expect(fallbackCredential).not.toHaveBeenCalled();
   expect(launch).not.toHaveBeenCalled();
 }, 20_000);

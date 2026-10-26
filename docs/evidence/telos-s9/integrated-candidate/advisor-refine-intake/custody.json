@@ -1,0 +1,55 @@
+{
+  "frozenExecution": "72d6d6b8cb6456835543c96e24e3e17702b66c82",
+  "baseline": "757feb62145c6bff933d98e16fddd5e783539346",
+  "entries": [
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-ADVISOR-REFINE-INDEPENDENT-REVIEW.md",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-refine-intake/root-independent-review.md",
+      "sha256": "61244a8743402c3ff7d3268e4a24bf97a24cade0f3d547fd1bcc30b24bfcbd69",
+      "bytes": 6020
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-19/read-and-execute-users-dsaridak-documents-2/S9-ADVISOR-REFINE-INDEPENDENT-REVIEW.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-refine-intake/root-independent-review.json",
+      "sha256": "fb04d73c93bb6e4ac6bc2bbe93d17fa5de9905c60351b1be7f74dec168bdefcf",
+      "bytes": 12349
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-RESULT.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-refine-intake/original-producer-result-72d6.json",
+      "sha256": "bcb71ea3d343c5def49072993b201c53ca695b1e138be9d39a33789e0382500f",
+      "bytes": 283073
+    },
+    {
+      "source": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-SOURCE-PROOF.json",
+      "retained": "docs/evidence/telos-s9/integrated-candidate/advisor-refine-intake/original-source-proof-72d6.json",
+      "sha256": "40a4a53ae107fce05cc18151697d793bfd42c0dc4ee95b5a3e0a254cc64952cc",
+      "bytes": 9036
+    }
+  ],
+  "archivesAndRaw": [
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-SOURCE.zip",
+      "sha256": "7dc0327413e82e5603a8a2d5ceda0f8413da9f60d2c5cb3e3a6567575312ec3f",
+      "size": 3191586,
+      "copied": false,
+      "custody": "Original producer retained archive/raw; independent root review verified contents"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-DIAGNOSTICS.zip",
+      "sha256": "5f15bbd13e0a3c022d23cb59daaf529f26563e37e2cb8aa08db17ed6038cbfd9",
+      "size": 485253,
+      "copied": false,
+      "custody": "Original producer retained archive/raw; independent root review verified contents"
+    },
+    {
+      "path": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/S9-ADVISOR-REFINE-DIAGNOSTICS/initial/run.json",
+      "sha256": "a484c78c7bf8970ac1c22fccebf58929659263bec2d72c1f02cd1f5629054b7d",
+      "size": 1190,
+      "copied": false,
+      "custody": "Original producer retained archive/raw; independent root review verified contents"
+    }
+  ],
+  "closedScope": "One retained private same-item Refine1PASS0skip; no new composed-source runtime retest, nonempty source/material inheritance, native canonical output, full UX/main/live qualification",
+  "reviewChronology": "Original producer pending independent review text remains byte-exact; retained root review separately closes that bounded review"
+}

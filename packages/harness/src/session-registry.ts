@@ -50,6 +50,13 @@ export interface ManagedSession {
     initialPreparationOperationId?: string;
     initialResume?: boolean;
     admit(command: unknown, preparationSignal?: AbortSignal): Promise<{ dispatched: boolean }>;
+    /** Host-only private setup receipt; never an alternative public send route. */
+    notifyCredentialSetup?(input: {
+      messageId: string;
+      prompt: string;
+      assertCurrent(): void;
+      signal: AbortSignal;
+    }): Promise<boolean>;
     /** Host-only exact peer receipt; cannot be selected by a public command body. */
     admitAgentMessage?(
       messageId: string,
@@ -106,7 +113,7 @@ export interface ManagedSession {
   /** Accumulates token totals across multiple query() calls in a session */
   cumulativeSessionTokens: number;
   cumulativeCostUsd: number;
-  taskContext: { currentTaskId: string; goalId: string } | null;
+  taskContext: { currentTaskId: string; goalId: string; workerAllocationId?: string } | null;
   telosTaskId?: string;
   /** Active subagent task IDs — task_id → tool_use_id (parent_tool_use_id). */
   activeTaskIds: Map<string, string>;
@@ -143,7 +150,7 @@ export interface ActiveSessionInfo {
   cumulativeSessionTokens: number;
   cumulativeCostUsd: number;
   hasSnapshot: boolean;
-  taskContext: { currentTaskId: string; goalId: string } | null;
+  taskContext: { currentTaskId: string; goalId: string; workerAllocationId?: string } | null;
   observerCount: number;
 }
 

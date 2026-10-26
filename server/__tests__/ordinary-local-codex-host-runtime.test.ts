@@ -26,6 +26,18 @@ afterEach(() => {
   vi.restoreAllMocks();
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
 });
+it('hashes each immutable source manifest once while retaining native identity and manifest replacement checks', () => {
+  manifest.artifacts = Object.freeze({ source: 'a'.repeat(64) });
+  const entries = vi.spyOn(Object, 'entries');
+  const original = ordinaryLocalCodexHostContractRevision('b'.repeat(64), 'c'.repeat(64));
+  expect(ordinaryLocalCodexHostContractRevision('b'.repeat(64), 'c'.repeat(64))).toBe(original);
+  expect(entries).toHaveBeenCalledTimes(1);
+  expect(ordinaryLocalCodexHostContractRevision('d'.repeat(64), 'c'.repeat(64))).not.toBe(original);
+  expect(entries).toHaveBeenCalledTimes(1);
+  manifest.artifacts = Object.freeze({ source: 'e'.repeat(64) });
+  expect(ordinaryLocalCodexHostContractRevision('b'.repeat(64), 'c'.repeat(64))).not.toBe(original);
+  expect(entries).toHaveBeenCalledTimes(2);
+});
 it('binds the target contract to the exact sorted code closure with unchanged nominal revision, CLI and native bytes', async () => {
   const f = fixture();
   const runtime = new OrdinaryLocalCodexHostRuntime(f.env);

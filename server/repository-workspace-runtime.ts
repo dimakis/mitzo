@@ -118,6 +118,7 @@ function workspaceOwner(readOnly = false, ordinary = false, local = false) {
       ? !localRepositoryWorkspacesEnabled()
       : ordinary
         ? process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' &&
+          process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED !== '1' &&
           process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED !== '1'
         : !repositoryWorkspacesEnabled())
   )
@@ -227,6 +228,10 @@ export function readRepositoryWorkspaceForConversation(
 /** Existing repository callers keep their original enrollment gate. */
 export function getRepositoryWorkspaces(readOnly = false) {
   return workspaceOwner(readOnly);
+}
+/** Source review reads existing custody without enrolling another workspace. */
+export function getRepositoryWorkspaceCustody() {
+  return getRepositoryWorkspaces(true);
 }
 /** Local selection reuses configured checkouts and the existing workspace ledger. */
 export function getLocalRepositoryWorkspaces() {

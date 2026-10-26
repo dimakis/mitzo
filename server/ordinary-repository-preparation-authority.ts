@@ -8,6 +8,7 @@ import { OpenShellRuntimeManager } from './openshell-runtime.js';
 import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-entry-owner.js';
 import { openAIAccountKeyAuthority } from './openai-account-key-authority.js';
 import { VertexAdcCustody } from './ordinary-local-vertex-custody.js';
+import { observeLocalCodexPhase } from './local-codex-observation.js';
 import {
   readPrivateRuntimeSettings,
   OrdinaryLocalCodexHostRuntime,
@@ -81,9 +82,10 @@ async function credentialDigest(
       consumer: 'host',
       endpoint: connection.endpoint,
     });
-    await manager.assertReady(signal);
+    // Host resolution already validates the current controller, profile and
+    // rotation fence around the Keychain read. Host assertReady does that same
+    // read again; sandwiching resolution triples every repository fence.
     credential = digest(await manager.resolveKey(binding.accountId, signal));
-    await manager.assertReady(signal);
   } else {
     const configured = loadOrdinaryOpenShellCodexTarget();
     if (!configured) throw unavailable();
@@ -135,12 +137,15 @@ async function credentialDigest(
       };
     } else {
       const manager = openAIAccountKeyAuthority(binding, profiles);
-      await manager.assertReady(signal);
+      // Gateway resolution already verifies readiness inside its credential
+      // owner. Keep the fresh post-resolution fence, without repeating that
+      // preliminary gateway/Keychain read before the resolver does it again.
       credential = digest(await manager.resolveKey(binding.accountId, signal));
       await manager.assertReady(signal);
     }
     const current = loadOrdinaryOpenShellCodexTarget();
-    if (!current || !isDeepStrictEqual(current.target, configured.target)) throw unavailable();
+    if (!current || current.deploymentRevision !== configured.deploymentRevision)
+      throw unavailable();
   }
   signal.throwIfAborted();
   if (
@@ -176,6 +181,7 @@ async function captureCurrentPreparation(
   signal: AbortSignal,
   requireModelReadiness: boolean,
   retainedBinding?: OrdinaryRepositoryPreparation['runtimeBinding'],
+  continuation?: { conversationId: string; workspaceId: string },
 ): Promise<OrdinaryRepositoryPreparation> {
   signal.throwIfAborted();
   const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
@@ -183,6 +189,7 @@ async function captureCurrentPreparation(
     selection.runOn,
     selection.runtime.harness,
     retainedBinding,
+    continuation,
   );
   const resolved = catalog.resolve({ ...selection.runtime, mode: 'agent' });
   if (
@@ -204,7 +211,9 @@ async function captureCurrentPreparation(
     ...(selection.runOn === 'openshell'
       ? { sandboxWorkdir: loadOrdinaryOpenShellCodexTarget()?.config.workdir }
       : {}),
-    credentialDigest: await credentialDigest(binding, selection, signal),
+    credentialDigest: await observeLocalCodexPhase('repository_credential_check', () =>
+      credentialDigest(binding, selection, signal),
+    ),
     ...(binding.provider === 'openai-codex' && selection.runOn === 'local'
       ? { credentialDigestVersion: 2 }
       : {}),
@@ -215,6 +224,7 @@ async function captureCurrentPreparation(
     selection.runOn,
     selection.runtime.harness,
     retainedBinding,
+    continuation,
   ).catalog.resolve({ ...selection.runtime, mode: 'agent' });
   if (current.status !== 'compatible' || !isDeepStrictEqual(current.binding, proof.runtimeBinding))
     throw unavailable();
@@ -229,6 +239,7 @@ export async function assertOrdinaryRepositoryPreparation(
     import('@mitzo/protocol').OrdinaryWorkspaceSettings['selection'],
     'model' | 'thinking'
   >,
+  continuation?: { conversationId: string; workspaceId: string },
 ) {
   const saved = OrdinaryRepositoryPreparationSchema.parse(raw);
   if (
@@ -266,6 +277,7 @@ export async function assertOrdinaryRepositoryPreparation(
     signal,
     requireModelReadiness,
     saved.runtimeBinding,
+    continuation,
   );
   let sameRuntime = isDeepStrictEqual(current.runtimeBinding, saved.runtimeBinding);
   const localCodex =

@@ -70,37 +70,7 @@ it.each([
     ).toEqual(thinkingConfig);
   },
 );
-function openAIReply(text: string) {
-  const events = [
-    { type: 'response.created', response: { id: 'test-response', model: 'gpt-6-luna' } },
-    {
-      type: 'response.output_item.added',
-      output_index: 0,
-      item: { type: 'message', id: 'test-message' },
-    },
-    {
-      type: 'response.content_part.added',
-      output_index: 0,
-      content_index: 0,
-      part: { type: 'output_text', text: '' },
-    },
-    { type: 'response.output_text.delta', output_index: 0, content_index: 0, delta: text },
-    { type: 'response.content_part.done', output_index: 0, content_index: 0 },
-    {
-      type: 'response.completed',
-      response: {
-        id: 'test-response',
-        output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }],
-        usage: { input_tokens: 10, output_tokens: 2 },
-      },
-    },
-  ];
-  return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''), {
-    headers: { 'content-type': 'text/event-stream' },
-  });
-}
 it.each([
-  ['openai', 'gpt-6-luna'],
   ['google-vertex', 'gemini-3-flash-preview'],
   ['google-vertex', 'gemini-3.1-flash-lite'],
   ['google-vertex', 'gemini-3.5-flash-lite'],
@@ -113,18 +83,16 @@ it.each([
       'fetch',
       vi.fn(async (_url, init) => {
         wire.push(JSON.parse(init.body));
-        return provider === 'openai'
-          ? openAIReply('Check permissions.')
-          : new Response(
-              JSON.stringify({
-                candidates: [
-                  {
-                    content: { role: 'model', parts: [{ text: 'Check permissions.' }] },
-                    finishReason: 'STOP',
-                  },
-                ],
-              }),
-            );
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: { role: 'model', parts: [{ text: 'Check permissions.' }] },
+                finishReason: 'STOP',
+              },
+            ],
+          }),
+        );
       }),
     );
     const adviser = new TerminalAdviser(createTerminalAdviserSession);
@@ -160,13 +128,11 @@ it.each([
         ),
       ).toEqual([{ thinkingLevel: 'LOW' }, { thinkingLevel: 'LOW' }]);
     expect(wire[1].tools).toBeUndefined();
-    if (provider === 'openai') expect(wire[1].input).toEqual(transcript);
-    else
-      expect(wire[1].contents).toEqual(
-        transcript.map((message) => ({
-          role: message.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: message.content }],
-        })),
-      );
+    expect(wire[1].contents).toEqual(
+      transcript.map((message) => ({
+        role: message.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: message.content }],
+      })),
+    );
   },
 );

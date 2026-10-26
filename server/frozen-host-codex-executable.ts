@@ -5,6 +5,7 @@ import {
   fstatSync,
   fsyncSync,
   lstatSync,
+  mkdtempSync,
   openSync,
   readSync,
   realpathSync,
@@ -12,8 +13,9 @@ import {
   unlinkSync,
   type BigIntStats,
 } from 'node:fs';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { observeLocalCodexSyncPhase } from './local-codex-observation.js';
 import {
   HostCodexCompanionUpgradePlanSchema,
   type HostCodexCompanionUpgradePlan,
@@ -25,6 +27,26 @@ const fields = ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs', 'uid', 'mode', 'nlin
 type Metadata = Pick<BigIntStats, (typeof fields)[number]>;
 type Identity = Metadata & { sha256: string };
 type DirectoryIdentity = Pick<BigIntStats, 'dev' | 'ino' | 'uid' | 'mode'>;
+type SharedPlacement = NonNullable<HostCodexExecutableCustody['sharedPlacement']>;
+// Process-owned code evidence only. Never adopt directories by scanning disk,
+// and never delete files referenced by durable conversation custody on close.
+const reusableBundles = new Map<string, HostCodexExecutableCustody>();
+function freezeCustody(value: HostCodexExecutableCustody): HostCodexExecutableCustody {
+  const freeze = (object: object): void => {
+    Object.values(object).forEach((entry: unknown) => {
+      if (entry && typeof entry === 'object') freeze(entry);
+    });
+    Object.freeze(object);
+  };
+  freeze(value);
+  return value;
+}
+const encode = (value: Identity | DirectoryIdentity) =>
+  Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, String(entry)]));
+const decodeDirectory = (value: SharedPlacement['rootIdentity']): DirectoryIdentity =>
+  Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, BigInt(entry)]),
+  ) as DirectoryIdentity;
 function canonical(path: string): void {
   if (!isAbsolute(path) || resolve(path) !== path || realpathSync(path) !== path)
     throw unavailable();
@@ -39,6 +61,26 @@ function sameDirectory(path: string, expected: DirectoryIdentity): void {
   const actual = directory(path);
   for (const key of ['dev', 'ino', 'uid', 'mode'] as const)
     if (actual[key] !== expected[key]) throw unavailable();
+}
+function assertPlacement(path: string, shared?: SharedPlacement, privateHome?: string): void {
+  if (privateHome) {
+    const home = directory(privateHome);
+    if (home.uid !== BigInt(process.getuid!()) || home.mode & 0o077n) throw unavailable();
+  }
+  if (shared) {
+    const root = decodeDirectory(shared.rootIdentity);
+    if (
+      root.uid !== BigInt(process.getuid!()) ||
+      root.mode & 0o077n ||
+      dirname(dirname(path)) !== shared.privateRoot ||
+      !/^host-runtime-[A-Za-z0-9]{6}$/.test(basename(dirname(path))) ||
+      (privateHome &&
+        (dirname(privateHome) !== shared.privateRoot || privateHome === dirname(path)))
+    )
+      throw unavailable();
+    sameDirectory(shared.privateRoot, root);
+  } else if (privateHome && dirname(path) !== privateHome) throw unavailable();
+  if (path !== join(dirname(path), 'codex-runtime')) throw unavailable();
 }
 function metadata(path: string): Metadata {
   canonical(path);
@@ -126,12 +168,14 @@ export function measureHostCodexExecutable(source: string): {
     throw unavailable();
   }
 }
-/** Pins native bytes in the private owned login home. Streamed/effect boundaries
+/** Pins native bytes in a private owned code directory. Streamed/effect boundaries
  * use inode, nanosecond ctime/mtime, owner, links and permissions. Full hashing is
  * reserved for capture and explicit launch, never each token. This does not attest
  * OS/dependencies or defend a privileged same-UID final kernel launch mutation.
  */
 export class FrozenHostCodexExecutable {
+  private sharedPlacement?: SharedPlacement;
+  private loginHome?: { path: string; identity: DirectoryIdentity };
   private constructor(
     readonly path: string,
     readonly sha256: string,
@@ -143,11 +187,64 @@ export class FrozenHostCodexExecutable {
     private codeModeHost?: FrozenHostCodexExecutable,
   ) {}
   static capture(source: string, privateHome: string): FrozenHostCodexExecutable {
-    const executable = this.captureFile(source, privateHome, 'codex-runtime');
-    const companion = join(dirname(source), 'codex-code-mode-host');
-    if (lstatSync(companion, { throwIfNoEntry: false }))
-      executable.codeModeHost = this.captureFile(companion, privateHome, 'codex-code-mode-host');
-    return executable;
+    return observeLocalCodexSyncPhase('native_capture', () => {
+      const executable = this.captureFile(source, privateHome, 'codex-runtime');
+      const companion = join(dirname(source), 'codex-code-mode-host');
+      if (lstatSync(companion, { throwIfNoEntry: false }))
+        executable.codeModeHost = this.captureFile(companion, privateHome, 'codex-code-mode-host');
+      return executable;
+    });
+  }
+  /** New conversation adoption only. A complete private code bundle may be reused
+   * across independent login homes. Retained conversations must reopen their exact
+   * recorded custody instead; this method never repairs or rebinds their files.
+   */
+  static captureReusable(source: string, privateRoot: string): FrozenHostCodexExecutable {
+    try {
+      const root = directory(privateRoot);
+      if (root.uid !== BigInt(process.getuid!()) || root.mode & 0o077n) throw unavailable();
+      const companion = join(dirname(source), 'codex-code-mode-host');
+      const key = JSON.stringify(
+        [
+          privateRoot,
+          root,
+          source,
+          directory(dirname(source)),
+          metadata(source),
+          lstatSync(companion, { throwIfNoEntry: false }) ? metadata(companion) : null,
+        ],
+        (_key, value: unknown) => (typeof value === 'bigint' ? String(value) : value),
+      );
+      const retained = reusableBundles.get(key);
+      if (retained) {
+        try {
+          return this.reopen(retained);
+        } catch {
+          // Only new adoption can allocate another bundle. Preserve invalid old
+          // files and every durable snapshot, which continue to fail closed.
+          reusableBundles.delete(key);
+        }
+      }
+      const bundle = mkdtempSync(join(privateRoot, 'host-runtime-'));
+      const executable = this.capture(source, bundle);
+      executable.sharedPlacement = {
+        kind: 'shared-runtime-v1',
+        privateRoot,
+        rootIdentity: {
+          dev: String(root.dev),
+          ino: String(root.ino),
+          uid: String(root.uid),
+          mode: String(root.mode),
+        },
+      };
+      executable.assertCurrent();
+      // Capture and publication have no asynchronous boundary. Independent Node
+      // processes use unique directories; neither overwrites another's custody.
+      reusableBundles.set(key, freezeCustody(executable.custodySnapshot()));
+      return executable;
+    } catch {
+      throw unavailable();
+    }
   }
   private static captureFile(
     source: string,
@@ -201,6 +298,14 @@ export class FrozenHostCodexExecutable {
   static reopen(raw: unknown): FrozenHostCodexExecutable {
     return this.reopenFile(raw, 'codex-runtime');
   }
+  static assertCustodyForLoginHome(raw: unknown, privateHome: string): void {
+    try {
+      const snapshot = HostCodexExecutableCustodySchema.parse(raw);
+      assertPlacement(snapshot.path, snapshot.sharedPlacement, privateHome);
+    } catch {
+      throw unavailable();
+    }
+  }
   private static reopenFile(raw: unknown, name: string): FrozenHostCodexExecutable {
     try {
       const snapshot = HostCodexExecutableCustodySchema.parse(raw);
@@ -226,6 +331,10 @@ export class FrozenHostCodexExecutable {
         decode<DirectoryIdentity>(snapshot.sourceDirectory),
         decode<DirectoryIdentity>(snapshot.ownedDirectory),
       );
+      if (snapshot.sharedPlacement) {
+        if (name !== 'codex-runtime') throw unavailable();
+        executable.sharedPlacement = snapshot.sharedPlacement;
+      }
       if (snapshot.codeModeHost) {
         if (
           name !== 'codex-runtime' ||
@@ -249,6 +358,7 @@ export class FrozenHostCodexExecutable {
     if (this.codeModeHost) return;
     const source = join(dirname(this.source), 'codex-code-mode-host');
     if (!lstatSync(source, { throwIfNoEntry: false })) return;
+    if (this.sharedPlacement) throw unavailable();
     const selected = inspect(source);
     const encode = (value: Identity | DirectoryIdentity) =>
       Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, String(entry)]));
@@ -287,8 +397,6 @@ export class FrozenHostCodexExecutable {
   }
   custodySnapshot(): HostCodexExecutableCustody {
     this.assertCurrent();
-    const encode = (value: Identity | DirectoryIdentity) =>
-      Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, String(entry)]));
     return HostCodexExecutableCustodySchema.parse({
       path: this.path,
       source: this.source,
@@ -298,10 +406,35 @@ export class FrozenHostCodexExecutable {
       sourceDirectory: encode(this.sourceDirectory),
       ownedDirectory: encode(this.ownedDirectory),
       ...(this.codeModeHost ? { codeModeHost: this.codeModeHost.custodySnapshot() } : {}),
+      ...(this.sharedPlacement ? { sharedPlacement: this.sharedPlacement } : {}),
     });
+  }
+  /** Explicit replacement for the legacy executable-inside-login-home fence.
+   * Shared code must belong to the exact same private root as this login home;
+   * private root and bundle directory identities remain part of every fence.
+   */
+  assertForLoginHome(privateHome: string): void {
+    try {
+      assertPlacement(this.path, this.sharedPlacement, privateHome);
+      if (this.loginHome && this.loginHome.path !== privateHome) throw unavailable();
+      this.loginHome ??= { path: privateHome, identity: directory(privateHome) };
+      this.assertCurrent();
+    } catch {
+      throw unavailable();
+    }
   }
   assertCurrent(): void {
     try {
+      if (this.loginHome) sameDirectory(this.loginHome.path, this.loginHome.identity);
+      if (this.sharedPlacement) {
+        assertPlacement(this.path, this.sharedPlacement);
+        if (
+          !!lstatSync(join(dirname(this.source), 'codex-code-mode-host'), {
+            throwIfNoEntry: false,
+          }) !== !!this.codeModeHost
+        )
+          throw unavailable();
+      }
       sameDirectory(dirname(this.source), this.sourceDirectory);
       sameDirectory(dirname(this.path), this.ownedDirectory);
       sameMetadata(metadata(this.source), this.sourceIdentity);
@@ -313,14 +446,19 @@ export class FrozenHostCodexExecutable {
     }
   }
   assertLaunchCurrent(): void {
-    try {
-      this.assertCurrent();
-      if (inspect(this.source).sha256 !== this.sha256 || inspect(this.path).sha256 !== this.sha256)
+    observeLocalCodexSyncPhase('native_launch_integrity', () => {
+      try {
+        this.assertCurrent();
+        if (
+          inspect(this.source).sha256 !== this.sha256 ||
+          inspect(this.path).sha256 !== this.sha256
+        )
+          throw unavailable();
+        this.codeModeHost?.assertLaunchCurrent();
+        this.assertCurrent();
+      } catch {
         throw unavailable();
-      this.codeModeHost?.assertLaunchCurrent();
-      this.assertCurrent();
-    } catch {
-      throw unavailable();
-    }
+      }
+    });
   }
 }

@@ -76,8 +76,9 @@ In addition, the existing host must synchronously verify quiescence through
 `createTelosWorkRouter.assertLifecycleQuiescent(itemId)`. Missing, asynchronous,
 busy or unknown host evidence refuses deletion. Core owns that real composition;
 this amendment does not install a replacement runtime or infer idle from a chat
-being absent. The production callback remains unconfigured until Core can bind
-truthful evidence.
+being absent. The shared App binds this callback to the original retained deletion
+fence with the selected canonical, EventStore, TaskStore and installed owner
+evidence. That binding does not by itself establish quiescence.
 
 Only a confirmed, unreferenced, quiescent leaf can lose its canonical item row
 and item-owned status history. No shared files or artifacts are deleted. Minimal
@@ -120,8 +121,10 @@ authority. The canonical tree keeps its IDs, fields and hierarchy while lifecycl
 visibility hides archived/trashed branches from the default active view.
 
 Operator-pause receipts retain nullable operator-origin identity without inventing
-a coordinator or priority item. Permanent deletion still has no configured shared
-App quiescence callback and therefore fails closed. These private composition
-changes are not production deployment or complete lifecycle UI acceptance.
+a coordinator or priority item. The shared App uses the retained deletion fence
+for its selected owner cohort and remains fail closed when its checks cannot
+verify safe deletion. Retained synthetic positive-purge evidence covers a bounded
+eligible leaf and exact cold receipt recovery; it does not establish general
+availability, production deployment or complete lifecycle UI acceptance.
 
-The EventStore exposes a denial-only retained-role reference check over every role-context event, including hidden, inactive and orphaned conversations. It decodes JSON and refuses malformed, changed, closed or borrowed-transaction custody. This read returns no conversation content and does not establish host quiescence or the provenance of the current canonical/EventStore/TaskStore cohort. Permanent deletion remains unavailable until the actual App binds and verifies those owners and its retained admission journals.
+The EventStore exposes a denial-only retained-role reference check over every role-context event, including hidden, inactive and orphaned conversations. It decodes JSON and refuses malformed, changed, closed or borrowed-transaction custody. This read returns no conversation content and does not establish host quiescence or the provenance of the current canonical/EventStore/TaskStore cohort. The shared App supplies those owners through the retained deletion fence; permanent deletion still refuses unless current cohort, admission-journal, reference and host-quiescence checks succeed.

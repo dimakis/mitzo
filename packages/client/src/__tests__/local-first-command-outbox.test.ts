@@ -391,7 +391,10 @@ it('lets a new draft send independently while retaining another draft’s frozen
     expect.objectContaining({ request: command, originDraftId: 'old-draft', state: 'uncertain' }),
   );
   expect(outbox.enqueue({ ...command, clientMsgId: 'replacement' }, 3, 'old-draft')).toBe(false);
-  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(fetch.mock.calls.filter(([url]) => !url.endsWith('/receipt'))).toHaveLength(2);
+  expect(fetch.mock.calls.at(-1)![0]).toBe('/local/send/receipt');
+  expect(JSON.parse(fetch.mock.calls.at(-1)![1].body)).toEqual(command);
+  outbox.stop();
 });
 
 it('serializes independently submitted first commands without replaying an older retained entry', async () => {
@@ -555,9 +558,11 @@ it('preserves an accepted but undispatched first send when authentication change
   expect(notify).toHaveBeenLastCalledWith(
     expect.objectContaining({ state: 'uncertain', request: queued }),
   );
-  expect(fetch).toHaveBeenCalledOnce();
+  expect(fetch.mock.calls.filter(([url]) => !url.endsWith('/receipt'))).toHaveLength(1);
+  expect(fetch.mock.calls.at(-1)![0]).toBe('/local/receipt');
+  expect(JSON.parse(fetch.mock.calls.at(-1)![1].body)).toEqual(queued);
   expect(outbox.retryLocalCommand('queued-first')).toBe(true);
-  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(fetch.mock.calls.filter(([url]) => !url.endsWith('/receipt'))).toHaveLength(2);
   outbox.rejectAll('done');
 });
 

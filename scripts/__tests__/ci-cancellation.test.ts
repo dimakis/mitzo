@@ -22,15 +22,13 @@ it.each([
   'design',
   'typecheck-server',
   'typecheck-frontend',
-  'test',
-  'test-count',
   'audit',
   'secret-scan',
   'build-mcp',
   'build',
   'bundle-size',
 ])('%s retains coverage after failures but releases superseded CI on cancellation', (id) => {
-  const step = jobs.ci.steps.find((candidate) => candidate.id === id);
+  const step = jobs.core.steps.find((candidate) => candidate.id === id);
   expect(step).toBeDefined();
   expect(enabled(step!.if, 'success')).toBe(true);
   expect(enabled(step!.if, 'failure')).toBe(true);
@@ -47,4 +45,22 @@ it('native failure diagnostics can build after a test failure but stop on cancel
 
 it('the required browser aggregator still reports cancelled or incomplete selected suites', () => {
   expect(enabled(jobs['browser-validation'].if, 'cancelled')).toBe(true);
+});
+
+it('unit shards stop superseded tests but retain failure evidence', () => {
+  const step = jobs.unit.steps.find((candidate) => candidate.id === 'test');
+  expect(enabled(step?.if, 'failure')).toBe(true);
+  expect(enabled(step?.if, 'cancelled')).toBe(false);
+});
+
+it('the required core aggregator reports cancelled or incomplete shards', () => {
+  expect(enabled(jobs.ci.if, 'cancelled')).toBe(true);
+});
+
+it('unit frontend prerequisites and complete unit validation release superseded runs', () => {
+  const build = jobs.unit.steps.find((candidate) => candidate.id === 'build-frontend');
+  expect(build).toBeDefined();
+  expect(enabled(build?.if, 'failure')).toBe(true);
+  expect(enabled(build?.if, 'cancelled')).toBe(false);
+  expect(enabled(jobs['unit-validation'].if, 'cancelled')).toBe(true);
 });

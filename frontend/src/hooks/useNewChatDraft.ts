@@ -19,6 +19,7 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
     restored: boolean;
     missing: boolean;
     generation: number;
+    urlOwned: boolean;
   } | null>(null);
   const releasedReference = useRef<string | null>(null);
   const owner = useMemo(() => {
@@ -34,10 +35,13 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
       restored: !!saved,
       missing: !!requestedId && !saved,
       generation,
+      urlOwned: true,
     };
-    previousOwner.current = next;
     return next;
   }, [requestedId, generation]);
+  // StrictMode may discard a memo calculation. Track the owner React retained,
+  // rather than publishing a different owner from a discarded calculation.
+  previousOwner.current = owner;
   const [settingsError, setSettingsError] = useState(false);
   const saveSettings = useCallback(
     (settings: ChatDraft['settings']) => {
@@ -76,7 +80,14 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
   const releaseReference = useCallback(() => {
     releasedReference.current = owner.draft.id;
   }, [owner.draft.id]);
-  return { ...owner, saveSettings, settingsError, releaseReference };
+  // History changes before React commits a route transition. Retained listeners
+  // must lose this owner's URL authority at successful handoff, rather than
+  // waiting for their passive cleanup. A genuine New/reset gets a new owner.
+  const ownsUrl = useCallback(() => previousOwner.current === owner && owner.urlOwned, [owner]);
+  const releaseUrlOwnership = useCallback(() => {
+    owner.urlOwned = false;
+  }, [owner]);
+  return { ...owner, saveSettings, settingsError, releaseReference, ownsUrl, releaseUrlOwnership };
 }
 
 /** Restore the launch context once; later explicit query edits remain authoritative. */

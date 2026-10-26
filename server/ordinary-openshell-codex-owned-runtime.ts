@@ -1,3 +1,4 @@
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import {
   assertOrdinaryCodexContextIdentity,
@@ -27,6 +28,9 @@ import {
 } from './owned-openshell-codex-chat-admission.js';
 import { OrdinaryLocalCodexCommandRequestSchema } from './ordinary-local-codex-admission.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
+import type { CredentialSetupNotification } from './credential-setup-continuation.js';
+import { resolveTelosWorkSystemPrompt } from './telos-work-role-context.js';
+import { buildAgentProfilePrompt } from './agent-library-prompt.js';
 
 type SessionUpsert = Parameters<EventStore['upsertSession']>[0];
 
@@ -37,6 +41,7 @@ export interface OrdinaryOpenShellCodexOwnedDispatch {
   resume?: true;
   commandId: string;
   preparationSignal?: AbortSignal;
+  assertCredentialSetupCurrent?: () => void;
   expected: OrdinaryOpenShellCodexExpectation;
   workspace: Awaited<ReturnType<RepositoryWorkspaces['claim']>> | OrdinaryWorkspaceRecord;
   payload: ReturnType<typeof OwnedOpenShellCodexPayloadSchema.parse>;
@@ -100,12 +105,67 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
     this.#tail = operation.catch(() => {});
     return operation;
   }
+  /** Only the live host setup outbox can supply this predicate. No public
+   * command body can select this path or manufacture a new runtime selection. */
+  async notifyCredentialSetup(meta: SessionUpsert, notice: CredentialSetupNotification) {
+    const operation = this.#tail.then(async () => {
+      notice.assertCurrent();
+      const o = this.owners;
+      const saved = o.events.getOrdinaryOpenShellCommandAdmission(notice.messageId);
+      if (saved && saved.state !== 'consumed') return false;
+      const current = saved ?? o.events.getLatestOrdinaryCommandAdmission(o.sessionId);
+      if (
+        !this.#origin ||
+        !meta.agentProfile ||
+        current?.state !== 'consumed' ||
+        current.binding.execution.location !== 'openshell' ||
+        current.binding.harness.implementation !== 'codex' ||
+        meta.mode !== current.selection.permission.mode
+      )
+        throw unavailable();
+      const result = await this.admitExclusive(
+        meta,
+        {
+          clientMsgId: notice.messageId,
+          capabilityRevision: o.capabilitiesCurrent().projection.inventory.capabilityRevision,
+          runtime: {
+            account: current.binding.account,
+            harness: 'codex',
+            targetId: current.binding.execution.targetId,
+            mode: current.selection.permission.mode,
+          },
+          selection: current.selection,
+          payload: {
+            text: notice.prompt,
+            systemPrompt: resolveTelosWorkSystemPrompt(
+              o.events,
+              o.sessionId,
+              o.account,
+              buildAgentProfilePrompt(meta.agentProfile.definition),
+            ),
+          },
+        },
+        notice.signal,
+        undefined,
+        notice.assertCurrent,
+      );
+      notice.assertCurrent();
+      return (
+        result.dispatched ||
+        o.events.getOrdinaryOpenShellCommandAdmission(notice.messageId)?.state === 'consumed'
+      );
+    });
+    this.#tail = operation.catch(() => {});
+    return operation;
+  }
   private async admitExclusive(
     metaInput: SessionUpsert,
     requestInput: unknown,
     preparationSignal?: AbortSignal,
     preparationOperationId?: string,
+    assertCredentialSetupCurrent?: () => void,
   ) {
+    assertCredentialSetupCurrent?.();
     preparationSignal?.throwIfAborted();
     const o = this.owners;
     if (!o.enabled || this.#closed) throw unavailable();
@@ -148,6 +208,10 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       selection: request.selection,
       agentProfile: meta.agentProfile,
       agentContext: meta.agentContext,
+    };
+    const assertCurrentSync = () => {
+      assertCredentialSetupCurrent?.();
+      o.assertCurrentSync(expected);
     };
     if (
       this.#origin &&
@@ -253,7 +317,7 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
         !isDeepStrictEqual(send.payload, request.payload)
       )
         throw unavailable();
-      o.assertCurrentSync(expected);
+      assertCurrentSync();
       return { dispatched: false, sessionId: o.sessionId };
     }
     if (o.resume && !this.#origin) {
@@ -262,7 +326,7 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       if (
         !custody ||
         !retained ||
-        custody.authSessionId !== o.authSessionId ||
+        !ordinaryOperatorOwnsConversation(custody.authSessionId, o.authSessionId) ||
         !isDeepStrictEqual(custody.binding, expected.binding) ||
         !isDeepStrictEqual(custody.workspace, expected.workspace) ||
         custody.physicalIdentitySha256 !== openShellPhysicalCustodyFingerprint(retained) ||
@@ -275,11 +339,11 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       assertOrdinaryCodexSnapshotCustody(custody, expected.agentProfile, expected.agentContext);
       o.assertRetainedAuthority(retained);
     }
-    o.assertCurrentSync(expected);
+    assertCurrentSync();
     await o.assertCurrent(expected);
     preparationSignal?.throwIfAborted();
     o.signal.throwIfAborted();
-    o.assertCurrentSync(expected);
+    assertCurrentSync();
     // claim(true) CAS-reserves exact account/conversation/source before sandbox
     // allocation; it makes no provider launch and uses the existing workspace ledger.
     const workspace =
@@ -301,7 +365,7 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       !isDeepStrictEqual(workspace.binding, o.account)
     )
       throw unavailable();
-    o.assertCurrentSync(expected);
+    assertCurrentSync();
     const account = { ...o.account, model: expected.selection.model };
     const admittedMeta = { ...meta, accountBinding: account };
     const input = {
@@ -333,7 +397,7 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
     await o.assertCurrent(expected);
     preparationSignal?.throwIfAborted();
     o.signal.throwIfAborted();
-    o.assertCurrentSync(expected);
+    assertCurrentSync();
     preparationSignal?.throwIfAborted();
     if (!o.events.claimOrdinaryOpenShellCommandDispatch(request.clientMsgId))
       return { dispatched: false, sessionId: o.sessionId };
@@ -389,6 +453,7 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       ...(!this.#origin && o.resume ? { resume: true as const } : {}),
       commandId: request.clientMsgId,
       preparationSignal,
+      assertCredentialSetupCurrent,
       expected,
       workspace,
       payload: OwnedOpenShellCodexPayloadSchema.parse(request.payload),
@@ -398,7 +463,9 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
     };
     // Failure preserves the existing uncertain receipt; never automatically replay.
     preparationSignal?.throwIfAborted();
+    assertCurrentSync();
     await (this.#origin ? o.dispatchContinuation(dispatch) : o.dispatch(dispatch));
+    assertCurrentSync();
     preparationSignal?.throwIfAborted();
     o.events.completeOrdinaryOpenShellCommand(request.clientMsgId);
     this.#origin ??= structuredClone(expected);

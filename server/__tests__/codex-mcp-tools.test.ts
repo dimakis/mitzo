@@ -4,13 +4,272 @@ import { join } from 'node:path';
 import { NativeHooks } from '../native-hooks.js';
 import * as commands from '../protected-sdk-command.js';
 import { expect, it, vi } from 'vitest';
-import { connectCodexMcpTools } from '../codex-mcp-tools.js';
+import { connectCodexMcpTools, type McpToolsOptions } from '../codex-mcp-tools.js';
 import {
   SessionRegistry,
   buildPermissionHandler,
   resolvePending,
   setSkillPolicy,
 } from '@mitzo/harness';
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((accept, fail) => {
+    resolve = accept;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
+it('starts independent MCP discovery concurrently and preserves configured source/page order', async () => {
+  const firstPage = deferred<{
+    tools: { name: string; inputSchema: Record<string, unknown> }[];
+    nextCursor?: string;
+  }>();
+  const firstList = vi.fn(async (cursor?: string) =>
+    cursor ? { tools: [{ name: 'last', inputSchema: {} }] } : firstPage.promise,
+  );
+  const secondList = vi.fn(async () => ({ tools: [{ name: 'only', inputSchema: {} }] }));
+  const closeFirst = vi.fn(async () => {});
+  const closeSecond = vi.fn(async () => {});
+  const callFirst = vi.fn(async () => ({ content: [{ type: 'text', text: 'first' }] }));
+  const callSecond = vi.fn(async () => ({ content: [{ type: 'text', text: 'second' }] }));
+  const connect = vi.fn(async (config: { command: string }) =>
+    config.command === 'first'
+      ? { listTools: firstList, callTool: callFirst, close: closeFirst }
+      : { listTools: secondList, callTool: callSecond, close: closeSecond },
+  );
+  const opening = connectCodexMcpTools(
+    { first: { command: 'first' }, second: { command: 'second' } },
+    { cwd: '/workspace', env: {}, signal: new AbortController().signal, connect },
+  );
+  try {
+    expect(connect).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(secondList).toHaveBeenCalledOnce());
+    firstPage.resolve({ tools: [{ name: 'start', inputSchema: {} }], nextCursor: 'next' });
+    const tools = await opening;
+    expect(tools.discovered.map(({ server, tool }) => [server, tool])).toEqual([
+      ['first', 'start'],
+      ['first', 'last'],
+      ['second', 'only'],
+    ]);
+    expect(tools.definitions.map(({ name }) => tools.displayName(name))).toEqual([
+      'mcp__first__start',
+      'mcp__first__last',
+      'mcp__second__only',
+    ]);
+    await tools.execute(
+      tools.definitions[2].name,
+      {},
+      async () => ({ behavior: 'allow' }),
+      new AbortController().signal,
+    );
+    expect(callSecond).toHaveBeenCalledOnce();
+    expect(callFirst).not.toHaveBeenCalled();
+  } finally {
+    firstPage.resolve({ tools: [{ name: 'start', inputSchema: {} }], nextCursor: 'next' });
+    await (await opening).close();
+  }
+  expect(closeFirst).toHaveBeenCalledOnce();
+  expect(closeSecond).toHaveBeenCalledOnce();
+});
+
+it('aborts sibling startup after discovery failure and closes a peer that connects late once', async () => {
+  const failedPage = deferred<{ tools: [] }>();
+  const lateClose = vi.fn(async () => {});
+  const lateList = vi.fn(async () => ({ tools: [] }));
+  const lateCall = vi.fn(async () => ({}));
+  const late = deferred<{
+    listTools: typeof lateList;
+    callTool: typeof lateCall;
+    close: typeof lateClose;
+  }>();
+  const firstClose = vi.fn(async () => {});
+  let siblingSignal: AbortSignal | undefined;
+  const connect = vi.fn<NonNullable<McpToolsOptions['connect']>>(async (config, options) => {
+    if (config.command === 'late') {
+      siblingSignal = options.signal;
+      return late.promise;
+    }
+    return { listTools: () => failedPage.promise, callTool: vi.fn(), close: firstClose };
+  });
+  const opening = connectCodexMcpTools(
+    { first: { command: 'first' }, second: { command: 'late' } },
+    { cwd: '/workspace', env: {}, signal: new AbortController().signal, connect },
+  );
+  const failed = expect(opening).rejects.toThrow('MCP initialization failed');
+  await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(2));
+  failedPage.reject(Error('private discovery error'));
+  await failed;
+  expect(siblingSignal?.aborted).toBe(true);
+  expect(firstClose).toHaveBeenCalledOnce();
+  late.resolve({ listTools: lateList, callTool: lateCall, close: lateClose });
+  await vi.waitFor(() => expect(lateClose).toHaveBeenCalledOnce());
+  expect(lateList).not.toHaveBeenCalled();
+  expect(firstClose).toHaveBeenCalledOnce();
+});
+
+it('cancels simultaneous discoveries and closes every acquired peer once', async () => {
+  const abort = new AbortController();
+  const closes = [vi.fn(async () => {}), vi.fn(async () => {})];
+  const lists = [vi.fn(), vi.fn()];
+  const signals: AbortSignal[] = [];
+  const connect = vi.fn<NonNullable<McpToolsOptions['connect']>>(async (_config, options) => {
+    const index = signals.length;
+    signals.push(options.signal);
+    lists[index].mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          options.signal.addEventListener('abort', () => reject(Error('cancelled')), {
+            once: true,
+          });
+        }),
+    );
+    return { listTools: lists[index], callTool: vi.fn(), close: closes[index] };
+  });
+  const opening = connectCodexMcpTools(
+    { first: { command: 'first' }, second: { command: 'second' } },
+    { cwd: '/workspace', env: {}, signal: abort.signal, connect },
+  );
+  const cancelled = expect(opening).rejects.toThrow('MCP initialization failed');
+  await vi.waitFor(() => expect(lists.map((list) => list.mock.calls.length)).toEqual([1, 1]));
+  abort.abort();
+  await cancelled;
+  expect(signals.map((signal) => signal.aborted)).toEqual([true, true]);
+  for (const close of closes) expect(close).toHaveBeenCalledOnce();
+});
+
+it('settles cancellation while an uncooperative connector is pending and closes its late peer', async () => {
+  const abort = new AbortController();
+  const lateClose = vi.fn(async () => {});
+  const lateList = vi.fn(async () => ({ tools: [] }));
+  const late = deferred<Awaited<ReturnType<NonNullable<McpToolsOptions['connect']>>>>();
+  const connect = vi.fn(async () => late.promise);
+  const opening = connectCodexMcpTools(
+    { late: { command: 'never-started' } },
+    { cwd: '/workspace', env: {}, signal: abort.signal, connect },
+  );
+  const settled = expect(opening).rejects.toThrow('MCP initialization failed');
+  abort.abort();
+  try {
+    await settled;
+  } finally {
+    late.resolve({ listTools: lateList, callTool: vi.fn(), close: lateClose });
+  }
+  await vi.waitFor(() => expect(lateClose).toHaveBeenCalledOnce());
+  expect(lateList).not.toHaveBeenCalled();
+});
+
+it('awaits a late peer shutdown that begins while another acquired peer is still closing', async () => {
+  const page = deferred<{ tools: [] }>();
+  const firstShutdown = deferred<void>();
+  const lateShutdown = deferred<void>();
+  const late = deferred<Awaited<ReturnType<NonNullable<McpToolsOptions['connect']>>>>();
+  const firstClose = vi.fn(() => firstShutdown.promise);
+  const lateClose = vi.fn(() => lateShutdown.promise);
+  const firstList = vi.fn(() => page.promise);
+  let settled = false;
+  const opening = connectCodexMcpTools(
+    { first: { command: 'first' }, late: { command: 'late' } },
+    {
+      cwd: '/workspace',
+      env: {},
+      signal: new AbortController().signal,
+      connect: async (config) =>
+        config.command === 'first'
+          ? { listTools: firstList, callTool: vi.fn(), close: firstClose }
+          : late.promise,
+    },
+  ).then(
+    () => {
+      settled = true;
+      return undefined;
+    },
+    (error: unknown) => {
+      settled = true;
+      return error;
+    },
+  );
+  try {
+    await vi.waitFor(() => expect(firstList).toHaveBeenCalledOnce());
+    page.reject(Error('discovery failed'));
+    await vi.waitFor(() => expect(firstClose).toHaveBeenCalledOnce());
+    late.resolve({ listTools: vi.fn(), callTool: vi.fn(), close: lateClose });
+    await vi.waitFor(() => expect(lateClose).toHaveBeenCalledOnce());
+    firstShutdown.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(settled).toBe(false);
+    lateShutdown.resolve();
+    expect(await opening).toBeInstanceOf(Error);
+  } finally {
+    page.resolve({ tools: [] });
+    late.resolve({ listTools: vi.fn(), callTool: vi.fn(), close: lateClose });
+    firstShutdown.resolve();
+    lateShutdown.resolve();
+    await opening;
+  }
+  expect(firstClose).toHaveBeenCalledOnce();
+  expect(lateClose).toHaveBeenCalledOnce();
+});
+
+it.each(['tool count', 'serialized bytes'] as const)(
+  'retains the combined %s limit across concurrent source catalogs',
+  async (limit) => {
+    const close = vi.fn(async () => {});
+    const tools =
+      limit === 'tool count'
+        ? Array.from({ length: 501 }, (_, index) => ({ name: `tool${index}`, inputSchema: {} }))
+        : [{ name: 'large', description: 'x'.repeat(270000), inputSchema: {} }];
+    await expect(
+      connectCodexMcpTools(
+        { first: { command: 'first' }, second: { command: 'second' } },
+        {
+          cwd: '/workspace',
+          env: {},
+          signal: new AbortController().signal,
+          connect: async () => ({ listTools: async () => ({ tools }), callTool: vi.fn(), close }),
+        },
+      ),
+    ).rejects.toThrow('MCP initialization failed');
+    expect(close).toHaveBeenCalledTimes(2);
+  },
+);
+
+it('pins definitions and descriptors before a peer can mutate them during another discovery', async () => {
+  const schema: Record<string, unknown> = {};
+  const lastPage = deferred<{ tools: { name: string; inputSchema: Record<string, unknown> }[] }>();
+  const secondList = vi.fn(() => lastPage.promise);
+  const close = vi.fn(async () => {});
+  const opening = connectCodexMcpTools(
+    { first: { command: 'first' }, second: { command: 'second' } },
+    {
+      cwd: '/workspace',
+      env: {},
+      signal: new AbortController().signal,
+      connect: async (config) => ({
+        listTools:
+          config.command === 'first'
+            ? async () => ({ tools: [{ name: 'first', inputSchema: schema }] })
+            : secondList,
+        callTool: vi.fn(),
+        close,
+      }),
+    },
+  );
+  await vi.waitFor(() => expect(secondList).toHaveBeenCalledOnce());
+  schema.description = 'x'.repeat(1048576);
+  lastPage.resolve({ tools: [{ name: 'last', inputSchema: {} }] });
+  const tools = await opening;
+  try {
+    expect(tools.definitions[0].input_schema).toEqual({});
+    expect(tools.discovered[0].descriptor.inputSchema).toEqual({});
+    expect(Buffer.byteLength(JSON.stringify(tools.discovered))).toBeLessThan(1048576);
+  } finally {
+    await tools.close();
+  }
+  expect(close).toHaveBeenCalledTimes(2);
+});
 
 it('preserves approved MCP screenshot bytes for the native harness', async () => {
   const data =
@@ -109,7 +368,7 @@ it('refuses stale MCP startup before any peer launch', async () => {
 });
 
 it.each(['connection', 'discovery', 'abort'] as const)(
-  'rechecks owned MCP startup after awaited %s and refuses the next launch/page',
+  'rechecks owned MCP startup after awaited %s and refuses subsequent effects/pages',
   async (phase) => {
     let revoked = false;
     const abort = new AbortController();
@@ -140,9 +399,9 @@ it.each(['connection', 'discovery', 'abort'] as const)(
         },
       ),
     ).rejects.toThrow('MCP initialization failed');
-    expect(connect).toHaveBeenCalledOnce();
+    expect(connect).toHaveBeenCalledTimes(phase === 'connection' ? 1 : 2);
     expect(listTools).toHaveBeenCalledTimes(phase === 'connection' ? 0 : 1);
-    expect(close).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledTimes(phase === 'connection' ? 1 : 2);
   },
 );
 
@@ -299,7 +558,7 @@ it('denies unknown or disallowed calls and closes connected peers on discovery f
       async () => ({ behavior: 'allow' as const, updatedInput: {} }),
       new AbortController().signal,
     ),
-  ).rejects.toThrow('Unknown');
+  ).rejects.toThrow('invalid_input');
   expect(call).not.toHaveBeenCalled();
   await tools.close();
   const failedClose = vi.fn(async () => {});
@@ -344,14 +603,21 @@ it('preserves the actual approval failure reason instead of claiming the user de
       'Session taken over by another device',
       'User denied',
     ]) {
-      expect(
-        await tools.execute(
-          tools.definitions[0].name,
-          {},
-          async () => ({ behavior: 'deny', message }),
-          new AbortController().signal,
-        ),
-      ).toEqual({ content: message, isError: true });
+      const result = await tools.execute(
+        tools.definitions[0].name,
+        {},
+        async () => ({ behavior: 'deny', message }),
+        new AbortController().signal,
+      );
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content)).toMatchObject({
+        reason: message,
+        error: message.startsWith('Tool approval')
+          ? 'approval_unavailable'
+          : message.startsWith('Session')
+            ? 'stale_owner'
+            : 'permission_denied',
+      });
     }
     expect(call).not.toHaveBeenCalled();
   } finally {
@@ -635,7 +901,7 @@ it('preserves an existing skill allowlist after source opt-in and rechecks pendi
     grant?: { sessionGrantKey: string },
   ) =>
     buildPermissionHandler('skill', registry)(name, input, { ...grant, signal, toolUseID: name });
-  let pending: Promise<unknown> | undefined;
+  let pending: ReturnType<typeof tools.execute> | undefined;
   try {
     setSkillPolicy(registry, 'skill', ['mcp__docs__search']);
     const wire = tools.definitions[0].name;
@@ -649,9 +915,11 @@ it('preserves an existing skill allowlist after source opt-in and rechecks pendi
     expect(
       resolvePending(requests[0].permId as string, 'always', undefined, 'skill-conversation'),
     ).toBe(true);
-    expect(await pending).toMatchObject({
-      isError: true,
-      content: 'Tool not allowed by active skill policy',
+    const denied = await pending;
+    expect(denied.isError).toBe(true);
+    expect(JSON.parse(denied.content)).toMatchObject({
+      error: 'permission_denied',
+      reason: 'Tool not allowed by active skill policy',
     });
     expect(callTool).not.toHaveBeenCalled();
     expect(registry.get('skill')!.sessionAllowList.has(grantKey)).toBe(false);
@@ -771,3 +1039,58 @@ it.each([
     }
   },
 );
+
+it('pins output scopes to the actual launch environment, receipt cwd, task arguments and descriptor across restart', async () => {
+  const peers: Awaited<ReturnType<typeof connectCodexMcpTools>>[] = [];
+  const connect = async (
+    args: string[],
+    cwd = '/receipt',
+    env = { FIXTURE: 'one' },
+    description = 'Task status',
+  ) => {
+    const peer = await connectCodexMcpTools(
+      { 'task-board': { command: 'fixture-peer', args } },
+      {
+        cwd: '/host',
+        cwdForSource: () => cwd,
+        env,
+        signal: new AbortController().signal,
+        connect: async () => ({
+          listTools: async () => ({
+            tools: [{ name: 'TaskStatus', description, inputSchema: { type: 'object' } }],
+          }),
+          callTool: async () => ({ content: [] }),
+          close: async () => {},
+        }),
+      },
+    );
+    peers.push(peer);
+    return peer;
+  };
+  try {
+    vi.stubEnv('HOME', '/offline/first-home');
+    const first = await connect(['--task-id', 'first']),
+      same = await connect(['--task-id', 'first']);
+    const wire = first.definitions[0].name,
+      scope = first.outputScope(wire);
+    expect(scope).toMatch(/^[a-f0-9]{64}$/);
+    expect(same.outputScope(wire)).toBe(scope);
+    for (const changed of [
+      await connect(['--task-id', 'second']),
+      await connect(['--task-id', 'first'], '/other'),
+      await connect(['--task-id', 'first'], '/receipt', { FIXTURE: 'rotated' }),
+      await connect(['--task-id', 'first'], '/receipt', { FIXTURE: 'one' }, 'Changed descriptor'),
+    ]) {
+      expect(changed.definitions[0].name).toBe(wire);
+      expect(changed.outputScope(wire)).not.toBe(scope);
+    }
+    vi.stubEnv('HOME', '/offline/second-home');
+    const inheritedChange = await connect(['--task-id', 'first']);
+    expect(inheritedChange.outputScope(wire)).not.toBe(scope);
+    await first.close();
+    expect(() => first.outputScope(wire)).toThrow('stale_owner');
+  } finally {
+    await Promise.all(peers.map((peer) => peer.close()));
+    vi.unstubAllEnvs();
+  }
+});

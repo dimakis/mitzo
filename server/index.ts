@@ -68,7 +68,9 @@ import {
 } from './chat.js';
 setAuthRevocationStore(eventStore);
 import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
-import { rejectUnselectedHeadlessSession } from './unselected-headless-session.js';
+import { bindOrdinaryTaskWorkerSession } from './ordinary-task-worker.js';
+import { getLocalRepositoryWorkspaces } from './repository-workspace-runtime.js';
+import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
 import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';
 import { storedEventToClientMessage } from '@mitzo/protocol';
 import {
@@ -536,7 +538,23 @@ const orchestrator = new TaskOrchestrator({
     }
     return ids;
   },
-  spawnSession: rejectUnselectedHeadlessSession,
+  bindWorkerSession: (sourceClientId, operatorAuth) =>
+    bindOrdinaryTaskWorkerSession(
+      {
+        events: eventStore,
+        tasks: taskStore,
+        workspaces: getLocalRepositoryWorkspaces(),
+        source: (clientId) => registry.get(clientId),
+        sourceForSession: (sessionId) => registry.findBySessionId(sessionId)?.session,
+        taskRoot: () => ordinaryWorkspaceTaskRoot(true),
+        stop: (clientId, conversationId) =>
+          stopOrdinaryChat(
+            (conversationId && registry.findBySessionId(conversationId)?.clientId) || clientId,
+          ),
+      },
+      sourceClientId,
+      operatorAuth,
+    ),
 });
 orchestratorRef = orchestrator;
 setOrchestrator(orchestrator);

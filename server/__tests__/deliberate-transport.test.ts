@@ -16,6 +16,30 @@ vi.mock('../../packages/harness/src/providers/index.js', async (importOriginal) 
   createProvider: fake.factory,
 }));
 vi.mock('../deliberate-route.js', () => ({ deliberateRouteRevision: () => fake.route }));
+vi.mock('../paid-reasoning-harness.js', async (original) => ({
+  ...(await original<object>()),
+  preparePaidReasoningHarness: async ({ roles }: { roles: string[] }) => ({
+    selections: roles.map((role) => ({
+      role,
+      model:
+        role === 'challenger' || (role === 'panel-1' && roles.includes('panel-2'))
+          ? 'gemini-2.5-pro'
+          : role === 'panel-2'
+            ? 'claude-sonnet-4-6'
+            : 'claude-opus-4-6',
+    })),
+    createProvider: fake.factory,
+    routeRevision: () => fake.route,
+  }),
+}));
+vi.mock('../agent-library-transport.js', async (original) => ({
+  ...(await original<object>()),
+  captureAgentLibraryAuthorization: () => ({
+    auth: { id: 'verified-fixture', expiresAt: Date.now() + 60000 },
+    assertCurrent() {},
+  }),
+}));
+
 const chat = vi.hoisted(() => ({
   startChat: vi.fn(),
   isActive: vi.fn(() => false),

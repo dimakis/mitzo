@@ -133,6 +133,7 @@ export function useExplicitLocalChat(
     binding: SessionRuntimeBinding | null;
     firstCommand: boolean;
     preparedFirst: boolean;
+    modelSettingsReadOnlyReason?: string;
     ordinaryWorkspaceId?: string;
     reason?: string;
     intent: ChatRuntimeSelection | null;
@@ -267,6 +268,12 @@ export function useExplicitLocalChat(
           sessionId,
           ordinaryWorkspaceId,
           preparedFirst,
+          modelSettingsReadOnlyReason: z
+            .string()
+            .min(1)
+            .max(200)
+            .optional()
+            .parse(body.modelSettingsReadOnlyReason),
           binding: parsed,
           ...(parsed?.harness.implementation === 'gemini'
             ? {
@@ -354,16 +361,21 @@ export function useExplicitLocalChat(
     null,
   );
   useEffect(() => {
-    if (!sessionId || !currentMeta?.intent || !inventory) return;
+    if (!sessionId || !currentMeta?.intent || !inventory || metadataPending) return;
     setFuture((previous) =>
       previous?.sessionId === sessionId
-        ? previous
+        ? previous.intent.capabilityRevision === inventory.capabilityRevision
+          ? previous
+          : {
+              ...previous,
+              intent: { ...previous.intent, capabilityRevision: inventory.capabilityRevision },
+            }
         : {
             sessionId,
             intent: { ...currentMeta.intent!, capabilityRevision: inventory.capabilityRevision },
           },
     );
-  }, [sessionId, currentMeta, inventory]);
+  }, [sessionId, currentMeta, inventory, metadataPending]);
   const selectedIntent =
     bound && currentMeta?.intent
       ? future?.sessionId === sessionId
@@ -522,6 +534,7 @@ export function useExplicitLocalChat(
     reason,
     error,
     metadataUnavailable,
+    modelSettingsReadOnlyReason: currentMeta?.modelSettingsReadOnlyReason,
     metadataPending,
     refresh,
     update,

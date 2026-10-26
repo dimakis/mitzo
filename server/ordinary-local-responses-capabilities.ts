@@ -3,6 +3,11 @@ import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import { z } from 'zod';
 import { SessionRuntimeBindingV1Schema } from '@mitzo/protocol';
+import {
+  retainLocalApiChatBinding,
+  retainedLocalApiTargetRevision,
+  reviewedLegacyLocalApiTargetRevisions,
+} from './local-api-chat-continuity.js';
 import type { AccountProfiles } from './account-profiles.js';
 import { readPrivateRuntimeSettings } from './ordinary-local-codex-host-runtime.js';
 import { reviewedHandlerSourceArtifacts } from './connections/reviewed-handler-artifacts.js';
@@ -57,7 +62,12 @@ export class OrdinaryLocalResponsesTarget {
     const c = this.#configuration;
     return {
       targetId: c.targetId,
-      targetRevision: digest([`ordinary-local-${this.harness}-target-v1`, c]),
+      targetRevision: digest([
+        `ordinary-local-${this.harness}-target-v2`,
+        c.targetId,
+        c.hostId,
+        `${this.harness}-session-v1`,
+      ]),
       label: c.label,
       location: 'local' as const,
       harness: this.harness,
@@ -75,12 +85,15 @@ function responsesCapabilities(
   profiles: AccountProfiles,
   target: OrdinaryLocalResponsesTarget,
   newWork: boolean,
+  retainedBinding?: unknown,
 ) {
   const accounts =
     target.harness === 'gemini'
       ? profiles.ordinaryLocalGeminiInventory()
       : profiles.ordinaryLocalResponsesInventory();
   const targets = [target.descriptor()];
+  const declaration = target.admissionDeclaration();
+  const reviewedLegacy = reviewedLegacyLocalApiTargetRevisions(target.harness, declaration);
   const catalog: OrdinarySessionRuntimeCatalog = {
     deployment: 'ordinary',
     enabledHarnesses: [target.harness],
@@ -96,7 +109,16 @@ function responsesCapabilities(
     })),
   };
   const resolve = (request: unknown) =>
-    (newWork ? resolveNewOrdinarySessionRuntime : resolveOrdinarySessionRuntime)(request, catalog);
+    target.harness === 'responses'
+      ? { status: 'rejected' as const, code: 'new_work_harness_unsupported' as const }
+      : retainLocalApiChatBinding(
+          (newWork ? resolveNewOrdinarySessionRuntime : resolveOrdinarySessionRuntime)(
+            request,
+            catalog,
+          ),
+          newWork ? undefined : retainedBinding,
+          reviewedLegacy,
+        );
   const inventory = {
     version: 1 as const,
     authority: 'configuration-only' as const,
@@ -119,7 +141,7 @@ function responsesCapabilities(
       },
     ],
   };
-  if (newWork && target.harness === 'responses') {
+  if (target.harness === 'responses') {
     inventory.routes = inventory.routes.filter(
       (route) =>
         resolve({
@@ -130,27 +152,40 @@ function responsesCapabilities(
         }).status === 'compatible',
     );
     inventory.capabilityRevision = digest([
-      'ordinary-local-new-work-capabilities-v1',
+      'ordinary-local-retired-responses-capabilities-v1',
+      newWork,
       inventory.capabilityRevision,
       inventory.routes,
     ]);
     if (!inventory.routes.length)
       inventory.locations = [
-        { location: 'local', status: 'unavailable', reason: 'supported_harness_unavailable' },
+        { location: 'local', status: 'unavailable', reason: 'responses_execution_retired' },
       ];
   }
   return {
+    get declaration() {
+      return {
+        ...declaration,
+        targetRevision: retainedLocalApiTargetRevision(
+          declaration.targetRevision,
+          retainedBinding,
+          reviewedLegacy,
+        ),
+      };
+    },
     inventory: () => structuredClone(inventory),
     resolve,
   };
 }
 
-/** Retained legacy engine compatibility. Do not use for new-entry admission. */
+/** Retained account/target metadata only. Responses execution is retired; the
+ * same owner still serves executable deferred Gemini capability projection. */
 export function localResponsesCapabilities(
   profiles: AccountProfiles,
   target: OrdinaryLocalResponsesTarget,
+  retainedBinding?: unknown,
 ) {
-  return responsesCapabilities(profiles, target, false);
+  return responsesCapabilities(profiles, target, false, retainedBinding);
 }
 
 /** Strict new-entry projection; retained histories keep their original engine.

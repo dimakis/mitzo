@@ -1,3 +1,5 @@
+import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
+import { summarizeToolInput } from '@mitzo/protocol';
 import { assembleSourceSnapshots } from '../source-snapshot-context.js';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
@@ -893,7 +895,7 @@ it('reports a provider-accepted turn only after the exact turn/start response', 
 });
 async function setup(
   existingStore?: CodexConversationStore,
-  displayToolName?: (name: string) => string,
+  displayToolCall?: CodexConversationOptions['displayToolCall'],
   beforeComplete?: (signal: AbortSignal) => Promise<void>,
   completionHookTimeoutMs?: number,
   verifyBinding?: () => Promise<AccountBinding>,
@@ -1029,7 +1031,7 @@ async function setup(
     getMode: () => 'agent',
     webSearchDeploymentRevision: 'test-deployment-1',
     systemPrompt: 'context',
-    displayToolName,
+    displayToolCall,
     beforeComplete,
     completionHookTimeoutMs,
     beforeReconnect,
@@ -3694,7 +3696,10 @@ it('maps known failed-turn provider diagnostics without exposing provider payloa
 });
 
 it('uses canonical display names while executing the original wire tool', async () => {
-  const { c, callbacks, events, execute } = await setup(undefined, () => 'mcp__work__read');
+  const { c, callbacks, events, execute } = await setup(undefined, (name, input) => ({
+    name: 'mcp__work__read',
+    input,
+  }));
   await c.send({ id: 'read', prompt: 'read' });
   await callbacks.onRequest(
     'item/tool/call',
@@ -3716,6 +3721,168 @@ it('uses canonical display names while executing the original wire tool', async 
     }),
   );
 });
+
+it.each([
+  ['mcp__task-board__TaskComplete', { summary: 'review complete' }, 'review complete'],
+  ['mcp__task-board__TaskBlock', { reason: 'needs source access' }, 'needs source access'],
+  [
+    'mcp__telos__TelosUpdateItem',
+    { itemId: 'item-42', status: 'done' },
+    'Update Telos item-42: done',
+  ],
+] as const)(
+  'projects integration activity arguments for %s without changing execution or replay identity',
+  async (name, input, summary) => {
+    const discovery = createIntegrationToolDiscovery({
+      tools: [
+        { name: 'wire_tool', description: 'Selected tool', input_schema: { type: 'object' } },
+      ],
+      displayName: () => name,
+      assertCurrent: () => {},
+      execute: async () => ({ content: 'ok', isError: false }),
+    });
+    const f = await setup(undefined, discovery.displayCall);
+    f.conversationOptions.tools = discovery.definitions;
+    const claim = vi.spyOn(f.store, 'claimTool');
+    await f.c.send({ id: 'activity', prompt: 'update progress' });
+    const detail = JSON.parse(
+      (
+        await discovery.execute(
+          'DescribeIntegrationTool',
+          { toolId: 'wire_tool' },
+          new AbortController().signal,
+        )
+      ).content,
+    );
+    const envelope = {
+      toolId: detail.toolId,
+      catalogRevision: detail.catalogRevision,
+      arguments: input,
+    };
+    await f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: 'provider-thread',
+        turnId: 'turn-1',
+        callId: 'tool',
+        tool: 'InvokeIntegrationTool',
+        arguments: envelope,
+      },
+      new AbortController().signal,
+    );
+    expect(f.events).toContainEqual(
+      expect.objectContaining({
+        type: 'stream_event',
+        event: expect.objectContaining({
+          delta: { type: 'input_json_delta', partial_json: JSON.stringify(input) },
+        }),
+      }),
+    );
+    const activity = f.events.find(
+      (event) =>
+        event.type === 'assistant' &&
+        (event.message as { content?: { name: string }[] })?.content?.[0]?.name === name,
+    );
+    const block = (
+      activity?.message as { content: { name: string; input: Record<string, unknown> }[] }
+    ).content[0];
+    expect(block).toMatchObject({ name, input });
+    expect(summarizeToolInput(block.name, block.input)).toBe(summary);
+    expect(f.execute).toHaveBeenCalledWith(
+      'InvokeIntegrationTool',
+      envelope,
+      expect.anything(),
+      expect.objectContaining({ callId: 'tool' }),
+    );
+    expect(claim).toHaveBeenCalledWith('app', expect.anything(), 'activity', 'tool', {
+      turnId: 'turn-1',
+      toolName: 'InvokeIntegrationTool',
+      requestHash: createHash('sha256').update(JSON.stringify(envelope)).digest('hex'),
+    });
+    f.c.close();
+  },
+);
+
+it.each([undefined, '/sandbox/workspaces/task'])(
+  'queries native skills only for the admitted cwd (%s) and rejects a revoked or cancelled metadata response',
+  async (runtimeCwd) => {
+    const f = await setup();
+    f.conversationOptions.runtimeCwd = runtimeCwd;
+    const skillCwd = runtimeCwd ?? '/workspace';
+    await f.c.send({ id: 'skills', prompt: 'Use a relevant skill' });
+    const response = {
+      data: [
+        {
+          cwd: skillCwd,
+          skills: [
+            {
+              name: 'jira',
+              description: 'Search Jira',
+              path: '/skills/jira/SKILL.md',
+              enabled: true,
+            },
+          ],
+          errors: [],
+        },
+      ],
+    };
+    const original = f.rpc.request.getMockImplementation()!;
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'skills/list' ? response : original(method, params),
+    );
+    let current = true;
+    const assertCurrent = () => {
+      if (!current) throw Error('revoked');
+    };
+    expect(
+      await f.c.searchSkills(
+        { query: 'jira', offset: 0, limit: 5 },
+        new AbortController().signal,
+        assertCurrent,
+      ),
+    ).toMatchObject({ total: 1, skills: [{ name: 'jira' }] });
+    expect(f.rpc.request).toHaveBeenLastCalledWith('skills/list', {
+      cwds: [skillCwd],
+      forceReload: false,
+    });
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'skills/list') {
+        current = false;
+        return response;
+      }
+      return original(method, params);
+    });
+    await expect(
+      f.c.searchSkills(
+        { query: '', offset: 0, limit: 5 },
+        new AbortController().signal,
+        assertCurrent,
+      ),
+    ).rejects.toThrow('revoked');
+    current = true;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'skills/list') {
+        f.conversationOptions.runtimeCwd = '/sandbox/replaced-workspace';
+        return response;
+      }
+      return original(method, params);
+    });
+    await expect(
+      f.c.searchSkills(
+        { query: '', offset: 0, limit: 5 },
+        new AbortController().signal,
+        assertCurrent,
+      ),
+    ).rejects.toThrow('Current native skill owner unavailable');
+    f.conversationOptions.runtimeCwd = runtimeCwd;
+    const abort = new AbortController();
+    abort.abort();
+    await expect(
+      f.c.searchSkills({ query: '', offset: 0, limit: 5 }, abort.signal, assertCurrent),
+    ).rejects.toThrow();
+    f.c.close();
+  },
+);
 
 it('routes native user input with active thread/turn identity and abort lifetime', async () => {
   const { c, callbacks, requestUserInput } = await setup();
@@ -4238,6 +4405,121 @@ it('keeps an undefined startup rejection fail-closed', async () => {
   expect(requests).not.toContain('thread/start');
   await expect(c.initialize()).rejects.toThrow('permanently vetoed');
 });
+
+it('runs retained-primary admission only after completed cleanup and before claiming its automatic child', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'original-workspace', prompt: 'Original task' });
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const guard = vi.fn(async () => {
+    throw Error('Owned transport reconnect forbidden');
+  });
+  f.conversationOptions.reconnectGuard = guard;
+  const admit = vi.fn(async () => {
+    expect(f.c.queue()).toMatchObject([{ id: 'original-workspace', status: 'completed' }]);
+    await waiting;
+    f.c.enqueue({ id: 'owned-child', prompt: 'Continue original task' });
+  });
+  f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(admit).toHaveBeenCalledOnce());
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  release();
+  await vi.waitFor(() =>
+    expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2),
+  );
+  expect(guard).not.toHaveBeenCalled();
+  expect(f.rpc.close).not.toHaveBeenCalled();
+  expect(f.requests.filter((request) => request.method === 'thread/start')).toHaveLength(1);
+});
+
+it('pauses a failed retained-primary boundary before claiming queued old-workspace work', async () => {
+  const f = await setup();
+  f.conversationOptions.beforeRuntimeAdmission = {
+    kind: 'prepared-repository-primary',
+    admit: async () => {
+      throw Error('Transition requires reconciliation');
+    },
+  };
+  await expect(f.c.send({ id: 'queued-old', prompt: 'Original task' })).rejects.toThrow(
+    'reconciliation',
+  );
+  expect(f.c.queue()).toMatchObject([{ id: 'queued-old', status: 'queued' }]);
+  expect(f.c.isPaused()).toBe(true);
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+});
+
+it('invalidates the original retained boundary while admission awaits transport closure', async () => {
+  const f = await setup();
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let fence!: () => void;
+  const admit = vi.fn(async (assertCurrentSync: () => void) => {
+    fence = assertCurrentSync;
+    await waiting;
+  });
+  f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+  const sent = f.c
+    .send({ id: 'closed-before-claim', prompt: 'Original task' })
+    .catch((error: unknown) => error);
+  await vi.waitFor(() => expect(admit).toHaveBeenCalledOnce());
+  expect(typeof fence).toBe('function');
+  expect(() => fence()).not.toThrow();
+  f.c.close();
+  expect(() => fence()).toThrow();
+  release();
+  expect(await sent).toBeInstanceOf(Error);
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+});
+
+it.each(['initial verification', 'admission', 'final verification'] as const)(
+  'retains the original startup cancellation through %s, including signal replacement',
+  async (phase) => {
+    const f = await setup();
+    const controller = new AbortController();
+    f.conversationOptions.startupSignal = controller.signal;
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let atGate = false;
+    let verified = 0;
+    f.conversationOptions.verifyBinding = async () => {
+      verified++;
+      if (
+        (phase === 'initial verification' && verified === 1) ||
+        (phase === 'final verification' && verified === 2)
+      ) {
+        atGate = true;
+        await waiting;
+      }
+      return f.getBinding();
+    };
+    const admit = vi.fn(async () => {
+      if (phase === 'admission') {
+        atGate = true;
+        await waiting;
+      }
+    });
+    f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+    const sent = f.c
+      .send({ id: 'cancelled-at-boundary', prompt: 'Original task' })
+      .catch((error: unknown) => error);
+    await vi.waitFor(() => expect(atGate).toBe(true));
+    controller.abort(Error('Original startup revoked'));
+    f.conversationOptions.startupSignal = new AbortController().signal;
+    release();
+    expect(await sent).toBeInstanceOf(Error);
+    expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+  },
+);
 
 it('pauses admission failure before claim and resumes the preserved FIFO on explicit send', async () => {
   let blocked = true;
@@ -6831,4 +7113,156 @@ it('does not drain further saved commands if the automatic follow-up loses its t
   expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
   expect(f.c.queue().find(({ id }) => id === 'preserved')?.status).toBe('queued');
   expect(f.c.isRecovering()).toBe(false);
+});
+
+it('bounds timing spans on duplicate/failed enqueue, queued cancel/close and preparation refusal/close', async () => {
+  const timings: Array<{
+    name: string;
+    end: ReturnType<typeof vi.fn>;
+    setAttribute: ReturnType<typeof vi.fn>;
+  }> = [];
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, parent) => {
+    if (!name.startsWith('codex.command.')) return original(name, options, parent);
+    const span = { name, end: vi.fn(), setAttribute: vi.fn() };
+    timings.push(span);
+    return span as unknown as Span;
+  });
+  const f = await setup();
+  expect(() => f.c.enqueue({ id: 'invalid', prompt: 'offline', model: 'not-admitted' })).toThrow();
+  expect(timings).toHaveLength(0);
+  f.c.enqueue({ id: 'cancelled', prompt: 'offline' });
+  f.c.enqueue({ id: 'cancelled', prompt: 'offline' });
+  expect(timings).toHaveLength(1);
+  expect(f.c.cancelQueued('cancelled')).toBe('cancelled');
+  expect(timings[0].setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'cancelled');
+  f.c.enqueue({ id: 'closed', prompt: 'offline' });
+  f.c.close();
+  expect(timings[1].setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'closed');
+  const refused = await setup();
+  refused.conversationOptions.prepareSystemPrompt = async () => {
+    throw Error('Private refusal');
+  };
+  await expect(refused.c.send({ id: 'refused', prompt: 'offline' })).rejects.toThrow();
+  expect(timings.at(-1)?.setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'stopped');
+  const closed = await setup();
+  let release!: () => void;
+  closed.conversationOptions.prepareSystemPrompt = () =>
+    new Promise((resolve) => {
+      release = () => resolve(undefined);
+    });
+  const sending = closed.c.send({ id: 'preparing-close', prompt: 'offline' });
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  closed.c.close();
+  expect(timings.at(-1)?.setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'closed');
+  release();
+  await Promise.allSettled([sending]);
+  for (const span of timings) expect(span.end).toHaveBeenCalledOnce();
+});
+
+it('invokes the genuine native base-scope owner despite a poisoned original call property', async () => {
+  const f = await setup();
+  const policy = codexNativeExecutionPolicy({
+    bindingRevision: 'owner',
+    mode: 'agent',
+    cwd: '/workspace',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace'],
+    deniedRoots: ['/private/auth'],
+  });
+  let revoked = false,
+    captured = false;
+  const poisoned = vi.fn(() => undefined);
+  const current = Object.assign(
+    function (this: unknown) {
+      expect(this).toBe(f.conversationOptions);
+      if (revoked) throw Error('Original base-scope owner revoked');
+    },
+    { call: poisoned },
+  );
+  f.conversationOptions.nativeExecution = policy;
+  f.conversationOptions.assertNativeExecutionCurrent = current;
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+  await f.c.send({ id: 'base-scope-poison', prompt: 'Read current workspace' });
+  f.conversationOptions.executeTool = async (_name, _input, _signal, invocation) => {
+    revoked = true;
+    invocation.captureNativeBaseReadScope!();
+    captured = true;
+    return { content: 'unsafe', isError: false };
+  };
+  const result = await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'poisoned-base',
+      tool: 'Read',
+      arguments: { file_path: '/workspace/a' },
+    },
+    new AbortController().signal,
+  );
+  expect(result.success).toBe(false);
+  expect(captured).toBe(false);
+  expect(poisoned).not.toHaveBeenCalled();
+});
+
+it('invokes the genuine retained prepared admission despite its poisoned original call property', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'before-poisoned-boundary', prompt: 'Original task' });
+  const admit = vi.fn(async function (this: unknown) {
+    expect(this).toBe(boundary);
+    throw Error('Original prepared owner refuses');
+  });
+  const poisoned = vi.fn(async () => {
+    f.c.enqueue({ id: 'counterfeit-child', prompt: 'Unauthorized continuation' });
+  });
+  Object.defineProperty(admit, 'call', { value: poisoned });
+  const boundary = { kind: 'prepared-repository-primary' as const, admit };
+  f.conversationOptions.beforeRuntimeAdmission = boundary;
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() =>
+    expect(admit.mock.calls.length + poisoned.mock.calls.length).toBeGreaterThan(0),
+  );
+  expect(admit).toHaveBeenCalledOnce();
+  expect(poisoned).not.toHaveBeenCalled();
+  expect(f.c.queue().some((c) => c.id === 'counterfeit-child')).toBe(false);
+  expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+});
+
+it('rechecks a host readiness receipt after the idle transport probe before native enqueue', async () => {
+  const { c, rpc, requests } = await setup();
+  const original = rpc.request.getMockImplementation()!;
+  let release!: () => void;
+  let entered!: () => void;
+  const blocked = new Promise<void>((done) => {
+    release = done;
+  });
+  const probing = new Promise<void>((done) => {
+    entered = done;
+  });
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'config/read') {
+      entered();
+      await blocked;
+    }
+    return original(method, params);
+  });
+  let current = true;
+  const admission = c.admitExplicitSend(
+    { id: 'private-ready', prompt: 'Safe readiness only' },
+    undefined,
+    () => {
+      if (!current) throw Error('Private setup expired or revoked');
+    },
+  );
+  const rejected = expect(admission).rejects.toThrow('Private setup expired or revoked');
+  await probing;
+  current = false;
+  release();
+  await rejected;
+  expect(c.queue()).toEqual([]);
+  expect(requests.filter(({ method }) => method === 'turn/start')).toEqual([]);
 });

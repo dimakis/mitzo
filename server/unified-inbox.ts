@@ -2,7 +2,7 @@ import { join, basename, dirname } from 'node:path';
 import { statSync, existsSync, realpathSync } from 'node:fs';
 import { privateCodexPathSnapshot } from './codex-private-path.js';
 import { InboxQuery, type MitzoNotification } from '@mitzo/protocol';
-import { listInboxItems, readInboxItem, parseFrontmatter, discardInboxItem } from './inbox.js';
+import { scanInboxItems, discardInboxItem } from './inbox.js';
 import { NotificationStore } from './notification-store.js';
 
 export function discardInboxSource(
@@ -73,16 +73,14 @@ export class UnifiedInbox {
     const root = this.directory();
     if (!root || !existsSync(root)) return false;
     const previousActive = this.lastRoot === root ? this.activeFiles : new Map<string, string>();
-    const active = listInboxItems(root);
-    const activeNames = new Set(active.map((item) => item.filename));
+    const active = scanInboxItems(root);
+    const activeNames = new Set(active.map((item) => item.summary.filename));
     const nextActive = new Map<string, string>();
     let changed = false;
     for (const archived of [false, true]) {
       const path = archived ? join(root, 'archive') : root;
       if (!existsSync(path)) continue;
-      for (const summary of archived ? listInboxItems(path) : active) {
-        const content = readInboxItem(path, summary.filename);
-        if (content === null) continue;
+      for (const { summary, content, meta } of archived ? scanInboxItems(path) : active) {
         let filename = summary.filename;
         let id = `inbox:${filename}`;
         if (archived) {
@@ -100,7 +98,6 @@ export class UnifiedInbox {
         } else {
           nextActive.set(id, filename);
         }
-        const { meta } = parseFrontmatter(content);
         const kind = category(summary.agent, meta.kind);
         const severity =
           meta.severity === 'critical'

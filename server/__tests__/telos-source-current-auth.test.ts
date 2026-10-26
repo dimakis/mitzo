@@ -262,10 +262,10 @@ describe('current interactive authorization across source-save awaits', () => {
       const before = f.retainedCounts();
       f.release.resolve();
       const method = operation === 'adopt' ? 'preview' : 'previewNew';
-      const actual = TelosSourceCapture.prototype[method];
+      const actual: TelosSourceCapture['preview'] = TelosSourceCapture.prototype[method];
       vi.spyOn(TelosSourceCapture.prototype, method).mockImplementationOnce(async function (
         this: TelosSourceCapture,
-        ...args
+        ...args: Parameters<TelosSourceCapture['preview']>
       ) {
         const result = await actual.apply(this, args);
         f.revoke();
