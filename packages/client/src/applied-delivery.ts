@@ -73,6 +73,12 @@ export class AppliedDelivery {
     this.drain(sessionId, state);
   }
 
+  /** An exact replay prefix owns recovery until its ACK completes. */
+  hasPendingSnapshot(sessionId: string): boolean {
+    const state = this.sessions.get(sessionId);
+    return !!(state?.offer || state?.waitingForSnapshot);
+  }
+
   /** Commit a REST transcript only after its state has been installed. */
   commitTranscript(sessionId: string, cursor: number): void {
     const state = this.state(sessionId);
@@ -241,6 +247,9 @@ export class AppliedDelivery {
         return false;
       }
     }
+    // Delivery may synchronously settle the last receipt or navigate away.
+    // Only this exact still-owned lifetime may advance/acknowledge its cursor.
+    if (this.sessions.get(sessionId) !== state) return true;
     // Covered events still traverse the predecessor chain and receive individual
     // ACKs; the REST watermark never jumps over missing transport events.
     if (state.restoredThrough !== undefined && seq >= state.restoredThrough)
@@ -291,11 +300,13 @@ export class AppliedDelivery {
   }
 
   private drain(sessionId: string, state: PendingSession): void {
-    while (!state.offer && !state.waitingForSnapshot) {
+    if (this.sessions.get(sessionId) !== state) return;
+    while (this.sessions.get(sessionId) === state && !state.offer && !state.waitingForSnapshot) {
       const cursor = this.options.getCursor(sessionId);
       const next = [...state.events.values()].find((event) => event.prevSessionSeq === cursor);
       if (!next || !this.apply(sessionId, state, next)) break;
     }
+    if (this.sessions.get(sessionId) !== state) return;
     if (state.events.size === 0) this.clearGapTimer(state);
     else this.armGapTimer(sessionId, state);
   }

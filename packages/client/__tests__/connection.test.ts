@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { MitzoConnection } from '../src/connection.js';
+import { ConnectionRegistry } from '../../harness/src/connection-registry.js';
 import type { WebSocketLike } from '../src/ws-connection.js';
 
 // ─── Mock WebSocket ──────────────────────────────────────────────────────────
@@ -1007,4 +1008,66 @@ describe('MitzoConnection', () => {
       expect(() => conn.sendSuspend()).not.toThrow();
     });
   });
+});
+
+it('preserves the actual reconnect offer when a REST cursor switch queued before WebSocket welcome', () => {
+  const registry = new ConnectionRegistry();
+  const interests = new Map([['a', 'lifetime']]);
+  let socket!: MockWebSocket;
+  const conn = new MitzoConnection({
+    buildUrl: () => '',
+    createWebSocket: () => (socket = new MockWebSocket()),
+    sessionInterest: {
+      has: (id) => interests.has(id),
+      sessions: () => [...interests.keys()],
+      generation: (id) => interests.get(id),
+      accepts: () => true,
+    },
+  });
+  try {
+    conn.onMessage(() => true);
+    conn.connect();
+    socket.simulateOpen();
+    socket.simulateMessage({ type: 'welcome', connectionId: 'initial' });
+    conn.trackSeq('a', 0);
+    conn.checkAndReconnect(true);
+    conn.commitTranscriptCursor('a', 9);
+    conn.send({ type: 'switch_session', sessionId: 'a', historyCursor: 9 });
+    registry.register('replacement', { send() {}, isOpen: () => true });
+    let acknowledged = false;
+    socket.send.mockImplementation((payload: string) => {
+      const message = JSON.parse(payload);
+      if (message.type === 'reconnect') {
+        for (const entry of message.sessions) {
+          registry.watch('replacement', entry.sessionId);
+          registry.enableAppliedCursor('replacement', entry.sessionId, entry.lastSeq);
+          registry.offerSnapshot('replacement', entry.sessionId, 12, 'exact-offer');
+        }
+      } else if (message.type === 'switch_session' && typeof message.historyCursor === 'number')
+        registry.enableAppliedCursor('replacement', message.sessionId, message.historyCursor);
+      else if (message.type === 'reconnect_snapshot_applied')
+        acknowledged = registry.ackAppliedSnapshot(
+          'replacement',
+          message.sessionId,
+          message.cursor,
+          message.offerId,
+        );
+    });
+    socket.simulateOpen();
+    socket.simulateMessage({ type: 'welcome', connectionId: 'replacement' });
+    socket.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'a',
+      cursor: 12,
+      offerId: 'exact-offer',
+    });
+    conn.acknowledgeReconnectSnapshot('a', 12, 'exact-offer');
+    expect(acknowledged).toBe(true);
+    const selection = socket.send.mock.calls
+      .map(([payload]) => JSON.parse(payload))
+      .find((message) => message.type === 'switch_session');
+    expect(selection).not.toHaveProperty('historyCursor');
+  } finally {
+    conn.disconnect();
+  }
 });

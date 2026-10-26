@@ -2269,7 +2269,12 @@ async function exerciseBriefingReloadRecovery(
     }
     if (
       method === 'POST' &&
-      ['/api/chat/reconnect', '/api/chat/switch', '/api/sessions/suspend'].includes(url.pathname)
+      [
+        '/api/chat/reconnect',
+        '/api/chat/switch',
+        '/api/chat/unwatch',
+        '/api/sessions/suspend',
+      ].includes(url.pathname)
     )
       return route.fulfill({ json: { ok: true } });
     if (method !== 'GET')

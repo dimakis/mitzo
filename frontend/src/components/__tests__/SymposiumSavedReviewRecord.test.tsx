@@ -146,7 +146,7 @@ it('opens the bookmarked session explicitly and answers its normal approval with
   fireEvent.click(screen.getByRole('button', { name: 'Open session for approval' }));
   await screen.findByLabelText('Publish reviewed artifact');
   expect(sent.filter((value) => value.type === 'switch_session')).toEqual([
-    { type: 'switch_session', sessionId: 'session' },
+    { type: 'switch_session', sessionId: 'session', clientManagedWatches: true },
   ]);
   socket.onmessage?.({
     data: JSON.stringify({

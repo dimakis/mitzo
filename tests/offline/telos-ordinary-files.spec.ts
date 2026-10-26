@@ -241,6 +241,7 @@ for (const theme of ['dark', 'light'] as const)
           method !== 'GET' &&
           ![
             '/api/chat/switch',
+            '/api/chat/unwatch',
             '/api/chat/reconnect',
             '/api/chat/session-event-applied',
             '/api/chat/reconnect-snapshot-applied',

@@ -171,6 +171,7 @@ for (const [theme, accent, font] of [
           if (
             ![
               '/api/chat/switch',
+              '/api/chat/unwatch',
               '/api/chat/reconnect',
               '/api/chat/probe',
               '/api/chat/session-event-applied',

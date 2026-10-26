@@ -346,9 +346,56 @@ function mergeHistory(
 
 export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStoreState> {
   const api = new MitzoApiClient(options.transport.fetch.bind(options.transport));
+  // Lifetimes belong to selected views and unresolved commands, independently
+  // of received sequence cursors. Retirement invalidates every restore callback.
+  let sessionInterestGeneration = 0;
+  const sessionInterests = new Map<string, { subscriptionId: string }>();
+  const sessionInterest = {
+    has: (id: string) => sessionInterests.has(id),
+    sessions: () => [...sessionInterests.keys()],
+    generation: (id: string) => sessionInterests.get(id)?.subscriptionId,
+    accepts: (event: Record<string, unknown>) => {
+      const id = event.sessionId;
+      if (
+        typeof id === 'string' &&
+        event.type === 'session_reconnect_snapshot' &&
+        typeof event.subscriptionId === 'string' &&
+        event.subscriptionId !== sessionInterests.get(id)?.subscriptionId
+      )
+        return false;
+      if (typeof id !== 'string' || sessionInterests.has(id)) return true;
+      if (event.type === 'session_id') return true;
+      if (event.type === 'permission_request' && !parserState.currentSessionId) return true;
+      const command = event.type === 'user_message' ? event.messageId : event.clientMsgId;
+      if (typeof command !== 'string' || !deliveryObservers.has(command)) return false;
+      const origin = deliveryOrigins.get(command);
+      return (
+        !origin?.sessionId ||
+        origin.sessionId === id ||
+        (event.type === '_send_accepted' &&
+          origin.control === 'send' &&
+          event.originalSessionId === origin.sessionId)
+      );
+    },
+  };
   const connection: ChatConnection = options.sseConfig
-    ? new SseConnection(options.sseConfig)
-    : new MitzoConnection(options.wsConfig);
+    ? new SseConnection({ ...options.sseConfig, sessionInterest })
+    : new MitzoConnection({ ...options.wsConfig, sessionInterest });
+
+  function retainSessionInterest(id: string) {
+    if (!sessionInterests.has(id))
+      sessionInterests.set(id, { subscriptionId: String(++sessionInterestGeneration) });
+    connection.trackSeq(id, connection.getLastSeq(id));
+  }
+  function cancelBackgroundRead(id: string) {
+    backgroundSnapshotReads.get(id)?.controller.abort();
+    backgroundSnapshotReads.delete(id);
+  }
+  function retireSessionInterest(id: string) {
+    sessionInterests.delete(id);
+    cancelBackgroundRead(id);
+    connection.clearSession(id);
+  }
 
   // An explicit clear is a display decision too; never infer freshness from null.
   let contextDisplayWritten = false;
@@ -604,7 +651,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let historyRequest = 0;
   let historyAbort: AbortController | undefined;
   let recoveryInFlight = false;
-  const backgroundSnapshotReads = new Map<string, object>();
+  const backgroundSnapshotReads = new Map<string, { controller: AbortController }>();
   const pendingOptimisticMessageIds = new Set<string>();
   // Completion belongs to a command, not a session that can accept later sends.
   // Keep observations across HTTP uncertainty, retries and view navigation.
@@ -677,7 +724,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     { historyRequest: number; launchGeneration: number }
   >();
   const hasPendingDelivery = (sessionId: string) =>
-    [...deliverySessions.values()].includes(sessionId);
+    [...deliverySessions.values()].includes(sessionId) ||
+    [...deliveryOrigins].some(
+      ([id, origin]) =>
+        deliveryObservers.has(id) && (origin.sessionId ?? origin.observedSessionId) === sessionId,
+    );
   function isLocalDelivery(id: string): boolean {
     return (
       deliveryOrigins.get(id)?.delivery === 'local' ||
@@ -698,8 +749,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       else if (status === 'failed') store.setState({ pendingSessionSending: false });
     }
     const observer = deliveryObservers.get(id);
-    const sessionId = deliverySessions.get(id);
     const origin = deliveryOrigins.get(id);
+    const sessionId = deliverySessions.get(id) ?? origin?.observedSessionId;
     if (source === 'local' && status === 'uncertain' && !origin?.sessionId)
       store.setState((s) => ({
         messages: {
@@ -755,7 +806,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     if (sessionId && status !== 'uncertain')
       queueMicrotask(() => {
         if (store.getState().sessions.active !== sessionId && !hasPendingDelivery(sessionId))
-          connection.clearSession(sessionId);
+          retireSessionInterest(sessionId);
       });
   }
   function matchesDeliverySession(id: string, sessionId: string | undefined): boolean {
@@ -1127,13 +1178,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         // is for iOS backgrounding (imminent WS death), not session switching.
         // Sending suspend here would leave the old session in suspended state
         // with no resume path, causing it to buffer events until grace expiry.
-        if (!hasPendingDelivery(oldId)) connection.clearSession(oldId);
+        if (!hasPendingDelivery(oldId)) retireSessionInterest(oldId);
       }
       parserState.currentSessionId = id;
       // Even a session whose history is loaded through REST needs an explicit
       // reconnect baseline. Otherwise a predecessor gap can force a reconnect
       // with no tracked sessions and never request its durable snapshot.
-      connection.trackSeq(id, connection.getLastSeq(id));
+      retainSessionInterest(id);
       connection.clearPendingSends();
       pendingOptimisticMessageIds.clear();
 
@@ -1239,7 +1290,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       awaitingModeHydration = undefined;
       set({ modeChangeReady: true });
       for (const sid of connection.getTrackedSessions()) {
-        if (!hasPendingDelivery(sid)) connection.clearSession(sid);
+        if (!hasPendingDelivery(sid)) retireSessionInterest(sid);
       }
       parserState.currentSessionId = undefined;
       connection.clearPendingSends();
@@ -1316,7 +1367,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       pendingOptimisticMessageIds.add(clientMsgId);
       observePreparation(clientMsgId, parserState.currentSessionId);
-      if (opts?.onDelivery || opts?.onSessionAssigned) observeDelivery(clientMsgId, opts, 'send');
+      observeDelivery(clientMsgId, opts ?? {}, 'send');
 
       const buildPayload = (): Record<string, unknown> => {
         const msg: Record<string, unknown> = {
@@ -1785,6 +1836,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     invalidateAuthentication() {
+      for (const id of backgroundSnapshotReads.keys()) cancelBackgroundRead(id);
       pauseReviewedDelivery();
       connection.invalidateAuthentication();
     },
@@ -1820,6 +1872,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     options.launchDrafts?.assign(id, sessionId);
     const origin = unassignedDeliveries.get(id);
     const deliveryOrigin = deliveryOrigins.get(id);
+    const previousSession = deliveryOrigin?.sessionId ?? deliveryOrigin?.observedSessionId;
     const foreground = origin
       ? origin.historyRequest === historyRequest && origin.launchGeneration === launchGeneration
       : !!deliveryOrigin &&
@@ -1832,10 +1885,19 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     const errorOrigin = deliveryOrigins.get(id);
     if (errorOrigin) errorOrigin.sessionId = sessionId;
 
-    connection.trackSeq(sessionId, connection.getLastSeq(sessionId));
+    // A settled receipt keeps assignment correlation, not subscription ownership.
+    if (foreground || deliveryObservers.has(id)) retainSessionInterest(sessionId);
     const assigned = assignmentObservers.get(id);
     assignmentObservers.delete(id);
     assigned?.(sessionId);
+    if (previousSession && previousSession !== sessionId)
+      queueMicrotask(() => {
+        if (
+          store.getState().sessions.active !== previousSession &&
+          !hasPendingDelivery(previousSession)
+        )
+          retireSessionInterest(previousSession);
+      });
     return foreground;
   }
 
@@ -1848,12 +1910,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       connection.setRecoverySession?.(sessionId);
       for (const id of pendingOptimisticMessageIds) {
         if (isLocalDelivery(id)) continue;
+        const origin = deliveryOrigins.get(id);
+        // Assignment of one forked command cannot retarget another frozen send.
+        if (origin?.sessionId && origin.sessionId !== sessionId) continue;
         observePreparation(id, sessionId);
         if (deliveryObservers.has(id)) deliverySessions.set(id, sessionId);
-        const origin = deliveryOrigins.get(id);
         if (origin && !origin.sessionId) origin.sessionId = sessionId;
       }
-      connection.trackSeq(sessionId, connection.getLastSeq(sessionId));
+      retainSessionInterest(sessionId);
       store.setState((s) => ({
         sessions: { ...s.sessions, active: sessionId },
       }));
@@ -1912,6 +1976,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   };
 
   function wsListener(msg: Record<string, unknown>): boolean {
+    if (msg.type === '_close' || msg.type === '_auth_lost')
+      for (const id of backgroundSnapshotReads.keys()) cancelBackgroundRead(id);
     let retainedFailureSeq: number | undefined;
     if (msg.type === '_control_error') {
       // HTTP controls are not provider failures. Keep streamed content and
@@ -2078,7 +2144,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     const eventSessionId = msg.sessionId as string | undefined;
     if (msg.type === 'session_reconnect_snapshot' && eventSessionId)
-      backgroundSnapshotReads.delete(eventSessionId);
+      cancelBackgroundRead(eventSessionId);
     if (
       eventSessionId &&
       ['message_start', 'session_end', 'ordinary_provider_dispatch_started'].includes(
@@ -2120,11 +2186,21 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (id && isLocalDelivery(id)) {
         const origin = deliveryOrigins.get(id);
         if (origin && !origin.sessionId && typeof eventSessionId === 'string') {
+          const previousObservation = origin.observedSessionId;
           // Exact command correlation supersedes an older uncorrelated
           // observation. Later uncorrelated events cannot displace it.
           if (msg.type === 'user_message' || typeof msg.clientMsgId === 'string')
             origin.observedSessionId = eventSessionId;
           else origin.observedSessionId ??= eventSessionId;
+          if (deliveryObservers.has(id) && origin.observedSessionId)
+            retainSessionInterest(origin.observedSessionId);
+          if (
+            previousObservation &&
+            previousObservation !== origin.observedSessionId &&
+            previousObservation !== parserState.currentSessionId &&
+            !hasPendingDelivery(previousObservation)
+          )
+            retireSessionInterest(previousObservation);
         }
         if (msg.type === 'session_id' || (!origin?.sessionId && !selectedEventSession)) return true;
       }
@@ -2282,17 +2358,20 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.type === 'session_reconnect_snapshot' &&
       typeof eventSessionId === 'string' &&
       eventSessionId !== parserState.currentSessionId &&
-      (hasPendingDelivery(eventSessionId) || deferredLocalSession) &&
       typeof msg.cursor === 'number' &&
       Number.isSafeInteger(msg.cursor) &&
       msg.cursor >= 0
     ) {
       const cursor = msg.cursor;
-      const read = {};
+      if (!sessionInterests.has(eventSessionId)) return true;
+      const interest = sessionInterests.get(eventSessionId);
+      const read = { controller: new AbortController() };
       const connectionId = connection.getConnectionId();
       backgroundSnapshotReads.set(eventSessionId, read);
       const isCurrent = () =>
         backgroundSnapshotReads.get(eventSessionId) === read &&
+        sessionInterests.get(eventSessionId) === interest &&
+        !read.controller.signal.aborted &&
         connection.getConnectionId() === connectionId;
       const acknowledge = () =>
         connection.acknowledgeReconnectSnapshot(
@@ -2301,10 +2380,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           typeof msg.offerId === 'string' ? msg.offerId : undefined,
         );
       void api
-        .getReconnectTranscript(eventSessionId, cursor)
+        .getReconnectTranscript(eventSessionId, cursor, read.controller.signal)
         .then((transcript) => {
           if (!isCurrent()) return;
           confirmPersistedDelivery(eventSessionId, transcript.messages);
+          if (!isCurrent()) return;
           if (parserState.currentSessionId === eventSessionId) {
             // The receipt/navigation may have installed a newer transcript while
             // this read was pending. Restore this exact prefix before releasing
@@ -2346,7 +2426,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             msg.cursor >= 0
           )
             if (!msg.offerId) connection.acknowledgeReconnectSnapshot(eventSessionId, msg.cursor);
-          return false;
+          // Filtering another chat is successful transport consumption. A
+          // refused event would reconnect and replay the same foreign event.
+          return true;
         }
       } else {
         // Allow session_id (new session assignment) and permission_request
@@ -2362,7 +2444,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             msg.cursor >= 0
           )
             if (!msg.offerId) connection.acknowledgeReconnectSnapshot(eventSessionId, msg.cursor);
-          return false;
+          return true;
         }
       }
     }

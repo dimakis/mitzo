@@ -9,6 +9,7 @@ export function builderOfflineTransport(
 ) {
   const controls = new Set([
     '/api/chat/switch',
+    '/api/chat/unwatch',
     '/api/chat/reconnect',
     '/api/chat/probe',
     '/api/chat/session-event-applied',

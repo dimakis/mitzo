@@ -563,7 +563,9 @@ describe('switchSession', () => {
       expect(lastWs.parsedSent()).toContainEqual({
         type: 'reconnect',
         supportsAppliedCursor: true,
-        sessions: [{ sessionId: 'session-existing', lastSeq: 0 }],
+        sessions: [
+          { sessionId: 'session-existing', lastSeq: 0, subscriptionId: expect.any(String) },
+        ],
       });
     } finally {
       vi.useRealTimers();
@@ -618,6 +620,7 @@ describe('switchSession', () => {
 
     expect(lastWs.parsedSent()).toContainEqual({
       type: 'switch_session',
+      clientManagedWatches: true,
       sessionId: 'session-abc',
     });
   });
@@ -725,6 +728,7 @@ describe('newSession', () => {
 
     expect(lastWs.parsedSent()).toContainEqual({
       type: 'switch_session',
+      clientManagedWatches: true,
       sessionId: null,
     });
   });
@@ -2982,6 +2986,7 @@ describe('foreground recovery', () => {
     expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual(['saved']);
     expect(lastWs.parsedSent()).toContainEqual({
       type: 'switch_session',
+      clientManagedWatches: true,
       sessionId: 'sess-1',
       historyCursor: 12,
     });
@@ -3486,6 +3491,7 @@ it('coordinates the server watch with the installed REST cursor', async () => {
   await store.getState().switchSession('history-race');
   expect(lastWs.parsedSent()).toContainEqual({
     type: 'switch_session',
+    clientManagedWatches: true,
     sessionId: 'history-race',
     historyCursor: 40,
   });
@@ -3850,7 +3856,9 @@ it('retains an offscreen launch reconnect subscription and reconciles its persis
   await vi.waitFor(() => expect(lastWs).not.toBe(previousSocket));
   lastWs.completeHandshake();
   expect(lastWs.parsedSent().find((m) => m.type === 'reconnect')).toMatchObject({
-    sessions: expect.arrayContaining([{ sessionId: 'launch-session', lastSeq: 0 }]),
+    sessions: expect.arrayContaining([
+      { sessionId: 'launch-session', lastSeq: 0, subscriptionId: expect.any(String) },
+    ]),
   });
   (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
     ok: true,
@@ -3887,7 +3895,9 @@ it.each(['new', 'switch'] as const)(
     await vi.waitFor(() => expect(lastWs).not.toBe(previousSocket));
     lastWs.completeHandshake();
     expect(lastWs.parsedSent().find((m) => m.type === 'reconnect')).toMatchObject({
-      sessions: expect.arrayContaining([{ sessionId: 'late-launch', lastSeq: 0 }]),
+      sessions: expect.arrayContaining([
+        { sessionId: 'late-launch', lastSeq: 0, subscriptionId: expect.any(String) },
+      ]),
     });
     (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,

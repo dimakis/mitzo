@@ -74,6 +74,7 @@ async function offlinePicker(
       if (route.request().method() !== 'GET') {
         if (
           ![
+            '/api/chat/unwatch',
             '/api/chat/probe',
             '/api/chat/session-event-applied',
             '/api/chat/reconnect-snapshot-applied',
@@ -202,7 +203,7 @@ test('Runtime defaults: save, fresh New chat without repeated confirmation, clea
   await page.route('**/api/chat/switch', (route) => {
     expect(route.request().method()).toBe('POST');
     const reset = route.request().postDataJSON();
-    expect(reset).toEqual({ type: 'switch_session', sessionId: null });
+    expect(reset).toEqual({ type: 'switch_session', sessionId: null, clientManagedWatches: true });
     resets.push(reset);
     return route.fulfill({ json: { ok: true } });
   });

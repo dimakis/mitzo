@@ -277,8 +277,13 @@ it('reattaches the foreground native receiver and restores events missed before 
   expect(store.getState().sessions.active).toBe('foreground');
   expect(socket.sent.filter((message) => message.type === 'send')).toEqual([]);
   expect(socket.sent.filter((message) => message.type === 'switch_session')).toEqual([
-    { type: 'switch_session', sessionId: 'foreground' },
-    { type: 'switch_session', sessionId: 'foreground', historyCursor: 3 },
+    { type: 'switch_session', sessionId: 'foreground', clientManagedWatches: true },
+    {
+      type: 'switch_session',
+      sessionId: 'foreground',
+      historyCursor: 3,
+      clientManagedWatches: true,
+    },
   ]);
   expect(store.getState().messages.current?.blocks.get('calendar')?.content).toBe(
     'Calendar details emitted before ACK',

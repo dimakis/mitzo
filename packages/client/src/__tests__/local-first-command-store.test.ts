@@ -6,9 +6,13 @@ const channel = vi.hoisted(() => ({
   send: vi.fn(),
   cursors: new Map<string, number>(),
   acknowledgeSnapshot: vi.fn(),
+  interests: () => [] as string[],
 }));
 vi.mock('../sse-connection.js', () => ({
   SseConnection: class {
+    constructor(config: { sessionInterest?: { sessions(): string[] } }) {
+      channel.interests = () => config.sessionInterest?.sessions() ?? [];
+    }
     onMessage(fn: typeof channel.listener) {
       channel.listener = fn;
     }
@@ -32,7 +36,7 @@ vi.mock('../sse-connection.js', () => ({
       channel.acknowledgeSnapshot(sessionId, cursor, offerId);
     }
     getTrackedSessions() {
-      return [];
+      return channel.interests();
     }
     clearSession() {}
     clearPendingSends() {}
@@ -1077,6 +1081,7 @@ it.each(['session_id', 'user_message'])(
             },
       ),
     ).toBe(true);
+    expect(channel.interests()).toEqual(['actual-local']);
     // A later uncorrelated ID must not displace the exact command observation.
     expect(channel.listener({ type: 'session_id', sessionId: 'later-unrelated-session' })).toBe(
       true,
@@ -1098,6 +1103,7 @@ it.each(['session_id', 'user_message'])(
     expect(
       channel.listener({ type: 'session_state_changed', sessionId: 'actual-local', state: 'idle' }),
     ).toBe(true);
+    expect(channel.interests()).toEqual(['actual-local']);
     expect(assigned).not.toHaveBeenCalled();
     expect(delivered).not.toHaveBeenCalledWith('accepted');
     expect(store.getState().sessions.active).toBeNull();
@@ -1150,6 +1156,10 @@ it.each(['session_id', 'user_message'])(
         .filter(([path]) => path === '/local/send')
         .map(([, init]) => JSON.parse(init.body)),
     ).toEqual([request, request]);
+    expect(channel.interests()).toEqual(['actual-local']);
+    store.getState().newSession();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(channel.interests()).toEqual([]);
   },
 );
 

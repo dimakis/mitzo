@@ -10,7 +10,17 @@ import type { WebSocketLike } from './ws-connection.js';
 import { WS_READY_STATE } from './types.js';
 import { AppliedDelivery } from './applied-delivery.js';
 
+/** Application intent owns subscriptions; receiving a cursor cannot enroll a chat. */
+export interface SessionInterestOwner {
+  has(sessionId: string): boolean;
+  sessions(): string[];
+  generation(sessionId: string): string | undefined;
+  /** Permit exact startup correlation before its session is assigned. */
+  accepts(event: Record<string, unknown>): boolean;
+}
+
 export interface MitzoConnectionConfig {
+  sessionInterest?: SessionInterestOwner;
   buildUrl(): string;
   createWebSocket(url: string): WebSocketLike;
   /** Authenticated HTTP preflight used to distinguish upgrade-time 401s from network failures. */
@@ -24,6 +34,7 @@ export interface MitzoConnectionConfig {
 export type ConnectionListener = (msg: Record<string, unknown>) => boolean | void;
 
 const MAX_PENDING_SENDS = 100;
+const MAX_RETIRED_SESSION_MARKERS = 256;
 const HEARTBEAT_INTERVAL_MS = 5_000;
 
 export class MitzoConnection {
@@ -33,6 +44,7 @@ export class MitzoConnection {
   private _isReconnect = false;
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
+  private unwatchedSessions = new Set<string>();
   private replayingSessions = new Set<string>();
   private replaySeenSeq = new Map<string, number>();
   private pendingSnapshots = new Map<string, { cursor: number; afterSeq: number }>();
@@ -40,13 +52,19 @@ export class MitzoConnection {
   private unacknowledgedSeq = new Map<string, Set<number>>();
   private appliedDelivery = new AppliedDelivery({
     getCursor: (sessionId) => this.getLastSeq(sessionId),
-    setCursor: (sessionId, seq) => this.seqBySession.set(sessionId, seq),
+    setCursor: (sessionId, seq) => {
+      if (!this.config.sessionInterest || this.config.sessionInterest.has(sessionId))
+        this.seqBySession.set(sessionId, seq);
+    },
     deliver: (event) => this.listener?.(event),
     ackEvent: (sessionId, seq) =>
       this.sendAppliedAck({ type: 'session_event_applied', sessionId, seq }),
     ackSnapshot: (sessionId, cursor, offerId) =>
       this.sendAppliedAck({ type: 'reconnect_snapshot_applied', sessionId, cursor, offerId }),
-    resync: () => this.checkAndReconnect(true),
+    resync: (sessionId) => {
+      if (!this.config.sessionInterest || this.config.sessionInterest.has(sessionId))
+        this.checkAndReconnect(true);
+    },
   });
   private pendingSends: string[] = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -108,6 +126,14 @@ export class MitzoConnection {
   }
 
   send(msg: Record<string, unknown>): boolean {
+    if (msg.type === 'switch_session' && this.config.sessionInterest) {
+      msg = { ...msg, clientManagedWatches: true };
+      if (
+        typeof msg.sessionId === 'string' &&
+        this.appliedDelivery.hasPendingSnapshot(msg.sessionId)
+      )
+        delete msg.historyCursor;
+    }
     const payload = JSON.stringify(msg);
     if (this._connected && this.ws?.readyState === WS_READY_STATE.OPEN) {
       this.ws.send(payload);
@@ -141,10 +167,13 @@ export class MitzoConnection {
   }
 
   trackSeq(sessionId: string, seq: number): void {
-    this.seqBySession.set(sessionId, seq);
+    this.unwatchedSessions.delete(sessionId);
+    if (!this.config.sessionInterest || this.config.sessionInterest.has(sessionId))
+      this.seqBySession.set(sessionId, seq);
   }
 
   commitTranscriptCursor(sessionId: string, cursor: number): void {
+    if (this.config.sessionInterest && !this.config.sessionInterest.has(sessionId)) return;
     this.appliedDelivery.commitTranscript(sessionId, cursor);
   }
 
@@ -167,6 +196,23 @@ export class MitzoConnection {
   }
 
   clearSession(sessionId: string): void {
+    if (
+      this.config.sessionInterest &&
+      this._connected &&
+      this._connectionId &&
+      this.ws?.readyState === WS_READY_STATE.OPEN &&
+      !this.unwatchedSessions.has(sessionId)
+    ) {
+      this.unwatchedSessions.add(sessionId);
+      if (this.unwatchedSessions.size > MAX_RETIRED_SESSION_MARKERS)
+        this.unwatchedSessions.delete(this.unwatchedSessions.values().next().value!);
+      try {
+        // Lifecycle retirement must not enter the navigation-scoped send queue.
+        this.ws.send(JSON.stringify({ type: 'unwatch', sessionId }));
+      } catch {
+        this.checkAndReconnect(true);
+      }
+    }
     this.seqBySession.delete(sessionId);
     this.replayingSessions.delete(sessionId);
     this.replaySeenSeq.delete(sessionId);
@@ -191,7 +237,7 @@ export class MitzoConnection {
   }
 
   getTrackedSessions(): string[] {
-    return Array.from(this.seqBySession.keys());
+    return this.config.sessionInterest?.sessions() ?? Array.from(this.seqBySession.keys());
   }
 
   /**
@@ -204,9 +250,12 @@ export class MitzoConnection {
   sendSuspend(): void {
     if (this.seqBySession.size === 0) return;
 
-    const sessions = Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
+    const sessions = this.getTrackedSessions().map((sessionId) => ({
       sessionId,
-      lastSeq,
+      lastSeq: this.getLastSeq(sessionId),
+      ...(this.config.sessionInterest
+        ? { subscriptionId: this.config.sessionInterest.generation(sessionId) }
+        : {}),
     }));
 
     // Try WS first (may already be dying)
@@ -329,15 +378,21 @@ export class MitzoConnection {
 
       if (msg.type === 'welcome') {
         this._connectionId = msg.connectionId as string;
+        this.unwatchedSessions.clear();
         this._connected = true;
         this.appliedDelivery.clearPending();
 
+        const reconnectedSessions = new Set<string>();
         if (this._isReconnect && this.seqBySession.size > 0) {
-          const sessions = Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
+          const sessions = this.getTrackedSessions().map((sessionId) => ({
             sessionId,
-            lastSeq,
+            lastSeq: this.getLastSeq(sessionId),
+            ...(this.config.sessionInterest
+              ? { subscriptionId: this.config.sessionInterest.generation(sessionId) }
+              : {}),
           }));
           for (const { sessionId } of sessions) {
+            reconnectedSessions.add(sessionId);
             this.replayingSessions.add(sessionId);
             this.replaySeenSeq.delete(sessionId);
             this.pendingSnapshots.delete(sessionId);
@@ -348,7 +403,7 @@ export class MitzoConnection {
         }
         this._isReconnect = true;
 
-        this.flushPendingSends();
+        this.flushPendingSends(reconnectedSessions);
         this.listener?.({ type: '_open' });
         return;
       }
@@ -366,6 +421,16 @@ export class MitzoConnection {
           msg.offerId,
           this._connectionId,
         );
+        return;
+      }
+
+      if (
+        typeof msg.sessionId === 'string' &&
+        this.config.sessionInterest &&
+        !this.config.sessionInterest.accepts(msg)
+      ) {
+        // An old offer for a reselected chat cannot retire its new lifetime.
+        if (!this.config.sessionInterest.has(msg.sessionId)) this.clearSession(msg.sessionId);
         return;
       }
 
@@ -529,13 +594,28 @@ export class MitzoConnection {
     }
   }
 
-  private flushPendingSends(): void {
+  private flushPendingSends(reconnectedSessions: ReadonlySet<string> = new Set()): void {
     if (this.pendingSends.length === 0 || !this.ws) return;
     const toFlush = this.pendingSends;
     this.pendingSends = [];
     for (let i = 0; i < toFlush.length; i++) {
       try {
-        this.ws.send(toFlush[i]);
+        let payload = toFlush[i];
+        if (this.config.sessionInterest) {
+          const message = JSON.parse(payload) as Record<string, unknown>;
+          if (
+            message.type === 'switch_session' &&
+            typeof message.sessionId === 'string' &&
+            (reconnectedSessions.has(message.sessionId) ||
+              this.appliedDelivery.hasPendingSnapshot(message.sessionId))
+          ) {
+            // The preceding reconnect owns its exact offer even before the
+            // snapshot reaches this socket. A queued REST cursor cannot reset it.
+            delete message.historyCursor;
+            payload = JSON.stringify(message);
+          }
+        }
+        this.ws.send(payload);
       } catch {
         this.pendingSends.unshift(...toFlush.slice(i));
         break;

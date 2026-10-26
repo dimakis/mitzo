@@ -2261,6 +2261,43 @@ describe('SseConnection', () => {
     expect(MockEventSource.instances.length).toBe(count);
   });
 
+  it('fences an old ordinary ACK failure from a reselected subscription generation', async () => {
+    const interests = new Map([['a', 'first']]);
+    let failAck!: (error: Error) => void;
+    const fetch = vi.fn((url: string) =>
+      url.endsWith('/session-event-applied')
+        ? new Promise<Response>((_resolve, reject) => {
+            failAck = reject;
+          })
+        : Promise.resolve(Response.json({ applied: true })),
+    );
+    const conn = new SseConnection(
+      createConfig({
+        fetch,
+        sessionInterest: {
+          has: (id) => interests.has(id),
+          sessions: () => [...interests.keys()],
+          generation: (id) => interests.get(id),
+          accepts: () => true,
+        },
+      }),
+    );
+    conn.connect();
+    lastES()._emit('welcome', { connectionId: 'ordinary-ack' });
+    conn.trackSeq('a', 0);
+    conn.commitTranscriptCursor('a', 5);
+    await vi.waitFor(() => expect(failAck).toBeTypeOf('function'));
+    interests.delete('a');
+    conn.clearSession('a');
+    interests.set('a', 'second');
+    conn.trackSeq('a', 0);
+    failAck(Error('obsolete acknowledgement'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(MockEventSource.instances).toHaveLength(1);
+    expect(conn.isConnected()).toBe(true);
+    conn.disconnect();
+  });
+
   // ─── Session tracking ──────────────────────────────────────────────────
 
   it('trackSeq / getLastSeq / clearSession', () => {

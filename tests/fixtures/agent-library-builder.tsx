@@ -90,7 +90,11 @@ const store = createMitzoStore({
         onerror: null,
         send: (raw) => {
           const message = JSON.parse(raw) as { type: string };
-          if (!['hello', 'ping', 'switch_session', 'session_event_applied'].includes(message.type))
+          if (
+            !['hello', 'ping', 'unwatch', 'switch_session', 'session_event_applied'].includes(
+              message.type,
+            )
+          )
             throw Error('Setup dispatched an unexpected command: ' + message.type);
         },
         close: () => {},

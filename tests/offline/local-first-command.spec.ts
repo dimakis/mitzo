@@ -224,6 +224,7 @@ async function offline(
       if (method !== 'GET') {
         if (
           ![
+            '/api/chat/unwatch',
             '/api/chat/reconnect',
             '/api/chat/session-event-applied',
             '/api/chat/reconnect-snapshot-applied',
