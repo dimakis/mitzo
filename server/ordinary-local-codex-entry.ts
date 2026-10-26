@@ -732,7 +732,7 @@ function createOwnedCodexEntryRouter(
       const existingOwner = ctx.sessionRegistry.findBySessionId(sessionId);
       if (
         existingOwner &&
-        !(input.runOn === 'local' && input.runtime.harness === 'codex'
+        !(input.runtime.harness === 'codex'
           ? ordinaryOperatorOwnsConversation(existingOwner.session.ownedLocalAuthSessionId, auth.id)
           : existingOwner.session.ownedLocalAuthSessionId === auth.id)
       )
@@ -1034,7 +1034,7 @@ function createOwnedCodexEntryRouter(
         const live = ctx.sessionRegistry.findBySessionId(sessionId);
         if (
           live &&
-          !(input.runOn === 'local' && input.runtime.harness === 'codex'
+          !(input.runtime.harness === 'codex'
             ? ordinaryOperatorOwnsConversation(live.session.ownedLocalAuthSessionId, auth.id)
             : live.session.ownedLocalAuthSessionId === auth.id)
         )

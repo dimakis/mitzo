@@ -1,3 +1,4 @@
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { isDeepStrictEqual } from 'node:util';
 import { SessionRuntimeBindingV2Schema, type AccountBinding } from '@mitzo/protocol';
 import {
@@ -29,7 +30,7 @@ export function ordinaryOpenShellCodexContinuationTarget(input: {
   if (
     !physical?.sandboxId ||
     !physical.sandboxName ||
-    custody.authSessionId !== input.authSessionId ||
+    !ordinaryOperatorOwnsConversation(custody.authSessionId, input.authSessionId) ||
     !isDeepStrictEqual(custody.binding, binding) ||
     !isDeepStrictEqual(binding.account, {
       accountId: account.accountId,

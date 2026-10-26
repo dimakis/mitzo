@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { login, authenticateToken, revokeAuthSession } from '../auth.js';
 import { ordinaryOpenShellCodexTarget } from '../ordinary-openshell-codex-route.js';
 import { ordinaryOpenShellCodexContinuationTarget } from '../openshell-chat-continuity.js';
 import { openShellPhysicalCustodyFingerprint } from '../openshell-codex-custody.js';
@@ -161,4 +162,22 @@ it('keeps current deployment attestation sensitive to code, seed paths and polic
       config: { ...config, policy: '/releases/b/policy' },
     }),
   ).not.toBe(original);
+});
+
+it('resumes a retained OpenShell chat after verified reauthentication without changing custody', async () => {
+  const f = fixture();
+  const actor = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
+  if (!actor) throw Error('Fixture login failed');
+  f.authSessionId = actor.id;
+  const before = structuredClone(f);
+  try {
+    expect(ordinaryOpenShellCodexContinuationTarget(f).targetRevision).toBe(
+      f.binding.execution.targetRevision,
+    );
+    expect(f).toEqual(before);
+    revokeAuthSession(actor);
+    expect(() => ordinaryOpenShellCodexContinuationTarget(f)).toThrow();
+  } finally {
+    revokeAuthSession(actor);
+  }
 });

@@ -32,6 +32,8 @@ import {
   NativeReadBoundaryProfile,
   installSignedNativeReadStages,
 } from './synchronous-stage-profiler.js';
+import { createPreparationAttemptDiagnostics } from './preparation-attempt-diagnostics.js';
+import { observePreparationService } from './preparation-service-diagnostics.js';
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
@@ -380,6 +382,8 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
       );
       const sourcePath =
         process.env.MITZO_NATIVE_READ_TOOLS_SOURCE_PATH ?? join(f.f.root, 'source');
+      const preparationDiagnostics = createPreparationAttemptDiagnostics();
+      const preparationService = observePreparationService(preparationDiagnostics, f.f.workspace);
       // Representative retained history must not be replayed at every current-owner fence.
       for (let index = 0; index < 3000; index++)
         f.f.events.append(f.a.sessionId, 'block_delta', {
@@ -468,6 +472,8 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
               metrics: f.a.metrics,
               synchronous: synchronous.snapshot(),
               filesystemCallBudget,
+              preparationDiagnostics: preparationDiagnostics.snapshot(),
+              preparationService: preparationService(),
               trace,
               phases,
             },
