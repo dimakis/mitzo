@@ -21,6 +21,40 @@ function harness() {
 }
 
 describe('AppliedDelivery', () => {
+  it.each(['retire', 'replace'] as const)(
+    'stops draining buffered replay when its consumer can %s the lifetime',
+    (action) => {
+      const setCursor = vi.fn();
+      const ackEvent = vi.fn();
+      const resync = vi.fn();
+      const deliver = vi.fn(() => {
+        // Fail finitely before the fix instead of hanging the test worker.
+        if (deliver.mock.calls.length > 1) throw Error('retired event delivered twice');
+        tracker.clearSession('a');
+        if (action === 'replace') tracker.holdReplay('a');
+        return true;
+      });
+      const tracker = new AppliedDelivery({
+        getCursor: () => 0,
+        setCursor,
+        ackEvent,
+        deliver,
+        ackSnapshot: vi.fn(),
+        resync,
+      });
+      tracker.holdReplay('a');
+      tracker.receive({ sessionId: 'a', seq: 1, prevSessionSeq: 0 });
+      tracker.receive({ sessionId: 'a', seq: 2, prevSessionSeq: 1 });
+      tracker.releaseReplay('a');
+      expect(deliver).toHaveBeenCalledTimes(1);
+      expect(setCursor).not.toHaveBeenCalled();
+      expect(ackEvent).not.toHaveBeenCalled();
+      expect(resync).not.toHaveBeenCalled();
+      expect(tracker.hasPendingSnapshot('a')).toBe(action === 'replace');
+      tracker.clearPending();
+    },
+  );
+
   it('cannot acknowledge or recreate a cursor when its consumer retires the delivery lifetime', () => {
     const setCursor = vi.fn();
     const ackEvent = vi.fn();

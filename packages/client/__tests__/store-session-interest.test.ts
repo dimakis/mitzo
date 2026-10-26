@@ -232,6 +232,62 @@ it('keeps a correlated late launch assignment offscreen after its draft was left
   }
 });
 
+it.each(['draft', 'selected'] as const)(
+  'does not recreate retired launch interest after a settled receipt and late assignment in a new %s',
+  async (destination) => {
+    const f = fixture();
+    try {
+      f.store.getState().sendMessage('Old draft command');
+      const id = f.store.getState().messages.messages.at(-1)!.messageId;
+      await vi.waitFor(() => expect(f.posts('send')).toHaveLength(1));
+      if (destination === 'selected') await f.store.getState().switchSession('selected');
+      else f.store.getState().newSession();
+      f.receipt(
+        Response.json(
+          { accepted: true, clientMsgId: id, sessionId: 'old-launch' },
+          { status: 202 },
+        ),
+      );
+      // Assignment arrives in a later turn, after receipt retirement has completed.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      f.emit({ type: 'session_id', sessionId: 'old-launch', clientMsgId: id });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(f.store.getState().sessions.active).toBe(
+        destination === 'selected' ? 'selected' : null,
+      );
+      const expected = destination === 'selected' ? ['selected'] : [];
+      f.store.getState().sendSuspend();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(
+        f
+          .posts('suspend')
+          .at(-1)
+          ?.sessions.map((x: { sessionId: string }) => x.sessionId) ?? [],
+      ).toEqual(expected);
+      const beforeReconnect = f.posts('reconnect').length;
+      f.store.getState().forceReconnect();
+      f.connect('successor');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(
+        f
+          .posts('reconnect')
+          .slice(beforeReconnect)
+          .flatMap((request) => request.sessions.map((x: { sessionId: string }) => x.sessionId)),
+      ).toEqual(expected);
+      f.emit({
+        type: 'session_reconnect_snapshot',
+        sessionId: 'old-launch',
+        cursor: 10,
+        offerId: 'retired',
+        state: 'idle',
+      });
+      expect(f.fetch.mock.calls.filter(([url]) => url.includes('throughSeq='))).toHaveLength(0);
+    } finally {
+      f.store.getState().invalidateAuthentication();
+    }
+  },
+);
+
 it('ignores a rejected ACK after receipt settlement retires its exact offer', async () => {
   let finishAck!: (response: Response) => void;
   const f = fixture((url) =>

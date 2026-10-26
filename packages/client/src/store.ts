@@ -1885,7 +1885,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     const errorOrigin = deliveryOrigins.get(id);
     if (errorOrigin) errorOrigin.sessionId = sessionId;
 
-    retainSessionInterest(sessionId);
+    // A settled receipt keeps assignment correlation, not subscription ownership.
+    if (foreground || deliveryObservers.has(id)) retainSessionInterest(sessionId);
     const assigned = assignmentObservers.get(id);
     assignmentObservers.delete(id);
     assigned?.(sessionId);

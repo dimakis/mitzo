@@ -301,11 +301,12 @@ export class AppliedDelivery {
 
   private drain(sessionId: string, state: PendingSession): void {
     if (this.sessions.get(sessionId) !== state) return;
-    while (!state.offer && !state.waitingForSnapshot) {
+    while (this.sessions.get(sessionId) === state && !state.offer && !state.waitingForSnapshot) {
       const cursor = this.options.getCursor(sessionId);
       const next = [...state.events.values()].find((event) => event.prevSessionSeq === cursor);
       if (!next || !this.apply(sessionId, state, next)) break;
     }
+    if (this.sessions.get(sessionId) !== state) return;
     if (state.events.size === 0) this.clearGapTimer(state);
     else this.armGapTimer(sessionId, state);
   }

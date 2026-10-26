@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.718-session-delivery-lifetimes';
+  'v1.0.719-session-delivery-lifetimes';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1004,7 +1004,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '8da804383ca30b16a1a2831c1fb556a55ffae20b2ddedb60484900389973dcda',
   '../../packages/client/src/store.ts':
-    '5e60d75a27a8c70e193f9d008d53ba7299a4840c43cb1a8df9809864cbcf3615',
+    'af8d35cc527fc678b2ec4eea1c025bef55ed372a34f039d9987cab0a7acb7402',
   '../../packages/harness/src/permission-handler.ts':
     'ded77a1bb6dc8c81ec80ee8a0cafb2691cc90a6b088b12c3559b06a0c7b4b05a',
   '../../packages/harness/src/permissions.ts':
@@ -1467,7 +1467,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/api-client.ts':
     '21d06e473edec895b0d3604567cfab12fcf3b79f5bc022827ef3cd174aa9b5b9',
   '../../packages/client/src/applied-delivery.ts':
-    '94d4cbea2b3d882170dfa33b6424122333a5327e12d480fe4396b9467cdf105f',
+    '2b882f48bb525eb3c7a0e880879efa8f4b54d5912de110c0e0d9b4984ef7997d',
   '../../packages/client/src/applied-event-acks.ts':
     'cb9629e1da426916dbecd3bc0e924e45cf460799e94f1e49cbf7544abecf764d',
   '../../packages/harness/src/connection-registry.ts':
