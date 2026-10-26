@@ -4,6 +4,7 @@ import request from 'supertest';
 import { createHash } from 'node:crypto';
 import { EventStore } from '../event-store.js';
 import { createSessionDocumentRouter } from '../session-document-routes.js';
+import { getRawInput } from '@mitzo/protocol';
 const stores: EventStore[] = [];
 afterEach(() => stores.splice(0).forEach((store) => store.close()));
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -49,6 +50,60 @@ function draft(store: EventStore, text: string) {
   store.append('chat', 'message_end', { messageId: 'm' });
 }
 describe('shared conversation document routes', () => {
+  it.each(['anthropic-vertex', 'google-vertex', 'openai', 'openai-codex'])(
+    'keeps documents under the original %s account without a model call',
+    async (provider) => {
+      const { store, post, get, input } = setup();
+      store.upsertSession({
+        sessionId: 'chat',
+        accountBinding: {
+          accountId: `${provider}:work`,
+          accountLabel: 'Work',
+          provider,
+          model: 'offline-fixture',
+          profileRevision: '1',
+        },
+      });
+      const kept = await post('/keep', input);
+      expect(kept.status).toBe(200);
+      expect((await get()).body.saved).toEqual([kept.body.document]);
+    },
+  );
+
+  it('discovers native multi-file changes and code-formatted relative handoffs in older chats', async () => {
+    const { store, get } = setup();
+    const rawInput = getRawInput('ApplyPatch', {
+      changes: [
+        { path: '/task/first.md', kind: { type: 'add' } },
+        { path: '/task/second.md', kind: { type: 'update' } },
+        { path: '/task/deleted.md', kind: { type: 'delete' } },
+      ],
+    });
+    store.append('chat', 'block_end', {
+      messageId: 'native',
+      blockId: 'b',
+      toolId: 'patch',
+      toolName: 'ApplyPatch',
+      rawInput,
+    });
+    store.append('chat', 'tool_result', {
+      messageId: 'native',
+      toolId: 'patch',
+      result: 'applied',
+      isError: false,
+    });
+    draft(store, 'The report is `command_center/reports/report.md`.');
+    expect((await get()).body.workspace).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: '/task/first.md', evidence: 'created' }),
+        expect.objectContaining({ path: '/task/second.md', evidence: 'created' }),
+        expect.objectContaining({ path: 'command_center/reports/report.md', evidence: 'linked' }),
+      ]),
+    );
+    expect(
+      (await get()).body.workspace.some((file: { path: string }) => file.path.includes('deleted')),
+    ).toBe(false);
+  });
   it('previews and keeps an exact file, then retrieves bytes and retries after workspace removal', async () => {
     const { app, get, post, readFile, input } = setup();
     expect((await request(app).get('/api/sessions/chat/documents')).status).toBe(401);

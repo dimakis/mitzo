@@ -43,18 +43,28 @@ export function discoverSessionDocuments(
         title: (title || path.split('/').pop() || path).slice(0, 200),
       });
   };
+  const observed = store
+    .getEventsOfType(sessionId, 'tool_result', 512)
+    .filter((event) => event.seatId == null && typeof event.payload.toolId === 'string');
   const results = new Map(
-    store
-      .getEventsOfType(sessionId, 'tool_result', 512)
-      .filter((event) => event.seatId == null)
+    observed
+      .filter(
+        (event) =>
+          observed.filter((other) => other.payload.toolId === event.payload.toolId).length === 1,
+      )
       .map((event) => [event.payload.toolId, event]),
   );
   for (const event of store.getEventsOfType(sessionId, 'block_end', 512)) {
     if (event.seatId != null) continue;
     const result = results.get(event.payload.toolId);
     if (!result || result.seq <= event.seq || result.payload.isError !== false) continue;
-    const raw = event.payload.rawInput as { type?: string; path?: string } | undefined;
-    if (raw?.type === 'write' || raw?.type === 'diff') add(raw.path, 'created');
+    const raw = event.payload.rawInput as
+      { type?: string; path?: string; paths?: unknown[] } | undefined;
+    if (raw?.type === 'write' || raw?.type === 'diff') {
+      add(raw.path, 'created');
+      if (Array.isArray(raw.paths))
+        for (const path of raw.paths.slice(0, 100)) add(path, 'created');
+    }
   }
   let remaining = 1024 * 1024;
   for (const candidate of store.listSessionOutputCandidates(sessionId, 100)) {
@@ -68,6 +78,10 @@ export function discoverSessionDocuments(
     }) => {
       if ((node.type === 'link' || node.type === 'definition') && node.url) {
         const path = absoluteMarkdownArtifactPath(node.url) ?? relativeArtifactPath(node.url);
+        if (path) add(path, 'linked');
+      }
+      if (node.type === 'inlineCode' && node.value) {
+        const path = absoluteMarkdownArtifactPath(node.value) ?? relativeArtifactPath(node.value);
         if (path) add(path, 'linked');
       }
       node.children?.forEach(visit);

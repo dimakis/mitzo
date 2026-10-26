@@ -109,6 +109,8 @@ export interface AgentDefinition {
 // --- Tool input ---
 
 export interface RawToolInput {
+  /** Bounded native multi-file writes, without retaining document/diff bytes. */
+  paths?: string[];
   type: 'write' | 'diff' | 'command' | 'read' | 'agent';
   path?: string;
   contents?: string;
