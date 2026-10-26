@@ -979,23 +979,32 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     } = {},
     ordinaryDelivery?: OrdinaryCommandDelivery,
   ): boolean {
+    const reject = (message: string): false => {
+      store.setState({ sendError: message });
+      return false;
+    };
     let frozen: LocalCommandRequest;
     try {
       frozen = parseLocalCommandDelivery(request, ordinaryDelivery);
     } catch {
-      return false;
+      return reject('The message could not be prepared. Review its settings. Your draft was kept.');
     }
+    if (!localOutbox) return reject('Message delivery is unavailable. Your draft was kept.');
+    if (!reviewedAuthenticated) return reject('Sign in again before sending. Your draft was kept.');
+    if (!connection.getConnectionId())
+      return reject(
+        'The execution connection is unavailable. Reconnect before sending. Your draft was kept.',
+      );
     if (
-      !localOutbox ||
-      !reviewedAuthenticated ||
-      !connection.getConnectionId() ||
-      (ordinaryDelivery?.version === 1
+      ordinaryDelivery?.version === 1
         ? parserState.currentSessionId !== ordinaryDelivery.sessionId
         : 'sessionId' in frozen
           ? parserState.currentSessionId !== frozen.sessionId
-          : !!parserState.currentSessionId)
+          : !!parserState.currentSessionId
     )
-      return false;
+      return reject(
+        'The conversation changed before sending. Reopen this chat. Your draft was kept.',
+      );
     const briefingLaunch =
       !('sessionId' in frozen) &&
       !ordinaryDelivery &&
@@ -1004,13 +1013,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       briefingLaunch &&
       (!opts.draftId || options.launchDrafts?.prepare(opts.draftId, frozen) !== true)
     )
-      return false;
+      return reject('The briefing delivery identity could not be saved. Your draft was kept.');
     const handoff = frozen.payload.sourceSnapshots?.length
       ? options.sendHandoff?.prepare(frozen)
       : undefined;
     if ((briefingLaunch && handoff !== true) || handoff === false) {
       if (briefingLaunch) options.launchDrafts?.settle(frozen.clientMsgId, 'failed');
-      return false;
+      return reject('The reviewed message context could not be saved. Your draft was kept.');
     }
     const sessionId = localCommandSessionId(
       frozen,
@@ -1032,7 +1041,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     );
     if (!sent) {
       settleDelivery(frozen.clientMsgId, 'failed', 'local');
-      return false;
+      const messages = {
+        storage: 'Device storage could not retain the outgoing message. Your draft was kept.',
+        blocked:
+          'Saved message recovery is unavailable. Keep your draft and pending messages for recovery.',
+        inactive: 'Message delivery is paused. Sign in again before sending. Your draft was kept.',
+        pending:
+          'This chat already has a pending message. Review its delivery before sending again.',
+        invalid: 'The message could not be prepared. Review its settings. Your draft was kept.',
+        full: 'The outgoing message queue is full. Review pending messages before sending again.',
+      };
+      return reject(messages[localOutbox.getEnqueueFailure() ?? 'invalid']);
     }
     pendingOptimisticMessageIds.add(frozen.clientMsgId);
     store.setState((s) => ({

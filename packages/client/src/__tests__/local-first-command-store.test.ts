@@ -70,6 +70,7 @@ function setup(
   sendHandoff?: import('../store.js').MitzoStoreOptions['sendHandoff'],
 ) {
   let raw: string | null = saved;
+  let storageBlocked = false;
   channel.id = null;
   channel.send.mockReset();
   channel.cursors.clear();
@@ -105,13 +106,36 @@ function setup(
       storage: {
         getItem: () => raw,
         setItem: (_: string, value: string) => {
+          if (storageBlocked) throw Error('Synthetic device storage quota');
           raw = value;
         },
       },
     },
   });
-  return { store, fetch, readStorage: () => JSON.parse(raw ?? '[]') };
+  return {
+    store,
+    fetch,
+    readStorage: () => JSON.parse(raw ?? '[]'),
+    blockStorage: () => {
+      storageBlocked = true;
+    },
+  };
 }
+
+it('explains a first-command persistence refusal without dispatching or losing its draft', () => {
+  const { store, fetch, blockStorage, readStorage } = setup();
+  channel.id = 'live-connection';
+  channel.listener({ type: '_open' });
+  blockStorage();
+  const preserved = structuredClone(request);
+  expect(store.getState().sendLocalFirstCommand(request, { draftId: 'retained-draft' })).toBe(
+    false,
+  );
+  expect(store.getState().sendError).toMatch(/storage.*outgoing message/i);
+  expect(request).toEqual(preserved);
+  expect(readStorage()).toEqual([]);
+  expect(fetch).not.toHaveBeenCalled();
+});
 
 it.each(['_open', '_foreground'])(
   'observes the accepted selected follow-up again on %s after a pending receipt',

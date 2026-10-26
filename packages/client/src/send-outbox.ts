@@ -46,6 +46,13 @@ export function hasReviewedSource(body: Record<string, unknown>): boolean {
 }
 
 export class SendOutbox {
+  private enqueueFailure:
+    'storage' | 'blocked' | 'inactive' | 'pending' | 'invalid' | 'full' | null = null;
+
+  getEnqueueFailure() {
+    return this.enqueueFailure;
+  }
+
   private entries: Entry[] = [];
   private active = false;
   private busyGeneration: number | null = null;
@@ -267,16 +274,22 @@ export class SendOutbox {
     ordinaryDelivery?: OrdinaryCommandDelivery,
     composerDraft?: ComposerDraftReceipt,
   ): boolean {
+    this.enqueueFailure = null;
     if (this.config.durableLaunches && body.sessionId !== null) return false;
     if (this.config.localFirstCommand) {
-      if (localDraftId !== undefined && !/^\S{1,200}$/.test(localDraftId)) return false;
+      if (localDraftId !== undefined && !/^\S{1,200}$/.test(localDraftId)) {
+        this.enqueueFailure = 'invalid';
+        return false;
+      }
       const sessionId = localCommandSessionId(
         body,
         ordinaryDelivery?.version === 1 ? ordinaryDelivery.sessionId : undefined,
       );
+      if (this.invalidLocalRecovery || !this.active) {
+        this.enqueueFailure = this.invalidLocalRecovery ? 'blocked' : 'inactive';
+        return false;
+      }
       if (
-        this.invalidLocalRecovery ||
-        !this.active ||
         this.entries.some(
           (entry) =>
             entry.body.clientMsgId === body.clientMsgId ||
@@ -284,19 +297,25 @@ export class SendOutbox {
             (localDraftId !== undefined && entry.localDraftId === localDraftId) ||
             (sessionId !== undefined && this.localSession(entry) === sessionId),
         )
-      )
+      ) {
+        this.enqueueFailure = 'pending';
         return false;
+      }
       try {
         body = structuredClone(parseLocalCommandDelivery(body, ordinaryDelivery));
         if (ordinaryDelivery)
           ordinaryDelivery = OrdinaryCommandDeliverySchema.parse(ordinaryDelivery);
         if (composerDraft) composerDraft = ComposerDraftReceiptSchema.parse(composerDraft);
       } catch {
+        this.enqueueFailure = 'invalid';
         return false;
       }
     }
     if (ordinaryDelivery && !this.config.localFirstCommand) return false;
-    if (this.entries.length >= 100) return false;
+    if (this.entries.length >= 100) {
+      this.enqueueFailure = 'full';
+      return false;
+    }
     const entry: Entry = {
       body: { ...body },
       scope,
@@ -316,6 +335,7 @@ export class SendOutbox {
       !durable
     ) {
       this.entries.pop();
+      this.enqueueFailure = 'storage';
       return false;
     }
     if (this.config.localFirstCommand) {
