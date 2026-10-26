@@ -174,6 +174,7 @@ it('refines the same existing work item through its normal advisor and reviewed 
       'Refine Record one acoustic sample against Home studio and its Approved plan: retain one reviewed sample with documented listening notes. Do not create a child or dispatch a worker.';
     const assistantText =
       'Agreed refinement: Review one acoustic sample. Desired outcome: retain one reviewed sample and its listening notes against the approved studio plan. Update this existing item only; do not create a child or start a worker.';
+    await h.waitForPreparedConversation(advisorId);
     await composer.fill(userText);
     const [sendResponse] = await Promise.all([
       page.waitForResponse(

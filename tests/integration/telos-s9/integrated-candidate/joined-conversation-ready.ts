@@ -39,3 +39,18 @@ export async function waitForPreparedConversation(
     page.getByText('Loading conversation settings…', { exact: true }),
   ).toBeHidden();
 }
+
+/** Install before a process-hosted journey navigates to its first conversation. */
+export function observePreparedConversations(page: Page) {
+  const capturedReads: unknown[] = [];
+  page.on('response', async (response) => {
+    const path = new URL(response.url()).pathname;
+    if (!/^\/api\/sessions\/[^/]+\/(meta|messages)$/.test(path)) return;
+    capturedReads.push({
+      path,
+      status: response.status(),
+      body: await response.text().catch(() => '<unavailable>'),
+    });
+  });
+  return (sessionId: string) => waitForPreparedConversation(page, capturedReads, sessionId);
+}

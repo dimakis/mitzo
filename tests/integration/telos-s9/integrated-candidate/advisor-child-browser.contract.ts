@@ -111,6 +111,7 @@ it('saves a child through a normal advisor planning exchange and actual proposal
       'Help me plan one child for Home studio: review the acoustic panel layout. Do not dispatch any worker.';
     const assistantText =
       'Agreed draft: Review acoustic panels. Desired outcome: a reviewed panel placement plan linked to Home studio. This is a planning draft; do not start a worker.';
+    await h.waitForPreparedConversation(advisorId);
     await composer.fill(userText);
     const [sendResponse] = await Promise.all([
       page.waitForResponse(

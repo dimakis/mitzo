@@ -1,3 +1,4 @@
+import { waitForPreparedConversation } from './joined-conversation-ready';
 import { afterAll, afterEach, expect, vi } from 'vitest';
 import type { BrowserContextOptions } from '@playwright/test';
 import { installPrivateCanonicalReadCli } from './joined-canonical-cli';
@@ -420,6 +421,8 @@ export async function createJoinedOrdinaryApplication(
     nativeSessions,
     streamMessages,
     browserNetwork,
+    waitForPreparedConversation: (sessionId: string) =>
+      waitForPreparedConversation(page, browserNetwork, sessionId),
     pageErrors,
     cleanup,
   };

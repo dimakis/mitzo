@@ -158,10 +158,13 @@ it('retains actual native task-tool evidence and pending review across App proce
     const leadDraft = 'Task approval is separate from verifying the outcome.';
     const workerDraft = 'Keep the worker follow-up draft; do not rerun the completed task tools.';
     await page.goto(front.origin + '/chat/' + peerId);
+    await h.waitForPreparedConversation(peerId);
     await composer.fill(peerDraft);
     await page.goto(front.origin + '/chat/' + leadId);
+    await h.waitForPreparedConversation(leadId);
     await composer.fill(leadDraft);
     await page.goto(front.origin + allocation.workerPath);
+    await h.waitForPreparedConversation(workerId);
     await composer.fill(
       'Produce the deterministic recording report through the exposed native tools and submit it for task review.',
     );

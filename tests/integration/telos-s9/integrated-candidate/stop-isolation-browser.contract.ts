@@ -106,6 +106,7 @@ it('Actual App Stop cancels only the selected unrelated outcome while retaining 
   const stop = page.getByRole('button', { name: 'Stop generation', exact: true });
   for (let index = 0; index < ids.length; index++) {
     await page.goto(front.origin + '/chat/' + ids[index]);
+    await h.waitForPreparedConversation(ids[index]);
     await composer.fill('Start only outcome ' + index + ' for this offline probe.');
     const [first] = await Promise.all([
       page.waitForResponse(

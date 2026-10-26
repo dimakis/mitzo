@@ -182,6 +182,7 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
   const start = async (id: string, label: string) => {
     await page.goto(front.origin + '/chat/' + id);
     const before = nativeSessions.length;
+    await h.waitForPreparedConversation(id);
     await composer.fill('Synthetic native turn for ' + label + '; retain scoped authority.');
     const [sent] = await Promise.all([
       page.waitForResponse(

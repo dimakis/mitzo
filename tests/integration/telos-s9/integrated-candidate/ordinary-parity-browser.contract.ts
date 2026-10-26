@@ -63,6 +63,7 @@ it('compares Telos and non-Telos bound ordinary controls on the same account, pr
   for (const [index, id] of ids.entries()) {
     const label = index === 0 ? 'ordinary' : 'telos';
     await page.goto(front.origin + '/chat/' + id);
+    await h.waitForPreparedConversation(id);
     await composer.fill('First command for the ' + label + ' control comparison.');
     const [first] = await Promise.all([
       page.waitForResponse(

@@ -111,3 +111,11 @@ The same CI attempt's native API repository workflow exceeded its existing
 (36.8s), while inspection was still reading successfully. Its timings matched the
 earlier intermittent failure that passed unchanged on retry. No native deadlines,
 assertions or execution policy were relaxed. Qualification remains required.
+
+The next combined-head CI passed both non-Git journeys and both native account
+workflow qualifications. Its chooser journey exposed the same draft-owner race
+in an additional chat's first send. The readiness barrier now covers equivalent
+ordinary first-command entry points in shared-app and process-hosted journeys,
+including initial unsent peer/lead drafts used as isolation controls. Process
+fixtures capture only actual session metadata/transcript responses before
+navigation; recovery/retry phases retain their original contracts.

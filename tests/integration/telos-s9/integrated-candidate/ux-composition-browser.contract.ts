@@ -370,6 +370,7 @@ it(`Actual App UX observation ${selected}: chooser, compact chat, settings, tree
     page.getByRole('button', { name: 'Open Assigned lead: Studio planning lead', exact: true }),
   );
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + lead + '(?:\\?|$)'));
+  await h.waitForPreparedConversation(lead);
   expect(new URL(page.url()).searchParams.get('telosChatItem')).toBe('studio');
   await page
     .getByRole('textbox', { name: 'Message Mitzo' })
