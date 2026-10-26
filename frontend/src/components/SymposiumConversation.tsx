@@ -800,6 +800,7 @@ export function SymposiumConversation({
           />
         )}
         {profileTools}
+        {!ordinaryExcluded && pendingFeedback}
         {!ordinaryExcluded && ordinaryComposer}
       </>
     );
