@@ -1002,7 +1002,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '8da804383ca30b16a1a2831c1fb556a55ffae20b2ddedb60484900389973dcda',
   '../../packages/client/src/store.ts':
-    '1c66576a566c606f69d2bb7ec29cb528063e7ac5069f6d9c494de2db22c2d681',
+    '4354f108233a23dde3270cf225e208b291da0cb861dce101caf744aeb5382a5a',
   '../../packages/harness/src/permission-handler.ts':
     'ded77a1bb6dc8c81ec80ee8a0cafb2691cc90a6b088b12c3559b06a0c7b4b05a',
   '../../packages/harness/src/permissions.ts':

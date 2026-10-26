@@ -437,3 +437,35 @@ it('does not let an old retirement completion suppress retirement of a reselecte
     f.store.getState().invalidateAuthentication();
   }
 });
+
+it.each(['selected', 'offscreen'] as const)(
+  'retires only the replaced command interest after a %s fork receipt',
+  async (view) => {
+    const f = fixture();
+    try {
+      await f.store.getState().switchSession('parent');
+      f.store.getState().sendMessage('forked command');
+      const id = f.store.getState().messages.messages.at(-1)!.messageId;
+      await vi.waitFor(() => expect(f.posts('send')).toHaveLength(1));
+      if (view === 'offscreen') await f.store.getState().switchSession('selected');
+      f.receipt(
+        Response.json({ accepted: true, clientMsgId: id, sessionId: 'fork' }, { status: 202 }),
+      );
+      await vi.waitFor(() =>
+        expect(f.posts('unwatch').some((x) => x.sessionId === 'parent')).toBe(true),
+      );
+      f.store.getState().sendSuspend();
+      await vi.waitFor(() =>
+        expect(
+          f
+            .posts('suspend')
+            .at(-1)
+            ?.sessions.map((x: { sessionId: string }) => x.sessionId),
+        ).toEqual([view === 'selected' ? 'fork' : 'selected']),
+      );
+      expect(f.store.getState().sessions.active).toBe(view === 'selected' ? 'fork' : 'selected');
+    } finally {
+      f.store.getState().invalidateAuthentication();
+    }
+  },
+);

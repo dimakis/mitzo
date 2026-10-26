@@ -62,7 +62,7 @@ describe('SSE launch handoff', () => {
         );
         const [, reconnect] = fetch.mock.calls.find(([url]) => url.endsWith('/reconnect'))!;
         expect(JSON.parse(String(reconnect?.body)).sessions).toEqual([
-          { sessionId: 'new', lastSeq: 0 },
+          { sessionId: 'new', lastSeq: 0, subscriptionId: expect.any(String) },
         ]);
         source.onmessage?.(
           new MessageEvent('message', {

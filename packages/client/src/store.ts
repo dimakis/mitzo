@@ -367,10 +367,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (event.type === 'session_id') return true;
       if (event.type === 'permission_request' && !parserState.currentSessionId) return true;
       const command = event.type === 'user_message' ? event.messageId : event.clientMsgId;
+      if (typeof command !== 'string' || !deliveryObservers.has(command)) return false;
+      const origin = deliveryOrigins.get(command);
       return (
-        typeof command === 'string' &&
-        deliveryObservers.has(command) &&
-        (!deliveryOrigins.get(command)?.sessionId || deliveryOrigins.get(command)?.sessionId === id)
+        !origin?.sessionId ||
+        origin.sessionId === id ||
+        (event.type === '_send_accepted' &&
+          origin.control === 'send' &&
+          event.originalSessionId === origin.sessionId)
       );
     },
   };
@@ -1867,6 +1871,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     options.launchDrafts?.assign(id, sessionId);
     const origin = unassignedDeliveries.get(id);
     const deliveryOrigin = deliveryOrigins.get(id);
+    const previousSession = deliveryOrigin?.sessionId ?? deliveryOrigin?.observedSessionId;
     const foreground = origin
       ? origin.historyRequest === historyRequest && origin.launchGeneration === launchGeneration
       : !!deliveryOrigin &&
@@ -1883,6 +1888,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     const assigned = assignmentObservers.get(id);
     assignmentObservers.delete(id);
     assigned?.(sessionId);
+    if (previousSession && previousSession !== sessionId)
+      queueMicrotask(() => {
+        if (
+          store.getState().sessions.active !== previousSession &&
+          !hasPendingDelivery(previousSession)
+        )
+          retireSessionInterest(previousSession);
+      });
     return foreground;
   }
 
