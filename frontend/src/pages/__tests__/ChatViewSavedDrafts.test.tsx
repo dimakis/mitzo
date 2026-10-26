@@ -154,11 +154,12 @@ function Location() {
     </>
   );
 }
-function mount(Page: typeof ChatView, entry: string, active?: string) {
+function mount(Page: typeof ChatView, entry: string, active?: string, delaySession = false) {
   const store = createTestStore();
   const send = vi.fn();
   store.setState({
     sendMessage: send,
+    ...(delaySession ? { switchSession: vi.fn(async () => {}) } : {}),
     ...(active ? { sessions: { ...store.getState().sessions, active } } : {}),
   });
   const view = render(
@@ -174,6 +175,30 @@ function mount(Page: typeof ChatView, entry: string, active?: string) {
   return { store, send, ...view };
 }
 for (const Page of [ChatView, DesktopChatView]) {
+  it.each([undefined, 'previous-chat'])(
+    `${Page.name} preserves typing in the routed bound draft while session %s hydrates`,
+    (previous) => {
+      const draft = { ...createChatDraft(), text: 'Retained setup text' };
+      saveChatDraft(draft);
+      expect(bindChatDraftToSession(draft.id, 'hydrating-chat')).toBe('bound');
+      localStorage.setItem('mitzo-draft-previous-chat', 'Keep previous draft');
+      const { store } = mount(Page, '/chat/hydrating-chat', previous, true);
+      expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Retained setup text');
+      fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+        target: { value: 'Typed as the conversation opens' },
+      });
+      act(() =>
+        store.setState({ sessions: { ...store.getState().sessions, active: 'hydrating-chat' } }),
+      );
+      expect(screen.getByLabelText('Message Mitzo')).toHaveProperty(
+        'value',
+        'Typed as the conversation opens',
+      );
+      expect(getSessionChatDraft('hydrating-chat')?.text).toBe('Typed as the conversation opens');
+      expect(localStorage.getItem('mitzo-draft-previous-chat')).toBe('Keep previous draft');
+    },
+  );
+
   it(`${Page.name} clears an emptied draft reference so reloading opens a usable blank composer`, () => {
     const draft = { ...createChatDraft(), text: 'Clear this draft' };
     draft.settings.selection = { accountId: 'work', model: 'luna', reasoningEffort: 'high' };
