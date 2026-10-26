@@ -15,6 +15,7 @@ import {
 } from 'node:fs';
 import { join, relative, isAbsolute } from 'node:path';
 import { parse } from 'dotenv';
+import process from 'node:process';
 import {
   previousOpenShellContract,
   readAcceptedOpenShellSource,
@@ -158,7 +159,7 @@ export function prepareRuntimeDeclarations(root, source, runtime) {
       assert.equal(source.codexVersion, currentVersion);
     }
     measurement.assertCurrent();
-    add(name, 'openshell.json', revision);
+    assert.deepEqual(add(name, 'openshell.json', revision), previous);
   }
   if (!plans.length) return { changed: false, targets: [] };
   const directory = join(root, '.runtime-targets');

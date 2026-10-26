@@ -123,7 +123,8 @@ it.each(['native', 'companion', 'host', 'missing', 'legacy'])(
       );
     if (kind === 'missing') rmSync(join(f.previous, 'gemini.json'));
     if (kind === 'legacy') {
-      const { continuityContract: _unused, ...target } = f.target;
+      const target: Record<string, unknown> = { ...f.target };
+      delete target.continuityContract;
       writeFileSync(join(f.previous, 'codex.json'), JSON.stringify({ ...target, version: 1 }));
     }
     expect(() => prepareRuntimeDeclarations(f.next, f.source, runtime)).toThrow();

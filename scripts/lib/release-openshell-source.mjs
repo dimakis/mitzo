@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import process from 'node:process';
 
 /** Read data from accepted Git blobs, never import or execute a previous release.
  * The private selector identifies its declaring release; its receipt identifies
@@ -37,7 +38,7 @@ export function readAcceptedOpenShellSource(root, selector) {
   assert.equal(git('rev-parse', `${commit}^{tree}`), trees[0][1]);
   const source = git('show', `${commit}:server/connections/reviewed-handler-artifacts.ts`);
   const revision = source.match(
-    /export const reviewedConnectionsRuntimeImplementationRevision = '([^'\r\n]+)';/,
+    /export const reviewedConnectionsRuntimeImplementationRevision\s*=\s*'([^'\r\n]+)';/,
   );
   const entries = source.match(
     /export const reviewedHandlerSourceArtifacts = Object\.freeze\(\{([\s\S]*?)\}\);/,

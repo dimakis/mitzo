@@ -31,7 +31,7 @@ const runtime = { codex, responses, vertex, openshell, shell, native };
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true })));
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-function fixture() {
+function fixture(wrappedRevision = false) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'release-shell-')));
   roots.push(root);
   const previous = join(root, 'previous'),
@@ -50,7 +50,9 @@ function fixture() {
   const revision = 'previous-reviewed-release',
     artifacts = { '../offline.ts': 'a'.repeat(64) };
   const manifest =
-    "export const reviewedConnectionsRuntimeImplementationRevision = '" +
+    'export const reviewedConnectionsRuntimeImplementationRevision =' +
+    (wrappedRevision ? '\n  ' : ' ') +
+    "'" +
     revision +
     "';\nexport const reviewedHandlerSourceArtifacts = Object.freeze({\n  '../offline.ts': '" +
     'a'.repeat(64) +
@@ -190,6 +192,13 @@ it('reads prior source only from accepted Git objects, never from executable rel
     join(f.previous, 'server/connections/reviewed-handler-artifacts.ts'),
     'throw new Error("do not execute or trust me")',
   );
+  expect(
+    readAcceptedOpenShellSource(f.candidate, f.env.MITZO_ORDINARY_OPENSHELL_CODEX_TARGET_FILE)
+      .revision,
+  ).toBe('previous-reviewed-release');
+});
+it('accepts the wrapped revision literal used by previous accepted releases', () => {
+  const f = fixture(true);
   expect(
     readAcceptedOpenShellSource(f.candidate, f.env.MITZO_ORDINARY_OPENSHELL_CODEX_TARGET_FILE)
       .revision,

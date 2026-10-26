@@ -4,6 +4,8 @@ import { realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse } from 'dotenv';
+import process from 'node:process';
+import console from 'node:console';
 import {
   checkRuntimeDeclarations,
   prepareRuntimeDeclarations,
