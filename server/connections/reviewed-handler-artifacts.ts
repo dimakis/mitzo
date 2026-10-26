@@ -293,7 +293,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     'ca56ac179cfc28efc71e68a4c88d99b323d9f44aa515f11b26109523d515aba8',
   '../__tests__/codex-chat-session.test.ts':
-    '37d47357b873d310d0c78b966e81d3d4d28eaf6f7e2d41a3b11d402da6b5c22d',
+    '8c95d8be584c4a9e1440253590cd6bf9f51f19c08a0c5fa1095469ad93c384b4',
   '../__tests__/codex-conversation.test.ts':
     '2dd002cd36aaccbbc906e993e6d3fb59d6ddd35dc9514c641bd0cbfcd832e730',
   '../__tests__/codex-native-approvals.test.ts':
@@ -1259,7 +1259,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': 'bd19858b7850821576ca05eae21d3a6f1dd049e3e1394c0dc43997440a60b8da',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '407d11fd4823d33596dff140278d921156b096918c24b2a3560206897b7555ee',
+  '../codex-chat-session.ts': '6fe5f26d761f17311ed1fd03ae2fecf0b244a8a09d7b2e4c42ba0329ef9e748f',
   '../connections-runtime.ts': '0793e87975e59fc74dc4306802f2633d7d8cd7bca4a42af5bc1a5a2a04c22424',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

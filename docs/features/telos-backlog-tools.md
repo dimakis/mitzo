@@ -7,6 +7,10 @@ authentication, skill policy and runtime custody still apply.
 Read operations use the existing initialized read-only owner, including when an
 independent canonical WAL writer has uncommitted changes. Skill ceilings are
 rechecked after approval and inside guarded read/write transactions.
+OpenShell authorization uses the session's current verified viewer connection,
+separate from its stable composite registry ID. A new operator login follows the
+existing primary-operator ownership rule; changing viewers during approval refuses
+the pending mutation rather than transferring its authority.
 
 - `TelosListItems` browses concise item titles and IDs. `TelosSearchItems` requires
   a query and searches title, intent, rationale and acceptance criteria. Both accept

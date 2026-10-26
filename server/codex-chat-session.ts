@@ -45,6 +45,7 @@ import {
   captureNativeHostToolContext,
 } from './native-host-tool-context.js';
 import { getTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { githubMainPublicationTool } from './telos-main-publication.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import { TelosWorkControlToolInputSchema } from '@mitzo/protocol';
@@ -3413,8 +3414,9 @@ async function openCodexChatBound(
           context = signed;
           dispose = () => signed.dispose();
         } else {
-          const authorization = captureAgentLibraryAuthorization(owner.clientId);
-          const operation = captureAgentLibraryOperation(owner.clientId);
+          const operatorConnectionId = owner.session.ownerConnectionId ?? owner.clientId;
+          const authorization = captureAgentLibraryAuthorization(operatorConnectionId);
+          const operation = captureAgentLibraryOperation(operatorConnectionId);
           dispose = operation.dispose;
           const current = () => {
             signal.throwIfAborted();
@@ -3427,6 +3429,12 @@ async function openCodexChatBound(
             if (
               !mainPublicationRuntime.supportsHost(options.registry, options.eventStore) ||
               options.registry.findBySessionId(options.conversationId)?.session !== owner.session ||
+              (owner.session.ownerConnectionId ?? owner.clientId) !== operatorConnectionId ||
+              (owner.session.ownedLocalAuthSessionId !== undefined &&
+                !ordinaryOperatorOwnsConversation(
+                  owner.session.ownedLocalAuthSessionId,
+                  authorization.auth.id,
+                )) ||
               !agentToolAllowed(owner.session, name)
             )
               throw Error('Original Telos operator unavailable');

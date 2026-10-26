@@ -6316,6 +6316,9 @@ it('projects large GitHub reads after hooks and refuses output from a former nat
 /** Synthetic provider/physical RPC; no sandbox, credentials or model calls. */
 async function openOwnedOpenShellEfficiencyFixture(
   prepare?: (options: Parameters<typeof openCodexChat>[0]) => void,
+  identity: { clientId: string; ownerConnectionId?: string; ownedLocalAuthSessionId?: string } = {
+    clientId: 'openshell-client',
+  },
 ) {
   vi.clearAllMocks();
   const { OwnedOpenShellCodexChatAdmission } =
@@ -6336,13 +6339,15 @@ async function openOwnedOpenShellEfficiencyFixture(
     canClaimCommand: vi.fn(() => false),
   });
   const registry = new SessionRegistry();
-  registry.register('openshell-client', {
+  registry.register(identity.clientId, {
     ...f.opts.session,
     sessionId: f.opts.conversationId,
     sessionAllowList: new Set<string>(),
     transport: { send: () => {}, isOpen: () => true },
+    ownerConnectionId: identity.ownerConnectionId,
+    ownedLocalAuthSessionId: identity.ownedLocalAuthSessionId,
   });
-  f.opts.session = registry.get('openshell-client')!;
+  f.opts.session = registry.get(identity.clientId)!;
   f.opts.registry = registry;
   mocks.initialize.mockResolvedValue(undefined);
   mocks.send.mockResolvedValue(undefined);
@@ -6426,7 +6431,16 @@ it('offers Telos backlog tools to a default native chat without a retained Telos
   }
 });
 
-it.each(['normal', 'restricted', 'busy', 'changed-policy'])(
+it.each([
+  'normal',
+  'restricted',
+  'busy',
+  'changed-policy',
+  'takeover',
+  'new-login',
+  'changed-viewer',
+  'foreign-operator',
+])(
   'exposes discoverable Telos backlog maintenance in an ordinary OpenShell chat (%s)',
   async (mode) => {
     const { setSkillPolicy } = await import('@mitzo/harness');
@@ -6435,17 +6449,24 @@ it.each(['normal', 'restricted', 'busy', 'changed-policy'])(
       await import('../telos-main-publication-runtime.js');
     const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
     const canonical = createTelosCanonicalData();
-    const f = await openOwnedOpenShellEfficiencyFixture((opts) => {
-      initializeTelosMainPublicationRuntime({
-        registry: opts.registry,
-        events: opts.eventStore,
-        databasePath: () => canonical.dbPath,
-      });
-    });
-    const release = bindAgentLibraryTransport('openshell-client', {
+    const clientId = 'openshell-connection:bound-openshell';
+    const connectionId = 'openshell-connection';
+    const f = await openOwnedOpenShellEfficiencyFixture(
+      (opts) => {
+        initializeTelosMainPublicationRuntime({
+          registry: opts.registry,
+          events: opts.eventStore,
+          databasePath: () => canonical.dbPath,
+        });
+      },
+      { clientId, ownerConnectionId: connectionId, ownedLocalAuthSessionId: canonical.actor.id },
+    );
+    const release = bindAgentLibraryTransport(connectionId, {
       id: canonical.actor.id,
       expiresAt: Date.now() + 60000,
     });
+    let releaseViewer: (() => void) | undefined;
+    let revokeViewer: (() => void) | undefined;
     try {
       const tools = f.captured.tools as { name: string }[];
       for (const name of ['TelosListItems', 'TelosSearchItems', 'TelosManageItem'])
@@ -6462,13 +6483,34 @@ it.each(['normal', 'restricted', 'busy', 'changed-policy'])(
           callId: 'backlog-call',
         });
       if (mode === 'restricted') {
-        setSkillPolicy(f.registry, 'openshell-client', []);
+        setSkillPolicy(f.registry, clientId, []);
         for (const [name, input] of [
           ['TelosListItems', {}],
           ['TelosSearchItems', { query: 'studio' }],
           ['TelosManageItem', { operation: 'read', itemId: 'studio' }],
         ] as const)
           await expect(run(name, input)).rejects.toThrow(/skill|permission/i);
+        return;
+      }
+      if (mode === 'takeover' || mode === 'new-login' || mode === 'foreign-operator') {
+        f.opts.session.ownerConnectionId = 'new-viewer-connection';
+        let auth = {
+          id: mode === 'foreign-operator' ? 'unverified-foreign-operator' : canonical.actor.id,
+          expiresAt: Date.now() + 60000,
+        };
+        if (mode === 'new-login') {
+          const { login, authenticateToken, revokeAuthSession } = await import('../auth.js');
+          const fresh = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
+          if (!fresh) throw Error('Synthetic operator login failed');
+          auth = fresh;
+          revokeViewer = () => revokeAuthSession(fresh);
+        }
+        releaseViewer = bindAgentLibraryTransport('new-viewer-connection', auth);
+        if (mode === 'foreign-operator') {
+          await expect(run('TelosListItems', {})).rejects.toThrow(/operator|permission/i);
+          return;
+        }
+        expect(JSON.parse((await run('TelosListItems', {})).content).items[0].id).toBe('studio');
         return;
       }
       if (mode === 'busy') {
@@ -6511,10 +6553,17 @@ it.each(['normal', 'restricted', 'busy', 'changed-policy'])(
         summary: 'Choose studio panels',
         note: 'Clarify this outcome.',
       };
-      if (mode === 'changed-policy') {
-        setSkillPolicy(f.registry, 'openshell-client', ['TelosManageItem']);
+      if (mode === 'changed-policy' || mode === 'changed-viewer') {
+        setSkillPolicy(f.registry, clientId, ['TelosManageItem']);
         mocks.permissionHandler.mockImplementationOnce(async (_name, input) => {
-          setSkillPolicy(f.registry, 'openshell-client', []);
+          if (mode === 'changed-policy') setSkillPolicy(f.registry, clientId, []);
+          else {
+            f.opts.session.ownerConnectionId = 'new-viewer-connection';
+            releaseViewer = bindAgentLibraryTransport('new-viewer-connection', {
+              id: canonical.actor.id,
+              expiresAt: Date.now() + 60000,
+            });
+          }
           return { behavior: 'allow', updatedInput: input };
         });
         expect((await run('TelosManageItem', edit)).isError).toBe(true);
@@ -6537,6 +6586,8 @@ it.each(['normal', 'restricted', 'busy', 'changed-policy'])(
         /authentication|permission|authorization/i,
       );
     } finally {
+      releaseViewer?.();
+      revokeViewer?.();
       release();
       f.cleanup();
       closeTelosMainPublicationRuntime();
