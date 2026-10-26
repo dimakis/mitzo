@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.704-composer-receipt-efficiency';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.705-session-list-clarity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1056,7 +1055,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
   '../chat.ts': 'e94bdc89a9fe9398fb2d089a7b6c381dba852de48ad8ea0dc1b21ce6645d96f2',
   '../../packages/harness/src/session-registry.ts':
-    'eb0be86b995df23498410104d87b77adf622d166deee43e594bde616e1adf3ec',
+    '0ae1713bc617b37f773aa50f36868b69e10b5c985b2419318c2b2168108b8b39',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
   '../symposium-personal-connection-router.ts':
     'f254cadb334bc75dbb19104fdb7ed2b3e46bf2856b81d29300fd4f45db02674e',
@@ -1064,7 +1063,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6be98645eb9b4467c30f5dacb3e8eee7a9c3f08cb6fc820edc872f789ef217c8',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
-  '../app.ts': 'd122e4c3ebfc278cede7f55d98967d0fca120e38bf2314f33d1b3b07f3361af9',
+  '../app.ts': '14576b0ad627fe2bc91481355ebc13099334771c792b80cab597fe11fca40995',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -1241,7 +1240,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-runtime-binding.ts':
     '074c03124322359a02795c7865a718205f80f8aa9fc6b4e0b5a8f43746d6ca4d',
   '../../packages/protocol/src/types.ts':
-    'c2372bf36f2b869f3b2f0cb1f7bc15c0b24109957f1b1512a3bfe17e4f0fdf7f',
+    '0a0b59726d24b14b5b98ad611174246fc0d4f3363a0716e48f91fd8ec264280a',
   '../repository-workspace-runtime.ts':
     '08de1a2ecc8270c17d67eef555960f3533a036c7516c867dca5c07a85a0f5250',
   '../repository-workspace-router.ts':
@@ -1514,7 +1513,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SessionPanel.tsx':
     '085d90a046cad29225ab3e6ea677652341e1f082a6f4ec13b1c37ac00d9592d0',
   '../../frontend/src/pages/SessionList.tsx':
-    '3b9738b0bcae4e4c08793a787a17811e062799c7161faaf976aa02cf2109fd90',
+    '0b9c6d42376ff20d3e65c39016e3637e69085a71c93ed2431a42e51962aedd2e',
   '../task-orchestrator.ts': 'c55c69ed396f45f3799df6de183e5d62bfabfbc650c3d6a97657251a77b37288',
   '../telos-work-role-context.ts':
     'bf870e31d130a5d728e8beaba62a4b71d86bc2701475d4e9d27d954e80e8c340',
