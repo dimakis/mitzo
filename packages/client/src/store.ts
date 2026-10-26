@@ -2073,7 +2073,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (msg.type === 'session_id' || (!origin?.sessionId && !selectedEventSession)) return true;
       }
     }
-    if (
+    const deferredLocalSession =
       typeof eventSessionId === 'string' &&
       !selectedEventSession &&
       [...deliveryOrigins.values()].some(
@@ -2081,9 +2081,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           origin.delivery === 'local' &&
           !origin.sessionId &&
           origin.observedSessionId === eventSessionId,
-      )
-    )
-      return true;
+      );
+    // A snapshot is a transport fence, even before the command receipt may
+    // select this chat. Restore its bounded prefix below without adopting the
+    // draft, so its unacknowledged offer cannot hold output until timeout.
+    if (deferredLocalSession && msg.type !== 'session_reconnect_snapshot') return true;
     // A control refusal for another view is handled, not a replay failure.
     if (msg.type === 'session_control_rejected') {
       if (
@@ -2224,7 +2226,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.type === 'session_reconnect_snapshot' &&
       typeof eventSessionId === 'string' &&
       eventSessionId !== parserState.currentSessionId &&
-      hasPendingDelivery(eventSessionId) &&
+      (hasPendingDelivery(eventSessionId) || deferredLocalSession) &&
       typeof msg.cursor === 'number' &&
       Number.isSafeInteger(msg.cursor) &&
       msg.cursor >= 0
