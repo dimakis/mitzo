@@ -1,3 +1,5 @@
+import { createSessionDocumentRouter } from './session-document-routes.js';
+import { readHostWorkspaceDocument } from './workspace-document-reader.js';
 import { sessionModelSettingsReason } from './session-model-settings.js';
 import { adviserExecutionProjection } from './adviser-harness-runtime.js';
 import { initializeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
@@ -3400,6 +3402,35 @@ app.use(
   createSessionOutputRouter({
     references: new SessionOutputReferences(eventStore),
     hasSession: (id) => Boolean(eventStore.getSession(id)),
+  }),
+);
+
+app.use(
+  '/api/sessions/:id/documents',
+  operatorAuthMiddleware,
+  createSessionDocumentRouter({
+    store: eventStore,
+    readFile: async (sessionId, requestedPath) => {
+      if (isRemoteSessionArtifact(sessionId))
+        return readRemoteSessionArtifact(sessionId, requestedPath);
+      const root = sessionArtifactRoot(sessionId);
+      const filePath = resolveArtifactPath(requestedPath, sessionId);
+      if (!root || !containsPath(root, filePath) || !isAllowedPath(filePath, sessionId))
+        throw new OpenShellArtifactReadError(403, 'Path is outside this conversation workspace');
+      return readHostWorkspaceDocument(root, filePath);
+    },
+    listTelos: (sessionId) => {
+      const store = new TelosArtifactStore(telosDatabasePath());
+      try {
+        const page = store.sourceMaterialPage(sessionId);
+        return {
+          artifacts: page.artifacts.filter((artifact) => artifact.sourceKind !== 'source_capture'),
+          hasMore: page.hasMore,
+        };
+      } finally {
+        store.close();
+      }
+    },
   }),
 );
 

@@ -327,6 +327,11 @@ export class SessionOutputReferenceStore {
       })
       .immediate();
   }
+  readDraft(sessionId: string, selection: SessionOutputSource): string {
+    const source = this.source(sessionId, selection);
+    if (source.sha256 !== selection.sha256) throw new Error('Source content hash changed');
+    return source.content;
+  }
   get(sessionId: string, outputId: string): SessionOutputReference | null {
     const row = this.db
       .prepare('SELECT * FROM session_output_references WHERE session_id=? AND output_id=?')

@@ -2715,6 +2715,13 @@ export class EventStore {
     this.assertDocumentConversation(sessionId);
     return this.sessionDocuments.keep(sessionId, input);
   }
+  readSessionDocumentDraft(
+    sessionId: string,
+    source: Parameters<SessionOutputReferenceStore['readDraft']>[1],
+  ) {
+    this.assertDocumentConversation(sessionId);
+    return this.sessionOutputs.readDraft(sessionId, source);
+  }
   sessionDocumentReceipt(sessionId: string, requestId: string, intent: string) {
     this.assertDocumentConversation(sessionId);
     return this.sessionDocuments.receipt(sessionId, requestId, intent);
