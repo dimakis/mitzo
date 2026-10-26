@@ -33,10 +33,12 @@ export function SessionDocuments({
   sessionId,
   drafts,
   refreshKey,
+  onRefresh,
 }: {
   sessionId: string;
   drafts: SessionOutputCandidate[];
   refreshKey: number;
+  onRefresh?: () => void;
 }) {
   const [catalog, setCatalog] = useState<{ sessionId: string; value: DocumentCatalog } | null>(
     null,
@@ -59,10 +61,17 @@ export function SessionDocuments({
   const active = useRef(sessionId);
   active.current = sessionId;
   const operation = useRef(0);
+  const openerKey = useRef<string | null>(null);
+  const returnFocus = useRef<HTMLButtonElement | null>(null);
+  const previewHeading = useRef<HTMLHeadingElement | null>(null);
   const value = catalog?.sessionId === sessionId ? catalog.value : null;
   const selected = selection?.sessionId === sessionId ? selection : null;
   const state = feedback?.sessionId === sessionId ? feedback : null;
   const base = documentBase(sessionId);
+  useEffect(() => {
+    if (selected) previewHeading.current?.focus({ preventScroll: true });
+    else returnFocus.current?.focus({ preventScroll: true });
+  }, [selected]);
   useEffect(() => {
     setSelection(null);
     setPage(0);
@@ -195,7 +204,9 @@ export function SessionDocuments({
           >
             <UiIcon name="back" size={16} /> Back to documents
           </button>
-          <h4>{selected.title}</h4>
+          <h4 tabIndex={-1} ref={previewHeading}>
+            {selected.title}
+          </h4>
           <p>
             {selected.saved
               ? `Saved · version ${selected.saved.revision}`
@@ -290,7 +301,17 @@ export function SessionDocuments({
           {rows.slice(currentPage * 8, currentPage * 8 + 8).map((row) => (
             <div className="chat-resource-row" key={row.key}>
               <UiIcon name="file" />
-              <button disabled={state?.busy} aria-label={`Preview ${row.title}`} onClick={row.open}>
+              <button
+                disabled={state?.busy}
+                aria-label={`Preview ${row.title}`}
+                ref={(element) => {
+                  if (row.key === openerKey.current) returnFocus.current = element;
+                }}
+                onClick={() => {
+                  openerKey.current = row.key;
+                  row.open();
+                }}
+              >
                 <strong>{row.title}</strong>
                 <small>{row.label}</small>
               </button>
@@ -395,10 +416,11 @@ export function SessionDocuments({
         disabled={state?.busy}
         onClick={() => {
           setFeedback(null);
-          setAttempt((value) => value + 1);
+          if (onRefresh) onRefresh();
+          else setAttempt((value) => value + 1);
         }}
       >
-        Refresh documents
+        Refresh outputs
       </button>
     </section>
   );

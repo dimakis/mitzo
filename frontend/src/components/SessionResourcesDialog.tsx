@@ -496,12 +496,10 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
                       sessionId={sessionId}
                       drafts={outputs?.candidates ?? []}
                       refreshKey={outputAttempt + messages.length}
+                      onRefresh={() => setOutputAttempt((value) => value + 1)}
                     />
                   )}
-                  <p className="workspace-muted">
-                    Saved documents, workspace files and kept chat responses. Workspace files need a
-                    saved copy to survive workspace removal.
-                  </p>
+                  {!!outputs?.outputs.length && <h3>Chat responses kept in this conversation</h3>}
                   {outputs?.loading && <p role="status">Checking retained outputs…</p>}
                   {outputs?.error && <p role="alert">{outputs.error}</p>}
                   {outputs?.outputs.map((output) => (
@@ -522,19 +520,6 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
                       <UiIcon name="forward" size={16} />
                     </div>
                   ))}
-                  {!outputs?.loading && !outputs?.error && !outputs?.outputs.length && (
-                    <p>No kept conversation references yet.</p>
-                  )}
-                  {sessionId && (
-                    <button
-                      type="button"
-                      disabled={outputs?.loading}
-                      onClick={() => setOutputAttempt((value) => value + 1)}
-                    >
-                      <UiIcon name="retry" size={16} />
-                      Refresh outputs
-                    </button>
-                  )}
                 </>
               )}
               {tab === 'References' && (

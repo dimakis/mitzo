@@ -56,6 +56,10 @@ it('previews then keeps exact bytes, exposes saved versions and never treats a w
   fireEvent.click(screen.getByRole('button', { name: 'Keep a copy' }));
   await screen.findByText('Saved · version 1');
   expect(screen.getByRole('button', { name: 'Download' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Back to documents' }));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Preview Report' })),
+  );
 });
 it('preserves the original retry identity after an uncertain save and leaves failures visible', async () => {
   const ids: string[] = [];
