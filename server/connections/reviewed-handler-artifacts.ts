@@ -858,7 +858,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/client-store.ts':
     'e678599c740e0d6c854913d24f769e0ad7e18058341e53e77e0e37479e1ff558',
   '../../frontend/src/components/AccountModelPicker.tsx':
-    '3b8e277d7ea35c8ca54300e8851ce284ee5c0cceabf82ebd2c1c2a124e492d0f',
+    '8e795ee2c81adb931fa872e99d45262757089fe2606d6abb38fb4a3954694d0d',
   '../../frontend/src/components/ChatAgentProfilePicker.tsx':
     '7efa0466b67598cf458c3e91b12042f56189747914a85d1040146b2bf6ae7155',
   '../../frontend/src/components/ChatExecutionPicker.tsx':

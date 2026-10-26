@@ -246,8 +246,11 @@ function SessionAccountModelPicker({
   onSummaryChange?: (summary: WorkspaceSummary | null) => void;
 }) {
   const quick = useQuickSettings();
-  const status = (value: string, children: ReactNode) =>
-    pickerStatus(
+  const status = (value: string, children: ReactNode) => {
+    // Keep inline subscription owners at the same React depth during catalog refreshes.
+    if (scope !== 'chat')
+      return pickerStatus(!!quick && presentation === 'settings', value, children);
+    return pickerStatus(
       !!quick && presentation === 'settings',
       value,
       <>
@@ -270,6 +273,7 @@ function SessionAccountModelPicker({
         )}
       </>,
     );
+  };
   const sessionId = scope === 'chat' ? requestedSessionId : null;
   const [needsConfirmation, setNeedsConfirmation] = useState(false);
   const [savedDefault, setSavedDefault] = useState(getDefaultAccountModel);
