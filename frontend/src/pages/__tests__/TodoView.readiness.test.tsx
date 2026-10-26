@@ -67,28 +67,41 @@ function mount(items: TodoItem[] = [legacy(0), legacy(1)], discoveryError?: stri
     </MemoryRouter>,
   );
 }
-it('keeps the outcomes shell while cached collection rows await their canonical read', async () => {
-  let release!: (r: (typeof records)[number]) => void;
-  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation((id) =>
-    id === records[0].itemId
+it('keeps the outcomes shell while cached collection rows await their canonical batch', async () => {
+  const firstBatch = [
+    records[0],
+    ...Array.from({ length: 99 }, (_, index) => ({
+      ...records[0],
+      itemId: `pending-${index}`,
+      summary: `Pending outcome ${index}`,
+    })),
+  ];
+  let release!: (r: { records: typeof firstBatch; failures: [] }) => void;
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecords').mockImplementation((ids) =>
+    ids.includes(records[0].itemId)
       ? new Promise((resolve) => {
           release = resolve;
         })
-      : Promise.resolve(records[1]),
+      : Promise.resolve({ records: [records[1]], failures: [] }),
   );
-  const view = mount();
+  const view = mount([
+    legacy(0),
+    ...firstBatch
+      .slice(1)
+      .map((record) => ({ ...legacy(0), id: record.itemId, summary: record.summary })),
+    legacy(1),
+  ]);
   expect(screen.getByRole('heading', { name: 'Telos outcomes' })).toBeTruthy();
   expect(view.container.querySelector('.telos-legacy-page')).toBeNull();
   await screen.findByRole('button', { name: records[1].summary });
   expect(screen.getByRole('status').textContent).toBe('Loading outcomes…');
-  await act(async () => release(records[0]));
+  await act(async () => release({ records: firstBatch, failures: [] }));
   await screen.findByRole('button', { name: records[0].summary });
 });
 it('retains failed item identity and original fields beside ready records with concrete retry diagnostics', async () => {
-  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation(async (id) => {
-    if (id === records[1].itemId)
-      throw new TelosWorkApiError(503, 'fixture_unavailable', 'Offline fixture failure');
-    return records[0];
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecords').mockResolvedValue({
+    records: [records[0]],
+    failures: [{ itemId: records[1].itemId, status: 503, code: 'fixture_unavailable' }],
   });
   mount();
   await screen.findByRole('button', { name: records[0].summary });
@@ -106,7 +119,7 @@ it('keeps twelve failed original records available while technical diagnostics s
     summary: `Original outcome ${index}`,
   }));
   const read = vi
-    .spyOn(TelosWorkApiClient.prototype, 'readRecord')
+    .spyOn(TelosWorkApiClient.prototype, 'readRecords')
     .mockRejectedValue(new TelosWorkApiError(404, 'unavailable', 'Canonical records unavailable'));
   const view = mount(items);
   await screen.findByRole('heading', { name: 'Work' });
@@ -124,14 +137,17 @@ it('keeps twelve failed original records available while technical diagnostics s
   expect(details!.querySelectorAll('li')).toHaveLength(12);
   expect(details!.textContent).toContain('item-11 · HTTP 404 · unavailable');
   fireEvent.click(retry);
-  await waitFor(() => expect(read.mock.calls.length).toBeGreaterThanOrEqual(24));
+  await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+  expect(read.mock.calls.map(([ids]) => ids)).toEqual([
+    items.map((item) => item.id),
+    items.map((item) => item.id),
+  ]);
 });
 
 it('uses the shared labelled action for a partial failure and retains its original title and HTTP diagnostics upfront', async () => {
-  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation(async (id) => {
-    if (id === records[1].itemId)
-      throw new TelosWorkApiError(503, 'fixture_unavailable', 'Offline fixture failure');
-    return records[0];
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecords').mockResolvedValue({
+    records: [records[0]],
+    failures: [{ itemId: records[1].itemId, status: 503, code: 'fixture_unavailable' }],
   });
   mount();
   await screen.findByRole('button', { name: records[0].summary });

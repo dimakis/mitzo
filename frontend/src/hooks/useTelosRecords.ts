@@ -17,9 +17,13 @@ interface RecordsResult {
   loading: boolean;
   settled: boolean;
 }
-/** Join the current collection to accepted record DTOs. Per-record reads are
- * bounded to four requests; a collection projection remains an upstream API gap. */
-export function useTelosRecords(ids: string[], refreshKey: string | number = 0) {
+/** Detail reads remain independent; collection hydration uses bounded batches. */
+export function useTelosRecords(
+  ids: string[],
+  refreshKey: string | number = 0,
+  options: { batch?: boolean } = {},
+) {
+  const batch = options.batch === true;
   const key = JSON.stringify([...new Set(ids)]);
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState<RecordsResult>();
@@ -62,6 +66,11 @@ export function useTelosRecords(ids: string[], refreshKey: string | number = 0) 
     const controller = new AbortController();
     active.current = controller;
     const queue = JSON.parse(key) as string[];
+    const jobs = batch
+      ? Array.from({ length: Math.ceil(queue.length / 100) }, (_, i) =>
+          queue.slice(i * 100, i * 100 + 100),
+        )
+      : queue.map((id) => [id]);
     const records: TelosWorkItem[] = [];
     const unavailable: string[] = [];
     const failures: RecordsResult['failures'] = [];
@@ -79,45 +88,60 @@ export function useTelosRecords(ids: string[], refreshKey: string | number = 0) 
         failures: [...failures],
       });
     }
+    function accept(record: TelosWorkItem, id: string) {
+      if (record.itemId !== id) throw Error('Record identity mismatch');
+      const confirmation = pending.current.get(id);
+      if (confirmation) {
+        // The record route is private/no-store and opens a fresh canonical
+        // transaction. Save notifications abort every earlier admitted read;
+        // this successful read was therefore admitted after acknowledgement.
+        // Another client may already have changed the priority again. Accept
+        // that authority even when it differs from our last confirmed value.
+        pending.current.delete(id);
+        if (confirmations.get(id) === confirmation) confirmations.delete(id);
+      }
+      records.push(record);
+    }
+    function fail(id: string, error: unknown, failure?: RecordsResult['failures'][number]) {
+      if (!controller.signal.aborted) {
+        unavailable.push(id);
+        failures.push(
+          failure ?? {
+            itemId: id,
+            code:
+              error instanceof TelosWorkApiError
+                ? error.code
+                : error instanceof Error && error.name === 'ZodError'
+                  ? 'invalid_record'
+                  : error instanceof Error && error.message === 'Record identity mismatch'
+                    ? 'record_identity_mismatch'
+                    : 'record_read_failed',
+            ...(error instanceof TelosWorkApiError ? { status: error.status } : {}),
+          },
+        );
+        const retained = retainedAtStart?.records.find((record) => record.itemId === id);
+        const confirmation = pending.current.get(id);
+        if (retained && confirmation)
+          records.push({ ...retained, priority: confirmation.priority });
+      }
+    }
     let cursor = 0;
     async function read() {
-      while (cursor < queue.length && !controller.signal.aborted) {
-        const id = queue[cursor++];
+      while (cursor < jobs.length && !controller.signal.aborted) {
+        const job = jobs[cursor++];
         try {
-          const record = await api.readRecord(id, controller.signal);
-          if (controller.signal.aborted) return;
-          if (record.itemId !== id) throw Error('Record identity mismatch');
-          const confirmation = pending.current.get(id);
-          if (confirmation) {
-            // The record route is private/no-store and opens a fresh canonical
-            // transaction. Save notifications abort every earlier admitted read;
-            // this successful read was therefore admitted after acknowledgement.
-            // Another client may already have changed the priority again. Accept
-            // that authority even when it differs from our last confirmed value.
-            pending.current.delete(id);
-            if (confirmations.get(id) === confirmation) confirmations.delete(id);
+          if (batch) {
+            const page = await api.readRecords(job, controller.signal);
+            if (controller.signal.aborted) return;
+            for (const record of page.records) accept(record, record.itemId);
+            for (const failure of page.failures) fail(failure.itemId, undefined, failure);
+          } else {
+            const record = await api.readRecord(job[0], controller.signal);
+            if (controller.signal.aborted) return;
+            accept(record, job[0]);
           }
-          records.push(record);
         } catch (error) {
-          if (!controller.signal.aborted) {
-            unavailable.push(id);
-            failures.push({
-              itemId: id,
-              code:
-                error instanceof TelosWorkApiError
-                  ? error.code
-                  : error instanceof Error && error.name === 'ZodError'
-                    ? 'invalid_record'
-                    : error instanceof Error && error.message === 'Record identity mismatch'
-                      ? 'record_identity_mismatch'
-                      : 'record_read_failed',
-              ...(error instanceof TelosWorkApiError ? { status: error.status } : {}),
-            });
-            const retained = retainedAtStart?.records.find((record) => record.itemId === id);
-            const confirmation = pending.current.get(id);
-            if (retained && confirmation)
-              records.push({ ...retained, priority: confirmation.priority });
-          }
+          for (const id of job) fail(id, error);
         }
         // Initial discovery can display each ready item without waiting for a
         // slow sibling, including after an interrupted initial read. Only a
@@ -125,11 +149,13 @@ export function useTelosRecords(ids: string[], refreshKey: string | number = 0) 
         if (!retainUntilSettled) publish(true);
       }
     }
-    void Promise.all(Array.from({ length: Math.min(4, queue.length) }, read)).then(() => {
-      publish(false);
-    });
+    void Promise.all(Array.from({ length: Math.min(batch ? 2 : 4, jobs.length) }, read)).then(
+      () => {
+        publish(false);
+      },
+    );
     return () => controller.abort();
-  }, [key, retry, refreshKey]);
+  }, [key, retry, refreshKey, batch]);
   const current = result?.key === key ? result : undefined;
   return {
     // Conversation controls share this owner’s manual/event/resume invalidation.

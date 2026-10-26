@@ -64,7 +64,12 @@ vi.mock('../../hooks/useTodoData', async (original) => ({
 }));
 vi.mock('../../lib/api-fetch', async (original) => ({
   ...(await original<typeof import('../../lib/api-fetch')>()),
-  apiFetch: vi.fn(async (path: string) => {
+  apiFetch: vi.fn(async function read(path: string, init?: RequestInit): Promise<Response> {
+    if (path === '/api/telos/work/records')
+      return (await import('../../test-utils/telos-record-batch')).telosRecordBatchFixture(
+        init,
+        (id) => read('/api/telos/work/items/' + encodeURIComponent(id) + '/record'),
+      );
     const id = path.match(/\/api\/telos\/work\/items\/([^/]+)\/record$/)?.[1];
     const record = records.find((value) => value.itemId === id);
     if (id === records[0].itemId && controls.parentRead) return controls.parentRead();

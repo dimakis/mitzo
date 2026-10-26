@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { telosRecordBatchFixture } from '../../test-utils/telos-record-batch';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
@@ -141,6 +142,10 @@ beforeEach(() => {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, 'https://fixture.invalid');
     requests.push(url.pathname + url.search);
+    if (url.pathname === '/api/telos/work/records')
+      return telosRecordBatchFixture(init, (id) =>
+        globalThis.fetch('/api/telos/work/items/' + encodeURIComponent(id) + '/record'),
+      );
     if (url.pathname === '/api/todos') {
       const disposition =
         lifecycle.effectiveDisposition === 'active'
