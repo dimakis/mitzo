@@ -76,7 +76,11 @@ const store = createMitzoStore({
             window.fixtureSends.push(message);
             return;
           }
-          if (!['hello', 'ping', 'switch_session', 'session_event_applied'].includes(message.type))
+          if (
+            !['hello', 'ping', 'unwatch', 'switch_session', 'session_event_applied'].includes(
+              message.type,
+            )
+          )
             throw Error('Unexpected fixture command: ' + message.type);
           if (message.type === 'switch_session')
             queueMicrotask(() =>

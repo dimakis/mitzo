@@ -59,7 +59,7 @@ const store = createMitzoStore({
         close: () => {},
         send: (raw) => {
           const { type } = JSON.parse(raw);
-          if (!['hello', 'ping', 'switch_session'].includes(type))
+          if (!['hello', 'ping', 'unwatch', 'switch_session'].includes(type))
             throw Error('Unexpected fixture command ' + type);
         },
       };

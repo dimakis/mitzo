@@ -1726,7 +1726,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/builtin-agent-picker.spec.ts':
     '613616b1e3917605d3b16f92eca6ba6250858a55649d879313c2387a7bacbd00',
   '../../tests/offline/multi-runtime-picker.spec.ts':
-    '15af5980cd22ba677828fa02403c99f382abbb9e738d2e821d5f3cbd12346c7a',
+    '96c332368e64ef074d41523fbe669232e7e2ae17e663772c97577767b732300f',
   '../../tests/offline/repository-preparation-recovery.spec.ts':
     '4f2d59c81c1f49a9df79124260532bfb2f715fef9565155fb408c7300a096593',
   '../__tests__/ordinary-repository-preparation-api.test.ts':

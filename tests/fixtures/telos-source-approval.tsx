@@ -64,7 +64,9 @@ const store = createMitzoStore({
               deliver([{ type: 'mode_changed', mode: 'ask', sessionId: message.sessionId }]),
             );
             void host('reconnect', { sessionId: message.sessionId });
-          } else if (!['hello', 'ping', 'session_event_applied'].includes(message.type)) {
+          } else if (
+            !['hello', 'ping', 'unwatch', 'session_event_applied'].includes(message.type)
+          ) {
             throw Error('Unexpected offline command: ' + message.type);
           }
         },
