@@ -234,15 +234,20 @@ export class SessionOverviewEmitter {
         if (loopStatus.progress) {
           progress = loopStatus.progress;
         }
-        if (loopStatus.awaitingApproval) {
-          states.push('waiting');
-          if (!waitReason) waitReason = 'review';
-        }
       }
     }
 
     if (loopStatus.state === 'paused' && session.taskContext?.goalId === loopStatus.goalId) {
       states.push('paused');
+    }
+
+    if (
+      (loopStatus.state === 'running' || loopStatus.state === 'paused') &&
+      loopStatus.awaitingApproval &&
+      session.taskContext?.goalId === loopStatus.goalId
+    ) {
+      states.push('waiting');
+      if (waitReason !== 'permission') waitReason = 'review';
     }
 
     // 4. Transport/streaming state
@@ -443,21 +448,31 @@ export class SessionOverviewEmitter {
   }
 
   /**
-   * Check if any child task of a goal is blocked or pending_review.
+   * Keep explicit review requests visible independently of aggregate task status.
    */
   private checkTaskWaitState(goalId: string): WaitReason | null {
-    const tree = this.deps.taskStore.getTree();
-    const goal = tree.find((t) => t.id === goalId);
+    const pending = [...this.deps.taskStore.getTree()];
+    let goal;
+    while (pending.length) {
+      const task = pending.pop()!;
+      if (task.id === goalId) {
+        goal = task;
+        break;
+      }
+      pending.push(...task.children);
+    }
     if (!goal) return null;
 
-    // Check the goal and direct children only (single-level task decomposition)
-    for (const task of tree) {
-      if (task.id === goalId || task.parentId === goalId) {
-        if (task.status === 'pending_review') return 'review';
-        if (task.status === 'blocked') return 'blocked';
-      }
+    pending.length = 0;
+    pending.push(goal);
+    let blocked = false;
+    while (pending.length) {
+      const task = pending.pop()!;
+      if (task.status === 'pending_review') return 'review';
+      if (task.status === 'blocked') blocked = true;
+      pending.push(...task.children);
     }
-    return null;
+    return blocked ? 'blocked' : null;
   }
 
   destroy(): void {

@@ -417,11 +417,13 @@ export function SessionList() {
       summary: result.summary || '',
       lastModified: result.updatedAt,
       model: existing?.model ?? result.model,
-      accountLabel: existing?.accountLabel ?? result.accountLabel,
+      accountLabel: result.accountLabel ?? existing?.accountLabel,
       snippet: result.snippet,
     };
   });
-  const currentPreview = preview ? combined.get(preview.id) : undefined;
+  const currentPreview = preview
+    ? (searchSessions.find((session) => session.id === preview.id) ?? combined.get(preview.id))
+    : undefined;
   const selectedPreview = preview
     ? currentPreview
       ? {

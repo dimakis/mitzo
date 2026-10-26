@@ -122,6 +122,8 @@ it.each([
   { desktop: false, sessionId: 'off-page-chat' },
   { desktop: true, sessionId: 'off-page-chat' },
   { desktop: true, sessionId: 'two' },
+  { desktop: false, sessionId: 'three' },
+  { desktop: true, sessionId: 'three' },
 ])(
   'retains search identity in its row and preview ($sessionId, desktop=$desktop)',
   ({ desktop, sessionId }) => {
@@ -157,14 +159,16 @@ it.each([
         expect(mocks.inspect).toHaveBeenLastCalledWith(
           expect.objectContaining({
             id: sessionId,
-            model: 'gpt-6.1-sol',
+            model: sessionId === 'three' ? 'claude-opus-4-8' : 'gpt-6.1-sol',
             accountLabel: 'Home',
           }),
         );
       const row = screen.getByRole(desktop ? 'button' : 'link', {
         name: `${desktop ? 'Preview' : 'Open'} Older matching conversation`,
       });
-      expect(within(row).getByText('gpt-6.1-sol')).toBeTruthy();
+      expect(
+        within(row).getByText(sessionId === 'three' ? 'claude-opus-4-8' : 'gpt-6.1-sol'),
+      ).toBeTruthy();
       expect(within(row).getByText('Home')).toBeTruthy();
       expect(within(row).queryByText('openai-codex')).toBeNull();
       if (desktop) {
@@ -172,7 +176,7 @@ it.each([
         expect(mocks.inspect).toHaveBeenLastCalledWith(
           expect.objectContaining({
             id: sessionId,
-            model: 'gpt-6.1-sol',
+            model: sessionId === 'three' ? 'claude-opus-4-8' : 'gpt-6.1-sol',
             accountLabel: 'Home',
           }),
         );
@@ -183,6 +187,27 @@ it.each([
     }
   },
 );
+it('falls back to live search identity when the search result has no saved identity', () => {
+  const previous = { active: mocks.search.active, results: mocks.search.results };
+  mocks.search.active = true;
+  mocks.search.results = [
+    {
+      sessionId: 'three',
+      summary: 'Search live conversation',
+      snippet: 'match',
+      matchedAt: 1000,
+      updatedAt: 2000,
+    },
+  ];
+  try {
+    mount();
+    const row = screen.getByRole('link', { name: 'Open Search live conversation' });
+    expect(within(row).getByText('claude-opus-4-8')).toBeTruthy();
+    expect(within(row).getByText('Work')).toBeTruthy();
+  } finally {
+    Object.assign(mocks.search, previous);
+  }
+});
 it('filters by activity and attention without duplicating rows', () => {
   mount();
   fireEvent.click(screen.getByRole('button', { name: /^Needs you/ }));
