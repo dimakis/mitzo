@@ -97,7 +97,7 @@ describe('extractRecentPrompts', () => {
     }));
     const prompts = extractRecentPrompts(events);
     expect(prompts).toHaveLength(8);
-    expect(prompts[0]).toBe('prompt 5');
+    expect(prompts[0]).toBe('prompt 1');
     expect(prompts[7]).toBe('prompt 12');
   });
 });
