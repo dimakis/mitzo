@@ -997,6 +997,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../auth.ts': '5486a4a5312d8214d94d981278a08aaf30e3a24c116023d954aa83b010bb0c14',
   '../native-file-operation.ts': '6f866739d02ec18ad76372d06d15248e9182570f863fdf5485fbdd53b0c10ce0',
   '../sandboxed-command.ts': 'd4d2edbf83f5444ffdd78e42cc01ce2e3183d558b87ba6910019d731bb331a0b',
+  '../../packages/client/src/connection.ts':
+    'b3f62dfd60cb41585ef6ea79b68657ec1239a23e5894d800014a43ba8372f381',
   '../../packages/client/src/sse-connection.ts':
     '8da804383ca30b16a1a2831c1fb556a55ffae20b2ddedb60484900389973dcda',
   '../../packages/client/src/store.ts':

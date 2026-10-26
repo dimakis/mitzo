@@ -43,7 +43,9 @@ generation before dispatch and failure handling.
 A pending exact snapshot remains the recovery authority if its chat is revisited.
 The full REST restore can record rendered coverage, but its selection cannot
 reset the server cursor and invalidate that offer. The bounded prefix restore and
-exact ACK still release the buffered suffix.
+exact ACK still release the buffered suffix. Both transports also strip a queued
+REST cursor for sessions captured by the preceding reconnect, before its offer
+arrives locally; WebSocket control ordering follows the server's FIFO handler.
 
 Subscription IDs are echoed by updated servers. Older servers and clients retain
 the existing optional-field compatibility path; they do not gain the stronger

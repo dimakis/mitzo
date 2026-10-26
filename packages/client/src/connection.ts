@@ -382,6 +382,7 @@ export class MitzoConnection {
         this._connected = true;
         this.appliedDelivery.clearPending();
 
+        const reconnectedSessions = new Set<string>();
         if (this._isReconnect && this.seqBySession.size > 0) {
           const sessions = this.getTrackedSessions().map((sessionId) => ({
             sessionId,
@@ -391,6 +392,7 @@ export class MitzoConnection {
               : {}),
           }));
           for (const { sessionId } of sessions) {
+            reconnectedSessions.add(sessionId);
             this.replayingSessions.add(sessionId);
             this.replaySeenSeq.delete(sessionId);
             this.pendingSnapshots.delete(sessionId);
@@ -401,7 +403,7 @@ export class MitzoConnection {
         }
         this._isReconnect = true;
 
-        this.flushPendingSends();
+        this.flushPendingSends(reconnectedSessions);
         this.listener?.({ type: '_open' });
         return;
       }
@@ -592,13 +594,28 @@ export class MitzoConnection {
     }
   }
 
-  private flushPendingSends(): void {
+  private flushPendingSends(reconnectedSessions: ReadonlySet<string> = new Set()): void {
     if (this.pendingSends.length === 0 || !this.ws) return;
     const toFlush = this.pendingSends;
     this.pendingSends = [];
     for (let i = 0; i < toFlush.length; i++) {
       try {
-        this.ws.send(toFlush[i]);
+        let payload = toFlush[i];
+        if (this.config.sessionInterest) {
+          const message = JSON.parse(payload) as Record<string, unknown>;
+          if (
+            message.type === 'switch_session' &&
+            typeof message.sessionId === 'string' &&
+            (reconnectedSessions.has(message.sessionId) ||
+              this.appliedDelivery.hasPendingSnapshot(message.sessionId))
+          ) {
+            // The preceding reconnect owns its exact offer even before the
+            // snapshot reaches this socket. A queued REST cursor cannot reset it.
+            delete message.historyCursor;
+            payload = JSON.stringify(message);
+          }
+        }
+        this.ws.send(payload);
       } catch {
         this.pendingSends.unshift(...toFlush.slice(i));
         break;
