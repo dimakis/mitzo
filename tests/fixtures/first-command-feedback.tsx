@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { createMitzoStore } from '@mitzo/client';
 import { MitzoStoreProvider, useMitzoStore } from '@mitzo/client/hooks';
 import { ChatInput } from '../../frontend/src/components/ChatInput';
-import { ChatStatusMessage } from '../../frontend/src/components/ChatStatusMessage';
+import { CodexQueueStatus } from '../../frontend/src/components/CodexQueueStatus';
 import { SymposiumConversation } from '../../frontend/src/components/SymposiumConversation';
 import { createReviewedOutboxStorage } from '../../frontend/src/lib/reviewed-outbox-storage';
 import { createBrowserId } from '../../frontend/src/lib/browser-crypto';
@@ -100,19 +100,18 @@ function Fixture() {
             permission: null,
             onPermissionRespond: () => {},
           }}
-          pendingFeedback={<ChatStatusMessage error={error} status={status} />}
           ordinaryComposer={
-            <ChatInput
-              savedChatDraft={draft}
-              draftStorageKey={chatDraftStorageKey(draft.id)}
-              running={false}
-              boundedFirstCommand
-              sendLabel="Start session"
-              onStop={() => {}}
-              onSend={(text, images, _context, onDelivery) =>
-                store
-                  .getState()
-                  .sendLocalFirstCommand(
+            <>
+              <CodexQueueStatus sessionId={null} deliveryError={error} deliveryStatus={status} />
+              <ChatInput
+                savedChatDraft={draft}
+                draftStorageKey={chatDraftStorageKey(draft.id)}
+                running={false}
+                boundedFirstCommand
+                sendLabel="Start session"
+                onStop={() => {}}
+                onSend={(text, images, _context, onDelivery) =>
+                  store.getState().sendLocalFirstCommand(
                     {
                       runOn: 'local',
                       clientMsgId: createBrowserId(),
@@ -142,8 +141,9 @@ function Fixture() {
                     },
                     { draftId: draft.id, onDelivery },
                   )
-              }
-            />
+                }
+              />
+            </>
           }
         />
       </div>

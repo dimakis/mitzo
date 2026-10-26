@@ -12,11 +12,10 @@ No model call, provider mutation or service restart was used for diagnosis.
 
 The current Host Mac source contract and measured native binary pins validated.
 Its exact phone-side refusal is not established by the screenshot. Separately,
-offline regressions reproduce two concrete silent-failure defects: the ordinary
-conversation render omitted its supplied send feedback, and command preparation,
-authentication, scope and durable-queue refusals returned false without setting
-an error. A simulated storage refusal preserves the request but previously showed
-no explanation. These findings do not establish that the phone ran out of storage.
+offline regressions reproduce silent command-preparation, authentication, scope
+and durable-queue refusals: they returned false without setting an error for the
+ordinary composer’s existing queue/status component. A simulated storage refusal
+preserves the request but previously showed no explanation. These findings do not establish that the phone ran out of storage.
 
 ## Release boundary
 
@@ -26,7 +25,9 @@ v1 contract, it finds the declaring release receipt, verifies its commit and tre
 against accepted Git history, reads the manifest/version as data from Git blobs,
 and reconstructs the old contract against the currently measured CLI and selected
 image/stack. It never imports old executable code. Only a matching old contract
-and unchanged native protocol permit source-only renewal. The current loader then
+and unchanged native protocol permit source-only renewal. The prior release’s
+private persisted target identity must also match, including workspace, gateway
+and CLI path; source renewal cannot migrate execution namespaces. The current loader then
 validates the prepared declaration, authored policy and binary before the existing
 atomic environment selection. Missing proof or changed binary, policy, stack or
 protocol stops preparation without switching the environment or replacing the
@@ -43,9 +44,9 @@ history remain owned by their existing authorities. The old release is retained.
    enabled declarations before service replacement, including OpenShell-only hosts.
 2. Invalid qualification removes the route from usable capability inventory.
    Admission still fails closed; another account/environment is never substituted.
-3. Invisible feedback makes a refusal look like a dead Send button. The existing
-   status component now appears beside ordinary and new-chat composers, and local
-   enqueue refusals have bounded, actionable messages without private error text.
+3. Invisible feedback makes a refusal look like a dead Send button. The ordinary composer keeps its single existing
+   queue/status owner, and local enqueue refusals now supply bounded, actionable
+   messages without private error text.
 4. Repeated taps and reloads can otherwise accumulate ambiguity or risk draft loss.
    A rejected enqueue neither dispatches nor consumes the draft. Existing pending
    commands retain their original identity; no automatic replacement/retry is added.

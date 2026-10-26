@@ -220,28 +220,6 @@ const chat = {
   onPermissionRespond: vi.fn(),
 };
 
-it.each([null, 'ordinary-session'])(
-  'shows send failure feedback beside the ordinary composer for %s',
-  async (sessionId) => {
-    vi.mocked(apiFetch).mockResolvedValue(json({ sessionType: 'chat' }));
-    render(
-      <SymposiumConversation
-        sessionId={sessionId}
-        ordinaryConfirmed={sessionId !== null}
-        chat={{ ...chat, messages: [] }}
-        ordinaryComposer={<textarea aria-label="Retained draft" defaultValue="Keep my request" />}
-        pendingFeedback={<p role="alert">The outgoing message could not be saved.</p>}
-      />,
-    );
-    expect((await screen.findByRole('alert')).textContent).toBe(
-      'The outgoing message could not be saved.',
-    );
-    expect((screen.getByLabelText('Retained draft') as HTMLTextAreaElement).value).toBe(
-      'Keep my request',
-    );
-  },
-);
-
 it('composes the approved participant header and ordinary input without recipient forms or transcript tabs', async () => {
   HTMLDialogElement.prototype.showModal = function () {
     this.open = true;
