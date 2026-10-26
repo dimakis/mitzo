@@ -429,6 +429,8 @@ export interface StoredEvent {
 export interface SessionSearchResult {
   sessionId: string;
   summary: string | null;
+  model?: string;
+  accountLabel?: string;
   snippet: string;
   matchedAt: number; // timestamp of the matching event
   updatedAt: number;

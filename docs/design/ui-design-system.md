@@ -1052,6 +1052,8 @@ Recent/search rows lead their secondary metadata with the recorded model choice
 and account label. The saved picker selection takes precedence over the original
 binding model; live-only rows receive identity through activity updates. Missing
 model records stay absent rather than inheriting an engine name or global default.
+Inactive search hits outside the loaded history page receive their recorded model
+and aliased account directly from search, including the selected desktop preview.
 These fields reuse the muted type scale and wrap long identifiers within the row.
 
 The Chats **Needs you** filter and overview badges count confirmed permission
@@ -1067,6 +1069,12 @@ guards pass. The full `test:ui` frontend type build exceeded the required local
 1 GiB heap, so broad build/integration acceptance remains in CI. Inspected
 captures: [mobile model metadata](assets/session-model-mobile-dark.png) and
 [desktop model metadata](assets/session-model-desktop-light.png).
+
+The off-page search regression passes 199 route/component/identity checks, 108
+design guards (one existing skip), and eight offline browser/startup checks across
+both themes and all three browsers. Inspected search captures:
+[mobile search identity](assets/session-search-model-mobile-dark.png) and
+[desktop search identity](assets/session-search-model-desktop-light.png).
 
 Today pins outside the recent page read their recorded observation by session ID, without resuming a provider. Disabled context display makes no extra reads; obsolete requests abort, and missing or failed observations remain explicitly unavailable. Confirmed deletion clears the selected preview, and a confirmed rename updates off-page pin snapshots and the selected title. Failed mutations preserve the saved selection and title.
 

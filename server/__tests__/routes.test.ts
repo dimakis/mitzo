@@ -6,6 +6,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync, writeFileSync, readFileSync, symlinkSync } from 'fs';
 import { join, relative } from 'path';
 import { tmpdir, homedir } from 'os';
+import { AccountAliases } from '../account-aliases.js';
 
 const mockRemoteArtifactRead = vi.hoisted(() => vi.fn());
 const mockRemoteArtifactFactory = vi.hoisted(() => vi.fn());
@@ -997,6 +998,56 @@ describe('session routes', () => {
 // --- Session Search Routes ---
 
 describe('session search routes', () => {
+  it('returns saved model and aliased account for inactive search hits outside the recent page', async () => {
+    const original = vi.mocked(eventStore.getSession).getMockImplementation()!;
+    const aliases = new AccountAliases(join(TEST_REPO, '.mitzo', 'account-aliases.json'));
+    aliases.set('search-account', 'Home');
+    vi.mocked(eventStore.getSession).mockImplementation((id) =>
+      id === 'off-page-chat'
+        ? ({
+            ...original('s1'),
+            sessionId: id,
+            isActive: false,
+            selectedModel: 'gpt-6.1-sol',
+            accountBinding: {
+              accountId: 'search-account',
+              accountLabel: 'Personal',
+              provider: 'openai-codex',
+              model: 'gpt-6-sol',
+              profileRevision: 'r1',
+            },
+          } as ReturnType<typeof eventStore.getSession>)
+        : original(id),
+    );
+    vi.mocked(eventStore.searchSessions).mockReturnValueOnce(
+      ['off-page-chat', 'unrecorded-chat'].map((sessionId) => ({
+        sessionId,
+        summary: 'Older matching conversation',
+        snippet: 'matched history',
+        matchedAt: 1000,
+        updatedAt: 2000,
+      })),
+    );
+    try {
+      const recent = await request(app).get('/api/sessions?limit=20').set('Cookie', authCookie);
+      expect(recent.body.sessions.map((session: { id: string }) => session.id)).toEqual(['s1']);
+      const response = await request(app)
+        .get('/api/sessions/search?q=matched')
+        .set('Cookie', authCookie);
+      expect(response.status).toBe(200);
+      expect(response.body.results[0]).toMatchObject({
+        sessionId: 'off-page-chat',
+        model: 'gpt-6.1-sol',
+        accountLabel: 'Home',
+      });
+      expect(response.body.results[1]).not.toHaveProperty('model');
+      expect(response.body.results[1]).not.toHaveProperty('accountLabel');
+    } finally {
+      vi.mocked(eventStore.getSession).mockImplementation(original);
+      aliases.set('search-account', '');
+    }
+  });
+
   it('GET /api/sessions/search?q=text — returns matching results', async () => {
     const res = await request(app).get('/api/sessions/search?q=matched').set('Cookie', authCookie);
     expect(res.status).toBe(200);

@@ -129,8 +129,11 @@ for (const theme of ['dark', 'light'])
             {
               sessionId: 'search-only',
               summary: 'Search-only conversation',
+              model: 'gpt-6-luna',
+              accountLabel: 'Home archive',
               snippet: 'Matching saved message',
-              updatedAt: 1,
+              matchedAt: Date.now() - 90 * 86400000,
+              updatedAt: Date.now() - 90 * 86400000,
             },
           ],
         },
@@ -312,6 +315,13 @@ for (const theme of ['dark', 'light'])
           : page.getByRole(isMobile ? 'link' : 'button', {
               name: `${isMobile ? 'Open' : 'Preview'} ${kind === 'search' ? 'Search-only conversation' : 'Conversation 2'}`,
             });
+      if (kind === 'search') {
+        await expect(row.getByText('gpt-6-luna', { exact: true })).toBeVisible();
+        await expect(row.getByText('Home archive', { exact: true })).toBeVisible();
+        await page.screenshot({
+          path: testInfo.outputPath(`session-search-identity-${theme}.png`),
+        });
+      }
       if (isMobile) await row.tap();
       else await row.click();
       if (!isMobile) {
