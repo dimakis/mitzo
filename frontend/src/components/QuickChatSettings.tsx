@@ -105,12 +105,18 @@ export function QuickSettingsChoices({
   value,
   choices,
   disabled,
+  disabledReason,
+  notice,
+  onRetry,
   onChange,
 }: {
   title: string;
   value: string;
   choices: { id: string; label: string; disabled?: boolean }[];
   disabled?: boolean;
+  disabledReason?: string;
+  notice?: string;
+  onRetry?(): void;
   onChange(value: string): void;
 }) {
   return (
@@ -133,7 +139,16 @@ export function QuickSettingsChoices({
         </button>
       ))}
       {!choices.length && <p role="status">No choices are available.</p>}
-      {disabled && <p className="quick-settings-note">Changes are unavailable right now.</p>}
+      {(disabled || notice) && (
+        <p className="quick-settings-note" role="status">
+          {disabled ? (disabledReason ?? 'This setting is locked for this chat.') : notice}
+        </p>
+      )}
+      {disabled && onRetry && (
+        <button type="button" onClick={onRetry}>
+          Retry settings
+        </button>
+      )}
     </div>
   );
 }

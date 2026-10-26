@@ -1,3 +1,4 @@
+import { chatModelSettings } from '../lib/chat-model-settings';
 import { LegacyNativeContinuation } from '../components/LegacyNativeContinuation';
 import { reviewedBriefingLaunch } from '../lib/launch-draft-delivery';
 import { localCommandSessionId } from '@mitzo/client';
@@ -1027,6 +1028,30 @@ export function ChatView() {
     `${tokens.numCompactions}:${tokens.compactionPhase ?? ''}:${messages.running}`,
   );
   const [agentLabel, setAgentLabel] = useState<string | undefined>(undefined);
+  const modelSettings = chatModelSettings({
+    activeSessionId,
+    sessionId,
+    roleSetupLocked,
+    localBound,
+    metadataPending: localRuntime.metadataPending,
+    metadataUnavailable: localRuntime.metadataUnavailable,
+    commandAvailable: localRuntime.commandAvailable,
+    preparedFirst: localRuntime.preparedFirst,
+    runtimeReason: localRuntime.reason,
+    nativeConstraintReason: localRuntime.nativeConstraint?.reason,
+    repositoryLoading: repositoryHandoff.loading,
+    briefingLocked: briefingChat.selectionLocked && !briefingOwnedDraft,
+    briefingLoading: briefingChat.loading,
+    briefingError: briefingChat.error,
+    briefingLaunchReason,
+    launchSending,
+    starting: messages.running && !activeSessionId,
+  });
+  const retryModelSettings = localRuntime.metadataUnavailable
+    ? localRuntime.refresh
+    : briefingChat.error && !briefingOwnedDraft
+      ? briefingChat.retry
+      : undefined;
   const accountModelControl =
     !repositoryHandoff.present || activeSessionId || repositoryHandoff.preparation ? (
       <AccountModelPicker
@@ -1106,15 +1131,10 @@ export function ChatView() {
                 : undefined
               : undefined
         }
-        disabled={
-          localRuntime.preparedFirst ||
-          (messages.running && !localRuntime.continuation) ||
-          controlsBlocked ||
-          repositoryHandoff.loading ||
-          (briefingChat.selectionLocked && !briefingOwnedDraft) ||
-          !!briefingLaunchReason ||
-          launchSending
-        }
+        disabled={!!modelSettings.disabledReason}
+        disabledReason={modelSettings.disabledReason}
+        notice={modelSettings.notice}
+        onRetry={retryModelSettings}
         sessionId={activeSessionId}
         preferredModel={modelState}
         onDraftSelectionChange={

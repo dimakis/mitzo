@@ -77,6 +77,9 @@ function PickerField({
     selected: string;
     choices: { id: string; label: string; disabled?: boolean }[];
     disabled?: boolean;
+    disabledReason?: string;
+    notice?: string;
+    onRetry?(): void;
     onChange(value: string): void;
   };
 }) {
@@ -101,6 +104,9 @@ function PickerField({
           value={quick.selected}
           choices={quick.choices}
           disabled={quick.disabled}
+          disabledReason={quick.disabledReason}
+          notice={quick.notice}
+          onRetry={quick.onRetry}
           onChange={quick.onChange}
         />
       </QuickSettingsField>
@@ -179,6 +185,9 @@ export function AccountModelPicker(
       <ControlledAccountModelPicker
         {...props.controlled}
         disabled={props.disabled}
+        disabledReason={props.disabledReason}
+        notice={props.notice}
+        onRetry={props.onRetry}
         lockAccountModel={props.lockAccountModel}
         lockAccount={props.lockAccount}
         presentation={props.presentation}
@@ -197,6 +206,9 @@ function SessionAccountModelPicker({
   onUnavailable,
   onSummaryChange,
   disabled = false,
+  disabledReason,
+  notice,
+  onRetry,
   scope = 'chat',
   requireExplicitSelection = false,
   requiredSelection,
@@ -220,6 +232,9 @@ function SessionAccountModelPicker({
   requireExplicitSelection?: boolean;
   requiredSelection?: { accountId: string; model: string };
   disabled?: boolean;
+  disabledReason?: string;
+  notice?: string;
+  onRetry?(): void;
   sessionId: string | null;
   preferredModel: string;
   onChange: (selection: AccountSelection | null) => void;
@@ -232,7 +247,29 @@ function SessionAccountModelPicker({
 }) {
   const quick = useQuickSettings();
   const status = (value: string, children: ReactNode) =>
-    pickerStatus(!!quick && presentation === 'settings', value, children);
+    pickerStatus(
+      !!quick && presentation === 'settings',
+      value,
+      <>
+        {children}
+        {disabled && disabledReason && (
+          <p className="quick-settings-note" role="status">
+            {disabledReason}
+          </p>
+        )}
+        {disabled && onRetry && (
+          <button
+            type="button"
+            onClick={() => {
+              setAttempt((value) => value + 1);
+              onRetry();
+            }}
+          >
+            Retry settings
+          </button>
+        )}
+      </>,
+    );
   const sessionId = scope === 'chat' ? requestedSessionId : null;
   const [needsConfirmation, setNeedsConfirmation] = useState(false);
   const [savedDefault, setSavedDefault] = useState(getDefaultAccountModel);
@@ -689,6 +726,10 @@ function SessionAccountModelPicker({
                   selected: account.id,
                   choices: accounts,
                   disabled: disabled || !!requiredSelection || lockAccountModel,
+                  disabledReason:
+                    disabledReason ??
+                    'This preparation keeps its reviewed account. Start a new chat to use another account.',
+                  onRetry,
                   onChange: changeAccount,
                 }
               : undefined
@@ -793,6 +834,11 @@ function SessionAccountModelPicker({
                       ...account.models,
                     ],
                 disabled: disabled || !!requiredSelection || lockAccountModel,
+                disabledReason:
+                  disabledReason ??
+                  'This model is fixed by the reviewed preparation. Start a new chat to choose another model.',
+                notice,
+                onRetry,
                 onChange: changeModel,
               }
             : undefined
@@ -832,6 +878,9 @@ function SessionAccountModelPicker({
                     ...(fieldModel?.reasoningEfforts ?? []).map((id) => ({ id, label: id })),
                   ],
                   disabled,
+                  disabledReason,
+                  notice,
+                  onRetry,
                   onChange: changeThinking,
                 }
               : undefined
@@ -960,6 +1009,9 @@ function ControlledAccountModelPicker({
   selection,
   onChange,
   disabled,
+  disabledReason,
+  notice,
+  onRetry,
   lockAccountModel,
   lockAccount,
   onAccountChange,
@@ -979,6 +1031,9 @@ function ControlledAccountModelPicker({
   onRefresh?(): void;
   canSaveDefault?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
+  notice?: string;
+  onRetry?(): void;
   lockAccountModel?: boolean;
   lockAccount?: boolean;
 }) {
@@ -1036,6 +1091,13 @@ function ControlledAccountModelPicker({
                   disabled ||
                   (identity !== 'Thinking' && lockAccountModel) ||
                   (identity === 'Account' && lockAccount),
+                disabledReason:
+                  disabledReason ??
+                  (identity === 'Account'
+                    ? 'This chat keeps its original account. Start a new chat to use another account.'
+                    : 'This model is fixed by the reviewed preparation. Start a new chat to choose another model.'),
+                notice: identity === 'Account' ? undefined : notice,
+                onRetry,
                 onChange: change,
               }
             : undefined

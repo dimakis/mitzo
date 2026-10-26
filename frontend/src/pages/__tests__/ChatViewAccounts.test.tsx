@@ -7,6 +7,7 @@ import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
 import { apiFetch } from '../../lib/api-fetch';
 import { ChatView } from '../ChatView';
+import { DesktopChatView } from '../DesktopChatView';
 
 // Isolate route authority and callback wiring from sheet navigation. Keep the
 // original editors directly accessible here, as in DesktopChatView.test.tsx.
@@ -166,6 +167,68 @@ afterEach(() => {
   localStorage.clear();
   vi.resetAllMocks();
 });
+
+it.each([
+  ['mobile', ChatView],
+  ['desktop', DesktopChatView],
+] as const)(
+  '%s lets a running legacy chat select model and thinking for its next message',
+  async (_name, Screen) => {
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      Response.json(
+        String(url).endsWith('/meta')
+          ? {
+              sessionType: 'chat',
+              accountBinding: { accountId: 'work', accountLabel: 'Work', model: 'luna' },
+              modelSelection: {
+                model: 'luna',
+                reasoningEffort: 'low',
+                models: [
+                  { id: 'luna', label: 'Luna', reasoningEfforts: ['low', 'high'] },
+                  { id: 'luna-next', label: 'Luna next', reasoningEfforts: ['low', 'high'] },
+                ],
+              },
+            }
+          : String(url).endsWith('/symposium/status')
+            ? { sessionId: 'existing-chat', config: null, seats: [] }
+            : [],
+      ),
+    );
+    const store = createTestStore();
+    const sendMessage = vi.fn();
+    store.setState({
+      sessions: { ...store.getState().sessions, active: 'existing-chat' },
+      messages: { ...store.getState().messages, running: true },
+      sendMessage,
+      fetchSessionMeta: vi.fn().mockResolvedValue(undefined),
+    });
+    render(
+      <MitzoStoreProvider value={store}>
+        <MemoryRouter initialEntries={['/chat/existing-chat']}>
+          <Routes>
+            <Route path="/chat/:sessionId" element={<Screen />} />
+          </Routes>
+        </MemoryRouter>
+      </MitzoStoreProvider>,
+    );
+    openAgentSettings();
+    const model = (await screen.findByLabelText('Model')) as HTMLSelectElement;
+    await waitFor(() => expect(model.disabled).toBe(false));
+    fireEvent.change(model, { target: { value: 'luna-next' } });
+    fireEvent.change(screen.getByLabelText('Thinking level'), { target: { value: 'high' } });
+    expect(sendMessage).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /^Workspace controls,/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(sendMessage).toHaveBeenCalledWith(
+      'hello',
+      expect.objectContaining({
+        accountId: 'work',
+        model: 'luna-next',
+        reasoningEffort: 'high',
+      }),
+    );
+  },
+);
 
 it('submits an existing conversation prompt while the event stream reconnects without adding a notice', async () => {
   vi.mocked(apiFetch).mockImplementation(
