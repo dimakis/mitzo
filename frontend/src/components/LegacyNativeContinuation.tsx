@@ -395,6 +395,7 @@ function NativeContinuationForm({
       />
       <HomeDialog
         title="Review native continuation"
+        className="native-continuation-dialog"
         open={open}
         onClose={() => {
           persist();
@@ -403,8 +404,8 @@ function NativeContinuationForm({
       >
         <div className="native-continuation-form">
           <p>
-            The original conversation and draft stay saved. Codex receives the displayed historical
-            text and your separate new request. Earlier commands and checkpoints are retained.
+            Choose a repository and enter the work to continue. The original conversation and draft
+            stay saved.
           </p>
           <fieldset disabled={frozen} hidden={!!review}>
             <AccountModelPicker
@@ -440,6 +441,7 @@ function NativeContinuationForm({
                 accountId={source.account.accountId}
                 model={runtime.intent.account.model}
                 draftScoped
+                required
                 initialPreparationId={saved?.repositoryWorkspaceId}
                 ordinaryRuntime={
                   route?.harness === 'codex'
@@ -491,6 +493,10 @@ function NativeContinuationForm({
           )}
           {review && (
             <>
+              <p>
+                Codex receives the historical text below and your separate new request. Earlier
+                commands and checkpoints stay in the original conversation.
+              </p>
               <p>
                 <strong>New request:</strong> {text}
               </p>

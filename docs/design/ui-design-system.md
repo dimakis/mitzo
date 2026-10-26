@@ -22,6 +22,18 @@ and uncertainty acknowledgements. Claimed or uncertain attempts remain observati
 only. [Phone recovery](assets/legacy-native-continuation-preclaim-mobile.png) shows
 the shared secondary action after a rejected review is restored across reload.
 
+The continuation dialog keeps its heading and Close action outside the scrolling
+form body. Standalone picker controls use the shared control height and base text
+size so phone input focus does not zoom the page. A required repository picker
+shows loading, unavailable and failed catalog states with a read-only **Retry
+repository choices** action; retry never prepares a checkout or sends a command.
+Optional repository pickers retain their existing enrollment behavior. Offline
+captures show [phone setup](assets/native-continuation-setup-mobile-dark.png),
+[large-text phone review](assets/native-continuation-review-mobile-large-light.png)
+and [desktop catalog retry](assets/native-continuation-retry-desktop-light.png).
+The fixture verifies successful native admission, catalog retry, preserved drafts,
+non-overlapping review rows, readable inputs and reachable Close at 320px width.
+
 The form uses semantic surface/text/border roles, shared spacing/type/radius tokens,
 the shared code font and 44px checkbox rows. The all-intercept
 `legacy-native-continuation` fixture renders the actual component at narrow phone

@@ -72,8 +72,11 @@ export function RepositoryChatPicker({
   ordinaryRuntime,
   preparationNote,
   presentation = 'default',
+  required = false,
 }: {
   presentation?: 'default' | 'settings';
+  /** Required workflows must explain unavailable choices instead of hiding the picker. */
+  required?: boolean;
   accountId: string;
   model: string;
   onChange(value: RepositoryChatSelection | null): void;
@@ -87,6 +90,7 @@ export function RepositoryChatPicker({
   const inSettings = !!quick && presentation === 'settings';
   const actionClass = inSettings ? 'home-secondary' : undefined;
   const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(true);
   const [opened, setOpened] = useState(
     () => !!(initialPreparationId ?? (draftScoped ? null : savedRepositoryDraft(accountId, model))),
   );
@@ -181,6 +185,7 @@ export function RepositoryChatPicker({
     restoredScope.current = scope;
     const controller = new AbortController();
     restoration.current = controller;
+    setCatalogLoading(true);
     const saved =
       initialPreparationId ?? (draftScoped ? null : savedRepositoryDraft(accountId, model));
     if (!preserveWorkspace) {
@@ -239,10 +244,16 @@ export function RepositoryChatPicker({
         );
       })
       .catch(() => {
-        if (!controller.signal.aborted && saved && !preserveWorkspace)
+        if (controller.signal.aborted) return;
+        if (saved && !preserveWorkspace)
           setError(
             'Repository preparation unavailable. Discard it below before choosing another repository.',
           );
+        else if (!saved)
+          setError('Repository choices could not load. Retry to choose a repository.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCatalogLoading(false);
       });
     return () => {
       controller.abort();
@@ -485,16 +496,32 @@ export function RepositoryChatPicker({
           <a href="/connections">Connections</a>.
         </p>
       ) : (
-        <p className="repository-chat-hint">
-          {error || 'Repository choices are unavailable for this account.'}
+        <p className="repository-chat-hint" role={error ? 'alert' : 'status'}>
+          {catalogLoading
+            ? 'Loading repository choices…'
+            : error || 'Repository choices are unavailable for this account.'}
         </p>
       );
+    const unavailable = (
+      <>
+        {hint}
+        {required && !catalogLoading && (
+          <button
+            type="button"
+            className="home-secondary"
+            onClick={() => setRestorationAttempt((value) => value + 1)}
+          >
+            Retry repository choices
+          </button>
+        )}
+      </>
+    );
     return quick && presentation === 'settings' ? (
       <QuickSettingsField page="repository" title="Repository" value="Unavailable">
-        {hint}
+        {unavailable}
       </QuickSettingsField>
-    ) : catalog?.available ? (
-      hint
+    ) : required || catalog?.available ? (
+      unavailable
     ) : null;
   }
   const checkoutDetails = workspace && (

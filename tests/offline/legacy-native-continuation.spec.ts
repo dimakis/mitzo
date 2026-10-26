@@ -46,12 +46,13 @@ const runtimeBinding = {
   harness: { implementation: 'codex' },
   execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
 };
-for (const { theme, preclaim } of [
+for (const { theme, preclaim, accepted = false } of [
   { theme: 'dark', preclaim: false },
   { theme: 'light', preclaim: false },
   { theme: 'dark', preclaim: true },
+  { theme: 'light', preclaim: false, accepted: true },
 ]) {
-  test(`legacy native continuation ${preclaim ? 'recovers an expired unclaimed review after reload' : 'keeps the source and exact uncertain attempt'} (${theme})`, async ({
+  test(`legacy native continuation ${accepted ? 'opens the admitted native conversation' : preclaim ? 'recovers an expired unclaimed review after reload' : 'keeps the source and exact uncertain attempt'} (${theme})`, async ({
     page,
     isMobile,
   }, testInfo) => {
@@ -62,7 +63,8 @@ for (const { theme, preclaim } of [
     let command: Record<string, unknown> | undefined;
     let workspaceId = '',
       reviewHash = '',
-      discarded = false;
+      discarded = false,
+      catalogAvailable = false;
     await page.route('**/*', async (route) => {
       const path = new URL(route.request().url()).pathname;
       const file = files.find(
@@ -118,7 +120,9 @@ for (const { theme, preclaim } of [
             agentProfiles: [profile],
           },
         });
-      if (path === '/api/repository-workspaces/catalog')
+      if (path === '/api/repository-workspaces/catalog') {
+        if (!catalogAvailable)
+          return route.fulfill({ status: 503, json: { error: 'Fixture offline' } });
         return route.fulfill({
           json: {
             available: true,
@@ -133,6 +137,7 @@ for (const { theme, preclaim } of [
             ],
           },
         });
+      }
       if (
         path === '/api/repository-workspaces/local' ||
         (workspaceId && path === `/api/repository-workspaces/${workspaceId}`)
@@ -187,11 +192,11 @@ for (const { theme, preclaim } of [
         return route.fulfill({
           status: 202,
           json: {
-            ok: false,
+            ok: accepted,
             sessionId: 'native-child',
             clientMsgId: command!.clientMsgId,
-            state: 'uncertain',
-            dispatched: false,
+            state: accepted ? 'consumed' : 'uncertain',
+            dispatched: accepted,
           },
         });
       }
@@ -230,6 +235,26 @@ for (const { theme, preclaim } of [
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
     await page.getByRole('button', { name: 'Continue with Codex' }).click();
+    if (isMobile && theme === 'light')
+      await page.evaluate(() => {
+        document.documentElement.style.fontSize = '20px';
+      });
+    const dialog = page.getByRole('dialog', { name: 'Review native continuation' });
+    const request = page.getByRole('textbox', { name: /^New request/ });
+    if (isMobile) {
+      for (const control of [request, ...(await dialog.locator('select').all())]) {
+        expect(
+          await control.evaluate((element) => parseFloat(getComputedStyle(element).fontSize)),
+        ).toBeGreaterThanOrEqual(16);
+      }
+    }
+    await dialog.screenshot({ path: testInfo.outputPath(`native-setup-top-${theme}.png`) });
+    await request.scrollIntoViewIfNeeded();
+    await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport();
+    await dialog.screenshot({ path: testInfo.outputPath(`native-setup-${theme}.png`) });
+    await expect(page.getByRole('alert')).toContainText('Repository choices could not load');
+    catalogAvailable = true;
+    await page.getByRole('button', { name: 'Retry repository choices' }).click();
     await page.getByRole('button', { name: 'Add repository' }).click();
     await page.getByLabel('Local repository').selectOption('local:local/fixture');
     await page.getByRole('button', { name: 'Use repository' }).click();
@@ -240,12 +265,29 @@ for (const { theme, preclaim } of [
     await expect(page.getByLabel('Exact historical context')).toContainText(
       'Review actual repository state',
     );
+    const contentDoesNotOverlap = () =>
+      dialog.locator('.native-continuation-form').evaluate((form) => {
+        const rows = Array.from(form.children)
+          .map((element) => element.getBoundingClientRect())
+          .filter((rect) => rect.height > 0);
+        return rows.every((rect, index) => index === 0 || rect.top >= rows[index - 1].bottom - 1);
+      });
+    expect(await contentDoesNotOverlap()).toBe(true);
     const start = page.getByRole('button', { name: 'Start reviewed native continuation' });
     await expect(start).toBeDisabled();
     await page.getByLabel(/I reviewed the exact context/).check();
     await page.getByLabel(/I understand earlier effects/).check();
     await page.getByLabel(/I approve the displayed model/).check();
     await start.click();
+    if (accepted) {
+      await expect(page.getByLabel('Current conversation')).toHaveText('/chat/native-child');
+      await expect(page.getByLabel('Original conversation draft')).toHaveValue(
+        'Keep this unsent draft in the original conversation.',
+      );
+      expect(requests).toHaveLength(1);
+      expect(errors).toEqual([]);
+      return;
+    }
     if (preclaim) {
       await expect(
         page.getByRole('button', { name: 'Discard rejected attempt and review again' }),
@@ -298,6 +340,13 @@ for (const { theme, preclaim } of [
       const bounds = await page.getByLabel(new RegExp(label)).locator('..').boundingBox();
       expect(bounds!.height).toBeGreaterThanOrEqual(44);
     }
+    expect(await contentDoesNotOverlap()).toBe(true);
+    await (
+      preclaim
+        ? page.getByRole('button', { name: 'Start reviewed native continuation' })
+        : page.getByRole('alert')
+    ).scrollIntoViewIfNeeded();
+    await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport();
     await page.screenshot({
       path: testInfo.outputPath(`legacy-native-${preclaim ? 'preclaim-' : ''}${theme}.png`),
       fullPage: true,
