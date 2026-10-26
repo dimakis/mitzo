@@ -36,8 +36,8 @@ export async function waitForPreparedConversation(
     .poll(() => page.evaluate((key) => localStorage.getItem(key), LAST_SESSION_KEY))
     .toBe(sessionId);
   await browserExpect(
-    page.getByText('Loading conversation settings…', { exact: true }),
-  ).toBeHidden();
+    page.getByText('Loading conversation settings…', { exact: true }).filter({ visible: true }),
+  ).toHaveCount(0);
 }
 
 /** Install before a process-hosted journey navigates to its first conversation. */

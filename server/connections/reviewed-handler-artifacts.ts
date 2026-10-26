@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.707-codex-startup-replay';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.708-codex-startup-replay';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/joined-conversation-ready.ts':
-    '641dfa7d285d125f404e2c88e318bcd46dec039ad8c8e2570fa5de6ef0991424',
+    'aee1f95a1bd8f7b01f772d1fa04c5c38ab4908f23ff13e95b58109000d25fd81',
   '../session-model-settings.ts':
     '25b4119d83ee6589f85b7ec00bb78b914b495f87176e06fa4e605a0d0587ab21',
   '../__tests__/session-model-settings.test.ts':
@@ -2108,7 +2108,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/observe-private-command-lifecycle.ts':
     'b18fb120d756f111c0904a15791841000dc81734bba00ce041e780707d23b920',
   '../../tests/integration/telos-s9/integrated-candidate/ordinary-parity-browser.contract.ts':
-    'f1b2b241cdf7653ac1adf601d437a2c3cc9167865bc3f97758d5716da1bf240e',
+    '6959fc2e79dab9f58c68b5f8d61f9bb2270ae2def5055f05d44eb4f50839525b',
   '../../tests/integration/telos-s9/integrated-candidate/origin-material-versions-browser.contract.ts':
     '60e6c57928c7b1bf687c671f2d3eb33cd3b003f668f065acc369aac3d1140816',
   '../../tests/integration/telos-s9/integrated-candidate/peer-messaging.required-contract.ts':

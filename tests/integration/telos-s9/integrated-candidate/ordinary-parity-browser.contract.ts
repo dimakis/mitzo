@@ -156,7 +156,7 @@ it('compares Telos and non-Telos bound ordinary controls on the same account, pr
     const commands = page.getByRole('button', { name: 'Commands', exact: true });
     await browserExpect(commands).toBeDisabled();
     await browserExpect(
-      page.getByRole('button', { name: 'Attach image', exact: true }),
+      page.getByRole('button', { name: 'Attach images or PDF', exact: true }),
     ).toBeEnabled();
     const commandsDisabled = await commands.isDisabled();
     await page.keyboard.press('Escape');
