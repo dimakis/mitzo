@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { SessionList } from '../../frontend/src/pages/SessionList';
+import { eventBus } from '../../frontend/src/lib/event-bus-singleton';
 import { SessionPanel } from '../../frontend/src/components/SessionPanel';
 import { Today } from '../../frontend/src/pages/Today';
 import { SettingsView } from '../../frontend/src/pages/SettingsView';
@@ -15,6 +16,7 @@ import '../../frontend/src/styles/workspace-chat.css';
 import '../../frontend/src/styles/mobile-workspace.css';
 import '../../frontend/src/styles/appearance.css';
 import '../../frontend/src/styles/session-library.css';
+eventBus.connect('/api/events');
 function Surface() {
   const desktop = useIsDesktop();
   const navigate = useNavigate();

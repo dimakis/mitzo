@@ -278,6 +278,14 @@ function SwipeableSession({
               </div>
               {snippet && <div className="conversation-result-snippet">{snippet}</div>}
               <div className="session-item-meta">
+                {session.model && (
+                  <span className="conversation-model" aria-label={`Model: ${session.model}`}>
+                    {session.model}
+                  </span>
+                )}
+                {session.accountLabel && (
+                  <span className="conversation-account">{session.accountLabel}</span>
+                )}
                 {activity && (
                   <span className={`conversation-state conversation-state--${activity.state}`}>
                     {activityLabel(activity)}
@@ -388,6 +396,8 @@ export function SessionList() {
       ...existing,
       id: a.sessionId,
       summary: existing?.summary || a.title,
+      model: a.model ?? existing?.model,
+      accountLabel: existing?.accountLabel ?? a.accountLabel,
       lastModified: Math.max(existing?.lastModified ?? 0, a.lastEventAt),
       isActive: !['idle', 'done'].includes(a.state),
     });
