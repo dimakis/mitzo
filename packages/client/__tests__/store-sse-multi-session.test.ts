@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { createMitzoStore } from '../src/store.js';
 
 it.each(['selected', 'draft'] as const)(
-  'consumes a late background snapshot and suffix while viewing %s without reconnecting',
+  'discards a retired background snapshot and suffix while viewing %s without reconnecting',
   async (view) => {
     let welcome!: (event: MessageEvent) => void;
     const source = {
@@ -65,14 +65,6 @@ it.each(['selected', 'draft'] as const)(
         offerId: 'offer-1',
         state: 'idle',
       });
-      await vi.waitFor(() => {
-        expect(fetch.mock.calls.some(([url]) => url.endsWith('/reconnect-snapshot-applied'))).toBe(
-          true,
-        );
-      });
-      expect(
-        fetch.mock.calls.some(([url]) => url.includes('/background/messages?throughSeq=10')),
-      ).toBe(true);
       emit({
         type: 'message_start',
         sessionId: 'background',
@@ -88,15 +80,13 @@ it.each(['selected', 'draft'] as const)(
         blockId: 'text',
         blockType: 'text',
       });
-      await vi.waitFor(() => {
-        expect(
-          fetch.mock.calls.some(
-            ([url, init]) =>
-              url.endsWith('/session-event-applied') &&
-              JSON.parse(String(init?.body)).seqs?.includes(12),
-          ),
-        ).toBe(true);
-      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(
+        fetch.mock.calls.some(([url]) => url.includes('/background/messages?throughSeq=')),
+      ).toBe(false);
+      expect(fetch.mock.calls.some(([url]) => url.endsWith('/reconnect-snapshot-applied'))).toBe(
+        false,
+      );
       expect(store.getState().sessions.active).toBe(active);
       expect(store.getState().messages).toBe(selected);
       expect(source.close).not.toHaveBeenCalled();

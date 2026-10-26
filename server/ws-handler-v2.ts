@@ -324,7 +324,7 @@ export function handleReconnect(
   msg: {
     type: 'reconnect';
     supportsAppliedCursor?: boolean;
-    sessions: Array<{ sessionId: string; lastSeq: number }>;
+    sessions: Array<{ sessionId: string; lastSeq: number; subscriptionId?: string }>;
   },
   ctx: V2HandlerContext,
 ): void {
@@ -427,6 +427,7 @@ export function handleReconnect(
           ctx.connRegistry.get(connectionId)?.transport.send({
             type: 'session_reconnect_snapshot',
             sessionId: entry.sessionId,
+            ...(entry.subscriptionId ? { subscriptionId: entry.subscriptionId } : {}),
             cursor: reconnectState.cursor,
             cursorValid: reconnectState.cursorValid,
             ...(offerId ? { offerId } : {}),
@@ -557,7 +558,7 @@ export async function handleSwitchSession(
       if (msg.sessionId === null) {
         advanceViewGeneration(connectionId, ctx);
         const prev = ctx.connRegistry.get(connectionId)?.activeSession;
-        if (prev) {
+        if (prev && !msg.clientManagedWatches) {
           ctx.connRegistry.unwatch(connectionId, prev);
         }
         ctx.connRegistry.setActive(connectionId, null);
@@ -579,7 +580,7 @@ export async function handleSwitchSession(
 
       advanceViewGeneration(connectionId, ctx);
       const prev = ctx.connRegistry.get(connectionId)?.activeSession;
-      if (prev && prev !== msg.sessionId) {
+      if (prev && prev !== msg.sessionId && !msg.clientManagedWatches) {
         ctx.connRegistry.unwatch(connectionId, prev);
       }
       // Opening uses REST for the existing transcript. Seed a new watch at

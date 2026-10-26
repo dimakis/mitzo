@@ -21,6 +21,25 @@ function harness() {
 }
 
 describe('AppliedDelivery', () => {
+  it('cannot acknowledge or recreate a cursor when its consumer retires the delivery lifetime', () => {
+    const setCursor = vi.fn();
+    const ackEvent = vi.fn();
+    const tracker = new AppliedDelivery({
+      getCursor: () => 0,
+      setCursor,
+      ackEvent,
+      deliver: () => {
+        tracker.clearSession('a');
+        return true;
+      },
+      ackSnapshot: vi.fn(),
+      resync: vi.fn(),
+    });
+    tracker.receive({ sessionId: 'a', seq: 1, prevSessionSeq: 0 });
+    expect(setCursor).not.toHaveBeenCalled();
+    expect(ackEvent).not.toHaveBeenCalled();
+  });
+
   it.each(['before', 'after'] as const)(
     'acknowledges REST-covered events arriving %s snapshot confirmation without rendering twice',
     async (arrival) => {

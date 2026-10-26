@@ -37,6 +37,7 @@ export const ReconnectMessage = z.object({
   sessions: z.array(
     z.object({
       sessionId: z.string().min(1),
+      subscriptionId: z.string().min(1).max(128).optional(),
       lastSeq: z.number().int().min(0),
     }),
   ),
@@ -83,6 +84,8 @@ export const UnwatchMessage = z.object({
 
 export const SwitchSessionMessage = z.object({
   type: z.literal('switch_session'),
+  /** Capable clients own watch retirement separately from foreground selection. */
+  clientManagedWatches: z.boolean().optional(),
   sessionId: z.string().min(1).nullable(),
   historyCursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
 });

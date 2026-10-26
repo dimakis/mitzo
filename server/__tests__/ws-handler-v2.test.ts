@@ -292,6 +292,28 @@ describe('handleHello', () => {
 // ─── handleReconnect ─────────────────────────────────────────────────────────
 
 describe('handleReconnect', () => {
+  it('echoes the requesting subscription lifetime without treating it as authorization', () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 's1', state: 'ACTIVE', mode: 'agent' });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    handleReconnect(
+      'c1',
+      {
+        type: 'reconnect',
+        supportsAppliedCursor: true,
+        sessions: [{ sessionId: 's1', lastSeq: 0, subscriptionId: 'lifetime-2' }],
+      },
+      ctx,
+    );
+    expect(
+      transport.sent.find((event) => event.type === 'session_reconnect_snapshot'),
+    ).toMatchObject({ sessionId: 's1', subscriptionId: 'lifetime-2' });
+  });
+
   it('replays private provenance as an envelope and preserves its successor chain', () => {
     const eventStore = mockEventStore();
     eventStore.getEventsAfter.mockReturnValue([
@@ -968,6 +990,27 @@ describe('handleUnwatch', () => {
 // ─── handleSwitchSession ─────────────────────────────────────────────────────
 
 describe('handleSwitchSession', () => {
+  it('preserves an owned background snapshot offer for client-managed watches until explicit retirement', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockImplementation((id: string) => ({ sessionId: id, mode: 'agent' }));
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    ctx.connRegistry.register('c1', mockTransport());
+    ctx.connRegistry.setActive('c1', 'pending');
+    ctx.connRegistry.enableAppliedCursor('c1', 'pending', 0);
+    ctx.connRegistry.offerSnapshot('c1', 'pending', 7, 'owned');
+    await handleSwitchSession(
+      'c1',
+      { type: 'switch_session', sessionId: 'selected', clientManagedWatches: true },
+      ctx,
+    );
+    expect(ctx.connRegistry.get('c1')?.watchedSessions.has('pending')).toBe(true);
+    expect(ctx.connRegistry.ackAppliedSnapshot('c1', 'pending', 7, 'owned')).toBe(true);
+    handleUnwatch('c1', { type: 'unwatch', sessionId: 'pending' }, ctx);
+    expect(ctx.connRegistry.get('c1')?.watchedSessions.has('pending')).toBe(false);
+  });
+
   it('rehydrates observed usage after the transcript boundary without advancing its cursor', async () => {
     const eventStore = mockEventStore();
     eventStore.getSession.mockReturnValue({ sessionId: 's1', mode: 'agent' });

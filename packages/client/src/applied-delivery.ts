@@ -241,6 +241,9 @@ export class AppliedDelivery {
         return false;
       }
     }
+    // Delivery may synchronously settle the last receipt or navigate away.
+    // Only this exact still-owned lifetime may advance/acknowledge its cursor.
+    if (this.sessions.get(sessionId) !== state) return true;
     // Covered events still traverse the predecessor chain and receive individual
     // ACKs; the REST watermark never jumps over missing transport events.
     if (state.restoredThrough !== undefined && seq >= state.restoredThrough)
@@ -291,6 +294,7 @@ export class AppliedDelivery {
   }
 
   private drain(sessionId: string, state: PendingSession): void {
+    if (this.sessions.get(sessionId) !== state) return;
     while (!state.offer && !state.waitingForSnapshot) {
       const cursor = this.options.getCursor(sessionId);
       const next = [...state.events.values()].find((event) => event.prevSessionSeq === cursor);
