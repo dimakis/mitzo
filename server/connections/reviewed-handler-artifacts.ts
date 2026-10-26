@@ -1718,9 +1718,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/test-utils/multi-runtime-inventory-fixture.ts':
     'f5390008c0d7e953d2531f61d8a8cbfcc9d9f329923b23ffa1c1f4df95b4db1f',
   '../../tests/offline/builtin-agent-picker.spec.ts':
-    '4700e76f662392bcf45a62d6986f15b3f30aaa7043834a2eab320acb3531b14b',
+    '613616b1e3917605d3b16f92eca6ba6250858a55649d879313c2387a7bacbd00',
   '../../tests/offline/multi-runtime-picker.spec.ts':
-    '6d900590ed6f69ce3568e70c07be2689a8e329085745d03e5583e5fc7400e235',
+    '15af5980cd22ba677828fa02403c99f382abbb9e738d2e821d5f3cbd12346c7a',
   '../../tests/offline/repository-preparation-recovery.spec.ts':
     '4f2d59c81c1f49a9df79124260532bfb2f715fef9565155fb408c7300a096593',
   '../__tests__/ordinary-repository-preparation-api.test.ts':
@@ -2384,7 +2384,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/pdf-import.spec.ts':
     'd541f4d9fd8285a8bac53080de846efdbfae35d1e1975ba13782986fea25f8a0',
   '../../tests/offline/unified-mobile.spec.ts':
-    '5e5e65fe3ae99cf16e81fc502cd6ad8770c0bb6af1db2ef38c95f139920480f5',
+    '6d4c422839ab12524fe9be87d1c2d66cc9ecd2d60101b0c56d6eec3f4f3a399c',
   '../openshell-operator-transport.ts':
     '35d10b780021b5e29ec24c3834864978ddf4a17dbe807c07aa7327a7511a6939',
   '../openshell-secret-protocol.ts':

@@ -7,6 +7,7 @@ it('pairs fake SSE controls and nonce acknowledgements without document network 
   const fetch = builderOfflineTransport('https://mitzo-ui.test', network, emit);
   for (const path of [
     'switch',
+    'unwatch',
     'reconnect',
     'session-event-applied',
     'reconnect-snapshot-applied',

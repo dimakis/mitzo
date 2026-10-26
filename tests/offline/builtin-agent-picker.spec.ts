@@ -77,6 +77,7 @@ for (const appearance of ['dark', 'light'] as const)
         if (route.request().method() !== 'GET') {
           if (
             ![
+              '/api/chat/unwatch',
               '/api/chat/probe',
               '/api/chat/session-event-applied',
               '/api/chat/reconnect-snapshot-applied',
