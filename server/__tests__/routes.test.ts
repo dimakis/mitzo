@@ -1781,6 +1781,7 @@ describe('account catalog routes', () => {
     } as ReturnType<typeof eventStore.getSession>);
     try {
       const res = await request(app).get('/api/sessions/bound/meta').set('Cookie', authCookie);
+      expect(res.body.modelSettingsReadOnlyReason).toContain('older Agent SDK chat');
       expect(res.body.modelSelection).toEqual({
         model: 'sonnet',
         reasoningEffort: 'high',

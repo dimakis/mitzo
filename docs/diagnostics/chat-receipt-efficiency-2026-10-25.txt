@@ -355,3 +355,54 @@ The complete local API journey with the prepared identity statement passed in
 fences, preparation, handoff, continued tools, revocation and cleanup all passed
 with synthetic RPC and no real model calls. This is a local composed-path pass;
 fresh exact-head hosted CI and trusted final approval remain required.
+
+Accepted-base integration
+Before publishing the shared query optimization, accepted main advanced to
+80e011ca7c609319076004e13d57433079d25b58 (next-message model settings, #1136).
+The combined source retains its settings restrictions and feedback alongside
+the reviewed receipt/draft ownership changes. The source registry preserves
+both families, with runtime revision v1.0.704.
+Independent integration review identified misleading accepted-base queue guidance:
+submitted local commands retain frozen settings, while unsent legacy queue entries
+use choices current at send time. The conditional note now states that existing
+boundary truthfully; queue storage and dispatch behavior are unchanged. A controlled
+RED/GREEN regression verifies one legacy drain with current settings. Native
+restriction/metadata/preparation locks and the bound-command guidance remain.
+
+The combined settings/receipt integration checks pass 404 functional tests across
+24 files. Shared design checks pass 108 with one existing skip. All 20 intercepted
+receipt/settings/startup browser checks pass across mobile WebKit, mobile Chromium
+and desktop Chromium. Dark Mint/System phone and light Teal/Georgia desktop
+legacy-queue captures were visually inspected: readable guidance, retained drafts,
+wrapping and no overflow. Approved settings references/protections are unchanged.
+These checks use synthetic data and make no backend or real model calls.
+
+Hosted bb7 also completed all later joined cases and 36 native authorization
+checks, with one existing skip; only the complete API workflow failed in that
+canonical job. Supplemental shard one exposed a second responsive-surface inbox
+hydration boundary after resizing from mobile to desktop. The prior restart
+observation passed. Final combined-result CI and trusted approval remain required.
+
+Responsive coordinator test observation
+The desktop remount observation captures eligibility when the application's own
+fetch is invoked: main document, desktop surface present, same origin, exact
+inbox operation and coordinator item. It observes the first actual HTTP response
+and consumes only a clone, preserving the original fetch receiver, arguments,
+Promise and response. A first failed status, malformed body or non-abort network
+error remains terminal. StrictMode can cancel its mount probe before any response;
+only a rejection proven to belong to that request's own aborted signal is ignored.
+The observer restores only its own wrapper and cleans up in finally. It makes no
+request, response, header, navigation or product change.
+
+Six focused cases pass after controlled RED cancellation and network-error races,
+including old-mobile/pre-surface exclusions, exact Promise/receiver identity, first
+503/malformed failures and wrapper ownership. The complete isolated coordinator
+journey passes in 75.72 seconds process time (74.88 seconds test time). Original
+300-second scenario and five-second heading bounds, complete schema and exact
+both-receipt equality remain. This uses synthetic RPC with actual isolated app,
+CLI and browser paths; no model or staging/production operations run.
+
+The final v1.0.704 source registry contains 1,337 distinct matching fingerprints,
+including both accepted-base and PR test helpers. Fresh exact-head hosted CI and
+trusted final approval still gate merge; local results do not prove hosted API
+deadline recovery.

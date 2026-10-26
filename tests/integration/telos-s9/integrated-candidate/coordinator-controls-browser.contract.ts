@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { TelosWorkControlViewSchema, type TelosWorkControlCommand } from '@mitzo/protocol';
 import { createJoinedOrdinaryApplication } from './joined-ordinary-application';
 import { observeNavigatedControlInbox } from './navigated-control-inbox';
+import { observeSurfaceControlInbox } from './surface-control-inbox';
 
 it('coordinates six actual outcomes through UI requests, native recipient ACKs, host safe-point evidence and durable release while unrelated Job completes', async () => {
   const hostFetch = globalThis.fetch;
@@ -601,7 +602,16 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
     expect(retainedInbox.find((receipt) => receipt.controlId === safe.controlId)).toEqual(
       releasedSafe,
     );
-    await page.setViewportSize({ width: 1280, height: 900 });
+    const desktopInboxResponse = await observeSurfaceControlInbox(
+      page,
+      requested.coordinatorItemId,
+      '.desktop-chat-center',
+      () => page.setViewportSize({ width: 1280, height: 900 }),
+    );
+    expect(desktopInboxResponse.status).toBe(200);
+    const desktopInbox = TelosWorkControlViewSchema.array().parse(desktopInboxResponse.body);
+    expect(desktopInbox).toEqual(retainedInbox);
+    await record('browser-loaded-exact-desktop-released-inbox', { desktopInbox });
     await browserExpect(
       publication().getByRole('heading', {
         name: 'Hold released · revalidation required',

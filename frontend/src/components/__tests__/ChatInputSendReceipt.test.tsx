@@ -3,6 +3,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useStore } from 'zustand';
 import { createMitzoStore } from '../../../../packages/client/src/store';
+import { useState } from 'react';
+import { chatModelSettings } from '../../lib/chat-model-settings';
 import { ChatInput } from '../ChatInput';
 
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
@@ -32,6 +34,57 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
+});
+
+it('explains and preserves current-choice model selection for an unsent legacy queue entry', () => {
+  const sent = vi.fn();
+  function Harness() {
+    const [model, setModel] = useState('luna');
+    const [running, setRunning] = useState(true);
+    const settings = chatModelSettings({
+      activeSessionId: 'legacy-chat',
+      sessionId: 'legacy-chat',
+      roleSetupLocked: false,
+      localBound: false,
+      metadataPending: false,
+      metadataUnavailable: false,
+      commandAvailable: false,
+      preparedFirst: false,
+      repositoryLoading: false,
+      briefingLocked: false,
+      briefingLoading: false,
+      launchSending: false,
+    });
+    return (
+      <>
+        <p role="status">{settings.notice}</p>
+        <button onClick={() => setModel('luna-next')}>Choose next model</button>
+        <button onClick={() => setRunning(false)}>Finish response</button>
+        <ChatInput
+          sessionId="legacy-chat"
+          running={running}
+          onStop={() => {}}
+          onSend={(text, _images, _context, onDelivery) => {
+            sent(text, { model });
+            onDelivery?.('accepted');
+            return true;
+          }}
+        />
+      </>
+    );
+  }
+  render(<Harness />);
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+    target: { value: 'Queued before choosing another model' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Choose next model' }));
+  expect(sent).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Finish response' }));
+  expect(sent).toHaveBeenCalledExactlyOnceWith('Queued before choosing another model', {
+    model: 'luna-next',
+  });
+  expect(screen.getByText(/Queued messages use your current choices when sent/)).toBeTruthy();
 });
 
 async function fixture(initialSession: string | null = 'child') {

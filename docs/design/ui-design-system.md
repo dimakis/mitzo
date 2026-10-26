@@ -2206,3 +2206,26 @@ priority, unknown dates, navigation context and owner-reported pause stages rema
 explicit. Destructive reviews close when authentication changes; uncertain requests
 retain their original verified login/server scope. Source-level fixture evidence
 and pending matching-source App/browser qualification are recorded separately.
+
+## Model and thinking settings during a response
+
+The existing Chat settings editors allow model and thinking choices for the next
+message in an established ordinary chat, including legacy Codex sessions while a response
+is running. Older SDK sessions explain that their model/thinking are fixed; retired
+API sessions point to the reviewed Continue with Codex flow. The server supplies
+these restrictions separately from the account catalog. Submitted messages keep
+their settings. Unsent entries in an older chat's local queue use the choices
+current when sent; the settings note explains that boundary. Preparation, metadata, briefing
+and unsupported-continuation locks remain authoritative and explain their reason
+inside the editor. Failed metadata or briefing lookups offer **Retry settings**
+without unlocking unverified choices, including when no choices could load. Native
+conversations with fixed model settings retain their restriction message.
+
+This uses `QuickSettingsChoices`, `AccountModelPicker`, the existing note style,
+buttons and sheet navigation. No new palette, type, spacing, motion or layout is
+introduced; `chat-settings/quick-sheet-2026-10-17` remains the approved revision.
+The all-intercept `chat-model-settings` fixture covers 320px mobile WebKit/Chromium
+and 1280px desktop Chromium, dark Mint/System and light Teal/Georgia, keyboard retry,
+Escape/focus restoration, retained drafts, wrapping and editable next-message settings.
+Inspected captures: [mobile error](assets/chat-model-settings-error-mobile-dark.png)
+and [desktop choices](assets/chat-model-settings-ready-desktop-light.png).
