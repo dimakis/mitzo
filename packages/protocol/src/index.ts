@@ -389,6 +389,7 @@ export * from './ordinary-workspace-public.js';
 
 export * from './telos-work-controls.js';
 export * from './telos-work-lifecycle.js';
+export * from './telos-backlog.js';
 export * from './agent-communication.js';
 
 export {

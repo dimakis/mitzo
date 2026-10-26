@@ -12,6 +12,7 @@ import {
   TelosStartSliceInputSchema,
   TelosWorkLifecycleCommandSchema,
   TelosWorkLifecycleListSchema,
+  TelosRecordsInputSchema,
 } from '@mitzo/protocol';
 import { TelosWorkStore, TelosWorkError, type TelosWorkActor } from './telos-work-store.js';
 import { isAuthSessionCurrent, registerAuthSession, type AuthSession } from './auth.js';
@@ -255,6 +256,16 @@ export function createTelosWorkRouter(options: {
       return;
     }
     run(res, (store) => store.read(id.data, authority), 'lifecycle');
+  });
+  router.post('/api/telos/work/records', options.operatorAuth, (req, res) => {
+    const authority = actor(res);
+    if (!authority) return;
+    const input = TelosRecordsInputSchema.safeParse(req.body);
+    if (!input.success) {
+      res.status(400).json({ code: 'invalid', error: 'Invalid Telos record batch' });
+      return;
+    }
+    run(res, (store) => store.readRecords(input.data.itemIds, authority), 'record');
   });
   router.get('/api/telos/work/items/:itemId/record', options.operatorAuth, (req, res) => {
     const authority = actor(res);

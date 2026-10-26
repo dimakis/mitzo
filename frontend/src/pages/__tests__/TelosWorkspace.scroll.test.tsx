@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { telosRecordBatchFixture } from '../../test-utils/telos-record-batch';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -128,9 +129,13 @@ beforeEach(() => {
       positions.set(this, Math.max(0, Math.min(value, max)));
     },
   });
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(path, 'https://mitzo-ui.test');
+    if (url.pathname === '/api/telos/work/records')
+      return telosRecordBatchFixture(init, (id) =>
+        globalThis.fetch('/api/telos/work/items/' + encodeURIComponent(id) + '/record'),
+      );
     if (url.pathname === '/api/todos') {
       await collectionGate;
       return Response.json({

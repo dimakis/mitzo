@@ -17,6 +17,70 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+it('hydrates a large collection in bounded batches instead of one request per item', async () => {
+  const template = createTelosWorkFixtures().homeStudio.items[0];
+  const records = Array.from({ length: 205 }, (_, i) => ({ ...template, itemId: `batch-${i}` }));
+  const read = vi.spyOn(TelosWorkApiClient.prototype, 'readRecord');
+  const batch = vi
+    .spyOn(TelosWorkApiClient.prototype, 'readRecords')
+    .mockImplementation(async (ids) => ({
+      records: ids
+        .filter((id) => id !== 'batch-99')
+        .map((id) => records.find((r) => r.itemId === id)!),
+      failures: ids.includes('batch-99')
+        ? [{ itemId: 'batch-99', code: 'not_found', status: 404 }]
+        : [],
+    }));
+  const view = renderHook(() =>
+    useTelosRecords(
+      records.map((r) => r.itemId),
+      0,
+      { batch: true },
+    ),
+  );
+  await waitFor(() => expect(view.result.current.loading).toBe(false));
+  expect(batch.mock.calls.map(([ids]) => ids.length)).toEqual([100, 100, 5]);
+  expect(read).not.toHaveBeenCalled();
+  expect(view.result.current.records).toEqual(records.filter((r) => r.itemId !== 'batch-99'));
+  expect(view.result.current.failures).toEqual([
+    { itemId: 'batch-99', code: 'not_found', status: 404 },
+  ]);
+});
+
+it('ignores stale batches after navigation and retains the settled snapshot through refresh', async () => {
+  const records = createTelosWorkFixtures().homeStudio.items;
+  let release!: (value: { records: typeof records; failures: [] }) => void;
+  const batch = vi
+    .spyOn(TelosWorkApiClient.prototype, 'readRecords')
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    )
+    .mockResolvedValue({ records: [records[1]], failures: [] });
+  const view = renderHook(({ ids }) => useTelosRecords(ids, 0, { batch: true }), {
+    initialProps: { ids: [records[0].itemId] },
+  });
+  view.rerender({ ids: [records[1].itemId] });
+  await waitFor(() => expect(view.result.current.records).toEqual([records[1]]));
+  await act(async () => release({ records: [records[0]], failures: [] }));
+  expect(view.result.current.records).toEqual([records[1]]);
+  let refresh!: (value: { records: typeof records; failures: [] }) => void;
+  batch.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        refresh = resolve;
+      }),
+  );
+  act(() => view.result.current.refresh());
+  expect(view.result.current.records).toEqual([records[1]]);
+  expect(view.result.current.loading).toBe(true);
+  await act(async () =>
+    refresh({ records: [{ ...records[1], summary: 'Current title' }], failures: [] }),
+  );
+  expect(view.result.current.records[0].summary).toBe('Current title');
+});
 it('reads and validates canonical records, reports partial failures, and fences navigation', async () => {
   const fixtures = createTelosWorkFixtures().homeStudio.items;
   vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation(async (id) => {

@@ -66,7 +66,12 @@ vi.mock('../../hooks/useTodoData', async (importOriginal) => ({
 }));
 vi.mock('../../lib/api-fetch', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/api-fetch')>()),
-  apiFetch: vi.fn(async (url: string) => {
+  apiFetch: vi.fn(async function read(url: string, init?: RequestInit): Promise<Response> {
+    if (url === '/api/telos/work/records')
+      return (await import('../../test-utils/telos-record-batch')).telosRecordBatchFixture(
+        init,
+        (id) => read('/api/telos/work/items/' + encodeURIComponent(id) + '/record'),
+      );
     const id = url.split('/').at(-2);
     const record = records.find((r) => r.itemId === id);
     if (url.endsWith('/record') && record) return new Response(JSON.stringify(record));
@@ -90,7 +95,7 @@ it('opens actual record workspace from All outcomes, navigates child and returns
   expect(screen.getByRole('button', { name: 'New item' })).toBeTruthy();
   const list = document.body;
   fireEvent.change(within(list).getByRole('searchbox'), { target: { value: 'recording' } });
-  fireEvent.click(within(list).getByRole('button', { name: 'Plan the recording setup' }));
+  fireEvent.click(await within(list).findByRole('button', { name: 'Plan the recording setup' }));
   const detail = document.body;
   await within(detail).findByRole('heading', { name: 'Plan the recording setup' });
   expect(within(detail).queryByRole('button', { name: 'Work' })).toBeNull();

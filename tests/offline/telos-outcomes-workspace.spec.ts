@@ -134,6 +134,7 @@ for (const theme of ['dark', 'light'])
     });
 
     let recordReadGate: Promise<void> | undefined;
+    const recordBatches: string[][] = [];
     let failRecords = false;
     let failConversations = true;
     let failChildConversations = false;
@@ -203,6 +204,25 @@ for (const theme of ['dark', 'light'])
         const record = records.find((r) => r.itemId === action[1])!;
         record.priority = body.priority;
         return route.fulfill({ json: { ok: true } });
+      }
+      if (url.pathname === '/api/telos/work/records') {
+        const { itemIds } = route.request().postDataJSON() as { itemIds: string[] };
+        expect(itemIds.length).toBeLessThanOrEqual(100);
+        recordBatches.push(itemIds);
+        if (recordReadGate) await recordReadGate;
+        return failRecords
+          ? route.fulfill({ status: 503, json: { error: 'Unavailable' } })
+          : route.fulfill({
+              json: {
+                records: itemIds.flatMap((id) => {
+                  const record = records.find((r) => r.itemId === id);
+                  return record ? [record] : [];
+                }),
+                failures: itemIds
+                  .filter((id) => !records.some((r) => r.itemId === id))
+                  .map((itemId) => ({ itemId, code: 'not_found', status: 404 })),
+              },
+            });
       }
       const match = url.pathname.match(/^\/api\/telos\/work\/items\/([^/]+)(\/record)?$/);
       if (match) {
@@ -914,11 +934,17 @@ for (const theme of ['dark', 'light'])
     records.push(...scrollItems);
     const scrollRecordsLoaded = page.waitForResponse(
       (response) =>
-        new URL(response.url()).pathname === '/api/telos/work/items/fixture-scroll-40/record' &&
+        new URL(response.url()).pathname === '/api/telos/work/records' &&
+        (response.request().postDataJSON() as { itemIds: string[] }).itemIds.includes(
+          'fixture-scroll-40',
+        ) &&
         response.status() === 200,
     );
     await page.getByRole('button', { name: 'Refresh Telos', exact: true }).click();
     await scrollRecordsLoaded;
+    expect(recordBatches.some((ids) => ids.includes('fixture-scroll-40') && ids.length > 1)).toBe(
+      true,
+    );
     await expect(page.getByRole('region', { name: 'Outcomes tree', exact: true })).toBeVisible();
     await page.getByRole('searchbox').fill('');
     await page

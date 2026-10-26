@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { telosRecordBatchFixture } from '../../test-utils/telos-record-batch';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -103,6 +104,10 @@ beforeEach(() => {
       typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
       'https://offline.test',
     );
+    if (url.pathname === '/api/telos/work/records')
+      return telosRecordBatchFixture(init, (id) =>
+        globalThis.fetch('/api/telos/work/items/' + encodeURIComponent(id) + '/record'),
+      );
     if (url.pathname === '/api/todos')
       return Response.json({ profiles: ['manual'], items: records.map(legacy) });
     const record = url.pathname.match(/^\/api\/telos\/work\/items\/([^/]+)\/record$/);

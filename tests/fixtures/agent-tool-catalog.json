@@ -484,6 +484,39 @@
     "requirement": "Requires explicit native selection, a current retained lead and its current canonical assignment for this item or exact direct child, plus request-only approval. Writes retain fresh revision, evidence and original receipt checks; selection grants no completion authority."
   },
   {
+    "id": "mitzo:TelosListItems",
+    "version": 1,
+    "name": "TelosListItems",
+    "description": "List or search canonical Telos items by title and brief text, status, parent and lifecycle view. Returns concise IDs/titles without loading every detail. Default view active excludes archived/trashed subtrees. Follow nextCursor even after an empty page; keep filters unchanged. Use TelosManageItem read for full content and fresh edit/lifecycle revisions. No lead assignment needed.",
+    "source": "Telos",
+    "required": false,
+    "behavior": "read",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires the current authenticated operator and original tool selection; brief and lifecycle mutations use exact request approval. Browsing and maintenance require no lead assignment."
+  },
+  {
+    "id": "mitzo:TelosSearchItems",
+    "version": 1,
+    "name": "TelosSearchItems",
+    "description": "List or search canonical Telos items by title and brief text, status, parent and lifecycle view. Returns concise IDs/titles without loading every detail. Default view active excludes archived/trashed subtrees. Follow nextCursor even after an empty page; keep filters unchanged. Use TelosManageItem read for full content and fresh edit/lifecycle revisions. No lead assignment needed.",
+    "source": "Telos",
+    "required": false,
+    "behavior": "read",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires the current authenticated operator and original tool selection; brief and lifecycle mutations use exact request approval. Browsing and maintenance require no lead assignment."
+  },
+  {
+    "id": "mitzo:TelosManageItem",
+    "version": 1,
+    "name": "TelosManageItem",
+    "description": "Inspect a Telos item and its lifecycle (operation read); edit its title (summary), intent, rationale or acceptance criteria; archive, unarchive, or restore from trash. Read first: edit uses item.revision; archive/unarchive/restore use lifecycle.revision. Large reads return json-fragment: follow nextOffset, require unchanged snapshotHash, and concatenate contentFragment. Mutations require exact request approval and requestId; retry the exact input after uncertainty. Archive preserves status, evidence and descendants. No lead assignment needed; no completion or deletion.",
+    "source": "Telos",
+    "required": false,
+    "behavior": "mixed",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires the current authenticated operator and original tool selection; brief and lifecycle mutations use exact request approval. Browsing and maintenance require no lead assignment."
+  },
+  {
     "id": "mitzo:TelosSaveArtifact",
     "version": 1,
     "name": "TelosSaveArtifact",

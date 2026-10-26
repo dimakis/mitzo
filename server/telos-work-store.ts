@@ -68,6 +68,12 @@ import { initializeTelosWorkSchema } from './telos-work-schema.js';
 import { TelosMainPublicationRecords } from './telos-main-publication-records.js';
 import type { MainPublicationPins } from './telos-main-publication-contract.js';
 import { projectTelosWorkRecord } from './telos-work-record.js';
+import {
+  TelosListItemsInputSchema,
+  TelosListItemsResultSchema,
+  TelosRecordsInputSchema,
+  type TelosRecordsResult,
+} from '@mitzo/protocol';
 
 /** Authority is supplied by host middleware, never accepted in command JSON.
  * Conversations can read only items to which they are explicitly linked. S4/S5
@@ -281,6 +287,7 @@ export class TelosWorkStore {
     raw: unknown,
     actor: TelosWorkActor,
     assertQuiescent?: (itemId: string) => void,
+    assertCurrent?: () => void,
   ) {
     if (this.#lifecycleInvocation || this.#deletionFrame) {
       if (this.#lifecycleInvocation) this.#lifecycleInvocation.invalidated = true;
@@ -323,6 +330,7 @@ export class TelosWorkStore {
           invocation.writer?.assertCurrent();
           invocation.fence?.assertCurrent();
         },
+        assertCurrent,
       );
     } finally {
       // lifecycle.execute has now committed OR rolled back. Cleanup must never
@@ -1092,6 +1100,112 @@ export class TelosWorkStore {
     return this.db.transaction(() => {
       this.authorizeRead(itemId, actor);
       return this.projectRecord(itemId);
+    })();
+  }
+  readBacklogGuarded<T>(read: () => T, assertion: () => void): T {
+    const check = () => {
+      const result: unknown = assertion();
+      if (result !== undefined) {
+        void Promise.resolve(result).catch(() => {});
+        throw Error('Synchronous Telos authority required');
+      }
+    };
+    return this.db.transaction(() => {
+      check();
+      const result = read();
+      check();
+      return result;
+    })();
+  }
+  /** One connection and snapshot for collection hydration; failures stay per item. */
+  readRecords(raw: unknown, actor: TelosWorkActor): TelosRecordsResult {
+    if (actor.kind !== 'operator' || !actor.id.trim())
+      throw new TelosWorkError('unauthorized', 'Interactive operator required');
+    const { itemIds } = TelosRecordsInputSchema.parse({ itemIds: raw });
+    return this.db.transaction(() => {
+      const result: TelosRecordsResult = { records: [], failures: [] };
+      for (const itemId of new Set(itemIds)) {
+        try {
+          result.records.push(this.readRecord(itemId, actor));
+        } catch (error) {
+          const missing = error instanceof TelosWorkError && error.code === 'not_found';
+          result.failures.push({
+            itemId,
+            code: missing ? 'not_found' : 'record_read_failed',
+            status: missing ? 404 : 503,
+          });
+        }
+      }
+      return result;
+    })();
+  }
+  /** Bounded keyset discovery without loading briefs, artifacts or role histories.
+   * A sparse lifecycle view may return an empty page with a continuation cursor. */
+  listItems(raw: unknown, actor: TelosWorkActor) {
+    if (actor.kind !== 'operator' || !actor.id.trim())
+      throw new TelosWorkError('unauthorized', 'Interactive operator required');
+    const input = TelosListItemsInputSchema.parse(raw);
+    return this.db.transaction(() => {
+      const conditions = ['id > ?'];
+      const values: Array<string | null> = [input.cursor ?? ''];
+      if (input.query) {
+        conditions.push(
+          `(
+            instr(lower(coalesce(summary,'') || ' ' || coalesce(intent,'') || ' ' || coalesce(rationale,'')),lower(?)) > 0
+            OR EXISTS (
+              SELECT 1 FROM json_each(CASE WHEN json_valid(items.acceptance_criteria) THEN items.acceptance_criteria ELSE '[]' END) AS criterion
+              WHERE criterion.type='text' AND instr(lower(criterion.value),lower(?)) > 0
+            )
+          )`,
+        );
+        values.push(input.query, input.query);
+      }
+      if (input.status) {
+        conditions.push('status=?');
+        values.push(input.status);
+      }
+      if (input.parentId !== undefined) {
+        conditions.push('parent_id IS ?');
+        values.push(input.parentId);
+      }
+      const rows = this.db
+        .prepare(
+          `SELECT id,substr(summary,1,240) AS summary,length(summary)>240 AS summaryTruncated,status,parent_id AS parentId,updated_at AS updatedAt FROM items WHERE ${conditions.join(' AND ')} ORDER BY id LIMIT 501`,
+        )
+        .all(...values) as Array<{
+        id: string;
+        summary: string;
+        summaryTruncated: number;
+        status: string;
+        parentId: string | null;
+        updatedAt: string | null;
+      }>;
+      const scanned = rows.slice(0, 500);
+      const visibility = new Map(
+        this.lifecycleVisibilityForCanonicalList(scanned.map((r) => r.id)).map((r) => [
+          r.itemId,
+          r.effectiveDisposition,
+        ]),
+      );
+      const selected = scanned.flatMap((row) => {
+        const effectiveDisposition = visibility.get(row.id);
+        if (
+          !effectiveDisposition ||
+          (input.view !== 'all' &&
+            effectiveDisposition !==
+              { active: 'active', archive: 'archived', trash: 'trashed' }[input.view])
+        )
+          return [];
+        return [{ ...row, summaryTruncated: row.summaryTruncated === 1, effectiveDisposition }];
+      });
+      const items = selected.slice(0, input.limit);
+      const nextCursor =
+        selected.length > input.limit
+          ? items.at(-1)!.id
+          : rows.length > 500
+            ? scanned.at(-1)!.id
+            : null;
+      return TelosListItemsResultSchema.parse({ items, nextCursor });
     })();
   }
   private projectRecord(itemId: string): TelosWorkItem {
