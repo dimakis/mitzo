@@ -206,10 +206,12 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
     }
     // These immutable, independently owned PRIVATE staging facts are neither
     // source reads nor publication effects. Join each bounded wave before use.
-    for (let index = 0; index < view.entries.length; index += 64) {
+    // Bound in-flight observations without multiplying the complete consumed
+    // owner fence enough to exhaust its unchanged approval lifetime on large trees.
+    for (let index = 0; index < view.entries.length; index += 256) {
       current();
       const results = await Promise.allSettled(
-        view.entries.slice(index, index + 64).map(async (entry) => {
+        view.entries.slice(index, index + 256).map(async (entry) => {
           context.signal.throwIfAborted();
           if (Date.now() >= deadline) throw unavailable();
           return Object.freeze({ ...entry, identity: await identity(join(staging, entry.path)) });

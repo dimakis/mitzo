@@ -189,7 +189,7 @@ function assertHistoricalAcknowledgement(
       const artifact = native.readArtifactRuntime(sessionId, meta.accountBinding);
       if (
         !custody ||
-        custody.authSessionId !== authSessionId ||
+        !ordinaryOperatorOwnsConversation(custody.authSessionId, authSessionId) ||
         !isDeepStrictEqual(custody.binding, binding) ||
         !isDeepStrictEqual(custody.workspace, receipt.workspace) ||
         !artifact ||

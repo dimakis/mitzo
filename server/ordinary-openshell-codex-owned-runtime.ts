@@ -1,3 +1,4 @@
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import {
   assertOrdinaryCodexContextIdentity,
@@ -325,7 +326,7 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       if (
         !custody ||
         !retained ||
-        custody.authSessionId !== o.authSessionId ||
+        !ordinaryOperatorOwnsConversation(custody.authSessionId, o.authSessionId) ||
         !isDeepStrictEqual(custody.binding, expected.binding) ||
         !isDeepStrictEqual(custody.workspace, expected.workspace) ||
         custody.physicalIdentitySha256 !== openShellPhysicalCustodyFingerprint(retained) ||

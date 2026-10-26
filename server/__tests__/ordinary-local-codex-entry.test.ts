@@ -48,7 +48,7 @@ import {
   bindAgentLibraryTransport,
   captureAgentLibraryAuthorization,
 } from '../agent-library-transport.js';
-import { revokeAuthSession } from '../auth.js';
+import { revokeAuthSession, login, authenticateToken } from '../auth.js';
 import {
   nativeStartupSessionId,
   reserveRepositoryStartup,
@@ -1533,4 +1533,64 @@ it('redirects paid reasoning slash intent to the selected product action before 
   });
   expect(fixtures.start).not.toHaveBeenCalled();
   expect(fixtures.reserve).not.toHaveBeenCalled();
+});
+
+it('admits an OpenShell follow-up from a new verified login without changing the retained owner', async () => {
+  const { request, admittedBinding, config, shellProfiles } = configuredShell();
+  expect((await invoke('POST', '/send', request)).status).toBe(202);
+  const sessionId = nativeStartupSessionId(`repository:${workspaceId}`);
+  const originalLogin = auth.id;
+  sessions.register('retained-shell', {
+    transport: conns.get('entry-stream')!.transport,
+    abortController: new AbortController(),
+    sessionId,
+    mode: 'agent',
+    sessionAllowList: new Set(),
+    ownedLocalAuthSessionId: originalLogin,
+  });
+  const actor = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
+  if (!actor) throw Error('Fixture login failed');
+  release();
+  releaseTransportConnection('entry-stream', auth.id);
+  streams.remove('entry-stream');
+  auth = actor;
+  streams.add(
+    'entry-stream',
+    { write: vi.fn(() => true), end: vi.fn(), writableEnded: false } as unknown as express.Response,
+    auth.id,
+  );
+  claimTransportConnection('entry-stream', auth.id);
+  release = bindAgentLibraryTransport('entry-stream', auth);
+  fixtures.continueShell.mockImplementation(async (args) => {
+    store.admitOrdinaryOpenShellContinuation(
+      {
+        ...fixtures.startShell.mock.calls[0][2].meta,
+        sessionId,
+        cwd: config.workdir,
+        accountBinding: shellProfiles.resolve('brokered', 'fixture'),
+      },
+      admittedBinding,
+      {
+        clientMsgId: args.command.clientMsgId,
+        requestFingerprint: 'next-shell',
+        selection: args.command.selection,
+        payload: args.command.payload,
+      },
+    );
+    store.claimOrdinaryOpenShellCommandDispatch(args.command.clientMsgId);
+    store.completeOrdinaryOpenShellCommand(args.command.clientMsgId);
+    return { dispatched: true, sessionId };
+  });
+  try {
+    const response = await invoke('POST', '/continue', {
+      ...request,
+      sessionId,
+      clientMsgId: 'next-shell',
+    });
+    expect(response.status, JSON.stringify(response)).toBe(202);
+    expect(fixtures.continueShell).toHaveBeenCalledOnce();
+    expect(sessions.get('retained-shell')!.ownedLocalAuthSessionId).toBe(originalLogin);
+  } finally {
+    revokeAuthSession(actor);
+  }
 });

@@ -345,7 +345,7 @@ it.each(['responses', 'claude-sdk'] as const)(
 );
 
 it.each(['local', 'openshell'] as const)(
-  'limits cross-login operator transport controls to Local Codex: %s',
+  'authorizes cross-login operator controls for retained Codex conversations: %s',
   async (location) => {
     const f = fixture(true, 'codex', location);
     const auth = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
@@ -363,6 +363,13 @@ it.each(['local', 'openshell'] as const)(
         sessionRegistry: f.registry,
         eventStore: f.store,
       }),
-    ).toBe(location === 'local' ? 'authorized' : 'denied');
+    ).toBe('authorized');
+    revokeAuthSession(auth);
+    expect(
+      ownedLocalControlStatus(connection, f.sessionId, transport, {
+        sessionRegistry: f.registry,
+        eventStore: f.store,
+      }),
+    ).toBe('denied');
   },
 );
