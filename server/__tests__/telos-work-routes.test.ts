@@ -63,6 +63,24 @@ async function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>
   return { app: server, read, command, dbPath };
 }
 describe('authorized Telos work API', () => {
+  it('hydrates a bounded batch in one authenticated read and retains per-item failures', async () => {
+    const canonical = createTelosCanonicalData();
+    try {
+      const f = await setup({ dbPath: () => canonical.dbPath });
+      const call = (input: object, operator = 'authenticated') =>
+        request(f.app).post('/api/telos/work/records').set('x-operator', operator).send(input);
+      const result = await call({ itemIds: ['studio', 'missing'] });
+      expect(result.status).toBe(200);
+      expect(result.headers['cache-control']).toBe('private, no-store');
+      expect(result.body.records).toEqual([canonical.work.readRecord('studio', canonical.actor)]);
+      expect(result.body.failures).toEqual([{ itemId: 'missing', code: 'not_found', status: 404 }]);
+      expect((await call({ itemIds: ['studio'] }, 'foreign')).status).toBe(403);
+      expect((await call({ itemIds: Array(101).fill('studio') })).status).toBe(400);
+      expect((await call({ itemIds: ['studio'], actorId: 'spoofed' })).status).toBe(400);
+    } finally {
+      canonical.close();
+    }
+  });
   it('reads committed canonical records without acquiring the retained writer after initialization', async () => {
     const canonical = createTelosCanonicalData();
     const writer = new Database(canonical.dbPath);
