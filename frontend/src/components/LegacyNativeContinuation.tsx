@@ -512,9 +512,11 @@ function NativeContinuationForm({
                 {review.command.selection.permission.mode} · {review.command.runtime.targetId}.
               </p>
               <p>
-                {review.retainedPendingCommands} pending commands remain in the original
-                conversation. {review.omittedNonTextBlocks} non-text blocks and{' '}
-                {review.omittedEarlierCharacters} earlier characters were omitted.
+                {review.historicalStateUnavailable
+                  ? 'Earlier queued work cannot be counted from the saved conversation. Only the displayed text will carry over; earlier commands will not run.'
+                  : `${review.retainedPendingCommands} pending commands remain in the original conversation.`}{' '}
+                {review.omittedNonTextBlocks} non-text blocks and {review.omittedEarlierCharacters}{' '}
+                earlier characters were omitted.
               </p>
               <pre aria-label="Exact historical context">{review.context}</pre>
               <details>

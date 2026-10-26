@@ -34,6 +34,16 @@ and [desktop catalog retry](assets/native-continuation-retry-desktop-light.png).
 The fixture verifies successful native admission, catalog retry, preserved drafts,
 non-overlapping review rows, readable inputs and reachable Close at 320px width.
 
+Pre-runtime conversations with a retained visible transcript can be reviewed even
+when they predate the private Responses history store. Review explicitly says that
+earlier queued work cannot be counted and earlier commands will not run. Missing
+private history always requires the existing uncertainty acknowledgement; it is
+never synthesized into a provider checkpoint or queue. An explicitly bound runtime
+with missing private history still refuses. Source changes invalidate the review.
+The intercepted pre-runtime fixture covers metadata fallback, this warning and
+successful simulated ordinary admission. [Phone review](assets/native-continuation-transcript-only-mobile.png)
+shows the same shared review surface at larger text.
+
 The form uses semantic surface/text/border roles, shared spacing/type/radius tokens,
 the shared code font and 44px checkbox rows. The all-intercept
 `legacy-native-continuation` fixture renders the actual component at narrow phone

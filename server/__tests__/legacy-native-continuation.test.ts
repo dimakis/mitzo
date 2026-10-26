@@ -125,7 +125,7 @@ describe('deliberate linked native continuation', () => {
     store = openStore();
     current = source();
     commandState = undefined;
-    store.save(current.meta.sessionId, binding, current.state);
+    store.save(current.meta.sessionId, binding, current.state!);
     admit = vi.fn<RequestHandler>(async (req, res) => {
       commandState = 'consumed';
       res.status(202).json({ ok: true, state: 'consumed', dispatched: true, command: req.body });
@@ -223,6 +223,69 @@ describe('deliberate linked native continuation', () => {
     expect(store.listLegacyNativeLinks(review.nativeSessionId, auth.id)).toHaveLength(1);
     expect(store.listLegacyNativeLinks(current.meta.sessionId, 'another-login')).toEqual([]);
   });
+  it('reviews an older transcript without private state and requires uncertainty acknowledgement before admission', async () => {
+    current.runtime = undefined;
+    delete (current as Partial<LegacyNativeSource>).state;
+    current.pendingCommandIds = [];
+    current.hasActiveCommand = false;
+    const review = await preview();
+    expect(review.uncertainOutcomes).toBe(true);
+    expect(review.historicalStateUnavailable).toBe(true);
+    expect(review.command.payload.text).toContain('pending commands: unknown');
+    expect(review.command.payload.text).toContain('Earlier visible answer');
+    expect(review.command.payload.text).toContain('Do not repeat any earlier request');
+    expect((await commit(review.reviewHash)).status).toBe(409);
+    expect(admit).not.toHaveBeenCalled();
+    expect(
+      (
+        await commit(review.reviewHash, {
+          acknowledgeUncertainOutcomes: true,
+          acknowledgeSelectionChange: true,
+        })
+      ).status,
+    ).toBe(202);
+    expect(admit).toHaveBeenCalledOnce();
+    expect(current.state).toBeUndefined();
+  });
+  it('invalidates a transcript-only review if private history later appears', async () => {
+    current.runtime = undefined;
+    const retained = current.state;
+    current.state = undefined;
+    const review = await preview();
+    current.state = retained;
+    expect(
+      (
+        await commit(review.reviewHash, {
+          acknowledgeUncertainOutcomes: true,
+          acknowledgeSelectionChange: true,
+        })
+      ).status,
+    ).toBe(409);
+    expect(admit).not.toHaveBeenCalled();
+  });
+  it('refuses a transcript-only continuation when no visible conversation remains', async () => {
+    current.runtime = undefined;
+    current.state = undefined;
+    current.messages = [];
+    expect(
+      (
+        await invoke('/sessions/retained-source/native-continuation/preview', {
+          command: command(),
+        })
+      ).status,
+    ).toBe(409);
+  });
+  it('does not continue an explicitly bound runtime whose private state has disappeared', async () => {
+    delete (current as Partial<LegacyNativeSource>).state;
+    expect(
+      (
+        await invoke('/sessions/retained-source/native-continuation/preview', {
+          command: command(),
+        })
+      ).status,
+    ).toBe(409);
+    expect(admit).not.toHaveBeenCalled();
+  });
   it('observes an accepted lost reply across restart without another native dispatch', async () => {
     const review = await preview();
     await commit(review.reviewHash);
@@ -309,7 +372,7 @@ describe('deliberate linked native continuation', () => {
     },
   );
   it('requires an explicit acknowledgement for unknown historical effects, never clears them', async () => {
-    current.state.status = 'interrupted';
+    current.state!.status = 'interrupted';
     current.hasActiveCommand = true;
     const review = await preview();
     expect(review.uncertainOutcomes).toBe(true);
@@ -318,13 +381,13 @@ describe('deliberate linked native continuation', () => {
     expect((await commit(review.reviewHash, { acknowledgeUncertainOutcomes: true })).status).toBe(
       202,
     );
-    expect(current.state.status).toBe('interrupted');
+    expect(current.state!.status).toBe('interrupted');
   });
   it.each(['state', 'events', 'binding', 'live'] as const)(
     'rejects stale %s evidence before dispatch',
     async (field) => {
       const review = await preview();
-      if (field === 'state') current.state.history.push({ role: 'assistant', content: 'Changed' });
+      if (field === 'state') current.state!.history.push({ role: 'assistant', content: 'Changed' });
       if (field === 'events') current.events.push({ seq: 2 });
       if (field === 'binding')
         current.meta.accountBinding = { ...binding, profileRevision: 'changed' };

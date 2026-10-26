@@ -92,6 +92,14 @@ for (const { theme, preclaim, accepted = false } of [
           body: await readFile(resolve('frontend/public' + path)),
           contentType: 'image/svg+xml',
         });
+      if (path === '/api/sessions/legacy-source/meta')
+        return route.fulfill({
+          json: {
+            accountBinding: { ...account, accountLabel: 'Work API', model: 'luna-fixture' },
+            mode: 'agent',
+            modelSelection: { model: 'luna-fixture', reasoningEffort: 'low' },
+          },
+        });
       if (path === '/api/chat/runtime/capabilities')
         return route.fulfill({
           json: {
@@ -175,6 +183,7 @@ for (const { theme, preclaim, accepted = false } of [
             },
             command,
             uncertainOutcomes: true,
+            historicalStateUnavailable: accepted,
             selectionChanged: true,
             retainedPendingCommands: 2,
             omittedNonTextBlocks: 3,
@@ -233,7 +242,7 @@ for (const { theme, preclaim, accepted = false } of [
     });
     await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.goto('/');
+    await page.goto(accepted ? '/?pre-runtime=1' : '/');
     await page.getByRole('button', { name: 'Continue with Codex' }).click();
     if (isMobile && theme === 'light')
       await page.evaluate(() => {
@@ -273,6 +282,14 @@ for (const { theme, preclaim, accepted = false } of [
         return rows.every((rect, index) => index === 0 || rect.top >= rows[index - 1].bottom - 1);
       });
     expect(await contentDoesNotOverlap()).toBe(true);
+    if (accepted) {
+      const notice = page.getByText(
+        /Earlier queued work cannot be counted from the saved conversation/,
+      );
+      await expect(notice).toBeVisible();
+      await notice.scrollIntoViewIfNeeded();
+      await dialog.screenshot({ path: testInfo.outputPath('native-transcript-review.png') });
+    }
     const start = page.getByRole('button', { name: 'Start reviewed native continuation' });
     await expect(start).toBeDisabled();
     await page.getByLabel(/I reviewed the exact context/).check();
