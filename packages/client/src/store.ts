@@ -2175,7 +2175,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           if (msg.type === 'user_message' || typeof msg.clientMsgId === 'string')
             origin.observedSessionId = eventSessionId;
           else origin.observedSessionId ??= eventSessionId;
-          if (deliveryObservers.has(id)) retainSessionInterest(eventSessionId);
+          if (deliveryObservers.has(id) && origin.observedSessionId)
+            retainSessionInterest(origin.observedSessionId);
           if (
             previousObservation &&
             previousObservation !== origin.observedSessionId &&

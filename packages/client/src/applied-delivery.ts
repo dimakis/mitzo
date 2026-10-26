@@ -73,6 +73,12 @@ export class AppliedDelivery {
     this.drain(sessionId, state);
   }
 
+  /** An exact replay prefix owns recovery until its ACK completes. */
+  hasPendingSnapshot(sessionId: string): boolean {
+    const state = this.sessions.get(sessionId);
+    return !!(state?.offer || state?.waitingForSnapshot);
+  }
+
   /** Commit a REST transcript only after its state has been installed. */
   commitTranscript(sessionId: string, cursor: number): void {
     const state = this.state(sessionId);

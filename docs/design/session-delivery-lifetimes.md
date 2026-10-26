@@ -32,7 +32,18 @@ The store explicitly unwatches when the last interest retires. Legacy clients
 retain their existing implicit-unwatch behavior. SSE selection, watch, unwatch
 and reconnect requests are serialized per connection, so reselecting a chat after
 an in-flight unwatch leaves its new watch installed last. Queued work cannot be
-retargeted to a successor connection.
+retargeted to a successor connection. Retirement is connection-owned control work,
+independent of navigation's disposable send queue. A failed retirement replaces
+that connection and replays only current interests; queued delivery is never
+treated as confirmation. Completed retirement deduplication is bounded; in-flight
+retirements retain exact identities so old completion cannot suppress a successor.
+Ordinary ACKs also require the captured subscription
+generation before dispatch and failure handling.
+
+A pending exact snapshot remains the recovery authority if its chat is revisited.
+The full REST restore can record rendered coverage, but its selection cannot
+reset the server cursor and invalidate that offer. The bounded prefix restore and
+exact ACK still release the buffered suffix.
 
 Subscription IDs are echoed by updated servers. Older servers and clients retain
 the existing optional-field compatibility path; they do not gain the stronger
@@ -52,7 +63,9 @@ The regression suite covers five navigation/reconnect cycles, retirement during
 read success/failure, pending receipt retention, reselecting during unwatch,
 old offers after reselection, and retirement during event application. Existing
 startup tests cover receipt/snapshot ordering, replaced offers, delayed ACKs,
-late history and cancellation. Server tests preserve pending offers across
+late history and cancellation. A registry-backed offline fixture asserts actual
+server watch and offer removal after delayed replay/navigation and HTTP failure,
+and preserves a pending background offer through reselection. Server tests preserve pending offers across
 client-managed selection and verify explicit unwatch retirement.
 
 ## Remaining resource boundaries

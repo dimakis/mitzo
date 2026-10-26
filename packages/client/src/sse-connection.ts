@@ -37,6 +37,7 @@ export interface SseConnectionConfig {
 }
 
 const MAX_PENDING_SENDS = 100;
+const MAX_RETIRED_SESSION_MARKERS = 256;
 const CONNECTION_POST_TIMEOUT_MS = 10_000;
 const LIVENESS_PROBE_INTERVAL_MS = 10_000;
 
@@ -58,7 +59,9 @@ export class SseConnection implements ChatConnection {
   private lastStreamActivity = 0;
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
+  /** Completed idempotent retirements use bounded dedupe; in-flight work has exact owners. */
   private unwatchedSessions = new Set<string>();
+  private retiringSessions = new Map<string, object>();
   private replayingSessions = new Set<string>();
   private replaySeenSeq = new Map<string, number>();
   private pendingSnapshots = new Map<string, { cursor: number; afterSeq: number }>();
@@ -200,6 +203,8 @@ export class SseConnection implements ChatConnection {
     }
     this._connected = false;
     this._connectionId = null;
+    this.retiringSessions.clear();
+    this.unwatchedSessions.clear();
     this.appliedAckChain = Promise.resolve();
     this.controlChain = Promise.resolve();
     this.eventAcks.reset();
@@ -233,8 +238,14 @@ export class SseConnection implements ChatConnection {
    * could not be queued; true is local acceptance, not server delivery.
    */
   send(msg: Record<string, unknown>): boolean {
-    if (msg.type === 'switch_session' && this.config.sessionInterest)
+    if (msg.type === 'switch_session' && this.config.sessionInterest) {
       msg = { ...msg, clientManagedWatches: true };
+      if (
+        typeof msg.sessionId === 'string' &&
+        this.appliedDelivery.hasPendingSnapshot(msg.sessionId)
+      )
+        delete msg.historyCursor;
+    }
     if (this.authBlocked) return false;
     if (msg.type === 'send') return this.outbox.enqueue(msg, this.sendScope);
     const endpoint = this.messageTypeToEndpoint(msg.type as string);
@@ -280,6 +291,7 @@ export class SseConnection implements ChatConnection {
 
   trackSeq(sessionId: string, seq: number): void {
     this.unwatchedSessions.delete(sessionId);
+    this.retiringSessions.delete(sessionId);
     if (!this.config.sessionInterest || this.config.sessionInterest.has(sessionId))
       this.seqBySession.set(sessionId, seq);
   }
@@ -308,10 +320,7 @@ export class SseConnection implements ChatConnection {
   }
 
   clearSession(sessionId: string): void {
-    if (this.config.sessionInterest && !this.unwatchedSessions.has(sessionId)) {
-      this.unwatchedSessions.add(sessionId);
-      this.send({ type: 'unwatch', sessionId });
-    }
+    this.retireWatch(sessionId);
     this.eventAcks.clearSession(sessionId);
     this.seqBySession.delete(sessionId);
     this.replayingSessions.delete(sessionId);
@@ -321,12 +330,64 @@ export class SseConnection implements ChatConnection {
     this.appliedDelivery.clearSession(sessionId);
   }
 
+  private retireWatch(sessionId: string): void {
+    const connectionId = this._connectionId;
+    const es = this.es;
+    if (
+      !this.config.sessionInterest ||
+      !connectionId ||
+      !es ||
+      this.authBlocked ||
+      this.unwatchedSessions.has(sessionId) ||
+      this.retiringSessions.has(sessionId)
+    )
+      return;
+    const retirement = {};
+    this.retiringSessions.set(sessionId, retirement);
+    // Reconnect may already have captured this watch. Retirement must survive
+    // navigation clearing composer controls and run after that replay request.
+    const current = () =>
+      this._connectionId === connectionId && this.es === es && !this.authBlocked;
+    void this.queueControl(async () => {
+      if (!current()) return;
+      const response = await this.postConnectionRequest(
+        'unwatch',
+        { type: 'unwatch', sessionId },
+        connectionId,
+        async (response) => response,
+      );
+      if (response.status === 401 && current()) {
+        this.handleAuthLoss();
+        return;
+      }
+      if (!response.ok) throw Error('Watch retirement failed');
+      if (current() && this.retiringSessions.get(sessionId) === retirement) {
+        this.retiringSessions.delete(sessionId);
+        this.unwatchedSessions.add(sessionId);
+        if (this.unwatchedSessions.size > MAX_RETIRED_SESSION_MARKERS)
+          this.unwatchedSessions.delete(this.unwatchedSessions.values().next().value!);
+      }
+    }).catch(() => {
+      // A failed/dropped retirement is never confirmation. Replacing the
+      // connection authoritatively discards its watches; replay uses live intent.
+      if (current()) this.checkAndReconnect(true);
+    });
+  }
+
   private sendAppliedAck(endpoint: string, body: Record<string, unknown>): void {
     const connectionId = this._connectionId;
     if (!connectionId) return;
+    const sessionId = typeof body.sessionId === 'string' ? body.sessionId : undefined;
+    const generation = sessionId ? this.config.sessionInterest?.generation(sessionId) : undefined;
+    const current = () =>
+      this._connectionId === connectionId &&
+      (!sessionId ||
+        !this.config.sessionInterest ||
+        (generation !== undefined &&
+          this.config.sessionInterest.generation(sessionId) === generation));
     this.appliedAckChain = this.appliedAckChain
       .then(async () => {
-        if (this._connectionId !== connectionId) return;
+        if (!current()) return;
         const response = await this.postConnectionRequest(
           endpoint,
           body,
@@ -338,13 +399,7 @@ export class SseConnection implements ChatConnection {
       .catch(() => {
         // A failed ACK leaves the server cursor behind. Reconnect advertises
         // the locally applied cursor and releases any later queued ACKs.
-        if (
-          this._connectionId === connectionId &&
-          (typeof body.sessionId !== 'string' ||
-            !this.config.sessionInterest ||
-            this.config.sessionInterest.has(body.sessionId))
-        )
-          this.checkAndReconnect(true);
+        if (current()) this.checkAndReconnect(true);
       });
   }
 
@@ -466,6 +521,8 @@ export class SseConnection implements ChatConnection {
     }
     const wasConnected = this._connected;
     this._connectionId = null;
+    this.retiringSessions.clear();
+    this.unwatchedSessions.clear();
     this.appliedAckChain = Promise.resolve();
     this.controlChain = Promise.resolve();
     this.eventAcks.reset();
@@ -509,6 +566,7 @@ export class SseConnection implements ChatConnection {
       this.lastStreamActivity = Date.now();
       this._connectionId = msg.connectionId as string;
       this.unwatchedSessions.clear();
+      this.retiringSessions.clear();
       this.eventAckBatchSupported = msg.eventAckBatchSize === 50;
       // An unresponsive ACK from the previous transport must not fence this one.
       this.appliedAckChain = Promise.resolve();
@@ -723,6 +781,8 @@ export class SseConnection implements ChatConnection {
     this.es?.close();
     this.es = null;
     this._connectionId = null;
+    this.retiringSessions.clear();
+    this.unwatchedSessions.clear();
     this._connected = false;
     this.clearPendingSends();
     this.outbox.rejectAll('Authentication expired. Sign in again to retry.');
@@ -837,6 +897,8 @@ export class SseConnection implements ChatConnection {
       this.es = null;
     }
     this._connectionId = null;
+    this.retiringSessions.clear();
+    this.unwatchedSessions.clear();
     this.appliedAckChain = Promise.resolve();
     this.controlChain = Promise.resolve();
     this.eventAcks.reset();
@@ -870,6 +932,16 @@ export class SseConnection implements ChatConnection {
   }
 
   private async performPost(endpoint: string, body: Record<string, unknown>): Promise<void> {
+    const intentBody = body;
+    if (
+      endpoint === 'switch' &&
+      this.config.sessionInterest &&
+      typeof body.sessionId === 'string' &&
+      this.appliedDelivery.hasPendingSnapshot(body.sessionId)
+    ) {
+      body = { ...body };
+      delete body.historyCursor;
+    }
     const connectionId = this._connectionId;
     const es = this.es;
     const sendScope = this.sendScope;
@@ -879,7 +951,7 @@ export class SseConnection implements ChatConnection {
     const visible = () =>
       current() &&
       this.sendScope === sendScope &&
-      (endpoint !== 'switch' || this.switchIntent === body);
+      (endpoint !== 'switch' || this.switchIntent === intentBody);
     const transportFailure = (error: string) => {
       // Lifecycle failures must never enter the terminal provider-error reducer.
       if (visible())

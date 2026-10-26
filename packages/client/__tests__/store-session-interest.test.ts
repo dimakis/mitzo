@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { createMitzoStore } from '../src/store.js';
+import { ConnectionRegistry } from '../../harness/src/connection-registry.js';
 
 function fixture(extraFetch?: (url: string, init?: RequestInit) => Promise<Response> | undefined) {
   let welcome!: (event: MessageEvent) => void;
@@ -264,6 +265,174 @@ it('ignores a rejected ACK after receipt settlement retires its exact offer', as
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(f.source.close).not.toHaveBeenCalled();
     expect(f.store.getState().sessions.active).toBe('selected');
+  } finally {
+    f.store.getState().invalidateAuthentication();
+  }
+});
+
+// Exercise the real registry's watch/offer cleanup with delayed HTTP delivery.
+function registryFixture(failUnwatch = false) {
+  const registry = new ConnectionRegistry();
+  let currentId = 'browser';
+  let reconnect!: (response: Response) => void;
+  let delayReconnect = false;
+  let failed = false;
+  const f = fixture((url, init) => {
+    if (!url.includes('/api/chat/') || url.endsWith('/send')) return;
+    const id = new Headers(init?.headers).get('X-Connection-ID')!;
+    if (!registry.get(id)) registry.register(id, { send() {}, isOpen: () => true });
+    currentId = id;
+    const body = JSON.parse(String(init?.body));
+    if (url.endsWith('/switch')) {
+      if (typeof body.sessionId === 'string') {
+        registry.watch(id, body.sessionId);
+        if (typeof body.historyCursor === 'number')
+          registry.enableAppliedCursor(id, body.sessionId, body.historyCursor);
+      }
+      registry.setActive(id, body.sessionId);
+    }
+    if (url.endsWith('/unwatch')) {
+      if (failUnwatch && !failed) {
+        failed = true;
+        return Promise.resolve(Response.json({}, { status: 500 }));
+      }
+      registry.unwatch(id, body.sessionId);
+    }
+    if (url.endsWith('/reconnect')) {
+      for (const entry of body.sessions) {
+        registry.watch(id, entry.sessionId);
+        registry.enableAppliedCursor(id, entry.sessionId, entry.lastSeq);
+        registry.offerSnapshot(id, entry.sessionId, 10, 'registry-offer');
+      }
+      if (delayReconnect)
+        return new Promise<Response>((resolve) => {
+          reconnect = resolve;
+        });
+    }
+    if (url.endsWith('/reconnect-snapshot-applied'))
+      return Promise.resolve(
+        Response.json({
+          applied: registry.ackAppliedSnapshot(id, body.sessionId, body.cursor, body.offerId),
+        }),
+      );
+    return Promise.resolve(Response.json({ applied: true }));
+  });
+  f.source.close.mockImplementation(() => registry.remove(currentId));
+  return {
+    ...f,
+    registry,
+    delayReconnect: () => {
+      delayReconnect = true;
+    },
+    finishReconnect: () => reconnect(Response.json({ ok: true })),
+  };
+}
+
+it('retires the actual server watch captured by a delayed reconnect despite navigation clearing controls', async () => {
+  const f = registryFixture();
+  try {
+    await f.store.getState().switchSession('a');
+    await vi.waitFor(() => expect(f.registry.get('browser')?.watchedSessions.has('a')).toBe(true));
+    f.delayReconnect();
+    f.store.getState().forceReconnect();
+    f.connect('replaying');
+    await vi.waitFor(() =>
+      expect(f.registry.get('replaying')?.watchedSessions.has('a')).toBe(true),
+    );
+    await f.store.getState().switchSession('b');
+    f.finishReconnect();
+    await vi.waitFor(() =>
+      expect([...f.registry.get('replaying')!.watchedSessions]).toEqual(['b']),
+    );
+    expect(f.registry.ackAppliedSnapshot('replaying', 'a', 10, 'registry-offer')).toBe(false);
+    f.emit({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'a',
+      cursor: 10,
+      offerId: 'registry-offer',
+      state: 'idle',
+    });
+    expect(f.store.getState().sessions.active).toBe('b');
+    expect(f.fetch.mock.calls.filter(([url]) => url.includes('throughSeq='))).toHaveLength(0);
+  } finally {
+    f.store.getState().invalidateAuthentication();
+  }
+});
+
+it('reconciles a failed retirement by replacing its connection with only current interests', async () => {
+  const f = registryFixture(true);
+  try {
+    await f.store.getState().switchSession('a');
+    await vi.waitFor(() => expect(f.registry.get('browser')?.watchedSessions.has('a')).toBe(true));
+    await f.store.getState().switchSession('b');
+    await vi.waitFor(() => expect(f.source.close).toHaveBeenCalledTimes(1));
+    f.connect('replacement');
+    await vi.waitFor(() =>
+      expect([...f.registry.get('replacement')!.watchedSessions]).toEqual(['b']),
+    );
+    expect(f.registry.getConnectionsWatching('a')).toHaveLength(0);
+    expect(f.store.getState().sessions.active).toBe('b');
+  } finally {
+    f.store.getState().invalidateAuthentication();
+  }
+});
+
+it('keeps an exact background offer authoritative when its pending chat is revisited', async () => {
+  const f = registryFixture();
+  try {
+    await f.store.getState().switchSession('a');
+    f.store.getState().sendMessage('pending');
+    await vi.waitFor(() => expect(f.posts('send')).toHaveLength(1));
+    await f.store.getState().switchSession('b');
+    f.registry.offerSnapshot('browser', 'a', 5, 'exact-prefix');
+    f.emit({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'a',
+      cursor: 5,
+      offerId: 'exact-prefix',
+      state: 'running',
+    });
+    await vi.waitFor(() => expect(f.historySignal()).toBeDefined());
+    await f.store.getState().switchSession('a');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(f.posts('switch').at(-1)).not.toHaveProperty('historyCursor');
+    f.history(Response.json({ messages: [], current: null, cursor: 5 }));
+    await vi.waitFor(() =>
+      expect(f.posts('reconnect-snapshot-applied').at(-1)?.offerId).toBe('exact-prefix'),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(f.source.close).not.toHaveBeenCalled();
+    expect(f.store.getState().sessions.active).toBe('a');
+  } finally {
+    f.store.getState().invalidateAuthentication();
+  }
+});
+
+it('does not let an old retirement completion suppress retirement of a reselected lifetime', async () => {
+  let first!: (response: Response) => void;
+  let retirements = 0;
+  const f = fixture((url, init) => {
+    if (
+      url.endsWith('/unwatch') &&
+      JSON.parse(String(init?.body)).sessionId === 'a' &&
+      ++retirements === 1
+    )
+      return new Promise<Response>((resolve) => {
+        first = resolve;
+      });
+  });
+  try {
+    await f.store.getState().switchSession('a');
+    await f.store.getState().switchSession('b');
+    await vi.waitFor(() => expect(first).toBeTypeOf('function'));
+    await f.store.getState().switchSession('a');
+    await f.store.getState().switchSession('b');
+    first(Response.json({ ok: true }));
+    await vi.waitFor(() =>
+      expect(f.posts('unwatch').filter((x) => x.sessionId === 'a')).toHaveLength(2),
+    );
+    await vi.waitFor(() => expect(f.posts('switch').at(-1)?.sessionId).toBe('b'));
+    expect(f.source.close).not.toHaveBeenCalled();
   } finally {
     f.store.getState().invalidateAuthentication();
   }

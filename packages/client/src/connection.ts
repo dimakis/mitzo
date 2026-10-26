@@ -34,6 +34,7 @@ export interface MitzoConnectionConfig {
 export type ConnectionListener = (msg: Record<string, unknown>) => boolean | void;
 
 const MAX_PENDING_SENDS = 100;
+const MAX_RETIRED_SESSION_MARKERS = 256;
 const HEARTBEAT_INTERVAL_MS = 5_000;
 
 export class MitzoConnection {
@@ -125,8 +126,14 @@ export class MitzoConnection {
   }
 
   send(msg: Record<string, unknown>): boolean {
-    if (msg.type === 'switch_session' && this.config.sessionInterest)
+    if (msg.type === 'switch_session' && this.config.sessionInterest) {
       msg = { ...msg, clientManagedWatches: true };
+      if (
+        typeof msg.sessionId === 'string' &&
+        this.appliedDelivery.hasPendingSnapshot(msg.sessionId)
+      )
+        delete msg.historyCursor;
+    }
     const payload = JSON.stringify(msg);
     if (this._connected && this.ws?.readyState === WS_READY_STATE.OPEN) {
       this.ws.send(payload);
@@ -189,9 +196,22 @@ export class MitzoConnection {
   }
 
   clearSession(sessionId: string): void {
-    if (this.config.sessionInterest && !this.unwatchedSessions.has(sessionId)) {
+    if (
+      this.config.sessionInterest &&
+      this._connected &&
+      this._connectionId &&
+      this.ws?.readyState === WS_READY_STATE.OPEN &&
+      !this.unwatchedSessions.has(sessionId)
+    ) {
       this.unwatchedSessions.add(sessionId);
-      this.send({ type: 'unwatch', sessionId });
+      if (this.unwatchedSessions.size > MAX_RETIRED_SESSION_MARKERS)
+        this.unwatchedSessions.delete(this.unwatchedSessions.values().next().value!);
+      try {
+        // Lifecycle retirement must not enter the navigation-scoped send queue.
+        this.ws.send(JSON.stringify({ type: 'unwatch', sessionId }));
+      } catch {
+        this.checkAndReconnect(true);
+      }
     }
     this.seqBySession.delete(sessionId);
     this.replayingSessions.delete(sessionId);
