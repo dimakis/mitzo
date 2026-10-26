@@ -200,7 +200,7 @@ it.each(['accountId', 'connectionId', 'cwd', 'model'])(
 );
 it.each([
   ['PrepareRepositoryChat', { repository: 'example/repo', prompt: '' }],
-  ['PrepareRepositoryChat', { repository: 'example/repo', prompt: 'x'.repeat(8001) }],
+  ['PrepareRepositoryChat', { repository: 'example/repo', prompt: 'x'.repeat(64001) }],
   ['GetRepositoryChatPreparation', { preparationId: 'not-a-uuid' }],
   ['ListRepositories', { cwd: '/forged' }],
 ])('refuses malformed %s input before acquiring a service', async (name, input) => {
@@ -208,6 +208,69 @@ it.each([
   expect(
     (await tools.execute(name as string, input as Record<string, unknown>, signal()))?.isError,
   ).toBe(true);
+  expect(runtime.service).not.toHaveBeenCalled();
+});
+
+it.each([9500, 64000])('preserves a %i-character retained build brief', async (length) => {
+  const { tools } = fixture();
+  const prefix = 'Build from the retained brief.\n';
+  const prompt = prefix + 'x'.repeat(length - prefix.length);
+  expect(prompt).toHaveLength(length);
+  runtime.prepareChat.mockResolvedValue({ ...draft, prompt });
+  const result = await tools.execute(
+    'PrepareRepositoryChat',
+    { repository: 'example/repo', prompt },
+    signal(),
+  );
+  expect(result?.isError).toBe(false);
+  expect(JSON.parse(result!.content).repositoryChat.prompt).toBe(prompt);
+  expect(runtime.prepareChat).toHaveBeenCalledWith(
+    binding,
+    'session',
+    'github',
+    'example/repo',
+    prompt,
+    expect.any(AbortSignal),
+  );
+});
+
+it('explains rejected input and permits a corrected call without looking for a nonexistent draft', async () => {
+  const { tools } = fixture();
+  const rejected = await tools.execute(
+    'PrepareRepositoryChat',
+    { repository: 'example/repo', prompt: 'PRIVATE BRIEF '.repeat(6000) },
+    signal(),
+  );
+  expect(rejected?.isError).toBe(true);
+  expect(rejected?.content).toContain('64000');
+  expect(rejected?.content).toContain('prompt');
+  expect(rejected?.content).toMatch(/not started/i);
+  expect(rejected?.content).toMatch(/correct.*retry/i);
+  expect(rejected?.content).not.toContain('PRIVATE BRIEF');
+  expect(runtime.service).not.toHaveBeenCalled();
+  expect(REPOSITORY_CHAT_INSTRUCTIONS).toMatch(/validation.*correct.*retry/i);
+
+  const corrected = await tools.execute(
+    'PrepareRepositoryChat',
+    { repository: 'example/repo', prompt: draft.prompt },
+    signal(),
+  );
+  expect(corrected?.isError).toBe(false);
+  expect(runtime.prepareChat).toHaveBeenCalledOnce();
+  expect(runtime.chatPreparation).not.toHaveBeenCalled();
+});
+
+it('identifies invalid fields without echoing caller-supplied routing or values', async () => {
+  const { tools } = fixture();
+  const result = await tools.execute(
+    'PrepareRepositoryChat',
+    { repository: '', prompt: draft.prompt, accountId: 'private-routing-value' },
+    signal(),
+  );
+  expect(result?.isError).toBe(true);
+  expect(result?.content).toContain('repository');
+  expect(result?.content).toMatch(/only.*repository.*prompt/i);
+  expect(result?.content).not.toContain('private-routing-value');
   expect(runtime.service).not.toHaveBeenCalled();
 });
 

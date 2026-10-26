@@ -97,6 +97,7 @@ for (const { theme, preclaim, accepted = false } of [
           json: {
             accountBinding: { ...account, accountLabel: 'Work API', model: 'luna-fixture' },
             mode: 'agent',
+            hasNativeCodexConversation: false,
             modelSelection: { model: 'luna-fixture', reasoningEffort: 'low' },
           },
         });
@@ -369,5 +370,63 @@ for (const { theme, preclaim, accepted = false } of [
       fullPage: true,
     });
     expect(errors).toEqual([]);
+  });
+}
+
+for (const theme of ['dark', 'light']) {
+  test(`already native pre-runtime conversation keeps its draft without a migration banner (${theme})`, async ({
+    page,
+  }, testInfo) => {
+    const files = (await bundle).outputFiles!;
+    let metadataReads = 0;
+    const mutations: string[] = [];
+    await page.route('**/*', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (route.request().method() !== 'GET') mutations.push(path);
+      const file = files.find(
+        (file) => path === (file.path.endsWith('.css') ? '/fixture.css' : '/fixture.js'),
+      );
+      if (file)
+        return route.fulfill({
+          body: file.text,
+          contentType: file.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+        });
+      if (path === '/')
+        return route.fulfill({
+          contentType: 'text/html',
+          body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
+        });
+      if (path === '/api/sessions/legacy-source/meta') {
+        metadataReads++;
+        return route.fulfill({
+          json: {
+            accountBinding: { ...account, accountLabel: 'Work API', model: 'luna-fixture' },
+            cwd: '/sandbox/workspaces/mgmt',
+            mode: 'agent',
+            hasNativeCodexConversation: true,
+          },
+        });
+      }
+      return route.fulfill({ status: 404, body: 'No live services in this fixture' });
+    });
+    await page.goto('/?pre-runtime=1');
+    await expect.poll(() => metadataReads).toBe(1);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    await expect(page.getByText(/Historical Responses execution is retired/)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Continue with Codex' })).toHaveCount(0);
+    await expect(page.getByLabel('Original conversation draft')).toHaveValue(
+      'Keep this unsent draft in the original conversation.',
+    );
+    await expect(page.getByLabel('Current conversation')).toHaveText('/chat/legacy-source');
+    expect(mutations).toEqual([]);
+    await page.screenshot({
+      path: testInfo.outputPath(`already-native-${theme}.png`),
+      fullPage: true,
+    });
   });
 }
