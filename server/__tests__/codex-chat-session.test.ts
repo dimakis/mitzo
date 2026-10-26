@@ -6392,6 +6392,40 @@ async function openOwnedOpenShellEfficiencyFixture(
   };
 }
 
+it('offers Telos backlog tools to a default native chat without a retained Telos role', async () => {
+  vi.clearAllMocks();
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
+  const { initializeTelosMainPublicationRuntime, closeTelosMainPublicationRuntime } =
+    await import('../telos-main-publication-runtime.js');
+  const canonical = createTelosCanonicalData();
+  const f = ownedLocalOptions();
+  f.opts.assertAgentContextAuthorization = vi.fn();
+  initializeTelosMainPublicationRuntime({
+    registry: f.opts.registry,
+    events: f.eventStore,
+    databasePath: () => canonical.dbPath,
+  });
+  let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    query = await openCodexChat(f.opts);
+    const tools = mocks.conversationOptions!.tools as { name: string }[];
+    for (const name of ['TelosListItems', 'TelosSearchItems', 'TelosManageItem'])
+      expect(tools.some((tool) => tool.name === name)).toBe(true);
+  } finally {
+    query?.close();
+    closeTelosMainPublicationRuntime();
+    f.eventStore.close();
+    canonical.close();
+  }
+});
+
 it('exposes discoverable Telos backlog maintenance in an ordinary OpenShell chat and binds mutations to its current operator', async () => {
   const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
   const { initializeTelosMainPublicationRuntime, closeTelosMainPublicationRuntime } =

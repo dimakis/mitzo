@@ -1164,11 +1164,12 @@ export class TelosWorkStore {
       }
       const rows = this.db
         .prepare(
-          `SELECT id,summary,status,parent_id AS parentId,updated_at AS updatedAt FROM items WHERE ${conditions.join(' AND ')} ORDER BY id LIMIT 501`,
+          `SELECT id,substr(summary,1,240) AS summary,length(summary)>240 AS summaryTruncated,status,parent_id AS parentId,updated_at AS updatedAt FROM items WHERE ${conditions.join(' AND ')} ORDER BY id LIMIT 501`,
         )
         .all(...values) as Array<{
         id: string;
         summary: string;
+        summaryTruncated: number;
         status: string;
         parentId: string | null;
         updatedAt: string | null;
@@ -1189,7 +1190,7 @@ export class TelosWorkStore {
               { active: 'active', archive: 'archived', trash: 'trashed' }[input.view])
         )
           return [];
-        return [{ ...row, effectiveDisposition }];
+        return [{ ...row, summaryTruncated: row.summaryTruncated === 1, effectiveDisposition }];
       });
       const items = selected.slice(0, input.limit);
       const nextCursor =

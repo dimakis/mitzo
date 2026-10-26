@@ -24,7 +24,7 @@ export const telosBacklogDefinitions: ToolDefinition[] = Object.entries(telosBac
     input_schema: { type: 'object', ...z.toJSONSchema(schema, { io: 'input' }) },
     description:
       name === 'TelosManageItem'
-        ? 'Inspect a Telos item and its lifecycle (operation read); edit its title (summary), intent, rationale or acceptance criteria; archive, unarchive, or restore from trash. Read first: edit uses item.revision; archive/unarchive/restore use lifecycle.revision. Mutations require exact request approval and requestId; retry the exact input after uncertainty. Archive preserves status, evidence and descendants. No lead assignment needed; no completion or deletion.'
+        ? 'Inspect a Telos item and its lifecycle (operation read); edit its title (summary), intent, rationale or acceptance criteria; archive, unarchive, or restore from trash. Read first: edit uses item.revision; archive/unarchive/restore use lifecycle.revision. Large reads return json-fragment: follow nextOffset, require unchanged snapshotHash, and concatenate contentFragment. Mutations require exact request approval and requestId; retry the exact input after uncertainty. Archive preserves status, evidence and descendants. No lead assignment needed; no completion or deletion.'
         : 'List or search canonical Telos items by title and brief text, status, parent and lifecycle view. Returns concise IDs/titles without loading every detail. Default view active excludes archived/trashed subtrees. Follow nextCursor even after an empty page; keep filters unchanged. Use TelosManageItem read for full content and fresh edit/lifecycle revisions. No lead assignment needed.',
   }),
 );
@@ -93,6 +93,23 @@ export async function executeTelosBacklogOperation(
             current,
           ),
         };
+        const full = JSON.stringify(value);
+        if ((input.offset ?? 0) > 0 || Buffer.byteLength(full) > 48 * 1024) {
+          const offset = input.offset ?? 0;
+          if (offset >= full.length)
+            throw new TelosWorkError(
+              'invalid',
+              'Invalid read offset; use nextOffset from the previous page',
+            );
+          const end = Math.min(offset + 8192, full.length);
+          value = {
+            format: 'json-fragment',
+            snapshotHash: createHash('sha256').update(full).digest('hex'),
+            offset,
+            contentFragment: full.slice(offset, end),
+            nextOffset: end < full.length ? end : null,
+          };
+        }
       } else {
         const permission = await owners.approve(name, structuredClone(input), ctx.signal);
         await ctx.assertCurrent();

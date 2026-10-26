@@ -3418,6 +3418,7 @@ async function openCodexChatBound(
           dispose = operation.dispose;
           const current = () => {
             signal.throwIfAborted();
+            callContext.assertCurrentSync?.();
             operation.assertCurrent();
             authorization.assertCurrent();
             assertHostCurrentSync();

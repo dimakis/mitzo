@@ -18,6 +18,7 @@ export const TelosListItemsResultSchema = z.strictObject({
       z.strictObject({
         id,
         summary: z.string(),
+        summaryTruncated: z.boolean(),
         status: TelosWorkItemSchema.shape.status,
         parentId: id.nullable(),
         updatedAt: z.string().nullable(),
@@ -51,7 +52,11 @@ export const TelosEditItemInputSchema = z
     'Supply at least one brief field to edit',
   );
 export const TelosManageItemInputSchema = z.discriminatedUnion('operation', [
-  z.strictObject({ operation: z.literal('read'), itemId: id }),
+  z.strictObject({
+    operation: z.literal('read'),
+    itemId: id,
+    offset: z.number().int().min(0).max(1048576).optional(),
+  }),
   TelosEditItemInputSchema.safeExtend({ operation: z.literal('edit') }),
   z.strictObject({
     operation: z.enum(['archive', 'unarchive', 'restore']),

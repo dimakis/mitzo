@@ -61,6 +61,15 @@ it('omits archived subtrees from active discovery and retains their status and c
   expect(f.work.listItems({ view: 'archive' }, f.actor).items.map((i) => i.id)).toEqual(['a', 'b']);
   expect(f.items.read('a')).toEqual(before);
 });
+it('keeps discovery concise even when a legacy title contains a wall of text', () => {
+  const f = fixture();
+  const summary = 'Original explanation '.repeat(5000) + 'searchable tail';
+  f.db.prepare('UPDATE items SET summary=? WHERE id=?').run(summary, 'a');
+  const item = f.work.listItems({ query: 'searchable tail' }, f.actor).items[0];
+  expect(item.summary.length).toBeLessThanOrEqual(240);
+  expect(item.summaryTruncated).toBe(true);
+  expect(f.items.read('a').summary).toBe(summary);
+});
 
 it('batches ordered record reads and reports missing items without discarding ready records', () => {
   const f = fixture();
