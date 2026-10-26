@@ -15,10 +15,17 @@ import {
 } from 'node:fs';
 import { join, relative, isAbsolute } from 'node:path';
 import { parse } from 'dotenv';
+import {
+  previousOpenShellContract,
+  readAcceptedOpenShellSource,
+} from './release-openshell-source.mjs';
 
 export const runtimeKinds = ['CODEX', 'RESPONSES', 'VERTEX', 'GEMINI'];
 const prefix = 'MITZO_ORDINARY_LOCAL_';
 const key = (kind, suffix) => `${prefix}${kind}_${suffix}`;
+export const runtimeDeclarationsEnabled = (env) =>
+  runtimeKinds.some((kind) => env[key(kind, 'ENABLED')] === '1') ||
+  env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED === '1';
 
 // Environment files contain credentials. Never return parser errors to the CLI.
 export function readPrivateEnvironment(file) {
@@ -70,6 +77,11 @@ export function checkRuntimeDeclarations(env, runtime) {
     const target = new runtime.vertex.OrdinaryLocalVertexTarget(env);
     target.assertCurrentSync();
     targets.push(target.descriptor());
+  }
+  if (env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED === '1') {
+    const selected = runtime.openshell.loadOrdinaryOpenShellCodexTarget(env);
+    assert(selected);
+    targets.push(selected.target);
   }
   return targets;
 }
@@ -123,6 +135,31 @@ export function prepareRuntimeDeclarations(root, source, runtime) {
       'vertex.json',
       runtime.vertex.ordinaryLocalVertexContractRevision(),
     );
+  if (env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED === '1') {
+    const name = 'MITZO_ORDINARY_OPENSHELL_CODEX_TARGET_FILE';
+    const previous = read(env[name]);
+    const config = runtime.shell.openShellRuntimeConfig(env);
+    assert(config && config.seedStackManifest);
+    const measurement = runtime.native.measureHostCodexExecutable(config.cli);
+    const revision = runtime.openshell.ordinaryOpenShellCodexContractRevision(
+      config,
+      measurement.sha256,
+    );
+    if (previous.runtimeContractRevision !== revision) {
+      const source = readAcceptedOpenShellSource(root, env[name]);
+      assert.equal(
+        previous.runtimeContractRevision,
+        previousOpenShellContract(config, measurement.sha256, source),
+      );
+      const currentVersion = readFileSync(
+        join(root, 'docs/spikes/openshell-codex/runtime-codex-version'),
+        'utf8',
+      ).trim();
+      assert.equal(source.codexVersion, currentVersion);
+    }
+    measurement.assertCurrent();
+    add(name, 'openshell.json', revision);
+  }
   if (!plans.length) return { changed: false, targets: [] };
   const directory = join(root, '.runtime-targets');
   const inside = (file) => {

@@ -205,7 +205,11 @@ it.each(['disabled', 'plist-selector', 'shell-selector', 'dotenv-override', 'pri
     const f = fixture();
     mkdirSync(join(f.next, 'scripts'));
     mkdirSync(join(f.next, 'scripts/lib'));
-    for (const file of ['release-runtime-declarations.mjs', 'lib/release-runtime-declarations.mjs'])
+    for (const file of [
+      'release-runtime-declarations.mjs',
+      'lib/release-runtime-declarations.mjs',
+      'lib/release-openshell-source.mjs',
+    ])
       writeFileSync(join(f.next, 'scripts', file), readFileSync(join('scripts', file)));
     symlinkSync(realpathSync('node_modules'), join(f.next, 'node_modules'));
     let source = 'SECRET=never-print-this-secret\n';

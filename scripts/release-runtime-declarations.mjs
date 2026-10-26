@@ -8,7 +8,7 @@ import {
   checkRuntimeDeclarations,
   prepareRuntimeDeclarations,
   readPrivateEnvironment,
-  runtimeKinds,
+  runtimeDeclarationsEnabled,
 } from './lib/release-runtime-declarations.mjs';
 
 const root = realpathSync(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -19,7 +19,12 @@ try {
   const env = parse(source);
   // start.sh loads .env without override. Reject conflicting launcher/shell
   // selectors rather than validate settings different from the daemon's.
-  const critical = (name) => name.startsWith('MITZO_ORDINARY_LOCAL_') || name.startsWith('DOTENV_');
+  const critical = (name) =>
+    name.startsWith('MITZO_ORDINARY_LOCAL_') ||
+    name.startsWith('MITZO_ORDINARY_OPENSHELL_') ||
+    name.startsWith('MITZO_OPENSHELL_') ||
+    name.startsWith('OPENSHELL_') ||
+    name.startsWith('DOTENV_');
   const plistEnv = JSON.parse(
     execFileSync(
       'python3',
@@ -37,7 +42,7 @@ try {
     Object.keys(process.env).some((n) => critical(n) && process.env[n] !== env[n])
   )
     throw Error();
-  if (!runtimeKinds.some((kind) => env[`MITZO_ORDINARY_LOCAL_${kind}_ENABLED`] === '1')) {
+  if (!runtimeDeclarationsEnabled(env)) {
     console.log(JSON.stringify({ localRuntimeDeclarations: 'disabled' }));
   } else {
     // Load the same compiled validators and source manifest as the candidate.
@@ -55,6 +60,9 @@ try {
       codex: await load('ordinary-local-codex-host-runtime.js'),
       responses: await load('ordinary-local-responses-capabilities.js'),
       vertex: await load('ordinary-local-vertex-capabilities.js'),
+      openshell: await load('ordinary-openshell-codex-entry-owner.js'),
+      shell: await load('openshell-runtime.js'),
+      native: await load('frozen-host-codex-executable.js'),
     };
     const result =
       process.argv[2] === '--prepare'
