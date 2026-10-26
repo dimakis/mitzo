@@ -6,6 +6,9 @@ import {
 import { contextDigest } from '../agent-context-compiler.js';
 import { assembleSourceSnapshots } from '../source-snapshot-context.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { login, authenticateToken, revokeAuthSession, type AuthSession } from '../auth.js';
+const logins: AuthSession[] = [];
+afterEach(() => logins.splice(0).forEach(revokeAuthSession));
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -345,62 +348,73 @@ describe('bound ordinary OpenShell owner (offline)', () => {
     });
     expect(f.dispatch).toHaveBeenCalledTimes(2);
   });
-  it('reopens exact native custody and accepts a new explicit command without replaying old turns', async () => {
-    const f = fixture();
-    await f.driver.admit(f.meta, f.command('first'));
-    await f.driver.admit(
-      { ...f.meta, selectedModel: 'next', reasoningEffort: 'high' },
-      f.command('second', 'next', 'high'),
-    );
-    const before = f.native.commands('session', f.account);
-    const physical = f.native.readArtifactRuntime('session', f.account);
-    f.driver.close();
-    const reopened = f.reopen();
-    const resumeDispatch = vi.fn(async (input) => {
-      input.admission.assertOptions({
-        conversationId: 'session',
-        messageId: input.commandId,
-        resume: true,
-        binding: input.account,
-        profile: input.profile,
-        session: { cwd: f.meta.cwd, mode: 'agent' },
-        prompt: input.payload.text,
-        systemPrompt: input.payload.systemPrompt,
-        model: input.expected.selection.model,
-        reasoningEffort: input.expected.selection.thinking,
-        agentProfile: f.meta.agentProfile,
-        ...('kind' in input.workspace && input.workspace.kind === 'ordinary'
-          ? { ordinaryWorkspace: input.workspace }
-          : { repositoryWorkspace: input.workspace }),
+  it.each([false, true])(
+    'reopens exact native custody without replaying old turns (new login: %s)',
+    async (newLogin) => {
+      const f = fixture();
+      await f.driver.admit(f.meta, f.command('first'));
+      await f.driver.admit(
+        { ...f.meta, selectedModel: 'next', reasoningEffort: 'high' },
+        f.command('second', 'next', 'high'),
+      );
+      const before = f.native.commands('session', f.account);
+      const physical = f.native.readArtifactRuntime('session', f.account);
+      f.driver.close();
+      const reopened = f.reopen();
+      const resumeDispatch = vi.fn(async (input) => {
+        input.admission.assertOptions({
+          conversationId: 'session',
+          messageId: input.commandId,
+          resume: true,
+          binding: input.account,
+          profile: input.profile,
+          session: { cwd: f.meta.cwd, mode: 'agent' },
+          prompt: input.payload.text,
+          systemPrompt: input.payload.systemPrompt,
+          model: input.expected.selection.model,
+          reasoningEffort: input.expected.selection.thinking,
+          agentProfile: f.meta.agentProfile,
+          ...('kind' in input.workspace && input.workspace.kind === 'ordinary'
+            ? { ordinaryWorkspace: input.workspace }
+            : { repositoryWorkspace: input.workspace }),
+        });
+        input.admission.persistNativeCustody(reopened);
+        await f.dispatch(input);
       });
-      input.admission.persistNativeCustody(reopened);
-      await f.dispatch(input);
-    });
-    const resumed = new OrdinaryOpenShellCodexOwnedRuntime({
-      ...f.owners,
-      resume: true,
-      dispatch: resumeDispatch,
-    });
-    await expect(resumed.admit(f.meta, f.command('after-restart'))).resolves.toMatchObject({
-      dispatched: true,
-    });
-    await resumed.admit(
-      { ...f.meta, selectedModel: 'next', reasoningEffort: 'high' },
-      f.command('followup', 'next', 'high'),
-    );
-    expect(reopened.commands('session', f.account)[0]).toEqual(before[0]);
-    expect(
-      reopened
-        .commands('session', f.account)
-        .slice(0, 2)
-        .map((command) => ({ id: command.id, model: command.model, prompt: command.prompt })),
-    ).toEqual(
-      before.map((command) => ({ id: command.id, model: command.model, prompt: command.prompt })),
-    );
-    expect(reopened.readArtifactRuntime('session', f.account)).toEqual(physical);
-    expect(reopened.read('session', f.account).threadId).toBe('native-thread');
-    expect(resumeDispatch).toHaveBeenCalledTimes(1);
-  });
+      const actor = newLogin
+        ? await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!)
+        : undefined;
+      if (newLogin && !actor) throw Error('Fixture login failed');
+      if (actor) logins.push(actor);
+      const custody = reopened.readOpenShellCustody('session', f.account);
+      const resumed = new OrdinaryOpenShellCodexOwnedRuntime({
+        ...f.owners,
+        authSessionId: actor?.id ?? f.owners.authSessionId,
+        resume: true,
+        dispatch: resumeDispatch,
+      });
+      await expect(resumed.admit(f.meta, f.command('after-restart'))).resolves.toMatchObject({
+        dispatched: true,
+      });
+      await resumed.admit(
+        { ...f.meta, selectedModel: 'next', reasoningEffort: 'high' },
+        f.command('followup', 'next', 'high'),
+      );
+      expect(reopened.commands('session', f.account)[0]).toEqual(before[0]);
+      expect(
+        reopened
+          .commands('session', f.account)
+          .slice(0, 2)
+          .map((command) => ({ id: command.id, model: command.model, prompt: command.prompt })),
+      ).toEqual(
+        before.map((command) => ({ id: command.id, model: command.model, prompt: command.prompt })),
+      );
+      expect(reopened.readArtifactRuntime('session', f.account)).toEqual(physical);
+      expect(reopened.read('session', f.account).threadId).toBe('native-thread');
+      expect(resumeDispatch).toHaveBeenCalledTimes(1);
+      expect(reopened.readOpenShellCustody('session', f.account)).toEqual(custody);
+    },
+  );
   it('refuses a different signed operator on cold resume', async () => {
     const f = fixture();
     await f.driver.admit(f.meta, f.command('first'));
@@ -606,6 +620,17 @@ it('acknowledges a retained consumed OpenShell command after catalog retirement 
   expect(() =>
     assertOrdinaryHistoricalAcknowledgement(f.events, 'session', 'foreign-operator', wire, false),
   ).toThrow();
+  const actor = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
+  if (!actor) throw Error('Fixture login failed');
+  logins.push(actor);
+  expect(assertOrdinaryHistoricalAcknowledgement(f.events, 'session', actor.id, wire, false)).toBe(
+    true,
+  );
+  revokeAuthSession(actor);
+  expect(() =>
+    assertOrdinaryHistoricalAcknowledgement(f.events, 'session', actor.id, wire, false),
+  ).toThrow();
+
   expect(() =>
     assertOrdinaryHistoricalAcknowledgement(
       f.events,

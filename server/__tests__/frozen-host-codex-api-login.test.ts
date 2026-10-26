@@ -4,8 +4,24 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AccountBinding } from '@mitzo/protocol';
 import { FrozenHostCodexApiLogin } from '../frozen-host-codex-api-login.js';
+import * as boundedRead from '../bounded-file-read.js';
+const schemas = vi.hoisted(() => ({ objects: 0 }));
+vi.mock('zod', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('zod')>();
+  return {
+    ...actual,
+    z: {
+      ...actual.z,
+      object: (...args: Parameters<typeof actual.z.object>) => {
+        schemas.objects++;
+        return actual.z.object(...args);
+      },
+    },
+  };
+});
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+afterEach(() => vi.restoreAllMocks());
 const binding: AccountBinding = {
   accountId: 'work',
   accountLabel: 'Work API',
@@ -72,6 +88,28 @@ it('uses one controller-qualified key read for a host-tool fence without account
   expect(f.rpc.request).not.toHaveBeenCalled();
   f.rotate();
   await expect(lease.assertCredentialCurrent!(new AbortController().signal)).rejects.toThrow();
+  expect(f.rpc.close).toHaveBeenCalledOnce();
+});
+it('reuses auth validation without rebuilding schemas or caching fresh credential reads', async () => {
+  const f = fixture();
+  const login = await FrozenHostCodexApiLogin.capture(binding, {
+    privateRoot: f.root,
+    bootstrapId: 'f'.repeat(64),
+    authority: f.authority,
+    signal: new AbortController().signal,
+  });
+  const lease = await login.connect(f.launch);
+  const reads = vi.spyOn(boundedRead, 'readBoundedFile');
+  schemas.objects = 0;
+  for (let index = 0; index < 3; index++) lease.assertCurrentSync();
+  expect(reads).toHaveBeenCalledTimes(3);
+  expect(schemas.objects).toBe(0);
+  writeFileSync(join(login.privateHome, 'auth.json'), JSON.stringify({ OPENAI_API_KEY: 123 }), {
+    mode: 0o600,
+  });
+  expect(() => lease.assertCurrentSync()).toThrow('API Codex login unavailable');
+  expect(reads).toHaveBeenCalledTimes(4);
+  expect(schemas.objects).toBe(0);
   expect(f.rpc.close).toHaveBeenCalledOnce();
 });
 it('retains a private API login and resumes its exact billing account and physical home', async () => {

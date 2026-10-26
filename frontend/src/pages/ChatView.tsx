@@ -1,3 +1,4 @@
+import { chatModelSettings } from '../lib/chat-model-settings';
 import { LegacyNativeContinuation } from '../components/LegacyNativeContinuation';
 import { reviewedBriefingLaunch } from '../lib/launch-draft-delivery';
 import { localCommandSessionId } from '@mitzo/client';
@@ -783,6 +784,7 @@ export function ChatView() {
     launching = false,
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
+    composerDraft?: import('@mitzo/client').SendMessageOptions['composerDraft'],
   ): boolean {
     if (
       roleSetupRequested ||
@@ -802,6 +804,7 @@ export function ChatView() {
           localRuntime.preparedFirst ? 'first' : 'continue',
           {
             onDelivery,
+            composerDraft,
             ...(boundDraftOwner.sessionId === activeSessionId && boundDraftOwner.draftId
               ? { draftId: boundDraftOwner.draftId }
               : {}),
@@ -822,7 +825,10 @@ export function ChatView() {
       });
       return (
         !!command.request &&
-        sendPreparedRepositoryCommand(command.request, activeSessionId, { onDelivery })
+        sendPreparedRepositoryCommand(command.request, activeSessionId, {
+          onDelivery,
+          composerDraft,
+        })
       );
     }
     if (localRuntime.continuation && activeSessionId) {
@@ -844,7 +850,9 @@ export function ChatView() {
         text,
         images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
       });
-      return !!command.request && sendLocalFirstCommand(command.request, { onDelivery });
+      return (
+        !!command.request && sendLocalFirstCommand(command.request, { onDelivery, composerDraft })
+      );
     }
     if (explicitNew) {
       if (
@@ -875,6 +883,7 @@ export function ChatView() {
       return (briefingOwnedDraft ? sendBriefingCommand : sendLocalFirstCommand)(command, {
         draftId: newChatDraft.draft.id,
         onDelivery,
+        composerDraft,
         onSessionAssigned: (assignedId) => {
           try {
             markAgentBuilderAssigned(newChatDraft.draft, assignedId);
@@ -914,6 +923,7 @@ export function ChatView() {
       contextBlocks: ctxBlocks,
       ...(!activeSessionId ? { sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots } : {}),
       ...(onDelivery ? { onDelivery } : {}),
+      ...(composerDraft ? { composerDraft } : {}),
       ...(accountSelection ?? {}),
       ...(!activeSessionId && repositorySelection?.repositoryWorkspaceId
         ? {
@@ -1027,6 +1037,31 @@ export function ChatView() {
     `${tokens.numCompactions}:${tokens.compactionPhase ?? ''}:${messages.running}`,
   );
   const [agentLabel, setAgentLabel] = useState<string | undefined>(undefined);
+  const modelSettings = chatModelSettings({
+    activeSessionId,
+    sessionId,
+    roleSetupLocked,
+    localBound,
+    metadataPending: localRuntime.metadataPending,
+    metadataUnavailable: localRuntime.metadataUnavailable,
+    commandAvailable: localRuntime.commandAvailable,
+    preparedFirst: localRuntime.preparedFirst,
+    runtimeReason: localRuntime.reason,
+    nativeConstraintReason: localRuntime.nativeConstraint?.reason,
+    modelSettingsReadOnlyReason: localRuntime.modelSettingsReadOnlyReason,
+    repositoryLoading: repositoryHandoff.loading,
+    briefingLocked: briefingChat.selectionLocked && !briefingOwnedDraft,
+    briefingLoading: briefingChat.loading,
+    briefingError: briefingChat.error,
+    briefingLaunchReason,
+    launchSending,
+    starting: messages.running && !activeSessionId,
+  });
+  const retryModelSettings = localRuntime.metadataUnavailable
+    ? localRuntime.refresh
+    : briefingChat.error && !briefingOwnedDraft
+      ? briefingChat.retry
+      : undefined;
   const accountModelControl =
     !repositoryHandoff.present || activeSessionId || repositoryHandoff.preparation ? (
       <AccountModelPicker
@@ -1106,15 +1141,10 @@ export function ChatView() {
                 : undefined
               : undefined
         }
-        disabled={
-          localRuntime.preparedFirst ||
-          (messages.running && !localRuntime.continuation) ||
-          controlsBlocked ||
-          repositoryHandoff.loading ||
-          (briefingChat.selectionLocked && !briefingOwnedDraft) ||
-          !!briefingLaunchReason ||
-          launchSending
-        }
+        disabled={!!modelSettings.disabledReason}
+        disabledReason={modelSettings.disabledReason}
+        notice={modelSettings.notice}
+        onRetry={retryModelSettings}
         sessionId={activeSessionId}
         preferredModel={modelState}
         onDraftSelectionChange={
@@ -1827,14 +1857,27 @@ export function ChatView() {
                         : undefined
                 }
                 savedChatDraft={launch || savedLaunch ? undefined : savedChatDraft}
+                acceptedComposerDraft={
+                  localCommand?.state === 'consumed' && localCommand.sessionId === activeSessionId
+                    ? localCommand.composerDraft
+                    : undefined
+                }
                 composerGeneration={chatDraftRevision}
                 key={
                   repositoryHandoff.present
                     ? `${repositoryHandoff.scope}:${repositoryHandoff.preparation ? 'loaded' : 'loading'}`
                     : undefined
                 }
-                onSend={(text, images, context, onDelivery, onSessionAssigned) =>
-                  handleSend(text, images, context, false, onDelivery, onSessionAssigned)
+                onSend={(text, images, context, onDelivery, onSessionAssigned, composerDraft) =>
+                  handleSend(
+                    text,
+                    images,
+                    context,
+                    false,
+                    onDelivery,
+                    onSessionAssigned,
+                    composerDraft,
+                  )
                 }
                 onStop={handleStop}
                 onInterrupt={localBound ? undefined : handleInterrupt}
@@ -1878,12 +1921,16 @@ export function ChatView() {
                   localCommand.state !== 'consumed'
                     ? localCommand.state === 'pending'
                       ? 'Sending…'
-                      : 'Something went wrong.'
+                      : ['uncertain', 'reserved', 'retained'].includes(localCommand.state)
+                        ? 'Delivery not confirmed.'
+                        : 'Something went wrong.'
                     : undefined) ??
                   (explicitNew && localCommand && localCommand.state !== 'consumed'
                     ? localCommand.state === 'pending'
                       ? 'Sending…'
-                      : 'Something went wrong.'
+                      : ['uncertain', 'reserved', 'retained'].includes(localCommand.state)
+                        ? 'Delivery not confirmed.'
+                        : 'Something went wrong.'
                     : undefined) ??
                   (localFirstCommand && (!localTransportAvailable || !connected)
                     ? 'Execution connection is unavailable. Reconnect before sending.'

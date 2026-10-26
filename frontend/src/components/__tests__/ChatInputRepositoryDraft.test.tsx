@@ -83,6 +83,10 @@ it('uses a preparation-owned storage key without changing runtime session identi
     undefined,
     expect.any(Function),
     expect.any(Function),
+    {
+      storageKey: 'mitzo-repository-prompt:prep-a',
+      revisionToken: expect.stringMatching(/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/),
+    },
   );
   rerender(<ChatInput onSend={onSend} onStop={vi.fn()} running sessionId="assigned" />);
   expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe('');

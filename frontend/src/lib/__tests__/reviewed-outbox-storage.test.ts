@@ -238,6 +238,46 @@ const ordinaryBody = {
   },
   payload: { text: 'Original ordinary command' },
 };
+it.each([false, true])(
+  'journals accepted composer proof before retirement (failure=%s)',
+  (fail) => {
+    const disk = memory();
+    const storage = createReviewedOutboxStorage(disk, 'https://one.test/local/send', 'local');
+    const composerDraft = { storageKey: 'mitzo-draft-chat', revisionToken: 'exact-revision' };
+    const entry = {
+      body: ordinaryBody,
+      scope: 1,
+      ordinaryDelivery: { version: 2, phase: 'continue' },
+      uncertain: false,
+      composerDraft,
+      localReceipt: { state: 'consumed', sessionId: ordinaryBody.sessionId },
+    };
+    storage.setItem('queue', JSON.stringify([entry]));
+    const marker = `mitzo-draft-accepted:${encodeURIComponent(composerDraft.storageKey)}`;
+    const write = disk.setItem;
+    const events: string[] = [];
+    vi.spyOn(disk, 'setItem').mockImplementation((key, value) => {
+      events.push('write:' + key);
+      if (fail && key === marker) throw Error('Journal quota');
+      write(key, value);
+    });
+    const remove = disk.removeItem;
+    vi.spyOn(disk, 'removeItem').mockImplementation((key) => {
+      events.push('remove:' + key);
+      remove(key);
+    });
+    if (fail) {
+      expect(() => storage.setItem('queue', '[]')).toThrow('Journal quota');
+      expect(JSON.parse(storage.getItem('queue')!)).toEqual([entry]);
+    } else {
+      storage.setItem('queue', '[]');
+      expect(JSON.parse(disk.getItem(marker)!)).toEqual(composerDraft);
+      expect(events[0]).toBe('write:' + marker);
+      expect(events[1]).toMatch(/^remove:/);
+      expect(storage.getItem('queue')).toBe('[]');
+    }
+  },
+);
 it.each(['first', 'continue'] as const)(
   'persists and manually recovers V2 %s through the actual browser adapter and existing outbox',
   async (phase) => {

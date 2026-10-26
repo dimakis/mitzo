@@ -1,0 +1,408 @@
+Chat receipt recovery and request efficiency — 25 October 2026
+
+Problem
+The investigated OpenShell request took 16.1 seconds to acknowledge, 29.4 seconds
+to first assistant text and 109.8 seconds to finish. Its follow-up was accepted
+and completed, but the phone continued showing a delivery error and submitted
+text almost two hours later. Smaller tool schemas had not established faster
+end-to-end completion.
+
+This branch starts from deployed source 5d1538df55cb. It does not reproduce or
+claim the exact device-side cause of losing that original HTTP receipt. It
+reproduces and repairs concrete gaps that could keep accepted work unresolved.
+
+Receipt recovery
+- A later receipt hint received while an older observation is pending now queues
+  one further exact read instead of being discarded. Concurrent hints coalesce.
+- Selecting the retained command, reconnecting or returning to the foreground
+  can observe its receipt again. Observation never dispatches or rebuilds intent.
+- The original command ID, payload, settings, session and phase remain frozen.
+  Only an authenticated matching 202 consumed receipt clears accepted delivery.
+- Local draft ownership includes an opaque edited revision token. It is retained
+  beside the command and never enters server/provider input.
+- Accepted revision proof is journaled before the final durable outbox entry is
+  removed. A document reload before React's cleanup cannot lose this proof.
+- A matching accepted revision can clear the submitted composer after reload.
+  New text, same-valued newer edits, changed rich draft content/settings and
+  another draft owner remain intact. Entries lacking revision proof retain text
+  conservatively. They can still recover the command's accepted delivery state.
+- Warm acceptance uses the same revision guard as reload recovery. Local
+  attachment/context edits retain receipt ancestry only across locally owned
+  transitions. A foreign same-valued edit cannot regain older cleanup authority.
+- Failed revision replacement first revokes older authority. If both revocation
+  operations fail, ordinary and rich draft persistence stay fenced until retry
+  succeeds; unsaved edits remain in memory. An unmounted observer leaves cleanup
+  proof for the active replacement composer.
+- Ambiguous local delivery says 'Delivery not confirmed.' in the existing quiet
+  status row. No layout, palette, font or approved settings redesign is introduced.
+
+Tool discovery
+The four small selected connection tool contracts (ListConnections,
+RequestConnectionAccess, GetConnectionGuide, ConnectionRequest) are available
+directly when each full serialized definition is at most 4 KiB. Large/uncommon
+contracts remain deferred. This removes the mandatory schema-description steps
+observed in the trace; it does not force the model's eventual choice of calls.
+The representative connection surface grows from 4,360 to 5,129 serialized bytes
+(769 extra), versus 16,532 bytes for all complete contracts. Returned schema
+objects cannot mutate the admission snapshot or its catalog revision. Selection,
+canonical tool identities and existing permissions still own execution.
+
+OpenShell authority qualification
+Each API owner qualification now performs one fresh readiness observation after
+read-only provider inspection, rather than two. One immediately repeated
+synchronous route projection is reused. There is no authority cache. The final
+credential, login, physical owner, workspace, source and dispatch fences remain.
+The repository proof's resolveKey plus final readiness sandwich is retained.
+This is a per-operation reduction; the retained trace cannot attribute the exact
+number of owner qualifications, so no total Keychain or wall-time saving is claimed.
+
+Knowledge verification
+Publisher integrity reads run in bounded waves of at most eight. A 17-file
+fixture requires three dependent waves instead of 17 serial reads. The number
+of reads/hashes is unchanged. Active reads settle before failure/cancellation
+returns, no later wave starts after cancellation, and manifest-order failure
+selection remains deterministic. Existing publication size limits, freshness,
+file-set/hash checks, policy and adoption evidence remain in force.
+
+Validation and limits
+All new behavior was developed with failing regressions before implementation.
+The combined focused client, frontend, authority, discovery and knowledge run
+passes 328 tests. The
+real composer/store/outbox fixture intercepts every request and covers mobile
+WebKit, mobile Chromium and desktop Chromium, light/dark themes, alternate
+accent/font preferences, whole-document replacement, accepted draft cleanup and
+same-valued newer draft preservation. The browser launch runs outside the macOS
+sandbox as required by AGENTS.md. Representative captures are recorded by the UI
+design contract. Client package type builds and focused strict frontend source
+type checking pass; design guards pass (108 tests, one skipped). The final combined intercepted browser run passes 14 checks
+(12 receipt cases and two browser-startup probes). ESLint/format checks pass and all 1,322 reviewed
+source fingerprints match the final implementation revision.
+
+The review correction pass additionally passes 282 focused frontend tests and
+44 briefing ownership tests. Two independent full local reviews and focused
+follow-ups approved the corrected source, including warm cross-editor ownership,
+failed storage revocation, revision ancestry and replacement-composer cleanup.
+A later CI regression exposed an intentionally absent empty rich-draft seed:
+its complete guarded fallback remains allowed only when that exact record is
+absent. Existing/unreadable records and revocation/write errors remain protected;
+109 targeted tests, including all 38 role-binding page cases, pass after the fix.
+These local reviews do not replace the required trusted Centaur report.
+
+CI head 746c3ee31 exposed a separate task-chat-tree observation barrier. Its
+retained browser evidence contains four successful GET /api/tasks bodies with
+the exact pending-review task, while the test timed out awaiting every body read
+from earlier navigations. Vitest's generic timeout confirms the callback never
+reported a failed task assertion; earlier meta-body observations also record
+navigation-related protocol errors. The UI row check had not yet run, so these
+artifacts do not establish whether that row was present. The corrected test
+polls completed reads independently and requires a GET issued after its request
+ordinal boundary, status 200 and the exact task. Existing DOM, restart, approval,
+draft and isolation assertions remain. Failed waits now retain pending URLs,
+request ordinals and current rows. A never-settling unrelated body reproduces
+the original timeout before the fix; six focused offline observer and adjacent geometry tests
+pass afterward, including rejection of late completions from older requests.
+The full private browser contract was attempted outside the sandbox using the
+qualified native artifact and isolated pinned Python. It hit local ENOSPC before
+qualification and is not a pass; hosted CI must execute the complete contract.
+The separate ordinary-chat fixture also now distinguishes receipt observations
+from command submissions. The original mobile case failed when a read-only
+receipt was counted as a second send. All six theme/project cases plus two
+browser startup probes pass with exact frozen-body, no-resubmit, authentication,
+explicit-retry and draft assertions retained. All 1,324 source fingerprints match.
+The canonical ordinary macOS journey, all four unit shards, full builds, browser
+interactions and native checks passed on 746c3ee31. Two other layout runners
+received shutdown signals; fresh combined CI remains required for this delta.
+
+The broad server compile exceeded the instructed 1 GiB local heap limit. It is
+left for CI; it is not reported as a successful build. No required CI, trusted
+Centaur approval, merge or deployment is claimed.
+
+There were no model-backed runtime tests, oven commands, staging operations,
+production configuration borrowing, warm-pool activation or deployments.
+Future live model tests must name an available Luna model and charged account
+before the call, against a separately selected authorized target.
+
+Publication status
+The user subsequently authorized creating the PR and proceeding without SSH
+signing. The initial PR base was the deployed baseline
+5d1538df55cb7d71b3532380cbef76050270c041. During landing, accepted main advanced
+to 7d36d4c8dd56c823a6597ad2d70749da34559aef (repository-read performance #1131).
+The branch integrates that accepted base, retains both source-fingerprint sets
+and selects runtime revision v1.0.698-composer-receipt-efficiency. This branch
+uses unsigned local commits without changing signing settings.
+Required CI, trusted review, merge and deployment remain separate gates.
+
+Remaining performance work
+These are proven operation and correctness improvements, not a measured live
+latency gain. The approximately 35,000-token initial context still needs exact
+section/cache attribution. Durable prompt acceptance ahead of lengthy provider
+preparation, larger authority-operation receipts and further knowledge/runtime
+reuse require their own ownership/admission design and end-to-end validation.
+
+Final landing native workflow profile (26 October)
+At 551a0cfed, all four unit shards, builds, browser interactions, native Swift
+and all three offline layout projects passed. The canonical native repository
+workflow exceeded its existing 240-second test deadline on API. A controlled
+same-commit retry also failed its native phase; remaining acceptance results
+are retained independently. No deadline, coverage, fence or assertion changed.
+
+For the identical 5,307-leaf subscription workload, the earlier passing run and
+551 performed exactly 6,041 policy compositions and 32,047 synchronous admission
+checks. Inclusive admission time rose from 69.09s to 115.58s. API 551 performed
+5,911 compositions and 31,611 synchronous admissions before timeout. These
+inclusive times overlap; they must not be added to policy or helper totals.
+
+Scratch-only unit profiling used actual bootstrap, login, executable and
+admission implementations with synthetic runtime observers and RPC. It launched
+no native process and made no model calls; it does not qualify the OS workflow.
+The API auth reader rebuilt its unchanged Zod schema for every fresh file read.
+Hoisting that schema reduced median 1,000-assertion time from 428.9ms to 408.4ms
+on this Mac, retaining identical checks and filesystem call counts. This is a
+measured local allocation reduction, not proof that hosted CI meets its deadline.
+The regression first failed with three schema constructions, then passed with
+zero constructions and three fresh bounded reads; malformed changed auth still
+causes a fourth read, refusal and client closure. All 55 API/bootstrap tests pass.
+
+The registered workflow now retains exclusive synchronous stage totals by phase,
+including API login file checks. Teardown has a separate profiling window and
+preserves the existing terminal operation marker. Existing call identity,
+restoration, recursion and timing tests pass; hosted qualification is required.
+Duplicate path canonicalization and the native resolver alternative did not
+show sufficient benefit and were left unchanged. Generic fresh owner checks
+continue to bracket mutable callbacks and physical effects.
+
+Trusted review correction: ordinary acceptance and unavailable storage
+Centaur review 5646123859 identified two valid gaps in the original correction.
+Ordinary delivery callbacks survive navigation, but replacement recovery had
+only been wired to local-command props. Also, failed durable proof capture could
+leave an unchanged mounted composer populated after ordinary acceptance.
+
+Exact ordinary acceptance now journals the current durable owner before notifying
+same-document replacements; future mounts also consume the marker. Explicit
+session assignment retains proof-backed owner mapping through later navigation.
+Storage-unavailable acceptance can clear only the original unchanged mount,
+using local and same-document edit generations plus readable storage baselines.
+Source and destination generations both survive an exact assignment. It cannot
+delete persisted draft payloads or turn failed token revocation into authority.
+Normal metadata revision fences continue to operate after a volatile clear.
+
+Both findings reproduced RED before correction. The final 135-test focused pass
+includes actual mobile/desktop ordinary HTTP outbox callers, rich drafts,
+assignment/navigation, same-text ABA, foreign editors, unavailable storage and
+failed revocation. Two independent reviewers approved the complete five-file
+delta and the extra source-ABA assignment correction. Strict focused TypeScript,
+ESLint and formatting pass. Design checks: 108 passed, one skipped. The existing
+intercepted composer fixture passes 14 checks across all three browser projects;
+accepted-empty and same-valued-newer screenshots were inspected on phone/desktop
+in dark Mint/System and light Teal/Georgia. No layout, reference or protected
+assertion changed. Generic ordinary reload before acceptance still lacks its own
+persisted composer proof; that broader existing client-persistence work is deferred.
+
+On combined head 1d07c0cd0, both hosted native account workflows passed their
+unchanged 240-second deadline. A complete focused local API run also passed
+against an isolated physical clone with 5,307 tracked leaves, 6,054 policy
+compositions, real OS fences and synthetic RPC; it took 122.24 seconds. The first
+local attempt could not inspect the shared checkout and is not counted as a pass.
+These outcomes validate the contract; they do not isolate a causal live speedup.
+Fresh exact-head CI and trusted review remain required for the composer changes.
+
+Desktop Library draft hydration regression
+The desktop layout failure on 1d07c0cd0 captured its retained task draft before
+asynchronous runtime capabilities finished hydrating. The later comparison
+correctly observed accountReference:null, combined-caps-r1 and sandbox; identity,
+content, revision and execution state were unchanged. Existing settings unit
+tests explicitly require this hydration without dirtying the task.
+
+The browser test now gates one capability response, proves the pending runtime,
+then waits for the exact hydrated runtime before retaining the full snapshot.
+It also compares every non-runtime field across that transition. Its original
+full draft equality after navigation/reload and server/idempotency assertions
+remain intact. The controlled pre-hydration snapshot reproduced the CI failure
+RED; the corrected test passes all three browser projects plus both startup
+checks (five passes). No product behavior or protected assertion was changed.
+
+Final same-key New/reset boundary
+CI on da71fee8e exposed one valid existing SendReceipt regression: genuine New
+advanced composer generation while reusing the unassigned storage key and text.
+The late acceptance journal could therefore notify a current same-token draft
+without the callback's old in-memory generation fence. Genuine New/reset now
+rotates the existing draft ownership revision even if identical text produces
+no DOM edit. This fences durable journals, direct cold proofs and local volatile
+authority while preserving exact assignment and distinct-owner navigation.
+
+The unchanged existing test and new ordinary/rich reset regressions reproduced
+RED, then passed. All 15 ChatInput suites plus saved-page, useDraft and
+useNewChatDraft suites pass: 18 files, 290 tests, one worker and a 1 GiB heap.
+Strict focused TypeScript and changed-file ESLint pass. No prior assertion or
+coverage was removed. Runtime review revision advances to v1.0.699.
+
+Native qualification allocation and diagnostic follow-up
+Combined c07d4804704abd2bde76872d3b7787376ce6a1a7 includes accepted main
+b96b7ef19d1e07266d50922d2eb29270e7cafe0a. Its first hosted native run passed
+the API journey in 224.38 seconds, but subscription preparation refused private
+publication. The private Python helper can return an operation error while
+exiting zero, so exit status and the public helper-error count do not prove
+successful publication. The retained evidence does not establish that cause.
+One controlled same-head retry materialized both repositories, then both tests
+exceeded their unchanged 240-second overall deadline during handoff. All later
+joined cases and 36 native authorization tests passed, with one existing skip.
+
+Retain compiled profile SELECT statements and the existing revision schema,
+while still executing fresh database reads and definition validation on every
+lookup. Reuse validated deeply frozen original transition facts, their
+immutable projections and one exact bounded original materialized-record string
+per live facts owner. Current database rows, markers, decisions, receipts,
+reservations, pointers, callbacks and physical authority remain freshly checked.
+Warm-cache tests cover mutation, malformed originals and exact-string replacement.
+
+Isolated synthetic benchmarks measured 1,000 profile reads at 17.30 to 3.08 ms,
+and 500 public adopted-custody assertions at 258.36 to 208.05 ms. Interleaved
+admission-current checks attributed only about 1.55% median improvement to profile
+allocation. These bounded measurements do not establish hosted deadline recovery.
+A complete local subscription journey against a disposable physical clone with
+5,309 tracked leaves passed with real OS fences and synthetic RPC: 113.69 seconds
+after these changes versus 104.24 seconds in an earlier separate baseline run.
+Those runs do not demonstrate an overall speedup. No provider/model was called.
+
+Finer nested profiling separates selection, reservation and custody work without
+altering receivers, return values or Promise identity. The later local profile
+observed 87,924 repository-record reads taking 6.79 seconds during handoff.
+A proposed general decoded-row cache was rejected: on an actual adopted custody
+fixture, cloning its 31,380-byte row took longer than fresh JSON parsing.
+That rejected design did not change mutable public database reads.
+CI now uploads the same sanitized native evidence immediately after that phase,
+including failures, without waiting for the remaining independent joined cases.
+Qualification coverage, assertions, deadlines and the final artifact stay intact.
+Fresh exact-head CI and trusted approval remain required before merge.
+
+Follow-up measured custody decoding and restart readiness
+On 8b0bd3fd5, hosted subscription completed in 216.23 seconds; API still hit the
+240-second limit during continued handoff inspection. Both preparations were
+materialized. All later joined cases in the canonical native job and its native
+authorization checks passed.
+The finer API profile attributed 18.85 seconds to 78,278 repository-record reads
+and 13.06 exclusive seconds to 18,340 adopted-custody assertions.
+
+The final internal optimization retains one bounded private frozen JSON decoding
+projection per repository store. Only the two synchronous read-only validators
+use it. Every invocation queries SQL afresh, compares the entire current record
+string, and checks row identity and the current SQL conversation pointer. It
+caches no permission, currentness result or error. Public mutable reads remain
+fresh independent objects, and returned reservation descriptors are freshly
+validated copies. Full graph qualification precedes freezing; oversized, deep,
+object-heavy and non-string inputs retain the uncached path without new refusal.
+Close releases the retained projection. Warm tests cover SQL-only pointer drift,
+changed bytes, deletion, malformed rows, descriptor/public mutation, separate
+stores, exact replacement and accepted fallback cases.
+
+Fresh marker facts that exactly equal the already validated immutable facts do
+not rebuild that same schema projection. Header and materialized-byte bounds
+still validate each time; unequal facts run the original complete schema.
+Receipt, decision, pointer, reservation, callback and physical checks remain.
+Nine rotating-order paired rounds of 500 actual public adopted assertions on a
+31,380-byte fixture row measured median 170.79 to 126.87 ms, with 26.65% median
+paired improvement. This is an isolated assertion result; it does not prove an
+end-to-end or hosted deadline improvement.
+
+The supplemental coordinator failure on 8b0 occurred after owner restart while
+the browser's exact acknowledged inbox was still hydrating. Retained responses
+and the later screenshot show the expected receipt, with no browser errors or
+failed HTTP response. The test now observes the restarted document's first exact
+inbox response before its unchanged canonical equality and five-second heading
+assertion. It requires status 200, the complete schema and exact receipt equality;
+it cannot skip a failed first response. The full local scenario passed in 76.11
+seconds with 11 native launches, no page errors and no real model calls. Two
+independent reviewers approved this test-only correction. No UI timeout,
+assertion, scenario or native qualification deadline was removed or increased.
+
+The final complete local API journey passed in 109.27 seconds process time
+against a new physical clone with 5,310 tracked leaves, real OS fences and
+synthetic RPC. Preparation, handoff, continued tools, revocation and cleanup
+completed. The custody/transition/workspace-owner batch passed 68 tests; the
+profiler passed seven. This validates the composed implementation locally; fresh
+exact-head hosted CI and trusted final LGTM still gate merge.
+
+Shared session identity query allocation
+Hosted bb7c811fc retained a completed subscription journey in 192.89 seconds,
+while API still reached the 240-second overall limit. API preparation recorded
+91.46 synchronous seconds versus subscription's 48.33 with the same major call
+counts. Subscription ran first, so a simple first-test cold-start explanation
+does not fit. The artifact does not establish the execution-rate difference's
+cause. API's final helper ran only 1.48 seconds of its 30-second budget before
+SIGKILL; subtracting cleanup leaves 240.014 active seconds. Timeout cleanup is
+strongly implicated, but the artifact alone does not identify the kill issuer.
+
+Every session metadata read also invoked an identity query that compiled the
+same SELECT again. Retain that statement beside the existing per-owner prepared
+statements, while executing a fresh SQL get and the existing public hook on each
+invocation. Connection ownership, transaction visibility, returned object
+mutability and close/reopen behavior remain. Constructor callbacks before the
+statement table exists retain the original prepare/get path. No row, negative
+lookup, permission, currentness result or error is cached.
+
+Nine interleaved rounds of 2,000 actual public calls against file-backed stores
+measured API getSession median 25.30 to 12.65 ms (49.93% paired improvement), and
+runtime-binding reads 23.00 to 11.14 ms (51.41%). Subscription results were
+similar. Tests reproduce repeated compilation RED, then prove one compilation
+with all fresh gets retained, external insert/update/delete visibility, caller
+mutation isolation, rollback, separate owners, close/reopen and the actual
+pre-statements migration callback. The focused protocol/metadata/lifecycle/owner
+batch passed all 359 tests. These are bounded operation and microbenchmark
+results, not proof of overall latency or hosted deadline recovery.
+
+The complete local API journey with the prepared identity statement passed in
+101.32 seconds process time against a new 5,310-leaf physical clone. Real OS
+fences, preparation, handoff, continued tools, revocation and cleanup all passed
+with synthetic RPC and no real model calls. This is a local composed-path pass;
+fresh exact-head hosted CI and trusted final approval remain required.
+
+Accepted-base integration
+Before publishing the shared query optimization, accepted main advanced to
+80e011ca7c609319076004e13d57433079d25b58 (next-message model settings, #1136).
+The combined source retains its settings restrictions and feedback alongside
+the reviewed receipt/draft ownership changes. The source registry preserves
+both families, with runtime revision v1.0.704.
+Independent integration review identified misleading accepted-base queue guidance:
+submitted local commands retain frozen settings, while unsent legacy queue entries
+use choices current at send time. The conditional note now states that existing
+boundary truthfully; queue storage and dispatch behavior are unchanged. A controlled
+RED/GREEN regression verifies one legacy drain with current settings. Native
+restriction/metadata/preparation locks and the bound-command guidance remain.
+
+The combined settings/receipt integration checks pass 404 functional tests across
+24 files. Shared design checks pass 108 with one existing skip. All 20 intercepted
+receipt/settings/startup browser checks pass across mobile WebKit, mobile Chromium
+and desktop Chromium. Dark Mint/System phone and light Teal/Georgia desktop
+legacy-queue captures were visually inspected: readable guidance, retained drafts,
+wrapping and no overflow. Approved settings references/protections are unchanged.
+These checks use synthetic data and make no backend or real model calls.
+
+Hosted bb7 also completed all later joined cases and 36 native authorization
+checks, with one existing skip; only the complete API workflow failed in that
+canonical job. Supplemental shard one exposed a second responsive-surface inbox
+hydration boundary after resizing from mobile to desktop. The prior restart
+observation passed. Final combined-result CI and trusted approval remain required.
+
+Responsive coordinator test observation
+The desktop remount observation captures eligibility when the application's own
+fetch is invoked: main document, desktop surface present, same origin, exact
+inbox operation and coordinator item. It observes the first actual HTTP response
+and consumes only a clone, preserving the original fetch receiver, arguments,
+Promise and response. A first failed status, malformed body or non-abort network
+error remains terminal. StrictMode can cancel its mount probe before any response;
+only a rejection proven to belong to that request's own aborted signal is ignored.
+The observer restores only its own wrapper and cleans up in finally. It makes no
+request, response, header, navigation or product change.
+
+Six focused cases pass after controlled RED cancellation and network-error races,
+including old-mobile/pre-surface exclusions, exact Promise/receiver identity, first
+503/malformed failures and wrapper ownership. The complete isolated coordinator
+journey passes in 75.72 seconds process time (74.88 seconds test time). Original
+300-second scenario and five-second heading bounds, complete schema and exact
+both-receipt equality remain. This uses synthetic RPC with actual isolated app,
+CLI and browser paths; no model or staging/production operations run.
+
+The final v1.0.704 source registry contains 1,337 distinct matching fingerprints,
+including both accepted-base and PR test helpers. Fresh exact-head hosted CI and
+trusted final approval still gate merge; local results do not prove hosted API
+deadline recovery.

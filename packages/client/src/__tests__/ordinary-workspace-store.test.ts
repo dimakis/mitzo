@@ -143,7 +143,10 @@ it('keeps the original payload and phase through lost response, logout and reloa
   channel.id = 'reattached-sse';
   f.store.getState().restoreAuthentication();
   expect(
-    f.fetch.mock.calls.filter(([path]) => path.startsWith('/api/ordinary/workspaces/commands/')),
+    f.fetch.mock.calls.filter(
+      ([path]) =>
+        path.startsWith('/api/ordinary/workspaces/commands/') && !path.endsWith('/receipt'),
+    ),
   ).toHaveLength(1);
   const restored = fixture(JSON.stringify(f.saved()));
   channel.id = 'reloaded-sse';
@@ -155,8 +158,9 @@ it('keeps the original payload and phase through lost response, logout and reloa
     state: 'uncertain',
   });
   expect(
-    restored.fetch.mock.calls.filter(([path]) =>
-      path.startsWith('/api/ordinary/workspaces/commands/'),
+    restored.fetch.mock.calls.filter(
+      ([path]) =>
+        path.startsWith('/api/ordinary/workspaces/commands/') && !path.endsWith('/receipt'),
     ),
   ).toHaveLength(0);
   expect(

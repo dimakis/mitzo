@@ -3,6 +3,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
 import { useLayoutEffect } from 'react';
 import { useDraft, type DraftSessionAssignment } from '../useDraft';
+import {
+  createChatDraft,
+  saveChatDraft,
+  getChatDraft,
+  chatDraftStorageKey,
+} from '../../lib/chat-drafts';
 
 beforeEach(() => localStorage.clear());
 afterEach(() => {
@@ -13,6 +19,207 @@ afterEach(() => {
 });
 
 describe('useDraft', () => {
+  it('revokes older proof when an identical edit cannot write a replacement revision', () => {
+    const first = renderHook(() => useDraft('receipt-chat'));
+    act(() => first.result.current[1]('Same text'));
+    const proof = first.result.current[4].capture()!;
+    const write = Storage.prototype.setItem;
+    const fault = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key,
+      value,
+    ) {
+      if (key.startsWith('mitzo-draft-revision:')) throw Error('Revision write unavailable');
+      write.call(this, key, value);
+    });
+    act(() => first.result.current[1]('Same text'));
+    first.unmount();
+    fault.mockRestore();
+    const restored = renderHook(() => useDraft('receipt-chat'));
+    act(() => expect(restored.result.current[4].consume(proof)).toBe(false));
+    expect(restored.result.current[0]).toBe('Same text');
+  });
+
+  it('does not persist edits under old proof while both revision replacement and revocation fail', () => {
+    const view = renderHook(() => useDraft('receipt-chat'));
+    act(() => view.result.current[1]('Original admitted text'));
+    const proof = view.result.current[4].capture()!;
+    const write = Storage.prototype.setItem;
+    const remove = Storage.prototype.removeItem;
+    const writeFault = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key,
+      value,
+    ) {
+      if (key.startsWith('mitzo-draft-revision:')) throw Error('Revision write unavailable');
+      write.call(this, key, value);
+    });
+    const removeFault = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (
+      this: Storage,
+      key,
+    ) {
+      if (key.startsWith('mitzo-draft-revision:')) throw Error('Revision revoke unavailable');
+      remove.call(this, key);
+    });
+    act(() => {
+      view.result.current[1]('Newer unsaved edit');
+      view.result.current[3]();
+    });
+    expect(view.result.current[0]).toBe('Newer unsaved edit');
+    expect(localStorage.getItem(proof.storageKey)).toBe('Original admitted text');
+    writeFault.mockRestore();
+    removeFault.mockRestore();
+    act(() => view.result.current[3]());
+    view.unmount();
+    const restored = renderHook(() => useDraft('receipt-chat'));
+    act(() => expect(restored.result.current[4].consume(proof)).toBe(false));
+    expect(restored.result.current[0]).toBe('Newer unsaved edit');
+  });
+  it('preserves pending source bytes and permits an unrelated destination while assignment revocation fails', () => {
+    localStorage.setItem('mitzo-draft-destination', 'Independent destination');
+    const view = renderHook(
+      ({ session, assignment }: { session: string; assignment: DraftSessionAssignment | null }) =>
+        useDraft(session, undefined, undefined, assignment),
+      {
+        initialProps: {
+          session: 'receipt-chat',
+          assignment: null as DraftSessionAssignment | null,
+        },
+      },
+    );
+    act(() => view.result.current[1]('Original admitted text'));
+    view.result.current[4].capture();
+    const write = Storage.prototype.setItem,
+      remove = Storage.prototype.removeItem;
+    const sourceRevision = 'mitzo-draft-revision:' + encodeURIComponent('mitzo-draft-receipt-chat');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      if (key === sourceRevision) throw Error('Source revision unavailable');
+      write.call(this, key, value);
+    });
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (this: Storage, key) {
+      if (key === sourceRevision) throw Error('Source revision unavailable');
+      remove.call(this, key);
+    });
+    act(() => view.result.current[1]('Newer unsaved source'));
+    view.rerender({
+      session: 'destination',
+      assignment: { fromSessionId: 'receipt-chat', toSessionId: 'destination' },
+    });
+    expect(view.result.current[0]).toBe('Independent destination');
+    expect(localStorage.getItem('mitzo-draft-receipt-chat')).toBe('Original admitted text');
+    act(() => {
+      view.result.current[1]('New destination edit');
+      expect(view.result.current[3]()).toBe(true);
+    });
+    expect(localStorage.getItem('mitzo-draft-destination')).toBe('New destination edit');
+  });
+  it.each(['settings', 'images', 'contextBlocks'] as const)(
+    'preserves a newer stored rich draft %s revision on an older receipt',
+    (field) => {
+      const draft = { ...createChatDraft(), text: 'Original rich draft' };
+      saveChatDraft(draft);
+      const view = renderHook(() => useDraft(undefined, undefined, chatDraftStorageKey(draft.id)));
+      const proof = view.result.current[4].capture()!;
+      const current = getChatDraft(draft.id)!;
+      const updated = {
+        ...current,
+        ...(field === 'settings'
+          ? { settings: { ...current.settings, mode: 'ask' as const } }
+          : {}),
+        ...(field === 'images'
+          ? { images: [{ data: 'new', preview: 'new', mediaType: 'image/png' }] }
+          : {}),
+        ...(field === 'contextBlocks' ? { contextBlocks: ['New context'] } : {}),
+      };
+      saveChatDraft(updated);
+      act(() => expect(view.result.current[4].consume(proof)).toBe(false));
+      expect(getChatDraft(draft.id)).toMatchObject({
+        text: updated.text,
+        settings: updated.settings,
+        images: updated.images,
+        contextBlocks: updated.contextBlocks,
+      });
+      expect(view.result.current[0]).toBe(draft.text);
+    },
+  );
+  it('retains exact submission proof across remount and consumes only its stored revision', () => {
+    const first = renderHook(() => useDraft('receipt-chat'));
+    act(() => first.result.current[1]('Submitted draft'));
+    const proof = first.result.current[4].capture();
+    expect(proof?.storageKey).toBe('mitzo-draft-receipt-chat');
+    expect(proof?.revisionToken).toBeTruthy();
+    first.unmount();
+    const restored = renderHook(() => useDraft('receipt-chat'));
+    expect(restored.result.current[0]).toBe('Submitted draft');
+    act(() => expect(restored.result.current[4].consume(proof!)).toBe(true));
+    expect(restored.result.current[0]).toBe('');
+    expect(localStorage.getItem('mitzo-draft-receipt-chat')).toBeNull();
+  });
+
+  it('invalidates old proof for identical edits and foreign draft owners', () => {
+    const first = renderHook(() => useDraft('receipt-chat'));
+    act(() => first.result.current[1]('Same text'));
+    const proof = first.result.current[4].capture()!;
+    act(() => first.result.current[1]('Same text'));
+    first.unmount();
+    const restored = renderHook(() => useDraft('receipt-chat'));
+    act(() => expect(restored.result.current[4].consume(proof)).toBe(false));
+    expect(restored.result.current[0]).toBe('Same text');
+    localStorage.setItem('mitzo-draft-foreign', 'Same text');
+    const foreign = renderHook(() => useDraft('foreign'));
+    act(() => expect(foreign.result.current[4].consume(proof)).toBe(false));
+    expect(foreign.result.current[0]).toBe('Same text');
+  });
+
+  it('withholds submission proof when durable revision storage fails', () => {
+    const view = renderHook(() => useDraft('receipt-chat'));
+    act(() => view.result.current[1]('Keep this draft'));
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw Error('Storage unavailable');
+    });
+    expect(view.result.current[4].capture()).toBeUndefined();
+    expect(view.result.current[0]).toBe('Keep this draft');
+  });
+
+  it('consumes a durably accepted revision on cold mount without a surviving outbox or observer', () => {
+    const first = renderHook(() => useDraft('receipt-chat'));
+    act(() => first.result.current[1]('Accepted before destruction'));
+    const proof = first.result.current[4].capture()!;
+    first.unmount();
+    localStorage.setItem(
+      `mitzo-draft-accepted:${encodeURIComponent(proof.storageKey)}`,
+      JSON.stringify(proof),
+    );
+    const restored = renderHook(() => useDraft('receipt-chat'));
+    expect(restored.result.current[0]).toBe('');
+    expect(localStorage.getItem('mitzo-draft-receipt-chat')).toBeNull();
+  });
+  it('retains revision and accepted proof when draft deletion fails, then recovers on reload', () => {
+    const first = renderHook(() => useDraft('receipt-chat'));
+    act(() => first.result.current[1]('Keep the durable recovery identity'));
+    const proof = first.result.current[4].capture()!;
+    first.unmount();
+    localStorage.setItem(
+      `mitzo-draft-accepted:${encodeURIComponent(proof.storageKey)}`,
+      JSON.stringify(proof),
+    );
+    const remove = Storage.prototype.removeItem;
+    const fault = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (
+      this: Storage,
+      key,
+    ) {
+      if (key === proof.storageKey) throw Error('Draft deletion unavailable');
+      remove.call(this, key);
+    });
+    const blocked = renderHook(() => useDraft('receipt-chat'));
+    expect(blocked.result.current[0]).toBe('Keep the durable recovery identity');
+    blocked.unmount();
+    fault.mockRestore();
+    const restored = renderHook(() => useDraft('receipt-chat'));
+    expect(restored.result.current[0]).toBe('');
+    expect(localStorage.getItem(proof.storageKey)).toBeNull();
+  });
+
   it('owns an input arriving in the replacement commit before passive effects flush', () => {
     const original = 'Keep the original delegated worker draft.';
     const replacement = 'Keep the explicitly assigned replacement draft.';
