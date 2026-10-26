@@ -287,6 +287,7 @@ export class TelosWorkStore {
     raw: unknown,
     actor: TelosWorkActor,
     assertQuiescent?: (itemId: string) => void,
+    assertCurrent?: () => void,
   ) {
     if (this.#lifecycleInvocation || this.#deletionFrame) {
       if (this.#lifecycleInvocation) this.#lifecycleInvocation.invalidated = true;
@@ -329,6 +330,7 @@ export class TelosWorkStore {
           invocation.writer?.assertCurrent();
           invocation.fence?.assertCurrent();
         },
+        assertCurrent,
       );
     } finally {
       // lifecycle.execute has now committed OR rolled back. Cleanup must never
@@ -1098,6 +1100,21 @@ export class TelosWorkStore {
     return this.db.transaction(() => {
       this.authorizeRead(itemId, actor);
       return this.projectRecord(itemId);
+    })();
+  }
+  readBacklogGuarded<T>(read: () => T, assertion: () => void): T {
+    const check = () => {
+      const result: unknown = assertion();
+      if (result !== undefined) {
+        void Promise.resolve(result).catch(() => {});
+        throw Error('Synchronous Telos authority required');
+      }
+    };
+    return this.db.transaction(() => {
+      check();
+      const result = read();
+      check();
+      return result;
     })();
   }
   /** One connection and snapshot for collection hydration; failures stay per item. */

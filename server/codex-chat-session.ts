@@ -30,6 +30,17 @@ import {
 import { executeNativeTelosArtifactOperation } from './native-telos-artifact-operations.js';
 import { executeNativeTelosItemOperation } from './native-telos-item-operations.js';
 import {
+  telosBacklogDefinitions,
+  isTelosBacklogTool,
+  executeTelosBacklogOperation,
+  TELOS_BACKLOG_INSTRUCTIONS,
+  type TelosBacklogContext,
+} from './telos-backlog-tools.js';
+import {
+  captureAgentLibraryAuthorization,
+  captureAgentLibraryOperation,
+} from './agent-library-transport.js';
+import {
   captureNativeHostReadOwner,
   captureNativeHostToolContext,
 } from './native-host-tool-context.js';
@@ -914,6 +925,12 @@ async function openCodexChatBound(
       ? resolveTelosWorkRoleContext(options.eventStore, options.conversationId, options.binding)
       : undefined;
   const mainPublicationRuntime = getTelosMainPublicationRuntime();
+  const nativeBacklogTools =
+    options.ownedLocal &&
+    options.assertAgentContextAuthorization &&
+    mainPublicationRuntime?.supportsHost(options.registry, options.eventStore)
+      ? telosBacklogDefinitions.filter((tool) => agentToolAllowed(options.session, tool.name))
+      : [];
   const nativeTelosTools =
     options.ownedLocal &&
     options.assertAgentContextAuthorization &&
@@ -1225,6 +1242,9 @@ async function openCodexChatBound(
         telosCreateOutcomeDefinition,
         telosAdoptSourceDefinition,
         ...telosItemDefinitions,
+        ...(mainPublicationRuntime?.supportsHost(options.registry, options.eventStore)
+          ? telosBacklogDefinitions
+          : []),
         ...telosArtifactDefinitions,
         ...leadWorkTools,
         ...controlWorkTools,
@@ -1775,6 +1795,7 @@ async function openCodexChatBound(
           ...controlWorkTools,
           ...mainPublicationTools,
           ...nativeTelosTools,
+          ...nativeBacklogTools,
         ].map((tool) => tool.name),
       )
     : undefined;
@@ -2070,6 +2091,16 @@ async function openCodexChatBound(
       text: options.adviserScope ? '' : (integrationDiscovery?.instructions ?? ''),
     },
     {
+      source: 'telos-backlog',
+      text:
+        !options.adviserScope &&
+        (nativeBacklogTools.length ||
+          (connectedOpenShell &&
+            mainPublicationRuntime?.supportsHost(options.registry, options.eventStore)))
+          ? TELOS_BACKLOG_INSTRUCTIONS
+          : '',
+    },
+    {
       source: 'runtime-efficiency',
       text: options.adviserScope
         ? ''
@@ -2169,6 +2200,7 @@ async function openCodexChatBound(
           ...controlWorkTools,
           ...mainPublicationTools,
           ...nativeTelosTools,
+          ...nativeBacklogTools,
         ]
       : connectedOpenShell
         ? [
@@ -3364,6 +3396,76 @@ async function openCodexChatBound(
           }),
           isError: operation.status !== 'succeeded',
         };
+      }
+      if (isTelosBacklogTool(name) && (options.ownedLocal || connectedOpenShell)) {
+        if (
+          !mainPublicationRuntime?.supportsHost(options.registry, options.eventStore) ||
+          !agentToolAllowed(options.session, name)
+        )
+          throw Error('Telos backlog tools unavailable');
+        const owner = options.registry.findBySessionId(options.conversationId);
+        if (!owner || owner.session !== options.session)
+          throw Error('Original Telos session unavailable');
+        let dispose: () => void;
+        let context: TelosBacklogContext;
+        if (options.ownedLocal) {
+          const signed = captureSignedContext();
+          context = signed;
+          dispose = () => signed.dispose();
+        } else {
+          const authorization = captureAgentLibraryAuthorization(owner.clientId);
+          const operation = captureAgentLibraryOperation(owner.clientId);
+          dispose = operation.dispose;
+          const current = () => {
+            signal.throwIfAborted();
+            operation.assertCurrent();
+            authorization.assertCurrent();
+            assertHostCurrentSync();
+            if (
+              !mainPublicationRuntime.supportsHost(options.registry, options.eventStore) ||
+              options.registry.findBySessionId(options.conversationId)?.session !== owner.session ||
+              !agentToolAllowed(owner.session, name)
+            )
+              throw Error('Original Telos operator unavailable');
+          };
+          context = {
+            operatorId: authorization.auth.id,
+            conversationId: options.conversationId,
+            toolName: name,
+            requestHash: createHash('sha256').update(JSON.stringify(input)).digest('hex'),
+            signal: AbortSignal.any([signal, operation.signal]),
+            assertCurrentSync: current,
+            async assertCurrent() {
+              await assertHostCurrent();
+              current();
+            },
+          };
+        }
+        try {
+          await context.assertCurrent();
+          return await mainPublicationRuntime.withBacklog(context, (owners) =>
+            executeTelosBacklogOperation(
+              {
+                ...owners,
+                approve: (toolName, exact, permissionSignal) =>
+                  buildPermissionHandler(owner.clientId, options.registry, {
+                    onDemandCreate: options.onDemandCreate,
+                  })(toolName, exact, {
+                    signal: permissionSignal,
+                    toolUseID: randomUUID(),
+                    forcePrompt: true,
+                    allowSessionGrant: false,
+                    approvalScope: 'request',
+                    title: 'Apply this exact Telos backlog change?',
+                  }),
+              },
+              name,
+              input,
+            ),
+          );
+        } finally {
+          dispose();
+        }
       }
       if (options.ownedLocal && isTelosItemTool(name)) {
         if (!mainPublicationRuntime || !nativeTelosTools.some((tool) => tool.name === name))

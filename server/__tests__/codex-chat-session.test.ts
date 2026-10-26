@@ -6314,7 +6314,9 @@ it('projects large GitHub reads after hooks and refuses output from a former nat
 });
 
 /** Synthetic provider/physical RPC; no sandbox, credentials or model calls. */
-async function openOwnedOpenShellEfficiencyFixture() {
+async function openOwnedOpenShellEfficiencyFixture(
+  prepare?: (options: Parameters<typeof openCodexChat>[0]) => void,
+) {
   vi.clearAllMocks();
   const { OwnedOpenShellCodexChatAdmission } =
     await import('../owned-openshell-codex-chat-admission.js');
@@ -6371,6 +6373,7 @@ async function openOwnedOpenShellEfficiencyFixture() {
     trimmed: [],
     fullMarkdown: '',
   });
+  prepare?.(f.opts);
   const query = await openCodexChat({ ...f.opts, ownedOpenShell: owner });
   return {
     ...f,
@@ -6388,6 +6391,78 @@ async function openOwnedOpenShellEfficiencyFixture() {
     },
   };
 }
+
+it('exposes discoverable Telos backlog maintenance in an ordinary OpenShell chat and binds mutations to its current operator', async () => {
+  const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
+  const { initializeTelosMainPublicationRuntime, closeTelosMainPublicationRuntime } =
+    await import('../telos-main-publication-runtime.js');
+  const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
+  const canonical = createTelosCanonicalData();
+  const f = await openOwnedOpenShellEfficiencyFixture((opts) => {
+    initializeTelosMainPublicationRuntime({
+      registry: opts.registry,
+      events: opts.eventStore,
+      databasePath: () => canonical.dbPath,
+    });
+  });
+  const release = bindAgentLibraryTransport('openshell-client', {
+    id: canonical.actor.id,
+    expiresAt: Date.now() + 60000,
+  });
+  try {
+    const tools = f.captured.tools as { name: string }[];
+    for (const name of ['TelosListItems', 'TelosSearchItems', 'TelosManageItem'])
+      expect(tools.some((tool) => tool.name === name)).toBe(true);
+    const execute = f.captured.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+      call: { turnId: string; callId: string },
+    ) => Promise<{ content: string; isError: boolean }>;
+    const run = (name: string, input: Record<string, unknown>) =>
+      execute(name, input, new AbortController().signal, {
+        turnId: 'backlog-turn',
+        callId: 'backlog-call',
+      });
+    expect((await run('DescribeIntegrationTool', { toolId: 'TelosListItems' })).isError).toBe(
+      false,
+    );
+    expect(
+      JSON.parse((await run('TelosSearchItems', { query: 'studio' })).content).items[0].id,
+    ).toBe('studio');
+    const read = JSON.parse(
+      (await run('TelosManageItem', { operation: 'read', itemId: 'studio' })).content,
+    );
+    const edit = {
+      operation: 'edit',
+      itemId: 'studio',
+      requestId: 'ordinary-rename',
+      expectedRevision: read.item.revision,
+      summary: 'Choose studio panels',
+      note: 'Clarify this outcome.',
+    };
+    expect((await run('TelosManageItem', edit)).isError).toBe(false);
+    expect(canonical.work.readRecord('studio', canonical.actor).summary).toBe(edit.summary);
+    expect(mocks.permissionHandler).toHaveBeenCalledWith(
+      'TelosManageItem',
+      edit,
+      expect.objectContaining({
+        forcePrompt: true,
+        allowSessionGrant: false,
+        approvalScope: 'request',
+      }),
+    );
+    release();
+    await expect(run('TelosListItems', {})).rejects.toThrow(
+      /authentication|permission|authorization/i,
+    );
+  } finally {
+    release();
+    f.cleanup();
+    closeTelosMainPublicationRuntime();
+    canonical.close();
+  }
+});
 
 it('defers owned OpenShell host contracts while preserving original direct execution and native sandbox ownership', async () => {
   const itemTools = await import('../telos-item-tools.js');
