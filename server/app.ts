@@ -3702,8 +3702,22 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     res.removeListener('close', abortPreparedStatus);
   }
   if (res.destroyed) return;
+  let hasNativeCodexConversation: boolean | undefined;
+  if (
+    meta.accountBinding?.provider === 'openai' &&
+    !eventStore.getSessionRuntimeBinding(meta.sessionId)
+  ) {
+    try {
+      // Presentation only: an existing native row excludes the legacy migration
+      // banner. It cannot synthesize a runtime binding or admit a command.
+      hasNativeCodexConversation = getCodexConversationStore().hasConversation(meta.sessionId);
+    } catch {
+      // Unknown presence must not be presented as a historical Responses source.
+    }
+  }
   res.json({
     sessionId: meta.sessionId,
+    ...(hasNativeCodexConversation !== undefined ? { hasNativeCodexConversation } : {}),
     ...(Number.isSafeInteger(meta.createdAt) &&
     meta.createdAt >= 0 &&
     Number.isFinite(new Date(meta.createdAt).getTime())

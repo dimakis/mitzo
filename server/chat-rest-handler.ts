@@ -1,5 +1,6 @@
 import { createLegacyNativeContinuationRouter } from './legacy-native-continuation-routes.js';
 import { getNativeResponsesStore } from './responses-chat-session.js';
+import { getCodexConversationStore } from './codex-chat-session.js';
 import { replayEventsToMessages } from './chat.js';
 import { mountApplicationChatEventStream } from './chat-event-stream.js';
 import {
@@ -167,6 +168,10 @@ export function mountApplicationChatRestTransport(
       source: (id) => {
         const meta = ctx.eventStore.getSession(id);
         if (!meta?.accountBinding) throw Error('Retained conversation unavailable');
+        // Native presence only excludes migration; it grants no execution authority.
+        // Read failures propagate rather than becoming evidence of a Responses source.
+        if (getCodexConversationStore().hasConversation(id))
+          throw Error('This conversation already uses native Codex');
         const native = getNativeResponsesStore();
         const state = native.load(id, meta.accountBinding);
         const events = ctx.eventStore.getSessionEvents(id);
