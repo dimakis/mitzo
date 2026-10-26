@@ -4,6 +4,7 @@ import {
 } from '@mitzo/protocol/telos-sqlite-owners';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
+import { TelosEditItemInputSchema, type TelosEditItemInput } from '@mitzo/protocol';
 
 export interface TelosItemUpdateInput {
   itemId: string;
@@ -131,6 +132,17 @@ export class TelosItemStore {
   update(input: TelosItemUpdateInput, sessionId: string) {
     return this.mutate(input, sessionId);
   }
+  editGuarded(
+    raw: TelosEditItemInput,
+    sessionId: string,
+    assertion: () => void,
+    beforeApply?: () => void,
+  ) {
+    if (typeof assertion !== 'function') throw Error('Synchronous Telos item authority required');
+    if (this.db.inTransaction) throw Error('Original Telos item writer required');
+    const input = TelosEditItemInputSchema.parse(raw);
+    return this.mutate(input, sessionId, assertion, beforeApply, input);
+  }
 
   /** The original canonical owner keeps the outer writer and receipt ordering. */
   updateGuarded(
@@ -149,12 +161,15 @@ export class TelosItemStore {
     sessionId: string,
     assertion?: () => void,
     beforeApply?: () => void,
+    edit?: TelosEditItemInput,
   ) {
     if (!sessionId || !input.note.trim()) throw new Error('Session and evidence note required');
     return this.db
       .transaction(() => {
         assertCurrent(assertion);
-        const inputHash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+        const inputHash = createHash('sha256')
+          .update(JSON.stringify(edit ? { operation: 'edit', input } : input))
+          .digest('hex');
         if (this.hasUpdates()) {
           const previous = this.db
             .prepare(
@@ -194,6 +209,18 @@ export class TelosItemStore {
         CREATE INDEX IF NOT EXISTS telos_item_updates_item ON telos_item_updates(item_id,seq);`);
         const status = input.status ?? before.status;
         const now = new Date().toISOString();
+        if (edit)
+          this.db
+            .prepare(
+              'UPDATE items SET summary=?,intent=?,rationale=?,acceptance_criteria=? WHERE id=?',
+            )
+            .run(
+              edit.summary ?? before.summary,
+              edit.intent ?? before.intent,
+              edit.rationale ?? before.rationale,
+              JSON.stringify(edit.acceptanceCriteria ?? before.acceptanceCriteria),
+              input.itemId,
+            );
         this.db
           .prepare(
             `UPDATE items SET status=?,updated_at=?,
