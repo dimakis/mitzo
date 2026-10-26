@@ -1,5 +1,22 @@
 # Mitzo UI design contract
 
+## Conversation document outputs
+
+Resources → Outputs reuses the existing dialog, resource rows, `UiIcon`, shared
+secondary controls, inline action groups and native disclosures. Workspace links
+remain visibly distinct from **Saved · version N** copies. Preview and Keep use
+the same scrollable body; returning restores keyboard focus to the originating
+row. Long names wrap, source text uses the shared monospace font, and all controls
+retain the shared minimum touch height. No private palette, motion or font scale
+is introduced. Canonical Work documents open the existing saved-artifact viewer.
+
+The intercepted `session-documents` fixture covers mobile WebKit/Chromium and
+desktop Chromium, light Teal/Georgia and dark Mint/System, bounded pagination,
+exact-preview saving, uncertain retry, reload and chat isolation. Inspected
+captures: [phone preview](assets/conversation-document-mobile-dark.png) and
+[desktop saved copy](assets/conversation-document-desktop-light.png). This uses
+synthetic documents and starts no backend or model session.
+
 ## Reviewed native continuation
 
 Retained Responses conversations expose **Continue with Codex** beside the existing

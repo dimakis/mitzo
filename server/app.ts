@@ -1,3 +1,5 @@
+import { createSessionDocumentRouter } from './session-document-routes.js';
+import { createSessionWorkspaceDocumentReader } from './workspace-document-reader.js';
 import { sessionModelSettingsReason } from './session-model-settings.js';
 import { adviserExecutionProjection } from './adviser-harness-runtime.js';
 import { initializeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
@@ -3400,6 +3402,33 @@ app.use(
   createSessionOutputRouter({
     references: new SessionOutputReferences(eventStore),
     hasSession: (id) => Boolean(eventStore.getSession(id)),
+  }),
+);
+
+app.use(
+  '/api/sessions/:id/documents',
+  operatorAuthMiddleware,
+  createSessionDocumentRouter({
+    store: eventStore,
+    readFile: createSessionWorkspaceDocumentReader({
+      remote: isRemoteSessionArtifact,
+      readRemote: readRemoteSessionArtifact,
+      resolve: (id, path) => resolveArtifactPath(path, id),
+      root: (id, path) => (sessionArtifactRoot(id) ? sessionArtifactBrowserRoot(path, id) : null),
+      allowed: (id, path) => isAllowedPath(path, id),
+    }),
+    listTelos: (sessionId) => {
+      const store = new TelosArtifactStore(telosDatabasePath());
+      try {
+        const page = store.sourceMaterialPage(sessionId);
+        return {
+          artifacts: page.artifacts.filter((artifact) => artifact.sourceKind !== 'source_capture'),
+          hasMore: page.hasMore,
+        };
+      } finally {
+        store.close();
+      }
+    },
   }),
 );
 

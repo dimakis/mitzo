@@ -7,6 +7,17 @@ export function getRawInput(
   input: Record<string, unknown>,
 ): RawToolInput | undefined {
   switch (toolName) {
+    case 'ApplyPatch': {
+      const paths: string[] = [];
+      for (const change of Array.isArray(input.changes) ? input.changes.slice(0, 100) : []) {
+        if (!change || typeof change !== 'object') continue;
+        const value = change as { path?: unknown; kind?: { type?: string; move_path?: unknown } };
+        if (!['add', 'update'].includes(value.kind?.type ?? '')) continue;
+        const path = value.kind?.move_path ?? value.path;
+        if (typeof path === 'string' && path.length <= 4096) paths.push(path);
+      }
+      return paths.length ? { type: 'write', path: paths[0], paths } : undefined;
+    }
     case 'Read': {
       const path = String(input.file_path || '');
       return {

@@ -1,0 +1,28 @@
+.session-documents {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.session-documents details,
+.session-documents label {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.session-documents summary {
+  min-height: var(--control-height);
+  align-content: center;
+  cursor: pointer;
+}
+.session-documents h4,
+.session-documents strong,
+.session-documents small {
+  overflow-wrap: anywhere;
+}
+.session-document-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
