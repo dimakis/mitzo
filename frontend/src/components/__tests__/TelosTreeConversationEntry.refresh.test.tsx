@@ -104,11 +104,16 @@ beforeEach(() => {
     profiles: ['manual'],
     refresh: vi.fn(),
   });
-  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation(async (id) => {
+  const readRecord = async (id: string) => {
     const found = [record, childRecord].find((value) => value?.itemId === id);
     if (!found) throw Error('Unknown test record');
     return structuredClone(found);
-  });
+  };
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation(readRecord);
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecords').mockImplementation(async (ids) => ({
+    records: await Promise.all(ids.map(readRecord)),
+    failures: [],
+  }));
 });
 afterEach(() => {
   cleanup();

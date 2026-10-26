@@ -16,6 +16,41 @@ const view = TelosWorkViewSchema.parse({
   attempts: [],
 });
 describe('typed Telos work client', () => {
+  it('reads a batch once with its abort signal and rejects missing or substituted identities', async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          records: [],
+          failures: [{ itemId: 'missing', code: 'not_found', status: 404 }],
+        }),
+      ),
+    );
+    const api = new TelosWorkApiClient(fetch);
+    const signal = new AbortController().signal;
+    expect(await api.readRecords(['missing'], signal)).toEqual({
+      records: [],
+      failures: [{ itemId: 'missing', code: 'not_found', status: 404 }],
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/telos/work/records',
+      expect.objectContaining({
+        method: 'POST',
+        signal,
+        body: JSON.stringify({ itemIds: ['missing'] }),
+      }),
+    );
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ records: [], failures: [] })));
+    await expect(api.readRecords(['missing'])).rejects.toThrow(/identit/);
+    fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          records: [],
+          failures: [{ itemId: 'foreign', code: 'not_found', status: 404 }],
+        }),
+      ),
+    );
+    await expect(api.readRecords(['missing'])).rejects.toThrow(/identit/);
+  });
   const delegation = TelosWorkDelegationInputSchema.parse({
     requestId: 'start',
     childItemId: 'slice',

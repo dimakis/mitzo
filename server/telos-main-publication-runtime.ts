@@ -12,6 +12,7 @@ import {
   type GithubMainMergeRegistration,
 } from './github-main-merge-selection.js';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
+import type { TelosBacklogContext } from './telos-backlog-tools.js';
 import { TelosArtifactStore } from './telos-artifact-store.js';
 import { TelosItemStore } from './telos-item-store.js';
 import { TelosSourceCapture } from './telos-source-capture.js';
@@ -190,6 +191,57 @@ export class TelosMainPublicationRuntime {
           createLogger('telos-publication').error(
             'Canonical native item connection cleanup failed',
           );
+        }
+      }
+    }
+  }
+  async withBacklog<T>(
+    context: TelosBacklogContext,
+    operation: (owners: {
+      context: TelosBacklogContext;
+      items: TelosItemStore;
+      work: TelosWorkStore;
+    }) => Promise<T>,
+    readOnly: boolean,
+  ): Promise<T> {
+    const current = () => {
+      if (active !== this) throw unavailable();
+      this.retired.signal.throwIfAborted();
+      const result: unknown = context.assertCurrentSync();
+      if (result !== undefined) {
+        void Promise.resolve(result).catch(() => {});
+        throw unavailable();
+      }
+    };
+    current();
+    const scoped = {
+      ...context,
+      signal: AbortSignal.any([context.signal, this.retired.signal]),
+      assertCurrentSync: current,
+      async assertCurrent() {
+        current();
+        await context.assertCurrent();
+        current();
+      },
+    };
+    const policy = {
+      ordinaryConversation: (id: string) =>
+        isAvailableTelosWorkConversation(this.events.getSession(id)),
+    };
+    const work = readOnly
+      ? TelosWorkStore.openForLifecycleListRead(this.database, policy)
+      : new TelosWorkStore(this.database, policy);
+    let items: TelosItemStore | undefined;
+    try {
+      items = new TelosItemStore(this.database);
+      current();
+      return await operation({ context: scoped, items, work });
+    } finally {
+      for (const owner of [items, work]) {
+        try {
+          owner?.close();
+        } catch {
+          createLogger('telos-publication').error('Canonical backlog connection cleanup failed');
         }
       }
     }

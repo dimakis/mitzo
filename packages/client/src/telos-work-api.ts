@@ -65,6 +65,7 @@ import {
   type TelosWorkDelegationReceipt,
 } from '@mitzo/protocol';
 import type { ApiFetch } from './api-client.js';
+import { TelosRecordsInputSchema, TelosRecordsResultSchema } from '@mitzo/protocol';
 
 export class TelosWorkApiError extends Error {
   constructor(
@@ -384,6 +385,26 @@ export class TelosWorkApiClient {
       undefined,
       signal,
     );
+  }
+  async readRecords(itemIds: string[], signal?: AbortSignal) {
+    const input = TelosRecordsInputSchema.parse({ itemIds });
+    input.itemIds = [...new Set(input.itemIds)];
+    const result = await this.request('records', TelosRecordsResultSchema, input, signal);
+    const returned = [
+      ...result.records.map((record) => record.itemId),
+      ...result.failures.map((failure) => failure.itemId),
+    ];
+    if (
+      returned.length !== input.itemIds.length ||
+      new Set(returned).size !== returned.length ||
+      returned.some((id) => !input.itemIds.includes(id))
+    )
+      throw new TelosWorkApiError(
+        502,
+        'invalid',
+        'Record batch identities differ from the requested items',
+      );
+    return result;
   }
   async previewSource(input: TelosSourcePreviewRequest, signal?: AbortSignal) {
     return this.request(

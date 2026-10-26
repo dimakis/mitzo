@@ -186,12 +186,22 @@ export class TelosWorkLifecycle {
     actor: TelosWorkActor,
     assertQuiescent?: (itemId: string) => void,
     beforeCommit?: () => void,
+    beforeApply?: () => void,
   ): TelosWorkLifecycleReceipt {
     this.operator(actor);
     const input = TelosWorkLifecycleCommandSchema.parse(raw);
     const actorId = `operator:${actor.id}`;
     return this.db
       .transaction(() => {
+        const checkCurrent = () => {
+          if (!beforeApply) return;
+          const result: unknown = beforeApply();
+          if (result !== undefined) {
+            void Promise.resolve(result).catch(() => {});
+            conflict('Synchronous lifecycle authority required');
+          }
+        };
+        checkCurrent();
         const fingerprint = digest(input);
         const saved = this.db
           .prepare(
@@ -206,6 +216,7 @@ export class TelosWorkLifecycle {
         if (this.work(input.itemId).revision !== input.expectedRevision)
           conflict('Work revision conflict; read current lifecycle before retrying');
         const state = this.state(input.itemId);
+        checkCurrent();
         switch (input.operation) {
           case 'pause':
             this.assertActive(input.itemId);

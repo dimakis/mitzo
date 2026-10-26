@@ -372,7 +372,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
     }
   }
   collectIds(discovery.items);
-  const canonical = useTelosRecords(recordIds);
+  const canonical = useTelosRecords(recordIds, 0, { batch: true });
   function refreshWorkspace() {
     discovery.refresh();
     refresh();

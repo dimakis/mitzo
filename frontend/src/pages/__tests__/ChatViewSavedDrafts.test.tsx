@@ -13,6 +13,7 @@ import {
   listChatDrafts,
   saveChatDraft,
 } from '../../lib/chat-drafts';
+import { apiFetch } from '../../lib/api-fetch';
 import type { AccountSelection } from '../../components/AccountModelPicker';
 
 function openAgentSettings() {
@@ -91,11 +92,18 @@ vi.mock('../../components/RepositoryChatPicker', () => ({
     </>
   ),
 }));
-vi.mock('../../components/SymposiumConversation', () => ({
-  SymposiumConversation: ({ ordinaryComposer }: { ordinaryComposer: React.ReactNode }) => (
-    <>{ordinaryComposer}</>
-  ),
-}));
+let useRealSymposium = false;
+vi.mock('../../components/SymposiumConversation', async (original) => {
+  const actual = await original<typeof import('../../components/SymposiumConversation')>();
+  return {
+    SymposiumConversation: (props: React.ComponentProps<typeof actual.SymposiumConversation>) =>
+      useRealSymposium ? (
+        <actual.SymposiumConversation {...props} />
+      ) : (
+        <>{props.ordinaryComposer}</>
+      ),
+  };
+});
 vi.mock('../../components/DesktopShell', () => ({
   DesktopShell: ({
     center,
@@ -140,6 +148,8 @@ vi.mock('../../lib/api-fetch', () => ({
 }));
 afterEach(() => {
   cleanup();
+  useRealSymposium = false;
+  vi.mocked(apiFetch).mockImplementation(async () => new Response('[]'));
   vi.restoreAllMocks();
   localStorage.clear();
   sessionStorage.clear();
@@ -151,6 +161,14 @@ function Location() {
     <>
       <span data-testid="location">{location.pathname + location.search}</span>
       <button onClick={() => navigate('/chat?draft=second')}>Open second draft</button>
+      <button
+        onClick={() => {
+          bindChatDraftToSession('handoff', 'bound');
+          navigate('/chat/bound');
+        }}
+      >
+        Bind draft
+      </button>
     </>
   );
 }
@@ -803,5 +821,44 @@ for (const Page of [ChatView, DesktopChatView]) {
     expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
     expect(screen.queryByAltText('Attachment 1')).toBeNull();
     store.getState().invalidateAuthentication();
+  });
+}
+
+for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} preserves editing during actual pending composer handoff`, async () => {
+    useRealSymposium = true;
+    let classify!: (value: Response) => void;
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      String(url).endsWith('/symposium/status')
+        ? new Promise<Response>((resolve) => {
+            classify = resolve;
+          })
+        : new Response('[]'),
+    );
+    saveChatDraft({
+      ...createChatDraft(),
+      id: 'handoff',
+      text: '',
+      settings: {
+        ...createChatDraft().settings,
+        repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+      },
+    });
+    mount(Page, '/chat?draft=handoff', undefined, true);
+    const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Bind draft' }));
+      fireEvent.change(input, { target: { value: 'Keep the handoff prompt' } });
+    });
+    expect(getChatDraft('handoff')?.text).toBe('Keep the handoff prompt');
+    expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toHaveProperty('disabled', true);
+    await act(async () =>
+      classify(new Response(JSON.stringify({ sessionId: 'bound', config: null, seats: [] }))),
+    );
+    expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toHaveProperty(
+      'value',
+      'Keep the handoff prompt',
+    );
+    expect(getSessionChatDraft('bound')?.text).toBe('Keep the handoff prompt');
   });
 }

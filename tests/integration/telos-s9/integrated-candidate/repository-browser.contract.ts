@@ -506,8 +506,16 @@ it('CT06/17/18 repository counterpart: actual advisor, lead and worker pages ret
   const advisorId = (await api.read('studio')).links.find((l) => l.role === 'advisor')!.conversation
     .conversationId;
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + advisorId));
+  // BrowserRouter updates history before committing the bound conversation.
+  // Do not fill the outgoing setup composer while that transition is pending.
+  await browserExpect(
+    page.getByRole('region', { name: 'Work conversation setup' }),
+  ).not.toBeVisible();
   const advisorPrompt = 'Please retain the acoustic plan and create the reviewed recording slice.';
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill(advisorPrompt);
+  await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
+    advisorPrompt,
+  );
   const preparedAdvisor = chat.eventStore.getOrdinarySessionPreparationForConversation(advisorId);
   expect(preparedAdvisor).toBeTruthy();
   expect(preparedAdvisor!.settings).toHaveProperty('repositoryWorkspaceId');
@@ -679,11 +687,19 @@ it('CT06/17/18 repository counterpart: actual advisor, lead and worker pages ret
   const leadId = (await api.read('studio')).assignments.find((a) => a.role === 'lead')!.conversation
     .conversationId;
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + leadId));
+  // BrowserRouter updates history before committing the bound conversation.
+  // Do not fill the outgoing setup composer while that transition is pending.
+  await browserExpect(
+    page.getByRole('region', { name: 'Work conversation setup' }),
+  ).not.toBeVisible();
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
   expect(nativeSessions).toHaveLength(1);
   await page
     .getByRole('textbox', { name: 'Message Mitzo' })
     .fill('Perform only the reviewed work and retain a report.');
+  await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
+    'Perform only the reviewed work and retain a report.',
+  );
   await browserExpect(
     page.getByRole('button', { name: 'Send message', exact: true }),
   ).toBeEnabled();
@@ -828,6 +844,9 @@ it('CT06/17/18 repository counterpart: actual advisor, lead and worker pages ret
   await page
     .getByRole('textbox', { name: 'Message Mitzo' })
     .fill('Perform only the reviewed work and retain a report.');
+  await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
+    'Perform only the reviewed work and retain a report.',
+  );
   await browserExpect(
     page.getByRole('button', { name: 'Send message', exact: true }),
   ).toBeEnabled();

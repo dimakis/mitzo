@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { SessionList } from '../SessionList';
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
+import type { UseSessionSearchReturn } from '../../hooks/useSessionSearch';
 vi.mock('../../hooks/useSessionList', () => ({
   useSessionList: () => ({
     sessions: [],
@@ -23,7 +24,16 @@ vi.mock('../../hooks/useSessionOverview', () => ({
   useSessionOverview: () => ({ activities: [] }),
 }));
 vi.mock('../../hooks/useSessionSearch', () => ({
-  useSessionSearch: () => ({ active: false, query: '', setQuery: vi.fn() }),
+  useSessionSearch: (): UseSessionSearchReturn => ({
+    active: false,
+    query: '',
+    results: [],
+    searching: false,
+    error: null,
+    setQuery: vi.fn(),
+    clear: vi.fn(),
+    retry: vi.fn(),
+  }),
 }));
 vi.mock('../../lib/haptics', () => ({ selectionChanged: vi.fn() }));
 afterEach(() => {

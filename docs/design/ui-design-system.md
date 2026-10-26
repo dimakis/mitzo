@@ -1052,13 +1052,27 @@ Recent/search rows lead their secondary metadata with the recorded model choice
 and account label. The saved picker selection takes precedence over the original
 binding model; live-only rows receive identity through activity updates. Missing
 model records stay absent rather than inheriting an engine name or global default.
-These fields reuse the muted type scale and wrap long identifiers within the row.
+Inactive search hits outside the loaded history page receive their recorded model
+and aliased account directly from search, including the selected desktop preview.
+Search-provided account aliases remain authoritative when the same chat also has
+a live activity record; the live model choice still takes precedence. The clicked
+desktop preview reuses that same search projection. These fields reuse the muted
+type scale and wrap long identifiers within the row.
 
 The Chats **Needs you** filter and overview badges count confirmed permission
 (including structured question) and review requests. Finished assistant replies,
 uncommitted changes and generic blocked/dependency waits do not establish a user
 request. Rows retain their specific Permission needed, Review needed or Blocked
-state. The broader Today attention feed keeps its existing notice semantics.
+state. A pending review anywhere within the selected goal subtree remains an
+explicit request even when another task makes the aggregate goal blocked. Paused
+spec approval also remains visible; unrelated goals do not contribute and pending
+permissions retain priority. The broader Today attention feed keeps its existing notice semantics.
+
+Focused nested-tree and spec-approval regressions cover the producer state and
+request precedence. Intercepted browser checks verify search/activity alias
+collisions without changing controls, tokens or layout. Inspected captures:
+[phone search alias](assets/session-search-live-alias-mobile-dark.png) and
+[desktop search alias](assets/session-search-live-alias-desktop-light.png).
 
 Offline session-library checks cover model/account labels, the explicit-request
 count and clearing answered requests in mobile WebKit/Chromium and desktop
@@ -1067,6 +1081,12 @@ guards pass. The full `test:ui` frontend type build exceeded the required local
 1 GiB heap, so broad build/integration acceptance remains in CI. Inspected
 captures: [mobile model metadata](assets/session-model-mobile-dark.png) and
 [desktop model metadata](assets/session-model-desktop-light.png).
+
+The off-page search regression passes 199 route/component/identity checks, 108
+design guards (one existing skip), and eight offline browser/startup checks across
+both themes and all three browsers. Inspected search captures:
+[mobile search identity](assets/session-search-model-mobile-dark.png) and
+[desktop search identity](assets/session-search-model-desktop-light.png).
 
 Today pins outside the recent page read their recorded observation by session ID, without resuming a provider. Disabled context display makes no extra reads; obsolete requests abort, and missing or failed observations remain explicitly unavailable. Confirmed deletion clears the selected preview, and a confirmed rename updates off-page pin snapshots and the selected title. Failed mutations preserve the saved selection and title.
 

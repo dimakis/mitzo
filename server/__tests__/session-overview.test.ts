@@ -393,8 +393,12 @@ describe('SessionOverviewEmitter', () => {
       } as unknown as SessionOverviewDeps['registry'],
       taskStore: {
         getTree: vi.fn(() => [
-          { id: goalId, parentId: null, status: 'active' },
-          { id: 'child-1', parentId: goalId, status: 'blocked' },
+          {
+            id: goalId,
+            parentId: null,
+            status: 'active',
+            children: [{ id: 'child-1', parentId: goalId, status: 'blocked', children: [] }],
+          },
         ]),
       } as unknown as SessionOverviewDeps['taskStore'],
     });
@@ -416,8 +420,12 @@ describe('SessionOverviewEmitter', () => {
       } as unknown as SessionOverviewDeps['registry'],
       taskStore: {
         getTree: vi.fn(() => [
-          { id: goalId, parentId: null, status: 'active' },
-          { id: 'child-1', parentId: goalId, status: 'pending_review' },
+          {
+            id: goalId,
+            parentId: null,
+            status: 'active',
+            children: [{ id: 'child-1', parentId: goalId, status: 'pending_review', children: [] }],
+          },
         ]),
       } as unknown as SessionOverviewDeps['taskStore'],
     });
@@ -428,6 +436,87 @@ describe('SessionOverviewEmitter', () => {
     expect(activities[0].state).toBe('waiting');
     expect(activities[0].waitReason).toBe('review');
   });
+
+  it.each([false, true])('keeps mixed task reviews visible (review first=%s)', (reviewFirst) => {
+    const goalId = 'goal-1';
+    const blocked = { id: 'blocked-child', parentId: goalId, status: 'blocked', children: [] };
+    const review = { id: 'review-child', parentId: goalId, status: 'pending_review', children: [] };
+    const goal = {
+      id: goalId,
+      parentId: null,
+      status: 'blocked',
+      children: reviewFirst ? [review, blocked] : [blocked, review],
+    };
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [
+          makeActiveSession({ taskContext: { currentTaskId: 'task-1', goalId } }),
+        ]),
+      } as unknown as SessionOverviewDeps['registry'],
+      taskStore: {
+        getTree: vi.fn(() => [goal, { id: 'other-goal', status: 'pending_review', children: [] }]),
+      } as unknown as SessionOverviewDeps['taskStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    expect(emitter.getSnapshot()[0]).toMatchObject({ state: 'waiting', waitReason: 'review' });
+    review.status = 'done';
+    expect(emitter.getSnapshot()[0]).toMatchObject({ state: 'waiting', waitReason: 'blocked' });
+    mockGetPending.mockReturnValue(1);
+    review.status = 'pending_review';
+    expect(emitter.getSnapshot()[0].waitReason).toBe('permission');
+  });
+
+  it('finds review requests inside the selected nested goal without borrowing another goal', () => {
+    const goalId = 'nested-goal';
+    const review = { id: 'review-child', parentId: goalId, status: 'pending_review', children: [] };
+    const goal = { id: goalId, parentId: 'root', status: 'blocked', children: [review] };
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [
+          makeActiveSession({ taskContext: { currentTaskId: 'task-1', goalId } }),
+        ]),
+      } as unknown as SessionOverviewDeps['registry'],
+      taskStore: {
+        getTree: vi.fn(() => [
+          { id: 'root', status: 'blocked', children: [goal] },
+          { id: 'other-goal', status: 'pending_review', children: [] },
+        ]),
+      } as unknown as SessionOverviewDeps['taskStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    expect(emitter.getSnapshot()[0].waitReason).toBe('review');
+    review.status = 'done';
+    expect(emitter.getSnapshot()[0].waitReason).toBe('blocked');
+  });
+
+  it.each(['running', 'paused'] as const)(
+    'keeps explicit %s spec approval visible above blocked tasks',
+    (state) => {
+      const goalId = 'goal-1';
+      const loop = { ...idleLoopStatus(), state, goalId, awaitingApproval: true };
+      deps = makeDeps({
+        registry: {
+          getActiveSessions: vi.fn(() => [
+            makeActiveSession({ taskContext: { currentTaskId: 'task-1', goalId } }),
+          ]),
+        } as unknown as SessionOverviewDeps['registry'],
+        getLoopStatus: vi.fn(() => loop),
+        taskStore: {
+          getTree: vi.fn(() => [{ id: goalId, status: 'blocked', children: [] }]),
+        } as unknown as SessionOverviewDeps['taskStore'],
+      });
+      emitter = new SessionOverviewEmitter(deps);
+      expect(emitter.getSnapshot()[0]).toMatchObject({ state: 'waiting', waitReason: 'review' });
+      mockGetPending.mockReturnValue(1);
+      expect(emitter.getSnapshot()[0].waitReason).toBe('permission');
+      mockGetPending.mockReturnValue(0);
+      loop.awaitingApproval = false;
+      expect(emitter.getSnapshot()[0].waitReason).toBe('blocked');
+      loop.awaitingApproval = true;
+      loop.goalId = 'unrelated-goal';
+      expect(emitter.getSnapshot()[0].waitReason).toBe('blocked');
+    },
+  );
 
   // ─── Detached sessions ────────────────────────────────────────────────────
 

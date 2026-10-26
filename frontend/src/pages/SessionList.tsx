@@ -409,17 +409,32 @@ export function SessionList() {
     return activity && sessionNeedsYouReason(activity) !== null;
   });
   const visible = filter === 'active' ? active : filter === 'attention' ? attention : all;
+  const searchSessions = search.results.map((result) => {
+    const existing = combined.get(result.sessionId);
+    return {
+      ...existing,
+      id: result.sessionId,
+      summary: result.summary || '',
+      lastModified: result.updatedAt,
+      model: existing?.model ?? result.model,
+      accountLabel: result.accountLabel ?? existing?.accountLabel,
+      snippet: result.snippet,
+    };
+  });
+  const currentPreview = preview
+    ? (searchSessions.find((session) => session.id === preview.id) ?? combined.get(preview.id))
+    : undefined;
   const selectedPreview = preview
-    ? (combined.get(preview.id) ?? preview)
+    ? currentPreview
+      ? {
+          ...preview,
+          ...currentPreview,
+          model: currentPreview.model ?? preview.model,
+          accountLabel: currentPreview.accountLabel ?? preview.accountLabel,
+        }
+      : preview
     : search.active
-      ? search.results[0]
-        ? {
-            ...combined.get(search.results[0].sessionId),
-            id: search.results[0].sessionId,
-            summary: search.results[0].summary || '',
-            lastModified: search.results[0].updatedAt,
-          }
-        : null
+      ? (searchSessions[0] ?? null)
       : (visible[0] ?? null);
   const previewSession = useCallback((session: Session) => setPreview(session), []);
   function openSession(id: string) {
@@ -588,20 +603,15 @@ export function SessionList() {
               {!search.searching && !search.error && search.results.length === 0 && (
                 <p className="session-list-empty">No matching conversations</p>
               )}
-              {search.results.map((r) => (
+              {searchSessions.map((session) => (
                 <SwipeableSession
-                  key={r.sessionId}
-                  session={{
-                    ...combined.get(r.sessionId),
-                    id: r.sessionId,
-                    summary: r.summary || '',
-                    lastModified: r.updatedAt,
-                  }}
-                  snippet={r.snippet}
-                  activity={byId.get(r.sessionId)}
+                  key={session.id}
+                  session={session}
+                  snippet={session.snippet}
+                  activity={byId.get(session.id)}
                   onDismiss={dismiss}
                   desktop={desktop}
-                  selected={desktop && selectedPreview?.id === r.sessionId}
+                  selected={desktop && selectedPreview?.id === session.id}
                   onPreview={previewSession}
                   onActions={showActions}
                   onClick={openSession}

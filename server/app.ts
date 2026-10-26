@@ -32,7 +32,7 @@ import { loadMcpServers } from './mcp-config.js';
 
 import { createWarmPoolRouter, type SandboxConversation } from './openshell-warm-pool-router.js';
 import { getOpenShellWarmPool } from './openshell-warm-pool-binding.js';
-import { sessionListMetadata } from './session-list-metadata.js';
+import { sessionListMetadata, sessionModelIdentity } from './session-list-metadata.js';
 import { projectCompactions } from './compaction-history.js';
 import {
   readOwnedVertexQueue,
@@ -3293,7 +3293,12 @@ app.get('/api/sessions/search', (req, res) => {
     return;
   }
   try {
-    const results = eventStore.searchSessions(q, limit);
+    const results = eventStore.searchSessions(q, limit).map((result) => ({
+      ...result,
+      ...sessionModelIdentity(eventStore.getSession(result.sessionId) ?? {}, (id, fallback) =>
+        accountAliases.label(id, fallback),
+      ),
+    }));
     res.json({ results });
   } catch (err: unknown) {
     log.error('GET /api/sessions/search failed', { error: err });
