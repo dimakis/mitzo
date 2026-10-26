@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.700-composer-receipt-efficiency';
+  'v1.0.701-composer-receipt-efficiency';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/symposium-profile-read-allocation.test.ts':
+    'f83bbaa69102885dfa62bf70322044e2941dca2bd743fb3afa19e7d7c31aa30e',
   '../../frontend/src/lib/composer-draft-proof.ts':
     '92f99447111b00a4e0a1d2e5fe324cd353c1c5b3e0f80af8188b9720336d7395',
   '../../frontend/src/components/__tests__/ChatInputColdReceipt.test.tsx':
@@ -1109,7 +1111,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-library-prompt.ts': '3be39c6cd2fb12c744c5f53e45b8c8b306398146edfcb2af479d4fa1c9159c28',
   '../symposium-profile-portability.ts':
     'aadefe0eab442dc27ce68b86654291299dc6664a185b903af44756f79ff26680',
-  '../symposium-profiles.ts': '4138fce2cc44220fa90b3ef65b207b89c06a5f02cd24750a748f79d84d297c95',
+  '../symposium-profiles.ts': 'a532b5d92eb9372638450476cbf5d40d70aa8a4cacde59273209ecd80850297e',
   '../symposium-custodian-protocol.ts':
     '279efae6e666701b493841881c5e6235594580581db767b57bea8d9a7bd3f839',
   '../symposium-custodian-proxy.ts':
@@ -1209,7 +1211,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '8d334e7f2e465ffbb66d4424f09adc04ca4695ce131fbd50d85226ccbf175d16',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '67c286127895774cb81c4b5611ff06823cae4670c659b1a39e09355c09ba060a',
-  '../repository-workspaces.ts': '0023f95c3d596af69dfa813824f9e485eda4c54b3c7e97c387f6ddd1cbcbf5b7',
+  '../repository-workspaces.ts': 'ec1ee59124e11bc7b5f4adac48aa28fa32802d14478c9a4a14c12c602be44040',
   '../../packages/protocol/src/session-metadata-store.ts':
     '019598b360106c0dd8babc08e9366e40c95c1dd4dca9ea649c37bc7d096b8358',
   '../../packages/protocol/src/event-store.ts':
@@ -1657,7 +1659,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-directory-verification-batch.test.ts':
     'e47f7310524224a555e8786f83824f4f742f5838f5666a461e95a5b99ec647fa',
   '../__tests__/prepared-repository-custody.test.ts':
-    'ecb52ddbba239c2e8d52a2cca6579e2671db689080c9c81168a563b864b56089',
+    '4c965e134adcc3878bc6c1df51c8aad3e2dbce6231760c1f31abb0215ecf33cd',
   '../__tests__/native-host-read-owner.test.ts':
     '7eeb0b94edcd36a2e80488c242d3ebc7bd3606c1e71ae5f2f4f7100919c5bf8d',
   '../__tests__/session-create-runtime-selection.test.ts':
@@ -2293,11 +2295,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-conversation-store-statements.test.ts':
     'f4e9d9ff8edcc9016d442157347049c875812e3cd47c5bbcb7217bd1d4a32d84',
   '../__tests__/fixtures/synchronous-stage-profiler.ts':
-    '03d7b7c10220146bc3a6b2fe9b4cf3ed7ded7892dbab1a29b18c27bbc0f47ba1',
+    '909ed44848c79c9b69e8f53e92ecd818da7e54b30831c29d4a6179dadc86d989',
   '../__tests__/native-reader-path-authorization.test.ts':
     '1c5bb59f30e9c4b81725ecf1f46057aebebc88be7c55dfcf4e257cf4ffe4fcd9',
   '../__tests__/synchronous-stage-profiler.test.ts':
-    'bfa38546252fce67a2414f0d6ff7a6f1fab7689667aa84436dd6ac5ddf10888a',
+    '096bb51cc9269aef58fa577d3b7f7e71d99176cdc94da0bed7482a0ba2874db1',
   '../local-repository-native-reader.ts':
     'a676201b64050db555880abd9b41acd2182e9fdeb2295fefc3520807a7842817',
   '../__tests__/agent-flow-consolidation.test.ts':

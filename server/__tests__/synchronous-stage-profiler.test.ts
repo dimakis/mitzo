@@ -6,6 +6,10 @@ import {
   installSignedNativeReadStages,
 } from './fixtures/synchronous-stage-profiler.js';
 import { FrozenHostCodexBootstrapAuthority } from '../frozen-host-codex-bootstrap.js';
+import { OrdinaryLocalCodexSelectionOwner } from '../ordinary-local-codex-selection-owner.js';
+import { OrdinaryLocalWorkspaceOwner } from '../ordinary-local-workspace-owner.js';
+import { PreparedRepositoryWorkspaceOwner } from '../prepared-repository-workspace-owner.js';
+import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import * as accountProfiles from '../account-profiles.js';
 import * as nativeReaders from '../local-repository-native-read.js';
 
@@ -87,6 +91,26 @@ it('installs every real stage before construction without invoking owners and re
   )!.value;
   const load = accountProfiles.loadAccountProfiles;
   const capture = nativeReaders.captureNativeLocalRepositoryReader;
+  const workspaceMethods = [
+    [OrdinaryLocalCodexSelectionOwner.prototype, 'assertCurrentSync'],
+    [OrdinaryLocalCodexSelectionOwner.prototype, 'preparedPrimary'],
+    [OrdinaryLocalCodexSelectionOwner.prototype, 'assertPreparedPrimary'],
+    [OrdinaryLocalCodexSelectionOwner.prototype, 'assertToolCurrent'],
+    [OrdinaryLocalWorkspaceOwner.prototype, 'assertCurrentSync'],
+    [OrdinaryLocalWorkspaceOwner.prototype, 'get'],
+    [PreparedRepositoryWorkspaceOwner.prototype, 'assertCurrentSync'],
+    [PreparedRepositoryWorkspaceOwner.prototype, 'get'],
+    [RepositoryWorkspaces.prototype, 'assertPreparedRepositoryTransitionAdopted'],
+    [RepositoryWorkspaces.prototype, 'getHostReservation'],
+    [RepositoryWorkspaces.prototype, 'snapshotHostInput'],
+    [RepositoryWorkspaces.prototype, 'getHostRecord'],
+    [RepositoryWorkspaces.prototype, 'getForConversation'],
+    [RepositoryWorkspaces.prototype, 'validateHostTask'],
+  ].map(([target, key]) => ({
+    target: target as object,
+    key: key as string,
+    original: Object.getOwnPropertyDescriptor(target, key as string)!.value,
+  }));
   const restore = installSignedNativeReadStages(p, new NativeReadBoundaryProfile());
   try {
     const current = Object.getOwnPropertyDescriptor(
@@ -97,6 +121,11 @@ it('installs every real stage before construction without invoking owners and re
     expect(vi.isMockFunction(current)).toBe(false);
     expect(vi.isMockFunction(accountProfiles.loadAccountProfiles)).toBe(true);
     expect(vi.isMockFunction(nativeReaders.captureNativeLocalRepositoryReader)).toBe(true);
+    for (const { target, key, original } of workspaceMethods) {
+      const wrapped = Object.getOwnPropertyDescriptor(target, key)!.value;
+      expect(wrapped).not.toBe(original);
+      expect(vi.isMockFunction(wrapped)).toBe(false);
+    }
     expect(p.snapshot().stages).toEqual({});
   } finally {
     restore();
@@ -107,6 +136,8 @@ it('installs every real stage before construction without invoking owners and re
   ).toBe(original);
   expect(accountProfiles.loadAccountProfiles).toBe(load);
   expect(nativeReaders.captureNativeLocalRepositoryReader).toBe(capture);
+  for (const { target, key, original } of workspaceMethods)
+    expect(Object.getOwnPropertyDescriptor(target, key)!.value).toBe(original);
 });
 
 it('observes malformed reader options without interfering with the original call or Promise identity', () => {

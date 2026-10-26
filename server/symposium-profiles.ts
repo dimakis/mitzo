@@ -44,6 +44,8 @@ const fromRow = (row: VersionRow): SymposiumProfileVersion => ({
 export class SymposiumProfileStore {
   private readonly db: Database.Database;
   private readonly ownsDb: boolean;
+  private readonly latestVersion: Database.Statement;
+  private readonly exactVersion: Database.Statement;
 
   constructor(dbPath: string, sharedDb?: Database.Database) {
     this.db = sharedDb ?? new Database(dbPath);
@@ -67,6 +69,17 @@ export class SymposiumProfileStore {
         PRIMARY KEY (owner, idempotency_key)
       );
     `);
+    // Retain only compiled SQL, never a row or validation result. Each lookup
+    // still reads the current database and parses a new definition below.
+    this.latestVersion = this.db.prepare(
+      `SELECT profile_id, revision, definition, content_hash
+          FROM symposium_profile_versions WHERE owner = ? AND profile_id = ?
+          ORDER BY revision DESC LIMIT 1`,
+    );
+    this.exactVersion = this.db.prepare(
+      `SELECT profile_id, revision, definition, content_hash
+          FROM symposium_profile_versions WHERE owner = ? AND profile_id = ? AND revision = ?`,
+    );
   }
 
   close(): void {
@@ -76,22 +89,11 @@ export class SymposiumProfileStore {
   get(owner: string, profileId: string, revision?: number): SymposiumProfileVersion | null {
     Id.parse(owner);
     Id.parse(profileId);
-    if (revision !== undefined) z.number().int().positive().parse(revision);
+    if (revision !== undefined) VersionSchema.shape.revision.parse(revision);
     const row = (
       revision === undefined
-        ? this.db
-            .prepare(
-              `SELECT profile_id, revision, definition, content_hash
-          FROM symposium_profile_versions WHERE owner = ? AND profile_id = ?
-          ORDER BY revision DESC LIMIT 1`,
-            )
-            .get(owner, profileId)
-        : this.db
-            .prepare(
-              `SELECT profile_id, revision, definition, content_hash
-          FROM symposium_profile_versions WHERE owner = ? AND profile_id = ? AND revision = ?`,
-            )
-            .get(owner, profileId, revision)
+        ? this.latestVersion.get(owner, profileId)
+        : this.exactVersion.get(owner, profileId, revision)
     ) as VersionRow | undefined;
     return row ? fromRow(row) : null;
   }

@@ -235,3 +235,42 @@ RED, then passed. All 15 ChatInput suites plus saved-page, useDraft and
 useNewChatDraft suites pass: 18 files, 290 tests, one worker and a 1 GiB heap.
 Strict focused TypeScript and changed-file ESLint pass. No prior assertion or
 coverage was removed. Runtime review revision advances to v1.0.699.
+
+Native qualification allocation and diagnostic follow-up
+Combined c07d4804704abd2bde76872d3b7787376ce6a1a7 includes accepted main
+b96b7ef19d1e07266d50922d2eb29270e7cafe0a. Its first hosted native run passed
+the API journey in 224.38 seconds, but subscription preparation refused private
+publication. The private Python helper can return an operation error while
+exiting zero, so exit status and the public helper-error count do not prove
+successful publication. The retained evidence does not establish that cause.
+One controlled same-head retry materialized both repositories, then both tests
+exceeded their unchanged 240-second overall deadline during handoff. All later
+joined cases and 36 native authorization tests passed, with one existing skip.
+
+Retain compiled profile SELECT statements and the existing revision schema,
+while still executing fresh database reads and definition validation on every
+lookup. Cache only validated deeply frozen original transition facts, their
+immutable projections and one exact bounded original materialized-record string
+per live facts owner. Current database rows, markers, decisions, receipts,
+reservations, pointers, callbacks and physical authority remain freshly checked.
+Warm-cache tests cover mutation, malformed originals and exact-string replacement.
+
+Isolated synthetic benchmarks measured 1,000 profile reads at 17.30 to 3.08 ms,
+and 500 public adopted-custody assertions at 258.36 to 208.05 ms. Interleaved
+admission-current checks attributed only about 1.55% median improvement to profile
+allocation. These bounded measurements do not establish hosted deadline recovery.
+A complete local subscription journey against a disposable physical clone with
+5,309 tracked leaves passed with real OS fences and synthetic RPC: 113.69 seconds
+after these changes versus 104.24 seconds in an earlier separate baseline run.
+Those runs do not demonstrate an overall speedup. No provider/model was called.
+
+Finer nested profiling separates selection, reservation and custody work without
+altering receivers, return values or Promise identity. The later local profile
+observed 87,924 repository-record reads taking 6.79 seconds during handoff.
+A proposed general decoded-row cache was rejected: on an actual adopted custody
+fixture, cloning its 31,380-byte row took longer than fresh JSON parsing.
+No mutable authority observation or decoded current database row is cached.
+CI now uploads the same sanitized native evidence immediately after that phase,
+including failures, without waiting for the remaining independent joined cases.
+Qualification coverage, assertions, deadlines and the final artifact stay intact.
+Fresh exact-head CI and trusted approval remain required before merge.

@@ -274,7 +274,19 @@ const transitionAdoptionSchema = z.strictObject({
   materializedRecord: transitionMaterializedRecordSchema,
   facts: transitionFactsSchema,
 });
+interface ImmutableTransitionProjection {
+  facts: z.infer<typeof transitionFactsSchema>;
+  childId: string;
+  sha256: string;
+  materialized?: { bytes: string; retainedFields: object };
+}
+// Pure projections only: the original must first prove deep immutable data.
+// Current custody rows, decisions, callbacks and physical checks never enter
+// this cache. One bounded materialized string is retained per live facts owner.
+const immutableTransitionProjections = new WeakMap<object, ImmutableTransitionProjection>();
 function transitionFacts(input: PreparedRepositoryTransitionFacts) {
+  const previous = immutableTransitionProjections.get(input);
+  if (previous) return previous.facts;
   let count = 0;
   const inspect = (value: unknown, depth = 0): void => {
     if (!value || typeof value !== 'object') return;
@@ -286,7 +298,51 @@ function transitionFacts(input: PreparedRepositoryTransitionFacts) {
     }
   };
   inspect(input);
-  return transitionFactsSchema.parse(structuredClone(input));
+  const facts = freezePendingHostTaskData(transitionFactsSchema.parse(structuredClone(input)));
+  const projection = {
+    facts,
+    childId: transitionChildId(facts),
+    sha256: pendingHostTaskDecisionHash(facts),
+  };
+  immutableTransitionProjections.set(input, projection);
+  immutableTransitionProjections.set(facts, projection);
+  return facts;
+}
+function retainedOriginalFields(value: object): object {
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([key]) =>
+        ![
+          'state',
+          'conversationId',
+          'directory',
+          'sandbox',
+          'taskIdentity',
+          'hostReservation',
+          'primaryDisposition',
+          'preparedRepositoryTransitionAdoption',
+          'sourceReleased',
+        ].includes(key),
+    ),
+  );
+}
+function materializedOriginalFields(
+  facts: z.infer<typeof transitionFactsSchema>,
+  bytes: string,
+): object {
+  const projection = immutableTransitionProjections.get(facts)!;
+  if (projection.materialized?.bytes === bytes) return projection.materialized.retainedFields;
+  const original: unknown = JSON.parse(bytes);
+  if (
+    !original ||
+    typeof original !== 'object' ||
+    Array.isArray(original) ||
+    pendingHostTaskDecisionHash(original) !== facts.materializedRecordSha256
+  )
+    throw Error('Original materialized custody record changed');
+  const retainedFields = freezePendingHostTaskData(retainedOriginalFields(original));
+  projection.materialized = { bytes, retainedFields };
+  return retainedFields;
 }
 function primaryConversation(record: RepositoryWorkspace): string | null {
   if (!record.primaryDisposition) return record.conversationId ?? null;
@@ -299,6 +355,8 @@ function primaryConversation(record: RepositoryWorkspace): string | null {
   return disposition.currentConversationId;
 }
 function transitionChildId(facts: PreparedRepositoryTransitionFacts) {
+  const previous = immutableTransitionProjections.get(facts);
+  if (previous) return previous.childId;
   const request = facts.request;
   const source = {
     ...request.nativeTarget,
@@ -2012,7 +2070,7 @@ export class RepositoryWorkspaces {
       ...(input.runtimeBinding ? { runtimeBinding: structuredClone(input.runtimeBinding) } : {}),
       ...(input.commandFingerprint ? { commandFingerprint: input.commandFingerprint } : {}),
     });
-    z.string().uuid().parse(snapshot.id);
+    hostRepositoryReservationSchema.shape.id.parse(snapshot.id);
     reservationReference.parse(snapshot.conversationId);
     canonicalPath.parse(snapshot.taskRoot);
     AccountBindingSchema.parse(snapshot.binding);
@@ -2387,30 +2445,11 @@ export class RepositoryWorkspaces {
       marker = transitionAdoptionSchema.parse(record.preparedRepositoryTransitionAdoption);
     const receipt = PendingHostTaskReceiptSchema.parse(record.pendingHostTask),
       decision = PendingHostTaskDecisionSchema.parse(record.pendingHostTaskDecision);
-    const original: unknown = JSON.parse(marker.materializedRecord);
-    const retainedOriginalFields = (value: object) =>
-      Object.fromEntries(
-        Object.entries(value).filter(
-          ([key]) =>
-            ![
-              'state',
-              'conversationId',
-              'directory',
-              'sandbox',
-              'taskIdentity',
-              'hostReservation',
-              'primaryDisposition',
-              'preparedRepositoryTransitionAdoption',
-              'sourceReleased',
-            ].includes(key),
-        ),
-      );
     if (
-      !original ||
-      typeof original !== 'object' ||
-      Array.isArray(original) ||
-      pendingHostTaskDecisionHash(original) !== facts.materializedRecordSha256 ||
-      !isDeepStrictEqual(retainedOriginalFields(record), retainedOriginalFields(original)) ||
+      !isDeepStrictEqual(
+        retainedOriginalFields(record),
+        materializedOriginalFields(facts, marker.materializedRecord),
+      ) ||
       (record.sourceReleased !== undefined && typeof record.sourceReleased !== 'boolean')
     )
       throw Error('Original materialized custody record changed');
@@ -2426,7 +2465,7 @@ export class RepositoryWorkspaces {
       !isDeepStrictEqual(marker, {
         version: 1,
         childCommandId,
-        factsSha256: pendingHostTaskDecisionHash(facts),
+        factsSha256: immutableTransitionProjections.get(facts)!.sha256,
         materializedRecord: marker.materializedRecord,
         facts,
       }) ||

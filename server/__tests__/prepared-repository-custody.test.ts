@@ -265,6 +265,85 @@ async function fixture(kind: 'ordinary' | 'repository' = 'repository') {
   return { service, deps, db, raw, old, root, source, taskRoot, conversationId, pending };
 }
 
+it('reuses only immutable transition projections while rechecking the current adopted ledger', async () => {
+  const f = await fixture(),
+    p = await f.pending();
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+  f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
+  const record = f.service.get(p.record.id);
+  const materialized = record.preparedRepositoryTransitionAdoption!.materializedRecord;
+  const clone = vi.spyOn(globalThis, 'structuredClone');
+  const parse = vi.spyOn(JSON, 'parse');
+  const current = vi.spyOn(f.service, 'getForConversation');
+  const reservation = vi.spyOn(f.service, 'getHostReservation');
+  const samples = 500;
+  const started = performance.now();
+  for (let index = 0; index < samples; index++)
+    f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
+  const elapsedMs = performance.now() - started;
+  const immutableClones = clone.mock.calls.filter(([value]) => value === p.facts).length;
+  const immutableParses = parse.mock.calls.filter(([value]) => value === materialized).length;
+  if (process.env.MITZO_CUSTODY_COST_BENCHMARK === '1')
+    process.stdout.write(
+      JSON.stringify({ samples, elapsedMs, immutableClones, immutableParses }) + '\n',
+    );
+  expect(current).toHaveBeenCalledTimes(samples);
+  expect(reservation).toHaveBeenCalledTimes(samples);
+  expect(immutableClones).toBe(0);
+  expect(immutableParses).toBe(0);
+  clone.mockRestore();
+  parse.mockRestore();
+  current.mockRestore();
+  reservation.mockRestore();
+  if (process.env.MITZO_CUSTODY_COST_BENCHMARK === '1') {
+    const { SynchronousStageProfiler, installSignedNativeReadStages, NativeReadBoundaryProfile } =
+      await import('./fixtures/synchronous-stage-profiler.js');
+    const raw: number[] = [],
+      instrumented: number[] = [];
+    for (let round = 0; round < 3; round++) {
+      const before = performance.now();
+      for (let index = 0; index < samples; index++)
+        f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
+      raw.push(performance.now() - before);
+      const profiler = new SynchronousStageProfiler();
+      const restore = installSignedNativeReadStages(profiler, new NativeReadBoundaryProfile());
+      try {
+        const before = performance.now();
+        for (let index = 0; index < samples; index++)
+          f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
+        instrumented.push(performance.now() - before);
+        expect(profiler.snapshot().stages['repository.adopted'].calls).toBe(samples);
+      } finally {
+        restore();
+      }
+    }
+    process.stdout.write(JSON.stringify({ samples, raw, instrumented }) + '\n');
+  }
+  const changedBytes = materialized + '\n';
+  const changedParse = vi.spyOn(JSON, 'parse');
+  record.preparedRepositoryTransitionAdoption!.materializedRecord = changedBytes;
+  f.db
+    .prepare('UPDATE repository_workspaces SET record=? WHERE id=?')
+    .run(JSON.stringify(record), record.id);
+  f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
+  f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
+  expect(changedParse.mock.calls.filter(([value]) => value === changedBytes)).toHaveLength(1);
+  // Only the latest successful byte projection is retained per facts owner.
+  record.preparedRepositoryTransitionAdoption!.materializedRecord = materialized;
+  f.db
+    .prepare('UPDATE repository_workspaces SET record=? WHERE id=?')
+    .run(JSON.stringify(record), record.id);
+  f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
+  expect(changedParse.mock.calls.filter(([value]) => value === materialized)).toHaveLength(1);
+  changedParse.mockRestore();
+  // The projection must never stand in for the fresh current custody witness.
+  record.pendingHostTaskDecision!.evidence.input = { changed: 'current evidence changed' };
+  f.db
+    .prepare('UPDATE repository_workspaces SET record=? WHERE id=?')
+    .run(JSON.stringify(record), record.id);
+  expect(() => f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId)).toThrow();
+});
+
 it.each(['ordinary', 'repository'] as const)(
   'atomically adopts %s→repository while retaining dirty old task and historical ownership',
   async (kind) => {
@@ -535,6 +614,27 @@ it('requires strict fresh synchronous authority and immutable exact facts before
   expect(guard).not.toHaveBeenCalled();
 });
 
+it('never qualifies mutable, accessor, proxy or oversized facts through a warm immutable projection', async () => {
+  const f = await fixture(),
+    p = await f.pending();
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+  f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
+  const shallow = Object.freeze(structuredClone(p.facts));
+  const accessor = structuredClone(p.facts);
+  Object.defineProperty(accessor, 'version', { get: () => p.facts.version, enumerable: true });
+  freezePendingHostTaskData(accessor);
+  const oversized = structuredClone(p.facts);
+  oversized.request.binding.accountLabel = 'x'.repeat(65536);
+  freezePendingHostTaskData(oversized);
+  for (const input of [shallow, accessor, new Proxy(p.facts, {}), oversized]) {
+    for (let attempt = 0; attempt < 2; attempt++)
+      expect(() => f.service.assertPreparedRepositoryTransitionAdopted(input, p.childId)).toThrow();
+  }
+  expect(() =>
+    f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId),
+  ).not.toThrow();
+});
+
 it('retains full original row evidence, rejects bounded snapshot overflow and every retained-proof drift', async () => {
   const f = await fixture(),
     p = await f.pending();
@@ -553,9 +653,28 @@ it('retains full original row evidence, rejects bounded snapshot overflow and ev
     .prepare('UPDATE repository_workspaces SET record=? WHERE id=?')
     .run(p.before.record, p.record.id);
   f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, guard);
+  f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
   const adopted = f.service.get(p.record.id),
     before = f.raw(p.record.id);
   const mutations: Array<(r: RepositoryWorkspace) => void> = [
+    (r) => {
+      r.preparedRepositoryTransitionAdoption!.facts.oldWorkspace.directory = f.root;
+    },
+    (r) => {
+      r.preparedRepositoryTransitionAdoption!.materializedRecord = '{}';
+    },
+    (r) => {
+      r.preparedRepositoryTransitionAdoption!.materializedRecord = 'x'.repeat(262145);
+    },
+    (r) => {
+      r.preparedRepositoryTransitionAdoption!.childCommandId = 'different-child';
+    },
+    (r) => {
+      r.primaryDisposition!.currentConversationId = 'different-conversation';
+    },
+    (r) => {
+      Object.assign(r, { sourceReleased: 'malformed' });
+    },
     (r) => {
       r.pendingHostTaskDecision!.evidence.sessionId = 'another-conversation';
     },
@@ -592,6 +711,8 @@ it('retains full original row evidence, rejects bounded snapshot overflow and ev
   expect(() =>
     f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId),
   ).not.toThrow();
+  f.db.prepare('UPDATE repository_workspaces SET conversation_id=NULL WHERE id=?').run(p.record.id);
+  expect(() => f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId)).toThrow();
 });
 
 it('permits a fresh preparation for a revisited repository source, never reattaches its retired exact task', async () => {
