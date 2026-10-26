@@ -1,3 +1,4 @@
+import { sessionModelSettingsReason } from './session-model-settings.js';
 import { adviserExecutionProjection } from './adviser-harness-runtime.js';
 import { initializeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { resolveTelosWorkCommandScope } from './telos-work-command-scope.js';
@@ -3733,6 +3734,11 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
         }
       : {}),
     ...(modelSelection ? { modelSelection } : {}),
+    modelSettingsReadOnlyReason: sessionModelSettingsReason(
+      meta.accountBinding?.provider,
+      routingMetadata.runtimeBinding?.harness.implementation,
+      codexBacked,
+    ),
     ...(codexBacked || responsesBacked ? { codexQueue } : {}),
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,

@@ -174,59 +174,133 @@ it.each([
 ] as const)(
   '%s lets a running legacy chat select model and thinking for its next message',
   async (_name, Screen) => {
-    vi.mocked(apiFetch).mockImplementation(async (url) =>
-      Response.json(
-        String(url).endsWith('/meta')
-          ? {
-              sessionType: 'chat',
-              accountBinding: { accountId: 'work', accountLabel: 'Work', model: 'luna' },
-              modelSelection: {
-                model: 'luna',
-                reasoningEffort: 'low',
-                models: [
-                  { id: 'luna', label: 'Luna', reasoningEfforts: ['low', 'high'] },
-                  { id: 'luna-next', label: 'Luna next', reasoningEfforts: ['low', 'high'] },
-                ],
-              },
-            }
-          : String(url).endsWith('/symposium/status')
-            ? { sessionId: 'existing-chat', config: null, seats: [] }
-            : [],
-      ),
-    );
-    const store = createTestStore();
-    const sendMessage = vi.fn();
-    store.setState({
-      sessions: { ...store.getState().sessions, active: 'existing-chat' },
-      messages: { ...store.getState().messages, running: true },
-      sendMessage,
-      fetchSessionMeta: vi.fn().mockResolvedValue(undefined),
-    });
-    render(
-      <MitzoStoreProvider value={store}>
-        <MemoryRouter initialEntries={['/chat/existing-chat']}>
-          <Routes>
-            <Route path="/chat/:sessionId" element={<Screen />} />
-          </Routes>
-        </MemoryRouter>
-      </MitzoStoreProvider>,
-    );
-    openAgentSettings();
-    const model = (await screen.findByLabelText('Model')) as HTMLSelectElement;
-    await waitFor(() => expect(model.disabled).toBe(false));
-    fireEvent.change(model, { target: { value: 'luna-next' } });
-    fireEvent.change(screen.getByLabelText('Thinking level'), { target: { value: 'high' } });
-    expect(sendMessage).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: /^Workspace controls,/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
-    expect(sendMessage).toHaveBeenCalledWith(
-      'hello',
-      expect.objectContaining({
-        accountId: 'work',
-        model: 'luna-next',
-        reasoningEffort: 'high',
-      }),
-    );
+    const hookModule = await import('../../hooks/useExplicitLocalChat');
+    const actual = await vi.importActual<typeof hookModule>('../../hooks/useExplicitLocalChat');
+    const hook = vi
+      .spyOn(hookModule, 'useExplicitLocalChat')
+      .mockImplementation(actual.useExplicitLocalChat);
+    try {
+      vi.mocked(apiFetch).mockImplementation(async (url) =>
+        Response.json(
+          String(url).endsWith('/meta')
+            ? {
+                sessionType: 'chat',
+                accountBinding: { accountId: 'work', accountLabel: 'Work', model: 'luna' },
+                modelSelection: {
+                  model: 'luna',
+                  reasoningEffort: 'low',
+                  models: [
+                    { id: 'luna', label: 'Luna', reasoningEfforts: ['low', 'high'] },
+                    { id: 'luna-next', label: 'Luna next', reasoningEfforts: ['low', 'high'] },
+                  ],
+                },
+              }
+            : String(url).endsWith('/symposium/status')
+              ? { sessionId: 'existing-chat', config: null, seats: [] }
+              : [],
+        ),
+      );
+      const store = createTestStore();
+      const sendMessage = vi.fn();
+      store.setState({
+        sessions: { ...store.getState().sessions, active: 'existing-chat' },
+        messages: { ...store.getState().messages, running: true },
+        sendMessage,
+        fetchSessionMeta: vi.fn().mockResolvedValue(undefined),
+      });
+      render(
+        <MitzoStoreProvider value={store}>
+          <MemoryRouter initialEntries={['/chat/existing-chat']}>
+            <Routes>
+              <Route path="/chat/:sessionId" element={<Screen />} />
+            </Routes>
+          </MemoryRouter>
+        </MitzoStoreProvider>,
+      );
+      openAgentSettings();
+      const model = (await screen.findByLabelText('Model')) as HTMLSelectElement;
+      await waitFor(() => expect(model.disabled).toBe(false));
+      fireEvent.change(model, { target: { value: 'luna-next' } });
+      fireEvent.change(screen.getByLabelText('Thinking level'), { target: { value: 'high' } });
+      expect(sendMessage).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: /^Workspace controls,/ }));
+      fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+      expect(sendMessage).toHaveBeenCalledWith(
+        'hello',
+        expect.objectContaining({
+          accountId: 'work',
+          model: 'luna-next',
+          reasoningEffort: 'high',
+        }),
+      );
+    } finally {
+      cleanup();
+      hook.mockRestore();
+    }
+  },
+);
+
+it.each([
+  ['mobile', ChatView],
+  ['desktop', DesktopChatView],
+] as const)(
+  '%s explains unsupported legacy SDK settings while retaining the current selection',
+  async (_name, Screen) => {
+    const hookModule = await import('../../hooks/useExplicitLocalChat');
+    const actual = await vi.importActual<typeof hookModule>('../../hooks/useExplicitLocalChat');
+    const hook = vi
+      .spyOn(hookModule, 'useExplicitLocalChat')
+      .mockImplementation(actual.useExplicitLocalChat);
+    try {
+      vi.mocked(apiFetch).mockImplementation(async (url) =>
+        Response.json(
+          String(url).endsWith('/meta')
+            ? {
+                sessionType: 'chat',
+                modelSettingsReadOnlyReason:
+                  'This older Agent SDK chat keeps its original model and thinking. Start a new chat to choose different settings.',
+                accountBinding: { accountId: 'work', accountLabel: 'Work', model: 'luna' },
+                modelSelection: {
+                  model: 'luna',
+                  reasoningEffort: 'low',
+                  models: [
+                    { id: 'luna', label: 'Luna', reasoningEfforts: ['low', 'high'] },
+                    { id: 'luna-next', label: 'Luna next', reasoningEfforts: ['low', 'high'] },
+                  ],
+                },
+              }
+            : String(url).endsWith('/symposium/status')
+              ? { sessionId: 'existing-chat', config: null, seats: [] }
+              : [],
+        ),
+      );
+      const store = createTestStore();
+      const sendMessage = vi.fn();
+      store.setState({
+        sessions: { ...store.getState().sessions, active: 'existing-chat' },
+        messages: { ...store.getState().messages, running: true },
+        sendMessage,
+        fetchSessionMeta: vi.fn().mockResolvedValue(undefined),
+      });
+      render(
+        <MitzoStoreProvider value={store}>
+          <MemoryRouter initialEntries={['/chat/existing-chat']}>
+            <Routes>
+              <Route path="/chat/:sessionId" element={<Screen />} />
+            </Routes>
+          </MemoryRouter>
+        </MitzoStoreProvider>,
+      );
+      openAgentSettings();
+      const model = (await screen.findByLabelText('Model')) as HTMLSelectElement;
+      await waitFor(() => expect(model.disabled).toBe(true));
+      expect(screen.getByText(/This older Agent SDK chat/)).toBeTruthy();
+      expect((screen.getByLabelText('Thinking level') as HTMLSelectElement).disabled).toBe(true);
+      expect(sendMessage).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+      hook.mockRestore();
+    }
   },
 );
 

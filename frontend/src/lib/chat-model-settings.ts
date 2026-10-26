@@ -17,6 +17,7 @@ export function chatModelSettings(state: {
   launchSending: boolean;
   starting?: boolean;
   nativeConstraintReason?: string;
+  modelSettingsReadOnlyReason?: string;
 }) {
   const disabledReason =
     state.sessionId && state.sessionId !== state.activeSessionId
@@ -29,21 +30,23 @@ export function chatModelSettings(state: {
             ? 'Loading conversation settings…'
             : state.preparedFirst
               ? 'The prepared first message has fixed settings. Send it before changing settings for later messages.'
-              : state.localBound && !state.commandAvailable
-                ? (state.runtimeReason ??
-                  'This chat does not support another message. Start a new chat to choose different settings.')
-                : state.repositoryLoading
-                  ? 'Loading repository preparation. Wait for it to finish before changing settings.'
-                  : state.briefingLocked
-                    ? (state.briefingError ??
-                      (state.briefingLoading
-                        ? 'Checking whether this chat has fixed briefing settings…'
-                        : 'This briefing uses its reviewed settings. Use Change account or model to review a different selection.'))
-                    : state.briefingLaunchReason
-                      ? state.briefingLaunchReason
-                      : state.launchSending || state.starting
-                        ? 'The first message is being sent. Settings become available after the chat starts.'
-                        : undefined;
+              : state.modelSettingsReadOnlyReason
+                ? state.modelSettingsReadOnlyReason
+                : state.localBound && !state.commandAvailable
+                  ? (state.runtimeReason ??
+                    'This chat does not support another message. Start a new chat to choose different settings.')
+                  : state.repositoryLoading
+                    ? 'Loading repository preparation. Wait for it to finish before changing settings.'
+                    : state.briefingLocked
+                      ? (state.briefingError ??
+                        (state.briefingLoading
+                          ? 'Checking whether this chat has fixed briefing settings…'
+                          : 'This briefing uses its reviewed settings. Use Change account or model to review a different selection.'))
+                      : state.briefingLaunchReason
+                        ? state.briefingLaunchReason
+                        : state.launchSending || state.starting
+                          ? 'The first message is being sent. Settings become available after the chat starts.'
+                          : undefined;
   return {
     disabledReason,
     notice:

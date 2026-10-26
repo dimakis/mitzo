@@ -133,6 +133,7 @@ export function useExplicitLocalChat(
     binding: SessionRuntimeBinding | null;
     firstCommand: boolean;
     preparedFirst: boolean;
+    modelSettingsReadOnlyReason?: string;
     ordinaryWorkspaceId?: string;
     reason?: string;
     intent: ChatRuntimeSelection | null;
@@ -267,6 +268,12 @@ export function useExplicitLocalChat(
           sessionId,
           ordinaryWorkspaceId,
           preparedFirst,
+          modelSettingsReadOnlyReason: z
+            .string()
+            .min(1)
+            .max(200)
+            .optional()
+            .parse(body.modelSettingsReadOnlyReason),
           binding: parsed,
           ...(parsed?.harness.implementation === 'gemini'
             ? {
@@ -527,6 +534,7 @@ export function useExplicitLocalChat(
     reason,
     error,
     metadataUnavailable,
+    modelSettingsReadOnlyReason: currentMeta?.modelSettingsReadOnlyReason,
     metadataPending,
     refresh,
     update,

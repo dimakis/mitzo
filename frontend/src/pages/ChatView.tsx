@@ -1039,6 +1039,7 @@ export function ChatView() {
     preparedFirst: localRuntime.preparedFirst,
     runtimeReason: localRuntime.reason,
     nativeConstraintReason: localRuntime.nativeConstraint?.reason,
+    modelSettingsReadOnlyReason: localRuntime.modelSettingsReadOnlyReason,
     repositoryLoading: repositoryHandoff.loading,
     briefingLocked: briefingChat.selectionLocked && !briefingOwnedDraft,
     briefingLoading: briefingChat.loading,

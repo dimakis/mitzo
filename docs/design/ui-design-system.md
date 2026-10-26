@@ -2194,8 +2194,10 @@ and pending matching-source App/browser qualification are recorded separately.
 ## Model and thinking settings during a response
 
 The existing Chat settings editors allow model and thinking choices for the next
-message in an established ordinary chat, including legacy sessions while a response
-is running. Submitted messages keep their settings. Preparation, metadata, briefing
+message in an established ordinary chat, including legacy Codex sessions while a response
+is running. Older SDK sessions explain that their model/thinking are fixed; retired
+API sessions point to the reviewed Continue with Codex flow. The server supplies
+these restrictions separately from the account catalog. Submitted messages keep their settings. Preparation, metadata, briefing
 and unsupported-continuation locks remain authoritative and explain their reason
 inside the editor. Failed metadata or briefing lookups offer **Retry settings**
 without unlocking unverified choices, including when no choices could load. Native
