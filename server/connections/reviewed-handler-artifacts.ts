@@ -2493,7 +2493,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/TelosWorkspace.priority-handoff.test.tsx':
     'b5e046b28f31fc3eea2db9e1fd7ea4c59f6d6a26bc49b58c2a7a7964ed55abfb',
   '../../frontend/src/pages/__tests__/TelosWorkspace.routes.test.tsx':
-    '9d01fcc33db724d43b8af3474d9c8c479c56031b96e2d6bd8a82389ac351cbe1',
+    'e62c644286c27ccd56f2345214169de73c2a128114466eefc9c818d3f5dd28d5',
   '../../frontend/src/pages/__tests__/TelosWorkspace.scroll.test.tsx':
     '3a3b3fbcacb55bafe628705b25f299ce159b99d7b55759cae265acfd566ce3eb',
   '../../frontend/src/test-utils/telos-record-batch.ts':

@@ -95,7 +95,7 @@ it('opens actual record workspace from All outcomes, navigates child and returns
   expect(screen.getByRole('button', { name: 'New item' })).toBeTruthy();
   const list = document.body;
   fireEvent.change(within(list).getByRole('searchbox'), { target: { value: 'recording' } });
-  fireEvent.click(within(list).getByRole('button', { name: 'Plan the recording setup' }));
+  fireEvent.click(await within(list).findByRole('button', { name: 'Plan the recording setup' }));
   const detail = document.body;
   await within(detail).findByRole('heading', { name: 'Plan the recording setup' });
   expect(within(detail).queryByRole('button', { name: 'Work' })).toBeNull();
