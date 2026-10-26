@@ -30,6 +30,14 @@ describe('chat model settings availability', () => {
       chatModelSettings({ ...ready, localBound: true, commandAvailable: true }).notice,
     ).toMatch(/next message/);
   });
+  it('distinguishes unsent legacy queue choices from already submitted runtime commands', () => {
+    expect(chatModelSettings(ready).notice).toBe(
+      'The running response keeps its settings. Queued messages use your current choices when sent.',
+    );
+    expect(chatModelSettings({ ...ready, localBound: true, commandAvailable: true }).notice).toBe(
+      'Changes apply to your next message. Running and already queued messages keep their settings.',
+    );
+  });
   it.each([
     [{ metadataPending: true }, /Loading conversation settings/],
     [{ metadataPending: true, metadataUnavailable: true }, /could not be loaded/],

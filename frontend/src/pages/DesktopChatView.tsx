@@ -772,6 +772,7 @@ export function DesktopChatView() {
     launching = false,
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
+    composerDraft?: import('@mitzo/client').SendMessageOptions['composerDraft'],
   ): boolean {
     if (
       roleSetupRequested ||
@@ -791,6 +792,7 @@ export function DesktopChatView() {
           localRuntime.preparedFirst ? 'first' : 'continue',
           {
             onDelivery,
+            composerDraft,
             ...(boundDraftOwner.sessionId === activeSessionId && boundDraftOwner.draftId
               ? { draftId: boundDraftOwner.draftId }
               : {}),
@@ -811,7 +813,10 @@ export function DesktopChatView() {
       });
       return (
         !!command.request &&
-        sendPreparedRepositoryCommand(command.request, activeSessionId, { onDelivery })
+        sendPreparedRepositoryCommand(command.request, activeSessionId, {
+          onDelivery,
+          composerDraft,
+        })
       );
     }
     if (localRuntime.continuation && activeSessionId) {
@@ -833,7 +838,9 @@ export function DesktopChatView() {
         text,
         images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
       });
-      return !!command.request && sendLocalFirstCommand(command.request, { onDelivery });
+      return (
+        !!command.request && sendLocalFirstCommand(command.request, { onDelivery, composerDraft })
+      );
     }
     if (explicitNew) {
       if (
@@ -864,6 +871,7 @@ export function DesktopChatView() {
       return (briefingOwnedDraft ? sendBriefingCommand : sendLocalFirstCommand)(command, {
         draftId: newChatDraft.draft.id,
         onDelivery,
+        composerDraft,
         onSessionAssigned: (assignedId) => {
           try {
             markAgentBuilderAssigned(newChatDraft.draft, assignedId);
@@ -901,6 +909,7 @@ export function DesktopChatView() {
       contextBlocks: ctxBlocks,
       ...(!activeSessionId ? { sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots } : {}),
       ...(onDelivery ? { onDelivery } : {}),
+      ...(composerDraft ? { composerDraft } : {}),
       ...(accountSelection ?? {}),
       ...(!activeSessionId && repositorySelection?.repositoryWorkspaceId
         ? {
@@ -1817,6 +1826,12 @@ export function DesktopChatView() {
                             : undefined
                     }
                     savedChatDraft={launch || savedLaunch ? undefined : savedChatDraft}
+                    acceptedComposerDraft={
+                      localCommand?.state === 'consumed' &&
+                      localCommand.sessionId === activeSessionId
+                        ? localCommand.composerDraft
+                        : undefined
+                    }
                     composerGeneration={chatDraftRevision}
                     key={
                       repositoryHandoff.present
@@ -1852,12 +1867,16 @@ export function DesktopChatView() {
                       localCommand.state !== 'consumed'
                         ? localCommand.state === 'pending'
                           ? 'Sending…'
-                          : 'Something went wrong.'
+                          : ['uncertain', 'reserved', 'retained'].includes(localCommand.state)
+                            ? 'Delivery not confirmed.'
+                            : 'Something went wrong.'
                         : undefined) ??
                       (explicitNew && localCommand && localCommand.state !== 'consumed'
                         ? localCommand.state === 'pending'
                           ? 'Sending…'
-                          : 'Something went wrong.'
+                          : ['uncertain', 'reserved', 'retained'].includes(localCommand.state)
+                            ? 'Delivery not confirmed.'
+                            : 'Something went wrong.'
                         : undefined) ??
                       (localFirstCommand && (!localTransportAvailable || !connected)
                         ? 'Execution connection is unavailable. Reconnect before sending.'
@@ -1884,8 +1903,16 @@ export function DesktopChatView() {
                           ? 'Select an account before sending.'
                           : undefined)
                     }
-                    onSend={(text, images, context, onDelivery, onSessionAssigned) =>
-                      handleSend(text, images, context, false, onDelivery, onSessionAssigned)
+                    onSend={(text, images, context, onDelivery, onSessionAssigned, composerDraft) =>
+                      handleSend(
+                        text,
+                        images,
+                        context,
+                        false,
+                        onDelivery,
+                        onSessionAssigned,
+                        composerDraft,
+                      )
                     }
                     onStop={handleStop}
                     onInterrupt={localBound ? undefined : handleInterrupt}

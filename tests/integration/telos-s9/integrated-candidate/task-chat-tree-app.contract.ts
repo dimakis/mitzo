@@ -12,6 +12,7 @@ import {
   assertTaskReadability,
   tabToTaskControl,
 } from './task-chat-tree-geometry';
+import { observeTaskChatReads } from './task-chat-read-observer';
 
 it('retains readable real task review and the exact attempt-associated worker chat-tree row across restart and approval', async () => {
   const h = await createTaskReviewProcessFixture();
@@ -20,14 +21,14 @@ it('retains readable real task review and the exact attempt-associated worker ch
   // This separately identified child case preserves the original f04 RED and
   // corrects only its unsupported unconditional NULL-legacy TaskBoard suffix.
   const chatTree: Array<Record<string, unknown>> = [];
-  const browserReads: Array<Record<string, unknown>> = [];
+  const readObserver = observeTaskChatReads(page);
+  const browserReads = readObserver.reads;
   const browserWorkRequests: Array<{
     path: string;
     method: string;
     body: unknown;
     readOnlyOperation: boolean;
   }> = [];
-  const pendingReads: Array<Promise<void>> = [];
   page.on('request', (request) => {
     const path = new URL(request.url()).pathname;
     if (
@@ -46,24 +47,6 @@ it('retains readable real task review and the exact attempt-associated worker ch
       browserWorkRequests.push({ path, method: request.method(), body, readOnlyOperation });
     }
   });
-  page.on('response', (response) => {
-    const path = new URL(response.url()).pathname;
-    if (
-      response.request().method() === 'GET' &&
-      (path === '/api/tasks' ||
-        path.startsWith('/api/telos/work/') ||
-        (path.startsWith('/api/sessions/') && path.endsWith('/meta')))
-    )
-      pendingReads.push(
-        (async () => {
-          try {
-            browserReads.push({ path, status: response.status(), body: await response.json() });
-          } catch (error) {
-            browserReads.push({ path, status: response.status(), bodyReadError: String(error) });
-          }
-        })(),
-      );
-  });
   const toolCalls: Array<{
     name: string;
     args: Record<string, unknown>;
@@ -79,6 +62,7 @@ it('retains readable real task review and the exact attempt-associated worker ch
             observations,
             chatTree,
             browserReads,
+            pendingBrowserReads: readObserver.pending(),
             browserWorkRequests,
             toolCalls,
             pageErrors: h.pageErrors,
@@ -423,7 +407,7 @@ it('retains readable real task review and the exact attempt-associated worker ch
             link.conversation.conversationId === workerId,
         ),
       ).toBe(true);
-      const readStart = browserReads.length,
+      const readStart = readObserver.boundary(),
         writeStart = browserWorkRequests.length;
       await page.goto(front.origin + allocation.workerPath);
       const toggle = page.getByRole('button', { name: 'Toggle work tree', exact: true });
@@ -437,22 +421,22 @@ it('retains readable real task review and the exact attempt-associated worker ch
       await browserExpect(region).toBeVisible();
       // Real browser GET /api/tasks completes before judging this consumer.
       // Poll only retained response observations; never seed frontend/store state.
-      await vi.waitFor(
-        async () => {
-          await Promise.all(pendingReads);
-          expect(
-            browserReads
-              .slice(readStart)
-              .some(
-                (read) =>
-                  read.path === '/api/tasks' &&
-                  read.status === 200 &&
-                  JSON.stringify(read.body).includes(taskId),
-              ),
-          ).toBe(true);
-        },
-        { timeout: 10_000, interval: 100 },
-      );
+      try {
+        await readObserver.waitForTask(taskId, readStart);
+      } catch (error) {
+        await record('actual-worker-chat-tree-read-failure', {
+          stage,
+          readStart,
+          browserReads: readObserver.since(readStart),
+          pendingBrowserReads: readObserver.pending(),
+          actualRows: await region.locator('.telos-chat-execution').allTextContents(),
+          regionText: await region.innerText(),
+          actualRoute: page.url(),
+          error: String(error),
+        });
+        await capture('actual-worker-chat-tree-read-failure-' + stage);
+        throw error;
+      }
       const expectedText =
         (expectedStatus === 'pending_review' ? 'Awaiting review' : 'Task done') +
         ' · ' +
@@ -484,7 +468,8 @@ it('retains readable real task review and the exact attempt-associated worker ch
         initiallyCollapsed: true,
         toggleTrace,
         regionText: await region.innerText(),
-        browserReads: browserReads.slice(readStart),
+        readStart,
+        browserReads: readObserver.since(readStart),
         browserWorkRequests: browserWorkRequests.slice(writeStart),
       };
       chatTree.push(observation);
@@ -667,6 +652,7 @@ it('retains readable real task review and the exact attempt-associated worker ch
     });
   } finally {
     await save();
+    readObserver.close();
     await h.close();
   }
 }, 180_000);

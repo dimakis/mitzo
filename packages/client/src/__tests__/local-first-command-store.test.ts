@@ -112,6 +112,61 @@ function setup(
   });
   return { store, fetch, readStorage: () => JSON.parse(raw ?? '[]') };
 }
+
+it.each(['_open', '_foreground'])(
+  'observes the accepted selected follow-up again on %s after a pending receipt',
+  async (event) => {
+    const { store, fetch, readStorage } = setup();
+    channel.id = 'live-sse';
+    await store.getState().switchSession('owned-session');
+    store.getState().selectLocalCommandSession('owned-session');
+    const continued = { ...request, sessionId: 'owned-session' };
+    const composerDraft = {
+      storageKey: 'mitzo-draft:owned-session',
+      revisionToken: 'original-edit',
+    };
+    const delivered = vi.fn();
+    let accepted = false;
+    fetch.mockImplementation(async (path: string) => {
+      if (path === '/local/continue') throw Error('Accepted response lost');
+      if (path === '/local/continue/receipt')
+        return accepted
+          ? Response.json(
+              {
+                ok: true,
+                clientMsgId: continued.clientMsgId,
+                sessionId: continued.sessionId,
+                dispatched: false,
+                state: 'consumed',
+              },
+              { status: 202 },
+            )
+          : Response.json({ ok: false, code: 'receipt_pending' }, { status: 409 });
+      return Response.json({ messages: [], current: null, cursor: 0 });
+    });
+    expect(
+      store.getState().sendLocalFirstCommand(continued, { onDelivery: delivered, composerDraft }),
+    ).toBe(true);
+    await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('uncertain'));
+    channel.listener({ type: 'message_start', sessionId: 'owned-session', messageId: 'answer' });
+    await vi.waitFor(() =>
+      expect(fetch.mock.calls.filter(([path]) => path === '/local/continue/receipt')).toHaveLength(
+        1,
+      ),
+    );
+    await Promise.resolve();
+    accepted = true;
+    channel.listener({ type: event });
+    await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('accepted'));
+    expect(store.getState().localCommand?.state).toBe('consumed');
+    expect(store.getState().localCommand?.composerDraft).toEqual(composerDraft);
+    expect(readStorage()).toEqual([]);
+    expect(fetch.mock.calls.filter(([path]) => path === '/local/continue')).toHaveLength(1);
+    expect(
+      JSON.parse(fetch.mock.calls.find(([path]) => path === '/local/continue')![1].body),
+    ).toEqual(continued);
+  },
+);
 it.each([
   ['local', false],
   ['local', true],

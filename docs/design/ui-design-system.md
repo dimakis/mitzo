@@ -2075,6 +2075,22 @@ The original draft data remains retained until an exact delivery receipt. Reject
 or uncertain delivery reveals it again, while later typed or dictated text remains
 its own draft and cannot be cleared by the older receipt.
 
+Local command recovery retains an opaque composer revision alongside the exact
+outbox command. An authenticated consumed receipt journals that revision before
+retiring the outbox, so a later WebView reload can finish clearing its submitted
+text and attachments. Newer edits, including identical retyped text, retain their
+own revision; changed saved settings or context also prevent older cleanup.
+Historical commands without revision proof retain their draft. Ambiguous delivery
+uses the existing quiet status row with **Delivery not confirmed.** and Retry;
+confirmed failures keep their existing error treatment.
+
+The intercepted `composer-receipt` fixture renders the actual ChatInput, client
+store and durable outbox without a backend or model. It covers complete document
+replacement while no composer is mounted, exact accepted cleanup, retained
+same-valued newer edits and no resend, at 320px mobile WebKit and 1280px desktop
+Chromium in dark Mint/System and light Teal/Georgia. Captures are retained as
+`test-results/offline/*/composer-receipt-{dark,light}-{accepted,newer}.png`.
+
 `ChatStatusMessage` gives send progress, conversation loading and composer-blocking
 reasons one shared quiet treatment: semantic muted text, UiIcon, UI font and shared
 spacing/type tokens. Both chat pages place delivery feedback beside the composer;
@@ -2197,7 +2213,9 @@ The existing Chat settings editors allow model and thinking choices for the next
 message in an established ordinary chat, including legacy Codex sessions while a response
 is running. Older SDK sessions explain that their model/thinking are fixed; retired
 API sessions point to the reviewed Continue with Codex flow. The server supplies
-these restrictions separately from the account catalog. Submitted messages keep their settings. Preparation, metadata, briefing
+these restrictions separately from the account catalog. Submitted messages keep
+their settings. Unsent entries in an older chat's local queue use the choices
+current when sent; the settings note explains that boundary. Preparation, metadata, briefing
 and unsupported-continuation locks remain authoritative and explain their reason
 inside the editor. Failed metadata or briefing lookups offer **Retry settings**
 without unlocking unverified choices, including when no choices could load. Native

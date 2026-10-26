@@ -172,6 +172,7 @@ jobs:
             test-results/offline/**/quick-chat-settings-*.png
             test-results/offline/**/quick-sheet-*.png
             test-results/offline/**/prompt-preparation-*.png
+            test-results/offline/**/composer-receipt-*.png
           retention-days: 7
           if-no-files-found: ignore
 
@@ -367,6 +368,15 @@ jobs:
               throw new Error('Incomplete native repository evidence for '+account);
           }
           NODE
+      - name: Retain native repository workflow diagnostics immediately
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-repository-workflows-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/native-repository-workflows.json
+            test-results/native-repository-workflows/
+          if-no-files-found: warn
       - name: Run the complete offline journey with the real macOS artifact boundary
         run: |
           node -e "if (process.platform !== 'darwin') process.exit(1)"

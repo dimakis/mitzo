@@ -1,4 +1,10 @@
 import { z } from 'zod';
+/** Local draft ownership only; never part of a server command or authorization. */
+export const ComposerDraftReceiptSchema = z.strictObject({
+  storageKey: z.string().min(1).max(2048),
+  revisionToken: z.string().min(1).max(200).regex(/^\S+$/),
+});
+export type ComposerDraftReceipt = z.infer<typeof ComposerDraftReceiptSchema>;
 import {
   OrdinaryRuntimeFirstCommandSchema,
   OrdinaryRuntimeContinuationCommandSchema,

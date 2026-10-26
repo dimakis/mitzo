@@ -24,6 +24,8 @@ for (const theme of ['dark', 'light']) {
   test(`model settings explain failure, recover and edit next message (${theme})`, async ({
     page,
   }, info) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.setViewportSize({
       width: info.project.name.startsWith('mobile') ? 320 : 1280,
@@ -84,5 +86,20 @@ for (const theme of ['dark', 'light']) {
     await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeFocused();
     await expect(page.getByRole('textbox', { name: 'Message draft' })).toHaveValue('Keep my draft');
     await expect(page.getByLabel('Next message settings')).toContainText('luna-next / high');
+    await page.goto('/?legacy');
+    await page.getByRole('button', { name: /^Workspace controls/ }).click();
+    await page.getByRole('button', { name: /^Model,/ }).click();
+    await expect(page.locator('.quick-settings-note:visible')).toHaveText(
+      'The running response keeps its settings. Queued messages use your current choices when sent.',
+    );
+    await page.getByRole('button', { name: 'Luna next', exact: true }).click();
+    await expect(page.getByLabel('Next message settings')).toContainText('luna-next / low');
+    await page.screenshot({ path: info.outputPath(`model-settings-legacy-queue-${theme}.png`) });
+    await expect(page.locator('body')).toHaveJSProperty(
+      'scrollWidth',
+      await page.locator('body').evaluate((e) => e.clientWidth),
+    );
+    await expect(page.getByRole('textbox', { name: 'Message draft' })).toHaveValue('Keep my draft');
+    expect(errors).toEqual([]);
   });
 }

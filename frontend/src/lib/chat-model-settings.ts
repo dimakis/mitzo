@@ -52,7 +52,9 @@ export function chatModelSettings(state: {
     notice:
       !disabledReason && state.activeSessionId
         ? (state.nativeConstraintReason ??
-          'Changes apply to your next message. Running and already queued messages keep their settings.')
+          (state.localBound
+            ? 'Changes apply to your next message. Running and already queued messages keep their settings.'
+            : 'The running response keeps its settings. Queued messages use your current choices when sent.'))
         : undefined,
   };
 }

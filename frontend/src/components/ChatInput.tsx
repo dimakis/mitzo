@@ -37,7 +37,6 @@ import {
   chatDraftStorageKey,
   getChatDraft,
   saveChatDraft,
-  consumeChatDraft,
 } from '../lib/chat-drafts';
 
 function attachmentPrompt(text: string, images: ImageAttachment[]): string {
@@ -71,6 +70,7 @@ interface Props {
     contextBlocks?: string[],
     onDelivery?: SendMessageOptions['onDelivery'],
     onSessionAssigned?: SendMessageOptions['onSessionAssigned'],
+    composerDraft?: SendMessageOptions['composerDraft'],
   ) => boolean;
   onStop: () => void;
   onInterrupt?: (
@@ -84,6 +84,8 @@ interface Props {
   /** Prompt storage ownership independent of the provider session identity. */
   draftStorageKey?: string;
   savedChatDraft?: ChatDraft;
+  /** Supplied only after the exact command's authenticated consumed receipt. */
+  acceptedComposerDraft?: SendMessageOptions['composerDraft'];
   draftControl?: RefObject<ChatInputDraftControl | null>;
   sendDisabledReason?: string;
   sendDisabledAction?: ChatStatusAction;
@@ -130,6 +132,7 @@ export function ChatInput({
   initialText,
   draftStorageKey: suppliedDraftStorageKey,
   savedChatDraft,
+  acceptedComposerDraft,
   draftControl,
   sendDisabledReason: suppliedSendDisabledReason,
   sendDisabledAction,
@@ -182,7 +185,7 @@ export function ChatInput({
     assignedDraft.current = null;
   const assignment =
     draftStorageKey === undefined ? (assignedDraft.current?.assignment ?? null) : null;
-  const [text, setText, clearDraft, flushDraft] = useDraft(
+  const [text, setText, clearDraft, flushDraft, draftReceipt] = useDraft(
     sessionId,
     initialText ?? savedChatDraft?.text,
     draftStorageKey,
@@ -237,6 +240,65 @@ export function ChatInput({
   const useExternal = externalContextBlocks !== undefined;
   const [respondersOpen, setRespondersOpen] = useState(false);
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
+  const previousSavedId = useRef(savedChatDraft?.id);
+  const savedOwnerChanging = previousSavedId.current !== savedChatDraft?.id;
+  useLayoutEffect(() => {
+    if (!savedOwnerChanging) return;
+    previousSavedId.current = savedChatDraft?.id;
+    setImages(savedChatDraft?.images ?? []);
+    if (!useExternal) setContextBlocks(savedChatDraft?.contextBlocks ?? []);
+  }, [savedChatDraft, savedOwnerChanging, useExternal]);
+  const {
+    capture: captureDraft,
+    captureVolatile: captureVolatileDraft,
+    recordAcceptance: recordDraftAcceptance,
+    consume: consumeDraftReceipt,
+    ownsCurrent: ownsCurrentDraft,
+    revise: reviseDraft,
+  } = draftReceipt;
+  const consumedRevision = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    const revision = draftReceipt.consumedRevision;
+    if (!revision || consumedRevision.current === revision) return;
+    consumedRevision.current = revision;
+    setImages([]);
+    if (!useExternal) setContextBlocks([]);
+  }, [draftReceipt.consumedRevision, useExternal]);
+  const settingsSignature = JSON.stringify(savedChatDraft?.settings);
+  const volatileClearedDraft = useRef<{
+    settingsSignature: string;
+    externalContextBlocks?: string[];
+  } | null>(null);
+  const attachmentRevision = useRef({
+    images,
+    contextBlocks: activeContextBlocks,
+    settingsSignature,
+    composerGeneration,
+  });
+  useLayoutEffect(() => {
+    const previous = attachmentRevision.current;
+    if (
+      previous.images !== images ||
+      previous.contextBlocks !== activeContextBlocks ||
+      previous.settingsSignature !== settingsSignature ||
+      // Genuine New may reuse both the storage key and identical text.
+      previous.composerGeneration !== composerGeneration
+    )
+      reviseDraft();
+    attachmentRevision.current = {
+      images,
+      contextBlocks: activeContextBlocks,
+      settingsSignature,
+      composerGeneration,
+    };
+  }, [images, activeContextBlocks, settingsSignature, composerGeneration, reviseDraft]);
+  useLayoutEffect(() => {
+    // This also handles a verified receipt arriving before the composer mounts.
+    // Durable revision equality protects edits from earlier mounts and other tabs.
+    if (!acceptedComposerDraft || !consumeDraftReceipt(acceptedComposerDraft)) return;
+    setImages([]);
+    if (!useExternal) setContextBlocks([]);
+  }, [acceptedComposerDraft, consumeDraftReceipt, useExternal]);
   useImperativeHandle(
     draftControl,
     () => ({
@@ -244,8 +306,18 @@ export function ChatInput({
       clear: clearDraft,
       readText: () => text,
       flush: () => {
-        flushDraft();
-        if (!savedChatDraft) return true;
+        const flushed = flushDraft();
+        if (!savedChatDraft) return flushed;
+        if (!flushed) {
+          try {
+            // Empty rich drafts intentionally release their storage record.
+            // Reuse only that absent owner's seed, never overwrite an unreadable
+            // or failed existing revision. saveChatDraft still fences revocation.
+            if (localStorage.getItem(chatDraftStorageKey(savedChatDraft.id)) !== null) return false;
+          } catch {
+            return false;
+          }
+        }
         const current = getChatDraft(savedChatDraft.id) ?? savedChatDraft;
         return saveChatDraft({
           ...current,
@@ -286,14 +358,6 @@ export function ChatInput({
       text.trim() || 'What do you see in this image?',
       images.length ? images : undefined,
     );
-  const previousSavedId = useRef(savedChatDraft?.id);
-  const savedOwnerChanging = previousSavedId.current !== savedChatDraft?.id;
-  useEffect(() => {
-    if (!savedOwnerChanging) return;
-    previousSavedId.current = savedChatDraft?.id;
-    setImages(savedChatDraft?.images ?? []);
-    if (!useExternal) setContextBlocks(savedChatDraft?.contextBlocks ?? []);
-  }, [savedChatDraft, savedOwnerChanging, useExternal]);
   const [saveResult, setSaveResult] = useState<{
     draft: ChatDraft;
     failed: boolean;
@@ -302,6 +366,16 @@ export function ChatInput({
   // Keep the save acknowledgement and composer geometry settled before paint.
   useLayoutEffect(() => {
     if (!savedChatDraft || savedOwnerChanging) return;
+    if (
+      volatileClearedDraft.current?.settingsSignature === settingsSignature &&
+      !text &&
+      !images.length &&
+      (volatileClearedDraft.current.externalContextBlocks
+        ? volatileClearedDraft.current.externalContextBlocks === activeContextBlocks
+        : !activeContextBlocks.length)
+    )
+      return;
+    volatileClearedDraft.current = null;
     const current = getChatDraft(savedChatDraft.id) ?? savedChatDraft;
     const draft = {
       ...current,
@@ -312,7 +386,7 @@ export function ChatInput({
     };
     const saved = saveChatDraft(draft);
     setSaveResult({ draft, failed: !saved, stored: saved && getChatDraft(draft.id) !== null });
-  }, [savedChatDraft, savedOwnerChanging, text, images, activeContextBlocks]);
+  }, [savedChatDraft, savedOwnerChanging, settingsSignature, text, images, activeContextBlocks]);
   // A prior revision's successful write cannot confirm current edits or a new owner.
   const currentSave =
     savedChatDraft &&
@@ -481,6 +555,8 @@ export function ChatInput({
       if (queued && (boundedFirstCommand || sendDisabledReason)) return false;
       const submitted = latestDraft.current;
       const submittedSavedDraft = savedChatDraft ? getChatDraft(savedChatDraft.id) : null;
+      const composerDraft = queued ? undefined : captureDraft();
+      const consumeVolatile = !queued && !composerDraft ? captureVolatileDraft() : undefined;
       const pending: { assignedSessionId?: string } = {};
       sendPending.current = pending;
       if (!queued)
@@ -515,26 +591,68 @@ export function ChatInput({
         const ownsDraft = latest.scope === submitted.scope || assigned;
         const draftEdited = latest.revision !== submitted.revision + (assigned ? 1 : 0);
         const textEdited = latest.textRevision !== submitted.textRevision + (assigned ? 1 : 0);
-        if (status === 'accepted' && submittedSavedDraft && ownsDraft && draftEdited) {
-          // Attachment/context edits belong to the next draft. Consume only the
-          // accepted text, retaining those edits and any newer text verbatim.
-          if (mounted.current && !textEdited) setText('');
+        if (status === 'accepted') {
+          // The original callback remains attached to the exact command even
+          // after navigation. A replacement consumes only its matching token.
+          if (composerDraft && (!mounted.current || !ownsDraft)) {
+            recordDraftAcceptance(composerDraft);
+            return;
+          }
+          if (!mounted.current || !ownsDraft) return;
+          if (!composerDraft) {
+            if (!draftEdited && consumeVolatile?.()) {
+              volatileClearedDraft.current = {
+                settingsSignature,
+                externalContextBlocks: useExternal ? activeContextBlocks : undefined,
+              };
+              setImages([]);
+              if (!useExternal) setContextBlocks([]);
+            }
+            return;
+          }
+          if (!draftEdited) {
+            // Warm callbacks use the same durable revision fence as cold
+            // recovery. Another editor may have changed this storage owner
+            // without changing any of this mount's in-memory draft refs.
+            consumeDraftReceipt(composerDraft);
+            return;
+          }
+          if (!mounted.current || textEdited || !ownsCurrentDraft(composerDraft)) return;
+          if (submittedSavedDraft) {
+            const persisted = getChatDraft(submittedSavedDraft.id);
+            if (
+              !persisted ||
+              JSON.stringify({
+                text: persisted.text,
+                images: persisted.images.map(({ data, mediaType, preview, name }) => [
+                  data,
+                  mediaType,
+                  preview,
+                  name,
+                ]),
+                contextBlocks: persisted.contextBlocks,
+                settings: persisted.settings,
+              }) !==
+                JSON.stringify({
+                  text: latest.text,
+                  images: latest.images.map(({ data, mediaType, preview, name }) => [
+                    data,
+                    mediaType,
+                    preview,
+                    name,
+                  ]),
+                  contextBlocks: latest.contextBlocks,
+                  settings: submittedSavedDraft.settings,
+                })
+            )
+              return;
+          }
+          // Only this mount's attachment/context edits remain. Consume the
+          // accepted text while retaining that independently edited rich draft.
+          setText('');
           return;
         }
-        const savedRevisionConsumed =
-          status === 'accepted' && submittedSavedDraft
-            ? consumeChatDraft(submittedSavedDraft)
-            : true;
-        if (status === 'accepted' && !savedRevisionConsumed) return;
-        if (!mounted.current || !ownsDraft) return;
-        if (draftEdited) {
-          if (status === 'failed') restoreRejected(payload);
-          else if (!textEdited) clearDraft();
-        } else if (status === 'accepted') {
-          clearDraft();
-          setImages([]);
-          if (!useExternal) setContextBlocks([]);
-        }
+        if (mounted.current && ownsDraft && draftEdited) restoreRejected(payload);
       };
       const sent = onSend(
         attachmentPrompt(payload.text, payload.images),
@@ -558,6 +676,7 @@ export function ChatInput({
               };
           }
         },
+        composerDraft,
       );
       if (!sent) onDelivery('failed');
       return sent;
@@ -566,11 +685,17 @@ export function ChatInput({
       onSend,
       restoreRejected,
       removeSubmitted,
-      clearDraft,
       setText,
-      useExternal,
       draftStorageKey,
       savedChatDraft,
+      captureDraft,
+      captureVolatileDraft,
+      recordDraftAcceptance,
+      consumeDraftReceipt,
+      ownsCurrentDraft,
+      settingsSignature,
+      useExternal,
+      activeContextBlocks,
       boundedFirstCommand,
       sendDisabledReason,
     ],

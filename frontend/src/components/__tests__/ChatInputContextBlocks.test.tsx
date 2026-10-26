@@ -88,6 +88,10 @@ describe('ChatInput with externalContextBlocks', () => {
       undefined,
       expect.any(Function),
       expect.any(Function),
+      {
+        storageKey: 'mitzo-draft-new',
+        revisionToken: expect.stringMatching(/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/),
+      },
     );
   });
   it('hides the session tray when externalContextBlocks are managed by a parent', () => {
@@ -181,6 +185,10 @@ describe('ChatInput with externalContextBlocks', () => {
       ['boot-context', 'constitution'],
       expect.any(Function),
       expect.any(Function),
+      {
+        storageKey: 'mitzo-draft-new',
+        revisionToken: expect.stringMatching(/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/),
+      },
     );
   });
 
@@ -226,6 +234,10 @@ describe('ChatInput with externalContextBlocks', () => {
       ['boot-context'],
       expect.any(Function),
       expect.any(Function),
+      {
+        storageKey: 'mitzo-draft-new',
+        revisionToken: expect.stringMatching(/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/),
+      },
     );
   });
 });
@@ -308,6 +320,7 @@ it('retains a queued image/context and active composer through rejected Stop unt
     ['exact context'],
     expect.any(Function),
     expect.any(Function),
+    undefined,
   );
   expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Next untouched draft');
   expect(screen.getByAltText('Attachment 1')).toBeTruthy();

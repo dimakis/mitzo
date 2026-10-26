@@ -9,7 +9,8 @@ import '../../frontend/src/styles/workspace.css';
 import '../../frontend/src/styles/workspace-chat.css';
 
 function Fixture() {
-  const [failed, setFailed] = useState(true);
+  const legacy = new URLSearchParams(window.location.search).has('legacy');
+  const [failed, setFailed] = useState(!legacy);
   const [selection, setSelection] = useState({
     accountId: 'work',
     model: 'luna',
@@ -19,7 +20,7 @@ function Fixture() {
     activeSessionId: 'chat',
     sessionId: 'chat',
     roleSetupLocked: false,
-    localBound: true,
+    localBound: !legacy,
     metadataPending: failed,
     metadataUnavailable: failed,
     commandAvailable: !failed,
