@@ -202,6 +202,7 @@ export class TelosMainPublicationRuntime {
       items: TelosItemStore;
       work: TelosWorkStore;
     }) => Promise<T>,
+    readOnly: boolean,
   ): Promise<T> {
     const current = () => {
       if (active !== this) throw unavailable();
@@ -223,9 +224,13 @@ export class TelosMainPublicationRuntime {
         current();
       },
     };
-    const work = new TelosWorkStore(this.database, {
-      ordinaryConversation: (id) => isAvailableTelosWorkConversation(this.events.getSession(id)),
-    });
+    const policy = {
+      ordinaryConversation: (id: string) =>
+        isAvailableTelosWorkConversation(this.events.getSession(id)),
+    };
+    const work = readOnly
+      ? TelosWorkStore.openForLifecycleListRead(this.database, policy)
+      : new TelosWorkStore(this.database, policy);
     let items: TelosItemStore | undefined;
     try {
       items = new TelosItemStore(this.database);

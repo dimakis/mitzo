@@ -112,7 +112,7 @@ it('lets an ordinary authenticated chat find and inspect an item without assigni
 });
 it('pages oversized legacy briefs without losing content or exceeding the tool result limit', async () => {
   const f = fixture();
-  const title = 'Long legacy explanation '.repeat(4000);
+  const title = 'Long legacy explanation '.repeat(50000);
   f.db.prepare('UPDATE items SET summary=? WHERE id=?').run(title, 'studio');
   let offset = 0;
   let reconstructed = '';

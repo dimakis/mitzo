@@ -4,6 +4,9 @@ Ordinary OpenShell and native Mac Codex chats can browse and maintain Telos with
 an assigned lead role. Explicit agent profiles must select the new tools; existing
 profile revisions retain their selected tool set. Host registration, operator
 authentication, skill policy and runtime custody still apply.
+Read operations use the existing initialized read-only owner, including when an
+independent canonical WAL writer has uncommitted changes. Skill ceilings are
+rechecked after approval and inside guarded read/write transactions.
 
 - `TelosListItems` browses concise item titles and IDs. `TelosSearchItems` requires
   a query and searches title, intent, rationale and acceptance criteria. Both accept

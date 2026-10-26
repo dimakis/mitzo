@@ -3422,6 +3422,8 @@ async function openCodexChatBound(
             operation.assertCurrent();
             authorization.assertCurrent();
             assertHostCurrentSync();
+            if (checkSkillPolicy(options.registry, owner.clientId, name) === 'deny')
+              throw new CodexToolFailure('permission_denied');
             if (
               !mainPublicationRuntime.supportsHost(options.registry, options.eventStore) ||
               options.registry.findBySessionId(options.conversationId)?.session !== owner.session ||
@@ -3444,25 +3446,28 @@ async function openCodexChatBound(
         }
         try {
           await context.assertCurrent();
-          return await mainPublicationRuntime.withBacklog(context, (owners) =>
-            executeTelosBacklogOperation(
-              {
-                ...owners,
-                approve: (toolName, exact, permissionSignal) =>
-                  buildPermissionHandler(owner.clientId, options.registry, {
-                    onDemandCreate: options.onDemandCreate,
-                  })(toolName, exact, {
-                    signal: permissionSignal,
-                    toolUseID: randomUUID(),
-                    forcePrompt: true,
-                    allowSessionGrant: false,
-                    approvalScope: 'request',
-                    title: 'Apply this exact Telos backlog change?',
-                  }),
-              },
-              name,
-              input,
-            ),
+          return await mainPublicationRuntime.withBacklog(
+            context,
+            (owners) =>
+              executeTelosBacklogOperation(
+                {
+                  ...owners,
+                  approve: (toolName, exact, permissionSignal) =>
+                    buildPermissionHandler(owner.clientId, options.registry, {
+                      onDemandCreate: options.onDemandCreate,
+                    })(toolName, exact, {
+                      signal: permissionSignal,
+                      toolUseID: randomUUID(),
+                      forcePrompt: true,
+                      allowSessionGrant: false,
+                      approvalScope: 'request',
+                      title: 'Apply this exact Telos backlog change?',
+                    }),
+                },
+                name,
+                input,
+              ),
+            name !== 'TelosManageItem' || input.operation === 'read',
           );
         } finally {
           dispose();

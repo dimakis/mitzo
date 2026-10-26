@@ -6426,77 +6426,125 @@ it('offers Telos backlog tools to a default native chat without a retained Telos
   }
 });
 
-it('exposes discoverable Telos backlog maintenance in an ordinary OpenShell chat and binds mutations to its current operator', async () => {
-  const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
-  const { initializeTelosMainPublicationRuntime, closeTelosMainPublicationRuntime } =
-    await import('../telos-main-publication-runtime.js');
-  const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
-  const canonical = createTelosCanonicalData();
-  const f = await openOwnedOpenShellEfficiencyFixture((opts) => {
-    initializeTelosMainPublicationRuntime({
-      registry: opts.registry,
-      events: opts.eventStore,
-      databasePath: () => canonical.dbPath,
-    });
-  });
-  const release = bindAgentLibraryTransport('openshell-client', {
-    id: canonical.actor.id,
-    expiresAt: Date.now() + 60000,
-  });
-  try {
-    const tools = f.captured.tools as { name: string }[];
-    for (const name of ['TelosListItems', 'TelosSearchItems', 'TelosManageItem'])
-      expect(tools.some((tool) => tool.name === name)).toBe(true);
-    const execute = f.captured.executeTool as (
-      name: string,
-      input: Record<string, unknown>,
-      signal: AbortSignal,
-      call: { turnId: string; callId: string },
-    ) => Promise<{ content: string; isError: boolean }>;
-    const run = (name: string, input: Record<string, unknown>) =>
-      execute(name, input, new AbortController().signal, {
-        turnId: 'backlog-turn',
-        callId: 'backlog-call',
+it.each(['normal', 'restricted', 'busy', 'changed-policy'])(
+  'exposes discoverable Telos backlog maintenance in an ordinary OpenShell chat (%s)',
+  async (mode) => {
+    const { setSkillPolicy } = await import('@mitzo/harness');
+    const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
+    const { initializeTelosMainPublicationRuntime, closeTelosMainPublicationRuntime } =
+      await import('../telos-main-publication-runtime.js');
+    const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
+    const canonical = createTelosCanonicalData();
+    const f = await openOwnedOpenShellEfficiencyFixture((opts) => {
+      initializeTelosMainPublicationRuntime({
+        registry: opts.registry,
+        events: opts.eventStore,
+        databasePath: () => canonical.dbPath,
       });
-    expect((await run('DescribeIntegrationTool', { toolId: 'TelosListItems' })).isError).toBe(
-      false,
-    );
-    expect(
-      JSON.parse((await run('TelosSearchItems', { query: 'studio' })).content).items[0].id,
-    ).toBe('studio');
-    const read = JSON.parse(
-      (await run('TelosManageItem', { operation: 'read', itemId: 'studio' })).content,
-    );
-    const edit = {
-      operation: 'edit',
-      itemId: 'studio',
-      requestId: 'ordinary-rename',
-      expectedRevision: read.item.revision,
-      summary: 'Choose studio panels',
-      note: 'Clarify this outcome.',
-    };
-    expect((await run('TelosManageItem', edit)).isError).toBe(false);
-    expect(canonical.work.readRecord('studio', canonical.actor).summary).toBe(edit.summary);
-    expect(mocks.permissionHandler).toHaveBeenCalledWith(
-      'TelosManageItem',
-      edit,
-      expect.objectContaining({
-        forcePrompt: true,
-        allowSessionGrant: false,
-        approvalScope: 'request',
-      }),
-    );
-    release();
-    await expect(run('TelosListItems', {})).rejects.toThrow(
-      /authentication|permission|authorization/i,
-    );
-  } finally {
-    release();
-    f.cleanup();
-    closeTelosMainPublicationRuntime();
-    canonical.close();
-  }
-});
+    });
+    const release = bindAgentLibraryTransport('openshell-client', {
+      id: canonical.actor.id,
+      expiresAt: Date.now() + 60000,
+    });
+    try {
+      const tools = f.captured.tools as { name: string }[];
+      for (const name of ['TelosListItems', 'TelosSearchItems', 'TelosManageItem'])
+        expect(tools.some((tool) => tool.name === name)).toBe(true);
+      const execute = f.captured.executeTool as (
+        name: string,
+        input: Record<string, unknown>,
+        signal: AbortSignal,
+        call: { turnId: string; callId: string },
+      ) => Promise<{ content: string; isError: boolean }>;
+      const run = (name: string, input: Record<string, unknown>) =>
+        execute(name, input, new AbortController().signal, {
+          turnId: 'backlog-turn',
+          callId: 'backlog-call',
+        });
+      if (mode === 'restricted') {
+        setSkillPolicy(f.registry, 'openshell-client', []);
+        for (const [name, input] of [
+          ['TelosListItems', {}],
+          ['TelosSearchItems', { query: 'studio' }],
+          ['TelosManageItem', { operation: 'read', itemId: 'studio' }],
+        ] as const)
+          await expect(run(name, input)).rejects.toThrow(/skill|permission/i);
+        return;
+      }
+      if (mode === 'busy') {
+        canonical.db.exec(
+          "BEGIN IMMEDIATE; UPDATE items SET summary='Uncommitted title' WHERE id='studio'",
+        );
+        try {
+          expect(JSON.parse((await run('TelosListItems', {})).content).items[0].summary).toBe(
+            'Home studio',
+          );
+          expect(
+            JSON.parse((await run('TelosSearchItems', { query: 'studio' })).content).items[0]
+              .summary,
+          ).toBe('Home studio');
+          expect(
+            JSON.parse(
+              (await run('TelosManageItem', { operation: 'read', itemId: 'studio' })).content,
+            ).item.summary,
+          ).toBe('Home studio');
+          expect(canonical.db.inTransaction).toBe(true);
+        } finally {
+          canonical.db.exec('ROLLBACK');
+        }
+        return;
+      }
+      expect((await run('DescribeIntegrationTool', { toolId: 'TelosListItems' })).isError).toBe(
+        false,
+      );
+      expect(
+        JSON.parse((await run('TelosSearchItems', { query: 'studio' })).content).items[0].id,
+      ).toBe('studio');
+      const read = JSON.parse(
+        (await run('TelosManageItem', { operation: 'read', itemId: 'studio' })).content,
+      );
+      const edit = {
+        operation: 'edit',
+        itemId: 'studio',
+        requestId: 'ordinary-rename',
+        expectedRevision: read.item.revision,
+        summary: 'Choose studio panels',
+        note: 'Clarify this outcome.',
+      };
+      if (mode === 'changed-policy') {
+        setSkillPolicy(f.registry, 'openshell-client', ['TelosManageItem']);
+        mocks.permissionHandler.mockImplementationOnce(async (_name, input) => {
+          setSkillPolicy(f.registry, 'openshell-client', []);
+          return { behavior: 'allow', updatedInput: input };
+        });
+        expect((await run('TelosManageItem', edit)).isError).toBe(true);
+        expect(canonical.work.readRecord('studio', canonical.actor).summary).toBe('Home studio');
+        return;
+      }
+      expect((await run('TelosManageItem', edit)).isError).toBe(false);
+      expect(canonical.work.readRecord('studio', canonical.actor).summary).toBe(edit.summary);
+      expect(mocks.permissionHandler).toHaveBeenCalledWith(
+        'TelosManageItem',
+        edit,
+        expect.objectContaining({
+          forcePrompt: true,
+          allowSessionGrant: false,
+          approvalScope: 'request',
+        }),
+      );
+      release();
+      await expect(run('TelosListItems', {})).rejects.toThrow(
+        /authentication|permission|authorization/i,
+      );
+    } finally {
+      release();
+      f.cleanup();
+      closeTelosMainPublicationRuntime();
+      canonical.close();
+    }
+  },
+  15000,
+);
 
 it('defers owned OpenShell host contracts while preserving original direct execution and native sandbox ownership', async () => {
   const itemTools = await import('../telos-item-tools.js');

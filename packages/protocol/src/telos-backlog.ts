@@ -55,7 +55,7 @@ export const TelosManageItemInputSchema = z.discriminatedUnion('operation', [
   z.strictObject({
     operation: z.literal('read'),
     itemId: id,
-    offset: z.number().int().min(0).max(1048576).optional(),
+    offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
   }),
   TelosEditItemInputSchema.safeExtend({ operation: z.literal('edit') }),
   z.strictObject({
