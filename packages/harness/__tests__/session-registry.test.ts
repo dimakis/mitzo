@@ -501,6 +501,28 @@ describe('SessionRegistry', () => {
   });
 
   describe('getActiveSessions', () => {
+    it('projects the current model rather than the initial binding after a model change', () => {
+      registry.register('client', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'chat',
+        model: 'gpt-6-sol',
+        accountBinding: {
+          accountId: 'personal',
+          accountLabel: 'Personal',
+          provider: 'openai-codex',
+          model: 'gpt-6-sol',
+          profileRevision: 'r1',
+        },
+      });
+      registry.get('client')!.model = 'gpt-6.1-sol';
+      expect(registry.getActiveSessions()[0]).toMatchObject({
+        model: 'gpt-6.1-sol',
+        accountLabel: 'Personal',
+      });
+    });
     it('returns empty array when no sessions exist', () => {
       expect(registry.getActiveSessions()).toEqual([]);
     });

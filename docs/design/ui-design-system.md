@@ -1048,6 +1048,26 @@ WebKit ignores their minimum height; offline geometry checks require 44px target
 
 ## Session library and context summaries
 
+Recent/search rows lead their secondary metadata with the recorded model choice
+and account label. The saved picker selection takes precedence over the original
+binding model; live-only rows receive identity through activity updates. Missing
+model records stay absent rather than inheriting an engine name or global default.
+These fields reuse the muted type scale and wrap long identifiers within the row.
+
+The Chats **Needs you** filter and overview badges count confirmed permission
+(including structured question) and review requests. Finished assistant replies,
+uncommitted changes and generic blocked/dependency waits do not establish a user
+request. Rows retain their specific Permission needed, Review needed or Blocked
+state. The broader Today attention feed keeps its existing notice semantics.
+
+Offline session-library checks cover model/account labels, the explicit-request
+count and clearing answered requests in mobile WebKit/Chromium and desktop
+Chromium, dark Mint/Georgia and light Blue/Arial. Focused regressions and design
+guards pass. The full `test:ui` frontend type build exceeded the required local
+1 GiB heap, so broad build/integration acceptance remains in CI. Inspected
+captures: [mobile model metadata](assets/session-model-mobile-dark.png) and
+[desktop model metadata](assets/session-model-desktop-light.png).
+
 Today pins outside the recent page read their recorded observation by session ID, without resuming a provider. Disabled context display makes no extra reads; obsolete requests abort, and missing or failed observations remain explicitly unavailable. Confirmed deletion clears the selected preview, and a confirmed rename updates off-page pin snapshots and the selected title. Failed mutations preserve the saved selection and title.
 
 Today renders the latest recorded context observation separately from cumulative

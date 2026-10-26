@@ -10,7 +10,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import type { SessionActionPoint } from '../hooks/useSessionInteraction';
 import '../styles/session-library.css';
 import { SdkConversationImport } from '../components/SdkConversationImport';
-import { sessionAttentionReason } from '../lib/session-attention';
+import { sessionNeedsYouReason } from '../lib/session-attention';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSavedChatDrafts } from '../hooks/useSavedChatDrafts';
@@ -278,6 +278,14 @@ function SwipeableSession({
               </div>
               {snippet && <div className="conversation-result-snippet">{snippet}</div>}
               <div className="session-item-meta">
+                {session.model && (
+                  <span className="conversation-model" aria-label={`Model: ${session.model}`}>
+                    {session.model}
+                  </span>
+                )}
+                {session.accountLabel && (
+                  <span className="conversation-account">{session.accountLabel}</span>
+                )}
                 {activity && (
                   <span className={`conversation-state conversation-state--${activity.state}`}>
                     {activityLabel(activity)}
@@ -388,6 +396,8 @@ export function SessionList() {
       ...existing,
       id: a.sessionId,
       summary: existing?.summary || a.title,
+      model: a.model ?? existing?.model,
+      accountLabel: existing?.accountLabel ?? a.accountLabel,
       lastModified: Math.max(existing?.lastModified ?? 0, a.lastEventAt),
       isActive: !['idle', 'done'].includes(a.state),
     });
@@ -396,7 +406,7 @@ export function SessionList() {
   const active = all.filter((s) => s.isActive);
   const attention = all.filter((s) => {
     const activity = byId.get(s.id);
-    return activity && sessionAttentionReason(activity) !== null;
+    return activity && sessionNeedsYouReason(activity) !== null;
   });
   const visible = filter === 'active' ? active : filter === 'attention' ? attention : all;
   const selectedPreview = preview
@@ -507,7 +517,7 @@ export function SessionList() {
             Active <span>{active.length}</span>
           </button>
           <button aria-pressed={filter === 'attention'} onClick={() => setFilter('attention')}>
-            Needs attention <span>{attention.length}</span>
+            Needs you <span>{attention.length}</span>
           </button>
         </div>
       )}
@@ -620,7 +630,7 @@ export function SessionList() {
               {!loading && !error && visible.length === 0 && (
                 <p className="session-list-empty">
                   {filter === 'attention'
-                    ? 'Nothing needs your attention'
+                    ? 'Nothing needs you right now'
                     : filter === 'active'
                       ? 'No active conversations'
                       : 'Start your first conversation'}
@@ -710,9 +720,6 @@ export function SessionList() {
 }
 
 function activityLabel(activity: SessionActivity): string {
-  const reason = sessionAttentionReason(activity);
-  if (reason === 'awaiting-reply') return 'Awaiting reply';
-  if (reason === 'uncommitted-work') return 'Uncommitted work';
   if (activity.state === 'waiting') {
     return activity.waitReason === 'review'
       ? 'Review needed'

@@ -3330,7 +3330,11 @@ app.get('/api/sessions', async (req, res) => {
         totalTokens: meta
           ? meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens
           : undefined,
-        ...sessionListMetadata(meta ?? {}, eventStore.getLatestEvent(s.id, 'token_update')),
+        ...sessionListMetadata(
+          meta ?? {},
+          eventStore.getLatestEvent(s.id, 'token_update'),
+          (id, fallback) => accountAliases.label(id, fallback),
+        ),
         numTurns: meta?.numTurns,
         closedBy: meta?.closedBy ?? undefined,
       };

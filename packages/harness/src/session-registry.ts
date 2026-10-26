@@ -143,6 +143,8 @@ export interface ActiveSessionInfo {
   clientId: string;
   sessionId: string | undefined;
   mode: MitzoMode;
+  model?: string;
+  accountLabel?: string;
   cwd: string | undefined;
   attached: boolean;
   cumulativeSessionTokens: number;
@@ -603,6 +605,8 @@ export class SessionRegistry {
         clientId,
         sessionId: session.sessionId,
         mode: session.mode,
+        model: session.model ?? session.accountBinding?.model,
+        accountLabel: session.accountBinding?.accountLabel,
         cwd: session.cwd,
         attached: this.attached.has(clientId),
         cumulativeSessionTokens: session.cumulativeSessionTokens,

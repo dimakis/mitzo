@@ -21,6 +21,7 @@ import type { LoopStatus } from './task-orchestrator.js';
 import type { TaskStore } from './task-store.js';
 import { hasUncommittedWorkAsync } from './worktree.js';
 import { createLogger } from './logger.js';
+import { sessionModelIdentity } from './session-list-metadata.js';
 
 export type { SessionActivity, SessionActivityState, WaitReason } from '@mitzo/protocol';
 
@@ -300,6 +301,8 @@ export class SessionOverviewEmitter {
       sessionId,
       clientId: session.clientId,
       title,
+      model: session.model,
+      accountLabel: session.accountLabel,
       repo,
       state: primaryState,
       flags,
@@ -336,6 +339,7 @@ export class SessionOverviewEmitter {
       sessionId: meta.sessionId,
       clientId: meta.sessionId, // No live clientId — use sessionId
       title,
+      ...sessionModelIdentity(meta),
       repo,
       state,
       flags: [],
