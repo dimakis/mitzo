@@ -19,6 +19,8 @@ import '../../frontend/src/styles/workspace.css';
 import '../../frontend/src/styles/workspace-chat.css';
 import './queue-status.css';
 const draft = createChatDraft();
+const runOn =
+  new URLSearchParams(location.search).get('runOn') === 'openshell' ? 'openshell' : 'local';
 draft.text = 'Inspect the attached screenshot and preserve my request.';
 draft.images = [
   {
@@ -113,7 +115,7 @@ function Fixture() {
                 onSend={(text, images, _context, onDelivery) =>
                   store.getState().sendLocalFirstCommand(
                     {
-                      runOn: 'local',
+                      runOn,
                       clientMsgId: createBrowserId(),
                       capabilityRevision: 'offline',
                       runtime: {
@@ -123,7 +125,7 @@ function Fixture() {
                           profileRevision: 'offline',
                         },
                         harness: 'codex',
-                        targetId: 'mac',
+                        targetId: runOn === 'local' ? 'mac' : 'shell',
                         mode: 'agent',
                       },
                       selection: {

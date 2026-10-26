@@ -865,7 +865,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/session-transport.ts':
     '7aaab4c6a3fb5f362b000e7127a8876fb385928d6786145f974ea8ecd4ce283f',
   '../../frontend/src/components/SymposiumConversation.tsx':
-    'a9328c460ed4533bb2c45aafc9ff3c7c64e61563b57d2b81b66e8190fccccdc8',
+    '786352592c7944b22fa9d9e402df18c7cc6aa09984718b9dd90b64af86136608',
   '../../frontend/src/components/SymposiumReviewPanel.tsx':
     '32be2e13877a0db2e2d8531718b9410138471c01cebc963592df3ed69cdf710a',
   '../owned-local-codex-control.ts':

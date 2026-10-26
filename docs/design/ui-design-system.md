@@ -2274,8 +2274,8 @@ and [desktop choices](assets/chat-model-settings-ready-desktop-light.png).
 
 ## Ordinary first-command failure feedback
 
-Ordinary and new-chat composers render their existing `ChatStatusMessage` beside
-retained draft content. Preparation, authentication, conversation-scope and queue
+Ordinary and new-chat composers surface refusals through their existing
+`CodexQueueStatus` and `ChatStatusMessage` beside retained draft content. Preparation, authentication, conversation-scope and queue
 refusals preserve the draft and display bounded public copy; raw provider and
 storage exceptions never enter the UI. This reuses shared status typography,
 semantic danger/text roles and composer layout, without changing Chat settings.
