@@ -3736,7 +3736,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     ...(modelSelection ? { modelSelection } : {}),
     modelSettingsReadOnlyReason: sessionModelSettingsReason(
       meta.accountBinding?.provider,
-      routingMetadata.runtimeBinding?.harness.implementation,
+      eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation,
       codexBacked,
     ),
     ...(codexBacked || responsesBacked ? { codexQueue } : {}),

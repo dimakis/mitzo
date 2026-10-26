@@ -1,8 +1,8 @@
-import type { AccountProvider, SessionRuntimeBinding } from '@mitzo/protocol';
+import type { AccountBinding, SessionRuntimeBinding } from '@mitzo/protocol';
 
 /** Catalog availability is not proof that a retained execution can change settings. */
 export function sessionModelSettingsReason(
-  provider: AccountProvider | undefined,
+  provider: AccountBinding['provider'] | undefined,
   harness: SessionRuntimeBinding['harness']['implementation'] | undefined,
   codexBacked: boolean,
 ): string | undefined {
