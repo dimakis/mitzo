@@ -128,7 +128,7 @@ signing. The initial PR base was the deployed baseline
 5d1538df55cb7d71b3532380cbef76050270c041. During landing, accepted main advanced
 to 7d36d4c8dd56c823a6597ad2d70749da34559aef (repository-read performance #1131).
 The branch integrates that accepted base, retains both source-fingerprint sets
-and selects runtime revision v1.0.696-composer-receipt-efficiency. This branch
+and selects runtime revision v1.0.697-composer-receipt-efficiency. This branch
 uses unsigned local commits without changing signing settings.
 Required CI, trusted review, merge and deployment remain separate gates.
 
@@ -138,3 +138,35 @@ latency gain. The approximately 35,000-token initial context still needs exact
 section/cache attribution. Durable prompt acceptance ahead of lengthy provider
 preparation, larger authority-operation receipts and further knowledge/runtime
 reuse require their own ownership/admission design and end-to-end validation.
+
+Final landing native workflow profile (26 October)
+At 551a0cfed, all four unit shards, builds, browser interactions, native Swift
+and all three offline layout projects passed. The canonical native repository
+workflow exceeded its existing 240-second test deadline on API. A controlled
+same-commit retry also failed its native phase; remaining acceptance results
+are retained independently. No deadline, coverage, fence or assertion changed.
+
+For the identical 5,307-leaf subscription workload, the earlier passing run and
+551 performed exactly 6,041 policy compositions and 32,047 synchronous admission
+checks. Inclusive admission time rose from 69.09s to 115.58s. API 551 performed
+5,911 compositions and 31,611 synchronous admissions before timeout. These
+inclusive times overlap; they must not be added to policy or helper totals.
+
+Scratch-only unit profiling used actual bootstrap, login, executable and
+admission implementations with synthetic runtime observers and RPC. It launched
+no native process and made no model calls; it does not qualify the OS workflow.
+The API auth reader rebuilt its unchanged Zod schema for every fresh file read.
+Hoisting that schema reduced median 1,000-assertion time from 428.9ms to 408.4ms
+on this Mac, retaining identical checks and filesystem call counts. This is a
+measured local allocation reduction, not proof that hosted CI meets its deadline.
+The regression first failed with three schema constructions, then passed with
+zero constructions and three fresh bounded reads; malformed changed auth still
+causes a fourth read, refusal and client closure. All 55 API/bootstrap tests pass.
+
+The registered workflow now retains exclusive synchronous stage totals by phase,
+including API login file checks. Teardown has a separate profiling window and
+preserves the existing terminal operation marker. Existing call identity,
+restoration, recursion and timing tests pass; hosted qualification is required.
+Duplicate path canonicalization and the native resolver alternative did not
+show sufficient benefit and were left unchanged. Generic fresh owner checks
+continue to bracket mutable callbacks and physical effects.

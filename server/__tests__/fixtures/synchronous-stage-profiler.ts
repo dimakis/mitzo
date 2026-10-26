@@ -1,6 +1,7 @@
 import { vi } from 'vitest';
 import { FrozenHostCodexBootstrapAuthority } from '../../frozen-host-codex-bootstrap.js';
 import { FrozenHostCodexLogin } from '../../frozen-host-codex-login.js';
+import { FrozenHostCodexApiLogin } from '../../frozen-host-codex-api-login.js';
 import { FrozenHostCodexExecutable } from '../../frozen-host-codex-executable.js';
 import { OrdinaryLocalCodexHostRuntime } from '../../ordinary-local-codex-host-runtime.js';
 import { OwnedLocalCodexChatAdmission } from '../../owned-local-codex-chat-admission.js';
@@ -248,6 +249,7 @@ export function installSignedNativeReadStages(
         'bootstrap.coldIdentity',
       ],
       [FrozenHostCodexLogin.prototype, 'assertFilesCurrent', 'login.files'],
+      [FrozenHostCodexApiLogin.prototype, 'assertFiles', 'apiLogin.files'],
       [FrozenHostCodexExecutable.prototype, 'assertCurrent', 'executable.current'],
       [OrdinaryLocalCodexHostRuntime.prototype, 'assertCurrentSync', 'runtime.current'],
       [OwnedLocalCodexChatAdmission.prototype, 'assertReceipt', 'admission.receipt'],

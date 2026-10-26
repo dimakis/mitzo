@@ -27,6 +27,11 @@ import { localRepositoryNativeToolFixture } from './local-repository-native-tool
 import { EventStore } from '../../event-store.js';
 import { setAuthRevocationStore, revokeAuthSession } from '../../auth.js';
 import { CodexTransportError } from '../../codex-app-server-client.js';
+import {
+  SynchronousStageProfiler,
+  NativeReadBoundaryProfile,
+  installSignedNativeReadStages,
+} from './synchronous-stage-profiler.js';
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
@@ -44,7 +49,10 @@ setAuthRevocationStore(revocations);
 afterAll(() => revocations.close());
 const cleanups: Array<() => void | Promise<void>> = [];
 let recordCleanup: ((cleanupMs: number) => Promise<void>) | undefined;
+let beginCleanup: (() => void) | undefined;
 afterEach(async () => {
+  beginCleanup?.();
+  beginCleanup = undefined;
   const started = performance.now();
   for (const close of cleanups.splice(0).reverse()) await close();
   await recordCleanup?.(performance.now() - started);
@@ -260,6 +268,15 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
       vi.spyOn(Socket.prototype, 'connect').mockImplementation(() => {
         throw Error('Mechanical test forbids sockets');
       });
+      let phase = 'setup';
+      let profilePhase: string | undefined;
+      beginCleanup = () => {
+        profilePhase = 'cleanup';
+      };
+      const synchronous = new SynchronousStageProfiler(
+        () => performance.now(),
+        () => profilePhase ?? phase,
+      );
       const trace = {
         policyCalls: 0,
         policyMs: 0,
@@ -270,12 +287,13 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
         scratch: [] as string[],
       };
       const compose = nativePolicy.composeOwnedLocalNativeExecutionPolicy;
+      const profiledCompose = synchronous.wrap('nativePolicy.compose', compose);
       vi.spyOn(nativePolicy, 'composeOwnedLocalNativeExecutionPolicy').mockImplementation(
         (...args) => {
           const start = performance.now();
           trace.policyCalls++;
           try {
-            return compose(...args);
+            return profiledCompose(...args);
           } finally {
             trace.policyMs += performance.now() - start;
           }
@@ -346,6 +364,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
         factsBudgets.push(args[1].timeoutMs);
         return facts(...args);
       });
+      cleanups.push(installSignedNativeReadStages(synchronous, new NativeReadBoundaryProfile()));
       const f = await localRepositoryNativeToolFixture(
         cleanups,
         async () => {
@@ -399,7 +418,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
       const operationTimings: Record<string, number> = {};
       const outcomes: Record<string, unknown> = {};
       let filesystemCallBudget: { trackedFiles: number; limit: number } | undefined;
-      let phase = 'ready';
+      phase = 'ready';
       let preparedDirectory: string | undefined;
       // Keep retained outcomes bounded and payload-free, including denial paths.
       const outcome = (result: Awaited<ReturnType<typeof f.a.call>>) => {
@@ -447,6 +466,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
               metadataBudgets,
               factsBudgets,
               metrics: f.a.metrics,
+              synchronous: synchronous.snapshot(),
               filesystemCallBudget,
               trace,
               phases,

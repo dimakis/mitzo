@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.696-composer-receipt-efficiency';
+  'v1.0.697-composer-receipt-efficiency';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -34,7 +34,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/composer-receipt.tsx':
     'fa02a439a6ddc92a08890a9cbaed12ecf71d1aac860e01685237ef4a7c44b68d',
   '../__tests__/fixtures/native-repository-registered-workflow.ts':
-    'b89e513b19aaffc8f3f9d07c02c49b7b9723540b8a6f928f22b75ee51de1b969',
+    'e0897c29e98c7614b2f3fedd319db76b75e40c71ce42414b6fa6de1b771f731f',
   '../__tests__/native-local-repository-read-registration-api.test.ts':
     'a9727a723647947bef931292a467765a910a09361ad6b1651032813552b87a15',
   '../__tests__/native-repository-object-store.test.ts':
@@ -948,7 +948,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-codex-owned-runtime.ts':
     '8199ae315f43ec651d9ec03863f6777866196b3bd61086a4d742b8e168e86f3d',
   '../frozen-host-codex-api-login.ts':
-    'bb6d0b79308a7ee3b160801d665057d30ed55d33c0dbfbed69bef269d71e0f63',
+    'eb7eddc2842845761c95ee309d9308db5dd8515051d347b165c37e54aeb2b730',
   '../frozen-host-codex-login.ts':
     'd1f5d8b6fc4f2793f80308918918161206c644300e1f8f6242e5b1cf26620c1a',
   '../frozen-host-codex-executable.ts':
@@ -1887,7 +1887,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/custodian-ordinary-chat.test.ts':
     '3e0d986bd344a162852d515762568d67572e81a404b52e706f5d56a9fadfe2bf',
   '../__tests__/frozen-host-codex-api-login.test.ts':
-    'e726031b0d750b1aad5cbc639b5f390bcc4c77409bc0c01a989bd2ee0e29bc54',
+    '990e259ca631726f2aa85e031dfe45ff77d5a171a95e830983b94f5e04db7568',
   '../__tests__/inbox-reconciliation-performance.test.ts':
     'eda2f7e479b9f53caaac9b120829c786cb5b22845ccad002595326ebc69cbf93',
   '../__tests__/keychain-controller.test.ts':
@@ -2289,7 +2289,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-conversation-store-statements.test.ts':
     'f4e9d9ff8edcc9016d442157347049c875812e3cd47c5bbcb7217bd1d4a32d84',
   '../__tests__/fixtures/synchronous-stage-profiler.ts':
-    '228ec136a52756b389e5ebb8adbde955f64f7a8aacf69d300b1de8ba2e4e398f',
+    '03d7b7c10220146bc3a6b2fe9b4cf3ed7ded7892dbab1a29b18c27bbc0f47ba1',
   '../__tests__/native-reader-path-authorization.test.ts':
     '1c5bb59f30e9c4b81725ecf1f46057aebebc88be7c55dfcf4e257cf4ffe4fcd9',
   '../__tests__/synchronous-stage-profiler.test.ts':

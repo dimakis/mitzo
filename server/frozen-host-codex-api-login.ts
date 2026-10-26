@@ -26,6 +26,11 @@ import type {
 
 const unavailable = () => Error('API Codex login unavailable');
 const digest = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
+const Auth = z.object({
+  auth_mode: z.literal('apikey').optional(),
+  OPENAI_API_KEY: z.string().min(1),
+  tokens: z.null().optional(),
+});
 export interface CodexApiKeyAuthority {
   assertReady(signal: AbortSignal): Promise<void>;
   /** Returns only the current controller-qualified key under its rotation gate. */
@@ -74,13 +79,7 @@ function auth(home: string) {
       before.mtimeMs !== after.mtimeMs
     )
       throw unavailable();
-    const value = z
-      .object({
-        auth_mode: z.literal('apikey').optional(),
-        OPENAI_API_KEY: z.string().min(1),
-        tokens: z.null().optional(),
-      })
-      .parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
+    const value = Auth.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
     return {
       identity: { dev: before.dev, ino: before.ino, sha256: digest(bytes) },
       credentialDigest: digest(value.OPENAI_API_KEY),
