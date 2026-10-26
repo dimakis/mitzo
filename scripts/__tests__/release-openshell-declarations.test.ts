@@ -22,6 +22,10 @@ import { ordinaryOpenShellCodexTarget } from '../../server/ordinary-openshell-co
 import * as shellRoute from '../../server/ordinary-openshell-codex-route.js';
 import { SUPPORTED_CODEX_CLI_VERSION } from '../../server/codex-app-server-client.js';
 import {
+  reviewedConnectionsRuntimeImplementationRevision,
+  reviewedHandlerSourceArtifacts,
+} from '../../server/connections/reviewed-handler-artifacts.js';
+import {
   prepareRuntimeDeclarations,
   checkRuntimeDeclarations,
   readPrivateEnvironment,
@@ -32,7 +36,7 @@ const runtime = { codex, responses, vertex, openshell, shell, shellRoute, native
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true })));
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-function fixture(wrappedRevision = false) {
+function fixture(wrappedRevision = false, currentSource = false) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'release-shell-')));
   roots.push(root);
   const previous = join(root, 'previous'),
@@ -48,16 +52,22 @@ function fixture(wrappedRevision = false) {
   git('init', '--quiet');
   mkdirSync(join(candidate, 'server/connections'), { recursive: true });
   mkdirSync(join(candidate, 'docs/spikes/openshell-codex'), { recursive: true });
-  const revision = 'previous-reviewed-release',
-    artifacts = { '../offline.ts': 'a'.repeat(64) };
+  const revision = currentSource
+      ? reviewedConnectionsRuntimeImplementationRevision
+      : 'previous-reviewed-release',
+    artifacts = currentSource
+      ? reviewedHandlerSourceArtifacts
+      : { '../offline.ts': 'a'.repeat(64) };
   const manifest =
     'export const reviewedConnectionsRuntimeImplementationRevision =' +
     (wrappedRevision ? '\n  ' : ' ') +
     "'" +
     revision +
-    "';\nexport const reviewedHandlerSourceArtifacts = Object.freeze({\n  '../offline.ts': '" +
-    'a'.repeat(64) +
-    "',\n});\n";
+    "';\nexport const reviewedHandlerSourceArtifacts = Object.freeze({\n" +
+    Object.entries(artifacts)
+      .map(([name, digest]) => `  '${name}': '${digest}',`)
+      .join('\n') +
+    '\n});\n';
   writeFileSync(join(candidate, 'server/connections/reviewed-handler-artifacts.ts'), manifest);
   writeFileSync(
     join(candidate, 'docs/spikes/openshell-codex/runtime-codex-version'),
@@ -114,7 +124,7 @@ function fixture(wrappedRevision = false) {
     runtimeContractRevision: hash([
       'ordinary-openshell-codex-owner-v1',
       revision,
-      Object.entries(artifacts),
+      Object.entries(artifacts).sort(([a], [b]) => a.localeCompare(b)),
       SUPPORTED_CODEX_CLI_VERSION,
       cliSha256,
       env.MITZO_OPENSHELL_IMAGE,
@@ -220,4 +230,12 @@ it('accepts the wrapped revision literal used by previous accepted releases', ()
     readAcceptedOpenShellSource(f.candidate, f.env.MITZO_ORDINARY_OPENSHELL_CODEX_TARGET_FILE)
       .revision,
   ).toBe('previous-reviewed-release');
+});
+it('does not let a still-current contract bypass namespace preservation on a new release', () => {
+  const f = fixture(false, true);
+  expect(openshell.loadOrdinaryOpenShellCodexTarget(f.env)?.target.targetId).toBe('original-shell');
+  const source = f.source + 'OPENSHELL_WORKSPACE=another-namespace\n';
+  writeFileSync(join(f.candidate, '.env'), source, { mode: 0o600 });
+  expect(() => prepareRuntimeDeclarations(f.candidate, source, runtime)).toThrow();
+  expect(readPrivateEnvironment(join(f.candidate, '.env'))).toBe(source);
 });

@@ -96,6 +96,11 @@ export function prepareRuntimeDeclarations(root, source, runtime) {
   const envFile = join(root, '.env');
   assert.equal(readPrivateEnvironment(envFile), source);
   const env = parse(source);
+  const directory = join(root, '.runtime-targets');
+  const inside = (file) => {
+    const rel = relative(directory, file);
+    return rel && rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel);
+  };
   const plans = [];
   const read = runtime.codex.readPrivateRuntimeSettings;
   const add = (name, fileName, revision) => {
@@ -146,7 +151,7 @@ export function prepareRuntimeDeclarations(root, source, runtime) {
       config,
       measurement.sha256,
     );
-    if (previous.runtimeContractRevision !== revision) {
+    if (previous.runtimeContractRevision !== revision || !inside(env[name])) {
       const source = readAcceptedOpenShellSource(root, env[name]);
       const priorEnv = parse(readPrivateEnvironment(join(source.releaseRoot, '.env')));
       assert.equal(priorEnv[name], env[name]);
@@ -170,11 +175,6 @@ export function prepareRuntimeDeclarations(root, source, runtime) {
     assert.deepEqual(add(name, 'openshell.json', revision), previous);
   }
   if (!plans.length) return { changed: false, targets: [] };
-  const directory = join(root, '.runtime-targets');
-  const inside = (file) => {
-    const rel = relative(directory, file);
-    return rel && rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel);
-  };
   if (
     plans.every((p) => inside(env[p.name]) && JSON.stringify(p.previous) === JSON.stringify(p.next))
   ) {
