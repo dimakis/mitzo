@@ -26,7 +26,10 @@ restore could not acknowledge the exact outstanding snapshot offer. Live output
 then waited for snapshot timeout and another reconnect.
 
 The client now reads the bounded snapshot transcript and acknowledges its exact
-offer through the existing background delivery path. This does not select the
+offer through the existing background delivery path. If the receipt selects the
+chat while that read is pending, the loaded bounded prefix is installed before
+acknowledgement and replay; it supersedes any competing full-history restore.
+Newer snapshot offers and transport identities invalidate older background reads. This does not select the
 chat, render its deferred content, or accept the pending native command. Those
 remain owned by the command receipt. Failed reads retain the existing recovery
 path; transport identity and offer matching still reject stale acknowledgements.
@@ -41,9 +44,23 @@ The regression uses the real store, SSE connection and applied-delivery ordering
 with mocked HTTP and EventSource. It exercises both `local` and `openshell`, a
 correlated early echo, reconnect during pending send, a delayed transcript read,
 exact offer acknowledgement, unchanged draft authority and immediate text deltas
-after the receipt. It failed before the fix because no snapshot ACK was sent.
+after the receipt. Reverse receipt/read ordering uses nonempty streamed content to
+verify each replayed suffix appears exactly once, including when a newer snapshot
+supersedes an older in-flight read. It failed before the fix because no snapshot ACK was sent.
 
 Related startup, SSE, applied-delivery, store and prior durable-prefix tests pass.
 No live model calls, staging checks, runtime activation or production deployment
 were performed. This changes delivery logic only; no rendered component or design
 was changed.
+
+## Local landing review
+
+Independent reviewers `/root/review_correctness` and `/root/review_behavior`
+reviewed candidate `d79b1ba3abeff3f62f233e98ad445930a1ab1a09` against
+`5ecfa3e13b2e67ec5f91b4aa86b186fee1e192d2`. Both identified the same P1:
+a receipt could install newer history before the background snapshot read finished,
+then its older ACK replayed a suffix twice. The added regression failed with
+`PrefixSuffixSuffix`. The follow-up restores the loaded exact prefix before ACK
+when the chat has become selected and discards superseded background reads.
+Reviewers cover source behavior and offline fixtures; CI and device acceptance
+remain separate evidence.

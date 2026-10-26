@@ -587,6 +587,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let historyRequest = 0;
   let historyAbort: AbortController | undefined;
   let recoveryInFlight = false;
+  const backgroundSnapshotReads = new Map<string, object>();
   const pendingOptimisticMessageIds = new Set<string>();
   // Completion belongs to a command, not a session that can accept later sends.
   // Keep observations across HTTP uncertainty, retries and view navigation.
@@ -777,6 +778,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     throughSeq?: number,
     replace = false,
     onApplied?: () => void,
+    loadedTranscript?: ReturnType<MitzoApiClient['getReconnectTranscript']>,
   ) {
     if (recoveryInFlight && throughSeq === undefined) return;
     recoveryInFlight = true;
@@ -800,9 +802,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         .messages.messages.map((m) => [messageIdentity(m.messageId, m.symposiumProvenance), m]),
     );
     const transcript =
-      throughSeq === undefined
+      loadedTranscript ??
+      (throughSeq === undefined
         ? api.getSessionTranscript(sessionId)
-        : api.getReconnectTranscript(sessionId, throughSeq);
+        : api.getReconnectTranscript(sessionId, throughSeq));
     transcript
       .then(({ messages: msgs, current, currents = [], cursor }) => {
         if (Array.isArray(msgs)) confirmPersistedDelivery(sessionId, msgs);
@@ -2023,6 +2026,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     const eventSessionId = msg.sessionId as string | undefined;
+    if (msg.type === 'session_reconnect_snapshot' && eventSessionId)
+      backgroundSnapshotReads.delete(eventSessionId);
     if (
       eventSessionId &&
       ['message_start', 'session_end', 'ordinary_provider_dispatch_started'].includes(
@@ -2232,19 +2237,45 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.cursor >= 0
     ) {
       const cursor = msg.cursor;
+      const read = {};
+      const connectionId = connection.getConnectionId();
+      backgroundSnapshotReads.set(eventSessionId, read);
+      const isCurrent = () =>
+        backgroundSnapshotReads.get(eventSessionId) === read &&
+        connection.getConnectionId() === connectionId;
+      const acknowledge = () =>
+        connection.acknowledgeReconnectSnapshot(
+          eventSessionId,
+          cursor,
+          typeof msg.offerId === 'string' ? msg.offerId : undefined,
+        );
       void api
         .getReconnectTranscript(eventSessionId, cursor)
-        .then(({ messages }) => {
-          confirmPersistedDelivery(eventSessionId, messages);
-          connection.commitTranscriptCursor(eventSessionId, cursor);
-          connection.acknowledgeReconnectSnapshot(
-            eventSessionId,
-            cursor,
-            typeof msg.offerId === 'string' ? msg.offerId : undefined,
-          );
+        .then((transcript) => {
+          if (!isCurrent()) return;
+          confirmPersistedDelivery(eventSessionId, transcript.messages);
+          if (parserState.currentSessionId === eventSessionId) {
+            // The receipt/navigation may have installed a newer transcript while
+            // this read was pending. Restore this exact prefix before releasing
+            // its buffered suffix, replacing the competing restore generation.
+            fetchAndRestoreMessages(
+              eventSessionId,
+              cursor,
+              true,
+              acknowledge,
+              Promise.resolve(transcript),
+            );
+          } else {
+            connection.commitTranscriptCursor(eventSessionId, cursor);
+            acknowledge();
+          }
         })
         .catch(() => {
-          connection.checkAndReconnect(true);
+          if (isCurrent()) connection.checkAndReconnect(true);
+        })
+        .finally(() => {
+          if (backgroundSnapshotReads.get(eventSessionId) === read)
+            backgroundSnapshotReads.delete(eventSessionId);
         });
       return true;
     }
