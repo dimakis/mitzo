@@ -172,8 +172,10 @@ it('recovers and launches a durable tool handoff into a separate repository chat
   expect(JSON.parse(listed!.content)).toEqual(catalog);
   const input = {
     repository: 'https://github.com/Example/Repo.git',
-    prompt: 'Update file.txt in a separate repository chat',
+    // A retained brief plus handoff instructions exceeded the former 8,000-character cap.
+    prompt: 'Update file.txt using the complete retained brief.\n' + 'Task context.\n'.repeat(750),
   };
+  expect(input.prompt.length).toBeGreaterThan(8000);
   const prepared = await tools.execute('PrepareRepositoryChat', input, signal);
   expect(prepared?.isError).toBe(false);
   const draft = (JSON.parse(prepared!.content) as { repositoryChat: RepositoryChatPreparation })

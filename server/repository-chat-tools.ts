@@ -21,7 +21,11 @@ import {
 import type { RepositoryChatPreparation } from './repository-workspaces.js';
 
 export const REPOSITORY_CHAT_INSTRUCTIONS =
-  '\nFor repository work, call ListRepositories then PrepareRepositoryChat. The user reviews the draft to start a separate chat. Call GetRepositoryChatPreparation once to recover a missing ID; omit preparationId. Never repeat preparation or repeatedly poll.\n';
+  '\nFor repository work, call ListRepositories then PrepareRepositoryChat. The user reviews the draft to start a separate chat. If input validation rejects a call before preparation starts, correct the input and retry once; no draft recovery is needed for that rejected call. Otherwise call GetRepositoryChatPreparation once to recover a missing ID; omit preparationId. Never repeat preparation after execution starts or repeatedly poll.\n';
+
+// Retained build briefs must fit alongside the handoff instructions. Keep a
+// bounded input, but do not force ordinary documents through an 8,000-char cap.
+const MAX_REPOSITORY_CHAT_PROMPT_CHARACTERS = 64_000;
 
 export const repositoryChatSchemas = {
   ListRepositories: z.strictObject({}),
@@ -30,7 +34,7 @@ export const repositoryChatSchemas = {
     prompt: z
       .string()
       .min(1)
-      .max(8000)
+      .max(MAX_REPOSITORY_CHAT_PROMPT_CHARACTERS)
       .refine((value) => value.trim().length > 0),
   }),
   GetRepositoryChatPreparation: z.strictObject({ preparationId: z.uuid().optional() }),
@@ -38,10 +42,16 @@ export const repositoryChatSchemas = {
 const descriptions = {
   ListRepositories:
     'Discover repositories authorized for this chat’s current AI account. Returns repository names and connection labels, without credentials or filesystem paths.',
-  PrepareRepositoryChat:
-    'Prepare a separate repository chat for a user-requested task. Supply only an authorized repository name or canonical GitHub HTTPS URL and the task prompt. Returns a draft review link; the user starts the new chat. Does not switch the current workspace, grant integration access, execute the task, or publish changes. Requires Agent or Auto mode.',
+  PrepareRepositoryChat: `Prepare a separate repository chat for a user-requested task. Supply only an authorized repository name or canonical GitHub HTTPS URL and the task prompt (at most ${MAX_REPOSITORY_CHAT_PROMPT_CHARACTERS} characters). For longer briefs, include their Telos artifact IDs and revisions for retrieval. Returns a draft review link; the user starts the new chat. Does not switch the current workspace, grant integration access, execute the task, or publish changes. Requires Agent or Auto mode.`,
   GetRepositoryChatPreparation:
     'Read a repository-chat draft prepared by this source chat and its current AI account. Omit preparationId to recover the latest owned draft after a lost response. Returns public preparation status and the review link. Do not repeat preparation or repeatedly poll.',
+};
+
+const inputRemedies = {
+  ListRepositories: 'Supply an empty object: {}.',
+  PrepareRepositoryChat: `Supply only repository (1–512 characters) and prompt (non-blank text, at most ${MAX_REPOSITORY_CHAT_PROMPT_CHARACTERS} characters). For longer briefs, include their Telos artifact IDs and revisions for retrieval. Repository preparation was not started by this call. Correct the input and retry PrepareRepositoryChat once; do not use draft recovery for this validation failure.`,
+  GetRepositoryChatPreparation:
+    'Supply only preparationId as a UUID, or omit it to recover the latest owned draft.',
 };
 export const repositoryChatToolDefinitions: ToolDefinition[] = Object.entries(
   repositoryChatSchemas,
@@ -127,7 +137,12 @@ export function sessionRepositoryTools(
       if (signal.aborted || !allowed(name)) return unavailable();
       const parsed =
         repositoryChatSchemas[name as keyof typeof repositoryChatSchemas].safeParse(input);
-      if (!parsed.success) return { content: 'Invalid repository tool input', isError: true };
+      if (!parsed.success)
+        return {
+          // Fixed guidance never echoes rejected prompts, routing values or keys.
+          content: `Invalid repository tool input for ${name}. ${inputRemedies[name as keyof typeof inputRemedies]}`,
+          isError: true,
+        };
       if (name === 'PrepareRepositoryChat' && effectivePermissionMode(session) === 'ask')
         return askRemedy();
       if (!repositoryWorkspacesEnabled())
