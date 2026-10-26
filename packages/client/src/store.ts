@@ -923,8 +923,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             if (replayed.resyncRequired) throw new Error('Unsafe reconnect seat transcript');
             return { messages: replayed };
           });
-          if (throughSeq === undefined && cursor !== undefined)
-            connection.commitTranscriptCursor(sessionId, cursor);
+          if (appliedCursor !== undefined)
+            connection.commitTranscriptCursor(sessionId, appliedCursor);
           onApplied?.();
         }
       })

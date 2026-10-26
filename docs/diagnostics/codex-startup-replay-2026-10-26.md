@@ -29,8 +29,9 @@ The client now reads the bounded snapshot transcript and acknowledges its exact
 offer through the existing background delivery path. If the receipt selects the
 chat while that read is pending, the loaded bounded prefix is installed before
 acknowledgement and replay; it supersedes any competing full-history restore.
-Newer snapshot offers and transport identities invalidate older background reads. This does not select the
-chat, render its deferred content, or accept the pending native command. Those
+Newer snapshot offers and transport identities invalidate older background reads.
+This does not select the chat, render its deferred content, or accept the pending
+native command. Those
 remain owned by the command receipt. Failed reads retain the existing recovery
 path; transport identity and offer matching still reject stale acknowledgements.
 
@@ -46,7 +47,11 @@ correlated early echo, reconnect during pending send, a delayed transcript read,
 exact offer acknowledgement, unchanged draft authority and immediate text deltas
 after the receipt. Reverse receipt/read ordering uses nonempty streamed content to
 verify each replayed suffix appears exactly once, including when a newer snapshot
-supersedes an older in-flight read. It failed before the fix because no snapshot ACK was sent.
+supersedes an older in-flight read. The original regression failed before the fix
+because no snapshot ACK was sent. Delayed ACK regressions also cover the receipt
+installing newer history before ACK confirmation, and history still loading at
+confirmation. Both Local and OpenShell must render the suffix exactly once and
+then render the next delta immediately.
 
 Related startup, SSE, applied-delivery, store and prior durable-prefix tests pass.
 No live model calls, staging checks, runtime activation or production deployment
@@ -64,3 +69,20 @@ then its older ACK replayed a suffix twice. The added regression failed with
 when the chat has become selected and discards superseded background reads.
 Reviewers cover source behavior and offline fixtures; CI and device acceptance
 remain separate evidence.
+
+## Pending-ACK ordering
+
+Centaur finding `CEN-A0B31DE7A680` on `f3398c4d` identified a second valid
+ordering: the background bounded read finishes and requests its ACK, then the
+receipt installs newer full history before the ACK response arrives. Confirming
+the old offer would replay an already-rendered suffix. The added Local/OpenShell
+regressions reproduced `PrefixSuffixSuffix` before this follow-up.
+
+Applied delivery now records the latest actually installed transcript boundary
+on the pending offer without advancing its transport cursor. Exact server ACK
+confirmation releases the fence at the offered cursor. Already-rendered events
+still follow their predecessor chain and receive individual ACKs, but do not
+render again. Later events render normally. A subsequent bounded restore replaces
+the recorded boundary exactly, even if older; new offers and replay/session
+clearing discard coverage. Rejected or lost ACKs retain recovery fencing. This
+uses the existing delivery protocol and does not acknowledge missing events.

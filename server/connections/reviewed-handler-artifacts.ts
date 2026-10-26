@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.697-codex-startup-replay';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.698-codex-startup-replay';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -960,7 +960,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '03fef53de70e3594cb948ac6ecbfe010979043411c658446eb5e2217911a38ce',
   '../../packages/client/src/store.ts':
-    '5517382b57a1ebff3a74da46761450c008f69b339f65a42cd52fcce1f5c731bc',
+    'c22943b17c8341e0a70c39bee34a1b1c031b5af76d41789fca1664479a746fa6',
   '../../packages/harness/src/permission-handler.ts':
     'ded77a1bb6dc8c81ec80ee8a0cafb2691cc90a6b088b12c3559b06a0c7b4b05a',
   '../../packages/harness/src/permissions.ts':
@@ -1419,7 +1419,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/api-client.ts':
     '21d06e473edec895b0d3604567cfab12fcf3b79f5bc022827ef3cd174aa9b5b9',
   '../../packages/client/src/applied-delivery.ts':
-    'ee75ecc60e14a6e034fc8486a830d542eb1de7ca7c2392df0eb9a3c2fb7d8e2a',
+    '97ae5efb89932ff98d21cd43cf0dc7bda35a70da85dbff6eeb094b70f5135646',
   '../../packages/client/src/applied-event-acks.ts':
     'cb9629e1da426916dbecd3bc0e924e45cf460799e94f1e49cbf7544abecf764d',
   '../../packages/harness/src/connection-registry.ts':

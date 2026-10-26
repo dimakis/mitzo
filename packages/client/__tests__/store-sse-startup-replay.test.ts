@@ -8,6 +8,10 @@ it.each([
   ['openshell', 'receipt-first'],
   ['local', 'newer-offer'],
   ['openshell', 'newer-offer'],
+  ['local', 'ack-pending'],
+  ['openshell', 'ack-pending'],
+  ['local', 'history-pending'],
+  ['openshell', 'history-pending'],
 ] as const)('streams %s startup exactly once when %s completes first', async (runOn, order) => {
   let welcome!: (event: MessageEvent) => void;
   const source = {
@@ -24,6 +28,8 @@ it.each([
     source.onmessage?.(new MessageEvent('message', { data: JSON.stringify(data) }));
   let accept!: (response: Response) => void;
   let restore!: (response: Response) => void;
+  let acknowledge!: (response: Response) => void;
+  let history!: (response: Response) => void;
   const transcript = (content: string, cursor: number) => ({
     messages: [],
     cursor,
@@ -47,6 +53,13 @@ it.each([
       ),
     );
   const fetch = vi.fn((url: string, _init?: RequestInit) => {
+    if (
+      (order === 'ack-pending' || order === 'history-pending') &&
+      url.endsWith('/reconnect-snapshot-applied')
+    )
+      return new Promise<Response>((resolve) => {
+        acknowledge = resolve;
+      });
     if (url === '/local/send' || url === '/api/chat/runtime/send')
       return new Promise<Response>((resolve) => {
         accept = resolve;
@@ -54,6 +67,10 @@ it.each([
     if (url.includes('throughSeq=5'))
       return new Promise<Response>((resolve) => {
         restore = resolve;
+      });
+    if (order === 'history-pending' && url.includes('/messages'))
+      return new Promise<Response>((resolve) => {
+        history = resolve;
       });
     if (url.includes('/messages'))
       return Promise.resolve(
@@ -139,6 +156,58 @@ it.each([
     expect(fetch.mock.calls.some(([url]) => url.endsWith('/reconnect-snapshot-applied'))).toBe(
       false,
     );
+    if (order === 'ack-pending' || order === 'history-pending') {
+      restore(Response.json(transcript('Prefix', 5)));
+      await vi.waitFor(() => expect(acknowledge).toBeTypeOf('function'));
+      emit({
+        type: 'block_delta',
+        sessionId: 'chat',
+        messageId: 'reply',
+        blockId: 'text',
+        blockType: 'text',
+        delta: 'Suffix',
+        seq: 6,
+        prevSessionSeq: 5,
+      });
+      acceptReceipt();
+      if (order === 'history-pending') {
+        await vi.waitFor(() => expect(history).toBeTypeOf('function'));
+        expect(store.getState().sessions.active).toBe('chat');
+      } else {
+        await vi.waitFor(() =>
+          expect(store.getState().messages.current?.blocks.get('text')?.content).toBe(
+            'PrefixSuffix',
+          ),
+        );
+      }
+      acknowledge(Response.json({ applied: true }));
+      // ACK confirmation is asynchronous; a duplicate would appear only after it resolves.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (order === 'history-pending') {
+        history(Response.json(transcript('PrefixSuffix', 6)));
+        await vi.waitFor(() =>
+          expect(store.getState().messages.current?.blocks.get('text')?.content).toBe(
+            'PrefixSuffix',
+          ),
+        );
+      }
+      expect(store.getState().messages.current?.blocks.get('text')?.content).toBe('PrefixSuffix');
+      emit({
+        type: 'block_delta',
+        sessionId: 'chat',
+        messageId: 'reply',
+        blockId: 'text',
+        blockType: 'text',
+        delta: 'Next',
+        seq: 7,
+        prevSessionSeq: 6,
+      });
+      expect(store.getState().messages.current?.blocks.get('text')?.content).toBe(
+        'PrefixSuffixNext',
+      );
+      expect(source.close).not.toHaveBeenCalled();
+      return;
+    }
     if (order !== 'snapshot-first') {
       emit({
         type: 'block_delta',

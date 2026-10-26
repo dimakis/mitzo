@@ -20,7 +20,14 @@ interface PendingSession {
   gapTimer?: ReturnType<typeof setTimeout>;
   waitingForSnapshot?: boolean;
   resyncRequested?: boolean;
-  offer?: { cursor: number; offerId: string; connectionId: string; ackRequested?: boolean };
+  offer?: {
+    cursor: number;
+    offerId: string;
+    connectionId: string;
+    ackRequested?: boolean;
+    installedThrough?: number;
+  };
+  restoredThrough?: number;
 }
 
 const MAX_BUFFERED_EVENTS = 256;
@@ -53,6 +60,7 @@ export class AppliedDelivery {
   holdReplay(sessionId: string): void {
     const state = this.state(sessionId);
     this.clearGapTimer(state);
+    state.restoredThrough = undefined;
     state.waitingForSnapshot = true;
     this.armGapTimer(sessionId, state);
   }
@@ -68,7 +76,14 @@ export class AppliedDelivery {
   /** Commit a REST transcript only after its state has been installed. */
   commitTranscript(sessionId: string, cursor: number): void {
     const state = this.state(sessionId);
-    if (state.offer || state.waitingForSnapshot) return;
+    if (state.offer) {
+      // Record actual rendered coverage without crossing the server's ACK fence.
+      // A later bounded restore can replace newer history with an older prefix.
+      state.offer.installedThrough = cursor;
+      return;
+    }
+    if (state.waitingForSnapshot) return;
+    state.restoredThrough = undefined;
     const committed = Math.max(cursor, this.options.getCursor(sessionId));
     for (const [seq, event] of state.events) {
       if (seq > committed) continue;
@@ -89,6 +104,7 @@ export class AppliedDelivery {
     this.clearGapTimer(state);
     state.waitingForSnapshot = false;
     state.resyncRequested = false;
+    state.restoredThrough = undefined;
     state.offer = { cursor, offerId, connectionId };
     this.armGapTimer(sessionId, state);
   }
@@ -157,6 +173,10 @@ export class AppliedDelivery {
       offer.connectionId !== connectionId
     )
       return false;
+    state.restoredThrough =
+      offer.installedThrough !== undefined && offer.installedThrough > cursor
+        ? offer.installedThrough
+        : undefined;
     state.offer = undefined;
     this.clearGapTimer(state);
     for (const [seq, event] of state.events) {
@@ -208,17 +228,23 @@ export class AppliedDelivery {
   }
 
   private apply(sessionId: string, state: PendingSession, event: Record<string, unknown>): boolean {
-    try {
-      const applied = this.deliver(event);
-      if (applied !== true) {
-        if (applied === false) this.requestResync(sessionId, state);
+    const seq = event.seq as number;
+    if (state.restoredThrough === undefined || seq > state.restoredThrough) {
+      try {
+        const applied = this.deliver(event);
+        if (applied !== true) {
+          if (applied === false) this.requestResync(sessionId, state);
+          return false;
+        }
+      } catch {
+        this.requestResync(sessionId, state);
         return false;
       }
-    } catch {
-      this.requestResync(sessionId, state);
-      return false;
     }
-    const seq = event.seq as number;
+    // Covered events still traverse the predecessor chain and receive individual
+    // ACKs; the REST watermark never jumps over missing transport events.
+    if (state.restoredThrough !== undefined && seq >= state.restoredThrough)
+      state.restoredThrough = undefined;
     const buffered = state.events.get(seq);
     if (buffered) {
       state.events.delete(seq);

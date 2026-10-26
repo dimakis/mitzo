@@ -21,6 +21,130 @@ function harness() {
 }
 
 describe('AppliedDelivery', () => {
+  it.each(['before', 'after'] as const)(
+    'acknowledges REST-covered events arriving %s snapshot confirmation without rendering twice',
+    async (arrival) => {
+      let cursor = 2;
+      let confirm!: (applied: boolean) => void;
+      const deliver = vi.fn(() => true);
+      const ackEvent = vi.fn();
+      const tracker = new AppliedDelivery({
+        getCursor: () => cursor,
+        setCursor: (_, seq) => {
+          cursor = seq;
+        },
+        deliver,
+        ackEvent,
+        ackSnapshot: () =>
+          new Promise<boolean>((resolve) => {
+            confirm = resolve;
+          }),
+        resync: vi.fn(),
+      });
+      tracker.offerSnapshot('a', 5, 'offer', 'conn');
+      tracker.acknowledgeSnapshot('a', 5, 'offer', 'conn');
+      // The renderer installs REST history while the offer's HTTP ACK is in flight.
+      tracker.commitTranscript('a', 9);
+      expect(cursor).toBe(2);
+      expect(ackEvent).not.toHaveBeenCalled();
+      const receivePrefix = () => {
+        tracker.receive({ sessionId: 'a', seq: 7, prevSessionSeq: 5 });
+        tracker.receive({ sessionId: 'a', seq: 9, prevSessionSeq: 7 });
+      };
+      if (arrival === 'before') receivePrefix();
+      confirm(true);
+      await Promise.resolve();
+      if (arrival === 'after') receivePrefix();
+      expect(cursor).toBe(9);
+      expect(deliver).not.toHaveBeenCalled();
+      expect(ackEvent.mock.calls).toEqual([
+        ['a', 7],
+        ['a', 9],
+      ]);
+      tracker.receive({ sessionId: 'a', seq: 12, prevSessionSeq: 9 });
+      expect(deliver).toHaveBeenCalledExactlyOnceWith({
+        sessionId: 'a',
+        seq: 12,
+        prevSessionSeq: 9,
+      });
+      expect(cursor).toBe(12);
+    },
+  );
+
+  it('uses the latest installed prefix when a bounded restore replaces newer history', () => {
+    const h = harness();
+    h.tracker.offerSnapshot('a', 5, 'offer', 'conn');
+    h.tracker.commitTranscript('a', 9);
+    h.tracker.commitTranscript('a', 5);
+    h.tracker.receive({ sessionId: 'a', seq: 7, prevSessionSeq: 5 });
+    h.tracker.acknowledgeSnapshot('a', 5, 'offer', 'conn');
+    expect(h.received).toEqual([7]);
+    expect(h.acks).toEqual([7]);
+  });
+
+  it('does not skip predecessor gaps in REST-covered events', () => {
+    const h = harness();
+    h.tracker.offerSnapshot('a', 5, 'offer', 'conn');
+    h.tracker.commitTranscript('a', 9);
+    h.tracker.receive({ sessionId: 'a', seq: 9, prevSessionSeq: 7 });
+    h.tracker.acknowledgeSnapshot('a', 5, 'offer', 'conn');
+    expect(h.cursors.get('a')).toBe(5);
+    expect(h.acks).toEqual([]);
+    h.tracker.receive({ sessionId: 'a', seq: 7, prevSessionSeq: 5 });
+    expect(h.cursors.get('a')).toBe(9);
+    expect(h.received).toEqual([]);
+    expect(h.acks).toEqual([7, 9]);
+  });
+
+  it.each(['offer', 'session', 'connection', 'replay'] as const)(
+    'discards installed coverage after replacing the %s',
+    (replacement) => {
+      const h = harness();
+      h.tracker.offerSnapshot('a', 5, 'old', 'conn');
+      h.tracker.commitTranscript('a', 9);
+      if (replacement === 'session') h.tracker.clearSession('a');
+      if (replacement === 'connection') h.tracker.clearPending();
+      if (replacement === 'replay') {
+        h.tracker.acknowledgeSnapshot('a', 5, 'old', 'conn');
+        h.tracker.holdReplay('a');
+        h.tracker.releaseReplay('a');
+        h.tracker.receive({ sessionId: 'a', seq: 7, prevSessionSeq: 5 });
+      } else {
+        h.tracker.offerSnapshot('a', 5, 'new', 'conn-2');
+        h.tracker.receive({ sessionId: 'a', seq: 7, prevSessionSeq: 5 });
+        expect(h.tracker.confirmSnapshot('a', 5, 'old', 'conn')).toBe(false);
+        h.tracker.acknowledgeSnapshot('a', 5, 'new', 'conn-2');
+      }
+      expect(h.received).toEqual([7]);
+      expect(h.acks).toEqual([7]);
+    },
+  );
+
+  it('keeps installed history fenced when the server rejects its snapshot ACK', async () => {
+    const setCursor = vi.fn();
+    const deliver = vi.fn();
+    const ackEvent = vi.fn();
+    const resync = vi.fn();
+    const rejected = new AppliedDelivery({
+      getCursor: () => 2,
+      setCursor,
+      deliver,
+      ackEvent,
+      ackSnapshot: () => Promise.resolve(false),
+      resync,
+    });
+    rejected.offerSnapshot('a', 5, 'offer', 'conn');
+    rejected.commitTranscript('a', 9);
+    rejected.receive({ sessionId: 'a', seq: 7, prevSessionSeq: 5 });
+    rejected.acknowledgeSnapshot('a', 5, 'offer', 'conn');
+    await Promise.resolve();
+    expect(resync).toHaveBeenCalledExactlyOnceWith('a');
+    expect(setCursor).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
+    expect(ackEvent).not.toHaveBeenCalled();
+    rejected.clearPending();
+  });
+
   it('retains an offered cursor until exact server confirmation and reconnects after silent ACK loss', () => {
     vi.useFakeTimers();
     try {
