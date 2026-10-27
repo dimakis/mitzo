@@ -1,0 +1,34 @@
+name: CI infrastructure recovery
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+
+concurrency:
+  group: ci-infrastructure-recovery-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # Never check out the triggering PR, consume its artifacts, or run its code
+      # with Actions write permission. Only accepted default-branch code runs here.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const { recoverCiRun } = await import('${{ github.workspace }}/scripts/ci-recovery.mjs');
+            const recovered = await recoverCiRun({ github, context, core });
+            if (!recovered) core.info('No eligible current-head infrastructure retry; retain the existing failure.');
