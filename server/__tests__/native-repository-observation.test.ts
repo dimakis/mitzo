@@ -2,7 +2,16 @@ import { afterEach, expect, it } from 'vitest';
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { NativeFileHelperTransport } from '../native-file-operation.js';
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -415,3 +424,93 @@ it('captures shallow boundary bytes in the fixed allocation observation', async 
     ),
   ).rejects.toThrow();
 });
+
+// The witness is scoped to one physical check, never cached across validations.
+it.each(['HEAD', 'config', 'index', 'shallow', 'git-root', 'task-root'] as const)(
+  'refuses changed standalone %s after topology capture before verification',
+  async (change) => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-task-topology-change-')));
+    roots.push(root);
+    execFileSync('/usr/bin/git', ['init', '--template=', '-q', '-b', 'main', root]);
+    await writeFile(join(root, '.git', 'index'), 'retained metadata only');
+    const transport: NativeFileHelperTransport = async (invocation) => {
+      const { stdout } = await promisify(execFile)('/bin/sh', ['-c', invocation.command], {
+        cwd: '/',
+        env: { PATH: '/usr/bin:/bin' },
+        signal: invocation.signal,
+        timeout: invocation.timeoutMs,
+        maxBuffer: invocation.maxOutputBytes,
+      });
+      return { stdout, isError: false };
+    };
+    const held = await captureRepositoryObservation(
+      {
+        version: 'repository-read-v1',
+        mode: 'task-topology',
+        sourcePath: root,
+        readableRoots: [root],
+        deniedRoots: [],
+        excludedNames: [],
+      },
+      new AbortController().signal,
+      10000,
+      transport,
+    );
+    expect(held.data.files.some((file) => file.path === join(root, '.git', 'index'))).toBe(false);
+    if (change === 'git-root') {
+      await rename(join(root, '.git'), join(root, 'retained-admin'));
+      await mkdir(join(root, '.git'));
+    } else if (change === 'task-root') {
+      await rename(root, root + '-retained');
+      roots.push(root + '-retained');
+      await mkdir(root);
+    } else await writeFile(join(root, '.git', change), 'changed topology bytes');
+    await expect(
+      verifyRepositoryObservation(
+        held.plan,
+        held.digest,
+        new AbortController().signal,
+        10000,
+        transport,
+      ),
+    ).rejects.toThrow();
+  },
+);
+
+it.each(['ancestor', 'gitfile'] as const)(
+  'refuses standalone %s discovery or redirection',
+  async (change) => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-task-topology-scope-')));
+    roots.push(root);
+    execFileSync('/usr/bin/git', ['init', '--template=', '-q', '-b', 'main', root]);
+    const nested = join(root, 'nested');
+    await mkdir(nested);
+    if (change === 'gitfile')
+      await writeFile(join(nested, '.git'), `gitdir: ${join(root, '.git')}\n`);
+    const transport: NativeFileHelperTransport = async (invocation) => {
+      const { stdout } = await promisify(execFile)('/bin/sh', ['-c', invocation.command], {
+        cwd: '/',
+        env: { PATH: '/usr/bin:/bin' },
+        signal: invocation.signal,
+        timeout: invocation.timeoutMs,
+        maxBuffer: invocation.maxOutputBytes,
+      });
+      return { stdout, isError: false };
+    };
+    await expect(
+      captureRepositoryObservation(
+        {
+          version: 'repository-read-v1',
+          mode: 'task-topology',
+          sourcePath: nested,
+          readableRoots: [root],
+          deniedRoots: [],
+          excludedNames: [],
+        },
+        new AbortController().signal,
+        10000,
+        transport,
+      ),
+    ).rejects.toThrow();
+  },
+);

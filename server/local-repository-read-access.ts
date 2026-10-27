@@ -267,8 +267,9 @@ export class LocalRepositoryReadAccess {
   /** Explicit partial HEAD metadata, never generic directory/namespace facts. */
   async headMetadataEntries(path: string) {
     await this.authorize(path);
-    if (this.repositoryCapture?.plan.mode !== 'base') throw unavailable();
-    const directory = this.repositoryCapture.data.directories.find((item) => item.path === path);
+    const capture = this.repositoryCapture;
+    if (!capture || !['base', 'task-topology'].includes(capture.plan.mode)) throw unavailable();
+    const directory = capture.data.directories.find((item) => item.path === path);
     if (!directory) throw unavailable();
     return directory.names.map((name) => this.entries.get(join(path, name))!);
   }

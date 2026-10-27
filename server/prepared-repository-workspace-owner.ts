@@ -32,6 +32,12 @@ export async function assertPreparedRepositoryTaskTopology(
       !isAbsolute(task.directory)
     )
       throw unavailable();
+    if (access.canCaptureRepositoryObservation)
+      await access.captureRepositoryObservation({
+        mode: 'task-topology',
+        sourcePath: task.directory,
+        readableRoots: [task.directory],
+      });
     for (const [path, expected] of [
       [task.directory, task.root],
       [git, task.git],
@@ -51,7 +57,7 @@ export async function assertPreparedRepositoryTaskTopology(
       )
     )
       throw unavailable();
-    const base = await readLocalRepositoryBaseReference(access, metadata, task.featureBranch);
+    const base = await readLocalRepositoryBaseReference(access, metadata, 'HEAD');
     if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(base.oid)) throw unavailable();
     for (const name of ['commondir', 'objects/info/alternates', 'objects/info/http-alternates'])
       if (await access.stat(join(git, name))) throw unavailable();

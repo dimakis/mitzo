@@ -348,3 +348,102 @@ it('keeps an independent task usable after source disposal and refuses shallow m
     assertPreparedRepositoryTaskTopology(f.access(), identity, f.sourceGitDirectory),
   ).rejects.toThrow();
 });
+
+it.skipIf(process.platform !== 'darwin')(
+  'validates standalone topology with one fresh bounded native observation and verification',
+  async () => {
+    const f = await fixture();
+    const task = join(f.root, 'independent');
+    git(f.root, 'clone', '--no-hardlinks', '-q', f.source, task);
+    git(task, 'checkout', '-qb', 'mitzo/independent');
+    git(task, 'config', 'user.name', 'Offline');
+    git(task, 'config', 'user.email', 'offline@example.invalid');
+    const identity = {
+      ...(await snapshotRepositoryTaskCheckout(task, 'mitzo/independent')),
+      localSource: f.identity.localSource,
+    };
+    await rm(f.task, { recursive: true });
+    await rm(f.source, { recursive: true });
+    await writeFile(join(task, 'untracked-large'), Buffer.alloc(17 * 1024 * 1024));
+    const indexPath = join(task, '.git', 'index'),
+      original = await readFile(indexPath),
+      extension = Buffer.alloc(17 * 1024 * 1024 + 8);
+    extension.write('XMIT', 0);
+    extension.writeUInt32BE(extension.length - 8, 4);
+    const indexContent = Buffer.concat([original.subarray(0, -20), extension]);
+    await writeFile(
+      indexPath,
+      Buffer.concat([indexContent, createHash('sha1').update(indexContent).digest()]),
+    );
+
+    const observation = vi
+      .spyOn(sandbox, 'executePrivateRepositoryObservation')
+      .mockImplementation(async (options) => {
+        const pending = promisify(execFile)(
+          '/usr/bin/python3',
+          ['-I', '-c', repositoryObservationProgram],
+          {
+            env: { PATH: '/usr/bin:/bin' },
+            signal: options.signal,
+            maxBuffer: options.maxOutputBytes,
+          },
+        );
+        pending.child.stdin?.end(options.requestJson);
+        return { content: '', stdout: (await pending).stdout, stderr: '', isError: false };
+      });
+    const individual = vi
+      .spyOn(sandbox, 'executePrivateNativeFileHelper')
+      .mockImplementation(async () => {
+        throw Error('Standalone topology must use its bounded native observation');
+      });
+    const abort = new AbortController();
+    const scope = Object.freeze({
+      readableRoots: Object.freeze(['/']),
+      workspaceRoots: Object.freeze([task]),
+      deniedRoots: Object.freeze([]),
+    }) as unknown as NativeBaseReadScope;
+    const validate = async () => {
+      const reader = await captureLocalRepositoryReader(
+        scope,
+        abort.signal,
+        () => abort.signal.throwIfAborted(),
+        async () => abort.signal.throwIfAborted(),
+        { deadline: Date.now() + 30000 },
+      );
+      try {
+        await assertPreparedRepositoryTaskTopology(
+          new LocalRepositoryReadAccess(reader),
+          identity,
+          f.sourceGitDirectory,
+        );
+      } finally {
+        await reader.dispose();
+      }
+    };
+    await validate();
+    expect(observation).toHaveBeenCalledTimes(2);
+    const captured = JSON.parse(
+      JSON.parse((await observation.mock.results[0].value).stdout!).content,
+    ).data;
+    expect(
+      captured.entries.every(
+        (item: { path: string }) => item.path === task || item.path.startsWith(task + '/'),
+      ),
+    ).toBe(true);
+    expect(
+      captured.files.some(
+        (item: { path: string }) =>
+          item.path === indexPath || item.path === join(task, 'untracked-large'),
+      ),
+    ).toBe(false);
+    expect(individual).not.toHaveBeenCalled();
+    await writeFile(join(task, 'task.txt'), 'Later commit');
+    git(task, 'add', 'task.txt');
+    git(task, 'commit', '-qm', 'advance independent task');
+    await validate();
+    expect(observation).toHaveBeenCalledTimes(4);
+    await writeFile(join(task, '.git', 'commondir'), f.sourceGitDirectory + '\n');
+    await expect(validate()).rejects.toThrow();
+    expect(individual).not.toHaveBeenCalled();
+  },
+);

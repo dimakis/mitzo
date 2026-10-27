@@ -10,7 +10,15 @@ const path = z
 const Plan = z
   .strictObject({
     version: z.literal('repository-read-v1'),
-    mode: z.enum(['discovery', 'orientation', 'allocation', 'adoption', 'topology', 'base']),
+    mode: z.enum([
+      'discovery',
+      'orientation',
+      'allocation',
+      'adoption',
+      'topology',
+      'base',
+      'task-topology',
+    ]),
     sourcePath: path,
     taskRoot: path.optional(),
     workspaceId: z.uuid().optional(),
@@ -61,7 +69,15 @@ const Entry = z.strictObject({
 });
 const Data = z.strictObject({
   version: z.literal('repository-read-v1'),
-  mode: z.enum(['discovery', 'orientation', 'allocation', 'adoption', 'topology', 'base']),
+  mode: z.enum([
+    'discovery',
+    'orientation',
+    'allocation',
+    'adoption',
+    'topology',
+    'base',
+    'task-topology',
+  ]),
   entries: z.array(z.strictObject({ path, entry: Entry })).max(100000),
   directories: z
     .array(
@@ -372,11 +388,13 @@ def repository_observation(request):
         scan(source, None if plan['mode'] in ('allocation','adoption') else ['.git', 'HEAD', 'config', 'objects'])
         marker = os.path.join(source, '.git'); value = entry(marker)
         if value is not None: break
+        if plan['mode'] == 'task-topology': fail()
         parent = os.path.dirname(source)
         if parent == source: fail()
         source = parent
     else: fail()
     git = marker
+    if plan['mode'] == 'task-topology' and value['kind'] != 'directory': fail()
     if value['kind'] == 'file':
         text = read(marker).decode('utf-8')
         if not text.startswith('gitdir: ') or '\x00' in text: fail()
@@ -387,16 +405,17 @@ def repository_observation(request):
     if entry(git) is None or entries[git]['kind'] != 'directory': fail()
     common = git; pointer = read(os.path.join(git, 'commondir'))
     if pointer is not None:
+        if plan['mode'] == 'task-topology': fail()
         pointer = pointer.decode('utf-8').rstrip('\r\n')
         if not pointer or '\x00' in pointer or '\n' in pointer or '\r' in pointer: fail()
         common = os.path.normpath(os.path.join(git, pointer))
     for root in sorted(set([git, common])):
-        scan(root, ['HEAD','config','config.worktree','commondir','packed-refs'] if plan['mode']=='base' else None)
+        scan(root, (['HEAD','config','config.worktree','commondir','packed-refs'] + (['index','shallow'] if plan['mode']=='task-topology' else [])) if plan['mode'] in ('base','task-topology') else None)
         for name in ['config', 'config.worktree']: read(os.path.join(root, name), 65536)
-    if plan['mode'] == 'allocation': read(os.path.join(common, 'shallow'), 65536)
+    if plan['mode'] in ('allocation','task-topology'): read(os.path.join(common, 'shallow'), 65536)
     for name in ['alternates', 'http-alternates']:
         pointer = read(os.path.join(common, 'objects', 'info', name), 65536)
-        if pointer is not None and pointer.strip(): fail()
+        if pointer is not None and (plan['mode'] == 'task-topology' or pointer.strip()): fail()
     def chain(head):
         value = read(head); seen = set()
         while value is not None and value.startswith(b'ref: '):
