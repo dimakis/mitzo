@@ -168,6 +168,7 @@ it('polls recovery candidates without hydrating historical input and still valid
       repositoryWorkspaceId: 'workspace',
     }),
     getOrdinaryLocalCommandExecutionAdmission: () => receipt,
+    observePreparedRepositoryCommandRouting: () => undefined,
     getSendCommand: () => ({ sessionId: 'chat', payload: { text: 'Exact saved input' } }),
     hasUncertainOrdinaryCommand: () => false,
     getSessionRuntimeBinding: () => runtime,

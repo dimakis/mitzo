@@ -223,6 +223,7 @@ it.each([
   'interrupted',
   'completed',
   'prior-attempt',
+  'missing-primary',
 ] as const)(
   'refuses %s drift or possible effects without rewriting retained evidence',
   async (change) => {
@@ -260,6 +261,18 @@ it.each([
     cleanups.push(() => failed.close());
     await expect(failed.admitResume(request)).rejects.toThrow();
     failed.close();
+    if (change === 'missing-primary') {
+      const corrupt = new Database(join(f.root, 'events.db'));
+      corrupt
+        .prepare(
+          "UPDATE send_commands SET ordinary_admission=json_set(ordinary_admission,'$.preparedRepositoryPrimaryCommandId','missing-primary') WHERE client_msg_id=?",
+        )
+        .run(request.clientMsgId);
+      corrupt.close();
+      expect(() =>
+        f.events.observePreparedRepositoryCommandRouting(request.clientMsgId, true),
+      ).toThrow('lineage');
+    }
     if (change === 'payload') request.payload.text = 'Changed input';
     if (change === 'workspace') {
       const corrupt = new Database(join(f.root, 'events.db'));

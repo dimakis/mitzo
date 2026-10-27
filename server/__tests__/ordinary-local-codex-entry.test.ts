@@ -703,6 +703,7 @@ it.each([
   ['repository', 1],
   ['repository', 2],
   ['repository', 3],
+  ['repository', 4],
   ['ordinary', 1],
   ['ordinary', 2],
   ['ordinary', 3],
@@ -862,11 +863,13 @@ it.each([
         newWorkspace:
           hop === 3
             ? firstDestination
-            : {
-                ...transition.newWorkspace,
-                id: randomUUID(),
-                directory: '/offline/adopted-again',
-              },
+            : hop === 4
+              ? { ...firstDestination, id: workspaceId, directory: meta.cwd }
+              : {
+                  ...transition.newWorkspace,
+                  id: randomUUID(),
+                  directory: '/offline/adopted-again',
+                },
       };
       child = store.reservePreparedRepositoryContinuation(sessionId, transition);
       store.commitPreparedRepositoryContinuation(sessionId, child.childCommandId, transition);
@@ -925,6 +928,42 @@ it.each([
         payload: original.payload,
       }),
     ).not.toThrow();
+    if (hops === 4) {
+      const db = (store as unknown as { db: import('better-sqlite3').Database }).db;
+      const saved = db
+        .prepare('SELECT * FROM ordinary_execution_admissions WHERE command_id=?')
+        .all(original.clientMsgId) as Array<Record<string, string | number>>;
+      expect(saved.length).toBeGreaterThan(0);
+      db.prepare('DELETE FROM ordinary_execution_admissions WHERE command_id=?').run(
+        original.clientMsgId,
+      );
+      // Returning to the original path cannot hide a missing execution epoch.
+      // Both direct and saved queue actions must reject before native effects.
+      expect(
+        store.getOrdinaryLocalCommandExecutionAdmission(original.clientMsgId)
+          ?.preparedRepositoryPrimaryCommandId,
+      ).toBeUndefined();
+      expect(() =>
+        RetainedLocalCodexRecovery.capture(store, getCodexConversationStore(), sessionId, auth.id, {
+          ...core(original),
+          payload: original.payload,
+        }),
+      ).toThrow();
+      expect(() =>
+        RetainedLocalCodexRecovery.captureSaved(
+          store,
+          getCodexConversationStore(),
+          sessionId,
+          auth.id,
+          original.clientMsgId,
+        ),
+      ).toThrow();
+      const keys = Object.keys(saved[0]);
+      const insert = db.prepare(
+        `INSERT INTO ordinary_execution_admissions (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`,
+      );
+      for (const row of saved) insert.run(...keys.map((key) => row[key]));
+    }
     fixtures.workspace.mockReturnValue({
       get: () => ({
         id: transition.newWorkspace.id,
@@ -1003,7 +1042,9 @@ it.each([
       expect(observed.body.dispatched).toBe(false);
       expect(fixtures.start).not.toHaveBeenCalled();
       fixtures.queuedRecovery = true;
-      for (const id of [transition.newWorkspace.id, randomUUID()]) {
+      for (const id of [transition.newWorkspace.id, randomUUID()].filter(
+        (id) => id !== workspaceId,
+      )) {
         const wrong =
           kind === 'ordinary'
             ? { ...wire, workspace: { kind: 'ordinary', workspaceId: id } }

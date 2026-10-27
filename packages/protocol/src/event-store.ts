@@ -1540,7 +1540,10 @@ export class EventStore {
     const original = read(commandId);
     if (original.admission.preparedRepositoryTransition) return undefined;
     const session = this.getSession(original.session_id);
-    if (!session?.repositoryWorkspaceId) return undefined;
+    if (!session?.repositoryWorkspaceId) {
+      if (original.admission.preparedRepositoryPrimaryCommandId) throw refuse();
+      return undefined;
+    }
     const anchors = this.db!.prepare(
       `SELECT client_msg_id FROM send_commands WHERE session_id=?
       AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.newWorkspace.id')=?
@@ -1548,7 +1551,10 @@ export class EventStore {
     ).all(original.session_id, session.repositoryWorkspaceId, session.cwd) as Array<{
       client_msg_id: string;
     }>;
-    if (!anchors.length) return undefined;
+    if (!anchors.length) {
+      if (original.admission.preparedRepositoryPrimaryCommandId) throw refuse();
+      return undefined;
+    }
     const primaryId = anchors[0].client_msg_id;
     const top = read(primaryId);
     const execution =
