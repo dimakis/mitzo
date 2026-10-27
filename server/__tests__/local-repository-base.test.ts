@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, realpath, rm, writeFile, mkdir, truncate } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile, mkdir, truncate, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -71,9 +71,50 @@ it('initializes a new independent local Git source without remote hosting or inh
   expect(await git(directory, 'ls-tree', 'HEAD')).toBe('');
 });
 
-it.each([17, 129])(
-  'aborts an oversized %sMiB in-flight remote pack and joins its runner before refusing acquisition',
-  async (sizeMiB) => {
+it('admits a bounded canonical remote pack and its owned in-flight temporary container', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'repository-container-budget-')));
+  roots.push(root);
+  const directory = join(root, 'repository');
+  const oid = 'a'.repeat(40);
+  const base = await acquireRemoteRepositoryBase(
+    {
+      repositoryId: 'bounded',
+      url: 'https://example.invalid/team/repo.git',
+      directory,
+      base: { kind: 'ref', ref: 'main' },
+      signal: new AbortController().signal,
+    },
+    async (args, signal) => {
+      if (args.includes('init'))
+        await mkdir(join(directory, '.git', 'objects', 'pack'), { recursive: true });
+      if (args.includes('fetch')) {
+        const pack = join(directory, '.git', 'objects', 'pack', 'tmp_pack_owned');
+        await writeFile(pack, '');
+        await truncate(pack, 17 * 1024 * 1024);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        signal.throwIfAborted();
+        await rename(pack, join(directory, '.git', 'objects', 'pack', `pack-${oid}.pack`));
+      }
+      return { stdout: args.includes('rev-parse') ? oid : '', stderr: '' };
+    },
+  );
+  expect(base.oid).toBe(oid);
+});
+
+it.each([
+  { name: 'noncanonical17', files: [['tmp_pack', 17]] },
+  { name: 'temporary129', files: [['tmp_pack_owned', 129]] },
+  { name: 'canonical129', files: [[`pack-${'a'.repeat(40)}.pack`, 129]] },
+  {
+    name: 'aggregate130',
+    files: [
+      [`pack-${'a'.repeat(40)}.pack`, 65],
+      [`pack-${'a'.repeat(40)}.idx`, 65],
+    ],
+  },
+])(
+  'aborts an oversized $name in-flight remote store and joins its runner before refusing acquisition',
+  async ({ files }) => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'repository-budget-')));
     roots.push(root);
     const directory = join(root, 'repository');
@@ -93,9 +134,11 @@ it.each([17, 129])(
             return { stdout: '', stderr: '' };
           }
           if (args.includes('fetch')) {
-            const pack = join(directory, '.git', 'objects', 'pack', 'tmp_pack');
-            await writeFile(pack, '');
-            await truncate(pack, sizeMiB * 1024 * 1024);
+            for (const [name, sizeMiB] of files) {
+              const pack = join(directory, '.git', 'objects', 'pack', String(name));
+              await writeFile(pack, '');
+              await truncate(pack, Number(sizeMiB) * 1024 * 1024);
+            }
             return new Promise((_, reject) =>
               signal.addEventListener(
                 'abort',
@@ -115,6 +158,33 @@ it.each([17, 129])(
   },
   5000,
 );
+it('refuses a large leftover temporary container once acquisition has stopped', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'repository-leftover-budget-')));
+  roots.push(root);
+  const directory = join(root, 'repository');
+  await expect(
+    acquireRemoteRepositoryBase(
+      {
+        repositoryId: 'bounded',
+        url: 'https://example.invalid/team/repo.git',
+        directory,
+        base: { kind: 'ref', ref: 'main' },
+        signal: new AbortController().signal,
+      },
+      async (args) => {
+        if (args.includes('init'))
+          await mkdir(join(directory, '.git', 'objects', 'pack'), { recursive: true });
+        if (args.includes('fetch')) {
+          const pack = join(directory, '.git', 'objects', 'pack', 'tmp_pack_owned');
+          await writeFile(pack, '');
+          await truncate(pack, 17 * 1024 * 1024);
+        }
+        return { stdout: '', stderr: '' };
+      },
+    ),
+  ).rejects.toThrow('Repository acquisition exceeds its storage limit');
+});
+
 const env = {
   PATH: '/usr/bin:/bin',
   HOME: '/nonexistent',

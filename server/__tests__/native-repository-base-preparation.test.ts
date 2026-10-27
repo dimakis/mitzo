@@ -1,10 +1,19 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, realpath, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile,
+  mkdir,
+  readFile,
+  readdir,
+  lstat,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { captureNativeLocalRepositoryPreparationSource } from '../local-repository-preparation-source.js';
 import type { NativeHostToolContext } from '../native-host-tool-context.js';
 import { fixtureReadAnchor } from './fixtures/local-repository-read-owner.js';
@@ -15,6 +24,11 @@ import { repositorySourceIdentity } from '../local-repository-base.js';
 import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
 import { captureQualifiedLocalRepositoryTask } from '../qualified-local-repository-task.js';
 import { nativeFileHelperProgram } from '../native-file-operation.js';
+import {
+  preparationObjectStoreCommand,
+  parsePreparationObjectStoreCapture,
+} from '../native-repository-object-store.js';
+const nativeContainerContexts = new WeakSet<NativeHostToolContext>();
 
 // Current native owner/transport is synthetic here; Git stores, source changes,
 // object closure and the fixed publication helper operate on real offline data.
@@ -43,6 +57,61 @@ vi.mock('../local-repository-native-read.js', () => ({
         await context.assertCurrent();
       },
       captureReadAnchor: fixtureReadAnchor,
+      ...(nativeContainerContexts.has(context)
+        ? (() => {
+            const captures = new WeakMap<object, object>();
+            return {
+              async capturePreparationObjectStore(
+                source: import('../native-file-operation.js').NativeReadAnchor,
+                objectFormat: 'sha1' | 'sha256',
+              ) {
+                const directory = await realpath(
+                  await mkdtemp(join(tmpdir(), 'native-container-capture-')),
+                );
+                roots.push(directory);
+                const target = await fixtureReadAnchor(directory);
+                const plan = {
+                  version: 'preparation-object-store-v1',
+                  source,
+                  target,
+                  objectFormat,
+                  deniedRoots: [],
+                };
+                const result = await execute(
+                  '/bin/sh',
+                  ['-c', preparationObjectStoreCommand({ operation: 'capture', plan })],
+                  { env, signal: context.signal, maxBuffer: 4 * 1024 * 1024 },
+                );
+                const captured = parsePreparationObjectStoreCapture(
+                  JSON.parse(result.stdout),
+                  target,
+                );
+                captures.set(captured, plan);
+                return captured;
+              },
+              async verifyPreparationObjectStore(
+                captured: import('../native-repository-object-store.js').PreparationObjectStoreCapture,
+              ) {
+                const plan = captures.get(captured);
+                if (!plan) throw Error('Unknown captured store');
+                const verified = await execute(
+                  '/bin/sh',
+                  [
+                    '-c',
+                    preparationObjectStoreCommand({
+                      operation: 'verify',
+                      plan,
+                      digest: captured.digest,
+                    }),
+                  ],
+                  { env, signal: context.signal, maxBuffer: 4096 },
+                );
+                if (JSON.parse(verified.stdout).verified !== true)
+                  throw Error('Object store verification refused');
+              },
+            };
+          })()
+        : {}),
       async dispose() {},
     }) satisfies LocalRepositoryReadAuthority & { dispose(): Promise<void> },
 }));
@@ -378,3 +447,69 @@ it.each([1, 2])(
   },
   120000,
 );
+
+it('publishes a valid historical Git pack over16MiB while keeping selected tracked leaves small', async () => {
+  const f = await fixture();
+  nativeContainerContexts.add(f.context);
+  await git(f.source, 'checkout', 'main');
+  for (let n = 0; n < 3; n++)
+    await writeFile(join(f.source, `history-${n}.bin`), randomBytes(6 * 1024 * 1024));
+  await git(f.source, 'add', 'history-0.bin', 'history-1.bin', 'history-2.bin');
+  await git(f.source, 'commit', '-qm', 'historical objects');
+  const historical = await git(f.source, 'rev-parse', 'HEAD');
+  await git(f.source, 'rm', '-q', 'history-0.bin', 'history-1.bin', 'history-2.bin');
+  await git(f.source, 'commit', '-qm', 'small selected tree');
+  await git(f.source, 'repack', '-ad');
+  const selected = await git(f.source, 'rev-parse', 'HEAD'),
+    originalStatus = await git(f.source, 'status', '--porcelain');
+  const pack = (await readdir(join(f.source, '.git', 'objects', 'pack'))).find((name) =>
+    name.endsWith('.pack'),
+  )!;
+  expect((await lstat(join(f.source, '.git', 'objects', 'pack', pack))).size).toBeGreaterThan(
+    16 * 1024 * 1024,
+  );
+  const workspaceId = randomUUID();
+  const held = await captureNativeLocalRepositoryPreparationSource(
+    f.context,
+    { workspaceId, sourcePath: f.source, taskRoot: f.tasks, base: { kind: 'ref', ref: 'HEAD' } },
+    { deadline: Date.now() + 120000 },
+  );
+  const request = { id: workspaceId } as never;
+  const objects = await captureLocalRepositoryPreparationObjectData(
+    f.context,
+    request,
+    held.allocationFacts,
+    held.allocationFactsSha256,
+    Date.now() + 120000,
+    held.publicationPackedRefs,
+    held.objectSource,
+  );
+  try {
+    const result = await materializeQualifiedLocalRepositoryTask({
+      context: f.context,
+      facts: held.allocationFacts,
+      factsSha256: held.allocationFactsSha256,
+      requestSha256: (await import('../pending-host-task.js')).pendingHostTaskDecisionHash(request),
+      scopeSha256: 'b'.repeat(64),
+      expiresAt: Date.now() + 120000,
+      objects,
+      publicationPackedRefs: held.publicationPackedRefs,
+      assertCurrentSync() {},
+      async assertCurrent() {
+        await held.assertCurrent();
+      },
+    });
+    expect(await git(result.taskIdentity.directory, 'rev-parse', 'HEAD')).toBe(selected);
+    expect(await git(result.taskIdentity.directory, 'log', '--format=%H')).toContain(historical);
+    expect(
+      await git(result.taskIdentity.directory, 'cat-file', '-s', `${historical}:history-0.bin`),
+    ).toBe(String(6 * 1024 * 1024));
+    expect(await readFile(join(result.taskIdentity.directory, 'code.txt'), 'utf8')).toBe(
+      'fresh main',
+    );
+    expect(await git(f.source, 'status', '--porcelain')).toBe(originalStatus);
+  } finally {
+    await objects.dispose();
+    await held.dispose?.();
+  }
+}, 120000);

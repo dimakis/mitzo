@@ -275,7 +275,8 @@ not the acceptance criterion.
 - Remote reads use HTTPS/SSH through the authorized host adapter. Commands are
   restricted to the selected endpoint and acquisition directory. Source Git
   configuration is not executed. Fetches are shallow and limited to 128 MiB of
-  acquisition Git data (16 MiB per file/pack), 10,000 entries, a deadline, and
+  acquisition Git data (128 MiB per canonical pack/index container; 16 MiB per
+  tracked file or metadata leaf), 10,000 entries, a deadline, and
   available-disk admission.
   Cancellation joins the process group; uncertain shutdown preserves its records
   and scratch instead of deleting underneath a possible writer.

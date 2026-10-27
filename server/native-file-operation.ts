@@ -27,7 +27,7 @@ import {
 // Keep the helper embedded so tsc/deploy cannot omit a required runtime asset.
 // No user text is interpolated into source or argv: the request travels over stdin.
 const helper = String.raw`
-import base64, hashlib, json, os, stat, sys, time
+import base64, hashlib, json, os, re, stat, sys, time
 
 def capture_read_anchor(request):
     path = request['file_path']
@@ -248,7 +248,7 @@ def create_file(request, preflight_only=False, deadline=None, expected_receipt=N
         for file in [source_file, target_file, source_parent, target_parent]:
             if file is not None: os.close(file)
 
-def publish_tree(request, preflight_only=False, deadline=None, target_fd=None, phase_state=None, verify_only=False, extra_target_names=None):
+def publish_tree(request, preflight_only=False, deadline=None, target_fd=None, phase_state=None, verify_only=False, extra_target_names=None, repository_git_containers=False):
     # Entire tree is preflighted before the first target mutation. Never run Git,
     # traverse a symlink, overwrite/adopt an entry or remove uncertain effects.
     deadline = time.monotonic() + request['timeoutMs'] / 1000 if deadline is None else deadline
@@ -323,7 +323,10 @@ def publish_tree(request, preflight_only=False, deadline=None, target_fd=None, p
             if not value or b'\x00' in value:
                 raise RuntimeError('Exclusive tree unavailable')
         else:
-            if not stat.S_ISREG(before.st_mode) or stat.S_IMODE(before.st_mode) != (0o755 if entry['mode'] == '100755' else 0o644) or before.st_size > 16 * 1024 * 1024:
+            # This role is a code-only argument from the fixed standalone Git
+            # wrapper; generic/model tree requests cannot select it.
+            maximum = (128 if repository_git_containers and entry['mode'] == '100644' and re.fullmatch(r'objects/pack/pack-[a-f0-9]{40}(?:[a-f0-9]{24})?\.(?:pack|idx)', entry['path']) else 16) * 1024 * 1024
+            if not stat.S_ISREG(before.st_mode) or stat.S_IMODE(before.st_mode) != (0o755 if entry['mode'] == '100755' else 0o644) or before.st_size > maximum:
                 raise RuntimeError('Exclusive tree unavailable')
             file = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
             try:

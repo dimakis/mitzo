@@ -15,6 +15,7 @@ import type {
 } from './native-file-operation.js';
 import {
   projectNativeRepositoryTreeEntries,
+  projectNativeRepositoryGitTreeEntries,
   rejectNativeTreeExclusions,
   type NativeExclusiveTreeRequest,
 } from './native-tree-publication.js';
@@ -286,7 +287,7 @@ function projectStandalonePlan(input: unknown): Readonly<NativePreparationPublic
   const deniedRoots = Object.freeze(
     array(item.deniedRoots, 256).map((value) => (value === '/' ? '/' : path(value))),
   );
-  const projectTree = (value: unknown) => {
+  const projectTree = (value: unknown, gitContainers = false) => {
     const tree = data(value, ['payload', 'entries']),
       staged = data(tree.payload, ['file_path', 'rootAnchor', 'parentIdentity', 'identity']);
     const root = anchor(staged.rootAnchor),
@@ -311,11 +312,13 @@ function projectStandalonePlan(input: unknown): Readonly<NativePreparationPublic
         parentIdentity: parent,
         identity: identity(staged.identity),
       }),
-      entries: projectNativeRepositoryTreeEntries(tree.entries),
+      entries: gitContainers
+        ? projectNativeRepositoryGitTreeEntries(tree.entries)
+        : projectNativeRepositoryTreeEntries(tree.entries),
     });
   };
   const tree = projectTree(item.tree),
-    standaloneGit = projectTree(item.standaloneGit);
+    standaloneGit = projectTree(item.standaloneGit, true);
   if (
     !isDeepStrictEqual(tree.payload.rootAnchor, standaloneGit.payload.rootAnchor) ||
     tree.payload.file_path === standaloneGit.payload.file_path
@@ -978,7 +981,7 @@ def publish_standalone_repository(request):
         else: raise RuntimeError('Prepared publication unavailable')
         work = tree_request(plan['tree'], task, root['identity'], None)
         git = tree_request(plan['standaloneGit'], admin, root['identity'], None)
-        publish_tree(work, preflight_only=True, deadline=deadline); publish_tree(git, preflight_only=True, deadline=deadline)
+        publish_tree(work, preflight_only=True, deadline=deadline); publish_tree(git, preflight_only=True, deadline=deadline, repository_git_containers=True)
         verify_roots(); check(); os.mkdir(os.path.basename(task), 0o700, dir_fd=parent)
         task_fd = os.open(os.path.basename(task), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent); descriptors.append(task_fd)
         task_id = ident(os.fstat(task_fd)); work['targetIdentity'] = task_id
@@ -986,9 +989,9 @@ def publish_standalone_repository(request):
         verify_roots(); os.mkdir('.git', 0o700, dir_fd=task_fd)
         git_fd = os.open('.git', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=task_fd); descriptors.append(git_fd)
         git_id = ident(os.fstat(git_fd)); git['targetIdentity'] = git_id; git['parentIdentity'] = task_id
-        git_state = {}; publish_tree(git, deadline=deadline, target_fd=git_fd, phase_state=git_state)
+        git_state = {}; publish_tree(git, deadline=deadline, target_fd=git_fd, phase_state=git_state, repository_git_containers=True)
         verify_roots(); publish_tree(work, deadline=deadline, target_fd=task_fd, phase_state=work_state, verify_only=True, extra_target_names={'.git'})
-        publish_tree(git, deadline=deadline, target_fd=git_fd, phase_state=git_state, verify_only=True); verify_roots(); check()
+        publish_tree(git, deadline=deadline, target_fd=git_fd, phase_state=git_state, verify_only=True, repository_git_containers=True); verify_roots(); check()
         return json.dumps({'directories': [{'directory': task, 'identity': task_id}, {'directory': admin, 'identity': git_id}], 'files': [], 'tree': result}, ensure_ascii=True)
     finally:
         for fd in descriptors: os.close(fd)

@@ -1,7 +1,8 @@
+import { acquisitionGitEntrySizeLimit } from './repository-git-container-policy.js';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, lstat, readdir, statfs, realpath } from 'node:fs/promises';
-import { join, dirname, isAbsolute, resolve } from 'node:path';
+import { join, dirname, isAbsolute, resolve, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { isGitBranchName } from './git-branch.js';
@@ -316,7 +317,7 @@ export async function acquireRemoteRepositoryBase(
   const budget = new AbortController();
   const signal = AbortSignal.any([input.signal, budget.signal]);
   let budgetError: Error | undefined;
-  const inspectStorage = async () => {
+  const inspectStorage = async (fetching = false) => {
     let bytes = 0,
       entries = 0;
     const walk = async (path: string): Promise<void> => {
@@ -330,7 +331,8 @@ export async function acquireRemoteRepositoryBase(
         for (const name of await readdir(path)) await walk(join(path, name));
       } else if (
         !info.isFile() ||
-        info.size > 16 * 1024 * 1024 ||
+        info.size >
+          acquisitionGitEntrySizeLimit(relative(join(input.directory, '.git'), path), fetching) ||
         (bytes += info.size) > 128 * 1024 * 1024
       )
         throw new RepositoryAcquisitionLimitError();
@@ -384,7 +386,7 @@ export async function acquireRemoteRepositoryBase(
     let monitor: Promise<void> | undefined;
     const timer = setInterval(() => {
       if (monitor) return;
-      monitor = inspectStorage()
+      monitor = inspectStorage(true)
         .catch(() => {
           budgetError = new RepositoryAcquisitionLimitError();
           budget.abort(budgetError);

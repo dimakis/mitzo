@@ -1,3 +1,4 @@
+import { repositoryGitEntrySizeLimit } from './repository-git-container-policy.js';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, writeFile, cp, readdir, readFile, chmod } from 'node:fs/promises';
@@ -36,7 +37,7 @@ import {
   snapshotQualifiedLocalRepositoryPublication,
   type QualifiedLocalRepositoryPublication,
 } from './qualified-local-repository-task.js';
-import type { NativeExclusiveTreeEntry } from './native-tree-publication.js';
+import { type NativeExclusiveTreeEntry } from './native-tree-publication.js';
 import {
   standaloneRepositoryCheckoutConfig,
   privateRepositoryCheckoutAttributes,
@@ -280,7 +281,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
             if (
               !info.isFile() ||
               info.nlink !== 1 ||
-              info.size > 16 * 1024 * 1024 ||
+              info.size > repositoryGitEntrySizeLimit(path) ||
               (gitBytes += info.size) > 128 * 1024 * 1024
             )
               throw unavailable();

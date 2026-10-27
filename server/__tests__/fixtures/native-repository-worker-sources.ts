@@ -12,4 +12,5 @@ export const nativeRepositoryFixtureWorkerSources = [
   'local-repository-base.ts',
   'local-repository-host-git.ts',
   'git-branch.ts',
+  'repository-git-container-policy.ts',
 ] as const;
