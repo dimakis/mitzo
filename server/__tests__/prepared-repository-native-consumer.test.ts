@@ -25,6 +25,7 @@ import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js'
 import { withPreparedRepositoryBarrierReadScope } from '../prepared-repository-barrier-read.js';
 import { reconcilePreparedRepositoryTransitionProjection } from '../owned-prepared-repository-transition.js';
 import { captureAgentLibraryAuthorization } from '../agent-library-transport.js';
+import { RetainedLocalCodexRecovery } from '../retained-local-codex-recovery.js';
 
 vi.mock('../auth.js', async (original) => ({
   ...(await original<typeof import('../auth.js')>()),
@@ -481,7 +482,7 @@ it.each(['already-queued', 'during-capture', 'at-reservation'] as const)(
     ).toEqual([followup.clientMsgId]);
     expect(f.admission.nativeExecutionWorkspace(followup.clientMsgId).cwd).toBe(result!.directory);
     expect(f.events.getSendCommand(followup.clientMsgId)?.payload.text).toBe(followup.payload.text);
-    if (historical)
+    if (historical) {
       expect(
         f.events.getPreparedRepositoryCommandAdmissionEvidence(
           followup.clientMsgId,
@@ -489,6 +490,49 @@ it.each(['already-queued', 'during-capture', 'at-reservation'] as const)(
             .preparedRepositoryPrimaryCommandId!,
         ),
       ).toEqual(historical);
+      // Reopen exactly the retained input in its adopted execution workspace.
+      // Its original consumed receipt still belongs to the earlier workspace.
+      const execution = f.events.getOrdinaryLocalCommandExecutionAdmission(followup.clientMsgId)!;
+      expect(execution.workspace.cwd).toBe(result!.directory);
+      expect(execution.workspace).not.toEqual(historical.workspace);
+      expect(() =>
+        RetainedLocalCodexRecovery.capture(f.events, f.native, f.first.sessionId, f.auth.id, {
+          ...followup,
+          payload: { text: 'Different steering' },
+        }),
+      ).toThrow();
+      const proof = RetainedLocalCodexRecovery.capture(
+        f.events,
+        f.native,
+        f.first.sessionId,
+        f.auth.id,
+        followup,
+      );
+      expect(() => proof.complete()).toThrow();
+      expect(
+        proof.claim(
+          { ...f.first.expected, workspace: execution.workspace, selection: execution.selection },
+          f.events.getSendCommand(followup.clientMsgId)!.payload,
+        ),
+      ).toBe(true);
+      const genericCompletion = vi.spyOn(f.events, 'completeOrdinaryLocalCommand');
+      proof.complete();
+      expect(genericCompletion).not.toHaveBeenCalled();
+      expect(() => proof.complete()).toThrow();
+      expect(
+        f.events.getPreparedRepositoryCommandAdmissionEvidence(
+          followup.clientMsgId,
+          execution.preparedRepositoryPrimaryCommandId!,
+        ),
+      ).toEqual(historical);
+      expect(f.events.getSendCommand(followup.clientMsgId)?.payload.text).toBe(
+        followup.payload.text,
+      );
+      expect(f.events.getOrdinaryLocalCommandExecutionAdmission(followup.clientMsgId)).toEqual(
+        execution,
+      );
+      genericCompletion.mockRestore();
+    }
     expect(f.native.read(f.first.sessionId, f.first.lease.binding).recovery).toBe(0);
     expect(f.native.claimNext(f.first.sessionId, f.first.lease.binding)?.id).toBe(
       followup.clientMsgId,
@@ -547,66 +591,98 @@ it('drains both earlier admissions before installing the transition barrier', as
   ).toEqual(['pre-transition-a', 'pre-transition-b']);
 });
 
-it('cold-resumes a workspace revision with held explicit work and no executable automatic primary', async () => {
-  const f = await fixture(false, 300000);
-  const followup = {
-    ...structuredClone(f.request),
-    clientMsgId: 'held-before-retirement',
-    payload: { text: 'Explain the retained edits before doing more' },
-  };
-  await f.runtime.admitContinuation(followup);
-  const result = await f.adopt();
-  f.setCwd(result!.directory);
-  const retainedThread = f.native.read(f.first.sessionId, f.first.lease.binding).threadId;
-  f.runtime.close();
-  const request = {
-    ...structuredClone(f.request),
-    clientMsgId: 'cold-after-held-steering',
-    payload: { text: 'Continue this same conversation' },
-  };
-  const dispatch = vi.fn(
-    async (
-      value: import('../ordinary-local-codex-owned-runtime.js').OrdinaryLocalCodexOwnedDispatch,
-    ) => {
-      await value.admission.assertCurrent();
-      expect(value.admission.nativeExecutionWorkspace(followup.clientMsgId).cwd).toBe(
-        result!.directory,
-      );
-      value.admission.assertBeforeEnqueue({
-        id: value.commandId,
-        prompt: value.payload.text,
-        intent: value.payload.intent,
-        model: value.expected.selection.model,
-        reasoningEffort: value.expected.selection.thinking,
-      });
-      f.native.enqueue(value.sessionId, value.lease.binding, {
-        id: value.commandId,
-        prompt: value.payload.text,
-        intent: value.payload.intent,
-        model: value.expected.selection.model,
-        reasoningEffort: value.expected.selection.thinking,
-      });
-    },
-  );
-  const cold = new OrdinaryLocalCodexOwnedRuntime({
-    ...f.dependencies,
-    nativeStore: f.native,
-    commandId: request.clientMsgId,
-    reservation: { ...f.reservation, id: result!.id },
-    launch: () => ({ ...f.rpc, close: vi.fn() }),
-    dispatch,
-  });
-  cleanups.push(() => cold.close());
-  await expect(cold.admitResume(request)).resolves.toEqual({ dispatched: true });
-  expect(dispatch).toHaveBeenCalledOnce();
-  expect(f.native.read(f.first.sessionId, f.first.lease.binding).threadId).toBe(retainedThread);
-  expect(
-    f.native
-      .commands(f.first.sessionId, f.first.lease.binding)
-      .filter((command) => command.status === 'queued')
-      .map((command) => command.id),
-  ).toEqual([followup.clientMsgId, request.clientMsgId]);
-});
+it.each(['new-input', 'exact-retained-input', 'saved-retained-input'] as const)(
+  'cold-resumes a workspace revision with %s and held explicit work without an automatic primary',
+  async (mode) => {
+    const f = await fixture(false, 300000);
+    const followup = {
+      ...structuredClone(f.request),
+      clientMsgId: 'held-before-retirement',
+      payload: { text: 'Explain the retained edits before doing more' },
+    };
+    await f.runtime.admitContinuation(followup);
+    const originalAdmission = f.events.getOrdinaryLocalCommandAdmission(followup.clientMsgId);
+    const result = await f.adopt();
+    f.setCwd(result!.directory);
+    const retainedThread = f.native.read(f.first.sessionId, f.first.lease.binding).threadId;
+    f.runtime.close();
+    const request =
+      mode === 'new-input'
+        ? {
+            ...structuredClone(f.request),
+            clientMsgId: 'cold-after-held-steering',
+            payload: { text: 'Continue this same conversation' },
+          }
+        : followup;
+    const dispatch = vi.fn(
+      async (
+        value: import('../ordinary-local-codex-owned-runtime.js').OrdinaryLocalCodexOwnedDispatch,
+      ) => {
+        await value.admission.assertCurrent();
+        expect(value.admission.nativeExecutionWorkspace(followup.clientMsgId).cwd).toBe(
+          result!.directory,
+        );
+        value.admission.assertBeforeEnqueue({
+          id: value.commandId,
+          prompt: value.payload.text,
+          intent: value.payload.intent,
+          model: value.expected.selection.model,
+          reasoningEffort: value.expected.selection.thinking,
+        });
+        f.native.enqueue(value.sessionId, value.lease.binding, {
+          id: value.commandId,
+          prompt: value.payload.text,
+          intent: value.payload.intent,
+          model: value.expected.selection.model,
+          reasoningEffort: value.expected.selection.thinking,
+        });
+      },
+    );
+    const cold = new OrdinaryLocalCodexOwnedRuntime({
+      ...f.dependencies,
+      nativeStore: f.native,
+      commandId: request.clientMsgId,
+      reservation: { ...f.reservation, id: result!.id },
+      launch: () => ({ ...f.rpc, close: vi.fn() }),
+      dispatch,
+    });
+    cleanups.push(() => cold.close());
+    await expect(
+      mode === 'new-input'
+        ? cold.admitResume(request)
+        : mode === 'exact-retained-input'
+          ? cold.recoverResume(request)
+          : cold.recoverSavedResume(),
+    ).resolves.toEqual({ dispatched: true });
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(f.native.read(f.first.sessionId, f.first.lease.binding).threadId).toBe(retainedThread);
+    expect(
+      f.native
+        .commands(f.first.sessionId, f.first.lease.binding)
+        .filter((command) => command.status === 'queued')
+        .map((command) => command.id),
+    ).toEqual(
+      mode === 'new-input' ? [followup.clientMsgId, request.clientMsgId] : [followup.clientMsgId],
+    );
+    if (mode !== 'new-input') {
+      const execution = f.events.getOrdinaryLocalCommandExecutionAdmission(followup.clientMsgId)!;
+      const primary = execution.preparedRepositoryPrimaryCommandId!;
+      expect(
+        f.events.getPreparedRepositoryCommandAdmissionEvidence(followup.clientMsgId, primary),
+      ).toEqual(originalAdmission);
+      expect(
+        f.events.observePreparedRepositoryColdBootstrapAdmission(
+          primary,
+          followup.clientMsgId,
+          primary,
+        ),
+      ).toEqual(execution);
+      const queued = f.native.claimNext(f.first.sessionId, f.first.lease.binding)!;
+      expect(queued.id).toBe(followup.clientMsgId);
+      dispatch.mock.calls[0][0].admission.assertBeforeDispatch(queued.id);
+    }
+  },
+);
 
 it('refuses queued old-workspace work before child reservation or repository custody changes', async () => {
   const f = await fixture();

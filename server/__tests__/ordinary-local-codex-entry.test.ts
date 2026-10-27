@@ -72,6 +72,7 @@ const fixtures = vi.hoisted(() => ({
   root: '/offline/task-host',
   shellCustody: vi.fn(),
   shellArtifact: vi.fn(),
+  queuedRecovery: false,
 }));
 vi.mock('../codex-chat-session.js', () => ({
   getCodexConversationStore: () => ({
@@ -89,7 +90,21 @@ vi.mock('../codex-chat-session.js', () => ({
       conversationId,
       cwd: fixtures.shellArtifact() ? '/sandbox/workspaces/task' : '/offline/checkout',
       threadId: 'offline-retained-thread',
+      recovery: fixtures.queuedRecovery,
     }),
+    assertUndispatchedCommand: (_session: string, _binding: unknown, commandId: string) => {
+      if (!fixtures.queuedRecovery) throw Error('No offline recovery proof');
+      const receipt = store.getOrdinaryLocalCommandAdmission(commandId)!;
+      const payload = store.getSendCommand(commandId)!.payload as { text: string };
+      return {
+        id: commandId,
+        prompt: payload.text,
+        model: receipt.selection.model,
+        reasoningEffort: receipt.selection.thinking,
+        status: 'queued',
+        attempt: 1,
+      };
+    },
   }),
 }));
 vi.mock('../chat.js', () => ({
@@ -254,6 +269,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   fixtures.shellTarget.mockReturnValue(undefined);
   fixtures.shellResumable = false;
+  fixtures.queuedRecovery = false;
   fixtures.shellCustody.mockReturnValue(null);
   fixtures.shellArtifact.mockReturnValue(null);
   vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
@@ -606,6 +622,71 @@ it('returns an exact consumed duplicate without changing original receipt', asyn
   );
   expect(store.getOrdinaryLocalCommandAdmission(input().clientMsgId)).toEqual(original);
 });
+
+it.each(['uncertain', 'consumed'] as const)(
+  'recovers an exact %s queued continuation only on an explicit retry',
+  async (state) => {
+    await send();
+    const sessionId = nativeStartupSessionId(`repository:${workspaceId}`);
+    const command = {
+      ...input(),
+      sessionId,
+      clientMsgId: 'retained-followup',
+      payload: { text: 'Continue the same task' },
+    };
+    const request = {
+      clientMsgId: command.clientMsgId,
+      capabilityRevision: command.capabilityRevision,
+      runtime: command.runtime,
+      selection: command.selection,
+      payload: command.payload,
+    };
+    const meta = store.getSession(sessionId)!;
+    store.upsertSession({
+      sessionId,
+      mode: 'ask',
+      selectedModel: 'fixture',
+      reasoningEffort: null,
+    });
+    store.admitOrdinaryLocalContinuation(
+      { ...meta, mode: 'ask', selectedModel: 'fixture', reasoningEffort: null },
+      store.getSessionRuntimeBinding(sessionId)!,
+      {
+        clientMsgId: command.clientMsgId,
+        selection: command.selection,
+        requestFingerprint: ordinaryLocalCommandFingerprint('codex', request, {
+          workspace: { workspaceId, cwd: meta.cwd! },
+          agentProfile: meta.agentProfile,
+          agentContext: meta.agentContext,
+        }),
+        payload: command.payload,
+      },
+    );
+    store.claimOrdinaryLocalCommandDispatch(command.clientMsgId);
+    if (state === 'consumed') store.completeOrdinaryLocalCommand(command.clientMsgId);
+    fixtures.queuedRecovery = true;
+    fixtures.workspace.mockReturnValue({
+      get: () => ({ state: 'claimed', directory: meta.cwd }),
+      getForConversation: () => ({ state: 'claimed', directory: meta.cwd }),
+    });
+    const starts = fixtures.start.mock.calls.length;
+    await invoke('POST', '/continue/receipt', command);
+    expect(fixtures.start).toHaveBeenCalledTimes(starts);
+    fixtures.start.mockImplementationOnce(async (_transport, _client, args) => {
+      expect(args.recovery).toBe(true);
+      expect(args.resume).toBe(true);
+      expect(args.commandId).toBe(command.clientMsgId);
+      store.completeOrdinaryLocalCommand(command.clientMsgId);
+      return { dispatched: true, sessionId };
+    });
+    expect(await invoke('POST', '/continue', command)).toMatchObject({
+      status: 202,
+      body: { state: 'consumed', clientMsgId: command.clientMsgId },
+    });
+    expect(fixtures.start).toHaveBeenCalledTimes(starts + 1);
+    expect(fixtures.reserve).toHaveBeenCalledTimes(1);
+  },
+);
 it('bounds startup cancellation without attaching it to the HTTP/SSE lifetime', async () => {
   vi.useFakeTimers();
   try {

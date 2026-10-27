@@ -1,4 +1,5 @@
 import { dispatchOwnedOrdinaryCommand } from './ordinary-scoped-command.js';
+import { RetainedLocalCodexRecovery } from './retained-local-codex-recovery.js';
 import { context, trace } from '@opentelemetry/api';
 import { contextFromTraceparent } from './trace-context.js';
 import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
@@ -730,6 +731,7 @@ function createOwnedCodexEntryRouter(
             ).parse(req.body).sessionId
           : nativeStartupSessionId(`repository:${repositoryWorkspaceId}`);
       const existingOwner = ctx.sessionRegistry.findBySessionId(sessionId);
+      let recoverRetained = false;
       if (
         existingOwner &&
         !(input.runtime.harness === 'codex'
@@ -743,6 +745,33 @@ function createOwnedCodexEntryRouter(
         const captured = captureAgentLibraryAuthorization(connectionId);
         captured.assertCurrent();
         if (captured.auth.id !== auth.id) throw Error(unavailable);
+        if (
+          !observeOnly &&
+          continuation &&
+          input.runOn === 'local' &&
+          input.runtime.harness === 'codex' &&
+          ctx.eventStore.getOrdinaryLocalCommandExecutionAdmission(input.clientMsgId)
+        ) {
+          try {
+            const native = getCodexConversationStore();
+            const meta = ctx.eventStore.getSession(sessionId);
+            if (
+              meta?.accountBinding &&
+              (!existingOwner || native.read(sessionId, meta.accountBinding).recovery)
+            ) {
+              RetainedLocalCodexRecovery.capture(ctx.eventStore, native, sessionId, auth.id, {
+                clientMsgId: input.clientMsgId,
+                capabilityRevision: input.capabilityRevision,
+                runtime: input.runtime,
+                selection: input.selection,
+                payload: input.payload,
+              });
+              recoverRetained = true;
+            }
+          } catch {
+            // A missing or possibly dispatched native row grants no recovery.
+          }
+        }
         if (ordinaryInput) {
           ordinaryWorkspace = getOrdinaryWorkspaces(true).getOrdinaryWorkspace(
             ordinaryInput.workspace.workspaceId,
@@ -765,7 +794,8 @@ function createOwnedCodexEntryRouter(
             throw Error(unavailable);
         }
         if (
-          ordinaryInput
+          !recoverRetained &&
+          (ordinaryInput
             ? assertOrdinaryWorkspaceHistoricalAcknowledgement(
                 ctx.eventStore,
                 sessionId,
@@ -786,7 +816,7 @@ function createOwnedCodexEntryRouter(
                     : LocalCodexFirstCommandSchema
                 ).parse(input),
                 !continuation,
-              )
+              ))
         ) {
           captured.assertCurrent();
           return res.status(202).json({
@@ -830,6 +860,7 @@ function createOwnedCodexEntryRouter(
         const binding = retainedRuntimeBinding;
         if (
           (!existingOwner &&
+            !recoverRetained &&
             !(input.runOn === 'local'
               ? input.runtime.harness === 'claude-sdk'
                 ? canResumeOwnedLocalVertexDriver(sessionId, auth.id)
@@ -877,7 +908,7 @@ function createOwnedCodexEntryRouter(
           continuation ? retainedRuntimeBinding : undefined,
         );
         if (
-          result.capabilityRevision !== input.capabilityRevision ||
+          (!recoverRetained && result.capabilityRevision !== input.capabilityRevision) ||
           !result.routes.some(
             (route) =>
               isDeepStrictEqual(route.account, input.runtime.account) &&
@@ -1060,6 +1091,7 @@ function createOwnedCodexEntryRouter(
           ownerAuthSessionId: auth.id,
           signal: controller.signal,
           continuation,
+          recovery: recoverRetained,
           existingOwner: Boolean(existingOwner),
           workspaceKind: ordinaryInput ? 'ordinary' : 'repository',
           ...(!continuation && ordinaryWorkspace
@@ -1073,7 +1105,10 @@ function createOwnedCodexEntryRouter(
             : {}),
         });
         authority.assertCurrent();
-        const receipt = ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId);
+        const receipt =
+          input.runOn === 'local' && input.runtime.harness === 'codex'
+            ? ctx.eventStore.getOrdinaryLocalCommandExecutionAdmission(input.clientMsgId)
+            : ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId);
         if (!receipt || ctx.eventStore.getSendCommand(input.clientMsgId)?.sessionId !== sessionId)
           throw Error(unavailable);
         return res.status(202).json({
@@ -1087,7 +1122,11 @@ function createOwnedCodexEntryRouter(
         let state: string | undefined;
         try {
           if (ctx.eventStore.getSendCommand(input.clientMsgId)?.sessionId === sessionId)
-            state = ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId)?.state;
+            state = (
+              input.runOn === 'local' && input.runtime.harness === 'codex'
+                ? ctx.eventStore.getOrdinaryLocalCommandExecutionAdmission(input.clientMsgId)
+                : ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId)
+            )?.state;
         } catch {
           /* Retain original evidence. */
         }

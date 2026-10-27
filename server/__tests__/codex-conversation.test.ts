@@ -955,6 +955,7 @@ async function setup(
     workspaceId?: string;
     approvedSearchOnCurrentTransport?: boolean;
   },
+  initialProviderThread = 'provider-thread',
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -962,7 +963,7 @@ async function setup(
   let turn = 0;
   let threadStarts = 0;
   let threadGeneration = 0;
-  let providerThread = 'provider-thread';
+  let providerThread = initialProviderThread;
   const providerTurns = new Map<string, string>();
   const requests: { method: string; params: Record<string, unknown> }[] = [];
   const events: Record<string, unknown>[] = [];
@@ -4414,6 +4415,55 @@ it('keeps an undefined startup rejection fail-closed', async () => {
   await expect(c.initialize()).rejects.toThrow('permanently vetoed');
 });
 
+it('recovers queued work after a tool refresh by inspecting the last dispatched thread, not the empty replacement', async () => {
+  const firstArgs: Parameters<typeof setup> = [];
+  firstArgs[4] = async () => binding;
+  const first = await setup(...firstArgs);
+  await first.c.send({ id: 'completed-before-upgrade', prompt: 'Original task' });
+  first.callbacks.onNotification('turn/completed', {
+    threadId: first.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  first.store.enqueue('app', binding, {
+    id: 'retained-followup',
+    prompt: 'Continue the task',
+    model: 'test-model',
+  });
+  first.c.close();
+  // The replacement has no first-turn ACK yet; querying its history is invalid.
+  first.store.replaceThread(
+    'app',
+    binding,
+    'provider-thread',
+    'empty-replacement',
+    'tool_surface_change',
+    undefined,
+    'old-tools',
+    'Retained conversation',
+  );
+  const args: Parameters<typeof setup> = [];
+  args[0] = first.store;
+  args[4] = async () => binding;
+  args[17] = true;
+  args[31] = 'replacement-provider-thread';
+  args[29] = 'terminal';
+  const resumed = await setup(...args);
+  const originalRpc = resumed.rpc.request.getMockImplementation()!;
+  resumed.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/turns/list') {
+      expect(params.threadId).toBe('provider-thread');
+      return { data: [{ id: 'turn-1', status: 'completed' }], nextCursor: null };
+    }
+    return originalRpc(method, params);
+  });
+  await expect(resumed.c.resumeAfterExplicitSend()).resolves.toBeUndefined();
+  expect(resumed.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  expect(first.store.commands('app', binding)).toMatchObject([
+    { id: 'completed-before-upgrade', status: 'completed', attempt: 1 },
+    { id: 'retained-followup', status: 'running', attempt: 1 },
+  ]);
+});
+
 it('waits for explicit admission consumption before prepared repository boundary effects', async () => {
   const f = await setup();
   let consumed = false;
@@ -7229,6 +7279,55 @@ it('invokes the genuine native base-scope owner despite a poisoned original call
   expect(captured).toBe(false);
   expect(poisoned).not.toHaveBeenCalled();
 });
+
+it.each(['preparation-error', 'closed-during-preparation'] as const)(
+  'records a positive undispatched failure witness for %s only',
+  async (mode) => {
+    const f = await setup();
+    let preparing = false;
+    let release!: () => void;
+    const pending = new Promise<string>((resolve) => {
+      release = () => resolve('prepared');
+    });
+    f.conversationOptions.prepareSystemPrompt = async () => {
+      preparing = true;
+      if (mode === 'preparation-error') throw Error('Offline preparation failed');
+      return pending;
+    };
+    const sending = f.c.send({ id: 'proved-preparation-failure', prompt: 'Preserved task' });
+    if (mode === 'closed-during-preparation') {
+      await vi.waitFor(() => expect(preparing).toBe(true));
+      f.c.close();
+      release();
+      await sending;
+    } else await expect(sending).rejects.toThrow('Offline preparation failed');
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(
+      f.store.assertUndispatchedCommand('app', f.getBinding(), 'proved-preparation-failure'),
+    ).toMatchObject({ status: 'failed', attempt: 1 });
+  },
+);
+
+it.each(['lost-ack', 'synchronous-close'] as const)(
+  'never records pre-dispatch proof after an attempted turn/start with %s',
+  async (mode) => {
+    const f = await setup();
+    const request = f.rpc.request.getMockImplementation()!;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'turn/start') {
+        if (mode === 'synchronous-close') f.c.close();
+        throw Error('Offline lost provider acknowledgment');
+      }
+      return request(method, params);
+    });
+    const sending = f.c.send({ id: 'possible-provider-effects', prompt: 'Do the original task' });
+    if (mode === 'synchronous-close') await sending;
+    else await expect(sending).rejects.toThrow('Offline lost provider acknowledgment');
+    expect(() =>
+      f.store.assertUndispatchedCommand('app', f.getBinding(), 'possible-provider-effects'),
+    ).toThrow();
+  },
+);
 
 it('invokes the genuine retained prepared admission despite its poisoned original call property', async () => {
   const f = await setup();

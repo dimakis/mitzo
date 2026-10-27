@@ -1,5 +1,6 @@
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import type { RetainedLocalCodexRecovery } from './retained-local-codex-recovery.js';
 import { SourceSnapshotsSchema } from '@mitzo/protocol';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import {
@@ -74,6 +75,7 @@ interface Owner {
   /** Current actual private cold workspace owner; never reconstructed live delegation. */
   qualifiedColdPrimary?: Readonly<{ commandId: string; assertCurrentSync(): void }>;
   nativeStore?: CodexConversationStore;
+  recovery?: RetainedLocalCodexRecovery;
   preparedRepositoryBoundary?: {
     assertCurrentSync(): void;
     adopt(
@@ -157,10 +159,15 @@ export class OwnedLocalCodexChatAdmission {
       for (const queued of owner.nativeStore
         .commands(owner.sessionId, owner.lease.binding)
         .filter((command) => command.status === 'queued')) {
+        if (queued.id === owner.commandId && owner.recovery) {
+          owner.recovery.assertCurrentSync();
+          continue;
+        }
         const receipt = owner.eventStore.getOrdinaryLocalCommandExecutionAdmission(queued.id);
         if (!receipt || receipt.state !== 'consumed') throw unavailable();
         const child = new OwnedLocalCodexChatAdmission({
           ...owner,
+          recovery: undefined,
           commandId: queued.id,
           expected: { ...structuredClone(owner.expected), selection: receipt.selection },
         });
@@ -192,6 +199,7 @@ export class OwnedLocalCodexChatAdmission {
     }
   }
   private assertReceipt(initial = false): void {
+    if (initial) this.owner.recovery?.assertCurrentSync();
     resolveTelosWorkRoleContext(this.owner.eventStore, this.owner.sessionId, this.#binding);
     const receipt = this.owner.eventStore.getOrdinaryLocalCommandExecutionAdmission(
       this.owner.commandId,
@@ -211,7 +219,7 @@ export class OwnedLocalCodexChatAdmission {
         : session.repositoryWorkspaceId !== expected.workspace.workspaceId ||
           session.ordinaryWorkspaceId != null) ||
       (initial
-        ? receipt.state !== 'uncertain'
+        ? receipt.state !== 'uncertain' && !(this.owner.recovery && receipt.state === 'consumed')
         : !['uncertain', 'consumed'].includes(receipt.state)) ||
       !isDeepStrictEqual(receipt.binding, expected.binding) ||
       !isDeepStrictEqual(receipt.selection, expected.selection) ||
@@ -270,7 +278,12 @@ export class OwnedLocalCodexChatAdmission {
         expected.runtimeContractRevision !== original.runtimeContractRevision
       )
         throw unavailable();
-      const child = new OwnedLocalCodexChatAdmission({ ...this.owner, commandId, expected });
+      const child = new OwnedLocalCodexChatAdmission({
+        ...this.owner,
+        recovery: undefined,
+        commandId,
+        expected,
+      });
       if (child.#payload.systemPrompt !== this.#payload.systemPrompt) throw unavailable();
       child.#continuation = true;
       child.#session = this.#session;
@@ -581,6 +594,7 @@ export class OwnedLocalCodexChatAdmission {
       throw unavailable();
     const child = new OwnedLocalCodexChatAdmission({
       ...this.owner,
+      recovery: undefined,
       commandId,
       expected,
       workspaceKind: 'repository',

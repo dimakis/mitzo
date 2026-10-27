@@ -55,6 +55,7 @@ export function useExplicitLocalChat(
   enabled: boolean,
   search = '',
   savedAccount?: AccountSelection | null,
+  workspaceRevision?: string | null,
 ) {
   const retained = useContext(ChatRuntimeDraftContext);
   const seed = useCallback(() => {
@@ -130,6 +131,7 @@ export function useExplicitLocalChat(
   const [metadataLoadingForSession, setMetadataLoadingForSession] = useState<string | null>(null);
   const [meta, setMeta] = useState<{
     sessionId: string;
+    workspaceRevision?: string | null;
     binding: SessionRuntimeBinding | null;
     firstCommand: boolean;
     preparedFirst: boolean;
@@ -266,6 +268,7 @@ export function useExplicitLocalChat(
         const repository = RepositoryContextSchema.safeParse(body.repositoryContext);
         setMeta({
           sessionId,
+          workspaceRevision,
           ordinaryWorkspaceId,
           preparedFirst,
           modelSettingsReadOnlyReason: z
@@ -342,8 +345,9 @@ export function useExplicitLocalChat(
         }
       });
     return () => controller.abort();
-  }, [sessionId, attempt]);
-  const currentMeta = meta?.sessionId === sessionId ? meta : null;
+  }, [sessionId, attempt, workspaceRevision]);
+  const currentMeta =
+    meta?.sessionId === sessionId && meta.workspaceRevision === workspaceRevision ? meta : null;
   const metadataError = metaFailure?.sessionId === sessionId ? metaFailure.message : undefined;
   const metadataUnavailable = !!sessionId && !!metadataError;
   const metadataPending =

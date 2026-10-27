@@ -1303,13 +1303,21 @@ export class EventStore {
     const bootstrap = read(coldBootstrapCommandId);
     const anchor = read(consumedPrimaryAnchorCommandId);
     const top = read(childCommandId);
+    // Explicit input held across the handoff precedes its anchor. Its immutable
+    // send remains in the old workspace; only the exact persisted execution
+    // revision can join that input to this cold bootstrap's workspace.
+    const rebound = bootstrap.rowid <= anchor.rowid;
+    if (rebound)
+      bootstrap.admission = this.readPreparedRepositoryCommandExecutionEvidence(
+        coldBootstrapCommandId,
+        consumedPrimaryAnchorCommandId,
+      );
     if (
       bootstrap.admission.state !== 'consumed' ||
       bootstrap.admission.preparedRepositoryTransition ||
       bootstrap.admission.preparedRepositoryPrimaryCommandId !== consumedPrimaryAnchorCommandId ||
       anchor.admission.state !== 'consumed' ||
       !anchor.admission.preparedRepositoryTransition ||
-      bootstrap.rowid <= anchor.rowid ||
       (childCommandId !== consumedPrimaryAnchorCommandId && top.rowid <= bootstrap.rowid) ||
       bootstrap.session_id !== anchor.session_id ||
       bootstrap.session_id !== top.session_id ||
@@ -1472,30 +1480,56 @@ export class EventStore {
     commandId: string,
   ): OrdinaryLocalCommandAdmission | undefined {
     const row = this.db!.prepare(
-      'SELECT original_admission,execution_admission FROM ordinary_execution_admissions WHERE command_id=? ORDER BY revision DESC LIMIT 1',
-    ).get(commandId) as { original_admission: string; execution_admission: string } | undefined;
+      'SELECT transition_id FROM ordinary_execution_admissions WHERE command_id=? ORDER BY revision DESC LIMIT 1',
+    ).get(commandId) as { transition_id: string } | undefined;
     if (!row) return this.getOrdinaryLocalCommandAdmission(commandId);
-    const projected = OrdinaryLocalCommandAdmissionSchema.parse(
-      JSON.parse(row.execution_admission),
-    );
-    const original = this.getPreparedRepositoryCommandAdmissionEvidence(
+    const execution = this.readPreparedRepositoryCommandExecutionEvidence(
       commandId,
-      projected.preparedRepositoryPrimaryCommandId!,
-    );
-    if (!isDeepStrictEqual(JSON.parse(row.original_admission), original))
-      throw Error('Original explicit command admission changed');
-    const execution = OrdinaryLocalCommandAdmissionSchema.parse(
-      JSON.parse(row.execution_admission),
+      row.transition_id,
     );
     const session = this.getSession(this.getSendCommand(commandId)!.sessionId!);
     if (
       !session ||
       sessionWorkspaceId(session) !== execution.workspace.workspaceId ||
-      session.cwd !== execution.workspace.cwd ||
-      !isDeepStrictEqual(execution.binding, original.binding) ||
-      !isDeepStrictEqual(execution.selection, original.selection)
+      session.cwd !== execution.workspace.cwd
     )
       throw Error('Explicit command execution selection changed');
+    return execution;
+  }
+  /** Exact historical execution lineage; observation never supplies a live
+   * native, physical-workspace or operator owner. */
+  private readPreparedRepositoryCommandExecutionEvidence(
+    commandId: string,
+    transitionId: string,
+  ): OrdinaryLocalCommandAdmission {
+    const row = this.db!.prepare(
+      'SELECT original_admission,execution_admission FROM ordinary_execution_admissions WHERE command_id=? AND transition_id=? ORDER BY revision DESC LIMIT 1',
+    ).get(commandId, transitionId) as
+      { original_admission: string; execution_admission: string } | undefined;
+    if (!row) throw Error('Explicit command execution revision unavailable');
+    const original = this.getPreparedRepositoryCommandAdmissionEvidence(commandId, transitionId);
+    const transition =
+      this.readPreparedRepositoryTransition(transitionId).preparedRepositoryTransition!;
+    const workspace = {
+      workspaceId: transition.newWorkspace.id,
+      cwd: transition.newWorkspace.directory,
+    };
+    const expected = OrdinaryLocalCommandAdmissionSchema.parse({
+      ...original,
+      workspace,
+      preparedRepositoryPrimaryCommandId: transitionId,
+      requestFingerprint: `prepared-execution:${createHash('sha256')
+        .update(JSON.stringify([original.requestFingerprint, transitionId, workspace]))
+        .digest('hex')}`,
+    });
+    const execution = OrdinaryLocalCommandAdmissionSchema.parse(
+      JSON.parse(row.execution_admission),
+    );
+    if (
+      !isDeepStrictEqual(JSON.parse(row.original_admission), original) ||
+      !isDeepStrictEqual(execution, expected)
+    )
+      throw Error('Original explicit command execution lineage changed');
     return execution;
   }
   /** Subsequent explicit commands use only a committed operation-specific
@@ -1983,10 +2017,10 @@ export class EventStore {
   }
 
   /** Read the existing admission fence without loading payloads or historical turns. */
-  hasUncertainOrdinaryCommand(sessionId: string): boolean {
+  hasUncertainOrdinaryCommand(sessionId: string, exceptCommandId?: string): boolean {
     return !!this.db!.prepare(
-      "SELECT 1 FROM send_commands WHERE session_id=? AND json_extract(ordinary_admission,'$.state')='uncertain' LIMIT 1",
-    ).get(sessionId);
+      "SELECT 1 FROM send_commands WHERE session_id=? AND json_extract(ordinary_admission,'$.state')='uncertain' AND (? IS NULL OR client_msg_id!=?) LIMIT 1",
+    ).get(sessionId, exceptCommandId ?? null, exceptCommandId ?? null);
   }
 
   /** Persist uncertainty BEFORE the first external effect. False forbids replay. */

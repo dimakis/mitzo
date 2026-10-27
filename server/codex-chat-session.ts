@@ -2345,7 +2345,7 @@ async function openCodexChatBound(
     storedBinding: options.binding,
     route: options.binding?.provider === 'openai' ? 'openai-api' : 'chatgpt-subscription',
     store: privateStorage,
-    deferToolSurfaceReplacement: !!runtimeManager,
+    deferToolSurfaceReplacement: !!runtimeManager || !!options.ownedLocal,
     enableCapacityRecovery: !options.ownedLocal && !options.ownedOpenShell,
     ...(ownedHost && !options.adviserScope ? { skillContextTokens: 1500 } : {}),
     transportClosure: options.ownedLocal ? 'terminal' : undefined,
@@ -2417,6 +2417,18 @@ async function openCodexChatBound(
               assertNativeExecutionRefresh(nativeExecution!, policy);
               options.repositoryWorkspace = structuredClone(adopted.repositoryWorkspace);
               options.ordinaryWorkspace = undefined;
+              const workspaceInfo = {
+                type: 'session_info',
+                sessionId: options.conversationId,
+                cwd: adopted.directory,
+                branch: adopted.repositoryWorkspace.featureBranch,
+                worktree: false,
+              };
+              for (const transport of [
+                options.session.transport,
+                ...(options.session.observers ?? []),
+              ])
+                if (transport?.isOpen()) transport.send(workspaceInfo);
               nativeExecution = policy;
               runtimeOptions.nativeExecution = policy;
               runtimeOptions.cwd = policy.cwd;
@@ -3923,14 +3935,18 @@ async function sendInitialCodexTurn(options: Options, runtime: CodexConversation
   const dispatchCount = runtime.getTurnDispatchCount();
   try {
     options.session.abortController.signal.throwIfAborted();
-    await runtime.send({
+    const input = {
       id: options.messageId,
       prompt: options.prompt,
       intent: options.intent,
       model: options.model,
       reasoningEffort: options.reasoningEffort,
       images: options.images,
-    });
+    };
+    // Owned admission persists consumption only after this function returns.
+    // Queue first; recovery and provider dispatch belong to the post-commit owner.
+    if (options.ownedLocal) await runtime.admitExplicitSend(input);
+    else await runtime.send(input);
   } catch (cause) {
     throw new CodexStartupError(
       runtime.getTurnDispatchCount() === dispatchCount

@@ -12,6 +12,69 @@ afterEach(() => {
   localStorage.clear();
 });
 const workspaceId = '11111111-1111-4111-8111-111111111111';
+
+it('refreshes the adopted checkout within one chat and retains it through repeated A to B to A switches', async () => {
+  const f = fixture();
+  Object.assign(f.metadata, {
+    runtimeCommandScope: 'conversation',
+    ordinaryWorkspaceId: undefined,
+    repositoryWorkspaceId: 'old-checkout',
+  });
+  const view = renderHook(
+    ({ session, branch }) =>
+      useExplicitLocalChat('draft', null, session, true, '', undefined, branch),
+    { initialProps: { session: 'chat-a', branch: 'old-branch' } },
+  );
+  await waitFor(() => expect(view.result.current.repositoryWorkspaceId).toBe('old-checkout'));
+  Object.assign(f.metadata, { repositoryWorkspaceId: 'adopted-checkout' });
+  view.rerender({ session: 'chat-a', branch: 'adopted-branch' });
+  await waitFor(() => expect(view.result.current.repositoryWorkspaceId).toBe('adopted-checkout'));
+  for (let turn = 0; turn < 3; turn++) {
+    view.rerender({ session: 'chat-b', branch: 'other-branch' });
+    await waitFor(() => expect(view.result.current.metadataPending).toBe(false));
+    view.rerender({ session: 'chat-a', branch: 'adopted-branch' });
+    await waitFor(() => expect(view.result.current.repositoryWorkspaceId).toBe('adopted-checkout'));
+    expect(view.result.current.commandAvailable).toBe(true);
+  }
+});
+it('ignores delayed old-workspace metadata after adoption and switching away and back', async () => {
+  const f = fixture();
+  Object.assign(f.metadata, {
+    runtimeCommandScope: 'conversation',
+    ordinaryWorkspaceId: undefined,
+    repositoryWorkspaceId: 'old-checkout',
+  });
+  const view = renderHook(
+    ({ session, branch }) =>
+      useExplicitLocalChat('draft', null, session, true, '', undefined, branch),
+    { initialProps: { session: 'chat-a', branch: 'old' } },
+  );
+  await waitFor(() => expect(view.result.current.repositoryWorkspaceId).toBe('old-checkout'));
+  let finishOld!: () => void;
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          const old = JSON.stringify(f.metadata);
+          finishOld = () => resolve(new Response(old));
+        }),
+    )
+    .mockImplementation(original);
+  act(() => view.result.current.refresh());
+  await waitFor(() => expect(finishOld).toBeDefined());
+  Object.assign(f.metadata, { repositoryWorkspaceId: 'adopted-checkout' });
+  view.rerender({ session: 'chat-a', branch: 'adopted' });
+  expect(view.result.current.commandAvailable).toBe(false);
+  await waitFor(() => expect(view.result.current.repositoryWorkspaceId).toBe('adopted-checkout'));
+  view.rerender({ session: 'chat-b', branch: 'other' });
+  await waitFor(() => expect(view.result.current.metadataPending).toBe(false));
+  view.rerender({ session: 'chat-a', branch: 'adopted' });
+  await waitFor(() => expect(view.result.current.repositoryWorkspaceId).toBe('adopted-checkout'));
+  await act(async () => finishOld());
+  expect(view.result.current.repositoryWorkspaceId).toBe('adopted-checkout');
+  expect(view.result.current.commandAvailable).toBe(true);
+});
 function fixture() {
   const inventory = localInventoryFixture();
   const metadata = {

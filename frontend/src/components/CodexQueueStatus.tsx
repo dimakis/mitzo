@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { z } from 'zod';
+import { ORDINARY_COMMAND_RECEIPT_TIMEOUT_MS } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { ChatStatusMessage } from './ChatStatusMessage';
@@ -250,6 +251,7 @@ export function CodexQueueStatus({
       !sessionId ||
       !queue ||
       queue.capacityRecovery ||
+      queue.canContinue === true ||
       queue.failed === 0 ||
       queue.retryable === false ||
       queue.connected ||
@@ -346,21 +348,23 @@ export function CodexQueueStatus({
       ? queue.recoveryPhase === 'starting_workspace'
         ? 'Starting workspace…'
         : 'Reconnecting…'
-      : queue.failed > 0
-        ? queue.retryable === false
-          ? 'This failed turn needs attention and cannot be retried.'
-          : !queue.connected || reattaching
-            ? 'Restarting provider… The failed turn remains saved.'
-            : retryWaitSeconds > 0
-              ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
-              : queue.requiresRetryConfirmation
-                ? 'Retrying may repeat tool actions that already ran.'
-                : 'Previous turn failed. Retry when available.'
-        : queue.paused
-          ? 'Reconnection needed. Your message is saved.'
-          : queue.queued > 0
-            ? `${queue.queued} ${queue.queued === 1 ? 'message' : 'messages'} queued`
-            : notice || error || deliveryError || '');
+      : queue.canContinue === true
+        ? 'Reconnection needed. Your message is saved.'
+        : queue.failed > 0
+          ? queue.retryable === false
+            ? 'This failed turn needs attention and cannot be retried.'
+            : !queue.connected || reattaching
+              ? 'Restarting provider… The failed turn remains saved.'
+              : retryWaitSeconds > 0
+                ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
+                : queue.requiresRetryConfirmation
+                  ? 'Retrying may repeat tool actions that already ran.'
+                  : 'Previous turn failed. Retry when available.'
+          : queue.paused
+            ? 'Reconnection needed. Your message is saved.'
+            : queue.queued > 0
+              ? `${queue.queued} ${queue.queued === 1 ? 'message' : 'messages'} queued`
+              : notice || error || deliveryError || '');
 
   const attention = !!(
     error ||
@@ -386,15 +390,17 @@ export function CodexQueueStatus({
     setError('');
     setNotice('');
     try {
-      const cold = !queue?.connected && queue?.canContinue;
-      const connectionId = cold ? getTransportConnectionId() : undefined;
-      if (cold && !connectionId)
+      const signedContinuation = queue?.canContinue === true;
+      const connectionId = signedContinuation ? getTransportConnectionId() : undefined;
+      if (signedContinuation && !connectionId)
         throw Error('Reconnect using the original sign-in before continuing saved work.');
       const response = await apiFetch(
         `/api/sessions/${encodeURIComponent(sessionId)}/codex-queue/continue`,
         {
           method: 'POST',
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(
+            signedContinuation ? ORDINARY_COMMAND_RECEIPT_TIMEOUT_MS : 15000,
+          ),
           ...(connectionId ? { headers: { 'X-Connection-ID': connectionId } } : {}),
         },
       );
@@ -626,10 +632,8 @@ export function CodexQueueStatus({
             </>
           )}
           {!capacity &&
-            queue.paused &&
-            (queue.connected || queue.canContinue === true) &&
-            !queue.recovering &&
-            queue.queued > 0 && (
+            (queue.canContinue === true || (queue.paused && queue.connected && queue.queued > 0)) &&
+            !queue.recovering && (
               <button
                 type="button"
                 className="codex-queue-status-continue"
@@ -640,6 +644,7 @@ export function CodexQueueStatus({
               </button>
             )}
           {!capacity &&
+            queue.canContinue !== true &&
             queue.failed > 0 &&
             queue.retryable !== false &&
             queue.connected &&
