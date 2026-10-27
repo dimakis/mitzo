@@ -100,6 +100,12 @@ failure, retry the affected failed jobs on the unchanged SHA; do not push an emp
 commit or rerun successful suites to wake CI. Diagnose assertion failures before
 retrying and keep every required gate.
 
+Run `npm run check:source-artifacts` before pushing. It checks the actual
+registered sources with Node 24 without requiring compiled output, so it remains
+suitable for focused validation under local memory pressure. Extracted files must
+retain source registration and the reviewed revision must advance. CI still runs
+the existing compiled-artifact check; this preflight does not replace it.
+
 Record initial queue delay, useful runtime, interruption/cleanup time, retries,
 source-fix rounds and final review delay separately. Compare fresh clean runs
 with the measured baseline before claiming a speedup. Preserve strict base

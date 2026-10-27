@@ -43,6 +43,12 @@ failures still require investigation and correction. Record queue time, useful
 runtime, interruption cleanup, retry attempts and source-fix rounds separately;
 see [CI delivery](../../docs/operations/ci-delivery.md).
 
+Run `npm run check:source-artifacts` before that push, including under local
+memory pressure: this reads the registered sources without a broad build. When
+registered sources change or are extracted, retain the existing pins, register
+the extracted files, advance the reviewed runtime revision and regenerate the
+manifest. The compiled-artifact build check remains mandatory in CI.
+
 Preserve deployment/live-test restrictions; landing does not authorize deployment. Real model-backed tests follow the user's test model/account rules; ordinary review is separate.
 
 ## Local review before push

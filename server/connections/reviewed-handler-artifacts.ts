@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.726-retained-local-chat-recovery.4';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.727-ci-validation-partitions';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -147,7 +146,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-workspace-owner.test.ts':
     'c52b5845f9c01d65970024de4bf88f75e96a0b171a3950f62648f2f91585df3a',
   '../__tests__/prepared-repository-native-consumer.test.ts':
-    'a35cefc0c0261645f120ee27cb5ac9eeda5461b8259ff6691ffceb03e836b093',
+    '63c4a1722449a38679f69f815002ea07a05fcecbbd394b20f5b4c0fbccb6b50d',
   '../__tests__/prepared-repository-workspace-owner-sync.test.ts':
     '358d1879e1cc2bce06db821b393df132f194fa6327643964c328a71c7bb6ab85',
   '../local-repository-preparation-packed-refs.ts':
@@ -1990,9 +1989,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-cancellation.test.ts':
     '5d8571d22188b49cd8c12e98d37b9c0e04cd66379e331476c987ec4c686d93d8',
   '../../scripts/__tests__/ci-required-gate.test.ts':
-    '1eba9d6b391658f69908291bb2764e4ea555fb00fc36dd0c1fc8d133d57f59ee',
+    '9112d7a1c21d665427b56d3d4927dc18e2166dea3cf9fd9bd553bb0343c1c5fb',
   '../../scripts/ci-required-gate.mjs':
-    'e9dedf9398395975a3fcb7dd2e704a8aa3190bee31376548b6487120bf2dc3d5',
+    '75a268867bdaf93f5e331c273db732a1ac57d0d0a8ca38a89f47d39bbf64cb18',
   '../__tests__/agent-communication-nongit-app.test.ts':
     'da8d6f78621b75c4fcda23b1693065439fe7d106fd83cd1388a240628e30103e',
   '../__tests__/agent-communication-nongit-native.test.ts':
@@ -2156,7 +2155,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs':
     'ffa36338b9a352d5087ec9ea5dd069d840fe1e6b19f49a497bf489c1a28008a6',
   '../../tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs':
-    '90c77d4efd551289a615574ea28327e273d21563ddd1dccc09c82738c965a4bf',
+    '3dae4247321b3b4f068d43e10b62d017662469941d2a5c4f5b558fb59746ea99',
   '../../tests/integration/telos-s9/integrated-candidate/run-supplemental-ci.mjs':
     '4cf721f89a392b86055483af7efaf7a667fe8129b52c1e13c0f7374fd6813a06',
   '../../tests/integration/telos-s9/integrated-candidate/run-ux-composition.mjs':
@@ -2424,7 +2423,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '3f875e0c6b15c6e1afa35177b920b2ec3c3a0af6afc6cfd837a6ecaa6a8aaf0e',
   '../secret-relay-runtime.ts': '9cc241b6fd22ca948021e0db06346e81718e12f5eaf340742d42c7b0a172711f',
   '../secret-relay.ts': 'cb4efaae8cb99f879de787d5f2ce1c1e364b7c0abf0db333420e10e11493f95d',
-  '../../package.json': 'aa0ed8c17befe139c1316bfd04c8dbde5ae1f9a9b921872762268547b7cc8c1b',
+  '../../package.json': 'b2599f9454caa9884f9e7742743e93f35c5d11040d5ee53e3f4f96ccc2596204',
   '../../package-lock.json': 'f4b1613e00b863da92337278f7bd5630ce6509d7cbf6b3681a38043c54a52f9c',
   '../../packages/harness/package.json':
     '974deedfb3b496939f6c0a441048234b57bca0af746f4107d41e1406b81b1768',
@@ -2617,4 +2616,64 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '4d442ba9152d62d42cea7027194a3a4cbb589654a9dd4de6e0c56522ab2df676',
   '../../tests/integration/telos-s9/integrated-candidate/joined-fixture-processes.mjs':
     '8af22f0dc2dfb417780ddc61f3c915a8a1405b5efe8f9b6c4f966f9c90dc44b1',
+  '../../.github/workflows/ci-recovery.yml':
+    '187d816bfa17941c57e4fabfda84b9e136f6917ce5d7c659289b878acd2add8e',
+  '../../.github/workflows/ci.yml':
+    'e387117090e8c06994529901c0929448af56be1b39d7229ad5496b9f4b21d46b',
+  '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
+  '../../playwright.offline.config.ts':
+    'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
+  '../../scripts/__tests__/browser-failure-evidence.test.ts':
+    '2a2a37b5a89974a71149ee341e6c17ed89e7b961def5a8cf09494f458ea419cf',
+  '../../scripts/__tests__/ci-browser-failure-reporter.test.ts':
+    '730da0151f559054652bcf9e34db39da29153044d53ee35ecef927088ecee544',
+  '../../scripts/__tests__/ci-browser-run.test.ts':
+    '63fa61768c14b8ed8a765d48d85a75a37c548dbc5ee34bee3567e56f287bd87d',
+  '../../scripts/__tests__/ci-joined-shards.test.ts':
+    '36915cd9ec1df2634467a99416ccc3d03ed26b3fd6d65ab21a847858d8d0a321',
+  '../../scripts/__tests__/ci-recovery.test.ts':
+    'adac93c12ec4480f960ff04956aab4beecae2da6365ffc9ad8aea38da7f2fff4',
+  '../../scripts/__tests__/ci-source-preflight.test.ts':
+    '5d5c5d72d3153966f59dad8f7974a3064fe02cdc592a523517abb093414d508b',
+  '../../scripts/__tests__/ci-unit-sequencer.test.ts':
+    '01001f67d5cabf80e046181b9214ae5ea7a9301489777d5f48f4141ed2c55845',
+  '../../scripts/check-reviewed-handler-artifacts.mjs':
+    '61650c253a08eb477d74b851d4e8a00359aa1dc9f372c23de7d99de2f2cb38d7',
+  '../../scripts/ci-browser-failure-reporter.mjs':
+    'b22313559453a57bb106403e09c3c0f2ff1648a1045ad0293404cbc1c173f7e6',
+  '../../scripts/ci-browser-run.mjs':
+    '442df55d1708709d759cbf7f227975a0730a02273f9236df6d7d9fbd63ca48e1',
+  '../../scripts/ci-joined-gate.mjs':
+    'aec3fa1106ed98cb715d973e5b186887b7252bca68309ae0bae1da3aa0a5b3bd',
+  '../../scripts/ci-recovery.mjs':
+    'c389528a6018c63a34e80534d5458037d3102882da83fd69b7d70a17911b2722',
+  '../../scripts/ci-unit-sequencer.ts':
+    '552f2a9209c99c8e2c94b5f8a66253499bcf4b4d9c935629af8e844609a4a09b',
+  '../../scripts/ci-unit-shards.mjs':
+    '7d86a070a806de85767cbfef5c31edfe9dadf3e41ec9d268142027c50d5b1b44',
+  '../__tests__/ci-validation-artifacts.test.ts':
+    '9dff543f1983e7418c1399cc8e5046440b2a604477d343fe40a2d6b41db30faf',
+  '../__tests__/fixtures/prepared-repository-native-consumer.ts':
+    'c6f9efdab1bf12283b1f53da5a9dd7abc376de25c5811ac4b10b96157a6c12ac',
+  '../__tests__/fixtures/prepared-repository-native-public.ts':
+    '6aabaaa9732a149149b2e4b839b46cf18a270721443421def3577d8fa824bc45',
+  '../__tests__/prepared-repository-native-cold-resume.test.ts':
+    '84fd791e57fc2854aa1e429b32752310070fa935464779d00d6750118c55408d',
+  '../__tests__/prepared-repository-native-owner-guards.test.ts':
+    '67cab013db98d0ae62657aa5262cf5bf345a29a2dca94997ca6223a58fcad42c',
+  '../__tests__/prepared-repository-native-public-completed.test.ts':
+    '8d25d0b2b27ed0657c3fb137f0b8e4a78c3b6e423168e3bccfc5470a7881cbec',
+  '../__tests__/prepared-repository-native-public-interrupted.test.ts':
+    '312a0006638afdec9d6f15409c0046166b75413ea6b2bdb6239d3c76e4a0c369',
+  '../__tests__/prepared-repository-native-public-partial-adoption.test.ts':
+    'e436c76dfb2c4bd0864e4887913a8ffcd493d2c8966b8ba47d06925082e1743a',
+  '../__tests__/prepared-repository-native-public-retained-http.test.ts':
+    '858d2419d85ab5111d775f3d2e57c9f6ac2d481df6748782dfb95cdcad7f92ce',
+  '../__tests__/prepared-repository-native-public-untransferred.test.ts':
+    '82edf2022ad9b78b656ed8a121143018f55cec78e849c7fa2cf23d30c78e1843',
+  '../__tests__/prepared-repository-native-recovery.test.ts':
+    'b603ee7ad71f1f5f9eb18cb50eabe762e81b18f81c216e42f172aa8a04ffab41',
+  '../../tests/integration/telos-s9/integrated-candidate/joined-shards.mjs':
+    '8a8c61219cc505dc95c91a1de7ff0db1362d9a6add47629fea43cda3b18ef07c',
+  '../../vitest.config.ts': '8f30b679a4b6921636f1792988432e0fd0cc9c0122b1946ae699e5c23813edc7',
 });

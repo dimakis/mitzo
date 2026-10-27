@@ -15,6 +15,7 @@
     "compile:server": "tsc -b packages/protocol packages/harness packages/client && tsc -p tsconfig.build.json",
     "build:server": "npm run compile:server --silent && node scripts/check-reviewed-handler-artifacts.mjs && node scripts/check-iana-address-data.mjs && npm run check:security-backport --silent",
     "check:reviewed-handler-artifacts": "npm run build:server --silent && node scripts/check-reviewed-handler-artifacts.mjs",
+    "check:source-artifacts": "node scripts/check-reviewed-handler-artifacts.mjs --source",
     "print:reviewed-handler-artifacts": "npm run compile:server --silent && node scripts/check-reviewed-handler-artifacts.mjs --print",
     "generate:iana-address-data": "node scripts/generate-iana-address-data.mjs",
     "print:iana-address-data": "npm run compile:server --silent && node scripts/check-iana-address-data.mjs --print",

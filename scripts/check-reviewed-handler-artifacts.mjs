@@ -1,12 +1,17 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import {
+import process from 'node:process';
+const {
   reviewedHandlerImplementationRevision,
   reviewedConnectionsRuntimeImplementationRevision,
   reviewedHandlerSourceArtifacts,
   reviewedHandlerSourceFingerprint,
-} from '../dist/connections/reviewed-handler-artifacts.js';
+} = await import(
+  process.argv.includes('--source')
+    ? '../server/connections/reviewed-handler-artifacts.ts'
+    : '../dist/connections/reviewed-handler-artifacts.js'
+);
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const sourceDirectory = resolve(root, 'server/connections');
