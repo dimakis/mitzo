@@ -759,7 +759,8 @@ app.use(
   authMiddleware,
   createTelemetryRelay(process.env.OTEL_EXPORTER_OTLP_ENDPOINT),
 );
-installChatCommandJson(app, operatorAuthMiddleware);
+// Preserve ordinary authentication responses, then require an operator before large bodies.
+installChatCommandJson(app, authMiddleware, operatorAuthMiddleware);
 app.use(express.json({ limit: '10mb' }));
 
 const getKnowledgeLibraryRuntime = createKnowledgeLibraryLoader(() =>

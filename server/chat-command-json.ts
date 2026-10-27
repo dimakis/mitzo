@@ -2,7 +2,11 @@ import express, { type Express, type RequestHandler } from 'express';
 import { CHAT_MAX_COMMAND_BYTES } from '@mitzo/protocol';
 
 /** Install before the general JSON parser. Large command bodies require authentication. */
-export function installChatCommandJson(app: Express, authenticate: RequestHandler): void {
+export function installChatCommandJson(
+  app: Express,
+  authenticate: RequestHandler,
+  ...additionalAuthentication: RequestHandler[]
+): void {
   const entryPaths = [
     '/api/chat/runtime',
     '/api/chat/local-codex',
@@ -15,7 +19,7 @@ export function installChatCommandJson(app: Express, authenticate: RequestHandle
   );
   paths.push('/api/chat/send', '/api/chat/interrupt');
   const parse = express.json({ limit: CHAT_MAX_COMMAND_BYTES });
-  app.post(paths, authenticate, (req, res, next) => {
+  app.post(paths, authenticate, ...additionalAuthentication, (req, res, next) => {
     parse(req, res, (error?: { type?: string }) => {
       if (error?.type === 'entity.too.large') {
         res.status(413).json({

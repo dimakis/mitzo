@@ -22,17 +22,18 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/main.tsx': '679688aa3e04496cddf90bc14300efc7c8344f4bccb5718643948a3332b70bb1',
   '../../packages/protocol/src/chat-input-limits.ts':
     '54d585132760f4104fbb3c3686489ddc26ef5d7ad81af24fa58052eae58d3945',
-  '../chat-command-json.ts': 'ef11b74d0bcec74a89c2ae9bc93ac00f734cfeadc1094af673b4a8ce3a579e73',
+  '../chat-command-json.ts': '53751991386b497dd8e6be2267bac61ff4d3344d46e5816d159fa8f0039eecc0',
   '../__tests__/chat-command-json.test.ts':
-    '296a684684b923918709bd69d703103e6718332d900863886eb5ef9cc4577948',
+    '675c6c281aebefef54c6fb8b067e14db554035f0a7ceea88f4ec4daeee9efcd7',
   '../../frontend/src/lib/large-chat-storage.ts':
     'c0572a62ddcabd3a4b14e46bbad6b5e2c388545e86f650dbe0c7c198f945e9d4',
   '../../frontend/src/lib/__tests__/large-chat-storage.test.ts':
     '6f803b5d364e881ca7f366f653f4c60afbaf5d18fb51a11421a9b0f74a934e6d',
   '../../frontend/src/render-app.tsx':
-    'baa62d2fc2970d7f7b6f031a90090963cc8f11d0c920b0e0261dab519bb7ad6e',
+    '8244b4f22a4a068e6498434aa0bc540fa6d20e124a8b8e310dbd5a1ee92628f4',
   '../../tests/fixtures/large-chat-storage.ts':
     '72ad69ce07befa47c3a52d85aeb4559de2933cee02d4c2711ce3fdbbe4055ca6',
   '../../tests/offline/large-chat-storage.spec.ts':
@@ -1091,7 +1092,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6be98645eb9b4467c30f5dacb3e8eee7a9c3f08cb6fc820edc872f789ef217c8',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
-  '../app.ts': 'fedf392475c1ab13b7ff2a961f48eb7f2186209cddddd66eb99b28f77e4d6813',
+  '../app.ts': '57520be76aa00bba1005045e696bbceb0035c31aa61c59f105f66c001ea13319',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':

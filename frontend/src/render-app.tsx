@@ -5,29 +5,7 @@ import { App } from './App';
 import { startAuthentication } from './lib/startup-auth';
 import { preloadLandingPage } from './route-pages';
 import { clientStore } from './client-store';
-import { initTheme } from './hooks/useTheme';
-import 'highlight.js/styles/github-dark-dimmed.min.css';
-import './styles/tokens.css';
-import './styles/global.css';
-import './styles/code-block.css';
-import './styles/calendar.css';
-import './styles/desktop.css';
-import './styles/workspace.css';
-// Home controls/dialogs are shared by independently loaded routes.
-import './styles/home.css';
-import './styles/connections-setup.css';
-import './styles/connection-setup-card.css';
-import './styles/workspace-chat.css';
-import './styles/workspace-work.css';
-import './styles/workspace-agents.css';
-import './styles/workspace-collections.css';
-import './pages/KnowledgeLibrary.css';
-import './styles/mobile-workspace.css';
-import './styles/appearance.css';
-import './pages/TerminalView.css';
-import './styles/motion.css';
 
-initTheme();
 void startAuthentication(location.pathname);
 preloadLandingPage(location.pathname);
 
