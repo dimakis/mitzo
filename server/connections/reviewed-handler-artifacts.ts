@@ -177,7 +177,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../qualified-local-repository-actor.ts':
     '8ae78259188bde67e196d9813adb37b7387cc92329919f3e4fbb49f322524543',
   '../qualified-local-repository-task.ts':
-    'f7274d328276dab27df429db4e6f919ae6e4f615af76099659e861f90d12e884',
+    '1446ef68f9790d5897f4423ccc3f6b0a08244e12a01568171fb682179ea47092',
   '../__tests__/native-exclusive-tree.test.ts':
     '9efadb963a2d87906931063e6fba548e0da02c704555e01469fca20b34af6eee',
   '../__tests__/private-repository-checkout.test.ts':
@@ -2066,11 +2066,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/coherent-final-preparation/worker-restart-child-loader.mjs':
     'd5dfa4a214d1cd3a937183efde3b59fef5666611a032850c4e3ed6f47846cd9a',
   '../../tests/integration/telos-s9/integrated-candidate/advisor-child-browser.contract.ts':
-    '19a3c364b9748f765fe1f24c83bb79c0a77e493f8f4f259d0b1d3e8866698da4',
+    '55153c802380b68e18476410dac6f4623263f8bf996575677c585c369565e869',
   '../../tests/integration/telos-s9/integrated-candidate/advisor-child-process-app.mjs':
-    '560d8c85d98b85db77415ae1f0bfa4e7918c764031890a5711f8209e3eb1c9be',
+    '8fa786524f64d31668e2ec2668cf71f4ebbdeddeae5228a67aa71faa55d636ae',
   '../../tests/integration/telos-s9/integrated-candidate/advisor-child-process-fixture.ts':
-    'c760d995d76493d574815d003130c8d1371ebaf873f0f06ab0fc209b4aabbee8',
+    '012b608fb828f7b5096afd33989bd3d32fef3210486e12d72ed5a9823c5df680',
   '../../tests/integration/telos-s9/integrated-candidate/advisor-material-browser.contract.ts':
     '663654fc1fcd1d5c979cabdd3e52ef2d7bf25c4f125aace0059b0588bb785919',
   '../../tests/integration/telos-s9/integrated-candidate/advisor-material-process-fixture.ts':
@@ -2591,4 +2591,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '4ac7037084293e347b5a42c3f41a263d825e9025771024e91bf772bc7a3d5a88',
   '../repository-git-container-policy.ts':
     'd6ba281d04e29552e89817f1ff899c77584c8b539a38c2bde58d764070a7d18b',
+  '../__tests__/qualified-standalone-repository-observation.test.ts':
+    '78bffcda72f394606018aa42bef96edd97af9d11e1009a76137ffd45dcf37d11',
+  '../../tests/integration/telos-s9/integrated-candidate/joined-fixture-processes.test.ts':
+    '4d442ba9152d62d42cea7027194a3a4cbb589654a9dd4de6e0c56522ab2df676',
+  '../../tests/integration/telos-s9/integrated-candidate/joined-fixture-processes.mjs':
+    '8af22f0dc2dfb417780ddc61f3c915a8a1405b5efe8f9b6c4f966f9c90dc44b1',
 });

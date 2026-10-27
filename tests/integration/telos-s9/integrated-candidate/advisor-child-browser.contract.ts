@@ -123,7 +123,7 @@ it('saves a child through a normal advisor planning exchange and actual proposal
     ]);
     const command = sendResponse.request().postDataJSON(),
       firstReceipt = await sendResponse.json();
-    expect(sendResponse.status()).toBe(202);
+    expect(sendResponse.status(), JSON.stringify(firstReceipt)).toBe(202);
     expect(firstReceipt).toMatchObject({
       sessionId: advisorId,
       clientMsgId: command.clientMsgId,

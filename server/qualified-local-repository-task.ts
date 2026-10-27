@@ -134,6 +134,12 @@ export async function captureQualifiedLocalRepositoryTask(
         receipt.directories[1].directory !== git
       )
         throw unavailable();
+      if (access.canCaptureRepositoryObservation)
+        await access.captureRepositoryObservation({
+          mode: 'task-topology',
+          sourcePath: task,
+          readableRoots: [facts.taskRoot.rootPath],
+        });
       for (const root of [facts.taskRoot]) {
         const actual = await access.pinRoot(root.rootPath);
         if (!equal(actual.identity, root.identity)) throw unavailable();
