@@ -791,6 +791,7 @@ export class CodexAppServerClient {
         'skills/list',
         'thread/start',
         'thread/resume',
+        'thread/unsubscribe',
         'thread/fork',
         'thread/read',
         'thread/turns/list',
