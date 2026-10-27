@@ -17,6 +17,7 @@ import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import { contextDigest } from '../agent-context-compiler.js';
 import {
   LocalCodexFirstCommandSchema,
+  OrdinaryLocalCommandSelectionSchema,
   PROFILE_BUILDER_ID,
   DEFAULT_MITZO_PROFILE_ID,
   DEFAULT_MITZO_PROFILE_REVISION,
@@ -653,7 +654,7 @@ it.each(['uncertain', 'consumed'] as const)(
       store.getSessionRuntimeBinding(sessionId)!,
       {
         clientMsgId: command.clientMsgId,
-        selection: command.selection,
+        selection: OrdinaryLocalCommandSelectionSchema.parse(command.selection),
         requestFingerprint: ordinaryLocalCommandFingerprint('codex', request, {
           workspace: { workspaceId, cwd: meta.cwd! },
           agentProfile: meta.agentProfile,

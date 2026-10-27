@@ -1903,7 +1903,7 @@ export class CodexConversationStore {
         return target.threadId;
       }
       if (row.status === 'failed' && row.attempt === 1 && row.pre_dispatch_failure === 1) continue;
-      if (row.status !== 'queued' && row.status !== 'cancelled') return state.threadId;
+      if (row.status !== 'queued' && row.status !== 'cancelled') return state.threadId ?? undefined;
     }
     return undefined;
   }

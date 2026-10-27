@@ -107,6 +107,7 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused'] as const)(
       recovered = new CodexConversation({
         conversationId: value.sessionId,
         cwd: checkout,
+        systemPrompt: value.payload.systemPrompt,
         profile: value.profile,
         storedBinding: value.lease.binding,
         store: native,

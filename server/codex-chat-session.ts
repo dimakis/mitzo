@@ -584,6 +584,7 @@ type CodexQueueStatus = Pick<
   > & {
     paused: boolean;
     connected: boolean;
+    canContinue?: boolean;
     recovering: boolean;
     recoveryPhase?: ReturnType<CodexConversation['getRecoveryPhase']>;
   };
