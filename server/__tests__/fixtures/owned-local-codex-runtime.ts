@@ -43,6 +43,8 @@ export async function ownedRuntimeFixture(
     workspaceId?: string;
     contextRecipe?: boolean | 'workspace';
     chatRoute?: boolean;
+    /** Share the actual public chat ledger across offline multi-session cases. */
+    eventStorePath?: string;
     silentPreparation?: boolean;
     builtinPreparation?: boolean;
     api?: boolean;
@@ -140,7 +142,9 @@ export async function ownedRuntimeFixture(
   vi.stubEnv('MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB', '');
   vi.stubEnv('MITZO_CODEX_ENABLED', '1');
   const binding = loadAccountProfiles().resolve(options.api ? 'work' : 'personal', modelId);
-  const eventPath = options.chatRoute ? join(root, '.mitzo', 'events.db') : join(root, 'events.db');
+  const eventPath =
+    options.eventStorePath ??
+    (options.chatRoute ? join(root, '.mitzo', 'events.db') : join(root, 'events.db'));
   const events = new EventStore(eventPath);
   const library = new AgentLibraryStore(eventPath);
   cleanups.push(

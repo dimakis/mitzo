@@ -7,15 +7,13 @@ import {
   mkdirSync,
   readdirSync,
   statSync,
-  rmSync,
-  writeFileSync,
   symlinkSync,
   lstatSync,
   readlinkSync,
   unlinkSync,
 } from 'fs';
 import { mkdir, mkdtemp, rm } from 'fs/promises';
-import { join, basename, resolve } from 'path';
+import { join, resolve } from 'path';
 import { tmpdir } from 'os';
 import { observeLocalCodexPhase } from './local-codex-observation.js';
 
@@ -25,19 +23,11 @@ import {
   WORKTREE_STALE_HOURS,
   WORKTREE_GIT_TIMEOUT_MS,
   WORKTREE_REMOVE_TIMEOUT_MS,
-  WORKTREE_PRUNE_TIMEOUT_MS,
 } from './constants.js';
 import { createLogger } from './logger.js';
 import type { WorktreeCleanupPolicy } from './development-isolation.js';
 
 const log = createLogger('worktree');
-
-/**
- * Files that are not meaningful work — rescue should skip if these are the only changes.
- * Matched via exact path from `git diff --cached --name-only` (root-relative).
- * Only root-level files are supported; subdirectory paths would need `subdir/file` entries.
- */
-const RESCUE_NOISE_FILES = new Set(['.mitzo-session']);
 
 /**
  * Detect the default branch of a repo (e.g. 'main' or 'master').
@@ -577,41 +567,21 @@ export function createSessionWorktrees(
  */
 export function removeWorktree(sessionId: string, baseRepo: string): boolean {
   const worktreePath = join(worktreesDir(baseRepo), sessionId);
-
   try {
-    execFileSync('git', ['-C', baseRepo, 'worktree', 'remove', '--force', worktreePath], {
+    // Normal Git refusal is final. Force deletion and unrelated prune operations
+    // cannot establish ownership or preserve unpublished/ignored task data.
+    execFileSync('git', ['-C', baseRepo, 'worktree', 'remove', worktreePath], {
       stdio: 'pipe',
       timeout: WORKTREE_REMOVE_TIMEOUT_MS,
     });
-  } catch {
-    if (existsSync(worktreePath)) {
-      try {
-        rmSync(worktreePath, { recursive: true, force: true });
-      } catch (err: unknown) {
-        log.warn('failed to force-remove worktree directory', {
-          path: worktreePath,
-          error: err instanceof Error ? err.message : 'unknown',
-        });
-      }
-    }
-  }
-
-  try {
-    execFileSync('git', ['-C', baseRepo, 'worktree', 'prune'], {
-      stdio: 'pipe',
-      timeout: WORKTREE_PRUNE_TIMEOUT_MS,
+  } catch (error: unknown) {
+    log.warn('worktree removal refused; preserving path and administration', {
+      path: worktreePath,
+      error: error instanceof Error ? error.message : 'unknown',
     });
-  } catch {
-    // Non-fatal — prune is best-effort cleanup
+    return false;
   }
-
-  const removed = !existsSync(worktreePath);
-  if (removed) {
-    log.info(`removed: ${worktreePath}`);
-  } else {
-    log.warn('worktree removal incomplete; preserving path', { path: worktreePath });
-  }
-  return removed;
+  return !existsSync(worktreePath);
 }
 
 export function getWorktreePath(sessionId: string, baseRepo: string): string | null {
@@ -632,12 +602,26 @@ export function hasUncommittedWork(
   options?: { readOnly?: boolean },
 ): string | null {
   try {
-    const output = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: WORKTREE_GIT_TIMEOUT_MS,
-      env: options?.readOnly ? { ...process.env, GIT_OPTIONAL_LOCKS: '0' } : process.env,
-    }).trim();
+    const output = execFileSync(
+      'git',
+      [
+        '-C',
+        worktreePath,
+        '-c',
+        'core.fsmonitor=false',
+        '-c',
+        'core.hooksPath=/dev/null',
+        'status',
+        '--porcelain',
+        '--ignore-submodules=all',
+      ],
+      {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: WORKTREE_GIT_TIMEOUT_MS,
+        env: options?.readOnly ? { ...process.env, GIT_OPTIONAL_LOCKS: '0' } : process.env,
+      },
+    ).trim();
     return output || null;
   } catch (err: unknown) {
     // Treat git failure as dirty — better to skip than to delete potentially dirty work
@@ -650,153 +634,30 @@ export function hasUncommittedWork(
   }
 }
 
-export interface RescueResult {
-  success: boolean;
-  prUrl?: string;
-  error?: string;
-}
-
-/**
- * Parse a git remote URL into a GitHub owner/repo slug.
- * Handles both SSH (git@github.com:user/repo.git) and HTTPS
- * (https://github.com/user/repo.git) formats.
- * Returns null if the remote cannot be resolved or the URL format is unrecognised.
- */
-export function getRepoRemote(worktreePath: string): string | null {
-  try {
-    const url = execFileSync('git', ['-C', worktreePath, 'remote', 'get-url', 'origin'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: WORKTREE_GIT_TIMEOUT_MS,
-    }).trim();
-
-    // SSH: git@github.com:user/repo.git
-    const sshMatch = url.match(/git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/);
-    if (sshMatch) return sshMatch[1];
-
-    // HTTPS: https://github.com/user/repo.git
-    const httpsMatch = url.match(/github\.com\/([^/]+\/[^/]+?)(?:\.git)?$/);
-    if (httpsMatch) return httpsMatch[1];
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Rescue a dirty worktree by committing, pushing, and creating a draft PR.
- * Each step is attempted in order; if any step fails the function returns
- * immediately with { success: false, error }.
- *
- * Note: uses `git add -u` (tracked files only) while `hasUncommittedWork`
- * detects untracked files too. If a worktree is dirty only due to untracked
- * files, the commit will fail with "nothing to commit" and the worktree is
- * preserved on disk — this is intentional (safe, no data loss).
- */
-export function rescueDirtyWorktree(
-  worktreePath: string,
-  branch: string,
-  wtId: string,
-): RescueResult {
-  const gitOpts = { stdio: ['pipe', 'pipe', 'pipe'] as 'pipe'[], timeout: WORKTREE_GIT_TIMEOUT_MS };
-
-  // Resolve the GitHub remote before doing any mutations
-  const repo = getRepoRemote(worktreePath);
-  if (!repo) {
-    return { success: false, error: 'Could not resolve GitHub remote for worktree' };
-  }
-
-  try {
-    // 1. Stage tracked file changes only (-u avoids staging untracked files
-    //    that may contain secrets like .env or credentials)
-    execFileSync('git', ['-C', worktreePath, 'add', '-u'], gitOpts);
-  } catch (err: unknown) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-
-  // 1b. Check if staged changes contain meaningful work (not just noise markers)
-  try {
-    const staged = execFileSync('git', ['-C', worktreePath, 'diff', '--cached', '--name-only'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: WORKTREE_GIT_TIMEOUT_MS,
-    }).trim();
-    const files = staged ? staged.split('\n') : [];
-    if (files.length === 0 || files.every((f) => RESCUE_NOISE_FILES.has(f))) {
-      log.info('rescue skipped — only noise files changed', { wtId, files });
-      // Unstage so the worktree can be cleaned up without leaving staged changes
-      try {
-        execFileSync('git', ['-C', worktreePath, 'reset', 'HEAD'], gitOpts);
-      } catch {
-        // Non-fatal — worktree is about to be removed anyway
-      }
-      return { success: false, error: 'no meaningful changes to rescue' };
-    }
-  } catch {
-    // If we can't inspect staged files, proceed with the rescue anyway — safer than skipping
-  }
-
-  try {
-    // 2. Commit
-    execFileSync(
-      'git',
-      ['-C', worktreePath, 'commit', '-m', `chore: rescue uncommitted work from session ${wtId}`],
-      gitOpts,
-    );
-  } catch (err: unknown) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-
-  try {
-    // 3. Push
-    execFileSync('git', ['-C', worktreePath, 'push', 'origin', branch], gitOpts);
-  } catch (err: unknown) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-
-  try {
-    // 4. Create draft PR
-    const prBody = `Auto-rescued uncommitted work from session \`${wtId}\`.\n\nThis PR was created automatically by Mitzo's worktree cleanup.`;
-    const prOutput = execFileSync(
-      'gh',
-      [
-        'pr',
-        'create',
-        '--draft',
-        '--title',
-        `Rescued: ${wtId}`,
-        '--body',
-        prBody,
-        '--repo',
-        repo,
-        '--head',
-        branch,
-      ],
-      {
-        cwd: worktreePath,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: WORKTREE_GIT_TIMEOUT_MS,
-      },
-    ).trim();
-    log.info('rescue PR created', { wtId, prUrl: prOutput });
-    return { success: true, prUrl: prOutput };
-  } catch (err: unknown) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
 /**
  * Async version of hasUncommittedWork — does not block the event loop.
  * Used by SessionOverviewEmitter's background refresh loop.
  */
 export async function hasUncommittedWorkAsync(worktreePath: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync('git', ['-C', worktreePath, 'status', '--porcelain'], {
-      encoding: 'utf-8',
-      timeout: WORKTREE_GIT_TIMEOUT_MS,
-    });
+    const { stdout } = await execFileAsync(
+      'git',
+      [
+        '-C',
+        worktreePath,
+        '-c',
+        'core.fsmonitor=false',
+        '-c',
+        'core.hooksPath=/dev/null',
+        'status',
+        '--porcelain',
+        '--ignore-submodules=all',
+      ],
+      {
+        encoding: 'utf-8',
+        timeout: WORKTREE_GIT_TIMEOUT_MS,
+      },
+    );
     const output = stdout.trim();
     return output || null;
   } catch (err: unknown) {
@@ -809,83 +670,7 @@ export async function hasUncommittedWorkAsync(worktreePath: string): Promise<str
   }
 }
 
-/**
- * Post a proposal to the mgmt inbox about a stale worktree with uncommitted work.
- */
-function postDirtyWorktreeToInbox(
-  sessionId: string,
-  repoName: string,
-  worktreePath: string,
-  branch: string,
-  dirtyFiles: string,
-  inboxDir: string,
-  prUrl?: string,
-): void {
-  const ts = new Date().toISOString().replace(/[-:]/g, '').replace('T', '_').slice(0, 15);
-  const filename = `${ts}_worktree_gc_${sessionId}.md`;
-  const lines = dirtyFiles.split('\n');
-  // git status --porcelain: XY format where X=staged, Y=unstaged
-  const modified = lines.filter((l) => l.startsWith(' M')).length;
-  const untracked = lines.filter((l) => l.startsWith('??')).length;
-  const staged = lines.filter((l) => /^[ADMR]/.test(l)).length;
-
-  const summary = [
-    modified > 0 ? `${modified} modified` : '',
-    staged > 0 ? `${staged} staged` : '',
-    untracked > 0 ? `${untracked} untracked` : '',
-  ]
-    .filter(Boolean)
-    .join(', ');
-
-  const actionLine = prUrl
-    ? `**Action:** Auto-rescued — PR at ${prUrl}. Review and merge or close.`
-    : `**Action:** This worktree is ${WORKTREE_STALE_HOURS / 24}+ days old and has uncommitted changes. Rescue the work (commit/stash) or approve cleanup.`;
-
-  const tags = prUrl ? '[worktree, auto-rescued]' : '[worktree, uncommitted-work, needs-rescue]';
-
-  const content = `---
-agent: worktree_gc
-timestamp: ${new Date().toISOString()}
-status: pending
-tags: ${tags}
----
-
-# Stale worktree ${prUrl ? 'auto-rescued' : 'has uncommitted work'}
-
-**Session:** ${sessionId}
-**Repo:** ${repoName}
-**Branch:** ${branch}
-**Path:** ${worktreePath}
-**Files:** ${summary}${prUrl ? `\n**PR:** ${prUrl}` : ''}
-
-\`\`\`
-${dirtyFiles}
-\`\`\`
-
-${actionLine}
-`;
-
-  try {
-    mkdirSync(inboxDir, { recursive: true });
-    writeFileSync(join(inboxDir, filename), content);
-    log.info('posted dirty worktree to inbox', { sessionId, repo: repoName, prUrl });
-  } catch (err: unknown) {
-    log.warn('failed to post dirty worktree to inbox', {
-      error: err instanceof Error ? err.message : 'unknown',
-    });
-  }
-}
-
-/**
- * Inventory stale worktrees in the given repo's .claude/worktrees/ directory.
- * The default report policy is read-only. Execute mode preserves the legacy
- * cleanup behavior for an explicit, reviewed opt-in.
- * Worktrees with uncommitted work are skipped and flagged in the mgmt inbox
- * only in execute mode.
- * Worktrees belonging to active sessions are never cleaned up.
- * @param inboxDir — path to the mgmt inbox directory for dirty worktree proposals.
- * @param activeSessionIds — wtIds of sessions currently in the registry (always skipped).
- */
+/** Legacy inventory only. Age/status never grants retirement authority. */
 export interface WorktreeCleanupSummary {
   policy: WorktreeCleanupPolicy;
   scanned: number;
@@ -901,12 +686,12 @@ export interface WorktreeCleanupSummary {
 
 export function cleanupStaleWorktrees(
   baseRepo: string,
-  inboxDir?: string,
+  _inboxDir?: string,
   activeSessionIds?: ReadonlySet<string>,
-  policy: WorktreeCleanupPolicy = 'report',
+  requestedPolicy: WorktreeCleanupPolicy = 'report',
 ): WorktreeCleanupSummary {
   const summary: WorktreeCleanupSummary = {
-    policy,
+    policy: 'report',
     scanned: 0,
     eligible: 0,
     protected: 0,
@@ -917,124 +702,53 @@ export function cleanupStaleWorktrees(
     wouldRemove: 0,
     removed: 0,
   };
-  const dir = worktreesDir(baseRepo);
-  if (!existsSync(dir)) {
-    log.info('worktree cleanup summary', { repo: baseRepo, ...summary });
-    return summary;
-  }
-
   const now = Date.now();
   const cutoff = WORKTREE_STALE_HOURS * 60 * 60 * 1000;
-
-  for (const entry of readdirSync(dir)) {
-    summary.scanned++;
-    // Repository claims own durable task data independently of linked worktrees.
-    // Preserve their legacy containers, including interrupted or damaged claims;
-    // newer claims live outside this collector's root.
-    if (/^repo-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(entry)) {
-      summary.protected++;
-      continue;
-    }
-    if (activeSessionIds?.has(entry)) {
-      summary.protected++;
-      summary.protectedActive++;
-      continue;
-    }
-
-    const fullPath = join(dir, entry);
-    try {
-      // Prefer name-based age (immune to mtime being refreshed by git operations),
-      // but also require mtime to be past cutoff as a safety net — a recently-touched
-      // worktree (e.g. active session) should never be cleaned up regardless of name age.
-      const nameAge = parseWorktreeAge(entry);
-      const mtimeAge = now - statSync(fullPath).mtimeMs;
-      const isStale = nameAge !== null ? nameAge > cutoff && mtimeAge > cutoff : mtimeAge > cutoff;
-
-      if (!isStale) {
+  for (const prefix of ['.claude', '.cursor']) {
+    const dir = join(baseRepo, prefix, 'worktrees');
+    if (!existsSync(dir)) continue;
+    for (const entry of readdirSync(dir)) {
+      summary.scanned++;
+      if (activeSessionIds?.has(entry)) {
         summary.protected++;
-        summary.protectedRecent++;
+        summary.protectedActive++;
         continue;
       }
-
-      summary.eligible++;
-      const dirty = hasUncommittedWork(fullPath, { readOnly: policy === 'report' });
-      if (dirty?.startsWith('[git status failed:')) {
-        summary.unknown++;
-        continue;
-      }
-      if (dirty) summary.dirty++;
-      else summary.wouldRemove++;
-
-      if (policy === 'execute') {
-        if (dirty && inboxDir) {
-          // Only post once per session — check if an inbox item already exists
-          const alreadyNotified =
-            existsSync(inboxDir) &&
-            readdirSync(inboxDir).some((f) => f.endsWith(`_worktree_gc_${entry}.md`));
-          if (!alreadyNotified) {
-            const branch = `${WORKTREE_BRANCH_PREFIX}${entry}`;
-            const repoName = basename(baseRepo);
-
-            // Attempt automatic rescue: commit, push, and create a draft PR
-            const rescue = rescueDirtyWorktree(fullPath, branch, entry);
-            if (rescue.success) {
-              log.info('auto-rescued dirty worktree', {
-                repo: baseRepo,
-                session: entry,
-                prUrl: rescue.prUrl,
-              });
-              postDirtyWorktreeToInbox(
-                entry,
-                repoName,
-                fullPath,
-                branch,
-                dirty,
-                inboxDir,
-                rescue.prUrl,
-              );
-              // Rescue succeeded — safe to clean up the worktree directory
-              if (removeWorktree(entry, baseRepo)) summary.removed++;
-              continue;
-            }
-
-            // Rescue failed — fall through to skip behavior
-            log.warn('auto-rescue failed, skipping dirty worktree', {
-              repo: baseRepo,
-              session: entry,
-              error: rescue.error,
-            });
-            postDirtyWorktreeToInbox(entry, repoName, fullPath, branch, dirty, inboxDir);
-          }
-          log.info('skipped stale worktree with uncommitted work', {
-            repo: baseRepo,
-            session: entry,
-          });
+      const fullPath = join(dir, entry);
+      try {
+        const info = lstatSync(fullPath);
+        if (!info.isDirectory() || info.isSymbolicLink()) {
+          summary.protected++;
+          summary.unknown++;
           continue;
         }
-        if (removeWorktree(entry, baseRepo)) summary.removed++;
+        const nameAge = parseWorktreeAge(entry);
+        const mtimeAge = now - info.mtimeMs;
+        const isStale =
+          nameAge !== null ? nameAge > cutoff && mtimeAge > cutoff : mtimeAge > cutoff;
+        if (!isStale) {
+          summary.protected++;
+          summary.protectedRecent++;
+          continue;
+        }
+        summary.eligible++;
+        // Directory inventory cannot execute repository Git: even status can
+        // run configured clean/process filters. Age alone says nothing about
+        // edits, ignored files, unpublished commits or retained provider cwd.
+        summary.unknown++;
+        summary.protected++;
+      } catch (error: unknown) {
+        summary.unknown++;
+        summary.protected++;
+        log.warn('failed to inventory worktree; preserving allocation', {
+          repo: baseRepo,
+          entry,
+          error: error instanceof Error ? error.message : 'unknown',
+        });
       }
-    } catch (err: unknown) {
-      summary.unknown++;
-      log.warn('failed to check worktree entry during cleanup', {
-        repo: baseRepo,
-        entry,
-        error: err instanceof Error ? err.message : 'unknown',
-      });
     }
   }
-
-  if (policy === 'execute') {
-    try {
-      execFileSync('git', ['-C', baseRepo, 'worktree', 'prune'], {
-        stdio: 'pipe',
-        timeout: WORKTREE_PRUNE_TIMEOUT_MS,
-      });
-    } catch {
-      // Non-fatal
-    }
-  }
-
-  log.info('worktree cleanup summary', { repo: baseRepo, ...summary });
+  log.info('worktree inventory summary', { repo: baseRepo, requestedPolicy, ...summary });
   return summary;
 }
 

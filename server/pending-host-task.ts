@@ -71,22 +71,6 @@ export const PendingHostTaskReceiptSchema = z
     'Materialized custody requires the original task identity',
   );
 export type PendingHostTaskReceipt = z.infer<typeof PendingHostTaskReceiptSchema>;
-export interface PendingHostTaskEffectScope {
-  readonly kind: 'local-repository-worktree';
-  readonly intent: 'create' | 'use';
-  readonly workspaceId: string;
-  readonly featureBranch: string;
-  readonly baseOid: string;
-  readonly source: Readonly<{ path: string; gitDirectory: string; commonDirectory: string }>;
-  readonly task: Readonly<{ taskRoot: string; directory: string; adminBasename: string }>;
-}
-export interface PendingHostTaskAccess {
-  readonly path: string;
-  readonly operation: 'read' | 'write';
-  readonly phase: 'reserve' | 'materialize' | 'revalidate';
-  readonly effectScope: PendingHostTaskEffectScope;
-  readonly signal: AbortSignal;
-}
 export class PendingHostTaskError extends Error {
   constructor(
     readonly code:
@@ -120,6 +104,7 @@ const effectScope = z.strictObject({
 /** Exact descriptive effects, not a filesystem or native permission grant. */
 export const PendingHostTaskDecisionScopeSchema = z.strictObject({
   version: z.literal(1),
+  layout: z.literal('standalone').optional(),
   /** Historical records may lack this field. Their parsing is not permission
    * to materialize/adopt; current producers bind the original workspace. */
   oldWorkspace: z

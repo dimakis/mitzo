@@ -114,3 +114,59 @@ it.each(['narrow', 'denied'] as const)(
       expect(assertReadable.mock.calls.some(([path]) => path === source)).toBe(true);
   },
 );
+
+it('retains ordinary repository custody for an independent task after its historical source disappears', async () => {
+  const { OrdinaryLocalWorkspaceOwner } = await import('../ordinary-local-workspace-owner.js');
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'independent-ordinary-owner-')));
+  roots.push(root);
+  const task = join(root, 'repo-task');
+  mkdirSync(task);
+  mkdirSync(join(task, '.git'));
+  const identity = (path: string) => {
+    const info = lstatSync(path);
+    return { dev: info.dev, ino: info.ino };
+  };
+  const binding = {
+    accountId: 'offline',
+    provider: 'openai-codex',
+    profileRevision: 'profile',
+    model: 'fixture',
+  };
+  const localSource = {
+    path: join(root, 'retained-history-only'),
+    commonDirectory: join(root, 'retained-history-only', '.git'),
+    root: { dev: 1, ino: 1 },
+    commonRoot: { dev: 1, ino: 2 },
+  };
+  const record = {
+    id: 'workspace',
+    state: 'claimed',
+    conversationId: 'conversation',
+    directory: task,
+    binding,
+    featureBranch: 'mitzo/fixture',
+    localSource,
+    taskIdentity: {
+      directory: task,
+      featureBranch: 'mitzo/fixture',
+      root: identity(task),
+      git: identity(join(task, '.git')),
+      localSource,
+    },
+    hostReservation: { taskRoot: root, rootIdentity: identity(root) },
+  };
+  const validateHostTask = vi.fn(async () => {});
+  const service = {
+    getHostReservation: () => record,
+    getForConversation: () => record,
+    validateHostTask,
+  };
+  const owner = new OrdinaryLocalWorkspaceOwner(service as never, 'repository', {
+    id: record.id,
+    binding,
+    conversationId: 'conversation',
+    taskRoot: root,
+  } as never);
+  await owner.validate(task);
+  expect(validateHostTask).toHaveBeenCalledWith('conversation', task);
+});

@@ -111,7 +111,12 @@ export class OrdinaryLocalCodexSelectionOwner {
           bootstrapId,
           this.#coldPrimary,
         )
-      : this.owners.events.observePreparedRepositoryBootstrapAdmission(childId, bootstrapId);
+      : this.owners.continuation
+        ? this.owners.events.observePreparedRepositoryResumedBootstrapAdmission(
+            childId,
+            bootstrapId,
+          )
+        : this.owners.events.observePreparedRepositoryBootstrapAdmission(childId, bootstrapId);
   }
   private sync(result: unknown): void {
     if (result === undefined) return;
@@ -214,8 +219,14 @@ export class OrdinaryLocalCodexSelectionOwner {
     if (
       record.state !== 'claimed' ||
       record.featureBranch !== next.featureBranch ||
-      createHash('sha256').update(JSON.stringify(record.taskIdentity)).digest('hex') !==
-        next.taskIdentitySha256
+      createHash('sha256')
+        .update(
+          JSON.stringify(
+            record.preparedRepositoryTransitionAdoption?.facts.newWorkspace.taskIdentity ??
+              record.taskIdentity,
+          ),
+        )
+        .digest('hex') !== next.taskIdentitySha256
     )
       throw unavailable();
   }

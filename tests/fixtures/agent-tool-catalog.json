@@ -300,7 +300,7 @@
     "id": "mitzo:PrepareLocalRepository",
     "version": 1,
     "name": "PrepareLocalRepository",
-    "description": "Create an isolated task folder for an existing Mac repository after you approve the displayed repository and task changes. Keeps source work and this turn’s working directory intact. The prepared task becomes active after this turn finishes.",
+    "description": "Prepare an isolated repository task from an existing Mac path, clone an approved remote URL, or initialize a new local Git repository. Existing and cloned sources use the freshly acquired remote default branch unless an explicit base is selected. Source work remains intact. The task becomes active after this turn finishes. Creating remote hosting requires a separate explicit request.",
     "source": "Local repositories",
     "required": false,
     "behavior": "write",

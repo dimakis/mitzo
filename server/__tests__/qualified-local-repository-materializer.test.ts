@@ -544,14 +544,16 @@ actual(
           assertInitialPrimary(originalContext.workspace);
           return true;
         });
-        await diagnostics.check(
-          'task-linkage',
-          async () =>
-            (await readFile(
-              join(receipt?.directory ?? authorization!.scope.create.task.directory, '.git'),
-              'utf8',
-            )) === `gitdir: ${authorization!.scope.sourceGitEffects.administrationDirectory}\n`,
-        );
+        await diagnostics.check('task-independent-git', async () => {
+          const directory = receipt?.directory ?? authorization!.scope.create.task.directory;
+          const git = await lstat(join(directory, '.git'));
+          return (
+            git.isDirectory() &&
+            !git.isSymbolicLink() &&
+            (await readFile(join(directory, '.git', 'HEAD'), 'utf8')) ===
+              `ref: refs/heads/${authorization!.scope.create.featureBranch}\n`
+          );
+        });
         if (!receipt) {
           for (const name of ['receipt-materialized', 'receipt-task-identity'])
             diagnostics.skip(name);
@@ -570,12 +572,18 @@ actual(
           'receipt-materialized',
           async () => receipt!.state === 'materialized',
         );
-        await diagnostics.check(
-          'receipt-task-identity',
-          async () =>
-            receipt!.taskIdentity?.linkedGit?.directory ===
-            authorization!.scope.sourceGitEffects.administrationDirectory,
-        );
+        await diagnostics.check('receipt-task-identity', async () => {
+          const identity = receipt!.taskIdentity;
+          const git = await lstat(join(receipt!.directory, '.git'));
+          return (
+            identity !== undefined &&
+            identity.linkedGit === undefined &&
+            identity.git.dev === git.dev &&
+            identity.git.ino === git.ino &&
+            identity.localSource?.path === source &&
+            authorization!.scope.layout === 'standalone'
+          );
+        });
         await sourceChecks('post-receipt', false);
       };
       await runRecordedPreparationAttempt(
@@ -626,6 +634,7 @@ actual(
     const serviceState = observePreparationService(diagnostics, f.f.workspace, (value) => {
       observedReceipt = value;
     });
+    cleanups.push(serviceState.restore);
     const assertInitialPrimary = capturePreparationPrimaryCustody(f);
     const finalize = f.f.workspace.finalizePendingHostTaskDecision;
     vi.spyOn(f.f.workspace, 'finalizePendingHostTaskDecision').mockImplementation((...args) => {
@@ -672,7 +681,8 @@ actual(
     const result = await recordPreparationAttempt(
       diagnostics,
       'native-call',
-      () => f.a.call({ path: join(f.f.root, 'source') }),
+      // Preserve the staged/dirty local-source journey; remote freshness is covered separately.
+      () => f.a.call({ path: join(f.f.root, 'source'), base: { kind: 'ref', ref: 'HEAD' } }),
       async () => {},
       async () => persistAttempt(),
     );

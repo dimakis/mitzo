@@ -208,6 +208,11 @@ export type CompletedPreparedRepositorySource = z.infer<
 >;
 /** Private captured original-owner callback. A model packet or descriptive
  * receipt cannot supply this authority. Native source checks remain independent. */
+/** Private current native FIFO hold, independent of an executable continuation. */
+export interface PreparedRepositoryQueueFence {
+  readonly source: Readonly<CodexNativeTurnTarget>;
+  assertCurrentSync(): void;
+}
 export interface PreparedRepositoryPrimarySourceFence {
   readonly commandId: string;
   assertCurrentSync(command?: Readonly<CodexCommand>): void;
@@ -430,6 +435,7 @@ const hotReadSql = {
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
   private readonly db: Database.Database;
+  private readonly preparedQueueFences = new WeakMap<object, string>();
   private readonly hotReadStatements = new Map<keyof typeof hotReadSql, Database.Statement>();
   private hotReadStatement(name: keyof typeof hotReadSql): Database.Statement {
     let statement = this.hotReadStatements.get(name);
@@ -451,6 +457,13 @@ export class CodexConversationStore {
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS codex_runtime_migrations (conversation_id TEXT PRIMARY KEY, binding TEXT NOT NULL, generation INTEGER NOT NULL, data TEXT NOT NULL)',
     );
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_workspace_transitions (
+      source_key TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, source TEXT NOT NULL,
+      transition_id TEXT, state TEXT NOT NULL CHECK(state IN ('holding','waiting','adopted')),
+      from_cwd TEXT NOT NULL, to_cwd TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS codex_workspace_transition_hold
+      ON codex_workspace_transitions(conversation_id) WHERE state IN ('holding','waiting');`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_conversations (
       id TEXT PRIMARY KEY, binding TEXT NOT NULL, cwd TEXT NOT NULL, thread_id TEXT,
       thread_generation INTEGER NOT NULL DEFAULT 0,
@@ -2382,6 +2395,7 @@ export class CodexConversationStore {
     callId: string,
     requestHash: string,
     primarySource?: PreparedRepositoryPrimarySourceFence,
+    queueFence?: PreparedRepositoryQueueFence,
   ): string {
     if (!isDeepStrictEqual(this.completedNativeTurnTarget(id, binding), target))
       throw Error('Completed prepared repository target changed');
@@ -2403,6 +2417,7 @@ export class CodexConversationStore {
         resultSha256,
       },
       primarySource,
+      queueFence,
     );
     return resultSha256;
   }
@@ -2901,6 +2916,14 @@ export class CodexConversationStore {
     return this.db.transaction(() => {
       if (this.read(id, b).recovery)
         throw new Error('Codex recovery requires explicit acknowledgement');
+      if (
+        this.db
+          .prepare(
+            "SELECT 1 FROM codex_workspace_transitions WHERE conversation_id=? AND state IN ('holding','waiting')",
+          )
+          .get(id)
+      )
+        return;
       const commands = this.commands(id, b);
       if (commands.some((c) => c.status === 'running'))
         throw new Error('Codex conversation already running');
@@ -3090,6 +3113,356 @@ export class CodexConversationStore {
       });
     })();
   }
+  /** Read-only native retirement fence. The repository lifecycle owner supplies
+   * its current task identity and separately proves operator/session disposal. */
+  assertRepositoryTaskStopped(
+    record: import('./repository-workspaces.js').RepositoryWorkspace,
+  ): void {
+    if (!record.conversationId || !record.directory)
+      throw Error('Stopped repository task identity unavailable');
+    this.db.transaction(() => {
+      const id = record.conversationId!;
+      const state = this.read(id, record.binding);
+      if (
+        state.cwd !== record.directory ||
+        state.recovery ||
+        this.commands(id, record.binding).some(
+          (command) => command.status === 'queued' || command.status === 'running',
+        ) ||
+        this.hasPreparedRepositoryTransitionHold(id, record.binding) ||
+        this.db
+          .prepare(
+            'SELECT 1 FROM codex_tools WHERE conversation_id=? AND result_content IS NULL LIMIT 1',
+          )
+          .get(id)
+      )
+        throw Error('Repository task native work remains active or uncertain');
+      this.assertNoPendingThreadDispatch(id, record.binding);
+      this.assertNoPendingThreadOwnership(id, record.binding);
+    })();
+  }
+  /** Native observation only; repository custody and current disposal authority
+   * belong to the existing retirement owner. Never clear recovery or tool rows. */
+  assertUnusedNativePreparation(
+    record: import('./repository-workspaces.js').RepositoryWorkspace,
+  ): void {
+    const request = record.pendingHostTask?.request;
+    const directory = record.pendingHostTask?.directory;
+    if (!request || !directory || !isAbsolute(directory) || resolve(directory) !== directory)
+      throw Error('Unused native preparation identity unavailable');
+    const source = CodexNativeTurnTargetSchema.parse(request.nativeTarget);
+    this.db.transaction(() => {
+      const id = request.conversationId;
+      const binding = request.binding;
+      const state = this.read(id, binding);
+      const commands = this.commands(id, binding);
+      const command = commands.find((value) => value.id === source.commandId);
+      if (
+        !command ||
+        !['completed', 'interrupted'].includes(command.status) ||
+        command.attempt !== source.attempt ||
+        commands.some((value) => value.status === 'queued' || value.status === 'running') ||
+        state.cwd === directory ||
+        this.db
+          .prepare(
+            "SELECT 1 FROM codex_workspace_transitions WHERE conversation_id=? AND (state IN ('holding','waiting') OR to_cwd=?)",
+          )
+          .get(id, directory) ||
+        this.db
+          .prepare(
+            'SELECT 1 FROM codex_tools WHERE conversation_id=? AND result_content IS NULL LIMIT 1',
+          )
+          .get(id)
+      )
+        throw Error('Native preparation remains owned, active or uncertain');
+      this.assertNoPendingThreadOwnership(id, binding);
+      this.assertNoPendingThreadDispatch(id, binding);
+      const row = this.db
+        .prepare('SELECT native_turns FROM codex_commands WHERE conversation_id=? AND id=?')
+        .get(id, source.commandId) as { native_turns: string | null };
+      const targets = this.nativeTurns(row.native_turns).filter(
+        (turn) => turn.attempt === source.attempt,
+      );
+      if (
+        targets.length !== 1 ||
+        !isDeepStrictEqual(this.nativeTarget(command.id, targets[0]), source)
+      )
+        throw Error('Native preparation terminal source changed');
+      if (command.status === 'interrupted')
+        this.assertPreparedRepositoryRecovery(id, binding, command.id);
+    })();
+  }
+  holdPreparedRepositoryTransition(
+    id: string,
+    binding: AccountBinding,
+    rawSource: Readonly<CodexNativeTurnTarget>,
+  ): Readonly<PreparedRepositoryQueueFence> {
+    const source = Object.freeze(
+      CodexNativeTurnTargetSchema.parse({
+        commandId: rawSource.commandId,
+        attempt: rawSource.attempt,
+        threadId: rawSource.threadId,
+        turnId: rawSource.turnId,
+        generation: rawSource.generation,
+      }),
+    );
+    const sourceKey = createHash('sha256')
+      .update(JSON.stringify([id, source]))
+      .digest('hex');
+    this.db.transaction(() => {
+      const state = this.read(id, binding);
+      if (
+        !isDeepStrictEqual(this.completedNativeTurnTarget(id, binding), source) ||
+        this.commands(id, binding).some((command) => command.status === 'running')
+      )
+        throw Error('Prepared repository queue source changed');
+      const previous = this.db
+        .prepare('SELECT state,source FROM codex_workspace_transitions WHERE source_key=?')
+        .get(sourceKey) as { state: string; source: string } | undefined;
+      if (previous) {
+        if (
+          !['holding', 'waiting'].includes(previous.state) ||
+          previous.source !== JSON.stringify(source)
+        )
+          throw Error('Prepared repository transition requires reconciliation');
+        if (previous.state === 'waiting')
+          this.db
+            .prepare(
+              "UPDATE codex_workspace_transitions SET state='holding' WHERE source_key=? AND state='waiting'",
+            )
+            .run(sourceKey);
+      } else
+        this.db
+          .prepare(
+            "INSERT INTO codex_workspace_transitions(source_key,conversation_id,source,state,from_cwd) VALUES (?,?,?,'holding',?)",
+          )
+          .run(sourceKey, id, JSON.stringify(source), state.cwd);
+    })();
+    const fence = Object.freeze({
+      source,
+      assertCurrentSync: () => this.assertPreparedRepositoryQueueFence(id, binding, fence, source),
+    });
+    this.preparedQueueFences.set(fence, sourceKey);
+    fence.assertCurrentSync();
+    return fence;
+  }
+  private assertPreparedRepositoryQueueFence(
+    id: string,
+    binding: AccountBinding,
+    fence: PreparedRepositoryQueueFence,
+    source: Readonly<CodexNativeTurnTarget>,
+  ): void {
+    this.read(id, binding);
+    const sourceKey = this.preparedQueueFences.get(fence);
+    const row =
+      sourceKey &&
+      (this.db
+        .prepare(
+          'SELECT conversation_id,source,state FROM codex_workspace_transitions WHERE source_key=?',
+        )
+        .get(sourceKey) as { conversation_id: string; source: string; state: string } | undefined);
+    const target = {
+      commandId: source.commandId,
+      attempt: source.attempt,
+      threadId: source.threadId,
+      turnId: source.turnId,
+      generation: source.generation,
+    };
+    if (
+      !sourceKey ||
+      !row ||
+      row.conversation_id !== id ||
+      row.state !== 'holding' ||
+      row.source !== JSON.stringify(target) ||
+      !isDeepStrictEqual(fence.source, target) ||
+      this.commands(id, binding).some((command) => command.status === 'running')
+    )
+      throw Error('Prepared repository queue hold changed');
+  }
+  /** Repair native projection of an independently proved, already committed
+   * custody transfer. A fresh operator owns the caller; no provider effect or
+   * custody CAS is replayed. The hold remains closed until all stores agree. */
+  reconcilePreparedRepositoryWorkspaceProjection(
+    id: string,
+    binding: AccountBinding,
+    source: CompletedPreparedRepositorySource,
+    expectedCwd: string,
+    nextCwd: string,
+  ): Readonly<PreparedRepositoryQueueFence> {
+    this.db.transaction(() => {
+      const state = this.read(id, binding);
+      if (
+        ![expectedCwd, nextCwd].includes(state.cwd) ||
+        this.commands(id, binding).some((command) => command.status === 'running') ||
+        this.db
+          .prepare(
+            "SELECT 1 FROM codex_commands WHERE conversation_id=? AND status IN ('interrupted','failed') AND recovery_acknowledged=0",
+          )
+          .get(id)
+      )
+        throw Error('Prepared repository projection has unsettled native work');
+      this.assertNoPendingThreadDispatch(id, binding);
+      this.assertNoPendingThreadOwnership(id, binding);
+      // Startup marks a queue-only hold as recovery. Its source is a completed
+      // accepted turn and no later provider dispatch exists; keep the hold while
+      // clearing that startup projection, never an interrupted provider result.
+      if (state.recovery)
+        this.db.prepare('UPDATE codex_conversations SET recovery=0 WHERE id=?').run(id);
+      const fence = this.holdPreparedRepositoryTransition(id, binding, source);
+      this.assertPreparedRepositorySource(id, binding, source, undefined, undefined, fence, true);
+      const changed = this.db
+        .prepare('UPDATE codex_conversations SET cwd=? WHERE id=? AND cwd=?')
+        .run(nextCwd, id, state.cwd);
+      if (changed.changes !== 1) throw Error('Prepared repository native projection changed');
+    })();
+    return this.holdPreparedRepositoryTransition(id, binding, source);
+  }
+  completePreparedRepositoryTransition(
+    id: string,
+    binding: AccountBinding,
+    fence: PreparedRepositoryQueueFence,
+    transitionId: string,
+    nextCwd: string,
+  ): void {
+    this.db.transaction(() => {
+      this.assertPreparedRepositoryQueueFence(id, binding, fence, fence.source);
+      if (this.read(id, binding).cwd !== nextCwd)
+        throw Error('Prepared repository native projection incomplete');
+      const changed = this.db
+        .prepare(
+          "UPDATE codex_workspace_transitions SET state='adopted',transition_id=?,to_cwd=? WHERE source_key=? AND state='holding'",
+        )
+        .run(transitionId, nextCwd, this.preparedQueueFences.get(fence));
+      if (changed.changes !== 1) throw Error('Prepared repository transition completion changed');
+    })();
+  }
+  preparedRepositoryTransitionHold(id: string, binding: AccountBinding) {
+    this.read(id, binding);
+    const row = this.db
+      .prepare(
+        "SELECT source,from_cwd FROM codex_workspace_transitions WHERE conversation_id=? AND state IN ('holding','waiting')",
+      )
+      .get(id) as { source: string; from_cwd: string } | undefined;
+    return (
+      row &&
+      Object.freeze({
+        source: CodexNativeTurnTargetSchema.parse(JSON.parse(row.source)),
+        fromCwd: row.from_cwd,
+      })
+    );
+  }
+  suspendUntransferredPreparedRepositoryTransition(
+    id: string,
+    binding: AccountBinding,
+    fence: PreparedRepositoryQueueFence,
+  ): void {
+    this.db.transaction(() => {
+      this.assertPreparedRepositoryQueueFence(id, binding, fence, fence.source);
+      const row = this.db
+        .prepare('SELECT from_cwd FROM codex_workspace_transitions WHERE source_key=?')
+        .get(this.preparedQueueFences.get(fence)) as { from_cwd: string };
+      if (this.read(id, binding).cwd !== row.from_cwd)
+        throw Error('Prepared repository source is no longer primary');
+      this.db
+        .prepare(
+          "UPDATE codex_workspace_transitions SET state='waiting' WHERE source_key=? AND state='holding'",
+        )
+        .run(this.preparedQueueFences.get(fence));
+    })();
+  }
+  hasPreparedRepositoryTransitionHold(id: string, binding: AccountBinding): boolean {
+    this.read(id, binding);
+    return !!this.db
+      .prepare(
+        "SELECT 1 FROM codex_workspace_transitions WHERE conversation_id=? AND state IN ('holding','waiting')",
+      )
+      .get(id);
+  }
+  preparedRepositoryWorkspaceTransition(id: string, binding: AccountBinding, transitionId: string) {
+    this.read(id, binding);
+    const row = this.db
+      .prepare(
+        "SELECT source,from_cwd,to_cwd FROM codex_workspace_transitions WHERE conversation_id=? AND transition_id=? AND state='adopted'",
+      )
+      .get(id, transitionId) as { source: string; from_cwd: string; to_cwd: string } | undefined;
+    return (
+      row &&
+      Object.freeze({
+        source: CodexNativeTurnTargetSchema.parse(JSON.parse(row.source)),
+        fromCwd: row.from_cwd,
+        toCwd: row.to_cwd,
+      })
+    );
+  }
+  /** Observe retained adopted-workspace custody during explicit recovery.
+   * This does not acknowledge recovery, retry a command or grant dispatch. An
+   * interrupted command remains historical only with its exact accepted native
+   * turn; provider settlement is checked by the conversation recovery owner. */
+  assertPreparedRepositoryRecovery(
+    id: string,
+    binding: AccountBinding,
+    primaryCommandId: string,
+    liveCommandId?: string,
+  ): void {
+    this.db.transaction(() => {
+      const state = this.read(id, binding);
+      const commands = this.commands(id, binding);
+      const revision = this.preparedRepositoryWorkspaceTransition(id, binding, primaryCommandId);
+      const primary =
+        commands.find(
+          (command) => command.id === primaryCommandId && command.status !== 'cancelled',
+        ) ??
+        (revision && commands.find((command) => command.id === revision.source.commandId));
+      if (revision && revision.toCwd !== state.cwd)
+        throw Error('Prepared workspace revision is not current');
+      if (
+        !state.threadId ||
+        state.recoveryStrategy !== 'resume' ||
+        !primary ||
+        !['queued', 'running', 'completed', 'interrupted'].includes(primary.status) ||
+        commands.some((command) => command.status === 'running' && command.id !== liveCommandId)
+      )
+        throw Error('Prepared repository recovery custody unavailable');
+      this.assertNoPendingThreadOwnership(id, binding);
+      this.assertNoPendingThreadDispatch(id, binding);
+      const verifyInterrupted = (command: CodexCommand) => {
+        const receipt = this.readNativeExecution(id, binding, command);
+        const row = this.db
+          .prepare('SELECT native_turns FROM codex_commands WHERE conversation_id=? AND id=?')
+          .get(id, command.id) as { native_turns: string | null } | undefined;
+        const targets =
+          row &&
+          this.nativeTurns(row.native_turns).filter((turn) => turn.attempt === command.attempt);
+        const target = targets?.length === 1 ? targets[0] : undefined;
+        if (
+          command.status !== 'interrupted' ||
+          receipt?.phase !== 'accepted' ||
+          !target ||
+          receipt.threadId !== state.threadId ||
+          receipt.generation !== state.threadGeneration ||
+          receipt.turnId !== target.turnId ||
+          receipt.threadId !== target.threadId ||
+          receipt.generation !== target.generation
+        )
+          throw Error('Prepared repository interrupted turn evidence unavailable');
+      };
+      if (primary.status === 'interrupted') verifyInterrupted(primary);
+      if (state.recovery) {
+        const unresolved = this.db
+          .prepare(
+            "SELECT id FROM codex_commands WHERE conversation_id=? AND status IN ('failed','interrupted') AND recovery_acknowledged=0",
+          )
+          .all(id) as Array<{ id: string }>;
+        if (!unresolved.length && !revision)
+          throw Error('Prepared repository recovery has no retained turn');
+        for (const row of unresolved) {
+          const command = commands.find((candidate) => candidate.id === row.id);
+          if (!command) throw Error('Prepared repository recovery command unavailable');
+          verifyInterrupted(command);
+        }
+      }
+    })();
+  }
   /** Verify a completed source without reviving its expired native callback.
    * This does not authorize a read, a workspace change or another provider turn.
    * Old queued work is a hard boundary: never silently retarget that work or
@@ -3099,8 +3472,16 @@ export class CodexConversationStore {
     binding: AccountBinding,
     rawSource: CompletedPreparedRepositorySource,
     primarySource?: PreparedRepositoryPrimarySourceFence,
+    queueFence?: PreparedRepositoryQueueFence,
   ): void {
-    this.assertPreparedRepositorySource(id, binding, rawSource, undefined, primarySource);
+    this.assertPreparedRepositorySource(
+      id,
+      binding,
+      rawSource,
+      undefined,
+      primarySource,
+      queueFence,
+    );
   }
   private assertPreparedRepositorySource(
     id: string,
@@ -3108,11 +3489,14 @@ export class CodexConversationStore {
     rawSource: CompletedPreparedRepositorySource,
     exactQueuedChildId?: string,
     primarySource?: PreparedRepositoryPrimarySourceFence,
+    queueFence?: PreparedRepositoryQueueFence,
+    historicalRecovery = false,
   ): void {
     this.db.transaction(() => {
       const source = CompletedPreparedRepositorySourceSchema.parse(rawSource);
       const current = this.read(id, binding);
       const commands = this.commands(id, binding);
+      if (queueFence) this.assertPreparedRepositoryQueueFence(id, binding, queueFence, rawSource);
       const original = commands.find((command) => command.id === source.commandId);
       const row = this.db
         .prepare(
@@ -3134,15 +3518,15 @@ export class CodexConversationStore {
         commands.some(
           (command) =>
             command.status === 'running' ||
-            (command.status === 'queued' && command.id !== exactQueuedChildId),
+            (command.status === 'queued' && command.id !== exactQueuedChildId && !queueFence),
         ) ||
         !original?.intent?.trim() ||
         original.allowedTools ||
-        (original.environmentContinuation && !primarySource) ||
+        (original.environmentContinuation && !primarySource && !historicalRecovery) ||
         commands.filter((command) => command.status !== 'queued').at(-1)?.id !== source.commandId
       )
         fail();
-      if (original!.environmentContinuation) {
+      if (original!.environmentContinuation && !historicalRecovery) {
         if (
           !/^prepared-repository-[a-f0-9]{64}$/.test(original!.id) ||
           primarySource?.commandId !== source.commandId
@@ -3202,6 +3586,7 @@ export class CodexConversationStore {
     source: CompletedPreparedRepositorySource,
     rawInput: CodexCommandInput,
     primarySource?: PreparedRepositoryPrimarySourceFence,
+    queueFence?: PreparedRepositoryQueueFence,
   ): void {
     this.db.transaction(() => {
       const input = CommandInput.parse(rawInput);
@@ -3229,7 +3614,7 @@ export class CodexConversationStore {
         throw Error('Prepared repository child is not exactly queued');
       if (!isDeepStrictEqual(retained, expected))
         throw Error('Prepared repository queued child changed');
-      this.assertPreparedRepositorySource(id, binding, source, input.id, primarySource);
+      this.assertPreparedRepositorySource(id, binding, source, input.id, primarySource, queueFence);
     })();
   }
   /** Called only after the existing admission owner consumed the exact prepared
@@ -3241,9 +3626,10 @@ export class CodexConversationStore {
     source: CompletedPreparedRepositorySource,
     rawInput: CodexCommandInput,
     primarySource?: PreparedRepositoryPrimarySourceFence,
+    queueFence?: PreparedRepositoryQueueFence,
   ): boolean {
     return this.db.transaction(() => {
-      this.assertCompletedPreparedRepositorySource(id, binding, source, primarySource);
+      this.assertCompletedPreparedRepositorySource(id, binding, source, primarySource, queueFence);
       const input = CommandInput.parse(rawInput);
       const original = this.commands(id, binding).find(
         (command) => command.id === source.commandId,
@@ -3278,9 +3664,10 @@ export class CodexConversationStore {
     expectedCwd: string,
     nextCwd: string,
     primarySource?: PreparedRepositoryPrimarySourceFence,
+    queueFence?: PreparedRepositoryQueueFence,
   ): void {
     this.db.transaction(() => {
-      this.assertCompletedPreparedRepositorySource(id, binding, source, primarySource);
+      this.assertCompletedPreparedRepositorySource(id, binding, source, primarySource, queueFence);
       if (
         !isAbsolute(nextCwd) ||
         resolve(nextCwd) !== nextCwd ||

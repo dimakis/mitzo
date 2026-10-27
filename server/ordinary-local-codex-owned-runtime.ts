@@ -55,7 +55,10 @@ import { readCodexModels } from './model-catalog.js';
 import type { CodexConversationStore } from './codex-conversation-store.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
 import { PreparedRepositoryWorkspaceOwner } from './prepared-repository-workspace-owner.js';
-import { performPreparedRepositoryPrimaryTransition } from './owned-prepared-repository-transition.js';
+import {
+  performPreparedRepositoryPrimaryTransition,
+  reconcilePreparedRepositoryTransitionProjection,
+} from './owned-prepared-repository-transition.js';
 import { withPreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
 import {
   capturePreparedRepositoryReader,
@@ -150,6 +153,9 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   #adoptedWorkspaceOwner?: LocalWorkspaceCustodyOwner<'repository'>;
   #authSessionId?: string;
   #closed = false;
+  #continuationAdmissionTail: Promise<void> = Promise.resolve();
+  #pendingContinuations = 0;
+  #workspaceTransitionBarrier?: { ready: Promise<void>; release(): void };
   readonly #onAbort = () => this.close();
 
   constructor(private readonly owners: Owners<K>) {
@@ -215,6 +221,25 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
     return this.admitCommand(raw, false, operationId);
   }
   async admitResume(raw: unknown): Promise<{ dispatched: boolean }> {
+    this.assertCurrent();
+    const native = this.owners.nativeStore;
+    if (native) {
+      const custody = native.readHostCustody(
+        this.#reservation.conversationId,
+        this.#reservation.binding,
+      );
+      if (!custody || !ordinaryOperatorOwnsConversation(custody.authSessionId, this.#authSessionId))
+        throw unavailable();
+      const current = reconcilePreparedRepositoryTransitionProjection({
+        workspace: this.owners.workspace,
+        events: this.owners.eventStore,
+        native,
+        conversationId: this.#reservation.conversationId,
+        binding: this.#reservation.binding,
+        assertCurrentSync: () => this.assertCurrent(),
+      });
+      if (current && current.id !== this.#reservation.id) throw unavailable();
+    }
     return this.admitCommand(raw, true);
   }
   private async admitCommand(
@@ -328,6 +353,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                   'commands',
                   'assertNoPendingThreadDispatch',
                   'assertNoPendingThreadOwnership',
+                  'assertPreparedRepositoryRecovery',
+                  'preparedRepositoryWorkspaceTransition',
                 ],
               },
             ]
@@ -398,6 +425,16 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         const command = native
           .commands(this.#reservation.conversationId, this.#reservation.binding)
           .find((value) => value.id === coldPrimary);
+        const workspaceRevision = native.preparedRepositoryWorkspaceTransition(
+          this.#reservation.conversationId,
+          this.#reservation.binding,
+          coldPrimary,
+        );
+        const retainedSource =
+          workspaceRevision &&
+          isDeepStrictEqual(workspaceRevision.source, coldFacts.request.nativeTarget) &&
+          workspaceRevision.fromCwd === coldFacts.oldWorkspace.directory &&
+          workspaceRevision.toCwd === coldFacts.newWorkspace.directory;
         if (
           !receipt ||
           receipt.state !== 'consumed' ||
@@ -415,25 +452,35 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           !isDeepStrictEqual(meta.accountBinding, this.#reservation.binding) ||
           state.cwd !== coldFacts.newWorkspace.directory ||
           !state.threadId ||
-          state.recovery ||
           state.threadId !== coldNative.threadId ||
           state.threadGeneration !== coldNative.threadGeneration ||
           !isDeepStrictEqual(
             native.readHostCustody(this.#reservation.conversationId, this.#reservation.binding),
             coldCustody,
           ) ||
-          !command ||
-          !(
-            this.#admission ? ['queued', 'running', 'completed'] : ['queued', 'completed']
-          ).includes(command.status) ||
-          !isDeepStrictEqual(command.environmentContinuation, {
-            sourceCommandId: coldFacts.request.nativeTarget.commandId,
-            sourceThreadId: coldFacts.request.nativeTarget.threadId,
-            sourceTurnId: coldFacts.request.nativeTarget.turnId,
-            sourceGeneration: coldFacts.request.nativeTarget.generation,
-          })
+          (!command && !retainedSource) ||
+          (command &&
+            !(command.status === 'cancelled' && retainedSource) &&
+            (!(
+              this.#admission
+                ? ['queued', 'running', 'completed', 'interrupted']
+                : ['queued', 'completed', 'interrupted']
+            ).includes(command.status) ||
+              !isDeepStrictEqual(command.environmentContinuation, {
+                sourceCommandId: coldFacts.request.nativeTarget.commandId,
+                sourceThreadId: coldFacts.request.nativeTarget.threadId,
+                sourceTurnId: coldFacts.request.nativeTarget.turnId,
+                sourceGeneration: coldFacts.request.nativeTarget.generation,
+              })))
         )
           throw unavailable();
+        if (state.recovery || command?.status === 'interrupted')
+          native.assertPreparedRepositoryRecovery(
+            this.#reservation.conversationId,
+            this.#reservation.binding,
+            coldPrimary,
+            this.#admission ? this.owners.commandId : undefined,
+          );
         native.assertNoPendingThreadDispatch(
           this.#reservation.conversationId,
           this.#reservation.binding,
@@ -639,10 +686,15 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                   this.owners.commandId,
                   coldPrimary,
                 )
-              : this.owners.eventStore.observePreparedRepositoryBootstrapAdmission(
-                  this.#preparedPrimaryCommandId,
-                  this.owners.commandId,
-                )
+              : resume
+                ? this.owners.eventStore.observePreparedRepositoryResumedBootstrapAdmission(
+                    this.#preparedPrimaryCommandId,
+                    this.owners.commandId,
+                  )
+                : this.owners.eventStore.observePreparedRepositoryBootstrapAdmission(
+                    this.#preparedPrimaryCommandId,
+                    this.owners.commandId,
+                  )
             : this.owners.eventStore.getOrdinaryLocalCommandAdmission(this.owners.commandId);
           if (receipt?.state !== 'consumed') return true;
           if (!this.owners.nativeStore) return false;
@@ -842,10 +894,10 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                     strictSync(Reflect.apply(currentPolicyOwner, policyOwner, []));
                   };
                   assertPolicyOwner();
-                  const primarySource = admission.capturePreparedRepositoryPrimarySource(
-                    source,
-                    assertConversationCurrentSync,
-                  );
+                  let transitionBarrier: { ready: Promise<void>; release(): void } | undefined;
+                  let primarySource:
+                    | import('./owned-local-codex-chat-admission.js').CapturedPreparedRepositoryPrimarySource
+                    | undefined;
                   try {
                     const input = Object.freeze({
                       binding,
@@ -861,19 +913,33 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                     // work when a completed turn did not prepare a repository.
                     if (!this.owners.workspace.findPreparedRepositoryTransitionCandidate(input))
                       return undefined;
+                    if (this.#workspaceTransitionBarrier) throw unavailable();
+                    const precedingAdmissions = this.#continuationAdmissionTail;
+                    let release!: () => void;
+                    const ready = new Promise<void>((resolve) => {
+                      release = resolve;
+                    });
+                    transitionBarrier = { ready, release };
+                    this.#workspaceTransitionBarrier = transitionBarrier;
+                    await precedingAdmissions;
+                    assertConversationCurrentSync();
+                    assertPolicyOwner();
+                    const queueFence = native.holdPreparedRepositoryTransition(
+                      input.conversationId,
+                      binding,
+                      source,
+                    );
+                    primarySource = admission.capturePreparedRepositoryPrimarySource(
+                      source,
+                      assertConversationCurrentSync,
+                      queueFence,
+                    );
                     const queue = () => {
                       assertConversationCurrentSync();
                       this.assertCurrent();
                       primarySource?.assertCurrentSync();
-                      if (
-                        native
-                          .commands(input.conversationId, binding)
-                          .some(
-                            (command) =>
-                              command.status === 'queued' || command.status === 'running',
-                          )
-                      )
-                        throw Error('Prepared repository transition has queued old-workspace work');
+                      queueFence.assertCurrentSync();
+                      admission.assertPreparedRepositoryQueuedCommands(queueFence);
                     };
                     const proof = await this.owners.workspace.capturePreparedRepositoryTransition(
                       input,
@@ -888,6 +954,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                             request.prepareCallId,
                             request.requestHash,
                             primarySource,
+                            queueFence,
                           ),
                       },
                     );
@@ -900,6 +967,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                       binding,
                       expected: currentExpected,
                       preparedPrimarySource: primarySource,
+                      queueFence,
+                      hasPendingExplicitCommands: () => this.#pendingContinuations > 0,
                       assertCurrentSync: () => {
                         assertConversationCurrentSync();
                         assertPolicyOwner();
@@ -1042,6 +1111,13 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                     };
                   } finally {
                     primarySource?.dispose();
+                    if (
+                      transitionBarrier &&
+                      this.#workspaceTransitionBarrier === transitionBarrier
+                    ) {
+                      this.#workspaceTransitionBarrier = undefined;
+                      transitionBarrier.release();
+                    }
                   }
                 },
               }),
@@ -1095,6 +1171,37 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
    * This cannot reopen a closed owner or replay a retained uncertain command.
    */
   async admitContinuation(
+    raw: unknown,
+    preparationSignal?: AbortSignal,
+    peer?: { messageId: string; assertCurrent(): void },
+    assertCredentialSetupCurrent?: () => void,
+  ): Promise<{ dispatched: boolean }> {
+    raw = structuredClone(raw);
+    // Preserve arrival order even when model qualification crosses awaits.
+    // A transition drains preceding admissions, then later requests wait for
+    // its committed workspace before gaining any execution admission.
+    const barrier = this.#workspaceTransitionBarrier;
+    this.#pendingContinuations++;
+    const operation = this.#continuationAdmissionTail
+      .then(async () => {
+        if (barrier) await barrier.ready;
+        return this.admitContinuationNow(
+          raw,
+          preparationSignal,
+          peer,
+          assertCredentialSetupCurrent,
+        );
+      })
+      .finally(() => {
+        this.#pendingContinuations--;
+      });
+    this.#continuationAdmissionTail = operation.then(
+      () => {},
+      () => {},
+    );
+    return operation;
+  }
+  private async admitContinuationNow(
     raw: unknown,
     preparationSignal?: AbortSignal,
     peer?: { messageId: string; assertCurrent(): void },
@@ -1397,6 +1504,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
+    this.#workspaceTransitionBarrier?.release();
+    this.#workspaceTransitionBarrier = undefined;
     this.#controller.abort(unavailable());
     this.#signal?.removeEventListener('abort', this.#onAbort);
     this.#operator?.release();

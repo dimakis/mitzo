@@ -104,7 +104,7 @@ function owner(context: NativeHostToolContext, root: string) {
 async function signedReadPositive(
   tool: 'DiscoverLocalRepository' | 'InspectLocalRepository',
   detachedViewer = false,
-  pathCase: 'root' | 'nested' | 'missing' | 'missing-parent' = 'root',
+  pathCase: 'root' | 'nested' | 'missing' | 'missing-parent' | 'catalog' | 'query' = 'root',
 ) {
   const started = performance.now();
   let phase: 'setup' | 'call' | 'verification' = 'setup';
@@ -147,7 +147,19 @@ async function signedReadPositive(
       cleanups,
       async (context, input) => {
         original = context;
-        const tools = sessionLocalRepositoryTools(owner(context, source));
+        const selectedOwner = owner(context, source);
+        const tools = sessionLocalRepositoryTools(
+          pathCase === 'catalog'
+            ? {
+                ...selectedOwner,
+                readPolicy: async () => ({
+                  ...(await selectedOwner.readPolicy()),
+                  discoveryRoots: [context.workspace.directory],
+                  repositoryCatalog: { Mitzo: source },
+                }),
+              }
+            : selectedOwner,
+        );
         const result = await tools.execute(context.toolName, input, context.signal);
         expect(result).toBeDefined();
         return result!;
@@ -200,7 +212,14 @@ async function signedReadPositive(
     callStarted = performance.now();
     let result: Awaited<ReturnType<typeof f.a.call>>;
     try {
-      result = await f.a.call({ path: requestedPath }, { tool });
+      result = await f.a.call(
+        pathCase === 'catalog'
+          ? { query: 'mitzo' }
+          : pathCase === 'query'
+            ? { query: 'read-tools-source' }
+            : { path: requestedPath },
+        { tool },
+      );
     } finally {
       callEnded = performance.now();
       phase = 'verification';
@@ -284,6 +303,14 @@ async function signedReadPositive(
     );
   }
 }
+it.runIf(process.platform === 'darwin')(
+  'discovers an uncatalogued repository name through the signed native reader',
+  () => signedReadPositive('DiscoverLocalRepository', false, 'query'),
+);
+it.runIf(process.platform === 'darwin')(
+  'resolves a configured name outside the task through the signed native reader',
+  () => signedReadPositive('DiscoverLocalRepository', false, 'catalog'),
+);
 it.runIf(process.platform === 'darwin')(
   'uses the actual signed native reader for discovery and joins cleanup before returning facts',
   () => signedReadPositive('DiscoverLocalRepository'),

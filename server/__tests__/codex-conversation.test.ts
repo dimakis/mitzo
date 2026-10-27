@@ -4414,6 +4414,22 @@ it('keeps an undefined startup rejection fail-closed', async () => {
   await expect(c.initialize()).rejects.toThrow('permanently vetoed');
 });
 
+it('waits for explicit admission consumption before prepared repository boundary effects', async () => {
+  const f = await setup();
+  let consumed = false;
+  const admit = vi.fn(async () => {});
+  f.conversationOptions.canClaimCommand = () => consumed;
+  f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+  await f.c.send({ id: 'pending-cold-resume', prompt: 'Fresh explicit resume' });
+  expect(admit).not.toHaveBeenCalled();
+  expect(f.c.queue()).toMatchObject([{ id: 'pending-cold-resume', status: 'queued' }]);
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+  consumed = true;
+  await f.c.startQueued();
+  expect(admit).toHaveBeenCalledOnce();
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+});
+
 it('runs retained-primary admission only after completed cleanup and before claiming its automatic child', async () => {
   const f = await setup();
   await f.c.send({ id: 'original-workspace', prompt: 'Original task' });

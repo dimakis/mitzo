@@ -26,7 +26,9 @@ const workflow = load(
       needs: string | string[];
       if?: string;
       strategy?: {
-        matrix: { project: string[]; include?: { project: string; browser: string }[] };
+        matrix: {
+          include: { project: string; browser: string; shard: number; shards: number }[];
+        };
         'fail-fast': boolean;
       };
     }
@@ -37,11 +39,15 @@ describe('browser failure evidence', () => {
   it('installs each offline project engine while retaining both interaction engines', () => {
     const projects = offline.projects!.filter((p) => !p.name!.startsWith('browser-startup-'));
     const installs = workflow.jobs.offline.strategy?.matrix.include ?? [];
-    expect(installs.map((entry) => entry.project)).toEqual(projects.map((p) => p.name));
-    for (const project of projects)
-      expect(installs.find((entry) => entry.project === project.name)?.browser).toBe(
+    expect([...new Set(installs.map((entry) => entry.project))]).toEqual(
+      projects.map((p) => p.name),
+    );
+    for (const entry of installs) {
+      const project = projects.find((project) => project.name === entry.project)!;
+      expect(entry.browser).toBe(
         project.use?.browserName ?? project.use?.defaultBrowserType ?? 'chromium',
       );
+    }
     expect(
       workflow.jobs.offline.steps.find((step) => step.run?.startsWith('npx playwright install'))
         ?.run,
@@ -71,7 +77,11 @@ describe('browser failure evidence', () => {
 
   it.each([
     ['browser', 'browser-tests', 'npm run test:browser'],
-    ['offline', 'offline-tests', 'npm run test:ui -- --project=${{ matrix.project }}'],
+    [
+      'offline',
+      'offline-tests',
+      'npm run test:ui -- --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}',
+    ],
   ])(
     'uploads %s failure evidence immediately after its suite and keeps rerun attempts separate',
     (suite, id, command) => {
@@ -87,7 +97,7 @@ describe('browser failure evidence', () => {
         `playwright-report/${suite}/`,
       ]);
       expect(upload.with?.name).toBe(
-        `playwright-${suite}-failure-${suite === 'offline' ? '${{ matrix.project }}-' : ''}\${{ github.run_id }}-\${{ github.run_attempt }}`,
+        `playwright-${suite}-failure-${suite === 'offline' ? '${{ matrix.project }}-shard-${{ matrix.shard }}-' : ''}\${{ github.run_id }}-\${{ github.run_attempt }}`,
       );
       expect(upload.with?.['retention-days']).toBe(7);
       expect(upload.with?.['if-no-files-found']).toBe('warn');
@@ -102,7 +112,20 @@ describe('browser failure evidence', () => {
     expect(workflow.jobs.offline.if).toBe(workflow.jobs.browser.if);
     expect(workflow.jobs.offline.strategy?.['fail-fast']).toBe(false);
     const projects = offline.projects!.filter((p) => !p.name!.startsWith('browser-startup-'));
-    expect(workflow.jobs.offline.strategy?.matrix.project).toEqual(projects.map((p) => p.name));
+    const matrix = workflow.jobs.offline.strategy!.matrix;
+    expect(Object.keys(matrix)).toEqual(['include']);
+    expect([...new Set(matrix.include.map((entry) => entry.project))]).toEqual(
+      projects.map((p) => p.name),
+    );
+    for (const project of projects) {
+      const entries = matrix.include.filter((entry) => entry.project === project.name);
+      const count = project.name === 'mobile-webkit' ? 4 : 1;
+      expect(entries.map((entry) => entry.shard).sort((a, b) => a - b)).toEqual(
+        Array.from({ length: count }, (_, index) => index + 1),
+      );
+      expect(entries.every((entry) => entry.shards === count)).toBe(true);
+    }
+    expect(offline.workers).toBe(1);
     for (const job of ['browser', 'offline', 'browser-validation']) {
       expect(workflow.jobs[job].permissions).toEqual({ contents: 'read' });
     }
@@ -114,6 +137,7 @@ describe('browser failure evidence', () => {
       step.uses?.startsWith('actions/upload-artifact@'),
     )) {
       expect(step.with?.name).toContain('${{ matrix.project }}');
+      expect(step.with?.name).toContain('shard-${{ matrix.shard }}');
     }
   });
 });

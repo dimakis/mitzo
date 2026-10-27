@@ -1,4 +1,5 @@
 import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
+import { navigateWithServiceHealth } from '../support/service-health-navigation';
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -141,7 +142,7 @@ for (const width of [320, 393, 1280]) {
           },
         }),
       );
-      await page.goto(`/files?path=${filename}`);
+      await navigateWithServiceHealth(page, () => page.goto(`/files?path=${filename}`));
       const header = page.locator('.viewer-header');
       await expect(page.getByRole('heading', { name: 'Report', exact: true })).toBeVisible();
       const padding = await header.evaluate((element) => {

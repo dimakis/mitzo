@@ -14,7 +14,6 @@ vi.mock('../worktree.js', async (importOriginal) => {
     ...actual,
     removeWorktree: vi.fn(),
     hasUncommittedWork: vi.fn().mockReturnValue(null),
-    rescueDirtyWorktree: vi.fn().mockReturnValue({ success: true }),
     createWorktree: vi.fn(actual.createWorktree as (...args: unknown[]) => unknown),
   };
 });
@@ -249,312 +248,27 @@ it('preserves trusted driver cleanup of its owned query while the durable cleanu
 });
 
 describe('cleanupSessionWorktrees', () => {
-  let removeWorktreeMock: ReturnType<typeof vi.fn>;
-  let hasUncommittedWorkMock: ReturnType<typeof vi.fn>;
-  let rescueDirtyWorktreeMock: ReturnType<typeof vi.fn>;
-
-  beforeEach(async () => {
-    const worktreeMod = await import('../worktree.js');
-    removeWorktreeMock = worktreeMod.removeWorktree as ReturnType<typeof vi.fn>;
-    hasUncommittedWorkMock = worktreeMod.hasUncommittedWork as ReturnType<typeof vi.fn>;
-    rescueDirtyWorktreeMock = worktreeMod.rescueDirtyWorktree as ReturnType<typeof vi.fn>;
-    removeWorktreeMock.mockReset();
-    hasUncommittedWorkMock.mockReset();
-    hasUncommittedWorkMock.mockReturnValue(null);
-    rescueDirtyWorktreeMock.mockReset();
-    rescueDirtyWorktreeMock.mockReturnValue({ success: true });
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-  });
-
-  it('preserves externally retained contributor workspaces after a cold resume', async () => {
-    const { cleanupSessionWorktrees, eventStore } = await import('../chat.js');
-    const sessionId = 'retained-contributor-workspace';
-    eventStore.upsertSession({ sessionId });
-    eventStore.append(sessionId, 'workspace_retention', { policy: 'external-owner' });
-    const session = {
-      sessionId,
-      worktreePaths: new Map([
-        ['primary', { path: '/repo/.claude/worktrees/parent', wtId: 'parent' }],
-        ['other', { path: '/other/.claude/worktrees/parent', wtId: 'parent' }],
-      ]),
-    } as unknown as ManagedSession;
-    cleanupSessionWorktrees(session);
-    expect(removeWorktreeMock).not.toHaveBeenCalled();
-    expect(rescueDirtyWorktreeMock).not.toHaveBeenCalled();
-    expect(session.worktreePaths.size).toBe(2);
-  });
-
-  it('skips primary worktree and only removes secondaries', async () => {
-    const { loadRepoConfig } = await import('../repo-config.js');
-    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
-      repos: { mitzo: '/tools/mitzo', centaur: '/projects/centaur' },
-      isolation: true,
-    });
-
-    // Force getRepoConfig TTL cache to expire so our mock is picked up
-    const realNow = Date.now;
-    Date.now = () => realNow() + 10_000;
-
-    const { cleanupSessionWorktrees } = await import('../chat.js');
-
-    const session = {
-      worktreePaths: new Map([
+  it.each(['clean', 'dirty', 'unknown'])(
+    'retains all resumable SDK worktree mappings on stop (%s)',
+    async (status) => {
+      const worktree = await import('../worktree.js');
+      const remove = worktree.removeWorktree as ReturnType<typeof vi.fn>;
+      remove.mockClear();
+      (worktree.hasUncommittedWork as ReturnType<typeof vi.fn>).mockReturnValue(
+        status === 'clean' ? null : status === 'dirty' ? 'M file' : '[git status failed: timeout]',
+      );
+      const { cleanupSessionWorktrees } = await import('../chat.js');
+      const paths = new Map([
         ['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
         ['mitzo', { path: '/tools/mitzo/.claude/worktrees/abc', wtId: 'abc' }],
-        ['centaur', { path: '/projects/centaur/.claude/worktrees/abc', wtId: 'abc' }],
-      ]),
-    } as unknown as ManagedSession;
-
-    cleanupSessionWorktrees(session);
-
-    expect(removeWorktreeMock).toHaveBeenCalledWith('abc', '/tools/mitzo');
-    expect(removeWorktreeMock).toHaveBeenCalledWith('abc', '/projects/centaur');
-    expect(removeWorktreeMock).toHaveBeenCalledTimes(2);
-
-    expect(session.worktreePaths.has('primary')).toBe(true);
-    expect(session.worktreePaths.get('primary')?.wtId).toBe('abc');
-
-    expect(session.worktreePaths.has('mitzo')).toBe(false);
-    expect(session.worktreePaths.has('centaur')).toBe(false);
-    expect(session.worktreePaths.size).toBe(1);
-
-    Date.now = realNow;
-    vi.restoreAllMocks();
-  });
-
-  it('handles session with only primary worktree', async () => {
-    const { loadRepoConfig } = await import('../repo-config.js');
-    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
-      repos: {},
-      isolation: true,
-    });
-
-    const realNow = Date.now;
-    Date.now = () => realNow() + 10_000;
-
-    const { cleanupSessionWorktrees } = await import('../chat.js');
-
-    const session = {
-      worktreePaths: new Map([['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }]]),
-    } as unknown as ManagedSession;
-
-    cleanupSessionWorktrees(session);
-
-    expect(removeWorktreeMock).not.toHaveBeenCalled();
-    expect(session.worktreePaths.has('primary')).toBe(true);
-    expect(session.worktreePaths.size).toBe(1);
-
-    Date.now = realNow;
-    vi.restoreAllMocks();
-  });
-
-  it('handles session with no worktrees', async () => {
-    const { cleanupSessionWorktrees } = await import('../chat.js');
-
-    const session = {
-      worktreePaths: new Map(),
-    } as unknown as ManagedSession;
-
-    cleanupSessionWorktrees(session);
-
-    expect(session.worktreePaths.size).toBe(0);
-  });
-
-  it('skips secondary whose path matches primary worktree', async () => {
-    const { loadRepoConfig } = await import('../repo-config.js');
-    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
-      repos: { mgmt: '/repo', mitzo: '/tools/mitzo' },
-      isolation: true,
-    });
-
-    const realNow = Date.now;
-    Date.now = () => realNow() + 10_000;
-
-    const { cleanupSessionWorktrees } = await import('../chat.js');
-
-    // "mgmt" secondary points to the same path as "primary" —
-    // simulates discoverSessionWorktrees adding both entries
-    const session = {
-      worktreePaths: new Map([
-        ['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
-        ['mgmt', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
-        ['mitzo', { path: '/tools/mitzo/.claude/worktrees/abc', wtId: 'abc' }],
-      ]),
-    } as unknown as ManagedSession;
-
-    cleanupSessionWorktrees(session);
-
-    // mgmt should NOT be removed (same path as primary), mitzo should be removed
-    expect(removeWorktreeMock).toHaveBeenCalledWith('abc', '/tools/mitzo');
-    expect(removeWorktreeMock).toHaveBeenCalledTimes(1);
-
-    expect(session.worktreePaths.has('primary')).toBe(true);
-    expect(session.worktreePaths.size).toBe(1);
-
-    Date.now = realNow;
-    vi.restoreAllMocks();
-  });
-
-  it('skips dirty secondary when rescue fails', async () => {
-    vi.useFakeTimers();
-
-    const { loadRepoConfig } = await import('../repo-config.js');
-    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
-      repos: { mitzo: '/tools/mitzo' },
-      isolation: true,
-    });
-
-    vi.advanceTimersByTime(10_000);
-
-    hasUncommittedWorkMock.mockReturnValue('M  server/chat.ts');
-    rescueDirtyWorktreeMock.mockReturnValue({ success: false, error: 'no remote' });
-
-    const { cleanupSessionWorktrees } = await import('../chat.js');
-
-    const session = {
-      worktreePaths: new Map([
-        ['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
-        ['mitzo', { path: '/tools/mitzo/.claude/worktrees/abc', wtId: 'abc' }],
-      ]),
-    } as unknown as ManagedSession;
-
-    cleanupSessionWorktrees(session);
-    vi.runAllTimers();
-
-    // Dirty + rescue failed → worktree directory must NOT be removed from disk
-    expect(removeWorktreeMock).not.toHaveBeenCalled();
-    expect(session.worktreePaths.has('primary')).toBe(true);
-  });
-
-  it('removes dirty secondary after successful rescue', async () => {
-    vi.useFakeTimers();
-
-    const { loadRepoConfig } = await import('../repo-config.js');
-    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
-      repos: { mitzo: '/tools/mitzo' },
-      isolation: true,
-    });
-
-    vi.advanceTimersByTime(10_000);
-
-    hasUncommittedWorkMock.mockReturnValue('M  server/chat.ts');
-    rescueDirtyWorktreeMock.mockReturnValue({ success: true, prUrl: 'https://github.com/pr/1' });
-
-    const { cleanupSessionWorktrees } = await import('../chat.js');
-
-    const session = {
-      worktreePaths: new Map([
-        ['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
-        ['mitzo', { path: '/tools/mitzo/.claude/worktrees/abc', wtId: 'abc' }],
-      ]),
-    } as unknown as ManagedSession;
-
-    cleanupSessionWorktrees(session);
-    vi.runAllTimers();
-
-    expect(removeWorktreeMock).toHaveBeenCalledWith('abc', '/tools/mitzo');
-    expect(removeWorktreeMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('preserves worktree when hasUncommittedWork returns git-failure sentinel', async () => {
-    vi.useFakeTimers();
-
-    const { loadRepoConfig } = await import('../repo-config.js');
-    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
-      repos: { mitzo: '/tools/mitzo' },
-      isolation: true,
-    });
-
-    vi.advanceTimersByTime(10_000);
-
-    hasUncommittedWorkMock.mockReturnValue('[git status failed: timeout]');
-    rescueDirtyWorktreeMock.mockReturnValue({ success: false, error: 'broken worktree' });
-
-    const { cleanupSessionWorktrees } = await import('../chat.js');
-
-    const session = {
-      worktreePaths: new Map([
-        ['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
-        ['mitzo', { path: '/tools/mitzo/.claude/worktrees/abc', wtId: 'abc' }],
-      ]),
-    } as unknown as ManagedSession;
-
-    cleanupSessionWorktrees(session);
-    vi.runAllTimers();
-
-    expect(removeWorktreeMock).not.toHaveBeenCalled();
-  });
-
-  it('handles hasUncommittedWork throwing an exception gracefully', async () => {
-    vi.useFakeTimers();
-
-    const { loadRepoConfig } = await import('../repo-config.js');
-    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
-      repos: { mitzo: '/tools/mitzo' },
-      isolation: true,
-    });
-
-    vi.advanceTimersByTime(10_000);
-
-    hasUncommittedWorkMock.mockImplementation(() => {
-      throw new Error('ENOENT: no such file or directory');
-    });
-
-    const { cleanupSessionWorktrees } = await import('../chat.js');
-
-    const session = {
-      worktreePaths: new Map([
-        ['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
-        ['mitzo', { path: '/tools/mitzo/.claude/worktrees/abc', wtId: 'abc' }],
-      ]),
-    } as unknown as ManagedSession;
-
-    cleanupSessionWorktrees(session);
-    vi.runAllTimers();
-
-    expect(removeWorktreeMock).not.toHaveBeenCalled();
-    expect(session.worktreePaths.has('primary')).toBe(true);
-  });
-
-  it('handles multiple dirty secondaries — one rescue succeeds, one fails', async () => {
-    vi.useFakeTimers();
-
-    const { loadRepoConfig } = await import('../repo-config.js');
-    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
-      repos: { mitzo: '/tools/mitzo', centaur: '/projects/centaur' },
-      isolation: true,
-    });
-
-    vi.advanceTimersByTime(10_000);
-
-    hasUncommittedWorkMock.mockReturnValue('M  file.ts');
-    // First call (mitzo) fails rescue, second call (centaur) succeeds
-    rescueDirtyWorktreeMock
-      .mockReturnValueOnce({ success: false, error: 'no remote' })
-      .mockReturnValueOnce({ success: true, prUrl: 'https://github.com/pr/2' });
-
-    const { cleanupSessionWorktrees } = await import('../chat.js');
-
-    const session = {
-      worktreePaths: new Map([
-        ['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
-        ['mitzo', { path: '/tools/mitzo/.claude/worktrees/abc', wtId: 'abc' }],
-        ['centaur', { path: '/projects/centaur/.claude/worktrees/abc', wtId: 'abc' }],
-      ]),
-    } as unknown as ManagedSession;
-
-    cleanupSessionWorktrees(session);
-    // Both deferred rescues fire after the loop
-    vi.runAllTimers();
-
-    // Only centaur (rescue succeeded) should be removed; mitzo preserved
-    expect(removeWorktreeMock).toHaveBeenCalledWith('abc', '/projects/centaur');
-    expect(removeWorktreeMock).toHaveBeenCalledTimes(1);
-  });
+      ]);
+      const session = { worktreePaths: paths } as unknown as ManagedSession;
+      cleanupSessionWorktrees(session);
+      expect(session.worktreePaths).toEqual(paths);
+      expect(session.worktreePaths.size).toBe(2);
+      expect(remove).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('createSessionWorktrees — lazy secondary creation', () => {

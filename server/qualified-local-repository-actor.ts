@@ -1,6 +1,7 @@
+import { repositoryGitEntrySizeLimit } from './repository-git-container-policy.js';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, writeFile, cp, readdir, readFile, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   captureNativeHostReadOwner,
@@ -36,7 +37,11 @@ import {
   snapshotQualifiedLocalRepositoryPublication,
   type QualifiedLocalRepositoryPublication,
 } from './qualified-local-repository-task.js';
-import type { NativeExclusiveTreeEntry } from './native-tree-publication.js';
+import { type NativeExclusiveTreeEntry } from './native-tree-publication.js';
+import {
+  standaloneRepositoryCheckoutConfig,
+  privateRepositoryCheckoutAttributes,
+} from './private-repository-checkout.js';
 
 const unavailable = () => Error('Qualified repository materialization unavailable');
 const sha = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex');
@@ -224,99 +229,231 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       }
     }
     current();
-    const metadataFiles: NativePreparationPublicationPlan['metadata'][number][] = [];
-    const publish = async (bytes: Buffer) => {
-      current();
-      const payload = join(scratch, `publication-${metadataFiles.length}`);
-      await writeFile(payload, bytes, { flag: 'wx', mode: 0o600 });
-      current();
-      metadataFiles.push(
-        Object.freeze({
-          file_path: payload,
-          rootAnchor: scratchAnchor,
-          parentIdentity: scratchAnchor.identity,
-          identity: await identity(payload),
-          size: bytes.length,
-          sha256: sha(bytes),
-        }),
-      );
-    };
-    // The generated index is an owned private output, never source index bytes.
-    const indexFile = await open(
-      join(view.gitDirectory, 'index'),
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    );
-    let index: Buffer;
-    try {
-      const before = await indexFile.stat();
-      if (!before.isFile() || before.nlink !== 1 || before.size > 16 * 1024 * 1024)
-        throw unavailable();
-      index = await indexFile.readFile();
-      const after = await indexFile.stat();
-      if (
-        index.length !== before.size ||
-        before.size !== after.size ||
-        before.mtimeMs !== after.mtimeMs ||
-        before.ctimeMs !== after.ctimeMs
-      )
-        throw unavailable();
-    } finally {
-      await indexFile.close();
-    }
-    await publish(Buffer.from(`ref: refs/heads/${facts.featureBranch}\n`));
-    await publish(Buffer.from('../..\n'));
-    await publish(Buffer.from(join(task, '.git') + '\n'));
-    await publish(index);
-    await publish(Buffer.from(facts.baseOid + '\n'));
-    await publish(Buffer.from(`gitdir: ${admin}\n`));
-    if (!packedRefs) throw unavailable();
-    const plan: NativePreparationPublicationPlan = {
-      version: 'prepared-repository-publication-v1',
-      requestSha256: operation.requestSha256,
-      allocationFactsSha256: factsSha256,
-      scopeSha256: operation.scopeSha256,
-      workspaceId: facts.workspaceId,
-      baseOid: facts.baseOid,
-      sourcePath: facts.source.path,
-      sourceAnchor: facts.source.sourceAnchor,
-      commonAnchor: facts.source.commonAnchor,
-      taskRoot: facts.taskRoot,
-      directories: facts.directories,
-      existingDirectories: facts.existingDirectories,
-      packedRefs,
-      tree: {
-        payload: {
-          file_path: staging,
-          rootAnchor: scratchAnchor,
-          parentIdentity: scratchAnchor.identity,
-          identity: await identity(staging),
-        },
-        entries,
-      },
-      metadata: metadataFiles,
-      deniedRoots: denied,
-    };
-    const roots = nativePreparationPublicationWriteRoots(plan);
-    const transport: NativeFileHelperTransport = async (invocation) => {
-      current();
-      const result = await executePrivateNativeFileHelper({
-        requestJson: invocation.requestJson,
-        cwd: scratch,
-        writableRoots: roots,
-        deniedRoots: denied,
-        signal: context.signal,
-        timeoutMs: invocation.timeoutMs,
-        deadline,
-        maxOutputBytes: invocation.maxOutputBytes,
-        assertCurrentSync: current,
-        revalidate: full,
+    if (facts.layout === 'standalone') {
+      const git = join(scratch, 'standalone-git');
+      await mkdir(git, { mode: 0o700 });
+      await cp(join(view.gitDirectory, 'objects'), join(git, 'objects'), {
+        recursive: true,
+        dereference: false,
+        force: false,
+        errorOnExist: true,
       });
-      current();
-      return { stdout: result.stdout ?? '', isError: result.isError };
-    };
-    publication = snapshotQualifiedLocalRepositoryPublication(
-      await publishNativePreparedRepository(plan, context.signal, 30000, transport),
-    );
+      await mkdir(join(git, 'refs', 'heads', 'mitzo'), { recursive: true });
+      await mkdir(join(git, 'info'), { recursive: true });
+      await writeFile(join(git, 'HEAD'), `ref: refs/heads/${facts.featureBranch}\n`, {
+        flag: 'wx',
+      });
+      await writeFile(join(git, 'refs', 'heads', facts.featureBranch), facts.baseOid + '\n', {
+        flag: 'wx',
+      });
+      await writeFile(
+        join(git, 'config'),
+        standaloneRepositoryCheckoutConfig(facts.source.objectFormat, facts.remote),
+        { flag: 'wx' },
+      );
+      if (facts.shallow) await writeFile(join(git, 'shallow'), facts.shallow, { flag: 'wx' });
+      await writeFile(join(git, 'info', 'attributes'), privateRepositoryCheckoutAttributes, {
+        flag: 'wx',
+      });
+      await cp(join(view.gitDirectory, 'index'), join(git, 'index'), {
+        force: false,
+        errorOnExist: true,
+      });
+      const gitEntries: NativeExclusiveTreeEntry[] = [];
+      let gitBytes = 0;
+      const walk = async (directory: string, prefix = '') => {
+        for (const name of await readdir(directory)) {
+          current();
+          const file = join(directory, name),
+            path = prefix ? `${prefix}/${name}` : name;
+          const info = await lstat(file);
+          if (gitEntries.length >= 10000 || info.isSymbolicLink()) throw unavailable();
+          if (info.isDirectory()) {
+            gitEntries.push({
+              path,
+              mode: '040000',
+              identity: await identity(file),
+              size: 0,
+              sha256: sha(''),
+            });
+            await walk(file, path);
+          } else {
+            if (
+              !info.isFile() ||
+              info.nlink !== 1 ||
+              info.size > repositoryGitEntrySizeLimit(path) ||
+              (gitBytes += info.size) > 128 * 1024 * 1024
+            )
+              throw unavailable();
+            await chmod(file, 0o644);
+            const bytes = await readFile(file);
+            gitEntries.push({
+              path,
+              mode: '100644',
+              identity: await identity(file),
+              size: bytes.length,
+              sha256: sha(bytes),
+            });
+          }
+        }
+      };
+      await walk(git);
+      const plan: NativePreparationPublicationPlan = {
+        version: 'prepared-repository-publication-v1',
+        layout: 'standalone',
+        ...(facts.remote ? { remote: facts.remote } : {}),
+        ...(facts.shallow ? { shallow: facts.shallow } : {}),
+        requestSha256: operation.requestSha256,
+        allocationFactsSha256: factsSha256,
+        scopeSha256: operation.scopeSha256,
+        workspaceId: facts.workspaceId,
+        baseOid: facts.baseOid,
+        sourcePath: facts.source.path,
+        sourceAnchor: facts.source.sourceAnchor,
+        commonAnchor: facts.source.commonAnchor,
+        taskRoot: facts.taskRoot,
+        directories: [],
+        existingDirectories: [
+          { directory: facts.taskRoot.rootPath, identity: facts.taskRoot.identity },
+        ],
+        packedRefs: { kind: 'absent' },
+        tree: {
+          payload: {
+            file_path: staging,
+            rootAnchor: scratchAnchor,
+            parentIdentity: scratchAnchor.identity,
+            identity: await identity(staging),
+          },
+          entries,
+        },
+        standaloneGit: {
+          payload: {
+            file_path: git,
+            rootAnchor: scratchAnchor,
+            parentIdentity: scratchAnchor.identity,
+            identity: await identity(git),
+          },
+          entries: gitEntries,
+        },
+        metadata: [],
+        deniedRoots: denied,
+      };
+      const roots = nativePreparationPublicationWriteRoots(plan);
+      const transport: NativeFileHelperTransport = async (invocation) => {
+        current();
+        const result = await executePrivateNativeFileHelper({
+          requestJson: invocation.requestJson,
+          cwd: scratch,
+          writableRoots: roots,
+          deniedRoots: denied,
+          signal: context.signal,
+          timeoutMs: invocation.timeoutMs,
+          deadline,
+          maxOutputBytes: invocation.maxOutputBytes,
+          assertCurrentSync: current,
+          revalidate: full,
+        });
+        current();
+        return { stdout: result.stdout ?? '', isError: result.isError };
+      };
+      publication = snapshotQualifiedLocalRepositoryPublication(
+        await publishNativePreparedRepository(plan, context.signal, 30000, transport),
+      );
+    } else {
+      const metadataFiles: NativePreparationPublicationPlan['metadata'][number][] = [];
+      const publish = async (bytes: Buffer) => {
+        current();
+        const payload = join(scratch, `publication-${metadataFiles.length}`);
+        await writeFile(payload, bytes, { flag: 'wx', mode: 0o600 });
+        current();
+        metadataFiles.push(
+          Object.freeze({
+            file_path: payload,
+            rootAnchor: scratchAnchor,
+            parentIdentity: scratchAnchor.identity,
+            identity: await identity(payload),
+            size: bytes.length,
+            sha256: sha(bytes),
+          }),
+        );
+      };
+      // The generated index is an owned private output, never source index bytes.
+      const indexFile = await open(
+        join(view.gitDirectory, 'index'),
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      );
+      let index: Buffer;
+      try {
+        const before = await indexFile.stat();
+        if (!before.isFile() || before.nlink !== 1 || before.size > 16 * 1024 * 1024)
+          throw unavailable();
+        index = await indexFile.readFile();
+        const after = await indexFile.stat();
+        if (
+          index.length !== before.size ||
+          before.size !== after.size ||
+          before.mtimeMs !== after.mtimeMs ||
+          before.ctimeMs !== after.ctimeMs
+        )
+          throw unavailable();
+      } finally {
+        await indexFile.close();
+      }
+      await publish(Buffer.from(`ref: refs/heads/${facts.featureBranch}\n`));
+      await publish(Buffer.from('../..\n'));
+      await publish(Buffer.from(join(task, '.git') + '\n'));
+      await publish(index);
+      await publish(Buffer.from(facts.baseOid + '\n'));
+      await publish(Buffer.from(`gitdir: ${admin}\n`));
+      if (!packedRefs) throw unavailable();
+      const plan: NativePreparationPublicationPlan = {
+        version: 'prepared-repository-publication-v1',
+        requestSha256: operation.requestSha256,
+        allocationFactsSha256: factsSha256,
+        scopeSha256: operation.scopeSha256,
+        workspaceId: facts.workspaceId,
+        baseOid: facts.baseOid,
+        sourcePath: facts.source.path,
+        sourceAnchor: facts.source.sourceAnchor,
+        commonAnchor: facts.source.commonAnchor,
+        taskRoot: facts.taskRoot,
+        directories: facts.directories,
+        existingDirectories: facts.existingDirectories,
+        packedRefs,
+        tree: {
+          payload: {
+            file_path: staging,
+            rootAnchor: scratchAnchor,
+            parentIdentity: scratchAnchor.identity,
+            identity: await identity(staging),
+          },
+          entries,
+        },
+        metadata: metadataFiles,
+        deniedRoots: denied,
+      };
+      const roots = nativePreparationPublicationWriteRoots(plan);
+      const transport: NativeFileHelperTransport = async (invocation) => {
+        current();
+        const result = await executePrivateNativeFileHelper({
+          requestJson: invocation.requestJson,
+          cwd: scratch,
+          writableRoots: roots,
+          deniedRoots: denied,
+          signal: context.signal,
+          timeoutMs: invocation.timeoutMs,
+          deadline,
+          maxOutputBytes: invocation.maxOutputBytes,
+          assertCurrentSync: current,
+          revalidate: full,
+        });
+        current();
+        return { stdout: result.stdout ?? '', isError: result.isError };
+      };
+      publication = snapshotQualifiedLocalRepositoryPublication(
+        await publishNativePreparedRepository(plan, context.signal, 30000, transport),
+      );
+    }
   } finally {
     try {
       await disposeArtifact();

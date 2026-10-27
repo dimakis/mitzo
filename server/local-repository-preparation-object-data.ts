@@ -65,6 +65,7 @@ export async function captureLocalRepositoryPreparationObjectData(
   factsSha256: string,
   deadline: number,
   originalPackedRefs: unknown,
+  objectSource?: import('./local-repository-git-inspection.js').LocalRepositoryGitMetadata,
 ): Promise<Readonly<LocalRepositoryPreparationObjectData>> {
   const publicationPackedRefs = retainPreparationPackedRefs(originalPackedRefs);
   const originalFacts = freezePendingHostTaskData(structuredClone(facts));
@@ -109,7 +110,11 @@ export async function captureLocalRepositoryPreparationObjectData(
       )
         throw unavailable();
       current();
-      creation = captureLocalRepositoryPreparationObjects(originalFacts.source, {
+      if (objectSource) {
+        await access.pinRoot(objectSource.path);
+        await access.pinRoot(objectSource.commonDirectory);
+      }
+      creation = captureLocalRepositoryPreparationObjects(objectSource ?? originalFacts.source, {
         readAccess: access,
         baseOid: originalFacts.baseOid,
         signal: reader.signal,

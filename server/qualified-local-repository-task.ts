@@ -5,7 +5,10 @@ import type { LocalRepositoryReadAccess } from './local-repository-read-access.j
 import type { NativeReadIdentity } from './native-file-operation.js';
 import type { RepositoryTaskCheckout } from './repository-task-checkout.js';
 import { inspectLocalRepositoryGitMetadata } from './local-repository-git-inspection.js';
-import { readLocalRepositoryPreparationReferences } from './local-repository-git-snapshot.js';
+import {
+  readLocalRepositoryPreparationReferences,
+  readLocalRepositoryGitFacts,
+} from './local-repository-git-snapshot.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
 import { preparationReadStageMs } from './local-repository-preparation-read-policy.js';
 
@@ -120,6 +123,57 @@ export async function captureQualifiedLocalRepositoryTask(
   publication: QualifiedLocalRepositoryPublication,
 ): Promise<Readonly<RepositoryTaskCheckout>> {
   try {
+    if (facts.layout === 'standalone') {
+      const receipt = snapshotQualifiedLocalRepositoryPublication(publication);
+      const task = join(facts.taskRoot.rootPath, `repo-${facts.workspaceId}`),
+        git = join(task, '.git');
+      if (
+        receipt.files.length ||
+        receipt.directories.length !== 2 ||
+        receipt.directories[0].directory !== task ||
+        receipt.directories[1].directory !== git
+      )
+        throw unavailable();
+      if (access.canCaptureRepositoryObservation)
+        await access.captureRepositoryObservation({
+          mode: 'task-topology',
+          sourcePath: task,
+          readableRoots: [facts.taskRoot.rootPath],
+        });
+      for (const root of [facts.taskRoot]) {
+        const actual = await access.pinRoot(root.rootPath);
+        if (!equal(actual.identity, root.identity)) throw unavailable();
+      }
+      for (const directory of receipt.directories) {
+        const actual = await access.pinRoot(directory.directory);
+        if (!equal(actual.identity, directory.identity)) throw unavailable();
+      }
+      const metadata = await inspectLocalRepositoryGitMetadata({
+        path: task,
+        mode: 'head',
+        readAccess: access,
+        assertReadable: (path) => access.assertPath(path),
+        timeoutMs: preparationReadStageMs,
+      });
+      if (
+        metadata.commonDirectory !== git ||
+        metadata.gitDirectory !== git ||
+        metadata.objectFormat !== facts.source.objectFormat
+      )
+        throw unavailable();
+      const base = await readLocalRepositoryGitFacts(metadata, {
+        readAccess: access,
+        timeoutMs: preparationReadStageMs,
+      });
+      if (base.head !== facts.baseOid || base.branch !== facts.featureBranch) throw unavailable();
+      await access.verify();
+      return freezePendingHostTaskData({
+        directory: task,
+        featureBranch: facts.featureBranch,
+        root: numeric(receipt.directories[0].identity),
+        git: numeric(receipt.directories[1].identity),
+      });
+    }
     if (access.canCaptureRepositoryObservation)
       await access.captureRepositoryObservation({
         mode: 'adoption',
