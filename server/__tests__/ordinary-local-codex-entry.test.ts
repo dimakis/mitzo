@@ -964,7 +964,7 @@ it.each([
         : original;
     const body = JSON.stringify(wire);
     const server = app.listen(0, '127.0.0.1');
-    const post = (namespace: string, path: string, value: unknown) =>
+    const post = (namespace: string, path: string, value: string | object) =>
       request(server)
         .post(`/${namespace}${path}`)
         .set('Content-Type', 'application/json')
