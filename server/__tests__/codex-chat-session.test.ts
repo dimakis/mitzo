@@ -109,6 +109,7 @@ vi.mock('../codex-conversation.js', () => ({
     searchWeb = mocks.searchWeb;
     getTurnDispatchCount = () => mocks.turnDispatchCount;
     send = mocks.send;
+    admitExplicitSend = mocks.send;
   },
 }));
 vi.mock('../codex-mcp-tools.js', () => ({ connectCodexMcpTools: mocks.connect }));

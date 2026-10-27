@@ -402,6 +402,18 @@ function requiresProviderThreadReplacement(error: unknown): boolean {
 /** Owns one application conversation. The process, private store and public event sink are supplied by the server. */
 type ActiveCommand = {
   command: CodexCommand;
+  /** Set before invoking turn/start, including synchronous close/rejection. */
+  providerSubmitted: boolean;
+  preparationStage?:
+    | 'binding'
+    | 'native_policy'
+    | 'system_context'
+    | 'turn_context'
+    | 'transport_refresh'
+    | 'agent_context'
+    | 'dispatch_authority'
+    | 'provider_request';
+  preparationFailureReported?: boolean;
   turnId?: string;
   accepted: boolean;
   ownershipPending?: boolean;
@@ -1484,12 +1496,19 @@ export class CodexConversation {
     this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding!);
     if (!this.ready) await this.reconnect();
     const recoveryTransportGeneration = this.transportGeneration;
-    if (automaticEpoch !== undefined || this.opts.transportClosure === 'terminal') {
+    const recoveryThreadId =
+      this.opts.transportClosure === 'terminal'
+        ? this.opts.store.recoveryProbeThreadId(this.opts.conversationId, this.binding!)
+        : this.threadId;
+    if (
+      (automaticEpoch !== undefined || this.opts.transportClosure === 'terminal') &&
+      recoveryThreadId
+    ) {
       const page = z
         .object({ data: z.array(z.object({ id: z.string(), status: z.string() })) })
         .parse(
           await this.client.request('thread/turns/list', {
-            threadId: this.threadId,
+            threadId: recoveryThreadId,
             limit: 1,
             sortDirection: 'desc',
             itemsView: 'notLoaded',
@@ -2223,6 +2242,7 @@ export class CodexConversation {
     );
     const active: ActiveCommand = {
       command,
+      providerSubmitted: false,
       abort: new AbortController(),
       turnId: undefined as string | undefined,
       accepted: false,
@@ -2248,9 +2268,11 @@ export class CodexConversation {
       const model = command.model ?? this.binding!.model;
       this.validateModel(model, command.reasoningEffort);
       this.mapper?.setModel(model);
+      active.preparationStage = 'binding';
       await this.verifyCurrentBinding(this.binding);
       active.abort.signal.throwIfAborted();
       if (this.opts.nativeExecution) {
+        active.preparationStage = 'native_policy';
         this.assertNativeExecutionOwner();
         const policy = this.opts.resolveNativeExecutionPolicy
           ? await this.opts.resolveNativeExecutionPolicy({
@@ -2263,6 +2285,7 @@ export class CodexConversation {
         this.opts.assertNativeExecutionCurrent?.(policy, command.id);
         active.nativeExecution = policy;
       }
+      active.preparationStage = 'system_context';
       const systemPrompt = await this.opts.prepareSystemPrompt?.(active.abort.signal, {
         commandId: command.id,
       });
@@ -2276,12 +2299,14 @@ export class CodexConversation {
       if (systemPrompt !== undefined)
         Object.assign(additionalContext, codexApplicationContextFragments(systemPrompt));
       active.abort.signal.throwIfAborted();
+      active.preparationStage = 'turn_context';
       const preparedPrompt =
         (await this.opts.prepareTurn?.(
           { providerPrompt: command.prompt, userIntent: command.intent, turnId: command.id },
           active.abort.signal,
         )) ?? command.prompt;
       active.abort.signal.throwIfAborted();
+      active.preparationStage = 'transport_refresh';
       if (this.opts.refreshTransportBeforeTurn?.()) {
         // New provider placeholders affect new workload processes, never the
         // existing app-server environment. No native turn has been dispatched.
@@ -2314,8 +2339,10 @@ export class CodexConversation {
           : null;
       if (continuation)
         assertCapacityAdmissionDeadline(this.capacityAdmissionDeadlines.get(command.id));
+      active.preparationStage = 'agent_context';
       await this.opts.prepareAgentContext?.(active.abort.signal);
       active.abort.signal.throwIfAborted();
+      active.preparationStage = 'dispatch_authority';
       this.opts.onProviderDispatch?.(command.id);
       if (active.nativeExecution)
         this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, command.id);
@@ -2363,23 +2390,25 @@ export class CodexConversation {
           );
         finishCommandTimingSpan(active.preparationSpan, 'submitted');
         active.preparationSpan = undefined;
-        const pendingAck = this.client.request(
-          'turn/start',
-          codexTurnStartParams({
-            threadId: this.threadId,
-            commandId: command.id,
-            model,
-            continuation: Boolean(continuation),
-            attemptContext,
-            savedSourceContext,
-            prompt: preparedPrompt,
-            images: command.images,
-            sandboxPolicy: this.opts.turnSandboxPolicy,
-            nativeExecution: active.nativeExecution,
-            reasoningEffort: command.reasoningEffort,
-            additionalContext,
-          }),
-        );
+        const params = codexTurnStartParams({
+          threadId: this.threadId,
+          commandId: command.id,
+          model,
+          continuation: Boolean(continuation),
+          attemptContext,
+          savedSourceContext,
+          prompt: preparedPrompt,
+          images: command.images,
+          sandboxPolicy: this.opts.turnSandboxPolicy,
+          nativeExecution: active.nativeExecution,
+          reasoningEffort: command.reasoningEffort,
+          additionalContext,
+        });
+        // A synchronous transport close can reenter close() from request().
+        // Once invocation is attempted, missing ACK/history is uncertainty.
+        active.preparationStage = 'provider_request';
+        active.providerSubmitted = true;
+        const pendingAck = this.client.request('turn/start', params);
         dispatchSpan.end();
         dispatched = true;
         response = await pendingAck;
@@ -2620,6 +2649,7 @@ export class CodexConversation {
         true,
         true,
       );
+      this.recordPreDispatchFailure(active);
       if (this.active === active) this.active = undefined;
       if (replaceProviderThread || active.accepted) this.retireTransportForRecovery();
       this.opts.onQueueChange?.();
@@ -2627,6 +2657,36 @@ export class CodexConversation {
     } finally {
       finishCommandTimingSpan(active.preparationSpan, 'stopped');
       active.preparationSpan = undefined;
+    }
+  }
+  private recordPreDispatchFailure(active: ActiveCommand): void {
+    if (
+      !this.binding ||
+      active.providerSubmitted ||
+      active.accepted ||
+      active.turnId ||
+      active.completions.size
+    )
+      return;
+    const proved = this.opts.store.recordPreDispatchFailure(
+      this.opts.conversationId,
+      this.binding,
+      active.command,
+    );
+    if (proved && !active.preparationFailureReported) {
+      active.preparationFailureReported = true;
+      // Bounded lifecycle facts only: no prompt, upstream error or credentials.
+      try {
+        log.warn('Codex command stopped before provider submission', {
+          conversationId: this.opts.conversationId,
+          commandId: active.command.id,
+          stage: active.preparationStage ?? 'binding',
+          providerSubmitted: false,
+          recovery: 'undispatched_preparation',
+        });
+      } catch {
+        /* Diagnostics cannot replace retained failure custody. */
+      }
     }
   }
   private persistAcceptedTerminalConflict(thread: string, turn: string) {
@@ -2721,6 +2781,13 @@ export class CodexConversation {
       })
       .safeParse(params.turn);
     if (method === 'turn/started' && turn.success && this.active) {
+      // A queued command owns preparation before it submits any provider RPC.
+      // Old same-thread notifications cannot establish that command's identity.
+      if (
+        !this.active.providerSubmitted ||
+        this.terminalTurns.has(JSON.stringify([params.threadId, turn.data.id]))
+      )
+        return;
       if (this.active.turnId && this.active.turnId !== turn.data.id) {
         this.close();
         return;
@@ -2752,7 +2819,7 @@ export class CodexConversation {
         }
         return;
       }
-      if (!this.active) return;
+      if (!this.active || !this.active.providerSubmitted) return;
       if (this.active.accepted && this.active.turnId !== turn.data.id) return;
       const buffered = this.active.completions.get(turn.data.id);
       const firstStatus =
@@ -3585,6 +3652,9 @@ export class CodexConversation {
             error instanceof Error ? error : new Error('Codex recovery state could not be saved'),
           );
         }
+      });
+      attempt(() => {
+        if (active) this.recordPreDispatchFailure(active);
       });
       attempt(() => this.mapper?.flush());
     } finally {

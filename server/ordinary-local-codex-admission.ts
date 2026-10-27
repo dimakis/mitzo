@@ -13,6 +13,7 @@ import type { resolveOrdinarySessionRuntime } from './ordinary-session-runtime.j
 import type { EventStore } from './event-store.js';
 import type { OrdinaryLocalCodexTarget } from './ordinary-local-codex-capabilities.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
+import type { RetainedLocalCodexRecovery } from './retained-local-codex-recovery.js';
 
 const reference = SessionRuntimeBindingV1Schema.shape.account.shape.accountId;
 const Selection = OrdinaryLocalCommandSelectionSchema;
@@ -258,10 +259,12 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       };
       authority?: OrdinaryLocalCodexAdmissionAuthority;
       bootstrapAuthority?: OrdinaryLocalCodexBootstrapAuthority;
+      recovery?: RetainedLocalCodexRecovery;
     },
   ) {
     this.dependencies = {
       enabled: dependencies.enabled,
+      recovery: dependencies.recovery,
       adapter: dependencies.adapter,
       declaration: structuredClone(dependencies.declaration),
       catalog: {
@@ -454,7 +457,9 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       agentProfile: admittedMeta.agentProfile,
       agentContext: admittedMeta.agentContext,
     };
-    const fingerprint = ordinaryLocalCommandFingerprint(d.adapter ?? 'codex', request, expected);
+    const fingerprint =
+      d.recovery?.requestFingerprint ??
+      ordinaryLocalCommandFingerprint(d.adapter ?? 'codex', request, expected);
     if (d.bootstrapAuthority)
       expected.bootstrapId = ordinaryLocalCodexBootstrapId(admittedMeta.sessionId, fingerprint);
     // Clone every boundary so an asynchronous owner cannot rewrite admitted input.
@@ -467,6 +472,12 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     const claim = () => {
       if (claimAttempted) fail('authority_reentry');
       claimAttempted = true;
+      if (d.recovery) {
+        if (!continuation || !d.bootstrapAuthority || d.adapter || preparationOperationId)
+          fail('authority_unavailable');
+        claimed = d.recovery.claim(snapshot, request.payload);
+        return claimed;
+      }
       try {
         const admit = continuation
           ? d.store.admitOrdinaryLocalContinuation!
@@ -512,7 +523,8 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
           await prepareWorkspace(structuredClone(snapshot));
           await lease.assertCurrent();
           await dispatch(structuredClone(snapshot), request.clientMsgId);
-          d.store.completeOrdinaryLocalCommand(request.clientMsgId);
+          if (d.recovery) d.recovery.complete();
+          else d.store.completeOrdinaryLocalCommand(request.clientMsgId);
         } catch (error) {
           const capabilityError = findNativeMacExecutionUnavailable(error);
           if (capabilityError) throw capabilityError;

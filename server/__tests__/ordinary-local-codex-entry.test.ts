@@ -7,7 +7,10 @@ import {
   ordinaryLocalCommandFingerprint,
   ordinaryLocalCodexBootstrapId,
 } from '../ordinary-local-codex-admission.js';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import request from 'supertest';
+import { RetainedLocalCodexRecovery } from '../retained-local-codex-recovery.js';
+import { getCodexConversationStore } from '../codex-chat-session.js';
 import { execFileSync } from 'node:child_process';
 import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -17,6 +20,7 @@ import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import { contextDigest } from '../agent-context-compiler.js';
 import {
   LocalCodexFirstCommandSchema,
+  OrdinaryLocalCommandSelectionSchema,
   PROFILE_BUILDER_ID,
   DEFAULT_MITZO_PROFILE_ID,
   DEFAULT_MITZO_PROFILE_REVISION,
@@ -34,7 +38,10 @@ import {
   OrdinaryLocalCodexCapabilityCatalog,
   OrdinaryLocalCodexTarget,
 } from '../ordinary-local-codex-capabilities.js';
-import { createOwnedLocalCodexEntryRouter } from '../ordinary-local-codex-entry.js';
+import {
+  createOwnedOrdinaryWorkspaceCommandRouter,
+  createOwnedLocalCodexEntryRouter,
+} from '../ordinary-local-codex-entry.js';
 import { observeLocalCodexPhase } from '../local-codex-observation.js';
 vi.mock('../local-codex-observation.js', { spy: true });
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
@@ -72,6 +79,9 @@ const fixtures = vi.hoisted(() => ({
   root: '/offline/task-host',
   shellCustody: vi.fn(),
   shellArtifact: vi.fn(),
+  queuedRecovery: false,
+  nativeCwd: '/offline/checkout',
+  nativeBootstrapFingerprint: undefined as string | undefined,
 }));
 vi.mock('../codex-chat-session.js', () => ({
   getCodexConversationStore: () => ({
@@ -79,17 +89,32 @@ vi.mock('../codex-chat-session.js', () => ({
       authSessionId: auth.id,
       bootstrapId: ordinaryLocalCodexBootstrapId(
         sessionId,
-        store.getOrdinaryCommandAdmission(store.getOrdinaryInitialCommandId(sessionId)!)!
-          .requestFingerprint,
+        fixtures.nativeBootstrapFingerprint ??
+          store.getOrdinaryCommandAdmission(store.getOrdinaryInitialCommandId(sessionId)!)!
+            .requestFingerprint,
       ),
     }),
     readOpenShellCustody: fixtures.shellCustody,
     readArtifactRuntime: fixtures.shellArtifact,
     read: (conversationId: string) => ({
       conversationId,
-      cwd: fixtures.shellArtifact() ? '/sandbox/workspaces/task' : '/offline/checkout',
+      cwd: fixtures.shellArtifact() ? '/sandbox/workspaces/task' : fixtures.nativeCwd,
       threadId: 'offline-retained-thread',
+      recovery: fixtures.queuedRecovery,
     }),
+    assertUndispatchedCommand: (_session: string, _binding: unknown, commandId: string) => {
+      if (!fixtures.queuedRecovery) throw Error('No offline recovery proof');
+      const receipt = store.getOrdinaryLocalCommandExecutionAdmission(commandId)!;
+      const payload = store.getSendCommand(commandId)!.payload as { text: string };
+      return {
+        id: commandId,
+        prompt: payload.text,
+        model: receipt.selection.model,
+        reasoningEffort: receipt.selection.thinking,
+        status: 'queued',
+        attempt: 1,
+      };
+    },
   }),
 }));
 vi.mock('../chat.js', () => ({
@@ -254,6 +279,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   fixtures.shellTarget.mockReturnValue(undefined);
   fixtures.shellResumable = false;
+  fixtures.queuedRecovery = false;
+  fixtures.nativeCwd = '/offline/checkout';
+  fixtures.nativeBootstrapFingerprint = undefined;
   fixtures.shellCustody.mockReturnValue(null);
   fixtures.shellArtifact.mockReturnValue(null);
   vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
@@ -606,6 +634,453 @@ it('returns an exact consumed duplicate without changing original receipt', asyn
   );
   expect(store.getOrdinaryLocalCommandAdmission(input().clientMsgId)).toEqual(original);
 });
+
+it.each(['uncertain', 'consumed'] as const)(
+  'recovers an exact %s queued continuation only on an explicit retry',
+  async (state) => {
+    await send();
+    const sessionId = nativeStartupSessionId(`repository:${workspaceId}`);
+    const command = {
+      ...input(),
+      sessionId,
+      clientMsgId: 'retained-followup',
+      payload: { text: 'Continue the same task' },
+    };
+    const request = {
+      clientMsgId: command.clientMsgId,
+      capabilityRevision: command.capabilityRevision,
+      runtime: command.runtime,
+      selection: command.selection,
+      payload: command.payload,
+    };
+    const meta = store.getSession(sessionId)!;
+    store.upsertSession({
+      sessionId,
+      mode: 'ask',
+      selectedModel: 'fixture',
+      reasoningEffort: null,
+    });
+    store.admitOrdinaryLocalContinuation(
+      { ...meta, mode: 'ask', selectedModel: 'fixture', reasoningEffort: null },
+      store.getSessionRuntimeBinding(sessionId)!,
+      {
+        clientMsgId: command.clientMsgId,
+        selection: OrdinaryLocalCommandSelectionSchema.parse(command.selection),
+        requestFingerprint: ordinaryLocalCommandFingerprint('codex', request, {
+          workspace: { workspaceId, cwd: meta.cwd! },
+          agentProfile: meta.agentProfile,
+          agentContext: meta.agentContext,
+        }),
+        payload: command.payload,
+      },
+    );
+    store.claimOrdinaryLocalCommandDispatch(command.clientMsgId);
+    if (state === 'consumed') store.completeOrdinaryLocalCommand(command.clientMsgId);
+    fixtures.queuedRecovery = true;
+    fixtures.workspace.mockReturnValue({
+      get: () => ({ state: 'claimed', directory: meta.cwd }),
+      getForConversation: () => ({ state: 'claimed', directory: meta.cwd }),
+    });
+    const starts = fixtures.start.mock.calls.length;
+    await invoke('POST', '/continue/receipt', command);
+    expect(fixtures.start).toHaveBeenCalledTimes(starts);
+    fixtures.start.mockImplementationOnce(async (_transport, _client, args) => {
+      expect(args.recovery).toBe(true);
+      expect(args.resume).toBe(true);
+      expect(args.commandId).toBe(command.clientMsgId);
+      store.completeOrdinaryLocalCommand(command.clientMsgId);
+      return { dispatched: true, sessionId };
+    });
+    expect(await invoke('POST', '/continue', command)).toMatchObject({
+      status: 202,
+      body: { state: 'consumed', clientMsgId: command.clientMsgId },
+    });
+    expect(fixtures.start).toHaveBeenCalledTimes(starts + 1);
+    expect(fixtures.reserve).toHaveBeenCalledTimes(1);
+  },
+);
+it.each([
+  ['repository', 1],
+  ['repository', 2],
+  ['repository', 3],
+  ['repository', 4],
+  ['ordinary', 1],
+  ['ordinary', 2],
+  ['ordinary', 3],
+] as const)(
+  'routes unchanged %s HTTP retry through %i canonical adoptions while retaining original wire identity',
+  async (kind, hops) => {
+    const initial = input();
+    const sessionId = nativeStartupSessionId(`repository:${workspaceId}`);
+    const resolved = catalog.resolve(initial.runtime);
+    if (resolved.status !== 'compatible') throw Error('Fixture binding unavailable');
+    const meta = {
+      sessionId,
+      cwd: '/offline/checkout',
+      ...(kind === 'ordinary'
+        ? { ordinaryWorkspaceId: workspaceId }
+        : { repositoryWorkspaceId: workspaceId }),
+      accountBinding: binding,
+      agentProfile: publishedProfile,
+      mode: 'ask' as const,
+      selectedModel: 'fixture',
+      reasoningEffort: null,
+    };
+    const payload = {
+      ...initial.payload,
+      systemPrompt: buildAgentProfilePrompt(publishedDefinition),
+    };
+    const core = (value: typeof initial) => ({
+      clientMsgId: value.clientMsgId,
+      capabilityRevision: value.capabilityRevision,
+      runtime: value.runtime,
+      selection: value.selection,
+      payload: { ...value.payload, systemPrompt: payload.systemPrompt },
+    });
+    const admission = (value: typeof initial) => ({
+      clientMsgId: value.clientMsgId,
+      selection: OrdinaryLocalCommandSelectionSchema.parse(value.selection),
+      payload: core(value).payload,
+      requestFingerprint: ordinaryLocalCommandFingerprint('codex', core(value), {
+        workspace: { workspaceId, cwd: meta.cwd },
+        agentProfile: publishedProfile,
+      }),
+    });
+    if (kind === 'ordinary') {
+      const operationId = randomUUID();
+      store.prepareOrdinaryWorkspaceSession(meta, {
+        allocationOperationId: operationId,
+        preparationFingerprint: 'a'.repeat(64),
+        settings: {
+          version: 2,
+          binding: resolved.binding,
+          selection: OrdinaryLocalCommandSelectionSchema.parse(initial.selection),
+          workspace: { kind: 'ordinary', preparationId: randomUUID() },
+        },
+      });
+      store.admitPreparedOrdinaryWorkspaceCommand(
+        operationId,
+        meta,
+        resolved.binding,
+        admission(initial),
+      );
+    } else store.admitOrdinaryLocalCommand(meta, resolved.binding, admission(initial));
+    store.claimOrdinaryLocalCommandDispatch(initial.clientMsgId);
+    store.completeOrdinaryLocalCommand(initial.clientMsgId);
+    fixtures.nativeBootstrapFingerprint = store.getOrdinaryLocalCommandAdmission(
+      initial.clientMsgId,
+    )!.requestFingerprint;
+    const original = {
+      ...initial,
+      sessionId,
+      clientMsgId: 'held-exact-http-input',
+      payload: { text: 'Explain the retained changes' },
+    };
+    store.admitOrdinaryLocalContinuation(meta, resolved.binding, admission(original));
+    store.claimOrdinaryLocalCommandDispatch(original.clientMsgId);
+    store.completeOrdinaryLocalCommand(original.clientMsgId);
+    const retained = structuredClone(store.getOrdinaryLocalCommandAdmission(original.clientMsgId));
+    let transition: Parameters<EventStore['reservePreparedRepositoryContinuation']>[1] = {
+      version: 1 as const,
+      preparationId: randomUUID(),
+      runtimeId: 'retained-http-runtime',
+      source: {
+        commandId: initial.clientMsgId,
+        attempt: 1,
+        threadId: 'original-thread',
+        turnId: 'original-turn',
+        generation: 0,
+        callId: 'prepare-call',
+        requestHash: 'a'.repeat(64),
+        resultSha256: 'b'.repeat(64),
+      },
+      oldWorkspace: { kind, id: workspaceId, directory: meta.cwd },
+      newWorkspace: {
+        kind: 'repository' as const,
+        id: randomUUID(),
+        directory: '/offline/adopted',
+        featureBranch: 'mitzo/adopted',
+        baseOid: 'c'.repeat(40),
+        taskIdentitySha256: 'd'.repeat(64),
+      },
+      consumedScopeSha256: 'e'.repeat(64),
+      materializedRecordSha256: 'f'.repeat(64),
+    };
+    let child = store.reservePreparedRepositoryContinuation(sessionId, transition);
+    store.commitPreparedRepositoryContinuation(sessionId, child.childCommandId, transition);
+    store.rebindPreparedRepositoryQueuedCommands(sessionId, child.childCommandId, transition, [
+      original.clientMsgId,
+    ]);
+    // This route fixture controls native effects; the ledger's canonical
+    // reservation/adoption/rebinding/finalization owners are real.
+    store.finalizePreparedRepositoryContinuation(
+      sessionId,
+      child.childCommandId,
+      transition,
+      () => {},
+    );
+    const admissionAtCurrent = (clientMsgId: string) => {
+      const current = store.getSession(sessionId)!;
+      return {
+        ...admission(original),
+        clientMsgId,
+        requestFingerprint: ordinaryLocalCommandFingerprint(
+          'codex',
+          { ...core(original), clientMsgId },
+          {
+            workspace: { workspaceId: current.repositoryWorkspaceId!, cwd: current.cwd! },
+            agentProfile: publishedProfile,
+          },
+        ),
+      };
+    };
+    const firstPrimaryId = child.childCommandId;
+    let intermediateId: string | undefined;
+    if (hops > 1) {
+      intermediateId = 'between-adoptions';
+      const current = store.getSession(sessionId)!;
+      store.admitPreparedRepositoryPrimaryContinuation(
+        current,
+        resolved.binding,
+        admissionAtCurrent(intermediateId),
+        child.childCommandId,
+      );
+      store.claimOrdinaryLocalCommandDispatch(intermediateId);
+      store.completeOrdinaryLocalCommand(intermediateId);
+    }
+    const firstDestination = structuredClone(transition.newWorkspace);
+    for (let hop = 2; hop <= hops; hop++) {
+      transition = {
+        ...transition,
+        preparationId: randomUUID(),
+        priorPrimaryCommandId: child.childCommandId,
+        source: { ...transition.source, commandId: child.childCommandId },
+        oldWorkspace: {
+          kind: 'repository',
+          id: transition.newWorkspace.id,
+          directory: transition.newWorkspace.directory,
+        },
+        newWorkspace:
+          hop === 3
+            ? firstDestination
+            : hop === 4
+              ? { ...firstDestination, id: workspaceId, directory: meta.cwd }
+              : {
+                  ...transition.newWorkspace,
+                  id: randomUUID(),
+                  directory: '/offline/adopted-again',
+                },
+      };
+      child = store.reservePreparedRepositoryContinuation(sessionId, transition);
+      store.commitPreparedRepositoryContinuation(sessionId, child.childCommandId, transition);
+      store.rebindPreparedRepositoryQueuedCommands(sessionId, child.childCommandId, transition, [
+        original.clientMsgId,
+        ...(intermediateId ? [intermediateId] : []),
+      ]);
+      store.finalizePreparedRepositoryContinuation(
+        sessionId,
+        child.childCommandId,
+        transition,
+        () => {},
+      );
+    }
+    if (intermediateId) {
+      expect(
+        store.observePreparedRepositoryCommandRouting(intermediateId, true)?.originalAdmission
+          .preparedRepositoryPrimaryCommandId,
+      ).toBe(firstPrimaryId);
+    }
+    if (hops === 3) {
+      // Same current workspace as P1, but inserted after P3: even a coherent
+      // original receipt cannot claim admission during P1's closed epoch.
+      const lateId = 'forged-earlier-epoch';
+      store.admitPreparedRepositoryPrimaryContinuation(
+        store.getSession(sessionId)!,
+        resolved.binding,
+        admissionAtCurrent(lateId),
+        child.childCommandId,
+      );
+      store.claimOrdinaryLocalCommandDispatch(lateId);
+      store.completeOrdinaryLocalCommand(lateId);
+      const db = (store as unknown as { db: import('better-sqlite3').Database }).db;
+      const row = db
+        .prepare('SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?')
+        .get(lateId) as { ordinary_admission: string };
+      const changed = {
+        ...JSON.parse(row.ordinary_admission),
+        preparedRepositoryPrimaryCommandId: firstPrimaryId,
+      };
+      db.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
+        JSON.stringify(changed),
+        lateId,
+      );
+      expect(() => store.observePreparedRepositoryCommandRouting(lateId, true)).toThrow('lineage');
+      db.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
+        row.ordinary_admission,
+        lateId,
+      );
+    }
+    fixtures.nativeCwd = transition.newWorkspace.directory;
+    fixtures.queuedRecovery = true;
+    expect(() =>
+      RetainedLocalCodexRecovery.capture(store, getCodexConversationStore(), sessionId, auth.id, {
+        ...core(original),
+        payload: original.payload,
+      }),
+    ).not.toThrow();
+    if (hops === 4) {
+      const db = (store as unknown as { db: import('better-sqlite3').Database }).db;
+      const saved = db
+        .prepare('SELECT * FROM ordinary_execution_admissions WHERE command_id=?')
+        .all(original.clientMsgId) as Array<Record<string, string | number>>;
+      expect(saved.length).toBeGreaterThan(0);
+      db.prepare('DELETE FROM ordinary_execution_admissions WHERE command_id=?').run(
+        original.clientMsgId,
+      );
+      // Returning to the original path cannot hide a missing execution epoch.
+      // Both direct and saved queue actions must reject before native effects.
+      expect(
+        store.getOrdinaryLocalCommandExecutionAdmission(original.clientMsgId)
+          ?.preparedRepositoryPrimaryCommandId,
+      ).toBeUndefined();
+      expect(() =>
+        RetainedLocalCodexRecovery.capture(store, getCodexConversationStore(), sessionId, auth.id, {
+          ...core(original),
+          payload: original.payload,
+        }),
+      ).toThrow();
+      expect(() =>
+        RetainedLocalCodexRecovery.captureSaved(
+          store,
+          getCodexConversationStore(),
+          sessionId,
+          auth.id,
+          original.clientMsgId,
+        ),
+      ).toThrow();
+      const keys = Object.keys(saved[0]);
+      const insert = db.prepare(
+        `INSERT INTO ordinary_execution_admissions (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`,
+      );
+      for (const row of saved) insert.run(...keys.map((key) => row[key]));
+    }
+    fixtures.workspace.mockReturnValue({
+      get: () => ({
+        id: transition.newWorkspace.id,
+        state: 'claimed',
+        directory: transition.newWorkspace.directory,
+        hostReservation: { taskRoot: '/offline/tasks' },
+      }),
+    });
+    fixtures.start.mockImplementationOnce(async (_transport, _client, args) => {
+      expect(args.recovery).toBe(true);
+      expect(args.workspaceKind).toBe('repository');
+      expect(args.reservation.id).toBe(transition.newWorkspace.id);
+      expect(args.command).toEqual({ ...core(original), payload: original.payload });
+      return { dispatched: true, sessionId };
+    });
+    const app = express();
+    app.use(express.json());
+    app.use((_req, res, next) => {
+      res.locals.authSession = { ...auth };
+      next();
+    });
+    const ordinaryRouter = createOwnedOrdinaryWorkspaceCommandRouter(streams, {
+      connRegistry: conns,
+      sessionRegistry: sessions,
+      eventStore: store,
+    });
+    app.use('/ordinary', ordinaryRouter);
+    app.use('/repository', router);
+    const wire =
+      kind === 'ordinary'
+        ? {
+            ...original,
+            version: 2,
+            repositoryWorkspaceId: undefined,
+            workspace: { kind: 'ordinary', workspaceId },
+          }
+        : original;
+    const body = JSON.stringify(wire);
+    const server = app.listen(0, '127.0.0.1');
+    const post = (namespace: string, path: string, value: string | object) =>
+      request(server)
+        .post(`/${namespace}${path}`)
+        .set('Content-Type', 'application/json')
+        .set('X-Connection-ID', 'entry-stream')
+        .send(value);
+    const namespace = kind === 'ordinary' ? 'ordinary' : 'repository';
+    let response;
+    try {
+      const firstWire =
+        kind === 'ordinary'
+          ? {
+              ...initial,
+              version: 2,
+              repositoryWorkspaceId: undefined,
+              sessionId,
+              workspace: { kind: 'ordinary', workspaceId },
+            }
+          : initial;
+      const firstPath = kind === 'ordinary' ? '/first' : '/send';
+      if (kind === 'repository') {
+        const automaticFirst = { ...firstWire, repositoryWorkspaceId: undefined };
+        const observed = await post(namespace, `${firstPath}/receipt`, automaticFirst);
+        expect(observed.status, JSON.stringify(observed.body)).toBe(202);
+        expect(observed.body.dispatched).toBe(false);
+      }
+      const firstObserved = await post(namespace, `${firstPath}/receipt`, firstWire);
+      expect(firstObserved.status, JSON.stringify(firstObserved.body)).toBe(202);
+      expect(firstObserved.body.dispatched).toBe(false);
+      const firstRetry = await post(namespace, firstPath, firstWire);
+      expect(firstRetry.status, JSON.stringify(firstRetry.body)).toBe(202);
+      expect(firstRetry.body.dispatched).toBe(false);
+      // Receipt observation remains read-only even when no native replay proof exists.
+      fixtures.queuedRecovery = false;
+      const observed = await post(namespace, '/continue/receipt', body);
+      expect(observed.status, JSON.stringify(observed.body)).toBe(202);
+      expect(observed.body.dispatched).toBe(false);
+      expect(fixtures.start).not.toHaveBeenCalled();
+      fixtures.queuedRecovery = true;
+      for (const id of [transition.newWorkspace.id, randomUUID()].filter(
+        (id) => id !== workspaceId,
+      )) {
+        const wrong =
+          kind === 'ordinary'
+            ? { ...wire, workspace: { kind: 'ordinary', workspaceId: id } }
+            : { ...wire, repositoryWorkspaceId: id };
+        expect((await post(namespace, '/continue', wrong)).status).toBe(409);
+      }
+      const swapped =
+        kind === 'ordinary'
+          ? { ...original, repositoryWorkspaceId: workspaceId }
+          : {
+              ...original,
+              version: 2,
+              repositoryWorkspaceId: undefined,
+              workspace: { kind: 'ordinary', workspaceId },
+            };
+      expect(
+        (await post(kind === 'ordinary' ? 'repository' : 'ordinary', '/continue', swapped)).status,
+      ).toBe(409);
+      expect(fixtures.start).not.toHaveBeenCalled();
+      response = await post(namespace, '/continue', body);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+    expect(response.status).toBe(202);
+    expect(response.body).toMatchObject({ state: 'consumed', dispatched: true });
+    expect(JSON.stringify(wire)).toBe(body);
+    expect(
+      store.getPreparedRepositoryCommandAdmissionEvidence(
+        original.clientMsgId,
+        child.childCommandId,
+      ),
+    ).toEqual(retained);
+    expect(fixtures.start).toHaveBeenCalledOnce();
+  },
+);
+
 it('bounds startup cancellation without attaching it to the HTTP/SSE lifetime', async () => {
   vi.useFakeTimers();
   try {

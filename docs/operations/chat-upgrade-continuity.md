@@ -58,6 +58,70 @@ Read-only diagnosis matched both retained local Claude conversation identities t
 the two older releases. This observation grants no admission authority; the
 compiled reconstruction and native owners qualify every explicit command.
 
+## Retained Local Mac Codex commands
+
+An explicit retry can recover an ordinary Local Mac Codex command retained during
+bootstrap, before native enqueue, or after durable enqueue without a provider
+dispatch. Recovery keeps its original command ID, fingerprint, payload, inference
+settings, account, context and checkout. Current operator authority, physical
+workspace custody, credentials, capabilities and all queued model selections are
+qualified again. A manual conversation title is display metadata and does not
+change this identity.
+
+This recovery applies to an existing native conversation with retained thread and
+host custody. It does not reopen an initial bootstrap failure that never
+established that custody.
+
+The existing **Reconnect and continue** queue action selects the saved server input
+even after acceptance has retired its browser outbox. It requires the current signed
+connection and original conversation operator. Workspace adoption publishes updated
+session metadata so a mounted composer refreshes its workspace identity before
+accepting another send.
+
+Recovery refuses running, interrupted, completed or previously attempted inputs,
+pending native dispatch/ownership, other uncertain commands and identity drift.
+A failed native row is eligible only with a durable positive proof, written by
+the current runtime, that preparation failed before a turn-start RPC was attempted.
+Legacy failed rows without that proof remain ambiguous; missing history alone
+does not authorize replay.
+It never resets a receipt to reserved or retries a provider mutation. Read-only
+receipt observation still cannot start work. The existing explicit command route
+reopens only a proved undispatched command, commits acceptance, and then releases
+the owned native FIFO. The first enqueue does not attempt recovery before its
+coordinator commits. A provider tool refresh retains its predecessor until the
+first replacement turn ACK; recovery inspects the last actually dispatched
+thread rather than asking an empty replacement for nonexistent history.
+
+Offline regressions model both bootstrap failure boundaries, accepted paused
+queues, manual renaming and dirty task files using real SQLite, admission owners
+and native conversation queues with synthetic RPC responses. They assert exactly
+one native turn start per accepted input, later independent turns, metadata refresh
+after workspace adoption, and repeated chat switches. They reject ambiguous
+execution or changed identities. The production consumer is exercised with an
+intercepted provider launch as well as the smaller admission fixtures. No
+production records, task checkouts or credentials are used by those tests.
+
+### Recovery boundary checks
+
+| Boundary                                       | Required behavior                                                                                                                  |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Browser HTTP wait and acceptance observation   | Receipt observation stays read-only; acceptance may retire only the matching outbox command.                                       |
+| Bootstrap before native enqueue                | Explicit exact retry reuses the retained receipt and current owner, without allocating another chat or checkout.                   |
+| Native enqueue before coordinator consumption  | Provider dispatch waits for the original command to become consumed.                                                               |
+| Accepted queue after outbox retirement         | Signed **Reconnect and continue** uses the saved server input and the same startup exclusion as exact Retry.                       |
+| Workspace handoff with earlier queued steering | Immutable original admission is joined to the adopted workspace by its canonical execution revision.                               |
+| Mounted composer and navigation                | Adoption refreshes workspace metadata; delayed replies from the previous workspace/chat cannot restore stale identity.             |
+| Provider thread replacement                    | Preserve predecessor custody until the first replacement ACK; inspect the last dispatched generation during recovery.              |
+| Preparation failure versus possible dispatch   | Only a positive pre-dispatch witness allows failed-input recovery; attempted RPCs, pending ownership and missing ACKs stay fenced. |
+| Subsequent turns                               | Recovery proof applies only to the recovered input; later explicit turns retain independent admission and model snapshots.         |
+| Operator/account/context drift                 | Requalify current authority, credentials, selected tools, physical workspace and queued inference settings before release.         |
+
+Historical failures without a positive witness are deliberately retained for
+inspection. This change does not infer a safe replay from missing native history,
+and it does not claim to identify the inner cause of every historical bootstrap
+refusal. New pre-dispatch diagnostics record only a bounded lifecycle stage and
+command/conversation identity, without prompts, upstream error text or credentials.
+
 ## Verification
 
 Synthetic server regressions cover legacy OpenShell restart and new command

@@ -68,6 +68,7 @@ import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from './owned-local-codex-native-policy.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
 import type { CredentialSetupNotification } from './credential-setup-continuation.js';
+import { RetainedLocalCodexRecovery } from './retained-local-codex-recovery.js';
 
 const unavailable = () => new Error('Owned local Codex runtime unavailable');
 function strictSync(result: unknown): void {
@@ -95,6 +96,7 @@ export interface OrdinaryLocalCodexOwnedDispatch<K extends LocalWorkspaceKind = 
   sessionId: string;
   commandId: string;
   resume?: boolean;
+  recovery?: boolean;
   preparationSignal?: AbortSignal;
   agentMessageId?: string;
   assertCredentialSetupCurrent?: () => void;
@@ -242,10 +244,41 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
     }
     return this.admitCommand(raw, true);
   }
+  /** Explicit recovery of an exact, positively undispatched retained command. */
+  async recoverResume(raw: unknown): Promise<{ dispatched: boolean }> {
+    this.assertCurrent();
+    if (this.#admission) return { dispatched: false };
+    if (!this.owners.nativeStore || !this.#authSessionId) throw unavailable();
+    const recovery = RetainedLocalCodexRecovery.capture(
+      this.owners.eventStore,
+      this.owners.nativeStore,
+      this.#reservation.conversationId,
+      this.#authSessionId,
+      raw,
+    );
+    if (recovery.commandId !== this.owners.commandId) throw unavailable();
+    recovery.prepareQueue();
+    return this.admitCommand(raw, true, undefined, recovery);
+  }
+  async recoverSavedResume(): Promise<{ dispatched: boolean }> {
+    this.assertCurrent();
+    if (this.#admission) return { dispatched: false };
+    if (!this.owners.nativeStore || !this.#authSessionId) throw unavailable();
+    const { request, proof } = RetainedLocalCodexRecovery.captureSaved(
+      this.owners.eventStore,
+      this.owners.nativeStore,
+      this.#reservation.conversationId,
+      this.#authSessionId,
+      this.owners.commandId,
+    );
+    proof.prepareQueue();
+    return this.admitCommand(request, true, undefined, proof);
+  }
   private async admitCommand(
     raw: unknown,
     resume: boolean,
     preparationOperationId?: string,
+    recovery?: RetainedLocalCodexRecovery,
   ): Promise<{ dispatched: boolean }> {
     let bootstrap: FrozenHostCodexBootstrapAuthority | undefined;
     let capturedBootstrap: FrozenHostCodexBootstrapAuthority | undefined;
@@ -337,6 +370,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           owner: this.owners.eventStore,
           names: [
             'getOrdinaryLocalCommandAdmission',
+            'getOrdinaryLocalCommandExecutionAdmission',
             'getSendCommand',
             'getSession',
             'observePreparedRepositoryContinuation',
@@ -560,7 +594,12 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
             })
           : undefined;
       if (coldWorkspace) {
-        if (this.owners.eventStore.hasUncertainOrdinaryCommand(this.#reservation.conversationId))
+        if (
+          this.owners.eventStore.hasUncertainOrdinaryCommand(
+            this.#reservation.conversationId,
+            recovery?.commandId,
+          )
+        )
           throw unavailable();
         coldWorkspace.assertCurrentSync(descriptor.directory!);
       }
@@ -695,7 +734,9 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                     this.#preparedPrimaryCommandId,
                     this.owners.commandId,
                   )
-            : this.owners.eventStore.getOrdinaryLocalCommandAdmission(this.owners.commandId);
+            : this.owners.eventStore.getOrdinaryLocalCommandExecutionAdmission(
+                this.owners.commandId,
+              );
           if (receipt?.state !== 'consumed') return true;
           if (!this.owners.nativeStore) return false;
           try {
@@ -721,8 +762,9 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
             // remains separately required above. Existing custody must be readable.
             if (
               resume ||
-              this.owners.eventStore.getOrdinaryLocalCommandAdmission(this.owners.commandId)
-                ?.state === 'consumed'
+              this.owners.eventStore.getOrdinaryLocalCommandExecutionAdmission(
+                this.owners.commandId,
+              )?.state === 'consumed'
             )
               throw unavailable();
             return [];
@@ -736,6 +778,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       capturedBootstrap = bootstrap;
       capturedLeaseGetter = bootstrap.currentLease;
       const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
+        recovery,
         enabled: this.owners.enabled,
         store: coldPrimary
           ? {
@@ -787,7 +830,13 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           selectedModel: request.selection.model,
           reasoningEffort: request.selection.thinking,
         },
-        { ...request, payload },
+        {
+          ...request,
+          capabilityRevision: recovery
+            ? configuration.catalog.inventory().capabilityRevision
+            : request.capabilityRevision,
+          payload,
+        },
         {
           prepareWorkspace: async (expected) => {
             this.assertCurrent();
@@ -836,6 +885,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
               bridge,
               authSessionId: this.#authSessionId,
               nativeStore: this.owners.nativeStore,
+              recovery,
               qualifiedColdPrimary:
                 coldWorkspace &&
                 Object.freeze({
@@ -1147,6 +1197,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
               sessionId: this.#reservation.conversationId,
               commandId: this.owners.commandId,
               resume,
+              recovery: !!recovery,
             });
             this.assertCurrent();
             lease.assertCurrentSync();

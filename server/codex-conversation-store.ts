@@ -479,6 +479,7 @@ export class CodexConversationStore {
         id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL,
         recovery_acknowledged INTEGER NOT NULL DEFAULT 0, retry_not_before INTEGER,
         retryable INTEGER, ambiguous INTEGER, attempt INTEGER NOT NULL DEFAULT 1, native_turns TEXT, native_execution_history TEXT,
+        pre_dispatch_failure INTEGER NOT NULL DEFAULT 0,
         UNIQUE(conversation_id,id));
       CREATE TABLE IF NOT EXISTS codex_tools (
         conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, call_id TEXT NOT NULL,
@@ -606,6 +607,12 @@ export class CodexConversationStore {
       const columns = this.db.prepare('PRAGMA table_info(codex_commands)').all() as Array<{
         name: string;
       }>;
+      // Absence of old ACK/history is not proof that an old request was never
+      // submitted. Only the current execution owner may record this witness.
+      if (!columns.some((column) => column.name === 'pre_dispatch_failure'))
+        this.db.exec(
+          'ALTER TABLE codex_commands ADD COLUMN pre_dispatch_failure INTEGER NOT NULL DEFAULT 0',
+        );
       if (!columns.some((column) => column.name === 'recovery_acknowledged')) {
         this.db.exec(
           'ALTER TABLE codex_commands ADD COLUMN recovery_acknowledged INTEGER NOT NULL DEFAULT 0',
@@ -1744,6 +1751,163 @@ export class CodexConversationStore {
       });
     })();
   }
+  /** Exact never-dispatched native input only. Absence is meaningful because
+   * every provider turn must first claim this same durable FIFO row. */
+  assertUndispatchedCommand(
+    id: string,
+    binding: AccountBinding,
+    commandId: string,
+  ): CodexCommand | undefined {
+    this.assertNoPendingThreadDispatch(id, binding);
+    this.assertNoPendingThreadOwnership(id, binding);
+    if (this.hasRunningCommand(id, binding) || this.capacityRecovery(id, binding))
+      throw Error('Native recovery has unsettled work');
+    const row = this.db
+      .prepare(
+        'SELECT input,status,attempt,native_turns,native_execution_history,pre_dispatch_failure FROM codex_commands WHERE conversation_id=? AND id=?',
+      )
+      .get(id, commandId) as
+      | {
+          input: string;
+          status: CodexCommand['status'];
+          attempt: number;
+          native_turns: string | null;
+          native_execution_history: string | null;
+          pre_dispatch_failure: number;
+        }
+      | undefined;
+    if (!row) return undefined;
+    if (
+      !['queued', 'failed'].includes(row.status) ||
+      (row.status === 'failed' && row.pre_dispatch_failure !== 1) ||
+      row.attempt !== 1 ||
+      this.nativeTurns(row.native_turns).length ||
+      this.readNativeExecutionHistory(id, binding, commandId).length
+    )
+      throw Error('Native command may already have executed');
+    const command: CodexCommand = {
+      ...CommandInput.parse(JSON.parse(row.input)),
+      status: row.status,
+      attempt: row.attempt,
+    };
+    if (command.id !== commandId) throw Error('Native command identity changed');
+    if (command.allowedTools || command.environmentContinuation)
+      throw Error('Native continuation cannot be replayed');
+    return command;
+  }
+
+  /** The live beginNext owner supplies the positive fact that it has not even
+   * attempted turn/start. Missing durable history alone can never create this
+   * witness. Close during preparation may have already moved running to failed.
+   */
+  recordPreDispatchFailure(
+    id: string,
+    binding: AccountBinding,
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+  ): boolean {
+    return this.db
+      .transaction(() => {
+        try {
+          this.assertNoPendingThreadDispatch(id, binding);
+          this.assertNoPendingThreadOwnership(id, binding);
+          if (command.attempt !== 1 || this.capacityRecovery(id, binding)) return false;
+          const row = this.db
+            .prepare(
+              'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+            )
+            .get(id, command.id) as
+            { status: string; attempt: number; native_turns: string | null } | undefined;
+          if (
+            !row ||
+            !['running', 'failed'].includes(row.status) ||
+            row.attempt !== command.attempt ||
+            this.nativeTurns(row.native_turns).length ||
+            this.readNativeExecutionHistory(id, binding, command.id).length
+          )
+            return false;
+          if (
+            this.db
+              .prepare(
+                `SELECT 1 FROM codex_thread_acceptances WHERE conversation_id=? AND command_id=?
+            UNION ALL SELECT 1 FROM codex_capacity_native_acks WHERE conversation_id=? AND command_id=?
+            UNION ALL SELECT 1 FROM codex_capacity_continuations WHERE conversation_id=? AND command_id=?
+            UNION ALL SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? LIMIT 1`,
+              )
+              .get(id, command.id, id, command.id, id, command.id, id, command.id)
+          )
+            return false;
+          return (
+            this.db
+              .prepare(
+                "UPDATE codex_commands SET pre_dispatch_failure=1 WHERE conversation_id=? AND id=? AND attempt=1 AND status IN ('running','failed')",
+              )
+              .run(id, command.id).changes === 1
+          );
+        } catch {
+          // An unprovable marker stays absent. Never replace the original failure
+          // or turn an unreadable/ambiguous ledger into replay authority.
+          return false;
+        }
+      })
+      .immediate();
+  }
+
+  requeueUndispatchedCommand(
+    id: string,
+    binding: AccountBinding,
+    commandId: string,
+    recordRecovery: () => void,
+  ): void {
+    this.db
+      .transaction(() => {
+        const command = this.assertUndispatchedCommand(id, binding, commandId);
+        if (command?.status !== 'failed') return;
+        recordRecovery();
+        this.assertUndispatchedCommand(id, binding, commandId);
+        this.db
+          .prepare(
+            "UPDATE codex_commands SET status='queued' WHERE conversation_id=? AND id=? AND status='failed' AND attempt=1",
+          )
+          .run(id, commandId);
+      })
+      .immediate();
+  }
+
+  /** Query the most recent actually dispatched generation. A tool refresh can
+   * leave the current thread empty until its first turn is acknowledged. */
+  recoveryProbeThreadId(id: string, binding: AccountBinding): string | undefined {
+    const state = this.read(id, binding);
+    this.assertNoPendingThreadDispatch(id, binding);
+    this.assertNoPendingThreadOwnership(id, binding);
+    const rows = this.db
+      .prepare(
+        'SELECT status,attempt,native_turns,pre_dispatch_failure FROM codex_commands WHERE conversation_id=? ORDER BY sequence DESC',
+      )
+      .all(id) as Array<{
+      status: string;
+      attempt: number;
+      native_turns: string | null;
+      pre_dispatch_failure: number;
+    }>;
+    for (const row of rows) {
+      const turns = this.nativeTurns(row.native_turns);
+      if (turns.length) {
+        const target = turns.at(-1)!;
+        const generation = this.db
+          .prepare(
+            'SELECT thread_id FROM codex_thread_generations WHERE conversation_id=? AND generation=?',
+          )
+          .get(id, target.generation) as { thread_id: string } | undefined;
+        if (generation?.thread_id !== target.threadId)
+          throw Error('Recovery thread lineage changed');
+        return target.threadId;
+      }
+      if (row.status === 'failed' && row.attempt === 1 && row.pre_dispatch_failure === 1) continue;
+      if (row.status !== 'queued' && row.status !== 'cancelled') return state.threadId ?? undefined;
+    }
+    return undefined;
+  }
+
   commands(id: string, b: AccountBinding): CodexCommand[] {
     this.read(id, b);
     return (
@@ -1757,6 +1921,19 @@ export class CodexConversationStore {
       status: row.status,
       attempt: row.attempt,
     }));
+  }
+  /** Metadata selects only possible saved inputs; the exact candidate still
+   * passes assertUndispatchedCommand and the public receipt/custody proof. */
+  undispatchedRecoveryCandidateIds(id: string, binding: AccountBinding): string[] {
+    this.read(id, binding);
+    return (
+      this.db
+        .prepare(
+          `SELECT id FROM codex_commands WHERE conversation_id=? AND
+       (status='queued' OR (status='failed' AND pre_dispatch_failure=1)) ORDER BY sequence`,
+        )
+        .all(id) as Array<{ id: string }>
+    ).map((row) => row.id);
   }
   /** Polling must not deserialize historical prompts, images, or tool inputs. */
   /** Current inference snapshots only; never hydrate completed prompts/images
@@ -2961,7 +3138,9 @@ export class CodexConversationStore {
         }
       }
       this.db
-        .prepare("UPDATE codex_commands SET status='running' WHERE conversation_id=? AND id=?")
+        .prepare(
+          "UPDATE codex_commands SET status='running',pre_dispatch_failure=0 WHERE conversation_id=? AND id=?",
+        )
         .run(id, next.id);
       if (recovery?.status === 'queued') {
         recovery.status = 'running';
