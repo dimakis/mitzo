@@ -142,12 +142,9 @@ export class RetainedLocalCodexRecovery {
       throw unavailable();
     const payload = { ...send.payload } as Record<string, unknown>;
     delete payload.systemPrompt;
-    const original = receipt.preparedRepositoryPrimaryCommandId
-      ? events.getPreparedRepositoryCommandAdmissionEvidence(
-          request.clientMsgId,
-          receipt.preparedRepositoryPrimaryCommandId,
-        )
-      : receipt;
+    const original =
+      events.observePreparedRepositoryCommandRouting(request.clientMsgId)?.originalAdmission ??
+      receipt;
     if (
       !isDeepStrictEqual(payload, request.payload) ||
       (verifyFingerprint &&

@@ -1511,6 +1511,123 @@ export class EventStore {
       throw Error('Explicit command execution selection changed');
     return execution;
   }
+  /** Read-only routing identity for retained explicit input under an adopted
+   * primary. The original wire namespace stays distinct from execution custody.
+   * This observation grants neither recovery nor native dispatch authority. */
+  observePreparedRepositoryCommandRouting(commandId: string, historicalOnly = false) {
+    const refuse = () => Error('Retained command workspace lineage unavailable');
+    const read = (id: string) => {
+      const row = this.db!.prepare(
+        'SELECT rowid,session_id,error,ordinary_admission FROM send_commands WHERE client_msg_id=?',
+      ).get(id) as
+        | {
+            rowid: number;
+            session_id: string;
+            error: string | null;
+            ordinary_admission: string | null;
+          }
+        | undefined;
+      if (!row || row.error || !row.ordinary_admission) throw refuse();
+      return {
+        ...row,
+        admission: OrdinaryLocalCommandAdmissionSchema.parse(JSON.parse(row.ordinary_admission)),
+      };
+    };
+    const row = this.db!.prepare(
+      'SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?',
+    ).get(commandId) as { ordinary_admission: string | null } | undefined;
+    if (!row?.ordinary_admission) return undefined;
+    const original = read(commandId);
+    if (original.admission.preparedRepositoryTransition) return undefined;
+    const session = this.getSession(original.session_id);
+    if (!session?.repositoryWorkspaceId) return undefined;
+    const anchors = this.db!.prepare(
+      `SELECT client_msg_id FROM send_commands WHERE session_id=?
+      AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.newWorkspace.id')=?
+      AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.newWorkspace.directory')=? ORDER BY rowid DESC LIMIT 1`,
+    ).all(original.session_id, session.repositoryWorkspaceId, session.cwd) as Array<{
+      client_msg_id: string;
+    }>;
+    if (!anchors.length) return undefined;
+    const primaryId = anchors[0].client_msg_id;
+    const top = read(primaryId);
+    const execution =
+      historicalOnly && original.admission.state === 'consumed'
+        ? undefined
+        : this.getOrdinaryLocalCommandExecutionAdmission(commandId);
+    if (execution && execution.preparedRepositoryPrimaryCommandId !== primaryId) throw refuse();
+    if (
+      !['uncertain', 'consumed'].includes(original.admission.state) ||
+      original.admission.preparedRepositoryTransition ||
+      (original.admission.state === 'uncertain' &&
+        !isDeepStrictEqual(original.admission, execution))
+    )
+      throw refuse();
+    if (execution && !isDeepStrictEqual(top.admission.workspace, execution.workspace))
+      throw refuse();
+    let id = primaryId;
+    let outgoingRowid: number | undefined;
+    let kind: 'ordinary' | 'repository' | undefined;
+    for (let depth = 0; depth < 100; depth++) {
+      const row = read(id);
+      const transition = row.admission.preparedRepositoryTransition;
+      if (
+        !transition ||
+        row.admission.state !== 'consumed' ||
+        row.session_id !== original.session_id ||
+        !isDeepStrictEqual(row.admission.binding, original.admission.binding) ||
+        !isDeepStrictEqual(row.admission.selection.agent, original.admission.selection.agent) ||
+        !isDeepStrictEqual(row.admission.selection.context, original.admission.selection.context) ||
+        !isDeepStrictEqual(
+          row.admission.selection.permission,
+          original.admission.selection.permission,
+        )
+      )
+        throw refuse();
+      if (id === original.admission.preparedRepositoryPrimaryCommandId) {
+        if (
+          row.rowid >= original.rowid ||
+          (outgoingRowid !== undefined && original.rowid >= outgoingRowid) ||
+          !isDeepStrictEqual(row.admission.workspace, original.admission.workspace)
+        )
+          throw refuse();
+        kind = 'repository';
+      }
+      if (!transition.priorPrimaryCommandId) {
+        // Validate every decreasing ancestor and its exact original root, not
+        // merely the latest transition's old workspace.
+        this.observePreparedRepositoryBootstrapAdmission(primaryId, transition.source.commandId);
+        if (!original.admission.preparedRepositoryPrimaryCommandId) {
+          if (
+            original.rowid >= row.rowid ||
+            original.admission.workspace.workspaceId !== transition.oldWorkspace.id ||
+            original.admission.workspace.cwd !== transition.oldWorkspace.directory
+          )
+            throw refuse();
+          kind = transition.oldWorkspace.kind;
+        }
+        if (!kind) throw refuse();
+        const result = {
+          primaryCommandId: primaryId,
+          original: { kind, ...original.admission.workspace },
+          execution: { kind: 'repository' as const, ...top.admission.workspace },
+          originalAdmission: original.admission,
+          executionAdmission: execution,
+        };
+        const freeze = <T>(value: T): T => {
+          if (value && typeof value === 'object') {
+            for (const nested of Object.values(value)) freeze(nested);
+            Object.freeze(value);
+          }
+          return value;
+        };
+        return freeze(result);
+      }
+      outgoingRowid = row.rowid;
+      id = transition.priorPrimaryCommandId;
+    }
+    throw refuse();
+  }
   /** Exact historical execution lineage; observation never supplies a live
    * native, physical-workspace or operator owner. */
   private readPreparedRepositoryCommandExecutionEvidence(

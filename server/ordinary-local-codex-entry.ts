@@ -564,7 +564,12 @@ function createOwnedCodexEntryRouter(
         (!('repositoryWorkspaceId' in input) || input.repositoryWorkspaceId === undefined);
       if (automaticLocalRepository) {
         const id =
-          ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId)?.workspace.workspaceId ||
+          (
+            (input.runtime.harness === 'codex'
+              ? ctx.eventStore.observePreparedRepositoryCommandRouting(input.clientMsgId, true)
+              : undefined
+            )?.originalAdmission ?? ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId)
+          )?.workspace.workspaceId ||
           nativeStartupSessionId(
             `local-repository:${auth.id}:${input.runtime.account.accountId}:${input.clientMsgId}`,
           );
@@ -732,6 +737,19 @@ function createOwnedCodexEntryRouter(
           : nativeStartupSessionId(`repository:${repositoryWorkspaceId}`);
       const existingOwner = ctx.sessionRegistry.findBySessionId(sessionId);
       let recoverRetained = false;
+      // Frozen browser identity remains original; only validated canonical
+      // adoption evidence may select the current execution workspace.
+      let retainedRouting: ReturnType<
+        typeof ctx.eventStore.observePreparedRepositoryCommandRouting
+      >;
+      const assertRetainedRouting = () => {
+        if (!retainedRouting) return;
+        const current = ctx.eventStore.observePreparedRepositoryCommandRouting(
+          input.clientMsgId,
+          true,
+        );
+        if (!isDeepStrictEqual(current, retainedRouting)) throw Error(unavailable);
+      };
       if (
         existingOwner &&
         !(input.runtime.harness === 'codex'
@@ -745,12 +763,26 @@ function createOwnedCodexEntryRouter(
         const captured = captureAgentLibraryAuthorization(connectionId);
         captured.assertCurrent();
         if (captured.auth.id !== auth.id) throw Error(unavailable);
+        if (input.runOn === 'local' && input.runtime.harness === 'codex') {
+          retainedRouting = ctx.eventStore.observePreparedRepositoryCommandRouting(
+            input.clientMsgId,
+            true,
+          );
+          if (
+            retainedRouting &&
+            (retainedRouting.original.kind !== (ordinaryInput ? 'ordinary' : 'repository') ||
+              retainedRouting.original.workspaceId !==
+                (ordinaryInput ? ordinaryInput.workspace.workspaceId : repositoryWorkspaceId) ||
+              ctx.eventStore.getSendCommand(input.clientMsgId)?.sessionId !== sessionId)
+          )
+            throw Error(unavailable);
+        }
         if (
           !observeOnly &&
           continuation &&
           input.runOn === 'local' &&
           input.runtime.harness === 'codex' &&
-          ctx.eventStore.getOrdinaryLocalCommandExecutionAdmission(input.clientMsgId)
+          ctx.eventStore.getSendCommand(input.clientMsgId)
         ) {
           try {
             const native = getCodexConversationStore();
@@ -772,7 +804,7 @@ function createOwnedCodexEntryRouter(
             // A missing or possibly dispatched native row grants no recovery.
           }
         }
-        if (ordinaryInput) {
+        if (ordinaryInput && !retainedRouting) {
           ordinaryWorkspace = getOrdinaryWorkspaces(true).getOrdinaryWorkspace(
             ordinaryInput.workspace.workspaceId,
           );
@@ -870,11 +902,15 @@ function createOwnedCodexEntryRouter(
               : canResumeOwnedOpenShellCodexDriver(sessionId, auth.id))) ||
           !meta ||
           !binding ||
-          (ordinaryInput
-            ? meta.ordinaryWorkspaceId !== ordinaryInput.workspace.workspaceId ||
-              meta.repositoryWorkspaceId != null
-            : meta.repositoryWorkspaceId !== repositoryWorkspaceId ||
-              meta.ordinaryWorkspaceId != null) ||
+          (retainedRouting
+            ? meta.repositoryWorkspaceId !== retainedRouting.execution.workspaceId ||
+              meta.ordinaryWorkspaceId != null ||
+              meta.cwd !== retainedRouting.execution.cwd
+            : ordinaryInput
+              ? meta.ordinaryWorkspaceId !== ordinaryInput.workspace.workspaceId ||
+                meta.repositoryWorkspaceId != null
+              : meta.repositoryWorkspaceId !== repositoryWorkspaceId ||
+                meta.ordinaryWorkspaceId != null) ||
           binding.execution.location !== input.runOn ||
           binding.harness.implementation !== input.runtime.harness ||
           binding.version !== 2 ||
@@ -1015,12 +1051,15 @@ function createOwnedCodexEntryRouter(
           )
             throw Error(unavailable);
         }
+        assertRetainedRouting();
+        const executionRepositoryId =
+          retainedRouting?.execution.workspaceId ?? repositoryWorkspaceId;
         const retainedRepository =
-          !ordinaryInput && repositoryWorkspaceId
-            ? getRepositoryWorkspaces(true).get(repositoryWorkspaceId)
+          (!ordinaryInput || retainedRouting) && executionRepositoryId
+            ? getRepositoryWorkspaces(true).get(executionRepositoryId)
             : undefined;
         const reservation = {
-          id: ordinaryWorkspace ? ordinaryWorkspace.id : repositoryWorkspaceId!,
+          id: ordinaryWorkspace ? ordinaryWorkspace.id : executionRepositoryId!,
           binding: ordinaryWorkspace
             ? ordinaryWorkspace.binding
             : continuation
@@ -1079,6 +1118,7 @@ function createOwnedCodexEntryRouter(
           selection: input.selection,
           payload: input.payload,
         };
+        assertRetainedRouting();
         const resultCommand = await dispatchOwnedOrdinaryCommand({
           transport,
           clientId: `${connectionId}:${sessionId}`,
@@ -1093,7 +1133,7 @@ function createOwnedCodexEntryRouter(
           continuation,
           recovery: recoverRetained,
           existingOwner: Boolean(existingOwner),
-          workspaceKind: ordinaryInput ? 'ordinary' : 'repository',
+          workspaceKind: ordinaryInput && !retainedRouting ? 'ordinary' : 'repository',
           ...(!continuation && ordinaryWorkspace
             ? { preparationOperationId: ordinaryWorkspace.allocationOperationId }
             : preparedRepository

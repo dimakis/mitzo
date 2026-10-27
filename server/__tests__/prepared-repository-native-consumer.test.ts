@@ -1,3 +1,5 @@
+import express from 'express';
+import requestHttp from 'supertest';
 import { materializePreparedRepositoryFixture } from './fixtures/materialized-prepared-repository.js';
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
@@ -102,6 +104,7 @@ async function materializePreparation(
  * Creation actor is synthetic and physical read transport is the controlled
  * descriptor fixture, NOT SRT/native actor qualification or a real model call. */
 async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
+  let operatorToken: string | undefined;
   const f = await ownedRuntimeFixture(chatRoute ? publicAuthCleanups : cleanups, {
     localRepository: true,
     chatRoute,
@@ -129,7 +132,8 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
     const { login, authenticateToken, setAuthRevocationStore } = await import('../auth.js');
     setAuthRevocationStore(chat.eventStore);
     f.detach();
-    const auth = (await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!))!;
+    operatorToken = (await login(process.env.AUTH_PASSPHRASE!))!;
+    const auth = (await authenticateToken(operatorToken))!;
     cleanups.push(bindAgentLibraryTransport(f.dependencies.operatorConnectionId, auth));
     f.auth = auth;
     publicAuthCleanups.push(() => chat.eventStore.close());
@@ -291,6 +295,7 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
     );
   return {
     ...f,
+    operatorToken,
     runtime,
     native,
     first,
@@ -704,6 +709,65 @@ it.each(['new-input', 'exact-retained-input', 'saved-retained-input'] as const)(
         (await f.workspace.validateHostTask(f.first.sessionId, result!.directory)).directory,
       ).toBe(result!.directory);
     }
+  },
+);
+
+it.each(['before-enqueue', 'after-enqueue'] as const)(
+  'recovers uncertain explicit input admitted under an adopted primary %s',
+  async (phase) => {
+    const f = await fixture();
+    const adopted = await f.adopt();
+    f.setCwd(adopted!.directory);
+    f.runtime.close();
+    const request = {
+      ...structuredClone(f.request),
+      clientMsgId: `uncertain-adopted-${phase}`,
+      payload: { text: 'Retain my new adopted-workspace request' },
+    };
+    const dispatch = vi.fn(
+      async (
+        value: import('../ordinary-local-codex-owned-runtime.js').OrdinaryLocalCodexOwnedDispatch,
+      ) => {
+        if (phase === 'after-enqueue') {
+          const input = {
+            id: value.commandId,
+            prompt: value.payload.text,
+            intent: value.payload.intent,
+            model: value.expected.selection.model,
+            reasoningEffort: value.expected.selection.thinking,
+          };
+          value.admission.assertBeforeEnqueue(input);
+          f.native.enqueue(value.sessionId, value.lease.binding, input);
+        }
+        throw Error('Offline failure before native dispatch');
+      },
+    );
+    const cold = new OrdinaryLocalCodexOwnedRuntime({
+      ...f.dependencies,
+      nativeStore: f.native,
+      commandId: request.clientMsgId,
+      reservation: { ...f.reservation, id: adopted!.id },
+      launch: () => ({ ...f.rpc, close: vi.fn() }),
+      dispatch,
+    });
+    cleanups.push(() => cold.close());
+    await expect(cold.admitResume(request)).rejects.toThrow();
+    expect(dispatch).toHaveBeenCalledOnce();
+    cold.close();
+    const original = f.events.getOrdinaryLocalCommandExecutionAdmission(request.clientMsgId)!;
+    expect(original.state).toBe('uncertain');
+    expect(original.preparedRepositoryPrimaryCommandId).toBeTruthy();
+    expect(() =>
+      RetainedLocalCodexRecovery.capture(f.events, f.native, f.first.sessionId, f.auth.id, request),
+    ).not.toThrow();
+    expect(f.events.getOrdinaryLocalCommandExecutionAdmission(request.clientMsgId)).toEqual(
+      original,
+    );
+    expect(
+      f.native
+        .commands(f.first.sessionId, f.first.lease.binding)
+        .filter((row) => row.id === request.clientMsgId),
+    ).toHaveLength(phase === 'after-enqueue' ? 1 : 0);
   },
 );
 
@@ -1163,7 +1227,13 @@ it('refuses partial, mismatched and revoked qualified cold owners before effects
   ).toBe(false);
 });
 
-it.each(['completed', 'interrupted', 'partial-adoption', 'untransferred'] as const)(
+it.each([
+  'completed',
+  'interrupted',
+  'partial-adoption',
+  'untransferred',
+  'retained-http',
+] as const)(
   'reaches fresh qualified cold admission through the actual public owned entry after %s retirement and refuses a competing registered owner',
   async (primaryStatus) => {
     vi.spyOn(nativeFileOperations, 'executeNativeAnchoredReadOperation').mockImplementation(
@@ -1172,6 +1242,16 @@ it.each(['completed', 'interrupted', 'partial-adoption', 'untransferred'] as con
       },
     );
     const f = await fixture(true);
+    const held = {
+      ...structuredClone(f.request),
+      clientMsgId: 'held-exact-http-recovery',
+      payload: { text: 'Keep this original browser request and my checkout' },
+    };
+    if (primaryStatus === 'retained-http') await f.runtime.admitContinuation(held);
+    const originalHeld =
+      primaryStatus === 'retained-http'
+        ? f.events.getOrdinaryLocalCommandAdmission(held.clientMsgId)
+        : undefined;
     let result: Awaited<ReturnType<typeof f.adopt>>;
     if (primaryStatus === 'untransferred') {
       vi.spyOn(f.workspace, 'adoptPreparedRepositoryTransition').mockImplementationOnce(() => {
@@ -1267,11 +1347,14 @@ it.each(['completed', 'interrupted', 'partial-adoption', 'untransferred'] as con
     const custody = f.native.readHostCustody(sessionId, binding);
     expect(chat.registry.findBySessionId(sessionId)).toBeFalsy();
     expect(chat.canResumeOwnedLocalCodexDriver(sessionId, f.auth.id)).toBe(true);
-    const request = {
-      ...structuredClone(f.request),
-      clientMsgId: `public-qualified-cold-${primaryStatus}`,
-      payload: { text: 'Continue the same saved task' },
-    };
+    const request =
+      primaryStatus === 'retained-http'
+        ? held
+        : {
+            ...structuredClone(f.request),
+            clientMsgId: `public-qualified-cold-${primaryStatus}`,
+            payload: { text: 'Continue the same saved task' },
+          };
     const underlying = f.rpc.request.getMockImplementation()!;
     let signalNativeTurnStarted!: () => void;
     let rejectNativeTurnStarted!: (error: Error) => void;
@@ -1298,7 +1381,10 @@ it.each(['completed', 'interrupted', 'partial-adoption', 'untransferred'] as con
     const launch = vi
       .spyOn(CodexAppServerClient, 'launchIsolated')
       .mockReturnValue({ ...f.rpc, close: vi.fn() } as never);
-    const clientId = `public-cold:${sessionId}`;
+    const clientId =
+      primaryStatus === 'retained-http'
+        ? `${f.dependencies.operatorConnectionId}:${sessionId}`
+        : `public-cold:${sessionId}`;
     cleanups.push(async () => {
       chat.registry.abort(clientId);
       await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeFalsy());
@@ -1316,23 +1402,92 @@ it.each(['completed', 'interrupted', 'partial-adoption', 'untransferred'] as con
         throw error;
       }
     });
-    const attempt = chat.startOwnedLocalCodexCommand(
-      { send: vi.fn(), isOpen: () => true },
-      clientId,
-      {
-        command: request,
-        reservation: { ...f.reservation, id: result!.id },
-        commandId: request.clientMsgId,
-        operatorConnectionId: f.dependencies.operatorConnectionId,
-        ownerConnectionId: f.dependencies.operatorConnectionId,
-        signal: f.signal.signal,
-        resume: true,
-        onEnded: () => {
-          if (!nativeStarted)
-            rejectNativeTurnStarted(Error('Owned query ended before native turn start'));
-        },
-      },
-    );
+    const start = async () => {
+      if (primaryStatus !== 'retained-http')
+        return chat.startOwnedLocalCodexCommand({ send: vi.fn(), isOpen: () => true }, clientId, {
+          command: request,
+          reservation: { ...f.reservation, id: result!.id },
+          commandId: request.clientMsgId,
+          operatorConnectionId: f.dependencies.operatorConnectionId,
+          ownerConnectionId: f.dependencies.operatorConnectionId,
+          signal: f.signal.signal,
+          resume: true,
+          onEnded: () => {
+            if (!nativeStarted)
+              rejectNativeTurnStarted(Error('Owned query ended before native turn start'));
+          },
+        });
+      const { SessionSseRegistry } = await import('../session-sse-registry.js');
+      const { ConnectionRegistry } = await import('@mitzo/harness');
+      const { claimTransportConnection, releaseTransportConnection } =
+        await import('../transport-auth-ownership.js');
+      const { createOwnedLocalCodexEntryRouter } = await import('../ordinary-local-codex-entry.js');
+      const streams = new SessionSseRegistry(),
+        connections = new ConnectionRegistry();
+      const connectionId = f.dependencies.operatorConnectionId;
+      streams.add(
+        connectionId,
+        { write: vi.fn(() => true), end: vi.fn(), writableEnded: false } as never,
+        f.auth.id,
+      );
+      connections.register(connectionId, { send: vi.fn(), isOpen: () => true });
+      claimTransportConnection(connectionId, f.auth.id);
+      chat.setConnectionRegistry(connections);
+      cleanups.push(() => {
+        streams.remove(connectionId);
+        connections.dispose();
+        releaseTransportConnection(connectionId, f.auth.id);
+        chat.setConnectionRegistry(null);
+      });
+      const originalWire = {
+        ...request,
+        runOn: 'local',
+        sessionId,
+        repositoryWorkspaceId: f.reservation.id,
+      };
+      const serialized = JSON.stringify(originalWire);
+      const app = express();
+      app.use(express.json());
+      app.use((_req, res, next) => {
+        res.locals.authSession = f.auth;
+        next();
+      });
+      app.use(
+        createOwnedLocalCodexEntryRouter(streams, {
+          connRegistry: connections,
+          sessionRegistry: chat.registry,
+          eventStore: f.events,
+        }),
+      );
+      const server = app.listen(0, '127.0.0.1');
+      try {
+        const response = await requestHttp(server)
+          .post('/continue')
+          .set('Authorization', 'Bearer ' + f.operatorToken)
+          .set('Content-Type', 'application/json')
+          .set('X-Connection-ID', connectionId)
+          .send(serialized);
+        expect(response.status, JSON.stringify(response.body)).toBe(202);
+        expect(response.body).toMatchObject({
+          dispatched: true,
+          state: 'consumed',
+          clientMsgId: request.clientMsgId,
+        });
+        expect(JSON.stringify(originalWire)).toBe(serialized);
+        const execution = f.events.getOrdinaryLocalCommandExecutionAdmission(request.clientMsgId)!;
+        expect(execution.workspace.cwd).toBe(result!.directory);
+        expect(
+          f.events.getPreparedRepositoryCommandAdmissionEvidence(
+            request.clientMsgId,
+            execution.preparedRepositoryPrimaryCommandId!,
+          ),
+        ).toEqual(originalHeld);
+        return response.body;
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    };
+    const attempt = start();
     const evidencePath = join(tmpdir(), `qualified-cold-public-${Date.now()}.json`);
     try {
       await expect(attempt).resolves.toMatchObject({ dispatched: true, sessionId });
@@ -1382,6 +1537,9 @@ it.each(['completed', 'interrupted', 'partial-adoption', 'untransferred'] as con
         permissions: 'mitzo-native-agent',
         config: expect.objectContaining({ 'skills.max_context_tokens': 1500 }),
       });
+      if (primaryStatus === 'retained-http') {
+        expect(packets.filter(([method]) => method === 'turn/start')).toHaveLength(1);
+      }
       expect(packets.some(([method]) => method === 'thread/start')).toBe(false);
       expect(packets.filter(([method]) => method === 'turn/start').at(-1)?.[1]).toMatchObject({
         cwd: expectedDirectory,
