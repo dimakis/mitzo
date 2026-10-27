@@ -155,6 +155,11 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
     receipt: WorkspaceRetirementReceipt;
     kind: 'unused' | 'task';
     disposition: 'retiring' | 'retired' | 'restoring' | 'restored';
+    restorationAttempts?: string[];
+    restorationPublications?: Array<{
+      attemptId: string;
+      rootIdentity: { dev: number; ino: number };
+    }>;
   };
   workspaceRevision?: number;
   restorations?: RepositoryWorkspaceRestoration[];
@@ -1541,12 +1546,15 @@ export class RepositoryWorkspaces {
       const reconciling = record.retirement.disposition === 'restoring';
       if (!reconciling && existsSync(receipt.directory))
         throw Error('An existing directory requires its original restoration journal');
+      if ((record.retirement.restorationAttempts?.length ?? 0) >= 100)
+        throw Error('Restoration attempt retention limit reached; reconcile retained attempts');
       const leaseId = randomUUID();
       const original = JSON.stringify(record);
       record = {
         ...record,
         retirement: {
           ...record.retirement,
+          restorationAttempts: [...(record.retirement.restorationAttempts ?? []), leaseId],
           leaseId,
           expiresAt: Date.now() + 300000,
           disposition: 'restoring',
@@ -1561,17 +1569,52 @@ export class RepositoryWorkspaces {
       await current();
       if (record.hostReservation) await this.assertHostRoot(record.hostReservation);
       await current();
+      let publicationRoot: { dev: number; ino: number } | undefined;
       if (existsSync(receipt.directory)) {
         // Reconcile only exact bytes left by this journalled restoration. No
         // overwrite, reset or adoption of a changed/foreign existing directory.
+        const existing = await lstat(receipt.directory);
+        await current();
+        const publication = record.retirement!.restorationPublications?.find(
+          (publication) =>
+            record.retirement!.restorationAttempts?.includes(publication.attemptId) &&
+            publication.rootIdentity.dev === existing.dev &&
+            publication.rootIdentity.ino === existing.ino,
+        );
+        if (!publication)
+          throw Error('Existing restoration requires its journalled publication identity');
+        publicationRoot = publication.rootIdentity;
         await verifyWorkspaceArchiveRestoration(receipt.archive, receipt.directory);
-      } else await restoreWorkspaceArchive(receipt.archive, receipt.directory);
+      } else
+        await restoreWorkspaceArchive(receipt.archive, receipt.directory, {
+          id: leaseId,
+          assertCurrent: current,
+          recordPrepared: async (rootIdentity) => {
+            await current();
+            publicationRoot = { ...rootIdentity };
+            const prior = JSON.stringify(record);
+            record = {
+              ...record,
+              retirement: {
+                ...record.retirement!,
+                restorationPublications: [
+                  ...(record.retirement!.restorationPublications ?? []),
+                  { attemptId: leaseId, rootIdentity },
+                ],
+              },
+            };
+            this.save(record, prior);
+            await current();
+          },
+        });
       await current();
       const restored = await snapshotRepositoryTaskCheckout(
         receipt.directory,
         previousTaskIdentity.featureBranch,
       );
       await current();
+      if (!publicationRoot || !isDeepStrictEqual(restored.root, publicationRoot))
+        throw Error('Journalled restoration publication identity changed');
       await verifyWorkspaceArchiveRestoration(receipt.archive, receipt.directory);
       await current();
       const taskIdentity = {
@@ -1598,6 +1641,15 @@ export class RepositoryWorkspaces {
       };
       restoredRepositoryTaskIdentity(next, next.restorations![0].previousTaskIdentity);
       await current();
+      const finalRoot = lstatSync(receipt.directory);
+      if (
+        !finalRoot.isDirectory() ||
+        finalRoot.isSymbolicLink() ||
+        realpathSync(receipt.directory) !== receipt.directory ||
+        finalRoot.dev !== publicationRoot.dev ||
+        finalRoot.ino !== publicationRoot.ino
+      )
+        throw Error('Journalled restoration publication identity changed');
       this.save(next, prior);
       return next;
     });

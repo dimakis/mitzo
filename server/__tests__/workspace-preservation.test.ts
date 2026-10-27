@@ -18,6 +18,7 @@ import {
   removePreservedWorkspace,
   restoreWorkspaceArchive,
   type WorkspaceRetirementOwner,
+  type WorkspaceRetirementReceipt,
 } from '../workspace-preservation.js';
 
 import { workspacePreservationProgram } from '../workspace-preservation-helper.js';
@@ -217,4 +218,106 @@ it('retires by retaining the original tree and restores an unchanged archive', a
   const restored = join(root!, 'restore-retained');
   await restoreWorkspaceArchive(receipt.archive!, restored);
   expect(await readFile(join(restored, 'tracked.txt'), 'utf8')).toBe('edited');
+});
+
+it('retries an interrupted archive in a fresh journalled attempt and retains the partial tree', async () => {
+  const f = await fixture();
+  const config = await readFile(join(f.directory, '.git', 'config'));
+  await rm(join(f.directory, '.git', 'config'));
+  const { symlink } = await import('node:fs/promises');
+  await symlink('../tracked.txt', join(f.directory, '.git', 'config'));
+  await expect(retireOwnedWorkspace(f.owner)).rejects.toThrow(/independent Git/i);
+  const previous = f.writes.at(-1) as WorkspaceRetirementReceipt;
+  expect(previous.state).toBe('archiving');
+  const partial = join(f.archives, previous.operationId, previous.archiveAttempts![0], 'checkout');
+  const partialIdentity = await lstat(partial);
+  await rm(join(f.directory, '.git', 'config'));
+  await writeFile(join(f.directory, '.git', 'config'), config);
+  const recovered = await retireOwnedWorkspace(
+    Object.freeze({ ...f.owner, previousReceipt: previous }),
+  );
+  expect(recovered.archiveAttempts).toHaveLength(2);
+  expect(recovered.archive!.directory).not.toBe(join(partial, '..'));
+  expect((await lstat(partial)).ino).toBe(partialIdentity.ino);
+  await restoreWorkspaceArchive(recovered.archive!, join(root!, 'recovered'));
+  expect(await readFile(join(root!, 'recovered', 'ignored.bin'), 'utf8')).toBe(
+    'meaningful ignored output',
+  );
+});
+it('recovers legacy archiving receipts without replacing their partial archive evidence', async () => {
+  const f = await fixture();
+  const operation = join(f.archives, f.owner.operationId);
+  await mkdir(operation, { mode: 0o700 });
+  await mkdir(join(operation, 'checkout'));
+  await writeFile(join(operation, 'checkout', 'partial.txt'), 'retained incomplete attempt');
+  const previousReceipt: WorkspaceRetirementReceipt = {
+    version: 1,
+    operationId: f.owner.operationId,
+    workspaceId: f.owner.workspaceId,
+    directory: f.directory,
+    rootIdentity: f.owner.rootIdentity,
+    state: 'archiving',
+  };
+  const recovered = await retireOwnedWorkspace(Object.freeze({ ...f.owner, previousReceipt }));
+  expect(recovered.state).toBe('retired');
+  expect(await readFile(join(operation, 'checkout', 'partial.txt'), 'utf8')).toBe(
+    'retained incomplete attempt',
+  );
+});
+it('keeps interrupted restore copies private and retries without touching their partial evidence', async () => {
+  const f = await fixture();
+  const receipt = await retireOwnedWorkspace(f.owner);
+  const archive = receipt.archive!;
+  const scratch = join(archive.directory, 'restore-attempt-9b795d02-45ed-4a95-a338-2062046504f0');
+  const destination = join(root!, 'restored');
+  const program = workspacePreservationProgram.replace(
+    '                        h.update(data)',
+    "                        if target is not None: fail('Interrupted copy')\n                        h.update(data)",
+  );
+  expect(program).not.toBe(workspacePreservationProgram);
+  expect(() =>
+    execFileSync('/usr/bin/python3', ['-I', '-c', program], {
+      input: JSON.stringify({
+        mode: 'restore',
+        source: join(archive.directory, 'checkout'),
+        destination: scratch,
+        proof: { sha256: archive.sha256, files: archive.files, bytes: archive.bytes },
+      }),
+      env: { PATH: '/usr/bin:/bin' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }),
+  ).toThrow();
+  const partialIdentity = await lstat(scratch);
+  await expect(lstat(destination)).rejects.toMatchObject({ code: 'ENOENT' });
+  await restoreWorkspaceArchive(archive, destination);
+  expect((await lstat(scratch)).ino).toBe(partialIdentity.ino);
+  expect(await readFile(join(destination, 'ignored.bin'), 'utf8')).toBe(
+    'meaningful ignored output',
+  );
+});
+it('atomically refuses a destination collision appearing at publication, retaining both trees', async () => {
+  const f = await fixture();
+  const receipt = await retireOwnedWorkspace(f.owner);
+  const archive = receipt.archive!;
+  const destination = join(root!, 'restore-collision');
+  let collisionInode: number | undefined;
+  const id = 'cf18a9c9-d92a-4e16-bfee-988e9e22a3cc';
+  await expect(
+    restoreWorkspaceArchive(archive, destination, {
+      id,
+      assertCurrent: async () => {
+        const scratch = join(archive.directory, `restore-attempt-${id}`);
+        const copied = await lstat(scratch).catch(() => undefined);
+        if (copied && !collisionInode) {
+          await mkdir(destination);
+          collisionInode = (await lstat(destination)).ino;
+        }
+      },
+    }),
+  ).rejects.toThrow(/exist/i);
+  expect((await lstat(destination)).ino).toBe(collisionInode);
+  expect(await readdir(destination)).toEqual([]);
+  expect(
+    await readFile(join(archive.directory, `restore-attempt-${id}`, 'ignored.bin'), 'utf8'),
+  ).toBe('meaningful ignored output');
 });

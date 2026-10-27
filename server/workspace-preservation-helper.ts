@@ -3,7 +3,7 @@
  * independent Git store. Every copied tree is read back and restored to scratch
  * before a verified receipt can be issued. */
 export const workspacePreservationProgram = String.raw`
-import hashlib,json,os,stat,sys
+import ctypes,hashlib,json,os,stat,sys
 r=json.load(sys.stdin)
 maximum_files=r.get('maximumFiles',100000)
 maximum_bytes=r.get('maximumBytes',2147483648)
@@ -17,6 +17,20 @@ def opened(path, expected=None):
     if expected is not None and ident(os.fstat(fd))!=expected:
         os.close(fd); fail('Workspace identity changed')
     return fd
+
+def rename_exclusive(source_fd,source_name,destination_fd,destination_name):
+    # Platform no-replace primitives atomically reject even an empty directory
+    # created after validation. An exists-check followed by rename can clobber it.
+    libc=ctypes.CDLL(None,use_errno=True)
+    if sys.platform=='darwin':
+        rename=libc.renameatx_np; flags=4 # RENAME_EXCL, Darwin stdio.h
+    elif sys.platform.startswith('linux'):
+        rename=libc.renameat2; flags=1 # RENAME_NOREPLACE, Linux renameat2(2)
+    else: fail('Exclusive directory publication unsupported on this platform')
+    rename.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_int,ctypes.c_char_p,ctypes.c_uint]
+    rename.restype=ctypes.c_int
+    if rename(source_fd,os.fsencode(source_name),destination_fd,os.fsencode(destination_name),flags)!=0:
+        error=ctypes.get_errno(); raise OSError(error,os.strerror(error))
 
 def capture(path,destination=None,expected=None):
     source=opened(path,expected)
@@ -111,11 +125,26 @@ elif mode=='remove':
         # An archive proof cannot fence editors holding open files. Keep the
         # original inode tree, including writes after proof, rather than unlink
         # entries based on fresh stats that were never covered by the archive.
-        os.rename(name,retained_name,src_dir_fd=parent_fd,dst_dir_fd=archive_fd)
+        rename_exclusive(parent_fd,name,archive_fd,retained_name)
         if ident(os.stat(retained_name,dir_fd=archive_fd,follow_symlinks=False))!=r['identity']:
             fail('Workspace identity changed during retirement; retain both trees')
         os.fsync(archive_fd); os.fsync(parent_fd)
     finally: os.close(source); os.close(parent_fd); os.close(archive_fd)
+    result=r['proof']
+elif mode=='publish':
+    if capture(r['source'],expected=r['identity'])!=r['proof']: fail('Archive restoration failed')
+    source=r['source']; destination=r['destination']
+    source_parent=opened(os.path.dirname(source)); destination_parent=opened(os.path.dirname(destination))
+    source_fd=opened(source,r['identity'])
+    try:
+        name=os.path.basename(source); target=os.path.basename(destination)
+        if ident(os.stat(name,dir_fd=source_parent,follow_symlinks=False))!=r['identity']:
+            fail('Restoration scratch identity changed')
+        rename_exclusive(source_parent,name,destination_parent,target)
+        if ident(os.stat(target,dir_fd=destination_parent,follow_symlinks=False))!=r['identity']:
+            fail('Restored workspace identity changed; retain both trees')
+        os.fsync(destination_parent); os.fsync(source_parent)
+    finally: os.close(source_fd); os.close(destination_parent); os.close(source_parent)
     result=r['proof']
 elif mode=='restore':
     if capture(r['source'])!=r['proof']: fail('Archive verification failed')

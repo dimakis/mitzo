@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, realpath, rm } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
@@ -26,6 +27,7 @@ export const WorkspaceRetirementReceiptSchema = z
     rootIdentity: identity,
     state: z.enum(['archiving', 'verified', 'retired']),
     archive: WorkspaceArchiveSchema.optional(),
+    archiveAttempts: z.array(z.uuid()).max(100).optional(),
   })
   .refine(
     (value) => value.state === 'archiving' || !!value.archive,
@@ -75,6 +77,8 @@ function helper(input: object): Promise<z.infer<typeof proofSchema>> {
     child.stdin?.end(JSON.stringify(input));
   });
 }
+const isSameIdentity = (a: { dev: number; ino: number }, b: { dev: number; ino: number }) =>
+  a.dev === b.dev && a.ino === b.ino;
 const inside = (path: string, root: string) => {
   const suffix = relative(root, path);
   return (
@@ -128,19 +132,63 @@ async function assertRetainedSourceUnchanged(archive: WorkspaceArchive): Promise
 export async function restoreWorkspaceArchive(
   archive: WorkspaceArchive,
   destination: string,
+  attempt: {
+    id: string;
+    assertCurrent(): Promise<void>;
+    recordPrepared?(rootIdentity: { dev: number; ino: number }): Promise<void>;
+  } = {
+    id: randomUUID(),
+    assertCurrent: async () => {},
+  },
 ): Promise<void> {
   const value = WorkspaceArchiveSchema.parse(archive);
   canonical.parse(destination);
   const { sha256, files, bytes } = value;
+  const attemptId = z.uuid().parse(attempt.id);
+  const scratch = join(value.directory, `restore-attempt-${attemptId}`);
+  const current = attempt.assertCurrent;
+  const recordPrepared = attempt.recordPrepared;
+  const assertCurrent = async () => {
+    if (
+      attempt.id !== attemptId ||
+      attempt.assertCurrent !== current ||
+      attempt.recordPrepared !== recordPrepared
+    )
+      throw Error('Original restoration attempt changed');
+    await current.call(attempt);
+  };
+  await assertCurrent();
   await privateRoot(value.directory);
+  await assertCurrent();
   await assertRetainedSourceUnchanged(value);
+  await assertCurrent();
+  // A failed copy remains private under its journalled attempt. Only a complete,
+  // verified tree can ever become the live checkout; retries use fresh attempts.
   await helper({
     mode: 'restore',
     source: join(value.directory, 'checkout'),
-    destination,
+    destination: scratch,
     proof: { sha256, files, bytes },
   });
+  await assertCurrent();
+  const copied = await lstat(scratch);
+  await assertCurrent();
+  if (recordPrepared) {
+    await recordPrepared.call(attempt, { dev: copied.dev, ino: copied.ino });
+    await assertCurrent();
+  }
   await assertRetainedSourceUnchanged(value);
+  await assertCurrent();
+  await helper({
+    mode: 'publish',
+    source: scratch,
+    destination,
+    identity: { dev: copied.dev, ino: copied.ino },
+    proof: { sha256, files, bytes },
+  });
+  await assertCurrent();
+  await assertRetainedSourceUnchanged(value);
+  await assertCurrent();
 }
 /** Read-only reconciliation for a restore interrupted before its final journal
  * write. Only exact archive equality can qualify the existing restored bytes. */
@@ -185,6 +233,8 @@ export async function retireOwnedWorkspace(
 ): Promise<WorkspaceRetirementReceipt> {
   if (!Object.isFrozen(owner)) throw Error('Original workspace retirement owner required');
   const { assertCurrent, record, remove } = owner;
+  const previousReceipt =
+    owner.previousReceipt && WorkspaceRetirementReceiptSchema.parse(owner.previousReceipt);
   const base = WorkspaceRetirementReceiptSchema.parse({
     version: 1,
     operationId: owner.operationId,
@@ -192,6 +242,9 @@ export async function retireOwnedWorkspace(
     directory: owner.directory,
     rootIdentity: owner.rootIdentity,
     state: 'archiving',
+    ...(previousReceipt?.archiveAttempts
+      ? { archiveAttempts: previousReceipt.archiveAttempts }
+      : {}),
   });
   const archiveRoot = canonical.parse(owner.archiveRoot);
   const archiveDirectory = join(archiveRoot, base.operationId);
@@ -217,22 +270,40 @@ export async function retireOwnedWorkspace(
     await record.call(owner, structuredClone(receipt));
     await current();
   };
+  if (
+    previousReceipt &&
+    (previousReceipt.operationId !== base.operationId ||
+      previousReceipt.workspaceId !== base.workspaceId ||
+      previousReceipt.directory !== base.directory ||
+      !isSameIdentity(previousReceipt.rootIdentity, base.rootIdentity))
+  )
+    throw Error('Original retirement receipt required');
   await current();
   await privateRoot(archiveRoot);
   await current();
   let archive: WorkspaceArchive;
   if (owner.previousReceipt?.state === 'verified' || owner.previousReceipt?.state === 'retired') {
-    const previous = WorkspaceRetirementReceiptSchema.parse(owner.previousReceipt);
+    const previous = previousReceipt!;
     if (
       previous.operationId !== base.operationId ||
       previous.workspaceId !== base.workspaceId ||
       previous.directory !== base.directory ||
       previous.rootIdentity.dev !== base.rootIdentity.dev ||
       previous.rootIdentity.ino !== base.rootIdentity.ino ||
-      previous.archive?.directory !== archiveDirectory
+      !previous.archive ||
+      !(
+        previous.archive.directory === archiveDirectory ||
+        previous.archiveAttempts?.some(
+          (id) => previous.archive!.directory === join(archiveDirectory, id),
+        )
+      )
     )
       throw Error('Original retirement receipt required');
     archive = previous.archive;
+    await privateRoot(archiveDirectory);
+    await current();
+    await privateRoot(archive.directory);
+    await current();
     const proof = await helper({ mode: 'verify', source: join(archive.directory, 'checkout') });
     if (
       JSON.stringify(proof) !==
@@ -251,19 +322,30 @@ export async function retireOwnedWorkspace(
   } else {
     await sourceIdentity(base.directory, base.rootIdentity);
     await current();
+    if ((base.archiveAttempts?.length ?? 0) >= 100)
+      throw Error('Archive attempt retention limit reached; reconcile retained attempts');
+    const attemptId = randomUUID();
+    base.archiveAttempts = [...(base.archiveAttempts ?? []), attemptId];
     await retain(base);
-    await mkdir(archiveDirectory, { mode: 0o700 });
+    await mkdir(archiveDirectory, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EEXIST' || !previousReceipt) throw error;
+    });
+    await current();
+    await privateRoot(archiveDirectory);
+    await current();
+    const attemptDirectory = join(archiveDirectory, attemptId);
+    await mkdir(attemptDirectory, { mode: 0o700 });
     await current();
     const proof = await helper({
       mode: 'archive',
       source: base.directory,
-      destination: join(archiveDirectory, 'checkout'),
+      destination: join(attemptDirectory, 'checkout'),
       identity: base.rootIdentity,
     });
     await current();
-    archive = WorkspaceArchiveSchema.parse({ version: 1, directory: archiveDirectory, ...proof });
-    const restore = join(archiveDirectory, 'restore-verification');
-    await restoreWorkspaceArchive(archive, restore);
+    archive = WorkspaceArchiveSchema.parse({ version: 1, directory: attemptDirectory, ...proof });
+    const restore = join(attemptDirectory, 'restore-verification');
+    await restoreWorkspaceArchive(archive, restore, { id: randomUUID(), assertCurrent: current });
     await current();
     // Only this freshly created verification copy is disposable scratch. The
     // durable archive/source survive every failure and all uncertain operations.

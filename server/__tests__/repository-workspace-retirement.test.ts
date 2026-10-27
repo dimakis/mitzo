@@ -1,6 +1,17 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { realpath, cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  realpath,
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -205,4 +216,142 @@ it('recovers a verified retirement after operator loss and an expired durable le
     operationId: receipt.operationId,
     archive: receipt.archive,
   });
+});
+
+it('resumes an archiving task after restart without reusing or discarding the interrupted attempt', async () => {
+  const f = await fixture();
+  const tasks = join(root!, 'tasks');
+  await mkdir(tasks, { mode: 0o700 });
+  const claimed = await f.service.claim(f.id, binding, 'conversation', tasks, false);
+  let partial: string | undefined;
+  await expect(
+    f.service.retireTask(f.id, binding, {
+      assertTaskStopped: () => {},
+      assertCurrent: async (record) => {
+        const receipt = record.retirement?.receipt;
+        if (receipt?.state !== 'archiving' || !receipt.archiveAttempts?.length) return;
+        const path = join(
+          root!,
+          'private',
+          'archives',
+          receipt.operationId,
+          receipt.archiveAttempts.at(-1)!,
+        );
+        const created = await lstat(path).catch(() => undefined);
+        if (created) {
+          partial = path;
+          await writeFile(join(path, 'partial-evidence'), 'interrupted archive attempt');
+          throw Error('Interrupted archive');
+        }
+      },
+    }),
+  ).rejects.toThrow('Interrupted archive');
+  expect(partial).toBeDefined();
+  const restarted = f.reopen();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 400000);
+  try {
+    await restarted.retireTask(f.id, binding, {
+      assertCurrent: async () => {},
+      assertTaskStopped: () => {},
+    });
+  } finally {
+    clock.mockRestore();
+  }
+  expect(restarted.get(f.id).retirement!.receipt.state).toBe('retired');
+  expect(restarted.get(f.id).retirement!.receipt.archiveAttempts).toHaveLength(2);
+  expect(await readFile(join(partial!, 'partial-evidence'), 'utf8')).toBe(
+    'interrupted archive attempt',
+  );
+  await expect(lstat(claimed.directory!)).rejects.toMatchObject({ code: 'ENOENT' });
+});
+it.each(['partial-copy', 'verified-copy', 'published'] as const)(
+  'resumes a journalled restoration after %s interruption and lease expiry',
+  async (phase) => {
+    const f = await fixture();
+    const tasks = join(root!, 'tasks');
+    await mkdir(tasks, { mode: 0o700 });
+    const claimed = await f.service.claim(f.id, binding, 'conversation', tasks, false);
+    const authority = { assertCurrent: async () => {}, assertTaskStopped: () => {} };
+    await f.service.retireTask(f.id, binding, authority);
+    const archive = f.service.get(f.id).retirement!.receipt.archive!;
+    let interruptedScratch: string | undefined;
+    let stopped = false;
+    await expect(
+      f.service.restoreTask(f.id, binding, {
+        assertTaskStopped: () => {},
+        assertCurrent: async (record) => {
+          if (record.retirement?.disposition !== 'restoring' || stopped) return;
+          const scratch = join(archive.directory, `restore-attempt-${record.retirement.leaseId}`);
+          if (phase === 'partial-copy') {
+            // Fault at the durable-journal/copy boundary: the prior process left
+            // owned incomplete scratch, never a partial live checkout.
+            await mkdir(scratch, { mode: 0o700 });
+            await writeFile(join(scratch, 'partial-evidence'), 'interrupted copy');
+          } else if (phase === 'verified-copy') {
+            if (!(await lstat(scratch).catch(() => undefined))) return;
+          } else if (!(await lstat(claimed.directory!).catch(() => undefined))) return;
+          interruptedScratch = scratch;
+          stopped = true;
+          throw Error('Interrupted restore');
+        },
+      }),
+    ).rejects.toThrow('Interrupted restore');
+    expect(stopped).toBe(true);
+    expect(f.service.get(f.id).retirement!.disposition).toBe('restoring');
+    if (phase !== 'published')
+      await expect(lstat(claimed.directory!)).rejects.toMatchObject({ code: 'ENOENT' });
+    const restarted = f.reopen();
+    await expect(restarted.restoreTask(f.id, binding, authority)).rejects.toThrow(
+      /lease is still active/i,
+    );
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 400000);
+    try {
+      await restarted.restoreTask(f.id, binding, authority);
+    } finally {
+      clock.mockRestore();
+    }
+    const restored = restarted.get(f.id);
+    expect(restored.retirement!.disposition).toBe('restored');
+    expect(restored.retirement!.restorationAttempts).toHaveLength(2);
+    expect(restored.restorations).toHaveLength(1);
+    expect(await readFile(join(claimed.directory!, 'work.txt'), 'utf8')).toBe('private source');
+    if (phase === 'partial-copy')
+      expect(await readFile(join(interruptedScratch!, 'partial-evidence'), 'utf8')).toBe(
+        'interrupted copy',
+      );
+    if (phase === 'verified-copy') expect(await readdir(interruptedScratch!)).toContain('work.txt');
+  },
+);
+
+it('refuses a byte-identical replacement root after publication and preserves both trees', async () => {
+  const f = await fixture();
+  const tasks = join(root!, 'tasks');
+  await mkdir(tasks, { mode: 0o700 });
+  const claimed = await f.service.claim(f.id, binding, 'conversation', tasks, false);
+  const authority = { assertCurrent: async () => {}, assertTaskStopped: () => {} };
+  await f.service.retireTask(f.id, binding, authority);
+  const archive = f.service.get(f.id).retirement!.receipt.archive!;
+  const preserved = join(root!, 'published-preserved');
+  let replaced = false;
+  await expect(
+    f.service.restoreTask(f.id, binding, {
+      assertTaskStopped: () => {},
+      assertCurrent: async (record) => {
+        if (
+          replaced ||
+          record.retirement?.disposition !== 'restoring' ||
+          !(await lstat(claimed.directory!).catch(() => undefined))
+        )
+          return;
+        replaced = true;
+        await rename(claimed.directory!, preserved);
+        await restoreWorkspaceArchive(archive, claimed.directory!);
+      },
+    }),
+  ).rejects.toThrow(/publication identity changed/i);
+  expect(replaced).toBe(true);
+  expect(f.service.get(f.id).retirement!.disposition).toBe('restoring');
+  expect(f.service.get(f.id).restorations).toBeUndefined();
+  for (const path of [preserved, claimed.directory!])
+    expect(await readFile(join(path, 'work.txt'), 'utf8')).toBe('private source');
 });

@@ -300,7 +300,13 @@ not the acceptance criterion.
   unknown, external and uncertain workspaces remain protected. No existing host
   worktrees have been deleted by this task.
 - Preservation limits are per operation (2 GiB/100,000 entries, 32 restoration
-  revisions). There is no aggregate archive garbage collector in this change;
+  revisions, and 100 retained copy attempts per retirement/restoration). Interrupted
+  archive copies remain in receipt-bound private attempt directories. Restoration
+  copies stay private until fully verified, then publish atomically without
+  replacing an existing path; the publication inode is journalled before the move.
+  Restart reconciliation requires that exact inode and archive contents. Unknown
+  legacy partial live directories remain protected for explicit reconciliation.
+  There is no aggregate archive garbage collector in this change;
   archives, retained original trees and diagnostic receipts are retained. This
   removes active workspace entries but does not claim disk reclamation. Cross-device
   retirement fails safely. Disk admission prevents treating
