@@ -168,7 +168,10 @@ const CommandInput = z
   })
   .strict();
 const WebSearchGrantSchema = z.enum(['unresolved', 'denied', 'allowed']);
-export type CodexCommandInput = z.infer<typeof CommandInput>;
+// Existing callers supply MIME strings; admission validates supported values.
+export type CodexCommandInput = Omit<z.infer<typeof CommandInput>, 'images'> & {
+  images?: Array<{ data: string; mediaType: string }>;
+};
 export type CodexCommand = CodexCommandInput & {
   status: 'queued' | 'running' | 'completed' | 'interrupted' | 'failed' | 'cancelled';
   attempt: number;
