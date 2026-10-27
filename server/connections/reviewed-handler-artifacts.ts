@@ -2280,7 +2280,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/ChatViewSavedDrafts.test.tsx':
     '1c96f88be3f0faa381d42d7dffd126f9080629e5cf1b0d4fb352f8bdad9ed7b1',
   '../../scripts/__tests__/ci-native-operator.test.ts':
-    '4865779905d81e1ddba9038366966044705c273ca49f54904af6a74b999466c4',
+    '17abcb7fc40b356ccc220946cb46633566d84abed2aef40900ee01ba349cd3cf',
   '../__tests__/agent-tool-catalog.test.ts':
     '473a8140415d977cef238602e08ee8d9b1281d5419904ff45c86e886459ea0e2',
   '../__tests__/telos-item-store.test.ts':
@@ -2348,7 +2348,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/__tests__/live-prefix-delivery.test.ts':
     '7c18084f6e5b9996b25e4ce44d351ab56cb4bcae2d86abf23d25cc48efc3321f',
   '../../scripts/__tests__/ci-native-authorization.test.ts':
-    '4216e992b9e0fb604a348ece8cf4c2f611b2ff24518167065c129206c6b68037',
+    '27e1f121c8132a45953a1204545277c33a7f17e0f3b6e970dbea383f5b4b358a',
   '../../scripts/__tests__/ci-unit-gate.test.ts':
     'ef23a02956341c218927e561f5b19eac43dcba7c52be64ce71f4653d1a8d96c8',
   '../../scripts/ci-unit-gate.mjs':

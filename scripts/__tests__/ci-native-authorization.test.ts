@@ -17,7 +17,7 @@ const validator = step.run!.split("node --input-type=module <<'NODE'\n")[1].spli
 const required = [
   ['native-host-operator-lifetime.test.ts', 7],
   ['native-local-repository-preparation-registration-dispatch.test.ts', 4],
-  ['native-local-repository-read-tools.test.ts', 12],
+  ['native-local-repository-read-tools.test.ts', 14],
   ['native-reader-path-authorization.test.ts', 13],
 ] as const;
 function fixture() {
@@ -48,7 +48,7 @@ function validate(report: ReturnType<typeof fixture>) {
     rmSync(directory, { recursive: true, force: true });
   }
 }
-it('accepts all thirty-six actual authority cases and only the named optional diagnostic', () => {
+it('accepts all thirty-eight actual authority cases and only the named optional diagnostic', () => {
   expect(step.run!.split("node --input-type=module <<'NODE'\n")[0]).toContain(
     'server/__tests__/native-reader-path-authorization.test.ts',
   );

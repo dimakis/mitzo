@@ -17,7 +17,7 @@ function completeReport(): Report {
     testResults: [
       ['native-host-operator-lifetime', 7],
       ['native-local-repository-preparation-registration-dispatch', 4],
-      ['native-local-repository-read-tools', 12],
+      ['native-local-repository-read-tools', 14],
       ['native-reader-path-authorization', 13],
     ].map(([name, count]) => ({
       name: `/checkout/server/__tests__/${name}.test.ts`,
