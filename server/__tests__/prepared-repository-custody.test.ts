@@ -9,12 +9,17 @@ import {
   writeFileSync,
   readFileSync,
   lstatSync,
+  renameSync,
+  readdirSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { RepositoryWorkspaces, type RepositoryWorkspace } from '../repository-workspaces.js';
 import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
+import * as taskCheckouts from '../repository-task-checkout.js';
+import { qualifiedPreparedRepositoryRecord } from './prepared-repository-candidate-fixture.js';
+import { executeTrustedGitCommit } from '../trusted-native-operation.js';
 import { contextDigest } from '../agent-context-compiler.js';
 import {
   freezePendingHostTaskData,
@@ -169,7 +174,7 @@ async function fixture(kind: 'ordinary' | 'repository' = 'repository') {
     old = { kind, id: claimed.id, directory: claimed.directory };
   }
   writeFileSync(join(old.directory, 'dirty.txt'), 'Unfinished original task');
-  async function pending(oldWorkspace = old) {
+  async function pending(oldWorkspace = old, qualified: false | 'linked' | 'standalone' = false) {
     const ready = await service.selectExistingLocalRepository(binding, source, selection, signal());
     const request = {
       id: ready.id,
@@ -193,7 +198,10 @@ async function fixture(kind: 'ordinary' | 'repository' = 'repository') {
     // transition/CAS tests must not depend on an alternative creation owner.
     const record = service.get(ready.id);
     const directory = join(taskRoot, `repo-${ready.id}`);
-    git(source, 'worktree', 'add', '-qb', record.featureBranch, directory, record.baseOid);
+    if (qualified === 'standalone') {
+      git(taskRoot, 'clone', '-q', '--no-hardlinks', source, directory);
+      git(directory, 'checkout', '-qb', record.featureBranch, record.baseOid);
+    } else git(source, 'worktree', 'add', '-qb', record.featureBranch, directory, record.baseOid);
     const root = lstatSync(taskRoot);
     const receipt = {
       version: 1 as const,
@@ -205,9 +213,10 @@ async function fixture(kind: 'ordinary' | 'repository' = 'repository') {
       taskIdentity: await snapshotRepositoryTaskCheckout(
         directory,
         record.featureBranch,
-        record.localSource,
+        qualified === 'standalone' ? undefined : record.localSource,
       ),
     };
+    if (qualified === 'standalone') receipt.taskIdentity.localSource = record.localSource;
     record.pendingHostTask = receipt;
     const effect = {
       kind: 'local-repository-worktree' as const,
@@ -223,6 +232,7 @@ async function fixture(kind: 'ordinary' | 'repository' = 'repository') {
     };
     const scope = PendingHostTaskDecisionScopeSchema.parse({
       version: 1 as const,
+      ...(qualified === 'standalone' ? { layout: 'standalone' } : {}),
       oldWorkspace,
       create: { ...effect, intent: 'create' as const },
       use: { ...effect, intent: 'use' as const },
@@ -231,10 +241,31 @@ async function fixture(kind: 'ordinary' | 'repository' = 'repository') {
       sourceDigest: receipt.sourceDigest,
       anchorsSha256: 'c'.repeat(64),
       sourceGitEffects: {
-        administrationDirectory: receipt.taskIdentity!.linkedGit!.directory,
-        branchReference: join(source, '.git', 'refs', 'heads', record.featureBranch),
-        branchReferenceLock: join(source, '.git', 'refs', 'heads', record.featureBranch) + '.lock',
-        branchLog: join(source, '.git', 'logs', 'refs', 'heads', record.featureBranch),
+        administrationDirectory:
+          receipt.taskIdentity.linkedGit?.directory ?? join(directory, '.git'),
+        branchReference: join(
+          qualified === 'standalone' ? directory : source,
+          '.git',
+          'refs',
+          'heads',
+          record.featureBranch,
+        ),
+        branchReferenceLock:
+          join(
+            qualified === 'standalone' ? directory : source,
+            '.git',
+            'refs',
+            'heads',
+            record.featureBranch,
+          ) + '.lock',
+        branchLog: join(
+          qualified === 'standalone' ? directory : source,
+          '.git',
+          'logs',
+          'refs',
+          'heads',
+          record.featureBranch,
+        ),
       },
     });
     // SQL-unit evidence only. The production producer still must prove current
@@ -258,6 +289,17 @@ async function fixture(kind: 'ordinary' | 'repository' = 'repository') {
       },
       state: 'consumed',
     });
+    if (qualified)
+      qualifiedPreparedRepositoryRecord(
+        record,
+        {
+          binding,
+          conversationId,
+          sourceTarget: request.nativeTarget,
+          oldWorkspace,
+        },
+        qualified === 'standalone' ? qualified : undefined,
+      );
     db.prepare('UPDATE repository_workspaces SET record=? WHERE id=?').run(
       JSON.stringify(record),
       record.id,
@@ -289,6 +331,115 @@ async function fixture(kind: 'ordinary' | 'repository' = 'repository') {
   }
   return { service, deps, db, raw, old, root, source, taskRoot, conversationId, pending };
 }
+
+it.each(['linked', 'standalone'] as const)(
+  'commits selected files through the real validator after qualified %s preparation and adoption',
+  async (layout) => {
+    const f = await fixture('ordinary');
+    const p = await f.pending(f.old, layout);
+    f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+    f.deps.assertLocalRepositoryAccess.mockClear();
+    const directory = p.facts.newWorkspace.directory;
+    const sourceHead = git(f.source, 'rev-parse', 'HEAD');
+    writeFileSync(join(directory, 'task.txt'), 'Approved change');
+    writeFileSync(join(directory, 'unselected.txt'), 'Keep dirty');
+    const task = await f.service.validateHostTask(f.conversationId, directory);
+    await executeTrustedGitCommit(
+      directory,
+      ['task.txt'],
+      'fix: approved task',
+      signal(),
+      undefined,
+      undefined,
+      undefined,
+      task,
+    );
+    expect(git(directory, 'show', '--format=', '--name-only', 'HEAD')).toBe('task.txt');
+    expect(git(directory, 'status', '--porcelain')).toBe('?? unselected.txt');
+    expect(git(f.source, 'rev-parse', 'HEAD')).toBe(sourceHead);
+    expect(await f.service.validateHostTask(f.conversationId, directory)).toEqual(task);
+    expect(f.deps.assertLocalRepositoryAccess).not.toHaveBeenCalled();
+  },
+);
+
+it('validates a qualified standalone task from a reopened ledger without reopening its original source', async () => {
+  const f = await fixture('ordinary');
+  const p = await f.pending(f.old, 'standalone');
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+  renameSync(f.source, `${f.source}-moved`);
+  const reopened = new RepositoryWorkspaces(join(f.root, 'private'), f.deps);
+  cleanups.push(() => reopened.close());
+  expect(await reopened.validateHostTask(f.conversationId, p.facts.newWorkspace.directory)).toEqual(
+    p.facts.newWorkspace.taskIdentity,
+  );
+});
+
+it.each(['adoption', 'proof', 'branch', 'marker', 'primary', 'retirement'] as const)(
+  'refuses qualified task validation after its %s changes',
+  async (change) => {
+    const f = await fixture('ordinary');
+    const p = await f.pending(f.old, 'standalone');
+    f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+    const directory = p.facts.newWorkspace.directory;
+    const record = f.service.get(p.record.id);
+    if (change === 'adoption') delete record.preparedRepositoryTransitionAdoption;
+    if (change === 'proof')
+      record.preparedRepositoryTransitionAdoption!.factsSha256 = '0'.repeat(64);
+    if (change === 'branch') git(directory, 'checkout', '-qb', 'mitzo/foreign');
+    if (change === 'marker') {
+      renameSync(join(directory, '.git'), join(directory, '.git-original'));
+      mkdirSync(join(directory, '.git'));
+    }
+    if (change === 'primary') record.primaryDisposition!.currentConversationId = null;
+    const saved = JSON.stringify(record);
+    const parsed = JSON.parse(saved);
+    if (change === 'retirement') parsed.retirement = { disposition: 'retired' };
+    f.db
+      .prepare('UPDATE repository_workspaces SET record=?,conversation_id=? WHERE id=?')
+      .run(JSON.stringify(parsed), change === 'primary' ? null : f.conversationId, record.id);
+    await expect(f.service.validateHostTask(f.conversationId, directory)).rejects.toThrow();
+  },
+);
+
+it('refuses custody changes while asynchronously validating a qualified checkout', async () => {
+  const f = await fixture('ordinary');
+  const p = await f.pending(f.old, 'standalone');
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+  const validate = taskCheckouts.validateRepositoryTaskCheckout;
+  vi.spyOn(taskCheckouts, 'validateRepositoryTaskCheckout').mockImplementationOnce(
+    async (...args) => {
+      const task = await validate(...args);
+      const record = f.service.get(p.record.id);
+      record.primaryDisposition!.currentConversationId = null;
+      f.db
+        .prepare('UPDATE repository_workspaces SET record=?,conversation_id=NULL WHERE id=?')
+        .run(JSON.stringify(record), record.id);
+      return task;
+    },
+  );
+  await expect(
+    f.service.validateHostTask(f.conversationId, p.facts.newWorkspace.directory),
+  ).rejects.toThrow();
+});
+
+it.each(['source', 'common'] as const)(
+  'refuses replacement of a qualified linked %s root with unchanged admin identity',
+  async (change) => {
+    const f = await fixture('ordinary');
+    const p = await f.pending(f.old, 'linked');
+    f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+    const path = change === 'source' ? f.source : p.record.localSource!.commonDirectory;
+    const moved = `${path}-original`;
+    renameSync(path, moved);
+    mkdirSync(path);
+    for (const name of readdirSync(moved)) renameSync(join(moved, name), join(path, name));
+    const admin = p.record.pendingHostTask!.taskIdentity!.linkedGit!;
+    expect(lstatSync(admin.directory).ino).toBe(admin.identity.ino);
+    await expect(
+      f.service.validateHostTask(f.conversationId, p.facts.newWorkspace.directory),
+    ).rejects.toThrow();
+  },
+);
 
 it('reuses only immutable transition projections while rechecking the current adopted ledger', async () => {
   const f = await fixture(),

@@ -1056,11 +1056,42 @@ export class RepositoryWorkspaces {
         record.taskIdentity.featureBranch !== record.featureBranch
       )
         throw new Error('Retained repository task claim is unavailable');
-      if (record.localSource?.selection === 'existing') {
+      const adoption = record.qualifiedLocalPreparation
+        ? freezePendingHostTaskData(
+            transitionAdoptionSchema.parse(record.preparedRepositoryTransitionAdoption),
+          )
+        : undefined;
+      const assertAdopted = async () => {
+        if (!adoption) throw Error('Qualified repository task requires adopted custody');
+        this.assertPreparedRepositoryTransitionAdopted(adoption.facts, adoption.childCommandId);
+        await this.assertHostRoot(record.hostReservation!);
+        if (record.taskIdentity!.linkedGit) {
+          const source = record.taskIdentity!.localSource;
+          if (
+            !source ||
+            !isDeepStrictEqual(await this.hostRootIdentity(source.path), source.root) ||
+            !isDeepStrictEqual(
+              await this.hostRootIdentity(source.commonDirectory),
+              source.commonRoot,
+            )
+          )
+            throw Error('Retained linked repository source identity changed');
+        }
+        this.assertUnchangedHostRecord(record);
+      };
+      if (record.qualifiedLocalPreparation) {
+        // The signed preparation already transferred task custody. Requiring
+        // ambient source access here rejects that route and unnecessarily
+        // reopens the original source for independent standalone checkouts.
+        // Retained proof is custody only; the caller still owns live permission.
+        await assertAdopted();
+      } else if (record.localSource?.selection === 'existing') {
         await this.assertLocalSource(record, record.binding, new AbortController().signal);
         this.assertUnchangedHostRecord(record);
       }
-      return validateRepositoryTaskCheckout(directory, record.taskIdentity);
+      const task = await validateRepositoryTaskCheckout(directory, record.taskIdentity);
+      if (record.qualifiedLocalPreparation) await assertAdopted();
+      return task;
     });
   }
   status(id: string, binding: AccountBinding) {
