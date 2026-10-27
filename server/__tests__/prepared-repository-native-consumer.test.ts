@@ -26,6 +26,7 @@ import { withPreparedRepositoryBarrierReadScope } from '../prepared-repository-b
 import { reconcilePreparedRepositoryTransitionProjection } from '../owned-prepared-repository-transition.js';
 import { captureAgentLibraryAuthorization } from '../agent-library-transport.js';
 import { RetainedLocalCodexRecovery } from '../retained-local-codex-recovery.js';
+import { executeTrustedGitCommit } from '../trusted-native-operation.js';
 
 vi.mock('../auth.js', async (original) => ({
   ...(await original<typeof import('../auth.js')>()),
@@ -680,6 +681,28 @@ it.each(['new-input', 'exact-retained-input', 'saved-retained-input'] as const)(
       const queued = f.native.claimNext(f.first.sessionId, f.first.lease.binding)!;
       expect(queued.id).toBe(followup.clientMsgId);
       dispatch.mock.calls[0][0].admission.assertBeforeDispatch(queued.id);
+      // Recovery's rebound primary must also retain the adopted checkout's
+      // commit authority through the real validator and trusted executor.
+      await writeFile(join(result!.directory, 'recovered.txt'), 'Reviewed recovered work');
+      await writeFile(join(result!.directory, 'unselected.txt'), 'Retain dirty work');
+      const task = await f.workspace.validateHostTask(f.first.sessionId, result!.directory);
+      await executeTrustedGitCommit(
+        result!.directory,
+        ['recovered.txt'],
+        'fix: retained recovered work',
+        new AbortController().signal,
+        undefined,
+        undefined,
+        undefined,
+        task,
+      );
+      expect(git(result!.directory, 'show', '--format=', '--name-only', 'HEAD')).toBe(
+        'recovered.txt',
+      );
+      expect(git(result!.directory, 'status', '--porcelain')).toContain('?? unselected.txt');
+      expect(
+        (await f.workspace.validateHostTask(f.first.sessionId, result!.directory)).directory,
+      ).toBe(result!.directory);
     }
   },
 );

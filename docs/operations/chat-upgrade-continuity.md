@@ -68,6 +68,10 @@ workspace custody, credentials, capabilities and all queued model selections are
 qualified again. A manual conversation title is display metadata and does not
 change this identity.
 
+This recovery applies to an existing native conversation with retained thread and
+host custody. It does not reopen an initial bootstrap failure that never
+established that custody.
+
 The existing **Reconnect and continue** queue action selects the saved server input
 even after acceptance has retired its browser outbox. It requires the current signed
 connection and original conversation operator. Workspace adoption publishes updated

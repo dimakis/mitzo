@@ -1,3 +1,4 @@
+import { waitForPreparedConversation } from './joined-conversation-ready';
 import {
   allowNativeCompleteCallbacks,
   publishNativeCompleteAdvisorProfile,
@@ -540,6 +541,7 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
     .conversationId;
   expect(chat.eventStore.getSession(advisorId)!.agentProfile).toEqual(originalAdvisorProfile);
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + advisorId));
+  await waitForPreparedConversation(page, browserNetwork, advisorId);
   const advisorPrompt = 'Please retain the acoustic plan and create the reviewed recording slice.';
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill(advisorPrompt);
   const preparedAdvisor = chat.eventStore.getOrdinarySessionPreparationForConversation(advisorId);
@@ -569,6 +571,9 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
         2,
       ),
     );
+  await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
+    advisorPrompt,
+  );
   await browserExpect(
     page.getByRole('button', { name: 'Send message', exact: true }),
   ).toBeEnabled();
@@ -720,11 +725,15 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
   const leadId = (await api.read('studio')).assignments.find((a) => a.role === 'lead')!.conversation
     .conversationId;
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + leadId));
+  await waitForPreparedConversation(page, browserNetwork, leadId);
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
   expect(nativeSessions).toHaveLength(1);
   await page
     .getByRole('textbox', { name: 'Message Mitzo' })
     .fill('Perform only the reviewed work and retain a report.');
+  await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
+    'Perform only the reviewed work and retain a report.',
+  );
   await browserExpect(
     page.getByRole('button', { name: 'Send message', exact: true }),
   ).toBeEnabled();
@@ -879,10 +888,14 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
   expect(workerContext!.sources).toEqual([originalSource]);
   expect(workerContext!.artifacts).toContainEqual(material);
   await page.goto(front.origin + '/chat/' + workerId);
+  await waitForPreparedConversation(page, browserNetwork, workerId);
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
   await page
     .getByRole('textbox', { name: 'Message Mitzo' })
     .fill('Perform only the reviewed work and retain a report.');
+  await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
+    'Perform only the reviewed work and retain a report.',
+  );
   await browserExpect(
     page.getByRole('button', { name: 'Send message', exact: true }),
   ).toBeEnabled();
