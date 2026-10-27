@@ -56,9 +56,9 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
     name: Browser interaction tests
-    runs-on: ubuntu-latest
-    # Retain room for cold dependency installation and failure diagnostics.
-    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    # Pin the supported browser host; retain room for cold setup and diagnostics.
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -78,16 +78,17 @@ jobs:
       - name: Install browsers and dependencies
         timeout-minutes: 8
         run: npx playwright install --with-deps webkit chromium
-      - run: npm run test:browser
+      - run: node scripts/ci-browser-run.mjs test:browser
         id: browser-tests
       - name: Retain browser failure evidence
-        if: ${{ always() && steps.browser-tests.outcome == 'failure' }}
+        if: ${{ always() && steps.browser-tests.outcome != 'success' }}
         uses: actions/upload-artifact@v7
         with:
           name: playwright-browser-failure-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/browser/
             playwright-report/browser/
+            test-results/browser-diagnostics/
           retention-days: 7
           if-no-files-found: warn
 
@@ -95,12 +96,12 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
     name: Offline layouts (${{ matrix.project }} ${{ matrix.shard }}/${{ matrix.shards }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
     strategy:
-      # Bound each WebKit browser lifetime while retaining every test and its evidence.
+      # Bound every browser lifetime while retaining every test and its evidence.
       # Keep independent coverage and diagnostics even when another shard fails.
       fail-fast: false
       matrix:
@@ -124,11 +125,27 @@ jobs:
           - project: mobile-chromium
             browser: chromium
             shard: 1
-            shards: 1
+            shards: 3
+          - project: mobile-chromium
+            browser: chromium
+            shard: 2
+            shards: 3
+          - project: mobile-chromium
+            browser: chromium
+            shard: 3
+            shards: 3
           - project: desktop-chromium
             browser: chromium
             shard: 1
-            shards: 1
+            shards: 3
+          - project: desktop-chromium
+            browser: chromium
+            shard: 2
+            shards: 3
+          - project: desktop-chromium
+            browser: chromium
+            shard: 3
+            shards: 3
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -148,15 +165,16 @@ jobs:
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Verify shared theme and mobile layouts without a backend
         id: offline-tests
-        run: npm run test:ui -- --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}
+        run: node scripts/ci-browser-run.mjs test:ui --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}
       - name: Retain offline layout failure evidence
-        if: ${{ always() && steps.offline-tests.outcome == 'failure' }}
+        if: ${{ always() && steps.offline-tests.outcome != 'success' }}
         uses: actions/upload-artifact@v7
         with:
           name: playwright-offline-failure-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/offline/
             playwright-report/offline/
+            test-results/browser-diagnostics/
           retention-days: 7
           if-no-files-found: warn
 
