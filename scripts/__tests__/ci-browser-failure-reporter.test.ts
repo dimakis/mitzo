@@ -3,6 +3,16 @@ import { afterEach, expect, it, vi } from 'vitest';
 import BrowserFailureReporter from '../ci-browser-failure-reporter.mjs';
 
 afterEach(() => vi.restoreAllMocks());
+it('records an unexpectedly passing expected-failure case as a real suite failure', () => {
+  const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+  new BrowserFailureReporter().onTestEnd(
+    { id: 'unexpected-pass', expectedStatus: 'failed' },
+    { status: 'passed' },
+  );
+  expect(output).toHaveBeenCalledExactlyOnceWith(
+    'CI_BROWSER_TEST_FAILURE {"status":"passed","testId":"unexpected-pass"}',
+  );
+});
 it.each(['failed', 'timedOut'])(
   'immediately records an unexpected %s case before any suite summary',
   (status) => {

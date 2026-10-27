@@ -59,7 +59,7 @@ is still able to upload. Console observations remain useful if the host exits
 before artifact upload.
 
 The additional reporter emits `CI_BROWSER_TEST_FAILURE` immediately for an
-unexpected failed/timed-out case or global error, before final reporting. Recovery
+unexpected result (including an unexpected pass) or global error, before final reporting. Recovery
 also rejects legacy list-reporter failure rows if shutdown hides the summary.
 Ambiguous negative rows are left for diagnosis rather than automatically retried.
 
