@@ -761,10 +761,11 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
   expect(chat.eventStore.getSession(leadId)?.repositoryWorkspaceId).toBe(
     leadCommand.repositoryWorkspaceId,
   );
-  await vi.waitFor(() =>
-    expect(
-      nativeSessions[1].rpc.request.mock.calls.filter(([m]) => m === 'turn/start'),
-    ).toHaveLength(1),
+  // Acceptance starts background preparation; observe the actual RPC inside
+  // the unchanged case budget, as the worker below already does.
+  await nativeSessions[1].firstTurnStarted;
+  expect(nativeSessions[1].rpc.request.mock.calls.filter(([m]) => m === 'turn/start')).toHaveLength(
+    1,
   );
   if (process.env.S9_JOINED_SCREENSHOT_DIR)
     await page.screenshot({
