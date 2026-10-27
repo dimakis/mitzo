@@ -38,6 +38,7 @@
     "test:browser": "playwright test",
     "test:design": "vitest run frontend/src/styles/__tests__",
     "test:ui": "tsc -b packages/protocol packages/harness packages/client && npm run build && playwright test --config playwright.offline.config.ts",
+    "test:ui:ci": "tsc -b packages/protocol packages/harness packages/client && npm run build && node scripts/ci-browser-batches.mjs",
     "test:watch": "vitest",
     "canary:openai-route": "node scripts/run-openai-route-canary.mjs",
     "canary:closeout-live": "node scripts/run-closeout-live-canary.mjs",

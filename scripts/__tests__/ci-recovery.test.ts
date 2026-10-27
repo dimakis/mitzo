@@ -104,6 +104,7 @@ it.each([
   '  x  1 [mobile-chromium] › failed before shutdown (30s)',
   'CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"earlier-case"}',
   'CI_BROWSER_TEST_FAILURE {"status":"error"}',
+  'CI_BROWSER_MEMORY_PRESSURE {"availableKiB":48884,"swapFreeKiB":212}',
 ])(
   'refuses an observed failure before shutdown without requiring a final summary: %s',
   async (failure) => {

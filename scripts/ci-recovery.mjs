@@ -47,7 +47,7 @@ function infrastructureLog(data) {
   return (
     text.length <= 16 * 1024 * 1024 &&
     /^.*##\[error\]The runner has received a shutdown signal\./m.test(text) &&
-    !/(?:\b[1-9][0-9]* failed\b|Error: expect\(|TimeoutError:|CI_BROWSER_TEST_FAILURE|[✘×x]\s+\d+\s+\[)/.test(
+    !/(?:\b[1-9][0-9]* failed\b|Error: expect\(|TimeoutError:|CI_BROWSER_TEST_FAILURE|CI_BROWSER_MEMORY_PRESSURE|[✘×x]\s+\d+\s+\[)/.test(
       text,
     )
   );

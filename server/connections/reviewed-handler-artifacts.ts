@@ -22,6 +22,13 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../scripts/__tests__/ci-browser-batches.test.ts':
+    'b589fabc19b3636d782a0e678c062f65d86f8422019e7f47c02667550bdc0373',
+  '../../scripts/ci-browser-batches.mjs':
+    '4fe08bcada3a6756e25c0867e5480a7d5aa6fa6a4d34d250e06c2a347bcc4a3f',
+  '../../scripts/ci-browser-batch-reporter.mjs':
+    '5c564c18175a71002746ff24e41ae0f44d883373a00222f2aa55a23eadb0425c',
+
   '../../frontend/src/components/__tests__/CodexQueueStatus.local-recovery.test.tsx':
     '0c3594115ce0329297a327d7a22e8042e83e86c48b1cce216ed164cda948dd54',
   '../__tests__/codex-pre-dispatch-failure.test.ts':
@@ -1987,7 +1994,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-sqlite-owners.ts':
     '19ac125030b518a353b2f7dbe51a4a1eca7ff5b30bf719e45dc9d9b5debdb006',
   '../../scripts/__tests__/ci-cancellation.test.ts':
-    '5d8571d22188b49cd8c12e98d37b9c0e04cd66379e331476c987ec4c686d93d8',
+    'ad174bd65a0e98221ffc8d81b283550cbacce72d5078b48518f425bc1214ef5d',
   '../../scripts/__tests__/ci-required-gate.test.ts':
     '9112d7a1c21d665427b56d3d4927dc18e2166dea3cf9fd9bd553bb0343c1c5fb',
   '../../scripts/ci-required-gate.mjs':
@@ -2423,7 +2430,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '3f875e0c6b15c6e1afa35177b920b2ec3c3a0af6afc6cfd837a6ecaa6a8aaf0e',
   '../secret-relay-runtime.ts': '9cc241b6fd22ca948021e0db06346e81718e12f5eaf340742d42c7b0a172711f',
   '../secret-relay.ts': 'cb4efaae8cb99f879de787d5f2ce1c1e364b7c0abf0db333420e10e11493f95d',
-  '../../package.json': 'b2599f9454caa9884f9e7742743e93f35c5d11040d5ee53e3f4f96ccc2596204',
+  '../../package.json': '9171434cdb94da45240ade14f086d7f09d5cc60eac0be719b93cd4cd79e5cc3a',
   '../../package-lock.json': 'f4b1613e00b863da92337278f7bd5630ce6509d7cbf6b3681a38043c54a52f9c',
   '../../packages/harness/package.json':
     '974deedfb3b496939f6c0a441048234b57bca0af746f4107d41e1406b81b1768',
@@ -2619,12 +2626,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '187d816bfa17941c57e4fabfda84b9e136f6917ce5d7c659289b878acd2add8e',
   '../../.github/workflows/ci.yml':
-    'e387117090e8c06994529901c0929448af56be1b39d7229ad5496b9f4b21d46b',
+    '45752e342baaf59f3fe8712599c7731bf74952e024bae34d3db9e1ca12f2a36a',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
   '../../scripts/__tests__/browser-failure-evidence.test.ts':
-    '2a2a37b5a89974a71149ee341e6c17ed89e7b961def5a8cf09494f458ea419cf',
+    'd7cd012d4c73e7e4f456ec66efc9719efd3ae53f2b9ff6903dbd4d034348e00c',
   '../../scripts/__tests__/ci-browser-failure-reporter.test.ts':
     '730da0151f559054652bcf9e34db39da29153044d53ee35ecef927088ecee544',
   '../../scripts/__tests__/ci-browser-run.test.ts':
@@ -2632,27 +2639,27 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-joined-shards.test.ts':
     '36915cd9ec1df2634467a99416ccc3d03ed26b3fd6d65ab21a847858d8d0a321',
   '../../scripts/__tests__/ci-recovery.test.ts':
-    'adac93c12ec4480f960ff04956aab4beecae2da6365ffc9ad8aea38da7f2fff4',
+    '6ad80e0c5b07630b5fe71e7a8ce66a7cdd46a21c47b0405c1122a8b5dee7f38a',
   '../../scripts/__tests__/ci-source-preflight.test.ts':
     '5d5c5d72d3153966f59dad8f7974a3064fe02cdc592a523517abb093414d508b',
   '../../scripts/__tests__/ci-unit-sequencer.test.ts':
     '01001f67d5cabf80e046181b9214ae5ea7a9301489777d5f48f4141ed2c55845',
   '../../scripts/check-reviewed-handler-artifacts.mjs':
-    '61650c253a08eb477d74b851d4e8a00359aa1dc9f372c23de7d99de2f2cb38d7',
+    'fbed584f1b65c161b5b51f305d4eacc0fe0e79f02fc9cb77fcb43332f606f4ad',
   '../../scripts/ci-browser-failure-reporter.mjs':
     'b22313559453a57bb106403e09c3c0f2ff1648a1045ad0293404cbc1c173f7e6',
   '../../scripts/ci-browser-run.mjs':
-    '442df55d1708709d759cbf7f227975a0730a02273f9236df6d7d9fbd63ca48e1',
+    '8472c4451b97262083a094e5b8175cbeb9af9a6970e0dd942f4c8dd61544f142',
   '../../scripts/ci-joined-gate.mjs':
     'aec3fa1106ed98cb715d973e5b186887b7252bca68309ae0bae1da3aa0a5b3bd',
   '../../scripts/ci-recovery.mjs':
-    'c389528a6018c63a34e80534d5458037d3102882da83fd69b7d70a17911b2722',
+    'ed91a0348c4e4e2287b0c755f5279f4efc2bb385d4e1a96a6b8a31b2ed0db878',
   '../../scripts/ci-unit-sequencer.ts':
     '552f2a9209c99c8e2c94b5f8a66253499bcf4b4d9c935629af8e844609a4a09b',
   '../../scripts/ci-unit-shards.mjs':
     '7d86a070a806de85767cbfef5c31edfe9dadf3e41ec9d268142027c50d5b1b44',
   '../__tests__/ci-validation-artifacts.test.ts':
-    '9dff543f1983e7418c1399cc8e5046440b2a604477d343fe40a2d6b41db30faf',
+    'ef42279fa86ab33bc5de702ddb215196ae718122c3b5c533705a6e0912c47480',
   '../__tests__/fixtures/prepared-repository-native-consumer.ts':
     'c6f9efdab1bf12283b1f53da5a9dd7abc376de25c5811ac4b10b96157a6c12ac',
   '../__tests__/fixtures/prepared-repository-native-public.ts':

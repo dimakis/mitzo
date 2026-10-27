@@ -29,6 +29,13 @@ Both failed and successful jobs used the older Ubuntu 26 image; the image alone
 does not establish the cause. Pinning browser lanes to Ubuntu 24.04 provides a
 stable supported baseline, not a claim that an image defect has been proved.
 
+The first improvement candidate reproduced a shutdown on Ubuntu 24.04: job
+[122530263539](https://github.com/dimakis/mitzo/actions/runs/40601414751/job/122530263539)
+exhausted a 16 GiB VM across passing WebKit cases. MemAvailable fell to 48,884 KiB
+and SwapFree to 212 KiB immediately before runner termination; almost 15 GiB
+became free when its test processes stopped. This proves severe memory pressure,
+though the responsible process still needs the added RSS diagnostics.
+
 ## Execution and completeness
 
 - The native consumer family retains the same 32 collected cases and 178
@@ -46,13 +53,18 @@ stable supported baseline, not a claim that an image defect has been proved.
   macOS artifact journey, both supplemental shards, all layout projects, core
   checks and the final Centaur gate remain required.
 - WebKit retains four layout shards; both Chromium projects use three shards.
-  Each layout job keeps one worker; all browser jobs have a 20-minute deadline. Individual
-  acceptance assertions and test deadlines are unchanged.
+  Each layout job keeps one worker; all browser jobs have a 20-minute deadline.
+  The CI layout command discovers the original shard and runs at most five primary
+  cases per fresh Playwright process, with startup dependencies repeated. Collected
+  and completed IDs must exactly match each batch. Intentional skips and expected
+  failures retain their original meaning; unexpected outcomes fail the job. Each
+  batch retains its configured HTML report and output artifacts in a separate
+  directory. Individual assertions and test deadlines are unchanged.
 
 ## Diagnose an interrupted browser job
 
 `ci-browser-run.mjs` streams command output plus memory, load, kernel and Linux
-cgroup/pressure observations every thirty seconds. It preserves the actual test
+cgroup/pressure observations and top process RSS (without command arguments) every thirty seconds. It preserves the actual test
 exit status and forwards termination to its own process group. Diagnostics are
 retained alongside Playwright evidence even after cancellation, when the runner
 is still able to upload. Console observations remain useful if the host exits
@@ -62,6 +74,9 @@ The additional reporter emits `CI_BROWSER_TEST_FAILURE` immediately for an
 unexpected result (including an unexpected pass) or global error, before final reporting. Recovery
 also rejects legacy list-reporter failure rows if shutdown hides the summary.
 Ambiguous negative rows are left for diagnosis rather than automatically retried.
+`CI_BROWSER_MEMORY_PRESSURE` marks snapshots with less than 256 MiB available and
+128 MiB free swap; the recovery controller refuses to retry this known resource
+exhaustion as an unexplained host interruption.
 
 Inspect the failed job's runner image header, `CI_BROWSER_RESOURCES` and
 `CI_BROWSER_EXIT` lines, and its attempt-specific failure artifact. Compare
@@ -105,6 +120,10 @@ registered sources with Node 24 without requiring compiled output, so it remains
 suitable for focused validation under local memory pressure. Extracted files must
 retain source registration and the reviewed revision must advance. CI still runs
 the existing compiled-artifact check; this preflight does not replace it.
+
+Core lint, format, quotation and resume-contract checks run after other core
+failures so one candidate exposes all independent blockers. Cancellation still
+stops them; no check result is ignored.
 
 Record initial queue delay, useful runtime, interruption/cleanup time, retries,
 source-fix rounds and final review delay separately. Compare fresh clean runs

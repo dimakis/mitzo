@@ -83,7 +83,7 @@ describe('browser failure evidence', () => {
     [
       'offline',
       'offline-tests',
-      'node scripts/ci-browser-run.mjs test:ui --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}',
+      'node scripts/ci-browser-run.mjs test:ui:ci --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}',
     ],
   ])(
     'uploads %s failure evidence immediately after its suite and keeps rerun attempts separate',

@@ -165,7 +165,7 @@ jobs:
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Verify shared theme and mobile layouts without a backend
         id: offline-tests
-        run: node scripts/ci-browser-run.mjs test:ui --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}
+        run: node scripts/ci-browser-run.mjs test:ui:ci --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}
       - name: Retain offline layout failure evidence
         if: ${{ always() && steps.offline-tests.outcome != 'success' }}
         uses: actions/upload-artifact@v7
@@ -241,12 +241,12 @@ jobs:
         with:
           name: telos-saved-navigation-visuals-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            test-results/offline/telos-outcomes-workspace*/saved-link-*.png
-            test-results/offline/telos-outcomes-workspace*/scroll-restored-*.png
-            test-results/offline/telos-outcomes-workspace*/output-return-*.png
-            test-results/offline/telos-outcomes-workspace*/coordinator-labels-*.png
-            test-results/offline/telos-outcomes-workspace*/saved-reference-return-*.png
-            test-results/offline/telos-outcomes-workspace*/priority-handoff-*.png
+            test-results/offline/**/telos-outcomes-workspace*/saved-link-*.png
+            test-results/offline/**/telos-outcomes-workspace*/scroll-restored-*.png
+            test-results/offline/**/telos-outcomes-workspace*/output-return-*.png
+            test-results/offline/**/telos-outcomes-workspace*/coordinator-labels-*.png
+            test-results/offline/**/telos-outcomes-workspace*/saved-reference-return-*.png
+            test-results/offline/**/telos-outcomes-workspace*/priority-handoff-*.png
           retention-days: 7
           if-no-files-found: ignore
 
@@ -655,6 +655,7 @@ jobs:
 
       - name: Verify pinned Codex resume without inference
         id: codex-resume
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -669,14 +670,17 @@ jobs:
 
       - name: Verify reviewed daily quote catalogue
         id: quotes
+        if: ${{ !cancelled() }}
         run: npm run quotes:check
 
       - name: Lint
         id: lint
+        if: ${{ !cancelled() }}
         run: npm run lint
 
       - name: Format check
         id: format
+        if: ${{ !cancelled() }}
         run: npm run format:check
 
       # Continue independent checks after failure, but release superseded runs.
