@@ -1431,3 +1431,26 @@ it('refuses ambiguous same-attempt native history before claiming or pausing', (
     f.store.close();
   }
 });
+
+it('retains numerous screenshots and long messages through queue claim and cold reopening', () => {
+  const { path } = setup();
+  let store = new CodexConversationStore(path);
+  store.create('large-input', binding, '/offline');
+  const input = {
+    id: 'large-command',
+    prompt: 'Message '.repeat(160000),
+    intent: 'Message '.repeat(160000),
+    images: Array.from({ length: 30 }, () => ({
+      data: 'AAAA'.repeat(16000),
+      mediaType: 'image/png',
+    })),
+  };
+  store.enqueue('large-input', binding, input);
+  store.close();
+  store = new CodexConversationStore(path);
+  try {
+    expect(store.claimNext('large-input', binding)).toMatchObject(input);
+  } finally {
+    store.close();
+  }
+});

@@ -915,3 +915,101 @@ it('does not claim durable consumed completion when the positive receipt write f
   );
   outbox.stop();
 });
+
+it('waits for durable large-payload storage before HTTP admission and never sends after a failed flush', async () => {
+  const saved = disk();
+  let release!: () => void;
+  const flush = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const fetch = vi.fn(async () => receipt());
+  const notify = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage: { ...saved, flush },
+    fetch,
+    notify,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  expect(outbox.enqueue(command, 1, 'draft')).toBe(true);
+  expect(fetch).not.toHaveBeenCalled();
+  flush.mockImplementation(async () => {});
+  release();
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+  outbox.stop();
+  const failed = new SendOutbox({
+    url: '/other/send',
+    storage: {
+      ...disk(),
+      flush: async () => {
+        throw Error('Disk full');
+      },
+    },
+    fetch,
+    notify,
+    localFirstCommand: true,
+  });
+  failed.start();
+  expect(failed.enqueue({ ...command, clientMsgId: 'failure' }, 1, 'draft')).toBe(true);
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'uncertain', clientMsgId: 'failure' }),
+    ),
+  );
+  expect(fetch).toHaveBeenCalledOnce();
+  failed.stop();
+});
+
+it('does not dispatch after logout while large-payload persistence is pending', async () => {
+  let release!: () => void;
+  const flush = () =>
+    new Promise<void>((resolve) => {
+      release = resolve;
+    });
+  const fetch = vi.fn(async () => receipt());
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage: { ...disk(), flush },
+    fetch,
+    notify: vi.fn(),
+    localFirstCommand: true,
+  });
+  outbox.start();
+  outbox.enqueue(command, 1, 'draft');
+  outbox.rejectAll('Signed out');
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(fetch).not.toHaveBeenCalled();
+  outbox.stop();
+});
+
+it('retains the consumed command if writes produced by its handoff fail to commit', async () => {
+  const saved = disk();
+  let handoff = false;
+  const notify = vi.fn((event: Record<string, unknown>) => {
+    if (event.state === 'consumed') handoff = true;
+  });
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage: {
+      ...saved,
+      flush: async () => {
+        if (handoff) throw Error('Handoff storage failed');
+      },
+    },
+    fetch: async () => receipt(),
+    notify,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  outbox.enqueue(command, 1, 'draft');
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ state: 'uncertain' })),
+  );
+  expect(JSON.parse(saved.getItem()!)).toEqual([expect.objectContaining({ body: command })]);
+  outbox.stop();
+});

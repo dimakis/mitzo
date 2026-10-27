@@ -93,7 +93,7 @@ it('does not turn a disabled running send into a new queue entry or clear its dr
   expect(input).toHaveValue('Keep this message');
   expect(localStorage.getItem('mitzo-queue-new')).toBeNull();
 });
-it('validates the complete Local envelope, keeps oversized attachments, and resumes only after removal', async () => {
+it('sends screenshots above the former 1 MiB command cap without removing them', async () => {
   const inventory = localInventoryFixture();
   const intent = {
     ...createChatRuntimeSelection(),
@@ -114,7 +114,7 @@ it('validates the complete Local envelope, keeps oversized attachments, and resu
       },
     ],
   };
-  const send = vi.fn(() => true);
+  const send = vi.fn((..._args: unknown[]) => true);
   render(
     <ChatInput
       onSend={send}
@@ -135,14 +135,16 @@ it('validates the complete Local envelope, keeps oversized attachments, and resu
   );
   const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
   await waitFor(() => expect(input).toHaveValue('Keep this prompt'));
-  expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
-  expect(screen.getByText(/Remove or resize attachments/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled();
+  expect(screen.queryByText(/commands must fit within/)).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Preview attachment 1' })).toBeVisible();
   fireEvent.keyDown(input, { key: 'Enter' });
-  expect(send).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Remove attachment 1' }));
-  expect(input).toHaveValue('Keep this prompt');
-  expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled();
+  expect(send).toHaveBeenCalledOnce();
+  expect(send.mock.calls[0]).toEqual(
+    expect.arrayContaining([
+      expect.arrayContaining([expect.objectContaining({ data: draft.images[0].data })]),
+    ]),
+  );
 });
 
 it('submits guarded queued input immediately and preserves old local queues without replay', async () => {

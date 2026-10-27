@@ -41,7 +41,7 @@ it('bounds the complete future command and preserves permission consistency', ()
   expect(
     LocalCodexContinuationCommandSchema.safeParse({
       ...input,
-      payload: { text: 'a'.repeat(1048576) },
+      payload: { text: 'a'.repeat(8 * 1024 * 1024 + 1) },
     }).success,
   ).toBe(false);
   expect(

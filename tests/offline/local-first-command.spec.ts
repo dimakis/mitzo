@@ -561,7 +561,7 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   expect(fixture.errors).toEqual([]);
 });
 
-test('Local first command: oversized complete command retains its image and enables Send only after removal', async ({
+test('Local first command: screenshot above the former 1 MiB command cap remains sendable', async ({
   page,
 }, testInfo) => {
   const fixture = await offline(page, false, true);
@@ -599,25 +599,20 @@ test('Local first command: oversized complete command retains its image and enab
     .selectOption('github:owner/repository');
   await page.getByRole('button', { name: 'Preview repository' }).click();
   await page.getByRole('button', { name: 'Prepare repository' }).click();
-  await expect(page.getByText(/Local commands must fit within 1 MiB/)).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
-  ).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Preview attachment 1' })).toBeVisible();
-  await page.getByRole('textbox', { name: 'Message Mitzo' }).press('Enter');
-  expect(fixture.requests).toEqual([]);
-  await page.screenshot({
-    path: testInfo.outputPath('local-oversized-attachment.png'),
-    fullPage: true,
-  });
-  await page.getByRole('button', { name: 'Remove attachment 1' }).click();
-  await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
-    'Inspect the repository',
-  );
+  await expect(page.getByText(/commands must fit within/)).toHaveCount(0);
   await expect(
     page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
   ).toBeEnabled();
-  expect(fixture.requests).toEqual([]);
+  await expect(page.getByRole('button', { name: 'Preview attachment 1' })).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('local-large-attachment.png'),
+    fullPage: true,
+  });
+  await page.getByRole('textbox', { name: 'Message Mitzo' }).press('Enter');
+  await expect.poll(() => fixture.requests.length).toBe(1);
+  expect(fixture.requests[0]).toMatchObject({
+    payload: { images: [{ data: 'AAAA'.repeat(270000), mediaType: 'image/png' }] },
+  });
   expect(fixture.forbidden).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });

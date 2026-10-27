@@ -1,3 +1,8 @@
+import {
+  CHAT_MAX_IMAGES,
+  CHAT_MAX_PREPARED_PROMPT_CHARS,
+  ChatMessageTextSchema,
+} from '@mitzo/protocol';
 import { findNativeMacExecutionUnavailable } from './codex-native-artifact-qualification.js';
 import {
   OrdinaryLocalWorkspaceOwner,
@@ -77,11 +82,11 @@ function strictSync(result: unknown): void {
 }
 const RawPayload = z.strictObject({
   sourceSnapshots: SourceSnapshotsSchema.optional(),
-  text: z.string().min(1).max(1_000_000),
-  intent: z.string().max(1_000_000).optional(),
+  text: z.string().min(1).max(CHAT_MAX_PREPARED_PROMPT_CHARS),
+  intent: ChatMessageTextSchema.optional(),
   images: z
     .array(z.strictObject({ data: z.string().min(1), mediaType: z.string().min(1).max(128) }))
-    .max(16)
+    .max(CHAT_MAX_IMAGES)
     .optional(),
 });
 type Payload = z.infer<typeof RawPayload> & { systemPrompt: string };

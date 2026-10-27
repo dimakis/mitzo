@@ -1,3 +1,10 @@
+import { chatStorage, CHAT_STORAGE_CHANGED } from '../lib/large-chat-storage';
+import {
+  CHAT_MAX_ATTACHMENT_BYTES,
+  CHAT_MAX_IMAGE_BYTES,
+  chatAttachmentBytes,
+  base64DecodedBytes,
+} from '@mitzo/protocol';
 import { ChatStatusMessage, type ChatStatusAction } from './ChatStatusMessage';
 import { MotionPresence } from './MotionPresence';
 import { ComposerResponders, type ComposerResponderSelection } from './ComposerResponders';
@@ -313,7 +320,7 @@ export function ChatInput({
             // Empty rich drafts intentionally release their storage record.
             // Reuse only that absent owner's seed, never overwrite an unreadable
             // or failed existing revision. saveChatDraft still fences revocation.
-            if (localStorage.getItem(chatDraftStorageKey(savedChatDraft.id)) !== null) return false;
+            if (chatStorage.getItem(chatDraftStorageKey(savedChatDraft.id)) !== null) return false;
           } catch {
             return false;
           }
@@ -358,6 +365,12 @@ export function ChatInput({
       text.trim() || 'What do you see in this image?',
       images.length ? images : undefined,
     );
+  const [, updateStorageStatus] = useState(0);
+  useEffect(() => {
+    const changed = () => updateStorageStatus((version) => version + 1);
+    window.addEventListener(CHAT_STORAGE_CHANGED, changed);
+    return () => window.removeEventListener(CHAT_STORAGE_CHANGED, changed);
+  }, []);
   const [saveResult, setSaveResult] = useState<{
     draft: ChatDraft;
     failed: boolean;
@@ -839,6 +852,7 @@ export function ChatInput({
       latestDraft.current.scope === operation.scope &&
       importPending.current === operation;
     let remaining = MAX_IMAGE_ATTACHMENTS - images.length;
+    let remainingBytes = CHAT_MAX_ATTACHMENT_BYTES - chatAttachmentBytes(images);
     try {
       for (const file of files) {
         if (!isCurrent()) return;
@@ -848,9 +862,19 @@ export function ChatInput({
           );
         const attachments =
           file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
-            ? await (await import('../lib/pdf-to-images')).pdfToImages(file, remaining)
+            ? await (
+                await import('../lib/pdf-to-images')
+              ).pdfToImages(file, remaining, remainingBytes)
             : [await resizeImage(file)];
         if (!isCurrent()) return;
+        const bytes = chatAttachmentBytes(attachments);
+        if (attachments.some((image) => base64DecodedBytes(image.data) > CHAT_MAX_IMAGE_BYTES))
+          throw new Error('Each image must be 10 MiB or smaller.');
+        if (bytes > remainingBytes)
+          throw new Error(
+            'Images and PDF pages must fit within 64 MiB combined. Remove attachments or split the files.',
+          );
+        remainingBytes -= bytes;
         remaining -= attachments.length;
         setImages((prev) =>
           mounted.current && latestDraft.current.scope === operation.scope
@@ -1097,13 +1121,21 @@ export function ChatInput({
 
   return (
     <div className="chat-input chat-input--compact">
-      {currentSave && (currentSave.failed || (currentSave.stored && !hideSubmittedText)) && (
-        <p className="chat-draft-save-status" role={currentSave.failed ? 'alert' : 'status'}>
-          {currentSave.failed
-            ? 'Couldn’t save this draft on this device. Keep it open and free some storage before leaving.'
-            : 'Draft saved on this device'}
-        </p>
-      )}
+      {currentSave &&
+        (currentSave.failed ||
+          chatStorage.failed ||
+          (currentSave.stored && !hideSubmittedText)) && (
+          <p
+            className="chat-draft-save-status"
+            role={currentSave.failed || chatStorage.failed ? 'alert' : 'status'}
+          >
+            {currentSave.failed || chatStorage.failed
+              ? 'Couldn’t save this draft on this device. Keep it open and free some storage before leaving.'
+              : chatStorage.pending
+                ? 'Saving draft on this device…'
+                : 'Draft saved on this device'}
+          </p>
+        )}
       {attachmentError && (
         <p className="chat-draft-save-status" role="alert">
           {attachmentError}

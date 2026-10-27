@@ -1,3 +1,4 @@
+import { CHAT_MAX_COMMAND_BYTES } from './chat-input-limits.js';
 import { z } from 'zod';
 import {
   SessionRuntimeBindingV1Schema,
@@ -44,7 +45,7 @@ export const OrdinaryWorkspaceFirstCommandSchema = z
   .superRefine((request, ctx) => {
     if (request.runtime.mode !== request.selection.permission.mode)
       ctx.addIssue({ code: 'custom', message: 'Permission selection mismatch' });
-    if (new TextEncoder().encode(JSON.stringify(request)).length > 1048576)
+    if (new TextEncoder().encode(JSON.stringify(request)).length > CHAT_MAX_COMMAND_BYTES)
       ctx.addIssue({ code: 'custom', message: 'Command exceeds bound' });
   });
 /** The server's distinct continuation entry verifies existing native custody. */

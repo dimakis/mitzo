@@ -308,7 +308,7 @@ function prepareExplicitCommand<T>(
   });
   if (parsed.success) return { request: parsed.data, reason: undefined };
   const reason = parsed.error.issues.some((issue) => issue.message === 'Command exceeds bound')
-    ? `${label} commands must fit within 1 MiB. Remove or resize attachments, or shorten the message.`
+    ? `${label} commands must fit within 192 MiB including encoding. Use up to 100 images or PDF pages (64 MiB combined) and 8 MiB of text.`
     : parsed.error.issues.some((issue) => issue.path[0] === 'payload' && issue.path[1] === 'images')
       ? `Remove unsupported or malformed attachments before sending the ${label} command.`
       : parsed.error.issues.some((issue) => issue.path[0] === 'payload' && issue.path[1] === 'text')

@@ -1,3 +1,4 @@
+import { installChatCommandJson } from './chat-command-json.js';
 import { sessionModelSettingsReason } from './session-model-settings.js';
 import { adviserExecutionProjection } from './adviser-harness-runtime.js';
 import { initializeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
@@ -758,6 +759,7 @@ app.use(
   authMiddleware,
   createTelemetryRelay(process.env.OTEL_EXPORTER_OTLP_ENDPOINT),
 );
+installChatCommandJson(app, operatorAuthMiddleware);
 app.use(express.json({ limit: '10mb' }));
 
 const getKnowledgeLibraryRuntime = createKnowledgeLibraryLoader(() =>

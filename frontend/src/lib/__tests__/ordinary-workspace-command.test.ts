@@ -78,9 +78,9 @@ it('retains a missing identity, stale profile or oversized draft as an actionabl
   expect(
     prepareOrdinaryWorkspaceCommand(f.selection, f.inventory, {
       ...content,
-      text: 'x'.repeat(1048576),
+      text: 'x'.repeat(8 * 1024 * 1024 + 1),
     }),
-  ).toMatchObject({ request: null, reason: expect.stringContaining('1 MiB') });
+  ).toMatchObject({ request: null, reason: expect.stringContaining('Shorten') });
   const inventory = { ...f.inventory, agentProfiles: [] };
   expect(prepareOrdinaryWorkspaceCommand(f.selection, inventory, content).request).toBeNull();
 });

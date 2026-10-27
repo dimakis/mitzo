@@ -1,3 +1,4 @@
+import { chatStorage } from '../lib/large-chat-storage';
 import { preserveAcceptedLaunchText } from '../lib/launch-draft-delivery';
 import { createBrowserId, sha256Hex } from '../lib/browser-crypto';
 import {
@@ -62,7 +63,7 @@ function richDraftSignature(key: string): string {
 function readRevision(key: string, text: string): string | undefined {
   try {
     if (composerDraftRevocationPending(key)) return undefined;
-    const saved = JSON.parse(localStorage.getItem(revisionKey(key)) ?? 'null');
+    const saved = JSON.parse(chatStorage.getItem(revisionKey(key)) ?? 'null');
     return saved?.textSha256 === sha256Hex(text) &&
       readDraft(key, undefined, true) === text &&
       saved.richDraftSignature === richDraftSignature(key) &&
@@ -107,7 +108,7 @@ function readDraft(key: string, initialText?: string, scoped = false): string {
   try {
     const id = chatDraftIdFromKey(key);
     if (id) return getChatDraft(id)?.text ?? initialText ?? '';
-    return localStorage.getItem(key) ?? initialText ?? '';
+    return chatStorage.getItem(key) ?? initialText ?? '';
   } catch {
     return initialText ?? '';
   }
@@ -125,8 +126,8 @@ function saveDraft(key: string, text: string, preserveEmpty = false): boolean {
       }
       return false;
     }
-    if (text || preserveEmpty) localStorage.setItem(key, text);
-    else localStorage.removeItem(key);
+    if (text || preserveEmpty) chatStorage.setItem(key, text);
+    else chatStorage.removeItem(key);
     if (key.startsWith('mitzo-chat-draft-text:'))
       preserveAcceptedLaunchText(key.slice('mitzo-chat-draft-text:'.length), text);
     return true;
@@ -225,7 +226,7 @@ export function useDraft(
         setTextRaw(restored);
         return;
       }
-      const existing = localStorage.getItem(newKey);
+      const existing = chatStorage.getItem(newKey);
       if (existing) {
         localRevision.current++;
         volatileAssignedFrom.current = undefined;
@@ -235,11 +236,11 @@ export function useDraft(
         setTextRaw(existing);
       } else {
         // Migrate from old key
-        const old = localStorage.getItem(oldKey);
+        const old = chatStorage.getItem(oldKey);
         if (old) {
-          localStorage.setItem(newKey, old);
+          chatStorage.setItem(newKey, old);
           if (oldRevision.token && readRevision(oldKey, old) === oldRevision.token) {
-            const raw = localStorage.getItem(revisionKey(oldKey));
+            const raw = chatStorage.getItem(revisionKey(oldKey));
             if (raw && replaceComposerDraftRevision(newKey, raw)) {
               revisionRef.current = { ...oldRevision, key };
               assignedFromKey.current = oldKey;
@@ -249,7 +250,7 @@ export function useDraft(
           // Don't change text state — it's the same draft, just moved
         }
       }
-      localStorage.removeItem(oldKey);
+      chatStorage.removeItem(oldKey);
     } catch {
       // localStorage unavailable — ignore
     } finally {
@@ -257,8 +258,8 @@ export function useDraft(
         let draft: string | null | undefined;
         let revision: string | null | undefined;
         try {
-          draft = localStorage.getItem(newKey);
-          revision = localStorage.getItem(revisionKey(newKey));
+          draft = chatStorage.getItem(newKey);
+          revision = chatStorage.getItem(revisionKey(newKey));
         } catch {
           // Unreadable assignment cannot weaken a readable original snapshot.
         }
@@ -308,7 +309,7 @@ export function useDraft(
     if (previous.token) durableTokenSeen.current = true;
     let submittedToken: string | undefined;
     try {
-      const durable = JSON.parse(localStorage.getItem(revisionKey(owner)) ?? 'null');
+      const durable = JSON.parse(chatStorage.getItem(revisionKey(owner)) ?? 'null');
       // Only local transitions retain a submitted revision's text authority.
       // Replacing another editor's token cannot reacquire an older receipt.
       if (
@@ -347,7 +348,7 @@ export function useDraft(
     setTextRaw('');
     revisionRef.current = { key: storageRef.current.key, token: undefined };
     try {
-      localStorage.removeItem(revisionKey(storageRef.current.key));
+      chatStorage.removeItem(revisionKey(storageRef.current.key));
     } catch {
       // Missing durable proof always preserves text on a later receipt.
     }
@@ -382,8 +383,8 @@ export function useDraft(
     let baseline: string | null | undefined;
     let draftBaseline: string | null | undefined;
     try {
-      draftBaseline = localStorage.getItem(owner);
-      baseline = localStorage.getItem(revisionKey(owner));
+      draftBaseline = chatStorage.getItem(owner);
+      baseline = chatStorage.getItem(revisionKey(owner));
       // A failed replacement of existing durable authority cannot become
       // weaker in-memory authority. Successful revocation leaves no token.
       const token = JSON.parse(baseline ?? 'null')?.revisionToken;
@@ -419,8 +420,8 @@ export function useDraft(
         return false;
       try {
         if (
-          localStorage.getItem(revisionKey(currentOwner)) !== expectedRevision ||
-          localStorage.getItem(currentOwner) !== expectedDraft
+          chatStorage.getItem(revisionKey(currentOwner)) !== expectedRevision ||
+          chatStorage.getItem(currentOwner) !== expectedDraft
         )
           return false;
       } catch {
@@ -458,8 +459,8 @@ export function useDraft(
       if (saved) {
         try {
           const markerKey = acceptedComposerDraftKey(owner);
-          const marker = composerDraftProof(JSON.parse(localStorage.getItem(markerKey) ?? 'null'));
-          if (marker?.revisionToken === proof.revisionToken) localStorage.removeItem(markerKey);
+          const marker = composerDraftProof(JSON.parse(chatStorage.getItem(markerKey) ?? 'null'));
+          if (marker?.revisionToken === proof.revisionToken) chatStorage.removeItem(markerKey);
         } catch {
           // A retained marker cannot consume another revision.
         }
@@ -479,7 +480,7 @@ export function useDraft(
     )
       return false;
     try {
-      const saved = JSON.parse(localStorage.getItem(revisionKey(owner)) ?? 'null');
+      const saved = JSON.parse(chatStorage.getItem(revisionKey(owner)) ?? 'null');
       return (
         saved?.revisionToken === revisionRef.current.token &&
         saved.textSha256 === sha256Hex(textRef.current) &&
@@ -493,7 +494,7 @@ export function useDraft(
     const recover = () => {
       try {
         const marker = composerDraftProof(
-          JSON.parse(localStorage.getItem(acceptedComposerDraftKey(key)) ?? 'null'),
+          JSON.parse(chatStorage.getItem(acceptedComposerDraftKey(key)) ?? 'null'),
         );
         if (marker) consume(marker);
       } catch {

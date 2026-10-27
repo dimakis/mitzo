@@ -1,3 +1,4 @@
+import { chatStorage } from './large-chat-storage';
 /** Local composer ownership only; server receipt verification remains in SendOutbox. */
 export interface ComposerDraftProof {
   storageKey: string;
@@ -13,11 +14,11 @@ export function recordAcceptedComposerDraft(proof: ComposerDraftProof): boolean 
   try {
     if (
       pendingRevocations.has(proof.storageKey) ||
-      JSON.parse(localStorage.getItem(composerDraftRevisionKey(proof.storageKey)) ?? 'null')
+      JSON.parse(chatStorage.getItem(composerDraftRevisionKey(proof.storageKey)) ?? 'null')
         ?.revisionToken !== proof.revisionToken
     )
       return false;
-    localStorage.setItem(acceptedComposerDraftKey(proof.storageKey), JSON.stringify(proof));
+    chatStorage.setItem(acceptedComposerDraftKey(proof.storageKey), JSON.stringify(proof));
     window.dispatchEvent(new Event(COMPOSER_DRAFT_ACCEPTED));
     return true;
   } catch {
@@ -35,11 +36,11 @@ export function composerDraftMemoryRevision(key: string): number {
 export function allowComposerDraftPersistence(key: string): boolean {
   if (!pendingRevocations.has(key)) return true;
   try {
-    localStorage.removeItem(composerDraftRevisionKey(key));
+    chatStorage.removeItem(composerDraftRevisionKey(key));
   } catch {
     try {
       // Replacement can revoke authority even when removal is unavailable.
-      localStorage.setItem(composerDraftRevisionKey(key), 'null');
+      chatStorage.setItem(composerDraftRevisionKey(key), 'null');
     } catch {
       return false;
     }
@@ -52,7 +53,7 @@ export function replaceComposerDraftRevision(key: string, value: string): boolea
   pendingRevocations.add(key);
   const revoked = allowComposerDraftPersistence(key);
   try {
-    localStorage.setItem(composerDraftRevisionKey(key), value);
+    chatStorage.setItem(composerDraftRevisionKey(key), value);
     pendingRevocations.delete(key);
     return true;
   } catch {

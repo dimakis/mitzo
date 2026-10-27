@@ -1,8 +1,11 @@
+import { CHAT_MAX_COMMAND_BYTES } from '@mitzo/protocol';
 import { V2SendMessage } from '@mitzo/protocol';
 import { parseLocalCommandDelivery } from '@mitzo/client';
 import { acceptedComposerDraftKey, composerDraftProof } from './composer-draft-proof';
 
-type Disk = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 'removeItem'>;
+type Disk = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 'removeItem'> & {
+  flush?: () => Promise<void>;
+};
 type Entry = {
   body: Record<string, unknown>;
   scope: number;
@@ -11,8 +14,8 @@ type Entry = {
   composerDraft?: unknown;
   localReceipt?: { state?: unknown };
 };
-const MAX_ENTRY_BYTES = 16 * 1024 * 1024;
-const MAX_TOTAL_BYTES = 32 * 1024 * 1024;
+const MAX_ENTRY_BYTES = CHAT_MAX_COMMAND_BYTES + 64 * 1024;
+const MAX_TOTAL_BYTES = 2 * MAX_ENTRY_BYTES;
 /** Per-command launch persistence survives tab and native WebView recreation.
  * Independent tabs can acknowledge their own commands without overwriting another draft.
  */
@@ -20,7 +23,7 @@ export function createReviewedOutboxStorage(
   disk: Disk,
   backendSendUrl: string,
   route: 'launch' | 'local' = 'launch',
-): Pick<Storage, 'getItem' | 'setItem'> {
+): Pick<Storage, 'getItem' | 'setItem'> & { flush?: () => Promise<void> } {
   const prefix = `mitzo-${route === 'local' ? 'local-first-command' : 'reviewed-send'}-outbox:${encodeURIComponent(backendSendUrl)}:`;
   let owned = new Set<string>();
   const key = (id: string) => prefix + encodeURIComponent(id);
@@ -64,6 +67,7 @@ export function createReviewedOutboxStorage(
     return result;
   }
   return {
+    ...(disk.flush ? { flush: () => disk.flush!() } : {}),
     getItem() {
       const entries = all();
       owned = new Set(entries.keys());
