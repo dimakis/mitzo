@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   turnDispatchCount: 0,
   searchSkills: vi.fn(),
+  searchWeb: vi.fn(),
   mcpClose: vi.fn(),
   connect: vi.fn(),
   permissionHandler: vi.fn(),
@@ -105,6 +106,7 @@ vi.mock('../codex-conversation.js', () => ({
     getWebSearchGrant = mocks.getWebSearchGrant;
     close = mocks.close;
     searchSkills = mocks.searchSkills;
+    searchWeb = mocks.searchWeb;
     getTurnDispatchCount = () => mocks.turnDispatchCount;
     send = mocks.send;
   },
@@ -3657,6 +3659,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         'AgentCommunication',
         'ReadToolOutput',
         'SearchSkills',
+        'RequestWebAccess',
         'RequestGithubPublish',
         'ListIntegrationTools',
         'DescribeIntegrationTool',
@@ -3673,7 +3676,6 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     for (const name of [
       'ListConnections',
       'PrepareRepositoryChat',
-      'RequestWebAccess',
       'Capability_fixture',
       'UnknownAlias',
     ])
@@ -6864,5 +6866,81 @@ it('measures owned OpenShell host schema and producer output delivery separately
   } finally {
     f.cleanup();
     item.mockRestore();
+  }
+});
+
+it('exposes approved web access in owned local chat and integration discovery', async () => {
+  vi.clearAllMocks();
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const f = ownedLocalOptions();
+  f.opts.session.accountBinding = f.opts.binding;
+  f.opts.registry = {
+    ...f.opts.registry,
+    findBySessionId: () => ({ clientId: 'owned-client', session: f.opts.session }),
+    get: () => f.opts.session,
+  } as never;
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    chat = await openCodexChat(f.opts);
+    const config = mocks.conversationOptions!;
+    expect(config.tools).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'RequestWebAccess' })]),
+    );
+    expect(config.systemPrompt).toContain('Use RequestWebAccess');
+    expect(config.approvedSearchOnCurrentTransport).toBe(true);
+    const execute = config.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+      context: { turnId: string; callId: string },
+    ) => Promise<{ content: string }>;
+    const found = await execute(
+      'ListIntegrationTools',
+      { query: 'RequestWebAccess' },
+      new AbortController().signal,
+      { turnId: 'turn', callId: 'discover-web' },
+    );
+    expect(JSON.parse(found.content).tools).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'RequestWebAccess' })]),
+    );
+    const request = {
+      operation: 'search',
+      query: 'Irish competitors',
+      reason: 'Verify current offerings',
+    };
+    mocks.permissionHandler.mockResolvedValueOnce({
+      behavior: 'deny',
+      message: 'Web access declined',
+    });
+    await expect(
+      execute('RequestWebAccess', request, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'deny-web',
+      }),
+    ).resolves.toMatchObject({ isError: true });
+    expect(mocks.searchWeb).not.toHaveBeenCalled();
+    mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: request });
+    mocks.searchWeb.mockResolvedValueOnce('Evidence https://example.test/source');
+    await expect(
+      execute('RequestWebAccess', request, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'allow-web',
+      }),
+    ).resolves.toMatchObject({ isError: false, content: 'Evidence https://example.test/source' });
+    expect(mocks.searchWeb).toHaveBeenCalledExactlyOnceWith(request.query, expect.any(AbortSignal));
+    expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
+      'RequestWebAccess',
+      request,
+      expect.objectContaining({ forcePrompt: true, title: 'Allow this web search?' }),
+    );
+  } finally {
+    chat?.close();
+    f.eventStore.close();
   }
 });

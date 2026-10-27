@@ -5,6 +5,8 @@ import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { verifiedRuntimeServiceEnvironment } from '../openshell-runtime-policy.js';
 import { tracer } from '../tracing.js';
+import { BorrowedCodexSearch } from '../codex-borrowed-search.js';
+import { searchCodex } from '../codex-approved-search.js';
 import {
   codexRuntimeErrorTelemetry,
   codexRuntimeDiagnostic,
@@ -174,6 +176,7 @@ describe('Codex app-server transport', () => {
       'turn/start',
       'thread/start',
       'thread/resume',
+      'thread/unsubscribe',
       'account/login/start',
       'account/logout',
       'skills/list',
@@ -257,6 +260,79 @@ describe('Codex app-server transport', () => {
     reply({ id: sent.at(-1)!.id, result: { thread: { id: 'new-thread' } } });
     await expect(fork).resolves.toEqual({ thread: { id: 'new-thread' } });
     client.close();
+  });
+
+  it('cleans up an approved search through the real RPC gate and keeps the parent usable', async () => {
+    const { child, sent, reply } = processStub();
+    const client = new CodexAppServerClient(child, {
+      lifecycle: {
+        onNotification: (method, params) => {
+          search.notification(method, params);
+        },
+        onRequest: vi.fn(async () => {
+          throw Error('No executable child tools');
+        }),
+        onClose: vi.fn(),
+      },
+    });
+    const ready = client.initialize();
+    reply({ id: sent[0].id, result: {} });
+    await ready;
+    const search = new BorrowedCodexSearch(client, 'parent', async () => {});
+    child.stdin.on('data', (chunk) => {
+      const frame = JSON.parse(chunk.toString());
+      queueMicrotask(() => {
+        if (frame.method === 'config/read') reply({ id: frame.id, result: { config: {} } });
+        if (frame.method === 'thread/start')
+          reply({
+            id: frame.id,
+            result: { thread: { id: 'search' }, model: 'offline-model', modelProvider: 'openai' },
+          });
+        if (frame.method === 'turn/start') {
+          reply({ id: frame.id, result: { turn: { id: 'search-turn' } } });
+          reply({
+            method: 'item/completed',
+            params: {
+              threadId: 'search',
+              turnId: 'search-turn',
+              item: { type: 'webSearch', id: 'receipt', query: 'offline query' },
+            },
+          });
+          reply({
+            method: 'item/completed',
+            params: {
+              threadId: 'search',
+              turnId: 'search-turn',
+              item: { type: 'agentMessage', text: 'Evidence https://example.test/source' },
+            },
+          });
+          reply({
+            method: 'turn/completed',
+            params: { threadId: 'search', turn: { id: 'search-turn', status: 'completed' } },
+          });
+        }
+        if (frame.method === 'thread/unsubscribe' || frame.method === 'account/read')
+          reply({ id: frame.id, result: {} });
+      });
+    });
+    try {
+      await expect(
+        searchCodex('offline query', new AbortController().signal, {
+          createClient: (callbacks) => search.attach(callbacks),
+          verify: async () => {},
+          model: 'offline-model',
+          modelProvider: 'openai',
+          cwd: '/offline',
+        }),
+      ).resolves.toContain('https://example.test/source');
+      expect(sent).toContainEqual(
+        expect.objectContaining({ method: 'thread/unsubscribe', params: { threadId: 'search' } }),
+      );
+      expect(child.kill).not.toHaveBeenCalled();
+      await expect(client.request('account/read', {})).resolves.toEqual({});
+    } finally {
+      client.close();
+    }
   });
 
   it('rejects pending work on exit and never exposes provider error details', async () => {

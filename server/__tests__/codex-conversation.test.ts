@@ -1,4 +1,5 @@
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
+import { webAccessDefinition } from '../request-web-access.js';
 import { summarizeToolInput } from '@mitzo/protocol';
 import { assembleSourceSnapshots } from '../source-snapshot-context.js';
 import Database from 'better-sqlite3';
@@ -949,7 +950,11 @@ async function setup(
   shouldContinueAfterToolResult?: CodexConversationOptions['shouldContinueAfterToolResult'],
   canClaimCommand?: CodexConversationOptions['canClaimCommand'],
   transportClosure?: CodexConversationOptions['transportClosure'],
-  hostPolicy?: { disableWebSearch: boolean; workspaceId?: string },
+  hostPolicy?: {
+    disableWebSearch: boolean;
+    workspaceId?: string;
+    approvedSearchOnCurrentTransport?: boolean;
+  },
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -1029,7 +1034,10 @@ async function setup(
     },
     store,
     getMode: () => 'agent',
-    webSearchDeploymentRevision: 'test-deployment-1',
+    webSearchDeploymentRevision: hostPolicy?.approvedSearchOnCurrentTransport
+      ? undefined
+      : 'test-deployment-1',
+    approvedSearchOnCurrentTransport: hostPolicy?.approvedSearchOnCurrentTransport,
     systemPrompt: 'context',
     displayToolCall,
     beforeComplete,
@@ -7282,3 +7290,143 @@ it('rechecks a host readiness receipt after the idle transport probe before nati
   expect(c.queue()).toEqual([]);
   expect(requests.filter(({ method }) => method === 'turn/start')).toEqual([]);
 });
+
+it('restores approved web research when reopening an existing owned conversation with stale tools', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  args[29] = 'terminal';
+  args[30] = { disableWebSearch: false, approvedSearchOnCurrentTransport: true };
+  const f = await setup(...args);
+  await f.c.send({ id: 'existing-command', prompt: 'Keep this research workstream.' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  const oldThread = f.c.getThreadId();
+  f.c.close();
+
+  const resumed = new CodexConversation({
+    ...f.conversationOptions,
+    storedBinding: binding,
+    tools: [...f.conversationOptions.tools, webAccessDefinition],
+  });
+  const original = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/start' && params.ephemeral)
+      return { thread: { id: 'resumed-search' }, model: binding.model, modelProvider: 'openai' };
+    if (method === 'turn/start' && params.threadId === 'resumed-search') {
+      f.callbacks.onNotification('item/completed', {
+        threadId: 'resumed-search',
+        turnId: 'search-turn',
+        item: { type: 'webSearch', id: 'receipt', query: 'Ireland' },
+      });
+      f.callbacks.onNotification('item/completed', {
+        threadId: 'resumed-search',
+        turnId: 'search-turn',
+        item: { type: 'agentMessage', text: 'Evidence https://example.test/source' },
+      });
+      f.callbacks.onNotification('turn/completed', {
+        threadId: 'resumed-search',
+        turn: { id: 'search-turn', status: 'completed' },
+      });
+      return { turn: { id: 'search-turn' } };
+    }
+    return original(method, params);
+  });
+  try {
+    await resumed.initialize();
+    const parent = resumed.getThreadId();
+    expect(parent).not.toBe(oldThread);
+    expect(f.store.read('app', binding)).toMatchObject({
+      threadId: parent,
+      threadGeneration: 1,
+      rolloverContext: expect.stringContaining('Keep the existing workstream.'),
+    });
+    expect(
+      f.requests.filter(({ method }) => method === 'thread/start').at(-1)?.params,
+    ).toMatchObject({
+      model: binding.model,
+      dynamicTools: expect.arrayContaining([expect.objectContaining({ name: 'RequestWebAccess' })]),
+      config: { web_search: 'disabled' },
+    });
+    expect(resumed.queue()).toContainEqual(
+      expect.objectContaining({ id: 'existing-command', status: 'completed' }),
+    );
+    await resumed.send({ id: 'continued-command', prompt: 'Research the current web.' });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+    expect(f.requests.at(-1)?.params.additionalContext).toHaveProperty(
+      'mitzo.tool-surface-rollover',
+    );
+    await expect(resumed.searchWeb('Ireland', new AbortController().signal)).resolves.toContain(
+      'https://example.test/source',
+    );
+    expect(resumed.getThreadId()).toBe(parent);
+    expect(resumed.queue()).toContainEqual(
+      expect.objectContaining({ id: 'continued-command', status: 'running' }),
+    );
+    expect(f.rpc.close).toHaveBeenCalledTimes(1); // Only the previous attachment closed.
+  } finally {
+    resumed.close();
+  }
+});
+
+it.each(['completed', 'cleanup-failure', 'transport-loss'] as const)(
+  'isolates owned approved search from its parent (%s)',
+  async (outcome) => {
+    const args: Parameters<typeof setup> = [];
+    args[4] = async () => binding;
+    args[29] = 'terminal';
+    args[30] = { disableWebSearch: false, approvedSearchOnCurrentTransport: true };
+    const f = await setup(...args);
+    const original = f.rpc.request.getMockImplementation()!;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/start' && params.ephemeral)
+        return { thread: { id: 'approved-search' }, model: 'test-model', modelProvider: 'openai' };
+      if (method === 'thread/unsubscribe' && outcome === 'cleanup-failure')
+        throw Error('Offline cleanup failure');
+      if (method === 'turn/start' && params.threadId === 'approved-search') {
+        if (outcome === 'transport-loss') {
+          f.getCallbacks().onClose(new CodexTransportError('connection'));
+          return { turn: { id: 'search-turn' } };
+        }
+        f.callbacks.onNotification('item/completed', {
+          threadId: 'approved-search',
+          turnId: 'search-turn',
+          item: { type: 'webSearch', id: 'search-receipt', query: 'Ireland' },
+        });
+        f.callbacks.onNotification('item/completed', {
+          threadId: 'approved-search',
+          turnId: 'search-turn',
+          item: { type: 'agentMessage', text: 'Evidence https://example.test/' },
+        });
+        f.callbacks.onNotification('turn/completed', {
+          threadId: 'approved-search',
+          turn: { id: 'search-turn', status: 'completed' },
+        });
+        return { turn: { id: 'search-turn' } };
+      }
+      return original(method, params);
+    });
+    await f.c.send({ id: 'parent', prompt: 'Research Ireland' });
+    if (outcome !== 'completed') {
+      await expect(f.c.searchWeb('Ireland', new AbortController().signal)).rejects.toThrow();
+      expect(f.rpc.close).toHaveBeenCalled();
+      expect(f.c.isPaused()).toBe(true);
+      return;
+    }
+    await expect(f.c.searchWeb('Ireland', new AbortController().signal)).resolves.toContain(
+      'https://example.test/',
+    );
+    expect(f.rpc.initialize).toHaveBeenCalledTimes(1);
+    expect(f.rpc.close).not.toHaveBeenCalled();
+    expect(f.c.getThreadId()).toBe('provider-thread');
+    expect(f.c.queue().find((command) => command.id === 'parent')?.status).toBe('running');
+    expect(
+      f.requests.find((request) => request.method === 'thread/start')?.params.config,
+    ).toMatchObject({ web_search: 'disabled' });
+    expect(f.rpc.request).toHaveBeenCalledWith('thread/unsubscribe', {
+      threadId: 'approved-search',
+    });
+  },
+);
