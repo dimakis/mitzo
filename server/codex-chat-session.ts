@@ -1791,6 +1791,7 @@ async function openCodexChatBound(
           ...localHistoryDefinitions,
           ...localRepositoryReadDefinitions,
           ...localRepositoryPreparationDefinitions,
+          webAccessDefinition,
           githubPublishingDefinition,
           ...leadWorkTools,
           ...controlWorkTools,
@@ -1923,6 +1924,7 @@ async function openCodexChatBound(
             ...agentTaskToolDefinitions,
             ...agentCommunicationDefinitions,
             ...localHistoryDefinitions,
+            webAccessDefinition,
           ]),
           displayName: mcp.displayName,
           assertCurrent: assertMcpCurrent,
@@ -2068,6 +2070,7 @@ async function openCodexChatBound(
     : options.ownedLocal
       ? options.systemPrompt +
         (nativeExecution ? NATIVE_MAC_EXECUTION_INSTRUCTIONS : HOST_TOOL_INSTRUCTIONS) +
+        WEB_ACCESS_INSTRUCTIONS +
         GITHUB_PUBLISHING_INSTRUCTIONS +
         (localRepositoryReadDefinitions.some((tool) => agentToolAllowed(options.session, tool.name))
           ? `\n${LOCAL_REPOSITORY_TOOL_INSTRUCTIONS}\n`
@@ -2196,6 +2199,7 @@ async function openCodexChatBound(
           ...localHistoryDefinitions,
           ...localRepositoryReadDefinitions,
           ...localRepositoryPreparationDefinitions,
+          webAccessDefinition,
           githubPublishingDefinition,
           ...leadWorkTools,
           ...controlWorkTools,
@@ -2341,6 +2345,7 @@ async function openCodexChatBound(
     enableCapacityRecovery: !options.ownedLocal && !options.ownedOpenShell,
     ...(ownedHost && !options.adviserScope ? { skillContextTokens: 1500 } : {}),
     transportClosure: options.ownedLocal ? 'terminal' : undefined,
+    approvedSearchOnCurrentTransport: !!options.ownedLocal && !options.adviserScope,
     webSearchBackend: openShell ? 'openshell' : 'host',
     webSearchDeploymentRevision: options.ownedLocal
       ? undefined

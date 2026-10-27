@@ -949,7 +949,11 @@ async function setup(
   shouldContinueAfterToolResult?: CodexConversationOptions['shouldContinueAfterToolResult'],
   canClaimCommand?: CodexConversationOptions['canClaimCommand'],
   transportClosure?: CodexConversationOptions['transportClosure'],
-  hostPolicy?: { disableWebSearch: boolean; workspaceId?: string },
+  hostPolicy?: {
+    disableWebSearch: boolean;
+    workspaceId?: string;
+    approvedSearchOnCurrentTransport?: boolean;
+  },
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -1029,7 +1033,10 @@ async function setup(
     },
     store,
     getMode: () => 'agent',
-    webSearchDeploymentRevision: 'test-deployment-1',
+    webSearchDeploymentRevision: hostPolicy?.approvedSearchOnCurrentTransport
+      ? undefined
+      : 'test-deployment-1',
+    approvedSearchOnCurrentTransport: hostPolicy?.approvedSearchOnCurrentTransport,
     systemPrompt: 'context',
     displayToolCall,
     beforeComplete,
@@ -7266,3 +7273,63 @@ it('rechecks a host readiness receipt after the idle transport probe before nati
   expect(c.queue()).toEqual([]);
   expect(requests.filter(({ method }) => method === 'turn/start')).toEqual([]);
 });
+
+it.each(['completed', 'cleanup-failure', 'transport-loss'] as const)(
+  'isolates owned approved search from its parent (%s)',
+  async (outcome) => {
+    const args: Parameters<typeof setup> = [];
+    args[4] = async () => binding;
+    args[29] = 'terminal';
+    args[30] = { disableWebSearch: false, approvedSearchOnCurrentTransport: true };
+    const f = await setup(...args);
+    const original = f.rpc.request.getMockImplementation()!;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/start' && params.ephemeral)
+        return { thread: { id: 'approved-search' }, model: 'test-model', modelProvider: 'openai' };
+      if (method === 'thread/unsubscribe' && outcome === 'cleanup-failure')
+        throw Error('Offline cleanup failure');
+      if (method === 'turn/start' && params.threadId === 'approved-search') {
+        if (outcome === 'transport-loss') {
+          f.getCallbacks().onClose(new CodexTransportError('connection'));
+          return { turn: { id: 'search-turn' } };
+        }
+        f.callbacks.onNotification('item/completed', {
+          threadId: 'approved-search',
+          turnId: 'search-turn',
+          item: { type: 'webSearch', id: 'search-receipt', query: 'Ireland' },
+        });
+        f.callbacks.onNotification('item/completed', {
+          threadId: 'approved-search',
+          turnId: 'search-turn',
+          item: { type: 'agentMessage', text: 'Evidence https://example.test/' },
+        });
+        f.callbacks.onNotification('turn/completed', {
+          threadId: 'approved-search',
+          turn: { id: 'search-turn', status: 'completed' },
+        });
+        return { turn: { id: 'search-turn' } };
+      }
+      return original(method, params);
+    });
+    await f.c.send({ id: 'parent', prompt: 'Research Ireland' });
+    if (outcome !== 'completed') {
+      await expect(f.c.searchWeb('Ireland', new AbortController().signal)).rejects.toThrow();
+      expect(f.rpc.close).toHaveBeenCalled();
+      expect(f.c.isPaused()).toBe(true);
+      return;
+    }
+    await expect(f.c.searchWeb('Ireland', new AbortController().signal)).resolves.toContain(
+      'https://example.test/',
+    );
+    expect(f.rpc.initialize).toHaveBeenCalledTimes(1);
+    expect(f.rpc.close).not.toHaveBeenCalled();
+    expect(f.c.getThreadId()).toBe('provider-thread');
+    expect(f.c.queue().find((command) => command.id === 'parent')?.status).toBe('running');
+    expect(
+      f.requests.find((request) => request.method === 'thread/start')?.params.config,
+    ).toMatchObject({ web_search: 'disabled' });
+    expect(f.rpc.request).toHaveBeenCalledWith('thread/unsubscribe', {
+      threadId: 'approved-search',
+    });
+  },
+);

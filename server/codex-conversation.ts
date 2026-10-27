@@ -16,6 +16,7 @@ import {
 } from './codex-capacity-reattachment.js';
 import { z } from 'zod';
 import { searchCodex } from './codex-approved-search.js';
+import { BorrowedCodexSearch } from './codex-borrowed-search.js';
 import { context, trace, SpanStatusCode, type Span, type Context } from '@opentelemetry/api';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -249,6 +250,8 @@ export interface CodexConversationOptions {
   runtimeConfig?: Record<string, unknown>;
   /** Narrow selection ceiling; preserves the route's complete runtime policy. */
   readonly disableWebSearch?: boolean;
+  /** Approved search-only children on the original owned account transport. */
+  readonly approvedSearchOnCurrentTransport?: boolean;
   /** Independent document preference; suppress task-checkout AGENTS.md discovery. */
   readonly disableProjectDocuments?: boolean;
   webSearchBackend?: WebSearchBackend;
@@ -467,6 +470,8 @@ export class CodexConversation {
   private recoveryPhase?: 'starting_workspace' | 'reconnecting';
   private appliedWebSearchAccess: WebSearchAccess = 'disabled';
   private webSearchDeploymentCeiling: WebSearchAccess = 'disabled';
+  private borrowedSearch?: BorrowedCodexSearch;
+  private readonly approvedSearchOnCurrentTransport: boolean;
   private readonly disableWebSearch: boolean;
   private readonly disableProjectDocuments: boolean;
   private adviserSkills: { path: string }[] = [];
@@ -475,6 +480,7 @@ export class CodexConversation {
     assertNativeCodexContextAdmission({ source: opts.agentContextSource });
     this.agentContextSource = opts.agentContextSource;
     this.disableWebSearch = opts.disableWebSearch === true;
+    this.approvedSearchOnCurrentTransport = opts.approvedSearchOnCurrentTransport === true;
     this.disableProjectDocuments = opts.disableProjectDocuments === true;
     this.client = this.createClient();
   }
@@ -482,11 +488,15 @@ export class CodexConversation {
     const generation = ++this.transportGeneration;
     return this.opts.createClient({
       onNotification: (m, p) => {
-        if (!this.closed && generation === this.transportGeneration) this.notification(m, p);
+        if (!this.closed && generation === this.transportGeneration) {
+          if (!this.borrowedSearch?.notification(m, p)) this.notification(m, p);
+        }
       },
       onRequest: (m, p, s, requestContext?: NativeRequestContext) => {
         if (this.closed || generation !== this.transportGeneration)
           return Promise.reject(new CodexTransportError('connection'));
+        if (this.borrowedSearch?.owns(p))
+          return Promise.reject(new Error('Search request has no executable tools'));
         return this.request(m, p, s, requestContext);
       },
       onClose: (error) => this.transportClosed(generation, error),
@@ -893,32 +903,77 @@ export class CodexConversation {
     if (
       this.closed ||
       !this.ready ||
+      this.disableWebSearch ||
       !this.binding ||
-      this.webSearchDeploymentCeiling !== 'live' ||
+      (this.webSearchDeploymentCeiling !== 'live' && !this.approvedSearchOnCurrentTransport) ||
       this.opts.getMode?.() === 'ask'
     )
       throw new Error('Search is unavailable on this deployment or session');
     const binding = this.binding;
-    return searchCodex(query, signal, {
-      createClient: this.opts.createClient,
-      verify: async (client) => {
-        const current = this.opts.verifyBinding
-          ? await this.opts.verifyBinding(client, binding)
-          : await verifyCodexAccount(client, this.opts.profile, binding);
-        if (
-          current.accountId !== binding.accountId ||
-          current.profileRevision !== binding.profileRevision
-        )
-          throw new Error('Search account binding changed');
-      },
-      model: this.active?.command.model ?? binding.model,
-      modelProvider: this.opts.modelProvider ?? 'openai',
-      cwd: this.opts.runtimeCwd ?? this.opts.cwd,
-      runtimeConfig: this.opts.runtimeConfig,
-      disableProjectDocuments: this.disableProjectDocuments,
-      agentContextSource: this.agentContextSource,
-      workspaceId: this.opts.profile.workspaceId,
-    });
+    const client = this.client;
+    const generation = this.transportGeneration;
+    const assertCurrent = async () => {
+      if (this.closed || this.client !== client || this.transportGeneration !== generation)
+        throw Error('Search owner unavailable');
+      const current = await this.opts.verifyBinding!(client, binding);
+      if (
+        this.closed ||
+        this.client !== client ||
+        this.transportGeneration !== generation ||
+        !isDeepStrictEqual(current, binding)
+      )
+        throw Error('Search owner changed');
+    };
+    let borrowed: BorrowedCodexSearch | undefined;
+    if (this.approvedSearchOnCurrentTransport) {
+      if (
+        !this.opts.verifyBinding ||
+        this.opts.transportClosure !== 'terminal' ||
+        !this.threadId ||
+        this.borrowedSearch ||
+        this.opts.adviserScope
+      )
+        throw Error('Owned search unavailable');
+      borrowed = new BorrowedCodexSearch(client, this.threadId, assertCurrent);
+      this.borrowedSearch = borrowed;
+    }
+    const searchTransport = borrowed;
+    try {
+      return await searchCodex(query, signal, {
+        createClient: searchTransport
+          ? (callbacks) => searchTransport.attach(callbacks)
+          : this.opts.createClient,
+        verify: async (client) => {
+          const current = this.opts.verifyBinding
+            ? await this.opts.verifyBinding(client, binding)
+            : await verifyCodexAccount(client, this.opts.profile, binding);
+          if (
+            current.accountId !== binding.accountId ||
+            current.profileRevision !== binding.profileRevision
+          )
+            throw new Error('Search account binding changed');
+        },
+        model: this.active?.command.model ?? binding.model,
+        modelProvider: this.opts.modelProvider ?? 'openai',
+        cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+        runtimeConfig: this.opts.runtimeConfig,
+        disableProjectDocuments: borrowed ? true : this.disableProjectDocuments,
+        agentContextSource: this.agentContextSource,
+        workspaceId: this.opts.profile.workspaceId,
+      });
+    } catch (error) {
+      if (borrowed) {
+        try {
+          await borrowed.close();
+        } catch {
+          this.close();
+          throw Error('Search cleanup failed; connection closed');
+        }
+      }
+      throw error;
+    } finally {
+      if (this.borrowedSearch === borrowed) this.borrowedSearch = undefined;
+    }
   }
   private clearCapacityTimer() {
     if (this.capacityTimer) clearTimeout(this.capacityTimer);
@@ -3472,6 +3527,7 @@ export class CodexConversation {
     if (this.active) this.active.preparationSpan = undefined;
     if (this.closed) return;
     this.closed = true;
+    this.borrowedSearch?.transportClosed(new Error('Search connection closed'));
     this.paused = true;
     const active = this.active;
     const closeStatus =

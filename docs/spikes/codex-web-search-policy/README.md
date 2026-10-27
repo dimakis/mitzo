@@ -70,6 +70,29 @@ retries do not grant access or start a model turn.
 If exact-query approval is required later, Mitzo must disable native search and
 provide a brokered `WebSearch` tool/backend that it controls before dispatch.
 
+## Approved access in owned Local Mac chats
+
+Owned Local Mac Codex chats keep parent native search disabled and cannot reopen
+that transport to change its conversation grant. They expose `RequestWebAccess`
+both as a selected host tool and through integration discovery. Website reads use
+the existing origin-scoped approval path. Search uses the existing exact-query
+approval card, including its account/model-bound session grant when selected.
+
+An approved search starts an ephemeral, search-only child thread on the original
+verified account connection. It never reattaches the one-use bootstrap lease,
+launches another account client, or changes the parent thread's consent. The
+child has no dynamic tools, shell, inherited MCP servers or project documents.
+The original runtime owner is rechecked around each request. Only the child's
+completed search receipt and cited answer can satisfy the operation; its events
+cannot complete the parent's active turn. Cancellation interrupts only the child
+and cleanup unsubscribes it. Uncertain turn identity or failed cleanup closes the
+connection rather than reusing an uncertain search owner.
+
+The offline adapter and conversation regressions cover discovery, denial and
+approval, cited search completion, parent isolation, cancellation and revocation.
+These checks make no model calls. Live acceptance and production adoption remain
+separate actions; this contract does not authorize staging or deployment.
+
 ## Reproducing the boundary check
 
 `node docs/spikes/codex-web-search-policy/lifecycle-config-probe.mjs` performs a

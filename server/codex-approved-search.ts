@@ -10,7 +10,7 @@ const searchFailure = (detail: string) => webSearchFailure('native Codex', detai
 interface Rpc {
   initialize(): Promise<void>;
   request(method: string, params: Record<string, unknown>): Promise<unknown>;
-  close(): void;
+  close(): void | Promise<void>;
 }
 interface Options {
   createClient(callbacks: CodexLifecycleTransport): Rpc;
@@ -83,7 +83,7 @@ export async function searchCodex(
   });
   const onAbort = () => {
     fail(new Error('Search interrupted'));
-    client.close();
+    void Promise.resolve(client.close()).catch(() => {});
   };
   signal.addEventListener('abort', onAbort, { once: true });
   const step = <T>(work: Promise<T>) =>
@@ -165,6 +165,6 @@ export async function searchCodex(
     throw searchFailure(phase);
   } finally {
     signal.removeEventListener('abort', onAbort);
-    client.close();
+    await client.close();
   }
 }
