@@ -41,6 +41,45 @@ it('fails a missing executable and records that launch failure', async () => {
   ).toBe(127);
   expect(JSON.parse(readFileSync(join(root, 'exit.json'), 'utf8')).error).toContain('ENOENT');
 });
+
+it('retires a descendant that ignores SIGTERM after its direct parent closes', async () => {
+  const root = directory();
+  const pidFile = join(root, 'descendant.pid');
+  const childSource = `process.on('SIGTERM',()=>{});require('fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid));setInterval(()=>{},1000);`;
+  const parentSource = `require('child_process').spawn(process.execPath,['-e',${JSON.stringify(childSource)}],{stdio:'ignore'});const timer=setInterval(()=>{if(require('fs').existsSync(${JSON.stringify(pidFile)})){clearInterval(timer);process.exit(0)}},10);`;
+  let pid: number | undefined;
+  try {
+    expect(
+      await runBrowserCommand({
+        command: process.execPath,
+        args: ['-e', parentSource],
+        directory: root,
+      }),
+    ).toBe(0);
+    pid = Number(readFileSync(pidFile, 'utf8'));
+    await expect
+      .poll(
+        () => {
+          try {
+            process.kill(pid!, 0);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        { timeout: 1000 },
+      )
+      .toBe(false);
+  } finally {
+    if (pid) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        /* Already reaped. */
+      }
+    }
+  }
+});
 it('forwards cancellation to the owned process group and retains a failing signal exit', async () => {
   const root = directory();
   const script = resolve('scripts/ci-browser-run.mjs');

@@ -46,7 +46,7 @@ stable supported baseline, not a claim that an image defect has been proved.
   macOS artifact journey, both supplemental shards, all layout projects, core
   checks and the final Centaur gate remain required.
 - WebKit retains four layout shards; both Chromium projects use three shards.
-  Each browser job keeps one worker and a 20-minute job deadline. Individual
+  Each layout job keeps one worker; all browser jobs have a 20-minute deadline. Individual
   acceptance assertions and test deadlines are unchanged.
 
 ## Diagnose an interrupted browser job
@@ -57,6 +57,11 @@ exit status and forwards termination to its own process group. Diagnostics are
 retained alongside Playwright evidence even after cancellation, when the runner
 is still able to upload. Console observations remain useful if the host exits
 before artifact upload.
+
+The additional reporter emits `CI_BROWSER_TEST_FAILURE` immediately for an
+unexpected failed/timed-out case or global error, before final reporting. Recovery
+also rejects legacy list-reporter failure rows if shutdown hides the summary.
+Ambiguous negative rows are left for diagnosis rather than automatically retried.
 
 Inspect the failed job's runner image header, `CI_BROWSER_RESOURCES` and
 `CI_BROWSER_EXIT` lines, and its attempt-specific failure artifact. Compare

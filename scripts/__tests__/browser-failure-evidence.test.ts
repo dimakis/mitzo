@@ -74,6 +74,7 @@ describe('browser failure evidence', () => {
         { outputFolder: `playwright-report/${directory}`, open: 'never' },
       ]);
       expect(config.retries ?? 0).toBe(0);
+      expect(config.reporter).toContainEqual(['./scripts/ci-browser-failure-reporter.mjs']);
     }
   });
 

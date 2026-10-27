@@ -97,6 +97,26 @@ it('does not classify a crashed test process as a host interruption', async () =
   expect(await f.execute()).toBe(false);
   expect(f.actions.reRunWorkflowFailedJobs).not.toHaveBeenCalled();
 });
+
+it.each([
+  '2026-10-27T12:00:00.123Z   ✘  1 [mobile-webkit] › app.spec.ts:10:1 › failed before shutdown (30s)',
+  '2026-10-27T12:00:00.123Z   \u001b[31m✘\u001b[39m  1 [desktop-chromium] › failed before shutdown (30s)',
+  '  x  1 [mobile-chromium] › failed before shutdown (30s)',
+  'CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"earlier-case"}',
+  'CI_BROWSER_TEST_FAILURE {"status":"error"}',
+])(
+  'refuses an observed failure before shutdown without requiring a final summary: %s',
+  async (failure) => {
+    const f = fixture();
+    f.actions.downloadJobLogsForWorkflowRun.mockResolvedValue({
+      data:
+        failure +
+        '\n##[error]The runner has received a shutdown signal.\nCI_BROWSER_EXIT {"code":null,"signal":"SIGTERM","interruptedBy":"SIGTERM"}',
+    });
+    expect(await f.execute()).toBe(false);
+    expect(f.actions.reRunWorkflowFailedJobs).not.toHaveBeenCalled();
+  },
+);
 it.each(['event', 'workflow', 'attempt', 'cancelled', 'fork', 'stale', 'closed', 'ambiguous'])(
   'does not resurrect %s work',
   async (condition) => {

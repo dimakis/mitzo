@@ -92,7 +92,7 @@ export async function runBrowserCommand({ command, args, directory }) {
     // Retire any descendants still in the owned group after npm exits.
     if (child.pid) {
       try {
-        process.kill(-child.pid, 'SIGTERM');
+        process.kill(-child.pid, 'SIGKILL');
       } catch {
         /* No remaining child. */
       }
