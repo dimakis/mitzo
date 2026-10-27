@@ -315,7 +315,7 @@ jobs:
   ordinary-journey:
     name: Telos canonical ordinary journey (macOS)
     runs-on: macos-26
-    # Existing joined coverage plus two complete 240s workflows and setup.
+    # Native workflows and signed authority checks; joined cases have their own matrix.
     # Individual acceptance, first-response and reader deadlines stay unchanged.
     timeout-minutes: 30
     permissions:
@@ -423,9 +423,6 @@ jobs:
             throw new Error('Complete CT09 macOS execution is required; a skip is not qualification');
           }
           NODE
-      - name: Run all required joined Telos acceptance cases
-        if: ${{ !cancelled() }}
-        run: node tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs
       - name: Verify signed native operator lifetime and repository tools
         if: ${{ !cancelled() }}
         run: |
@@ -463,6 +460,89 @@ jobs:
             test-results/telos-s9-joined/
             test-results/telos-s9-supplemental/
           if-no-files-found: error
+
+  ordinary-joined:
+    name: Telos joined acceptance (macOS ${{ matrix.shard }}/3)
+    runs-on: macos-26
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      NODE_OPTIONS: --max-old-space-size=1024
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --global npm@11.18.0
+      - run: npm install --no-audit
+      - run: npx tsc -b packages/protocol packages/harness packages/client
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Prepare hash-qualified offline native Codex fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          PROVENANCE=server/__tests__/fixtures/codex-native-permission-protocol-0.160.0.json
+          VERSION=$(node -p "require('./$PROVENANCE').provenance.version")
+          BINARY=$(node -p "require('./$PROVENANCE').provenance.binary")
+          EXPECTED_SHA=$(node -p "require('./$PROVENANCE').provenance.binarySha256")
+          FIXTURE_DIR="$RUNNER_TEMP/telos-s9-native"
+          mkdir -p "$FIXTURE_DIR"
+          gh release download "rust-v$VERSION" --repo openai/codex \
+            --pattern "$BINARY.tar.gz" --dir "$FIXTURE_DIR"
+          tar -xzf "$FIXTURE_DIR/$BINARY.tar.gz" -C "$FIXTURE_DIR"
+          echo "$EXPECTED_SHA  $FIXTURE_DIR/$BINARY" | shasum -a 256 -c -
+          echo "S9_CODEX_NATIVE_FIXTURE=$FIXTURE_DIR/$BINARY" >> "$GITHUB_ENV"
+      - name: Prepare isolated canonical CLI and browser dependencies
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/telos-s9-python"
+          "$RUNNER_TEMP/telos-s9-python/bin/python" -m pip install --require-hashes -r tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-requirements.txt
+          echo "S9_MGMT_PYTHON=$RUNNER_TEMP/telos-s9-python/bin/python" >> "$GITHUB_ENV"
+          npx playwright install chromium
+      - name: Run every case in the required joined shard
+        run: node tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs --shard=${{ matrix.shard }}/3
+      - name: Retain exact joined acceptance results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: telos-joined-${{ matrix.shard }}-of-3-${{ github.run_id }}
+          overwrite: true
+          path: test-results/telos-s9-joined/
+          if-no-files-found: error
+
+  joined-validation:
+    name: Complete joined acceptance coverage
+    needs: [ordinary-joined]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Collect every joined shard from this workflow run
+        if: ${{ needs.ordinary-joined.result == 'success' }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: telos-joined-*-of-3-${{ github.run_id }}
+          path: joined-results
+          merge-multiple: true
+      - name: Require all twelve groups and fourteen actual App cases
+        if: always()
+        env:
+          CI_JOINED_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-joined-gate.mjs joined-results
 
   ordinary-supplemental:
     name: Telos supplemental owner journeys (macOS ${{ matrix.shard }}/2)
@@ -751,6 +831,7 @@ jobs:
         changes,
         core,
         ordinary-journey,
+        joined-validation,
         ordinary-supplemental,
         browser-validation,
         native,
