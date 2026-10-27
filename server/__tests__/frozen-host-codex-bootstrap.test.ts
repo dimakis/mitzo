@@ -995,13 +995,39 @@ it.each([false, true])(
             };
             // A forged original receipt must not make an earlier send row look as if it
             // was admitted under a primary which did not yet exist. Only revisions bridge that order.
+            const forgedOriginal = JSON.parse(revision.execution_admission);
+            // Keep the forged projection internally canonical so this case still
+            // reaches the independent insertion-order fence. Earlier cases above
+            // already prove that inconsistent execution lineage is refused.
+            const forgedExecution = {
+              ...forgedOriginal,
+              requestFingerprint: `prepared-execution:${createHash('sha256')
+                .update(
+                  JSON.stringify([
+                    forgedOriginal.requestFingerprint,
+                    child.childCommandId,
+                    forgedOriginal.workspace,
+                  ]),
+                )
+                .digest('hex')}`,
+            };
             db.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
               revision.execution_admission,
               'queued-second',
             );
             db.prepare(
-              'UPDATE ordinary_execution_admissions SET original_admission=? WHERE revision=?',
-            ).run(revision.execution_admission, revision.revision);
+              'UPDATE ordinary_execution_admissions SET original_admission=?,execution_admission=? WHERE revision=?',
+            ).run(revision.execution_admission, JSON.stringify(forgedExecution), revision.revision);
+            expect(() =>
+              f.store.getOrdinaryLocalCommandExecutionAdmission('queued-second'),
+            ).toThrow(/insertion order/i);
+            expect(() =>
+              f.store.observePreparedRepositoryColdBootstrapAdmission(
+                child.childCommandId,
+                'queued-second',
+                child.childCommandId,
+              ),
+            ).toThrow(/insertion order/i);
             expect(() => f.store.reservePreparedRepositoryContinuation('session', second)).toThrow(
               /insertion order/i,
             );
@@ -1010,8 +1036,8 @@ it.each([false, true])(
               'queued-second',
             );
             db.prepare(
-              'UPDATE ordinary_execution_admissions SET original_admission=? WHERE revision=?',
-            ).run(revision.original_admission, revision.revision);
+              'UPDATE ordinary_execution_admissions SET original_admission=?,execution_admission=? WHERE revision=?',
+            ).run(revision.original_admission, revision.execution_admission, revision.revision);
           }
           const nextChild = f.store.reservePreparedRepositoryContinuation('session', second);
           let secondAdopted = false;

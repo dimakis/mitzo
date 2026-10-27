@@ -1454,8 +1454,8 @@ export class EventStore {
     const send = this.getSendCommand(commandId);
     const anchor = this.getSendCommand(transitionId);
     const row = this.db!.prepare(
-      'SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?',
-    ).get(commandId) as { ordinary_admission: string | null } | undefined;
+      'SELECT rowid,ordinary_admission FROM send_commands WHERE client_msg_id=?',
+    ).get(commandId) as { rowid: number; ordinary_admission: string | null } | undefined;
     const original = OrdinaryLocalCommandAdmissionSchema.parse(
       row?.ordinary_admission ? JSON.parse(row.ordinary_admission) : undefined,
     );
@@ -1470,6 +1470,21 @@ export class EventStore {
       !isDeepStrictEqual(original.selection.permission, primary.selection.permission)
     )
       throw Error('Original prepared repository command evidence unavailable');
+    if (original.preparedRepositoryPrimaryCommandId) {
+      const originalPrimary = this.db!.prepare(
+        'SELECT rowid,session_id FROM send_commands WHERE client_msg_id=?',
+      ).get(original.preparedRepositoryPrimaryCommandId) as
+        { rowid: number; session_id: string } | undefined;
+      // An execution revision can move held input forward. It cannot rewrite
+      // which primary already existed when that input was originally admitted.
+      if (
+        !row ||
+        !originalPrimary ||
+        originalPrimary.session_id !== send.sessionId ||
+        originalPrimary.rowid >= row.rowid
+      )
+        throw Error('Original prepared repository primary insertion order changed');
+    }
     // The caller's exact transition, rather than mutable session cwd, selects
     // historical evidence. This is observation only, never execution admission.
     if (commandId === transitionId || !transition.oldWorkspace.id)
