@@ -74,9 +74,17 @@ it('keeps physical paths, fake branch/source and client authority outside the or
   expect(
     protocol.OrdinaryWorkspaceFirstCommandSchema.safeParse({
       ...command,
-      payload: { text: 'a'.repeat(1048577) },
+      payload: { text: 'a'.repeat(protocol.CHAT_MAX_TEXT_BYTES + 1) },
     }).success,
   ).toBe(false);
+});
+it('accepts long ordinary messages above the former 1 MiB command cap', () => {
+  expect(
+    protocol.OrdinaryWorkspaceFirstCommandSchema.safeParse({
+      ...command,
+      payload: { text: 'a'.repeat(1048577) },
+    }).success,
+  ).toBe(true);
 });
 it('publishes silent opaque preparation intent/receipt with no credential, path or client capability grant', () => {
   const request = {
