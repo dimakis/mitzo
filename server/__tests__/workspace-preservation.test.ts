@@ -88,6 +88,7 @@ it('verifies a restorable private archive before removing an owned task with uni
   expect(result.state).toBe('retired');
   await expect(lstat(f.directory)).rejects.toMatchObject({ code: 'ENOENT' });
   const restored = join(root!, 'restored');
+  if (!result.archive) throw new Error('Retired workspace is missing its archive');
   await restoreWorkspaceArchive(result.archive, restored);
   expect(git(restored, 'rev-parse', 'HEAD')).toBe(f.head);
   expect(await readFile(join(restored, 'tracked.txt'), 'utf8')).toBe('edited');
@@ -205,7 +206,7 @@ it('retains external writes arriving after the final archive proof instead of un
 it('retires by retaining the original tree and restores an unchanged archive', async () => {
   const f = await fixture();
   const receipt = await retireOwnedWorkspace(
-    Object.freeze({
+    Object.freeze<WorkspaceRetirementOwner>({
       ...f.owner,
       remove: (identity, archive) => removePreservedWorkspace(f.directory, identity, archive),
     }),

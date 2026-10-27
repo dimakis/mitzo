@@ -3296,27 +3296,6 @@ export async function startOwnedLocalCodexCommand(
     let workspaceKind = input.workspaceKind;
     const command = structuredClone(input.command);
     const sessionId = reservation.conversationId;
-    if (resume) {
-      const native = getCodexConversationStore();
-      const custody = native.readHostCustody(sessionId, reservation.binding);
-      if (!custody || !ordinaryOperatorOwnsConversation(custody.authSessionId, ownerAuthSessionId))
-        throw unavailable();
-      const adopted = reconcilePreparedRepositoryTransitionProjection({
-        workspace: getRepositoryWorkspaces(true),
-        events: eventStore,
-        native,
-        conversationId: sessionId,
-        binding: reservation.binding,
-        assertCurrentSync: () => {
-          signal.throwIfAborted();
-          captured.assertCurrent();
-        },
-      });
-      if (adopted) {
-        reservation.id = adopted.id;
-        workspaceKind = 'repository';
-      }
-    }
     if (eventStore.getLatestEvent(sessionId, 'adviser_task_scope') && !input.adviserScope)
       throw unavailable();
     if (input.adviserScope && (!(input.adviserScope instanceof AdviserTaskScope) || resume))
@@ -3339,6 +3318,27 @@ export async function startOwnedLocalCodexCommand(
       const result = await liveOwner.retryInitial(command);
       resolveOwnedTelosWorkCommandScope(sessionId);
       return { ...result, sessionId };
+    }
+    if (resume) {
+      const native = getCodexConversationStore();
+      const custody = native.readHostCustody(sessionId, reservation.binding);
+      if (!custody || !ordinaryOperatorOwnsConversation(custody.authSessionId, ownerAuthSessionId))
+        throw unavailable();
+      const adopted = reconcilePreparedRepositoryTransitionProjection({
+        workspace: getRepositoryWorkspaces(true),
+        events: eventStore,
+        native,
+        conversationId: sessionId,
+        binding: reservation.binding,
+        assertCurrentSync: () => {
+          signal.throwIfAborted();
+          captured.assertCurrent();
+        },
+      });
+      if (adopted) {
+        reservation.id = adopted.id;
+        workspaceKind = 'repository';
+      }
     }
     driver = new OrdinaryLocalCodexOwnedRuntime<LocalWorkspaceKind>({
       enabled: true,

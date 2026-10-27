@@ -1,3 +1,4 @@
+import { nativeRepositoryFixtureWorkerSources } from './fixtures/native-repository-worker-sources.js';
 import { build, version as compilerVersion } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import * as childProcess from 'node:child_process';
@@ -403,15 +404,7 @@ actual(
     };
     const artifacts = join(root, 'compiled');
     await mkdir(artifacts);
-    const names = [
-      'sandboxed-command-worker.ts',
-      'sandbox-authority.ts',
-      'native-file-operation.ts',
-      'native-tree-publication.ts',
-      'native-preparation-observation.ts',
-      'native-preparation-publication.ts',
-      'private-repository-checkout.ts',
-    ];
+    const names = nativeRepositoryFixtureWorkerSources;
     const sources = names.map((name) => fileURLToPath(new URL('../' + name, import.meta.url)));
     const config = {
       platform: 'node' as const,

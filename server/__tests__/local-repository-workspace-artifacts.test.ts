@@ -10,7 +10,9 @@ it('pins existing-repository metadata authorization, private Git preparation and
   for (const file of [
     '../worktree.ts',
     '../pending-host-task.ts',
-    '../__tests__/pending-host-task.test.ts',
+    '../__tests__/prepared-repository-custody.test.ts',
+    '../__tests__/native-repository-base-preparation.test.ts',
+    '../__tests__/repository-task-checkout-preflight.test.ts',
     '../local-repository-worktree.ts',
     '../repository-workspaces.ts',
     '../local-repository-git-inspection.ts',

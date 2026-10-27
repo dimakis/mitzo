@@ -9,6 +9,7 @@ import {
   removePreservedWorkspace,
   WorkspaceRetirementReceiptSchema,
   type WorkspaceRetirementReceipt,
+  type WorkspaceRetirementOwner,
 } from './workspace-preservation.js';
 import type { WorkspaceLifecycleClaim } from './workspace-lifecycle.js';
 import type { LocalRepositoryPreparationObjectData } from './local-repository-preparation-object-data.js';
@@ -1452,7 +1453,7 @@ export class RepositoryWorkspaces {
       await mkdir(archiveRoot, { recursive: true, mode: 0o700 });
       await assertCurrent();
       await retireOwnedWorkspace(
-        Object.freeze({
+        Object.freeze<WorkspaceRetirementOwner>({
           operationId: initial.operationId,
           workspaceId: id,
           directory: path,
@@ -1760,8 +1761,18 @@ export class RepositoryWorkspaces {
     record: RepositoryWorkspace,
     binding: AccountBinding,
     signal: AbortSignal,
+    access: 'workspace' | 'terminal-metadata' = 'workspace',
   ) {
-    if (record.retirement && record.retirement.disposition !== 'restored')
+    // A correlated preview retry reads the retained terminal selection. It must
+    // renew account/runtime authorization without reopening the archived source.
+    // This exception never authorizes an unfinished retirement or task access.
+    const terminalMetadata =
+      access === 'terminal-metadata' &&
+      record.state === 'discarded' &&
+      record.retirement?.kind === 'unused' &&
+      record.retirement.disposition === 'retired' &&
+      record.retirement.receipt.state === 'retired';
+    if (record.retirement && record.retirement.disposition !== 'restored' && !terminalMetadata)
       throw Error('Repository preparation is retiring');
     if (record.qualifiedLocalPreparation)
       throw new PendingHostTaskError('pending_host_task_access_required');
@@ -2422,7 +2433,7 @@ export class RepositoryWorkspaces {
       };
       const recover = async (record: RepositoryWorkspace) => {
         assertIntent(record);
-        await this.authorize(record, binding, signal);
+        await this.authorize(record, binding, signal, 'terminal-metadata');
         this.assertUnchangedHostRecord(record);
         return publicRepositoryWorkspace(record);
       };

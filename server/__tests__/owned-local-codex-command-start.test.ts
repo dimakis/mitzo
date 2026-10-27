@@ -10,7 +10,7 @@ import { OwnedLocalCodexChatAdmission } from '../owned-local-codex-chat-admissio
 import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
 import { getAgentLibrary } from '../agent-library-runtime.js';
 import { getRepositoryWorkspaces } from '../repository-workspace-runtime.js';
-import { openCodexChat } from '../codex-chat-session.js';
+import { openCodexChat, getCodexConversationStore } from '../codex-chat-session.js';
 import { captureAgentLibraryAuthorization } from '../agent-library-transport.js';
 import type { OrdinaryLocalCodexOwnedRuntime } from '../ordinary-local-codex-owned-runtime.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
@@ -106,7 +106,7 @@ vi.mock('../repository-workspace-runtime.js', () => ({
 vi.mock('../codex-chat-session.js', () => ({
   openCodexChat: vi.fn(),
   getCodexRuntime: (session: object) => runtime.nativeQueues.get(session),
-  getCodexConversationStore: () => ({}),
+  getCodexConversationStore: vi.fn(() => ({})),
   publicCodexStartupError: () => 'Owned local Codex chat unavailable',
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
@@ -799,6 +799,7 @@ it.each(['local', 'openshell'] as const)(
       expect(f.retry).toHaveBeenCalledTimes(1);
       expect(f.admit).not.toHaveBeenCalled();
       expect(openCodexChat).not.toHaveBeenCalled();
+      if (location === 'local') expect(getCodexConversationStore).not.toHaveBeenCalled();
     } finally {
       f.remove();
     }

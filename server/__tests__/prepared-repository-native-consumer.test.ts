@@ -1,6 +1,7 @@
 import { materializePreparedRepositoryFixture } from './fixtures/materialized-prepared-repository.js';
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
+import * as nativeFileOperations from '../native-file-operation.js';
 import { nativeToolDefinitions } from '../native-tool-executor.js';
 import { localEfficiencyToolDefinitions } from '../local-agent-efficiency.js';
 import { CodexAppServerClient } from '../codex-app-server-client.js';
@@ -14,7 +15,10 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { writeFile, readFile } from 'node:fs/promises';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
-import { fixtureReadAnchor } from './fixtures/local-repository-read-owner.js';
+import {
+  fixtureReadAnchor,
+  fixtureReadDescriptor,
+} from './fixtures/local-repository-read-owner.js';
 import { OrdinaryLocalCodexOwnedRuntime } from '../ordinary-local-codex-owned-runtime.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
@@ -27,9 +31,13 @@ vi.mock('../auth.js', async (original) => ({
   hasPersistentRevocationAuthority: () => true,
 }));
 const physical = vi.hoisted(() => ({ reader: vi.fn(), creation: vi.fn() }));
-vi.mock('../local-repository-native-read.js', async (original) => ({
-  ...(await original<typeof import('../local-repository-native-read.js')>()),
+// Explicit facade exports avoid loading cyclic consumers via importActual before
+// Vitest installs the controlled reader. No real native/SRT read may escape.
+vi.mock('../local-repository-native-read.js', () => ({
+  captureNativeReaderPathAuthorization: () => undefined,
+  preparedRepositoryValidationReadMs: 60000,
   capturePreparedRepositoryReader: physical.reader,
+  captureNativeLocalRepositoryReader: physical.reader,
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
@@ -220,6 +228,11 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
       assertCurrentSync: () => readScope.assertCurrentSync(),
       revalidate: () => readScope.revalidate(),
       captureReadAnchor: fixtureReadAnchor,
+      executeReadOperation: fixtureReadDescriptor,
+      executeDirectoryVerification: (
+        requests: Parameters<typeof fixtureReadDescriptor>[0][],
+        signal: AbortSignal,
+      ) => Promise.all(requests.map((request) => fixtureReadDescriptor(request, signal))),
       dispose: disposals,
     };
   });
@@ -1054,6 +1067,11 @@ it('refuses partial, mismatched and revoked qualified cold owners before effects
 it.each(['completed', 'interrupted', 'partial-adoption', 'untransferred'] as const)(
   'reaches fresh qualified cold admission through the actual public owned entry after %s retirement and refuses a competing registered owner',
   async (primaryStatus) => {
+    vi.spyOn(nativeFileOperations, 'executeNativeAnchoredReadOperation').mockImplementation(
+      async () => {
+        throw Error('Offline controlled reader must not use a native helper fallback');
+      },
+    );
     const f = await fixture(true);
     let result: Awaited<ReturnType<typeof f.adopt>>;
     if (primaryStatus === 'untransferred') {
@@ -1152,7 +1170,7 @@ it.each(['completed', 'interrupted', 'partial-adoption', 'untransferred'] as con
     expect(chat.canResumeOwnedLocalCodexDriver(sessionId, f.auth.id)).toBe(true);
     const request = {
       ...structuredClone(f.request),
-      clientMsgId: 'public-qualified-cold',
+      clientMsgId: `public-qualified-cold-${primaryStatus}`,
       payload: { text: 'Continue the same saved task' },
     };
     const underlying = f.rpc.request.getMockImplementation()!;

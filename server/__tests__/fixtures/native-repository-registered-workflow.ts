@@ -34,6 +34,7 @@ import {
 } from './synchronous-stage-profiler.js';
 import { createPreparationAttemptDiagnostics } from './preparation-attempt-diagnostics.js';
 import { observePreparationService } from './preparation-service-diagnostics.js';
+import { nativeRepositoryFixtureWorkerSources } from './native-repository-worker-sources.js';
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
@@ -104,18 +105,11 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
       const sourceWorker = fileURLToPath(
         new URL('../../sandboxed-command-worker.ts', import.meta.url),
       );
-      const sourceAuthority = fileURLToPath(new URL('../../sandbox-authority.ts', import.meta.url));
-      // Qualify the combined worker's complete private-helper module closure.
-      // These are fresh compiler inputs, not the earlier two-file read-only binary.
-      const helperSources = [
-        'native-file-operation.ts',
-        'native-preparation-observation.ts',
-        'native-preparation-publication.ts',
-        'native-repository-observation.ts',
-        'native-tree-publication.ts',
-        'private-repository-checkout.ts',
-      ].map((file) => fileURLToPath(new URL('../../' + file, import.meta.url)));
-      const entryPoints = [sourceWorker, sourceAuthority, ...helperSources];
+      // Compile and hash the same complete standalone ESM closure qualified by
+      // the ungated module-load smoke, before any real sandbox helper runs.
+      const entryPoints = nativeRepositoryFixtureWorkerSources.map((file) =>
+        fileURLToPath(new URL('../../' + file, import.meta.url)),
+      );
       const buildOptions = {
         entryPoints,
         outdir: artifacts,
@@ -131,16 +125,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
         Object.keys(compiled.metafile!.inputs)
           .map((path) => path.split('/').at(-1))
           .sort(),
-      ).toEqual([
-        'native-file-operation.ts',
-        'native-preparation-observation.ts',
-        'native-preparation-publication.ts',
-        'native-repository-observation.ts',
-        'native-tree-publication.ts',
-        'private-repository-checkout.ts',
-        'sandbox-authority.ts',
-        'sandboxed-command-worker.ts',
-      ]);
+      ).toEqual([...nativeRepositoryFixtureWorkerSources].sort());
       const compiledWorker = join(artifacts, 'sandboxed-command-worker.js');
       await writeFile(join(artifacts, 'package.json'), JSON.stringify({ type: 'module' }));
       await symlink(await realpath('node_modules'), join(artifacts, 'node_modules'));
@@ -646,7 +631,8 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
             .filter(Boolean).length;
           filesystemCallBudget = { trackedFiles, limit: 16_000 + 2 * trackedFiles };
           const prepared = await f.a.call(
-            { path: preparationSource },
+            // This journey intentionally selects its locally constructed nested-empty-tree commit.
+            { path: preparationSource, base: { kind: 'ref', ref: 'HEAD' } },
             { tool: 'PrepareLocalRepository' },
           );
           operationTimings.PrepareLocalRepository = performance.now() - prepareStarted;

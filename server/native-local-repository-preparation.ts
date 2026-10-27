@@ -86,6 +86,8 @@ export async function executeNativeLocalRepositoryPreparation(
       try {
         current();
         const input = inputSchema.parse(rawInput);
+        const binding = context.session.accountBinding;
+        if (!binding) throw unavailable();
         const sourceIntent = input.source ?? { kind: 'existing' as const, path: input.path! };
         const sourceIdentity = repositorySourceIdentity(sourceIntent);
         if (pendingHostTaskDecisionHash(rawInput) !== context.requestHash) throw unavailable();
@@ -103,7 +105,7 @@ export async function executeNativeLocalRepositoryPreparation(
           workspace: context.workspace,
           path: sourceIdentity,
           base: input.base,
-          binding: context.session.accountBinding,
+          binding,
           ...(input.newCheckout ? { newCheckout: true } : {}),
         });
         current();

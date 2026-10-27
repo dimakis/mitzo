@@ -147,7 +147,7 @@ it.runIf(process.platform === 'darwin')(
         expect(captureNativeLocalRepositoryPreparationSource).toHaveBeenCalledWith(
           original,
           intent,
-          options,
+          expect.objectContaining({ ...options, authorizeRemote: expect.any(Function) }),
         );
         return controlledReceipt(original, f.f.events, f.f.reservation.taskRoot) as never;
       },

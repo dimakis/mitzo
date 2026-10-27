@@ -68,7 +68,9 @@ export function configuredLocalRepositoryDiscovery(workspace: string): {
 } {
   const base = process.env.REPO_PATH;
   const config = base ? loadRepoConfig(base) : undefined;
-  const repositoryCatalog = base ? { ...config?.repos, primary: base } : {};
+  const repositoryCatalog: Readonly<Record<string, string>> = base
+    ? { ...config?.repos, primary: base }
+    : {};
   const candidates = [
     workspace,
     ...(config?.roots ?? []).map((root) => root.path),

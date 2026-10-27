@@ -1545,7 +1545,7 @@ checkPort(PORT).then(async (inUse) => {
           claims,
         });
         if (sessions.length > 2000) result.truncated = true;
-        log.info('workspace lifecycle inventory', result);
+        log.info('workspace lifecycle inventory', { ...result });
       },
       onError: (label, phase, err) => {
         log.warn(`${phase} worktree cleanup failed for ${label}`, {
