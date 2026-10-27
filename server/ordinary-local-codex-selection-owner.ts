@@ -333,7 +333,7 @@ export class OrdinaryLocalCodexSelectionOwner {
           ? this.owners.events.getOrdinaryLocalVertexCommandAdmission(this.owners.commandId)
           : this.owners.responses
             ? this.owners.events.getOrdinaryLocalResponsesCommandAdmission(this.owners.commandId)
-            : this.owners.events.getOrdinaryLocalCommandAdmission(this.owners.commandId);
+            : this.owners.events.getOrdinaryLocalCommandExecutionAdmission(this.owners.commandId);
         let prepared = false;
         if (!admission && this.owners.preparationOperationId) {
           const receipt = (

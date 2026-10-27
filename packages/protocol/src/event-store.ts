@@ -1303,13 +1303,21 @@ export class EventStore {
     const bootstrap = read(coldBootstrapCommandId);
     const anchor = read(consumedPrimaryAnchorCommandId);
     const top = read(childCommandId);
+    // Explicit input held across the handoff precedes its anchor. Its immutable
+    // send remains in the old workspace; only the exact persisted execution
+    // revision can join that input to this cold bootstrap's workspace.
+    const rebound = bootstrap.rowid <= anchor.rowid;
+    if (rebound)
+      bootstrap.admission = this.readPreparedRepositoryCommandExecutionEvidence(
+        coldBootstrapCommandId,
+        consumedPrimaryAnchorCommandId,
+      );
     if (
       bootstrap.admission.state !== 'consumed' ||
       bootstrap.admission.preparedRepositoryTransition ||
       bootstrap.admission.preparedRepositoryPrimaryCommandId !== consumedPrimaryAnchorCommandId ||
       anchor.admission.state !== 'consumed' ||
       !anchor.admission.preparedRepositoryTransition ||
-      bootstrap.rowid <= anchor.rowid ||
       (childCommandId !== consumedPrimaryAnchorCommandId && top.rowid <= bootstrap.rowid) ||
       bootstrap.session_id !== anchor.session_id ||
       bootstrap.session_id !== top.session_id ||
@@ -1446,8 +1454,8 @@ export class EventStore {
     const send = this.getSendCommand(commandId);
     const anchor = this.getSendCommand(transitionId);
     const row = this.db!.prepare(
-      'SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?',
-    ).get(commandId) as { ordinary_admission: string | null } | undefined;
+      'SELECT rowid,ordinary_admission FROM send_commands WHERE client_msg_id=?',
+    ).get(commandId) as { rowid: number; ordinary_admission: string | null } | undefined;
     const original = OrdinaryLocalCommandAdmissionSchema.parse(
       row?.ordinary_admission ? JSON.parse(row.ordinary_admission) : undefined,
     );
@@ -1462,6 +1470,21 @@ export class EventStore {
       !isDeepStrictEqual(original.selection.permission, primary.selection.permission)
     )
       throw Error('Original prepared repository command evidence unavailable');
+    if (original.preparedRepositoryPrimaryCommandId) {
+      const originalPrimary = this.db!.prepare(
+        'SELECT rowid,session_id FROM send_commands WHERE client_msg_id=?',
+      ).get(original.preparedRepositoryPrimaryCommandId) as
+        { rowid: number; session_id: string } | undefined;
+      // An execution revision can move held input forward. It cannot rewrite
+      // which primary already existed when that input was originally admitted.
+      if (
+        !row ||
+        !originalPrimary ||
+        originalPrimary.session_id !== send.sessionId ||
+        originalPrimary.rowid >= row.rowid
+      )
+        throw Error('Original prepared repository primary insertion order changed');
+    }
     // The caller's exact transition, rather than mutable session cwd, selects
     // historical evidence. This is observation only, never execution admission.
     if (commandId === transitionId || !transition.oldWorkspace.id)
@@ -1472,30 +1495,179 @@ export class EventStore {
     commandId: string,
   ): OrdinaryLocalCommandAdmission | undefined {
     const row = this.db!.prepare(
-      'SELECT original_admission,execution_admission FROM ordinary_execution_admissions WHERE command_id=? ORDER BY revision DESC LIMIT 1',
-    ).get(commandId) as { original_admission: string; execution_admission: string } | undefined;
+      'SELECT transition_id FROM ordinary_execution_admissions WHERE command_id=? ORDER BY revision DESC LIMIT 1',
+    ).get(commandId) as { transition_id: string } | undefined;
     if (!row) return this.getOrdinaryLocalCommandAdmission(commandId);
-    const projected = OrdinaryLocalCommandAdmissionSchema.parse(
-      JSON.parse(row.execution_admission),
-    );
-    const original = this.getPreparedRepositoryCommandAdmissionEvidence(
+    const execution = this.readPreparedRepositoryCommandExecutionEvidence(
       commandId,
-      projected.preparedRepositoryPrimaryCommandId!,
-    );
-    if (!isDeepStrictEqual(JSON.parse(row.original_admission), original))
-      throw Error('Original explicit command admission changed');
-    const execution = OrdinaryLocalCommandAdmissionSchema.parse(
-      JSON.parse(row.execution_admission),
+      row.transition_id,
     );
     const session = this.getSession(this.getSendCommand(commandId)!.sessionId!);
     if (
       !session ||
       sessionWorkspaceId(session) !== execution.workspace.workspaceId ||
-      session.cwd !== execution.workspace.cwd ||
-      !isDeepStrictEqual(execution.binding, original.binding) ||
-      !isDeepStrictEqual(execution.selection, original.selection)
+      session.cwd !== execution.workspace.cwd
     )
       throw Error('Explicit command execution selection changed');
+    return execution;
+  }
+  /** Read-only routing identity for retained explicit input under an adopted
+   * primary. The original wire namespace stays distinct from execution custody.
+   * This observation grants neither recovery nor native dispatch authority. */
+  observePreparedRepositoryCommandRouting(commandId: string, historicalOnly = false) {
+    const refuse = () => Error('Retained command workspace lineage unavailable');
+    const read = (id: string) => {
+      const row = this.db!.prepare(
+        'SELECT rowid,session_id,error,ordinary_admission FROM send_commands WHERE client_msg_id=?',
+      ).get(id) as
+        | {
+            rowid: number;
+            session_id: string;
+            error: string | null;
+            ordinary_admission: string | null;
+          }
+        | undefined;
+      if (!row || row.error || !row.ordinary_admission) throw refuse();
+      return {
+        ...row,
+        admission: OrdinaryLocalCommandAdmissionSchema.parse(JSON.parse(row.ordinary_admission)),
+      };
+    };
+    const row = this.db!.prepare(
+      'SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?',
+    ).get(commandId) as { ordinary_admission: string | null } | undefined;
+    if (!row?.ordinary_admission) return undefined;
+    const original = read(commandId);
+    if (original.admission.preparedRepositoryTransition) return undefined;
+    const session = this.getSession(original.session_id);
+    if (!session?.repositoryWorkspaceId) {
+      if (original.admission.preparedRepositoryPrimaryCommandId) throw refuse();
+      return undefined;
+    }
+    const anchors = this.db!.prepare(
+      `SELECT client_msg_id FROM send_commands WHERE session_id=?
+      AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.newWorkspace.id')=?
+      AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.newWorkspace.directory')=? ORDER BY rowid DESC LIMIT 1`,
+    ).all(original.session_id, session.repositoryWorkspaceId, session.cwd) as Array<{
+      client_msg_id: string;
+    }>;
+    if (!anchors.length) {
+      if (original.admission.preparedRepositoryPrimaryCommandId) throw refuse();
+      return undefined;
+    }
+    const primaryId = anchors[0].client_msg_id;
+    const top = read(primaryId);
+    const execution =
+      historicalOnly && original.admission.state === 'consumed'
+        ? undefined
+        : this.getOrdinaryLocalCommandExecutionAdmission(commandId);
+    if (execution && execution.preparedRepositoryPrimaryCommandId !== primaryId) throw refuse();
+    if (
+      !['uncertain', 'consumed'].includes(original.admission.state) ||
+      original.admission.preparedRepositoryTransition ||
+      (original.admission.state === 'uncertain' &&
+        !isDeepStrictEqual(original.admission, execution))
+    )
+      throw refuse();
+    if (execution && !isDeepStrictEqual(top.admission.workspace, execution.workspace))
+      throw refuse();
+    let id = primaryId;
+    let outgoingRowid: number | undefined;
+    let kind: 'ordinary' | 'repository' | undefined;
+    for (let depth = 0; depth < 100; depth++) {
+      const row = read(id);
+      const transition = row.admission.preparedRepositoryTransition;
+      if (
+        !transition ||
+        row.admission.state !== 'consumed' ||
+        row.session_id !== original.session_id ||
+        !isDeepStrictEqual(row.admission.binding, original.admission.binding) ||
+        !isDeepStrictEqual(row.admission.selection.agent, original.admission.selection.agent) ||
+        !isDeepStrictEqual(row.admission.selection.context, original.admission.selection.context) ||
+        !isDeepStrictEqual(
+          row.admission.selection.permission,
+          original.admission.selection.permission,
+        )
+      )
+        throw refuse();
+      if (id === original.admission.preparedRepositoryPrimaryCommandId) {
+        if (
+          row.rowid >= original.rowid ||
+          (outgoingRowid !== undefined && original.rowid >= outgoingRowid) ||
+          !isDeepStrictEqual(row.admission.workspace, original.admission.workspace)
+        )
+          throw refuse();
+        kind = 'repository';
+      }
+      if (!transition.priorPrimaryCommandId) {
+        // Validate every decreasing ancestor and its exact original root, not
+        // merely the latest transition's old workspace.
+        this.observePreparedRepositoryBootstrapAdmission(primaryId, transition.source.commandId);
+        if (!original.admission.preparedRepositoryPrimaryCommandId) {
+          if (
+            original.rowid >= row.rowid ||
+            original.admission.workspace.workspaceId !== transition.oldWorkspace.id ||
+            original.admission.workspace.cwd !== transition.oldWorkspace.directory
+          )
+            throw refuse();
+          kind = transition.oldWorkspace.kind;
+        }
+        if (!kind) throw refuse();
+        const result = {
+          primaryCommandId: primaryId,
+          original: { kind, ...original.admission.workspace },
+          execution: { kind: 'repository' as const, ...top.admission.workspace },
+          originalAdmission: original.admission,
+          executionAdmission: execution,
+        };
+        const freeze = <T>(value: T): T => {
+          if (value && typeof value === 'object') {
+            for (const nested of Object.values(value)) freeze(nested);
+            Object.freeze(value);
+          }
+          return value;
+        };
+        return freeze(result);
+      }
+      outgoingRowid = row.rowid;
+      id = transition.priorPrimaryCommandId;
+    }
+    throw refuse();
+  }
+  /** Exact historical execution lineage; observation never supplies a live
+   * native, physical-workspace or operator owner. */
+  private readPreparedRepositoryCommandExecutionEvidence(
+    commandId: string,
+    transitionId: string,
+  ): OrdinaryLocalCommandAdmission {
+    const row = this.db!.prepare(
+      'SELECT original_admission,execution_admission FROM ordinary_execution_admissions WHERE command_id=? AND transition_id=? ORDER BY revision DESC LIMIT 1',
+    ).get(commandId, transitionId) as
+      { original_admission: string; execution_admission: string } | undefined;
+    if (!row) throw Error('Explicit command execution revision unavailable');
+    const original = this.getPreparedRepositoryCommandAdmissionEvidence(commandId, transitionId);
+    const transition =
+      this.readPreparedRepositoryTransition(transitionId).preparedRepositoryTransition!;
+    const workspace = {
+      workspaceId: transition.newWorkspace.id,
+      cwd: transition.newWorkspace.directory,
+    };
+    const expected = OrdinaryLocalCommandAdmissionSchema.parse({
+      ...original,
+      workspace,
+      preparedRepositoryPrimaryCommandId: transitionId,
+      requestFingerprint: `prepared-execution:${createHash('sha256')
+        .update(JSON.stringify([original.requestFingerprint, transitionId, workspace]))
+        .digest('hex')}`,
+    });
+    const execution = OrdinaryLocalCommandAdmissionSchema.parse(
+      JSON.parse(row.execution_admission),
+    );
+    if (
+      !isDeepStrictEqual(JSON.parse(row.original_admission), original) ||
+      !isDeepStrictEqual(execution, expected)
+    )
+      throw Error('Original explicit command execution lineage changed');
     return execution;
   }
   /** Subsequent explicit commands use only a committed operation-specific
@@ -1983,10 +2155,10 @@ export class EventStore {
   }
 
   /** Read the existing admission fence without loading payloads or historical turns. */
-  hasUncertainOrdinaryCommand(sessionId: string): boolean {
+  hasUncertainOrdinaryCommand(sessionId: string, exceptCommandId?: string): boolean {
     return !!this.db!.prepare(
-      "SELECT 1 FROM send_commands WHERE session_id=? AND json_extract(ordinary_admission,'$.state')='uncertain' LIMIT 1",
-    ).get(sessionId);
+      "SELECT 1 FROM send_commands WHERE session_id=? AND json_extract(ordinary_admission,'$.state')='uncertain' AND (? IS NULL OR client_msg_id!=?) LIMIT 1",
+    ).get(sessionId, exceptCommandId ?? null, exceptCommandId ?? null);
   }
 
   /** Persist uncertainty BEFORE the first external effect. False forbids replay. */

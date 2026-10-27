@@ -37,7 +37,15 @@ function assertHistoricalAcknowledgement(
 ): boolean {
   const workspaceId =
     'workspace' in input ? input.workspace.workspaceId : input.repositoryWorkspaceId;
-  const receipt = events.getOrdinaryCommandAdmission(input.clientMsgId);
+  const adopted =
+    input.runOn === 'local' && input.runtime.harness === 'codex'
+      ? events.observePreparedRepositoryCommandRouting(input.clientMsgId, true)
+      : undefined;
+  const receipt =
+    adopted?.originalAdmission ?? events.getOrdinaryCommandAdmission(input.clientMsgId);
+  const executionWorkspace = adopted
+    ? { workspaceId: adopted.execution.workspaceId, cwd: adopted.execution.cwd }
+    : receipt?.workspace;
   if (!receipt) return false;
   const reject = (why = 'identity') => {
     throw Error('Historical command identity unavailable: ' + why);
@@ -53,11 +61,16 @@ function assertHistoricalAcknowledgement(
     !binding ||
     binding.version !== 2 ||
     !isDeepStrictEqual(receipt.binding, binding) ||
-    (ordinary
-      ? meta.ordinaryWorkspaceId !== workspaceId || meta.repositoryWorkspaceId != null
-      : meta.repositoryWorkspaceId !== workspaceId || meta.ordinaryWorkspaceId != null) ||
+    (adopted
+      ? adopted.original.kind !== (ordinary ? 'ordinary' : 'repository') ||
+        adopted.original.workspaceId !== workspaceId ||
+        meta.repositoryWorkspaceId !== adopted.execution.workspaceId ||
+        meta.ordinaryWorkspaceId != null
+      : ordinary
+        ? meta.ordinaryWorkspaceId !== workspaceId || meta.repositoryWorkspaceId != null
+        : meta.repositoryWorkspaceId !== workspaceId || meta.ordinaryWorkspaceId != null) ||
     receipt.workspace.workspaceId !== workspaceId ||
-    receipt.workspace.cwd !== meta.cwd ||
+    executionWorkspace?.cwd !== meta.cwd ||
     !isDeepStrictEqual(binding.account, input.runtime.account) ||
     binding.execution.location !== input.runOn ||
     binding.execution.targetId !== input.runtime.targetId ||
@@ -128,7 +141,7 @@ function assertHistoricalAcknowledgement(
           )
           .digest('hex')}`;
   if (fingerprint !== receipt.requestFingerprint) return reject('fingerprint');
-  if (ordinary) {
+  if (ordinary && !adopted) {
     const workspace = getOrdinaryWorkspaces(true).validateOrdinaryWorkspace(sessionId, meta.cwd!);
     const prepared = events.getOrdinaryWorkspaceSessionPreparation(workspace.allocationOperationId);
     if (
@@ -138,7 +151,7 @@ function assertHistoricalAcknowledgement(
       prepared.workspaceId !== workspaceId
     )
       return reject();
-  } else if (first) {
+  } else if (first && !adopted) {
     const workspace = getRepositoryWorkspaces(true).get(workspaceId);
     const frozen = workspace.ordinaryFirstReservation;
     const prepared = events.getOrdinarySessionPreparationForConversation(sessionId);
@@ -200,14 +213,18 @@ function assertHistoricalAcknowledgement(
     } else {
       const custody = native.readHostCustody(sessionId, meta.accountBinding);
       const initialId = events.getOrdinaryInitialCommandId(sessionId);
-      const initial = initialId && events.getOrdinaryCommandAdmission(initialId);
+      const initial =
+        initialId &&
+        (adopted
+          ? events.observePreparedRepositoryBootstrapAdmission(adopted.primaryCommandId, initialId)
+          : events.getOrdinaryCommandAdmission(initialId));
       if (
         !custody ||
         !ordinaryOperatorOwnsConversation(custody.authSessionId, authSessionId) ||
         !initial ||
         initial.state !== 'consumed' ||
         !isDeepStrictEqual(initial.binding, binding) ||
-        !isDeepStrictEqual(initial.workspace, receipt.workspace) ||
+        (!adopted && !isDeepStrictEqual(initial.workspace, receipt.workspace)) ||
         custody.bootstrapId !== ordinaryLocalCodexBootstrapId(sessionId, initial.requestFingerprint)
       )
         return reject();
@@ -218,7 +235,7 @@ function assertHistoricalAcknowledgement(
     if (
       !conversation.threadId ||
       conversation.conversationId !== sessionId ||
-      conversation.cwd !== receipt.workspace.cwd
+      conversation.cwd !== executionWorkspace?.cwd
     )
       return reject();
   }

@@ -727,10 +727,11 @@ it('CT06/17/18 repository counterpart: actual advisor, lead and worker pages ret
   expect(chat.eventStore.getSession(leadId)?.repositoryWorkspaceId).toBe(
     leadCommand.repositoryWorkspaceId,
   );
-  await vi.waitFor(() =>
-    expect(
-      nativeSessions[1].rpc.request.mock.calls.filter(([m]) => m === 'turn/start'),
-    ).toHaveLength(1),
+  // Acceptance starts background preparation; wait for the same actual RPC
+  // boundary as the worker below, within this case's unchanged 120s budget.
+  await nativeSessions[1].firstTurnStarted;
+  expect(nativeSessions[1].rpc.request.mock.calls.filter(([m]) => m === 'turn/start')).toHaveLength(
+    1,
   );
   if (process.env.S9_JOINED_SCREENSHOT_DIR)
     await page.screenshot({

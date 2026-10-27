@@ -216,6 +216,7 @@ export function DesktopChatView() {
     (!launch || briefingOwnedDraft) && !briefingLaunchReason && !repositoryHandoff.present,
     searchParams.toString(),
     newChatDraft.restored ? newChatDraft.draft.settings.selection : undefined,
+    messages.branch,
   );
   const explicitNew = localRuntime.visible && !activeSessionId;
   const conversationRepository = conversationRepositoryLabel({
@@ -1461,8 +1462,8 @@ export function DesktopChatView() {
             <span>
               {localCommand.state === 'consumed'
                 ? localRuntime.continuation
-                  ? 'Conversation connected.'
-                  : `Original ${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command dispatched.`
+                  ? 'Message accepted. It may still be queued.'
+                  : `Original ${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command accepted. It may still be queued.`
                 : `${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command retained. Review its original choices before recovery.`}
             </span>
             {localCommand.request && (

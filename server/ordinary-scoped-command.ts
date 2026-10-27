@@ -31,6 +31,7 @@ export interface OwnedOrdinaryDispatchInput {
   ownerAuthSessionId?: string;
   signal: AbortSignal;
   continuation: boolean;
+  recovery?: boolean;
   existingOwner: boolean;
   workspaceKind: 'ordinary' | 'repository';
   preparationOperationId?: string;
@@ -157,7 +158,7 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
               resume: continuation,
             });
       }
-      return continuation && existing
+      return continuation && existing && !input.recovery
         ? sendOwnedLocalCodexCommand(common)
         : startOwnedLocalCodexCommand(input.transport, input.clientId, {
             workspaceKind: input.workspaceKind,
@@ -171,6 +172,7 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
             ownerConnectionId: input.ownerConnectionId,
             signal,
             resume: continuation,
+            recovery: input.recovery,
             ...(input.onSessionPrepared ? { onSessionPrepared: input.onSessionPrepared } : {}),
             ...(input.onQueryEvent ? { onQueryEvent: input.onQueryEvent } : {}),
             ...(input.onTerminalOutcome ? { onTerminalOutcome: input.onTerminalOutcome } : {}),

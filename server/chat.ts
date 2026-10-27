@@ -8,6 +8,10 @@ import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import type { LocalWorkspaceRecord } from './ordinary-local-workspace-owner.js';
 import type { LocalWorkspaceKind } from './ordinary-local-workspace-owner.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import {
+  RetainedLocalCodexRecovery,
+  recoverableLocalCodexCommand,
+} from './retained-local-codex-recovery.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import {
   resolveTelosWorkCommandScope,
@@ -3223,6 +3227,82 @@ export async function sendOwnedLocalCodexCommand(input: {
   }
 }
 
+/** Explicit existing queue action. Acceptance observation remains read-only;
+ * this action reopens the original saved input even after its outbox retires. */
+export async function continueOwnedLocalCodexQueue(
+  sessionId: string,
+  authorization: import('./auth.js').AuthSession | undefined,
+  connectionId?: string,
+) {
+  if (!authorization || authorization.expiresAt <= Date.now() || !connectionId)
+    throw Error('Original Codex operator required');
+  const captured = captureAgentLibraryAuthorization(connectionId);
+  captured.assertCurrent();
+  const transport = _connRegistry?.get(connectionId)?.transport;
+  if (
+    captured.auth.id !== authorization.id ||
+    liveTransportAuthSessionId(connectionId) !== authorization.id ||
+    !transport?.isOpen()
+  )
+    throw Error('Original signed connection required');
+  const meta = eventStore.getSession(sessionId),
+    binding = eventStore.getSessionRuntimeBinding(sessionId);
+  if (
+    !meta?.accountBinding ||
+    binding?.version !== 2 ||
+    binding.harness.implementation !== 'codex' ||
+    binding.execution.location !== 'local'
+  )
+    throw Error('Original local Codex route required');
+  const commandId = recoverableLocalCodexCommand(
+    eventStore,
+    getCodexConversationStore(),
+    sessionId,
+    authorization.id,
+  );
+  if (!commandId) throw Error('Saved input has no safe undispatched recovery');
+  const workspaceKind = meta.ordinaryWorkspaceId ? 'ordinary' : 'repository';
+  const workspace =
+    workspaceKind === 'ordinary'
+      ? getOrdinaryWorkspaces(true).getOrdinaryWorkspace(meta.ordinaryWorkspaceId!)
+      : getRepositoryWorkspaces(true).get(meta.repositoryWorkspaceId!);
+  const taskRoot = workspace.hostReservation?.taskRoot;
+  if (!taskRoot) throw Error('Original task reservation unavailable');
+  const { request } = RetainedLocalCodexRecovery.captureSaved(
+    eventStore,
+    getCodexConversationStore(),
+    sessionId,
+    authorization.id,
+    commandId,
+  );
+  const release = reserveRepositoryStartup(sessionId);
+  const preparation = new AbortController();
+  const timer = setTimeout(() => preparation.abort(), 120000);
+  try {
+    await startOwnedLocalCodexCommand(transport, `${connectionId}:${sessionId}`, {
+      command: request,
+      commandId,
+      workspaceKind,
+      reservation: {
+        id: meta.ordinaryWorkspaceId ?? meta.repositoryWorkspaceId!,
+        conversationId: sessionId,
+        binding: meta.accountBinding,
+        taskRoot,
+        runtimeBinding: binding,
+      },
+      operatorConnectionId: connectionId,
+      ownerConnectionId: connectionId,
+      signal: preparation.signal,
+      resume: true,
+      recovery: true,
+      savedRecovery: true,
+    });
+  } finally {
+    clearTimeout(timer);
+    release();
+  }
+}
+
 /** Explicit server-only entry for the owned local first-command route. The
  * preexisting repository reservation and authenticated operator are supplied by
  * trusted composition; no request can provide an authority or runtime launcher.
@@ -3241,6 +3321,8 @@ export async function startOwnedLocalCodexCommand(
     signal: AbortSignal;
     /** Server-selected cold continuation, never legacy history adoption. */
     resume?: boolean;
+    recovery?: boolean;
+    savedRecovery?: boolean;
     /** Trusted silent allocation receipt; explicit first command only. */
     preparationOperationId?: string;
     adviserScope?: AdviserTaskScope;
@@ -3305,6 +3387,40 @@ export async function startOwnedLocalCodexCommand(
       (command as { selection?: { thinking?: string | null } }).selection?.thinking,
     );
     resolveOwnedTelosWorkCommandScope(sessionId);
+    if (input.recovery) {
+      if (!resume || input.adviserScope) throw unavailable();
+      if (input.savedRecovery)
+        RetainedLocalCodexRecovery.captureSaved(
+          eventStore,
+          getCodexConversationStore(),
+          sessionId,
+          ownerAuthSessionId,
+          commandId,
+        );
+      else
+        RetainedLocalCodexRecovery.capture(
+          eventStore,
+          getCodexConversationStore(),
+          sessionId,
+          ownerAuthSessionId,
+          command,
+        );
+      captured.assertCurrent();
+      const prior = registry.findBySessionId(sessionId);
+      if (prior) {
+        const runtime = getCodexRuntime(prior.session);
+        if (
+          !runtime?.isPaused() ||
+          !ordinaryOperatorOwnsConversation(
+            prior.session.ownedLocalAuthSessionId,
+            ownerAuthSessionId,
+          )
+        )
+          throw unavailable();
+        prior.session.queryInstance?.close();
+        registry.abort(prior.clientId);
+      }
+    }
     const liveOwner = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
     if (liveOwner) {
       if (
@@ -3424,7 +3540,13 @@ export async function startOwnedLocalCodexCommand(
       preparationOperationId !== undefined
         ? driver!.admitPreparedFirst(preparationOperationId, command)
         : driver!.admit(command);
-    const result = resume ? await driver.admitResume(command) : await admitFirst(command);
+    const result = input.savedRecovery
+      ? await driver.recoverSavedResume()
+      : input.recovery
+        ? await driver.recoverResume(command)
+        : resume
+          ? await driver.admitResume(command)
+          : await admitFirst(command);
     resolveOwnedTelosWorkCommandScope(sessionId);
     if (!result.dispatched) {
       if (prepared) throw unavailable();
@@ -3845,7 +3967,10 @@ export async function prepareOwnedCodexChat(
         if (
           closed ||
           ran ||
-          eventStore.getOrdinaryCommandAdmission(commandId)?.state !== 'consumed'
+          (localAdmission
+            ? eventStore.getOrdinaryLocalCommandExecutionAdmission(commandId)
+            : eventStore.getOrdinaryCommandAdmission(commandId)
+          )?.state !== 'consumed'
         )
           throw unavailable();
         admission.assertConsumerOwner(eventStore, sessionId, commandId);
@@ -3878,7 +4003,8 @@ export async function prepareOwnedCodexChat(
           // this owner's consumed/identity checks. Never resume paused work.
           const native = getCodexRuntime(session);
           if (!native) throw unavailable();
-          await native.startQueued();
+          if (resume) await native.resumeAfterExplicitSend();
+          else await native.startQueued();
         }
         await runQueryLoop(
           safeEvents(),

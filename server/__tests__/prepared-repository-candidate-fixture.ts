@@ -181,11 +181,13 @@ export function preparedRepositoryCandidateFixture(cleanups: Array<() => void>) 
 export function qualifiedPreparedRepositoryRecord(
   record: RepositoryWorkspace,
   input: PreparedRepositoryTransitionCaptureInput,
+  layout?: 'standalone',
 ) {
   const request = record.pendingHostTask!.request;
   const source = record.localSource!;
   const facts = {
     version: 1,
+    ...(layout ? { layout } : {}),
     workspaceId: record.id,
     baseOid: record.baseOid,
     baseBranch: record.baseBranch,

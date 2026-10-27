@@ -41,6 +41,7 @@ import {
   cancelOwnedVertexQueuedCommand,
 } from './ordinary-local-vertex-queue.js';
 import { assertOwnedCodexQueueControl } from './owned-codex-queue-control.js';
+import { recoverableLocalCodexCommand } from './retained-local-codex-recovery.js';
 import { getNativeResponsesStore } from './responses-chat-session.js';
 import {
   continueOwnedLocalResponsesQueue,
@@ -325,6 +326,7 @@ import {
   startChat,
   stopChat,
   sendToChat,
+  continueOwnedLocalCodexQueue,
   AVAILABLE_MODELS,
   BASE_REPO,
   getMcpServerNames,
@@ -3559,9 +3561,14 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   const totalTokens =
     meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
   const symposiumConfigured = Boolean(meta.symposiumConfig);
+  const runtimeBinding = eventStore.getSessionRuntimeBinding(meta.sessionId);
+  const ownedLocalCodex =
+    runtimeBinding?.harness.implementation === 'codex' &&
+    runtimeBinding.execution.location === 'local';
   const codexBacked =
     !symposiumConfigured &&
-    (meta.accountBinding?.provider === 'openai-codex' ||
+    (runtimeBinding?.harness.implementation === 'codex' ||
+      meta.accountBinding?.provider === 'openai-codex' ||
       (meta.accountBinding?.provider === 'openai' &&
         !!meta.cwd?.startsWith('/sandbox/workspaces/')));
   const responsesBacked = ['responses', 'gemini'].includes(
@@ -3569,7 +3576,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   );
   const vertexBacked =
     eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'claude-sdk';
-  const codexQueue = vertexBacked
+  let codexQueue = vertexBacked
     ? readOwnedVertexQueue(
         eventStore,
         meta.sessionId,
@@ -3592,6 +3599,24 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
             registry.findBySessionId(meta.sessionId)?.session,
           )
         : undefined;
+  if (codexQueue && ownedLocalCodex) {
+    const auth = res.locals.authSession;
+    codexQueue = {
+      ...codexQueue,
+      canContinue: Boolean(
+        !meta.isHidden &&
+        (!codexQueue.connected || codexQueue.paused) &&
+        auth &&
+        auth.expiresAt > Date.now() &&
+        recoverableLocalCodexCommand(
+          eventStore,
+          getCodexConversationStore(),
+          meta.sessionId,
+          auth.id,
+        ),
+      ),
+    };
+  }
   let modelSelection:
     | {
         model: string;
@@ -3885,7 +3910,7 @@ app.use(
       const meta = eventStore.getSession(sessionId);
       const binding = meta?.accountBinding;
       return binding &&
-        (['responses', 'claude-sdk', 'gemini'].includes(
+        (['codex', 'responses', 'claude-sdk', 'gemini'].includes(
           eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation ?? '',
         ) ||
           binding.provider === 'openai-codex' ||
@@ -3967,6 +3992,28 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
   ) {
     try {
       await continueOwnedLocalResponsesQueue(
+        sessionId,
+        res.locals.authSession,
+        typeof req.headers['x-connection-id'] === 'string'
+          ? req.headers['x-connection-id']
+          : undefined,
+      );
+      res.json({ ok: true });
+    } catch {
+      res.status(409).json({
+        error:
+          'Saved work could not reconnect. Check the original sign-in, account, settings and prior outcome before trying again.',
+      });
+    }
+    return;
+  }
+  const runtimeBinding = eventStore.getSessionRuntimeBinding(sessionId);
+  if (
+    runtimeBinding?.harness.implementation === 'codex' &&
+    runtimeBinding.execution.location === 'local'
+  ) {
+    try {
+      await continueOwnedLocalCodexQueue(
         sessionId,
         res.locals.authSession,
         typeof req.headers['x-connection-id'] === 'string'
