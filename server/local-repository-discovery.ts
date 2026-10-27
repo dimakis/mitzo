@@ -481,11 +481,14 @@ export async function discoverLocalRepository(
       if (combined.truncated) combined.needed = ['narrower-search'];
       else if (access) combined.needed = ['read-access'];
       if (!combined.candidates.length) {
-        combined.state = access
-          ? 'access-required'
-          : combined.diagnostics.every((item) => item.reason === 'repository-not-found')
-            ? 'missing'
-            : 'ambiguous';
+        combined.state = combined.truncated
+          ? 'ambiguous'
+          : access
+            ? 'access-required'
+            : combined.diagnostics.length > 0 &&
+                combined.diagnostics.every((item) => item.reason === 'repository-not-found')
+              ? 'missing'
+              : 'ambiguous';
         if (combined.state === 'missing') combined.needed = ['source', 'destination'];
       } else if (
         combined.candidates.length === 1 &&

@@ -191,6 +191,27 @@ describe('private Local Mac repository read tools', () => {
     ]);
   });
 
+  it('does not report a repository missing after a partial catalog search', async () => {
+    const empty = join(root, 'a', 'project');
+    await mkdir(empty, { recursive: true });
+    const existing = await repository(join(root, 'z', 'project'));
+    const f = fixture();
+    f.policy.repositoryCatalog = { first: empty, second: existing };
+    f.policy.limits = { maxCandidates: 1 };
+    const result = value(
+      await sessionLocalRepositoryTools(f.owner).execute(
+        'DiscoverLocalRepository',
+        { query: 'project' },
+        signal(),
+      ),
+    );
+    expect(result).toMatchObject({
+      state: 'ambiguous',
+      truncated: true,
+      needed: ['narrower-search'],
+    });
+  });
+
   it('withholds repository reads when the original enforced execution port is missing', () => {
     const owner = {
       ...fixture().owner,

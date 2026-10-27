@@ -19,6 +19,8 @@ import { OrdinaryLocalCodexOwnedRuntime } from '../ordinary-local-codex-owned-ru
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 import { withPreparedRepositoryBarrierReadScope } from '../prepared-repository-barrier-read.js';
+import { reconcilePreparedRepositoryTransitionProjection } from '../owned-prepared-repository-transition.js';
+import { captureAgentLibraryAuthorization } from '../agent-library-transport.js';
 
 vi.mock('../auth.js', async (original) => ({
   ...(await original<typeof import('../auth.js')>()),
@@ -51,7 +53,10 @@ const cleanups: Array<() => void | Promise<void>> = [];
 // chat store AND its owning scratch fixture alive until the file finishes;
 // later cases must not inherit a closed store or replace its genuine owner.
 const publicAuthCleanups: Array<() => void | Promise<void>> = [];
+const publicNativeStores = new Set<CodexConversationStore>();
+let publicEventPath: string | undefined;
 afterAll(async () => {
+  for (const store of publicNativeStores) store.close();
   for (const close of publicAuthCleanups.splice(0).reverse()) await close();
 });
 afterEach(async () => {
@@ -90,6 +95,7 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
   const f = await ownedRuntimeFixture(chatRoute ? publicAuthCleanups : cleanups, {
     localRepository: true,
     chatRoute,
+    ...(chatRoute && publicEventPath ? { eventStorePath: publicEventPath } : {}),
     operatorLifetimeMs,
     ...(chatRoute
       ? {
@@ -101,6 +107,7 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
       : {}),
   });
   if (chatRoute) {
+    publicEventPath ??= join(f.root, '.mitzo', 'events.db');
     vi.stubEnv('MITZO_INTERNAL_TOKEN_PATH', join(f.root, 'internal-token'));
     vi.stubGlobal(
       'fetch',
@@ -120,7 +127,8 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
   const native = chatRoute
     ? (await import('../codex-chat-session.js')).getCodexConversationStore()
     : new CodexConversationStore(join(f.root, 'native-transition.db'));
-  cleanups.push(() => native.close());
+  if (chatRoute) publicNativeStores.add(native);
+  else cleanups.push(() => native.close());
   native.create(f.reservation.conversationId, f.reservation.binding, f.reserved.directory!);
   const runtime = new OrdinaryLocalCodexOwnedRuntime({
     ...f.dependencies,
@@ -417,6 +425,176 @@ it('serializes config and metadata-only thread resume for the adopted primary on
     retained.close();
   }
 });
+it.each(['already-queued', 'during-capture', 'at-reservation'] as const)(
+  'adopts with %s explicit steering, retaining original admission and FIFO without an automatic turn',
+  async (phase) => {
+    const f = await fixture();
+    const followup = {
+      ...structuredClone(f.request),
+      clientMsgId: 'held-explicit-steering',
+      payload: { text: 'Stop the original task and explain the changes' },
+    };
+    const enqueue = () => f.runtime.admitContinuation(followup);
+    let pending: ReturnType<typeof enqueue> | undefined;
+    if (phase === 'already-queued') await enqueue();
+    else if (phase === 'at-reservation') {
+      const reserve = f.events.reservePreparedRepositoryContinuation.bind(f.events);
+      vi.spyOn(f.events, 'reservePreparedRepositoryContinuation').mockImplementationOnce(
+        (...args) => {
+          pending = enqueue();
+          void pending.catch(() => {});
+          return reserve(...args);
+        },
+      );
+    } else {
+      const original = physical.creation.getMockImplementation()!;
+      physical.creation.mockImplementationOnce(async (...args) => {
+        const value = await original(...args);
+        pending = enqueue();
+        void pending.catch(() => {});
+        return value;
+      });
+    }
+    const historical =
+      phase === 'already-queued' && f.events.getOrdinaryLocalCommandAdmission(followup.clientMsgId);
+    const result = await f.adopt();
+    if (pending) await expect(pending).resolves.toEqual({ dispatched: true });
+    expect(result?.directory).toBe(f.record.pendingHostTask?.directory);
+    expect(
+      f.native
+        .commands(f.first.sessionId, f.first.lease.binding)
+        .filter((command) => command.status === 'queued')
+        .map((command) => command.id),
+    ).toEqual([followup.clientMsgId]);
+    expect(f.admission.nativeExecutionWorkspace(followup.clientMsgId).cwd).toBe(result!.directory);
+    expect(f.events.getSendCommand(followup.clientMsgId)?.payload.text).toBe(followup.payload.text);
+    if (historical)
+      expect(
+        f.events.getPreparedRepositoryCommandAdmissionEvidence(
+          followup.clientMsgId,
+          f.events.getOrdinaryLocalCommandExecutionAdmission(followup.clientMsgId)!
+            .preparedRepositoryPrimaryCommandId!,
+        ),
+      ).toEqual(historical);
+    expect(f.native.read(f.first.sessionId, f.first.lease.binding).recovery).toBe(0);
+    expect(f.native.claimNext(f.first.sessionId, f.first.lease.binding)?.id).toBe(
+      followup.clientMsgId,
+    );
+    f.admission.assertBeforeDispatch(followup.clientMsgId);
+  },
+);
+
+it('drains both earlier admissions before installing the transition barrier', async () => {
+  const f = await fixture();
+  let unblock!: () => void;
+  let reached!: () => void;
+  const held = new Promise<void>((resolve) => {
+    unblock = resolve;
+  });
+  const qualifying = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const original = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementationOnce(async (...args) => {
+    reached();
+    await held;
+    return original(...args);
+  });
+  const command = (id: string) => ({
+    ...structuredClone(f.request),
+    clientMsgId: id,
+    payload: { text: id },
+  });
+  const first = f.runtime.admitContinuation(command('pre-transition-a'));
+  await qualifying;
+  const second = f.runtime.admitContinuation(command('pre-transition-b'));
+  const candidate = vi.spyOn(f.workspace, 'findPreparedRepositoryTransitionCandidate');
+  const adoption = f.adopt();
+  await vi.waitFor(() => expect(candidate).toHaveBeenCalled());
+  unblock();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      Promise.all([first, second, adoption]),
+      new Promise((_, reject) => {
+        timeout = setTimeout(
+          () => reject(Error('Earlier admissions deadlocked behind their own transition')),
+          15000,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+  expect(
+    f.native
+      .commands(f.first.sessionId, f.first.lease.binding)
+      .filter((c) => c.status === 'queued')
+      .map((c) => c.id),
+  ).toEqual(['pre-transition-a', 'pre-transition-b']);
+});
+
+it('cold-resumes a workspace revision with held explicit work and no executable automatic primary', async () => {
+  const f = await fixture(false, 300000);
+  const followup = {
+    ...structuredClone(f.request),
+    clientMsgId: 'held-before-retirement',
+    payload: { text: 'Explain the retained edits before doing more' },
+  };
+  await f.runtime.admitContinuation(followup);
+  const result = await f.adopt();
+  f.setCwd(result!.directory);
+  const retainedThread = f.native.read(f.first.sessionId, f.first.lease.binding).threadId;
+  f.runtime.close();
+  const request = {
+    ...structuredClone(f.request),
+    clientMsgId: 'cold-after-held-steering',
+    payload: { text: 'Continue this same conversation' },
+  };
+  const dispatch = vi.fn(
+    async (
+      value: import('../ordinary-local-codex-owned-runtime.js').OrdinaryLocalCodexOwnedDispatch,
+    ) => {
+      await value.admission.assertCurrent();
+      expect(value.admission.nativeExecutionWorkspace(followup.clientMsgId).cwd).toBe(
+        result!.directory,
+      );
+      value.admission.assertBeforeEnqueue({
+        id: value.commandId,
+        prompt: value.payload.text,
+        intent: value.payload.intent,
+        model: value.expected.selection.model,
+        reasoningEffort: value.expected.selection.thinking,
+      });
+      f.native.enqueue(value.sessionId, value.lease.binding, {
+        id: value.commandId,
+        prompt: value.payload.text,
+        intent: value.payload.intent,
+        model: value.expected.selection.model,
+        reasoningEffort: value.expected.selection.thinking,
+      });
+    },
+  );
+  const cold = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    nativeStore: f.native,
+    commandId: request.clientMsgId,
+    reservation: { ...f.reservation, id: result!.id },
+    launch: () => ({ ...f.rpc, close: vi.fn() }),
+    dispatch,
+  });
+  cleanups.push(() => cold.close());
+  await expect(cold.admitResume(request)).resolves.toEqual({ dispatched: true });
+  expect(dispatch).toHaveBeenCalledOnce();
+  expect(f.native.read(f.first.sessionId, f.first.lease.binding).threadId).toBe(retainedThread);
+  expect(
+    f.native
+      .commands(f.first.sessionId, f.first.lease.binding)
+      .filter((command) => command.status === 'queued')
+      .map((command) => command.id),
+  ).toEqual([followup.clientMsgId, request.clientMsgId]);
+});
+
 it('refuses queued old-workspace work before child reservation or repository custody changes', async () => {
   const f = await fixture();
   f.native.enqueue(f.first.sessionId, f.first.lease.binding, {
@@ -458,6 +636,84 @@ it.each(['close-during-capture', 'queue-during-capture'] as const)(
     ).toHaveLength(0);
   },
 );
+it('renews an untransferred preparation after restart without treating its reservation as an executed custody effect', async () => {
+  const f = await fixture();
+  const custody = vi
+    .spyOn(f.workspace, 'adoptPreparedRepositoryTransition')
+    .mockImplementationOnce(() => {
+      throw Error('Process stopped before custody CAS');
+    });
+  await expect(f.adopt()).rejects.toThrow();
+  expect(f.workspace.getForConversation(f.first.sessionId)?.id).toBe(f.first.workspace.id);
+  expect(
+    f.native.hasPreparedRepositoryTransitionHold(f.first.sessionId, f.first.lease.binding),
+  ).toBe(true);
+  expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(true);
+  const operator = captureAgentLibraryAuthorization(f.dependencies.operatorConnectionId);
+  reconcilePreparedRepositoryTransitionProjection({
+    workspace: f.workspace,
+    events: f.events,
+    native: f.native,
+    conversationId: f.first.sessionId,
+    binding: f.first.lease.binding,
+    assertCurrentSync: () => operator.assertCurrent(),
+  });
+  expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(false);
+  expect(f.workspace.getForConversation(f.first.sessionId)?.id).toBe(f.first.workspace.id);
+  expect(custody).toHaveBeenCalledOnce();
+  expect(
+    f.native
+      .commands(f.first.sessionId, f.first.lease.binding)
+      .filter((command) => command.status === 'queued'),
+  ).toHaveLength(0);
+});
+
+it.each(['event-projection', 'native-projection', 'native-projection-after-write'] as const)(
+  'reconciles %s after custody committed without repeating allocation, custody transfer or provider work',
+  async (phase) => {
+    const f = await fixture();
+    const custody = vi.spyOn(f.workspace, 'adoptPreparedRepositoryTransition');
+    if (phase === 'event-projection')
+      vi.spyOn(f.events, 'commitPreparedRepositoryContinuation').mockImplementationOnce(() => {
+        throw Error('Simulated event projection crash');
+      });
+    else {
+      const write = f.native.adoptPreparedRepositoryWorkspace.bind(f.native);
+      vi.spyOn(f.native, 'adoptPreparedRepositoryWorkspace').mockImplementationOnce((...args) => {
+        if (phase === 'native-projection-after-write') write(...args);
+        throw Error('Simulated native projection crash');
+      });
+    }
+    await expect(f.adopt()).rejects.toThrow();
+    expect(custody).toHaveBeenCalledOnce();
+    const adopted = f.workspace.getForConversation(f.first.sessionId)!;
+    expect(adopted.id).toBe(f.record.id);
+    const operator = captureAgentLibraryAuthorization(f.dependencies.operatorConnectionId);
+    const owners = {
+      workspace: f.workspace,
+      events: f.events,
+      native: f.native,
+      conversationId: f.first.sessionId,
+      binding: f.first.lease.binding,
+      assertCurrentSync: () => operator.assertCurrent(),
+    };
+    expect(reconcilePreparedRepositoryTransitionProjection(owners)?.directory).toBe(
+      adopted.directory,
+    );
+    expect(f.events.getSession(f.first.sessionId)?.cwd).toBe(adopted.directory);
+    expect(f.native.read(f.first.sessionId, f.first.lease.binding).cwd).toBe(adopted.directory);
+    expect(
+      f.native
+        .commands(f.first.sessionId, f.first.lease.binding)
+        .filter((command) => command.status === 'queued'),
+    ).toHaveLength(0);
+    expect(reconcilePreparedRepositoryTransitionProjection(owners)?.directory).toBe(
+      adopted.directory,
+    );
+    expect(custody).toHaveBeenCalledOnce();
+  },
+);
+
 it('retains actual cross-store uncertainty and refuses a replay after native cwd persistence fails', async () => {
   const f = await fixture();
   const original = f.native.adoptPreparedRepositoryWorkspace.bind(f.native);
@@ -795,220 +1051,292 @@ it('refuses partial, mismatched and revoked qualified cold owners before effects
   ).toBe(false);
 });
 
-it('reaches fresh qualified cold admission through the actual public owned entry after clean retirement and refuses a competing registered owner', async () => {
-  const f = await fixture(true),
-    result = await f.adopt();
-  f.setCwd(result!.directory);
-  const completedPrimary = f.native.claimNext(f.first.sessionId, f.first.lease.binding)!;
-  f.admission.assertBeforeDispatch(completedPrimary.id);
-  const completedPolicy = codexNativeExecutionPolicy({
-    bindingRevision: f.first.lease.binding.profileRevision!,
-    mode: 'agent',
-    cwd: result!.directory,
-    readableRoots: ['/'],
-    writableRoots: [result!.directory],
-    deniedRoots: [join(f.root, 'login'), join(f.root, 'custody')],
-    writeProtectedRoots: [],
-  });
-  f.native.prepareNativeExecution(
-    f.first.sessionId,
-    f.first.lease.binding,
-    completedPrimary,
-    'thread',
-    completedPolicy,
-  );
-  f.native.recordNativeTurnAck(
-    f.first.sessionId,
-    f.first.lease.binding,
-    completedPrimary,
-    'thread',
-    'pre-public-turn',
-  );
-  f.native.acceptNativeExecution(
-    f.first.sessionId,
-    f.first.lease.binding,
-    completedPrimary,
-    'thread',
-    'pre-public-turn',
-  );
-  f.native.finish(
-    f.first.sessionId,
-    f.first.lease.binding,
-    completedPrimary.id,
-    'completed',
-    'pre-public-turn',
-  );
-  f.runtime.close();
-  // The real HOST SQLite, chat and native stores were initialized above. Only
-  // now select the synthetic Mac route whose artifact/physical/RPC ports this
-  // offline positive controls; loading native addons under a spoof would pick
-  // the wrong host binary on Linux. afterEach restores the original process.
-  // platform is a data property, so use the existing controller stub pattern.
-  vi.stubGlobal('process', Object.create(process, { platform: { value: 'darwin' } }));
-  const chat = await import('../chat.js'),
-    native = await import('../codex-chat-session.js');
-  const workspaceRuntime = await import('../repository-workspace-runtime.js'),
-    libraryRuntime = await import('../agent-library-runtime.js');
-  vi.spyOn(workspaceRuntime, 'getRepositoryWorkspaces').mockReturnValue(f.workspace);
-  vi.spyOn(libraryRuntime, 'getAgentLibrary').mockReturnValue(f.library);
-  const sessionId = f.first.sessionId,
-    binding = f.first.lease.binding;
-  const custody = f.native.readHostCustody(sessionId, binding);
-  expect(chat.registry.findBySessionId(sessionId)).toBeFalsy();
-  expect(chat.canResumeOwnedLocalCodexDriver(sessionId, f.auth.id)).toBe(true);
-  const request = {
-    ...structuredClone(f.request),
-    clientMsgId: 'public-qualified-cold',
-    payload: { text: 'Continue the same saved task' },
-  };
-  const underlying = f.rpc.request.getMockImplementation()!;
-  let signalNativeTurnStarted!: () => void;
-  const nativeTurnStarted = new Promise<void>((resolve) => {
-    signalNativeTurnStarted = resolve;
-  });
-  f.rpc.request.mockImplementation(async (method, params?: Record<string, unknown>) => {
-    if (method === 'thread/resume')
-      return { thread: { id: 'thread' }, model: 'fixture-model', modelProvider: 'openai' };
-    if (method === 'turn/start') {
-      signalNativeTurnStarted();
-      return { turn: { id: `public-cold-${String(params?.clientUserMessageId)}` } };
-    }
-    return underlying(method);
-  });
-  const launch = vi
-    .spyOn(CodexAppServerClient, 'launchIsolated')
-    .mockReturnValue({ ...f.rpc, close: vi.fn() } as never);
-  const clientId = `public-cold:${sessionId}`;
-  cleanups.push(async () => {
-    chat.registry.abort(clientId);
-    await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeFalsy());
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  });
-  let startupFailure: string | undefined;
-  const initialize = CodexConversation.prototype.initialize;
-  vi.spyOn(CodexConversation.prototype, 'initialize').mockImplementation(async function (
-    this: CodexConversation,
-  ) {
-    try {
-      return await initialize.call(this);
-    } catch (error) {
-      startupFailure = error instanceof Error ? error.message.slice(0, 200) : 'unknown';
-      throw error;
-    }
-  });
-  const attempt = chat.startOwnedLocalCodexCommand(
-    { send: vi.fn(), isOpen: () => true },
-    clientId,
-    {
-      command: request,
-      reservation: { ...f.reservation, id: result!.id },
-      commandId: request.clientMsgId,
-      operatorConnectionId: f.dependencies.operatorConnectionId,
-      ownerConnectionId: f.dependencies.operatorConnectionId,
-      signal: f.signal.signal,
-      resume: true,
-    },
-  );
-  const evidencePath = join(tmpdir(), `qualified-cold-public-${Date.now()}.json`);
-  try {
-    await expect(attempt).resolves.toMatchObject({ dispatched: true, sessionId });
-  } finally {
-    await writeFile(
-      evidencePath,
-      JSON.stringify(
-        { startupFailure, methods: f.rpc.request.mock.calls.map(([method]) => method) },
-        null,
-        2,
-      ),
+it.each(['completed', 'interrupted', 'partial-adoption', 'untransferred'] as const)(
+  'reaches fresh qualified cold admission through the actual public owned entry after %s retirement and refuses a competing registered owner',
+  async (primaryStatus) => {
+    const f = await fixture(true);
+    let result: Awaited<ReturnType<typeof f.adopt>>;
+    if (primaryStatus === 'untransferred') {
+      vi.spyOn(f.workspace, 'adoptPreparedRepositoryTransition').mockImplementationOnce(() => {
+        throw Error('Process lost before custody transfer');
+      });
+      await expect(f.adopt()).rejects.toThrow();
+      result = f.workspace.getForConversation(f.first.sessionId) as typeof result;
+    } else if (primaryStatus === 'partial-adoption') {
+      vi.spyOn(f.native, 'adoptPreparedRepositoryWorkspace').mockImplementationOnce(() => {
+        throw Error('Process lost after committed custody');
+      });
+      await expect(f.adopt()).rejects.toThrow();
+      result = f.workspace.getForConversation(f.first.sessionId) as typeof result;
+    } else result = await f.adopt();
+    f.setCwd(result!.directory);
+    const retainedEdit = join(
+      primaryStatus === 'untransferred' ? f.record.pendingHostTask!.directory! : result!.directory,
+      'retained-before-transport-loss.txt',
     );
-  }
-
-  let cleanRetired = false;
-  try {
-    const registered = chat.registry.findBySessionId(sessionId)!;
-    expect(registered.session.cwd).toBe(result!.directory);
-    expect(chat.canResumeOwnedLocalCodexDriver(sessionId, f.auth.id)).toBe(false);
-    const competitor = { ...request, clientMsgId: 'competing-cold-command' };
-    await expect(
-      chat.startOwnedLocalCodexCommand({ send: vi.fn(), isOpen: () => true }, 'competing-client', {
-        command: competitor,
+    await writeFile(retainedEdit, 'Already completed tool effect');
+    let completedPrimary: import('../codex-conversation-store.js').CodexCommand | undefined;
+    if (primaryStatus === 'completed' || primaryStatus === 'interrupted') {
+      completedPrimary = f.native.claimNext(f.first.sessionId, f.first.lease.binding)!;
+      f.admission.assertBeforeDispatch(completedPrimary.id);
+      const completedPolicy = codexNativeExecutionPolicy({
+        bindingRevision: f.first.lease.binding.profileRevision!,
+        mode: 'agent',
+        cwd: result!.directory,
+        readableRoots: ['/'],
+        writableRoots: [result!.directory],
+        deniedRoots: [join(f.root, 'login'), join(f.root, 'custody')],
+        writeProtectedRoots: [],
+      });
+      f.native.prepareNativeExecution(
+        f.first.sessionId,
+        f.first.lease.binding,
+        completedPrimary,
+        'thread',
+        completedPolicy,
+      );
+      f.native.recordNativeTurnAck(
+        f.first.sessionId,
+        f.first.lease.binding,
+        completedPrimary,
+        'thread',
+        'pre-public-turn',
+      );
+      f.native.acceptNativeExecution(
+        f.first.sessionId,
+        f.first.lease.binding,
+        completedPrimary,
+        'thread',
+        'pre-public-turn',
+      );
+      if (primaryStatus === 'interrupted')
+        f.native.pauseForRecovery(
+          f.first.sessionId,
+          f.first.lease.binding,
+          completedPrimary.id,
+          'interrupted',
+          'resume',
+          undefined,
+          true,
+          true,
+        );
+      else
+        f.native.finish(
+          f.first.sessionId,
+          f.first.lease.binding,
+          completedPrimary.id,
+          'completed',
+          'pre-public-turn',
+        );
+      expect(
+        f.native.commandStatus(f.first.sessionId, f.first.lease.binding, completedPrimary.id),
+      ).toBe(primaryStatus);
+    }
+    f.runtime.close();
+    // The real HOST SQLite, chat and native stores were initialized above. Only
+    // now select the synthetic Mac route whose artifact/physical/RPC ports this
+    // offline positive controls; loading native addons under a spoof would pick
+    // the wrong host binary on Linux. afterEach restores the original process.
+    // platform is a data property, so use the existing controller stub pattern.
+    vi.stubGlobal('process', Object.create(process, { platform: { value: 'darwin' } }));
+    const chat = await import('../chat.js'),
+      native = await import('../codex-chat-session.js');
+    const workspaceRuntime = await import('../repository-workspace-runtime.js'),
+      libraryRuntime = await import('../agent-library-runtime.js');
+    vi.spyOn(workspaceRuntime, 'getRepositoryWorkspaces').mockReturnValue(f.workspace);
+    vi.spyOn(libraryRuntime, 'getAgentLibrary').mockReturnValue(f.library);
+    const sessionId = f.first.sessionId,
+      binding = f.first.lease.binding;
+    const custody = f.native.readHostCustody(sessionId, binding);
+    expect(chat.registry.findBySessionId(sessionId)).toBeFalsy();
+    expect(chat.canResumeOwnedLocalCodexDriver(sessionId, f.auth.id)).toBe(true);
+    const request = {
+      ...structuredClone(f.request),
+      clientMsgId: 'public-qualified-cold',
+      payload: { text: 'Continue the same saved task' },
+    };
+    const underlying = f.rpc.request.getMockImplementation()!;
+    let signalNativeTurnStarted!: () => void;
+    let rejectNativeTurnStarted!: (error: Error) => void;
+    let nativeStarted = false;
+    const nativeTurnStarted = new Promise<void>((resolve, reject) => {
+      signalNativeTurnStarted = () => {
+        nativeStarted = true;
+        resolve();
+      };
+      rejectNativeTurnStarted = reject;
+    });
+    void nativeTurnStarted.catch(() => {});
+    f.rpc.request.mockImplementation(async (method, params?: Record<string, unknown>) => {
+      if (method === 'thread/resume')
+        return { thread: { id: 'thread' }, model: 'fixture-model', modelProvider: 'openai' };
+      if (method === 'thread/turns/list')
+        return { data: [{ id: 'pre-public-turn', status: 'interrupted' }], nextCursor: null };
+      if (method === 'turn/start') {
+        signalNativeTurnStarted();
+        return { turn: { id: `public-cold-${String(params?.clientUserMessageId)}` } };
+      }
+      return underlying(method);
+    });
+    const launch = vi
+      .spyOn(CodexAppServerClient, 'launchIsolated')
+      .mockReturnValue({ ...f.rpc, close: vi.fn() } as never);
+    const clientId = `public-cold:${sessionId}`;
+    cleanups.push(async () => {
+      chat.registry.abort(clientId);
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeFalsy());
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    });
+    let startupFailure: string | undefined;
+    const initialize = CodexConversation.prototype.initialize;
+    vi.spyOn(CodexConversation.prototype, 'initialize').mockImplementation(async function (
+      this: CodexConversation,
+    ) {
+      try {
+        return await initialize.call(this);
+      } catch (error) {
+        startupFailure = error instanceof Error ? error.message.slice(0, 200) : 'unknown';
+        throw error;
+      }
+    });
+    const attempt = chat.startOwnedLocalCodexCommand(
+      { send: vi.fn(), isOpen: () => true },
+      clientId,
+      {
+        command: request,
         reservation: { ...f.reservation, id: result!.id },
-        commandId: competitor.clientMsgId,
+        commandId: request.clientMsgId,
         operatorConnectionId: f.dependencies.operatorConnectionId,
+        ownerConnectionId: f.dependencies.operatorConnectionId,
         signal: f.signal.signal,
         resume: true,
-      }),
-    ).rejects.toThrow();
-
-    expect(launch).toHaveBeenCalledOnce();
-    expect(f.native.readHostCustody(sessionId, binding)).toEqual(custody);
-    const packets = f.rpc.request.mock.calls as unknown as Array<[string, Record<string, unknown>]>;
-    expect(packets.find(([method]) => method === 'thread/resume')?.[1]).toMatchObject({
-      threadId: 'thread',
-      cwd: result!.directory,
-      permissions: 'mitzo-native-agent',
-      config: expect.objectContaining({ 'skills.max_context_tokens': 1500 }),
-    });
-    expect(packets.some(([method]) => method === 'thread/start')).toBe(false);
-    expect(native.getCodexRuntime(registered.session)).toBeDefined();
-    // Cold requalification performs real physical checks before dispatch. Await
-    // the provider boundary within this journey's existing 420-second limit;
-    // the receipt poll below bounds projection after that actual turn/start.
-    await nativeTurnStarted;
-    await vi.waitFor(
-      () => {
-        const command = f.native
-          .commands(sessionId, binding)
-          .find((c) => c.id === request.clientMsgId)!;
-        expect(f.native.readNativeExecution(sessionId, binding, command)).toMatchObject({
-          phase: 'accepted',
-          turnId: `public-cold-${request.clientMsgId}`,
-        });
-        expect(
-          f.native.nativeTurnTarget(sessionId, binding, command.id, command.attempt)?.turnId,
-        ).toBe(`public-cold-${request.clientMsgId}`);
-      },
-      { timeout: 120000 },
-    );
-    const lifecycle = launch.mock.calls[0][2]!;
-    lifecycle.onNotification('turn/completed', {
-      threadId: 'thread',
-      turn: { id: `public-cold-${request.clientMsgId}`, status: 'completed' },
-    });
-    await vi.waitFor(
-      () =>
-        expect(f.native.commandStatus(sessionId, binding, request.clientMsgId)).toBe('completed'),
-      { timeout: 30000 },
-    );
-    registered.session.queryInstance!.close();
-    await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeFalsy());
-    expect(chat.eventStore.getSession(sessionId)?.state).toBe('ENDED');
-    expect(chat.canResumeOwnedLocalCodexDriver(sessionId, f.auth.id)).toBe(true);
-    expect(f.native.readHostCustody(sessionId, binding)).toEqual(custody);
-    cleanRetired = true;
-  } finally {
-    const command = f.native.commands(sessionId, binding).find((c) => c.id === request.clientMsgId);
-    await writeFile(
-      evidencePath,
-      JSON.stringify(
-        {
-          startupFailure,
-          methods: f.rpc.request.mock.calls.map(([method]) => method),
-          status: command?.status,
-          nativeReceiptPhase:
-            command && f.native.readNativeExecution(sessionId, binding, command)?.phase,
-          registryPresent: !!chat.registry.findBySessionId(sessionId),
-          sessionState: chat.eventStore.getSession(sessionId)?.state,
-          cleanRetired,
+        onEnded: () => {
+          if (!nativeStarted)
+            rejectNativeTurnStarted(Error('Owned query ended before native turn start'));
         },
-        null,
-        2,
-      ),
+      },
     );
-  }
-  // Initial adoption, fresh cold admission and outgoing child physical checks
-  // retain independent production deadlines; allow the full joined test.
-}, 420000);
+    const evidencePath = join(tmpdir(), `qualified-cold-public-${Date.now()}.json`);
+    try {
+      await expect(attempt).resolves.toMatchObject({ dispatched: true, sessionId });
+    } finally {
+      await writeFile(
+        evidencePath,
+        JSON.stringify(
+          { startupFailure, methods: f.rpc.request.mock.calls.map(([method]) => method) },
+          null,
+          2,
+        ),
+      );
+    }
+
+    const expectedDirectory =
+      primaryStatus === 'untransferred' ? f.record.pendingHostTask!.directory! : result!.directory;
+    let cleanRetired = false;
+    try {
+      const registered = chat.registry.findBySessionId(sessionId)!;
+      await nativeTurnStarted;
+      expect(registered.session.cwd).toBe(expectedDirectory);
+      expect(chat.canResumeOwnedLocalCodexDriver(sessionId, f.auth.id)).toBe(false);
+      const competitor = { ...request, clientMsgId: 'competing-cold-command' };
+      await expect(
+        chat.startOwnedLocalCodexCommand(
+          { send: vi.fn(), isOpen: () => true },
+          'competing-client',
+          {
+            command: competitor,
+            reservation: { ...f.reservation, id: result!.id },
+            commandId: competitor.clientMsgId,
+            operatorConnectionId: f.dependencies.operatorConnectionId,
+            signal: f.signal.signal,
+            resume: true,
+          },
+        ),
+      ).rejects.toThrow();
+
+      expect(launch).toHaveBeenCalledOnce();
+      expect(f.native.readHostCustody(sessionId, binding)).toEqual(custody);
+      const packets = f.rpc.request.mock.calls as unknown as Array<
+        [string, Record<string, unknown>]
+      >;
+      expect(packets.filter(([method]) => method === 'thread/resume').at(-1)?.[1]).toMatchObject({
+        threadId: 'thread',
+        cwd: result!.directory,
+        permissions: 'mitzo-native-agent',
+        config: expect.objectContaining({ 'skills.max_context_tokens': 1500 }),
+      });
+      expect(packets.some(([method]) => method === 'thread/start')).toBe(false);
+      expect(packets.filter(([method]) => method === 'turn/start').at(-1)?.[1]).toMatchObject({
+        cwd: expectedDirectory,
+      });
+      expect(native.getCodexRuntime(registered.session)).toBeDefined();
+      // Cold requalification performs real physical checks before dispatch. Await
+      // the provider boundary within this journey's existing 420-second limit;
+      // the receipt poll below bounds projection after that actual turn/start.
+      await nativeTurnStarted;
+      await vi.waitFor(
+        () => {
+          const command = f.native
+            .commands(sessionId, binding)
+            .find((c) => c.id === request.clientMsgId)!;
+          expect(f.native.readNativeExecution(sessionId, binding, command)).toMatchObject({
+            phase: 'accepted',
+            turnId: `public-cold-${request.clientMsgId}`,
+          });
+          expect(
+            f.native.nativeTurnTarget(sessionId, binding, command.id, command.attempt)?.turnId,
+          ).toBe(`public-cold-${request.clientMsgId}`);
+        },
+        { timeout: 120000 },
+      );
+      expect(await readFile(retainedEdit, 'utf8')).toBe('Already completed tool effect');
+      if (completedPrimary)
+        expect(f.native.commandStatus(sessionId, binding, completedPrimary.id)).toBe(primaryStatus);
+      expect(f.native.read(sessionId, binding).threadId).toBe('thread');
+      expect(f.native.read(sessionId, binding).recovery).toBe(0);
+      const lifecycle = launch.mock.calls[0][2]!;
+      lifecycle.onNotification('turn/completed', {
+        threadId: 'thread',
+        turn: { id: `public-cold-${request.clientMsgId}`, status: 'completed' },
+      });
+      await vi.waitFor(
+        () =>
+          expect(f.native.commandStatus(sessionId, binding, request.clientMsgId)).toBe('completed'),
+        { timeout: 30000 },
+      );
+      registered.session.queryInstance!.close();
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeFalsy());
+      expect(chat.eventStore.getSession(sessionId)?.state).toBe('ENDED');
+      expect(chat.canResumeOwnedLocalCodexDriver(sessionId, f.auth.id)).toBe(true);
+      expect(f.native.readHostCustody(sessionId, binding)).toEqual(custody);
+      cleanRetired = true;
+    } finally {
+      const command = f.native
+        .commands(sessionId, binding)
+        .find((c) => c.id === request.clientMsgId);
+      await writeFile(
+        evidencePath,
+        JSON.stringify(
+          {
+            startupFailure,
+            methods: f.rpc.request.mock.calls.map(([method]) => method),
+            status: command?.status,
+            nativeReceiptPhase:
+              command && f.native.readNativeExecution(sessionId, binding, command)?.phase,
+            registryPresent: !!chat.registry.findBySessionId(sessionId),
+            sessionState: chat.eventStore.getSession(sessionId)?.state,
+            cleanRetired,
+          },
+          null,
+          2,
+        ),
+      );
+    }
+    // Initial adoption, fresh cold admission and outgoing child physical checks
+    // retain independent production deadlines; allow the full joined test.
+  },
+  420000,
+);
 
 it.each(['native-custody', 'bootstrap-lease'] as const)(
   'rejects original %s owner method replacement during cold reopening before any physical read',

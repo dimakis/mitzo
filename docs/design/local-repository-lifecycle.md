@@ -7,17 +7,24 @@ user action.
 
 ## Outcome
 
-An ordinary Local Mac conversation finds an existing repository, creates one
+An ordinary Local Mac conversation finds an existing repository, clones a selected
+HTTPS/SSH remote, or initializes a new local repository, then creates one
 isolated task checkout from freshly resolved default-branch content unless the
 user selects another base, and continues working in the same conversation.
 Follow-ups, phone detachment, restart and retry preserve the task, its edits and
-message order. Finished and abandoned allocations have a safe, bounded lifecycle.
+message order. Finished and abandoned allocations have explicit preservation, retirement and
+restoration operations. Existing accumulated workspaces remain protected pending
+owner reconciliation.
 
 Vertex is a comparison implementation, not the design authority. Native API,
 native subscription and Vertex should share repository and lifecycle semantics;
-their execution permissions and provider protocols remain separate adapters.
+their execution permissions and provider protocols remain separate adapters. This
+change wires the generic source/base modes into native Local Mac preparation and
+replaces unsafe cleanup shared with Vertex. Existing SDK/configured-source entry
+points retain their current preparation adapters; this is not an all-provider
+preparation rewrite.
 
-## Evidence and gaps
+## Incident evidence before this change
 
 - Native discovery currently supplies only the current workspace as its search
   root and orientation hint (`codex-chat-session.ts`). Explicit source paths can
@@ -78,7 +85,7 @@ interface ResolvedRepositoryBase {
 ```
 
 For a new task, default means the verified remote default branch, freshly fetched
-and pinned to an OID. Mitzo uses main. Explicit branches, tags, OIDs and HEAD are
+and pinned to an OID. Mitzo uses main. Explicit branches, OIDs and HEAD are
 overrides; local unpublished commits remain selectable. Remote failure must not
 silently select stale main or HEAD. A repository without a remote needs explicit
 local-base semantics. Resume reuses its existing task without fetching into,
@@ -102,7 +109,7 @@ Separate finding a source, resolving a base, and ensuring the task allocation.
 These are meaningful seams for provider adapters and offline testing. Avoid
 generic workflow frameworks or interfaces with only one incidental use.
 
-Use independent task-owned Git stores as the proposed default for new allocations,
+Use independent task-owned Git stores as the default for new native allocations,
 reusing qualified materialization rather than introducing a shared bare store.
 These provide the isolated task checkout users need without writable Git
 administration shared across tasks. Existing linked worktrees remain valid and
@@ -189,7 +196,8 @@ This plan does not authorize mass deletion or enabling the old execute policy.
 ## Delivery sequence
 
 Each slice starts with failing behavioral tests and lands tests plus implementation
-together. Keep one integrated design and a bounded sequence of reviewable PRs.
+together. Deliver one integrated draft PR, with local commits and batched CI.
+The following are implementation slices, not separate PRs.
 
 1. **Incident fixtures and diagnostics.** Reproduce actual native discovery wiring,
    feature-HEAD/default-main mismatch, queued follow-ups, and interrupted adoption
@@ -197,7 +205,8 @@ together. Keep one integrated design and a bounded sequence of reviewable PRs.
    Add regression tests for destructive cleanup hazards before changing eligibility.
 2. **Shared source/base policy and idempotent preparation.** Implement explicit
    base intent, safe fresh acquisition and task-scoped allocation identity. Wire
-   native API/subscription and Vertex adapters to the same semantics.
+   native Local Mac adapters to the same semantics. Preserve existing provider
+   adapters and explicit delegated base selections.
 3. **Conversation transition and recovery.** Separate adoption from auto-command
    ownership, hold/re-admit FIFO messages, retain original intent, reconcile every
    cross-store crash point, and prove next-message sending after cold resume.
@@ -250,3 +259,67 @@ Centaur's exact-head approval and combined-result CI remain merge requirements.
 Implementation is complete only when both reported journeys, cross-provider
 contracts, recovery, and retirement pass together. Creating a checkout alone is
 not the acceptance criterion.
+
+## Implemented contract and retained limits
+
+- `PrepareLocalRepository` accepts the legacy `path` or `source` with kind
+  `existing`, `clone`, or `new`. Existing and cloned repositories default to the
+  freshly fetched remote default branch. Explicit local refs preserve unpublished
+  commits. Lightweight local tags resolve; annotated local tags are currently
+  unsupported and must be supplied as a commit OID. New repositories start from
+  a deterministic empty commit; creating a
+  hosted repository or publishing it is a separate user action.
+- Name lookup checks the configured catalog and bounded configured host locations,
+  under the original native filesystem read policy. No Mitzo/MGMT paths or names
+  are embedded in selection policy.
+- Remote reads use HTTPS/SSH through the authorized host adapter. Commands are
+  restricted to the selected endpoint and acquisition directory. Source Git
+  configuration is not executed. Fetches are shallow and limited to 128 MiB of
+  acquisition Git data (16 MiB per file/pack), 10,000 entries, a deadline, and
+  available-disk admission.
+  Cancellation joins the process group; uncertain shutdown preserves its records
+  and scratch instead of deleting underneath a possible writer.
+- Native allocations use independent Git administration, with no shared writable
+  object store or alternates. The old linked-worktree reader remains for existing
+  sessions. Retry identity is stable for a conversation/source/base; a deliberate
+  `newCheckout` requests a new generation.
+- Explicit messages retain their original receipts and FIFO ordering across
+  workspace adoption. Execution admission is appended separately after current
+  authorization. An interrupted automatic continuation does not make the workspace
+  unresumable or replay completed external effects.
+- Retirement/restoration routes require current account authorization and a
+  stopped owner. Archives preserve Git history, edits, untracked and ignored files,
+  and are verified before retiring an independent task checkout. The original
+  inode tree is then renamed into the same-filesystem archive, preserving late
+  external-editor writes instead of unlinking files. Restoration refuses a stale
+  snapshot when that retained original has changed. Restoration keeps
+  historical custody and appends a physical-identity revision.
+- Legacy automatic rescue publication and force-removal fallbacks are removed.
+  Startup performs bounded inventory, not age-based disposal. Legacy linked,
+  unknown, external and uncertain workspaces remain protected. No existing host
+  worktrees have been deleted by this task.
+- Preservation limits are per operation (2 GiB/100,000 entries, 32 restoration
+  revisions). There is no aggregate archive garbage collector in this change;
+  archives, retained original trees and diagnostic receipts are retained. This
+  removes active workspace entries but does not claim disk reclamation. Cross-device
+  retirement fails safely. Disk admission prevents treating
+  storage pressure as permission to erase retained work.
+- Validation uses offline Git repositories, fake provider transports, filesystem
+  fault injection and durable ledger tests. No staging restart, production change,
+  live credential probe or model-backed test is part of this work.
+
+## Offline verification and review
+
+Behavioral regressions were reproduced before their fixes. Focused verification
+covers configured and uncatalogued discovery, remote command/account boundaries,
+actual Git existing/clone/new materialization, local shallow history, native
+command FIFO and cold recovery, preservation/restoration and startup inventory.
+Public-entry tests verify actual next-turn dispatch on the retained native thread
+for interrupted adoption, partial custody projection and an untransferred
+reservation. Provider RPCs are fake; Git and durable ledgers are real fixtures.
+
+Two fresh Sol 6.1 reviewers examined the full production change. Their findings
+were addressed with regressions: an admission-tail deadlock, late external writes
+being removed after archive proof, inventory executing Git clean filters, omitted
+local shallow boundaries, and borrowed workspace references during retirement.
+The final integration gate is CI; source review is not production activation.

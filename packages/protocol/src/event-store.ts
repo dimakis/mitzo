@@ -1,3 +1,4 @@
+import { isAbsolute, resolve, sep } from 'node:path';
 import {
   openTelosOwnedDatabase,
   beginTelosDeletionReferenceScope,
@@ -332,6 +333,13 @@ const SCHEMA = `
     payload TEXT NOT NULL,
     error TEXT,
     created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
+  );
+
+  CREATE TABLE IF NOT EXISTS ordinary_execution_admissions (
+    revision INTEGER PRIMARY KEY AUTOINCREMENT,
+    command_id TEXT NOT NULL, transition_id TEXT NOT NULL,
+    original_admission TEXT NOT NULL, execution_admission TEXT NOT NULL,
+    UNIQUE(command_id,transition_id)
   );
 
   CREATE TABLE IF NOT EXISTS client_command_claims (
@@ -959,7 +967,7 @@ export class EventStore {
       .digest('hex')}`;
     return this.db!.transaction(() => {
       const session = this.getSession(sessionId);
-      const source = this.getOrdinaryLocalCommandAdmission(transition.source.commandId);
+      const source = this.getOrdinaryLocalCommandExecutionAdmission(transition.source.commandId);
       const send = this.getSendCommand(transition.source.commandId);
       const old = transition.oldWorkspace;
       if (
@@ -1042,10 +1050,16 @@ export class EventStore {
         const previous = this.readPreparedRepositoryTransition(childCommandId);
         if (
           existing.sessionId !== sessionId ||
-          !isDeepStrictEqual(previous, admission) ||
+          !isDeepStrictEqual({ ...previous, state: 'uncertain' }, admission) ||
           !isDeepStrictEqual(existing.payload, payload)
         )
           throw Error('Prepared repository continuation identity changed');
+        if (previous.state === 'reserved') {
+          this.db!.prepare(
+            'UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?',
+          ).run(JSON.stringify(admission), childCommandId);
+          return { fresh: true, childCommandId, admission, payload };
+        }
         return { fresh: false, childCommandId, admission: previous, payload };
       }
       if (this.hasUncertainOrdinaryCommand(sessionId))
@@ -1088,7 +1102,7 @@ export class EventStore {
     childCommandId: string,
     bootstrapCommandId: string,
   ): OrdinaryLocalCommandAdmission {
-    const read = (commandId: string) => {
+    const read = (commandId: string, workspaceId?: string) => {
       const row = this.db!.prepare(
         'SELECT rowid,session_id,error,ordinary_admission FROM send_commands WHERE client_msg_id=?',
       ).get(commandId) as
@@ -1101,10 +1115,24 @@ export class EventStore {
         | undefined;
       if (!row || row.error || !row.ordinary_admission)
         throw Error('Original prepared repository bootstrap observation unavailable');
-      return {
-        ...row,
-        admission: OrdinaryLocalCommandAdmissionSchema.parse(JSON.parse(row.ordinary_admission)),
-      };
+      let admission = OrdinaryLocalCommandAdmissionSchema.parse(JSON.parse(row.ordinary_admission));
+      if (workspaceId && admission.workspace.workspaceId !== workspaceId) {
+        const revisions = this.db!.prepare(
+          'SELECT original_admission,execution_admission FROM ordinary_execution_admissions WHERE command_id=? ORDER BY revision DESC',
+        ).all(commandId) as Array<{ original_admission: string; execution_admission: string }>;
+        for (const revision of revisions) {
+          if (!isDeepStrictEqual(JSON.parse(revision.original_admission), admission))
+            throw Error('Original prepared repository source execution changed');
+          const candidate = OrdinaryLocalCommandAdmissionSchema.parse(
+            JSON.parse(revision.execution_admission),
+          );
+          if (candidate.workspace.workspaceId === workspaceId) {
+            admission = candidate;
+            break;
+          }
+        }
+      }
+      return { ...row, admission };
     };
     const original = read(bootstrapCommandId);
     let currentId = childCommandId;
@@ -1129,7 +1157,7 @@ export class EventStore {
         !isDeepStrictEqual(original.admission.selection.permission, child.selection.permission)
       )
         throw Error('Original prepared repository bootstrap observation unavailable');
-      const source = read(transition.source.commandId);
+      const source = read(transition.source.commandId, transition.oldWorkspace.id);
       if (
         source.session_id !== original.session_id ||
         source.rowid >= current.rowid ||
@@ -1172,6 +1200,80 @@ export class EventStore {
       current = parent;
     }
     throw Error('Original prepared repository bootstrap lineage exceeds bound');
+  }
+  /** Historical bridge for a fresh resume before the first custody transfer.
+   * Verify the canonical source chain first, then prove the resume was admitted
+   * between the same old owner and its outgoing transition. No current grant. */
+  observePreparedRepositoryResumedBootstrapAdmission(
+    childCommandId: string,
+    bootstrapCommandId: string,
+  ): OrdinaryLocalCommandAdmission {
+    const read = (id: string) => {
+      const row = this.db!.prepare(
+        'SELECT rowid,session_id,error,ordinary_admission FROM send_commands WHERE client_msg_id=?',
+      ).get(id) as
+        | {
+            rowid: number;
+            session_id: string;
+            error: string | null;
+            ordinary_admission: string | null;
+          }
+        | undefined;
+      if (!row || row.error || !row.ordinary_admission)
+        throw Error('Resumed prepared repository bootstrap unavailable');
+      return {
+        ...row,
+        admission: OrdinaryLocalCommandAdmissionSchema.parse(JSON.parse(row.ordinary_admission)),
+      };
+    };
+    const bootstrap = read(bootstrapCommandId);
+    const top = read(childCommandId);
+    let currentId = childCommandId;
+    let rootCommand: string | undefined;
+    let matched = false;
+    for (let depth = 0; depth < 100; depth++) {
+      const transition =
+        this.readPreparedRepositoryTransition(currentId).preparedRepositoryTransition!;
+      const lower = read(transition.priorPrimaryCommandId ?? transition.source.commandId);
+      if (
+        currentId !== bootstrapCommandId &&
+        lower.rowid < bootstrap.rowid &&
+        bootstrap.admission.workspace.workspaceId === transition.oldWorkspace.id &&
+        bootstrap.admission.workspace.cwd === transition.oldWorkspace.directory &&
+        bootstrap.admission.preparedRepositoryPrimaryCommandId === transition.priorPrimaryCommandId
+      )
+        matched = true;
+      if (!transition.priorPrimaryCommandId) {
+        rootCommand = transition.source.commandId;
+        break;
+      }
+      currentId = transition.priorPrimaryCommandId;
+    }
+    if (!rootCommand) throw Error('Resumed prepared repository lineage unavailable');
+    const root = this.observePreparedRepositoryBootstrapAdmission(childCommandId, rootCommand);
+    if (rootCommand === bootstrapCommandId) return root;
+    if (
+      !matched ||
+      bootstrap.admission.state !== 'consumed' ||
+      bootstrap.admission.preparedRepositoryTransition ||
+      bootstrap.session_id !== top.session_id ||
+      !isDeepStrictEqual(bootstrap.admission.binding, top.admission.binding) ||
+      !isDeepStrictEqual(bootstrap.admission.selection.agent, top.admission.selection.agent) ||
+      !isDeepStrictEqual(bootstrap.admission.selection.context, top.admission.selection.context) ||
+      !isDeepStrictEqual(
+        bootstrap.admission.selection.permission,
+        top.admission.selection.permission,
+      )
+    )
+      throw Error('Resumed prepared repository bootstrap boundary changed');
+    const freeze = <T>(value: T): T => {
+      if (value && typeof value === 'object') {
+        for (const child of Object.values(value)) freeze(child);
+        Object.freeze(value);
+      }
+      return value;
+    };
+    return freeze(bootstrap.admission);
   }
   /** Private historical observation for a fresh cold bootstrap enrolled under
    * an independently verified consumed primary. No current custody or grant is
@@ -1260,6 +1362,143 @@ export class EventStore {
       );
     }).immediate();
   }
+  /** Append execution binding for held explicit input; the original send and
+   * its admission remain immutable evidence. Current native/admission owners
+   * independently verify queue membership, policy and claim authority. */
+  rebindPreparedRepositoryQueuedCommands(
+    sessionId: string,
+    transitionId: string,
+    rawTransition: PreparedRepositoryTransition,
+    commandIds: readonly string[],
+  ): void {
+    const transition = PreparedRepositoryTransitionSchema.parse(rawTransition);
+    this.db!.transaction(() => {
+      const primary = this.readPreparedRepositoryTransition(transitionId);
+      const session = this.getSession(sessionId);
+      if (
+        !isDeepStrictEqual(primary.preparedRepositoryTransition, transition) ||
+        !['uncertain', 'consumed'].includes(primary.state) ||
+        this.getSendCommand(transitionId)?.sessionId !== sessionId ||
+        session?.cwd !== transition.newWorkspace.directory ||
+        session.repositoryWorkspaceId !== transition.newWorkspace.id
+      )
+        throw Error('Prepared repository execution revision unavailable');
+      for (const commandId of [...new Set(commandIds)]) {
+        const historical = this.getPreparedRepositoryCommandAdmissionEvidence(
+          commandId,
+          transitionId,
+        );
+        const latest = this.db!.prepare(
+          'SELECT execution_admission FROM ordinary_execution_admissions WHERE command_id=? ORDER BY revision DESC LIMIT 1',
+        ).get(commandId) as { execution_admission: string } | undefined;
+        const existing = latest
+          ? OrdinaryLocalCommandAdmissionSchema.parse(JSON.parse(latest.execution_admission))
+          : historical;
+        const send = this.getSendCommand(commandId);
+        if (
+          !historical ||
+          !existing ||
+          existing.state !== 'consumed' ||
+          !send ||
+          send.error ||
+          send.sessionId !== sessionId ||
+          commandId === transitionId ||
+          !isDeepStrictEqual(existing.binding, primary.binding) ||
+          !isDeepStrictEqual(existing.selection.agent, primary.selection.agent) ||
+          !isDeepStrictEqual(existing.selection.context, primary.selection.context) ||
+          !isDeepStrictEqual(existing.selection.permission, primary.selection.permission)
+        )
+          throw Error('Prepared repository queued admission unavailable');
+        const oldWorkspace = {
+          workspaceId: transition.oldWorkspace.id,
+          cwd: transition.oldWorkspace.directory,
+        };
+        const newWorkspace = {
+          workspaceId: transition.newWorkspace.id,
+          cwd: transition.newWorkspace.directory,
+        };
+        if (isDeepStrictEqual(existing.workspace, newWorkspace)) {
+          if (existing.preparedRepositoryPrimaryCommandId !== transitionId)
+            throw Error('Prepared repository execution revision changed');
+          continue;
+        }
+        if (!isDeepStrictEqual(existing.workspace, oldWorkspace))
+          throw Error('Prepared repository queued workspace changed');
+        const execution = OrdinaryLocalCommandAdmissionSchema.parse({
+          ...existing,
+          workspace: newWorkspace,
+          preparedRepositoryPrimaryCommandId: transitionId,
+          requestFingerprint: `prepared-execution:${createHash('sha256')
+            .update(JSON.stringify([historical.requestFingerprint, transitionId, newWorkspace]))
+            .digest('hex')}`,
+        });
+        this.db!.prepare(
+          'INSERT INTO ordinary_execution_admissions(command_id,transition_id,original_admission,execution_admission) VALUES (?,?,?,?)',
+        ).run(commandId, transitionId, JSON.stringify(historical), JSON.stringify(execution));
+      }
+    }).immediate();
+  }
+  getPreparedRepositoryCommandAdmissionEvidence(
+    commandId: string,
+    transitionId: string,
+  ): OrdinaryLocalCommandAdmission {
+    const primary = this.readPreparedRepositoryTransition(transitionId);
+    const transition = primary.preparedRepositoryTransition!;
+    const send = this.getSendCommand(commandId);
+    const anchor = this.getSendCommand(transitionId);
+    const row = this.db!.prepare(
+      'SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?',
+    ).get(commandId) as { ordinary_admission: string | null } | undefined;
+    const original = OrdinaryLocalCommandAdmissionSchema.parse(
+      row?.ordinary_admission ? JSON.parse(row.ordinary_admission) : undefined,
+    );
+    if (
+      !send ||
+      send.error ||
+      send.sessionId !== anchor?.sessionId ||
+      original.state !== 'consumed' ||
+      !isDeepStrictEqual(original.binding, primary.binding) ||
+      !isDeepStrictEqual(original.selection.agent, primary.selection.agent) ||
+      !isDeepStrictEqual(original.selection.context, primary.selection.context) ||
+      !isDeepStrictEqual(original.selection.permission, primary.selection.permission)
+    )
+      throw Error('Original prepared repository command evidence unavailable');
+    // The caller's exact transition, rather than mutable session cwd, selects
+    // historical evidence. This is observation only, never execution admission.
+    if (commandId === transitionId || !transition.oldWorkspace.id)
+      throw Error('Prepared repository command evidence identity changed');
+    return original;
+  }
+  getOrdinaryLocalCommandExecutionAdmission(
+    commandId: string,
+  ): OrdinaryLocalCommandAdmission | undefined {
+    const row = this.db!.prepare(
+      'SELECT original_admission,execution_admission FROM ordinary_execution_admissions WHERE command_id=? ORDER BY revision DESC LIMIT 1',
+    ).get(commandId) as { original_admission: string; execution_admission: string } | undefined;
+    if (!row) return this.getOrdinaryLocalCommandAdmission(commandId);
+    const projected = OrdinaryLocalCommandAdmissionSchema.parse(
+      JSON.parse(row.execution_admission),
+    );
+    const original = this.getPreparedRepositoryCommandAdmissionEvidence(
+      commandId,
+      projected.preparedRepositoryPrimaryCommandId!,
+    );
+    if (!isDeepStrictEqual(JSON.parse(row.original_admission), original))
+      throw Error('Original explicit command admission changed');
+    const execution = OrdinaryLocalCommandAdmissionSchema.parse(
+      JSON.parse(row.execution_admission),
+    );
+    const session = this.getSession(this.getSendCommand(commandId)!.sessionId!);
+    if (
+      !session ||
+      sessionWorkspaceId(session) !== execution.workspace.workspaceId ||
+      session.cwd !== execution.workspace.cwd ||
+      !isDeepStrictEqual(execution.binding, original.binding) ||
+      !isDeepStrictEqual(execution.selection, original.selection)
+    )
+      throw Error('Explicit command execution selection changed');
+    return execution;
+  }
   /** Subsequent explicit commands use only a committed operation-specific
    * primary. The generic first-origin workspace equality remains unchanged. */
   admitPreparedRepositoryPrimaryContinuation(
@@ -1290,7 +1529,7 @@ export class EventStore {
     this.db!.transaction(() => {
       const admission = this.readPreparedRepositoryTransition(childCommandId);
       const send = this.getSendCommand(childCommandId);
-      const source = this.getOrdinaryLocalCommandAdmission(transition.source.commandId);
+      const source = this.getOrdinaryLocalCommandExecutionAdmission(transition.source.commandId);
       if (
         !send ||
         send.sessionId !== sessionId ||
@@ -1321,6 +1560,91 @@ export class EventStore {
     }).immediate();
   }
 
+  /** A verified still-unclaimed materialized candidate proves no custody CAS
+   * occurred. Keep the same operation identity for fresh requalification. */
+  suspendUntransferredPreparedRepositoryContinuation(
+    sessionId: string,
+    target: PreparedRepositoryTransition['source'],
+    oldWorkspace: PreparedRepositoryTransition['oldWorkspace'],
+    preparationId: string,
+  ): void {
+    this.db!.transaction(() => {
+      const rows = this.db!.prepare(
+        `SELECT client_msg_id FROM send_commands WHERE session_id=?
+        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.commandId')=?
+        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.attempt')=?
+        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.threadId')=?
+        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.turnId')=?
+        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.generation')=? LIMIT 2`,
+      ).all(
+        sessionId,
+        target.commandId,
+        target.attempt,
+        target.threadId,
+        target.turnId,
+        target.generation,
+      ) as Array<{ client_msg_id: string }>;
+      if (rows.length > 1) throw Error('Prepared repository reservation lineage ambiguous');
+      if (!rows.length) return;
+      const id = rows[0].client_msg_id;
+      const receipt = this.readPreparedRepositoryTransition(id);
+      const transition = receipt.preparedRepositoryTransition!;
+      const session = this.getSession(sessionId);
+      if (
+        !['uncertain', 'reserved'].includes(receipt.state) ||
+        transition.preparationId !== preparationId ||
+        !isDeepStrictEqual(transition.source, target) ||
+        !isDeepStrictEqual(transition.oldWorkspace, oldWorkspace) ||
+        session?.cwd !== oldWorkspace.directory ||
+        sessionWorkspaceId(session) !== oldWorkspace.id
+      )
+        throw Error('Untransferred repository reservation changed');
+      this.db!.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
+        JSON.stringify({ ...receipt, state: 'reserved' }),
+        id,
+      );
+    }).immediate();
+  }
+  /** Idempotent projection after the repository owner independently proves
+   * its exact adoption marker. This never repeats custody or grants dispatch. */
+  reconcilePreparedRepositoryContinuation(
+    sessionId: string,
+    transitionId: string,
+    raw: PreparedRepositoryTransition,
+  ): void {
+    const transition = PreparedRepositoryTransitionSchema.parse(raw);
+    this.db!.transaction(() => {
+      const anchor = this.readPreparedRepositoryTransition(transitionId);
+      const session = this.getSession(sessionId);
+      if (
+        !session ||
+        this.getSendCommand(transitionId)?.sessionId !== sessionId ||
+        !['uncertain', 'consumed'].includes(anchor.state) ||
+        !isDeepStrictEqual(anchor.preparedRepositoryTransition, transition) ||
+        !isDeepStrictEqual(this.getSessionRuntimeBinding(sessionId), anchor.binding)
+      )
+        throw Error('Prepared repository projection receipt changed');
+      const next = transition.newWorkspace;
+      if (
+        session.cwd === next.directory &&
+        session.repositoryWorkspaceId === next.id &&
+        session.ordinaryWorkspaceId == null
+      )
+        return;
+      const old = transition.oldWorkspace;
+      if (
+        session.cwd !== old.directory ||
+        (old.kind === 'ordinary'
+          ? session.ordinaryWorkspaceId !== old.id || session.repositoryWorkspaceId != null
+          : session.repositoryWorkspaceId !== old.id || session.ordinaryWorkspaceId != null)
+      )
+        throw Error('Prepared repository projection owner changed');
+      const changed = this.db!.prepare(
+        'UPDATE sessions SET cwd=?,repository_workspace_id=?,ordinary_workspace_id=NULL WHERE session_id=? AND cwd=?',
+      ).run(next.directory, next.id, sessionId, old.directory);
+      if (changed.changes !== 1) throw Error('Prepared repository projection changed');
+    }).immediate();
+  }
   /** Historical observation through an exact committed operation. Old receipts
    * remain immutable; generic admission/current-owner checks remain strict. */
   getPreparedRepositorySourceAdmission(childCommandId: string): OrdinaryLocalCommandAdmission {
@@ -1331,9 +1655,30 @@ export class EventStore {
     const row = this.db!.prepare(
       'SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?',
     ).get(transition.source.commandId) as { ordinary_admission: string | null } | undefined;
-    const source = OrdinaryLocalCommandAdmissionSchema.parse(
+    const original = OrdinaryLocalCommandAdmissionSchema.parse(
       row?.ordinary_admission ? JSON.parse(row.ordinary_admission) : undefined,
     );
+    const revisions = this.db!.prepare(
+      'SELECT original_admission,execution_admission FROM ordinary_execution_admissions WHERE command_id=? ORDER BY revision DESC',
+    ).all(transition.source.commandId) as Array<{
+      original_admission: string;
+      execution_admission: string;
+    }>;
+    let source = original;
+    for (const revision of revisions) {
+      if (!isDeepStrictEqual(JSON.parse(revision.original_admission), original))
+        throw Error('Original prepared repository execution admission changed');
+      const candidate = OrdinaryLocalCommandAdmissionSchema.parse(
+        JSON.parse(revision.execution_admission),
+      );
+      if (
+        candidate.workspace.workspaceId === transition.oldWorkspace.id &&
+        candidate.workspace.cwd === transition.oldWorkspace.directory
+      ) {
+        source = candidate;
+        break;
+      }
+    }
     if (
       source.state !== 'consumed' ||
       !isDeepStrictEqual(source.binding, child.binding) ||
@@ -1540,7 +1885,7 @@ export class EventStore {
         const old = pending.preparedRepositoryTransition!.oldWorkspace;
         const session = this.getSession(sessionId);
         if (
-          pending.state === 'uncertain' &&
+          ['uncertain', 'reserved'].includes(pending.state) &&
           session?.cwd === old.directory &&
           (old.kind === 'ordinary'
             ? session.ordinaryWorkspaceId === old.id && session.repositoryWorkspaceId == null
@@ -2982,6 +3327,34 @@ export class EventStore {
     const row = this.stmts.latestWorktreePath.get(sessionId, repoName) as
       { path: unknown } | undefined;
     return typeof row?.path === 'string' ? row.path : null;
+  }
+
+  /** Denial-only retirement fence over every durable peer, including hidden,
+   * imported and borrowed-workspace conversations. Do not page through the UI's
+   * session list: an older reference is still an owner until reconciled. */
+  assertNoOtherWorkspaceReferences(sessionId: string, directory: string): void {
+    if (
+      !this.db?.open ||
+      !sessionId ||
+      !isAbsolute(directory) ||
+      resolve(directory) !== directory ||
+      directory === sep
+    )
+      throw Error('Workspace reference custody unavailable');
+    const prefix = directory + sep;
+    const peer = this.db
+      .prepare(
+        `SELECT 1 FROM sessions WHERE session_id != ?
+      AND (cwd = ? OR substr(cwd, 1, length(?)) = ?) LIMIT 1`,
+      )
+      .get(sessionId, directory, prefix, prefix);
+    const retained = this.db
+      .prepare(
+        `SELECT 1 FROM events WHERE session_id != ? AND type = 'worktree_opened'
+      AND (json_extract(payload, '$.path') = ? OR substr(json_extract(payload, '$.path'), 1, length(?)) = ?) LIMIT 1`,
+      )
+      .get(sessionId, directory, prefix, prefix);
+    if (peer || retained) throw Error('Another conversation retains a reference to this workspace');
   }
 
   /** Read one durable observation without loading the entire transcript. */

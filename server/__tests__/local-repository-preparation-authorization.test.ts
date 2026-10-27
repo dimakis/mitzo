@@ -8,8 +8,6 @@ import { join } from 'node:path';
 import { EventStore } from '../event-store.js';
 import { setAuthRevocationStore } from '../auth.js';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
-import * as gitInspection from '../local-repository-git-inspection.js';
-import type { NativeHostToolContext } from '../native-host-tool-context.js';
 import { localPreparationNativeFixture } from './fixtures/local-preparation-native.js';
 import { captureLocalRepositoryPreparationAuthorization } from '../local-repository-preparation-authorization.js';
 import { fixtureQualifiedLocalPreparationSource } from './fixtures/qualified-local-preparation-source.js';
@@ -102,6 +100,8 @@ it('retains actual permission evidence before outward allow and finalizes only t
             workspaceId: expect.any(String),
             sourcePath: source,
             taskRoot: f.f.reservation.taskRoot,
+            base: { kind: 'default' },
+            source: { kind: 'existing', path: source },
           });
           return fixtureQualifiedLocalPreparationSource(intent, {
             assertCurrentSync() {
@@ -188,6 +188,8 @@ it('retains actual permission evidence before outward allow and finalizes only t
     workspaceId: expect.any(String),
     sourcePath: join(f.f.root, 'source'),
     taskRoot: f.f.reservation.taskRoot,
+    base: { kind: 'default' },
+    source: { kind: 'existing', path: join(f.f.root, 'source') },
   });
   expect(qualifiedIntent!.workspaceId).toBe(held!.request.id);
   expect(originalWorkspaceInScope).toBeDefined();
@@ -208,13 +210,11 @@ async function preparationCase(
   noLiveCalls();
   let current = true;
   let selectedId: string | undefined;
-  let originalContext: NativeHostToolContext | undefined;
   const ambientAccess = vi.fn(async () => {
     throw Error('Fixture intentionally denies ambient source access');
   });
   let qualifiedLabels: { referenceCoverage?: 'preparation-head-and-namespace-v1' } | undefined;
   const f = await localPreparationNativeFixture(cleanups, async (context, input) => {
-    originalContext = context;
     const prepared = await captureLocalRepositoryPreparationAuthorization(
       {
         context,
@@ -239,11 +239,6 @@ async function preparationCase(
     return execute(prepared);
   });
   const service = new RepositoryWorkspaces(join(f.f.root, 'repositories'), {
-    assertPendingHostTaskCurrentSync() {
-      if (!originalContext) throw Error('No original fixture callback');
-      originalContext.assertCurrentSync();
-    },
-    assertPendingHostTaskAccess: ambientAccess,
     assertLocalRepositoryAccess: ambientAccess,
     authorize: async () => {
       throw Error('Remote fixture access prohibited');
@@ -507,48 +502,6 @@ it('expires a consumed operation at the actual approval deadline while the origi
     claimAllowed: false,
   });
 }, 20000);
-
-it('refuses legacy revalidation of a consumed qualified intent before ambient source inspection', async () => {
-  const inspect = vi.spyOn(gitInspection, 'inspectLocalRepositoryGitMetadata');
-  let checked = false;
-  let failure: unknown;
-  const f = await preparationCase(async (prepared) => {
-    await prepared.approve();
-    const operation = f.service.beginPendingHostTaskDecisionMaterialization(
-      prepared.request,
-      prepared.owner,
-    );
-    operation.assertCurrentSync();
-    const before = f.saved();
-    expect(before.pendingHostTask.state).toBe('materializing');
-    expect(f.service.getPendingHostTask(prepared.request).state).toBe('uncertain');
-    inspect.mockClear();
-    f.ambientAccess.mockClear();
-    try {
-      await f.service.revalidatePendingHostTask(prepared.request, prepared.owner.context.signal);
-    } catch (error) {
-      failure = error;
-    }
-    checked = true;
-    expect(failure).toMatchObject({ code: 'pending_host_task_access_required' });
-    expect(inspect).not.toHaveBeenCalled();
-    expect(f.ambientAccess).not.toHaveBeenCalled();
-    expect(f.saved()).toEqual(before);
-    for (const path of [
-      prepared.scope.create.task.directory,
-      ...Object.values(prepared.scope.sourceGitEffects),
-    ])
-      expect(existsSync(path)).toBe(false);
-    checked = true;
-    return { refused: true };
-  });
-  const result = await f.call();
-  expect(checked).toBe(true);
-  expect(failure).toMatchObject({ code: 'pending_host_task_access_required' });
-  expect(inspect).not.toHaveBeenCalled();
-  expect(f.ambientAccess).not.toHaveBeenCalled();
-  expect(result.response.success).toBe(true);
-});
 
 it.each(['missing', 'different'] as const)(
   'refuses %s allocation-facts digest before retaining original permission observation',

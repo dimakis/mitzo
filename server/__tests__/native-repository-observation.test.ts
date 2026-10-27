@@ -358,3 +358,60 @@ it('preserves typed source absence without exposing denied paths or storage fail
     ),
   ).rejects.not.toBeInstanceOf(RepositoryObservationMissingError);
 });
+
+it('captures shallow boundary bytes in the fixed allocation observation', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-observation-shallow-')));
+  roots.push(root);
+  const source = join(root, 'source'),
+    tasks = join(root, 'tasks');
+  await mkdir(source);
+  await mkdir(tasks);
+  execFileSync('/usr/bin/git', ['init', '--template=', '-q', '-b', 'main', source]);
+  const shallow = 'a'.repeat(40) + '\n';
+  await writeFile(join(source, '.git', 'shallow'), shallow);
+  const transport: NativeFileHelperTransport = async (invocation) => {
+    const { stdout } = await promisify(execFile)('/bin/sh', ['-c', invocation.command], {
+      cwd: root,
+      env: { PATH: '/usr/bin:/bin' },
+      signal: invocation.signal,
+      timeout: invocation.timeoutMs,
+      maxBuffer: invocation.maxOutputBytes,
+    });
+    return { stdout, isError: false };
+  };
+  const held = await captureRepositoryObservation(
+    {
+      version: 'repository-read-v1',
+      mode: 'allocation',
+      sourcePath: source,
+      taskRoot: tasks,
+      workspaceId: '12345678-1234-4234-8234-123456789abc',
+      readableRoots: [root],
+      deniedRoots: [],
+      excludedNames: [],
+    },
+    new AbortController().signal,
+    10000,
+    transport,
+  );
+  expect(
+    held.data.files.find((file) => file.path === join(source, '.git', 'shallow')),
+  ).toBeDefined();
+  await verifyRepositoryObservation(
+    held.plan,
+    held.digest,
+    new AbortController().signal,
+    10000,
+    transport,
+  );
+  await writeFile(join(source, '.git', 'shallow'), 'b'.repeat(40) + '\n');
+  await expect(
+    verifyRepositoryObservation(
+      held.plan,
+      held.digest,
+      new AbortController().signal,
+      10000,
+      transport,
+    ),
+  ).rejects.toThrow();
+});

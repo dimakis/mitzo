@@ -13,6 +13,12 @@ import {
 } from './local-repository-read-access.js';
 import type { NativeReadIdentity } from './native-file-operation.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
+import { validateLocalRepositoryShallow } from './local-repository-base.js';
+import type {
+  RepositoryBaseIntent,
+  ResolvedRepositoryBase,
+  RepositorySourceIntent,
+} from './local-repository-base.js';
 
 interface DirectoryStep {
   readonly directory: string;
@@ -47,7 +53,16 @@ const validPath = (path: unknown): path is string =>
  * authority and do not expose Prepare or replace the existing workspace ledger. */
 export async function captureLocalRepositoryAllocationFacts(
   authority: LocalRepositoryReadAuthority,
-  input: { workspaceId: string; sourcePath: string; taskRoot: string },
+  input: {
+    workspaceId: string;
+    sourcePath: string;
+    taskRoot: string;
+    layout?: 'standalone';
+    base?: RepositoryBaseIntent;
+    resolvedBase?: ResolvedRepositoryBase;
+    source?: RepositorySourceIntent;
+    remote?: string;
+  },
 ) {
   authority.signal?.throwIfAborted();
   try {
@@ -108,10 +123,14 @@ export async function captureLocalRepositoryAllocationFacts(
     const featureBranch = `mitzo/repo-${workspaceId}`;
     const reference = `refs/heads/${featureBranch}`;
     const { branch, head, conflict, referenceCoverage } =
-      await readLocalRepositoryPreparationReferences(metadata, options, reference);
+      await readLocalRepositoryPreparationReferences(
+        metadata,
+        options,
+        input.layout === 'standalone' ? undefined : reference,
+      );
     if (!head) throw unavailable();
     await access.assertPath(join(metadata.commonDirectory, reference));
-    if (conflict) throw unavailable();
+    if (conflict && input.layout !== 'standalone') throw unavailable();
     const directories: DirectoryStep[] = [];
     const known = new Map<string, NativeReadIdentity>([
       [taskRoot, taskAnchor.identity],
@@ -147,25 +166,30 @@ export async function captureLocalRepositoryAllocationFacts(
     };
     await directory(destination, taskAnchor, true);
     const common = metadata.commonDirectory;
-    for (const parts of [
-      ['worktrees'],
-      ['refs'],
-      ['refs', 'heads'],
-      ['refs', 'heads', 'mitzo'],
-      ['logs'],
-      ['logs', 'refs'],
-      ['logs', 'refs', 'heads'],
-      ['logs', 'refs', 'heads', 'mitzo'],
-    ])
+    for (const parts of input.layout === 'standalone'
+      ? []
+      : [
+          ['worktrees'],
+          ['refs'],
+          ['refs', 'heads'],
+          ['refs', 'heads', 'mitzo'],
+          ['logs'],
+          ['logs', 'refs'],
+          ['logs', 'refs', 'heads'],
+          ['logs', 'refs', 'heads', 'mitzo'],
+        ])
       await directory(join(common, ...parts), commonAnchor);
-    const absentPaths = [
-      destination,
-      join(common, 'worktrees', `repo-${workspaceId}`),
-      join(common, reference),
-      join(common, reference + '.lock'),
-      join(common, 'logs', reference),
-      join(common, 'logs', reference + '.lock'),
-    ];
+    const absentPaths =
+      input.layout === 'standalone'
+        ? [destination]
+        : [
+            destination,
+            join(common, 'worktrees', `repo-${workspaceId}`),
+            join(common, reference),
+            join(common, reference + '.lock'),
+            join(common, 'logs', reference),
+            join(common, 'logs', reference + '.lock'),
+          ];
     for (const path of absentPaths) {
       await access.assertPath(path);
       physicalAbsences.add(path);
@@ -191,18 +215,43 @@ export async function captureLocalRepositoryAllocationFacts(
     };
     const probes = await Promise.allSettled([probe(), probe()]);
     for (const result of probes) if (result.status === 'rejected') throw result.reason;
+    let shallow: string | undefined;
+    if (input.layout === 'standalone') {
+      if (input.resolvedBase?.origin === 'remote') shallow = input.resolvedBase.oid + '\n';
+      else {
+        const path = join(metadata.commonDirectory, 'shallow');
+        const entry = await access.stat(path);
+        if (entry) {
+          if (entry.kind !== 'file' || entry.nlink !== 1 || entry.size > 65536) throw unavailable();
+          const bytes = await access.read(path, 65536);
+          if (bytes.length)
+            shallow = validateLocalRepositoryShallow(bytes.toString('utf8'), metadata.objectFormat);
+        }
+      }
+    }
     const facts = freezePendingHostTaskData({
       version: 1 as const,
       workspaceId,
-      baseOid: head,
-      baseBranch: branch ?? head,
+      baseOid: input.resolvedBase?.oid ?? head,
+      baseBranch:
+        input.resolvedBase?.branch ??
+        (input.resolvedBase ? input.resolvedBase.oid : (branch ?? head)),
+      ...(input.layout ? { layout: input.layout } : {}),
+      ...(input.source ? { sourceIntent: input.source } : {}),
+      ...(input.remote ? { remote: input.remote } : {}),
+      ...(shallow ? { shallow } : {}),
+      ...(input.base
+        ? { baseIntent: input.base, sourceBaseOid: head, sourceBaseBranch: branch ?? head }
+        : {}),
       featureBranch,
       source: { ...metadata, referenceCoverage, sourceAnchor, commonAnchor },
       taskRoot: taskAnchor,
       directories,
       // Every original existing publication parent must survive approval and
       // fresh capture by identity, including parents that need no mkdir step.
-      existingDirectories: [...known].map(([directory, identity]) => ({ directory, identity })),
+      existingDirectories: [...known]
+        .filter(([directory]) => input.layout !== 'standalone' || directory === taskRoot)
+        .map(([directory, identity]) => ({ directory, identity })),
       absentPaths,
     });
     // Fixed path/step/count bounds cap serialization at <256KiB even before

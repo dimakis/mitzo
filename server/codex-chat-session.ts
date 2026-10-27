@@ -112,9 +112,10 @@ import {
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import type { RepositoryChatWorkspace } from './repository-chat-startup.js';
 import {
-  configuredLocalRepositories,
+  configuredLocalRepositoryDiscovery,
   getRepositoryWorkspaces,
 } from './repository-workspace-runtime.js';
+import { authorizeNativeLocalRepositoryRemote } from './native-local-repository-remote.js';
 import { toolInputError } from './tool-input-error.js';
 import {
   sessionCredentialTools,
@@ -3092,6 +3093,8 @@ async function openCodexChatBound(
             events: options.eventStore,
             registry: options.registry,
             workspaces: getRepositoryWorkspaces(true),
+            authorizeRemote: (context, request) =>
+              authorizeNativeLocalRepositoryRemote(context, request, options.registry),
           }),
           input,
           signal,
@@ -3124,10 +3127,9 @@ async function openCodexChatBound(
                   ]),
                   deniedRoots: scope.deniedRoots,
                 },
-                // Current workspace is a bounded scan/orientation hint only.
+                // Configured host locations are bounded search hints only.
                 // An explicit source override remains under the actual base policy.
-                discoveryRoots: [context.workspace.directory],
-                repositoryCatalog: configuredLocalRepositories(),
+                ...configuredLocalRepositoryDiscovery(context.workspace.directory),
                 orientationHints: [context.workspace.directory],
                 assertCurrentSync: () => {
                   if (

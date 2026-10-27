@@ -328,3 +328,23 @@ it.skipIf(process.platform !== 'darwin')(
     await expect(validate()).rejects.toThrow();
   },
 );
+
+it('keeps an independent task usable after source disposal and refuses shallow metadata redirection', async () => {
+  const f = await fixture();
+  const task = join(f.root, 'independent');
+  git(f.root, 'clone', '--no-hardlinks', '-q', f.source, task);
+  git(task, 'checkout', '-qb', 'mitzo/independent');
+  const identity = {
+    ...(await snapshotRepositoryTaskCheckout(task, 'mitzo/independent')),
+    localSource: f.identity.localSource,
+  };
+  await rm(f.task, { recursive: true });
+  await rm(f.source, { recursive: true });
+  await assertPreparedRepositoryTaskTopology(f.access(), identity, f.sourceGitDirectory);
+  const outside = join(f.root, 'outside-shallow');
+  await writeFile(outside, git(task, 'rev-parse', 'HEAD') + '\n');
+  await symlink(outside, join(task, '.git', 'shallow'));
+  await expect(
+    assertPreparedRepositoryTaskTopology(f.access(), identity, f.sourceGitDirectory),
+  ).rejects.toThrow();
+});

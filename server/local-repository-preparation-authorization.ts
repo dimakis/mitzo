@@ -1,4 +1,10 @@
 import type { LocalRepositoryPreparationObjectData } from './local-repository-preparation-object-data.js';
+import {
+  RepositoryBaseIntentSchema,
+  RepositorySourceIntentSchema,
+  localRepositoryPreparationId,
+  repositorySourceIdentity,
+} from './local-repository-base.js';
 import { retainPreparationPackedRefs } from './local-repository-preparation-packed-refs.js';
 import { buildPermissionHandler, type SessionRegistry } from '@mitzo/harness';
 import { AccountBindingSchema, SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
@@ -22,13 +28,22 @@ import {
   type PendingHostTaskDecisionOwner,
 } from './pending-host-task.js';
 
-export const inputSchema = z.strictObject({
-  path: z
-    .string()
-    .min(1)
-    .max(4096)
-    .refine((path) => isAbsolute(path) && resolve(path) === path),
-});
+export const inputSchema = z
+  .strictObject({
+    path: z
+      .string()
+      .min(1)
+      .max(4096)
+      .refine((path) => isAbsolute(path) && resolve(path) === path)
+      .optional(),
+    source: RepositorySourceIntentSchema.optional(),
+    base: RepositoryBaseIntentSchema,
+    newCheckout: z.literal(true).optional(),
+  })
+  .refine(
+    (input) => Boolean(input.path) !== Boolean(input.source),
+    'Choose exactly one existing path or repository source',
+  );
 interface Identity {
   readonly dev: number;
   readonly ino: number;
@@ -57,7 +72,13 @@ interface Owners {
   readonly qualifySource: (
     path: string,
     context: NativeHostToolContext,
-    intent: Readonly<{ workspaceId: string; sourcePath: string; taskRoot: string }>,
+    intent: Readonly<{
+      workspaceId: string;
+      sourcePath: string;
+      taskRoot: string;
+      base?: import('./local-repository-base.js').RepositoryBaseIntent;
+      source?: import('./local-repository-base.js').RepositorySourceIntent;
+    }>,
     options?: Readonly<{ deadline: number }>,
   ) => Promise<NativeQualifiedLocalRepositoryPreparationSource>;
 }
@@ -78,12 +99,6 @@ function synchronous(assertion: () => unknown) {
   void Promise.resolve(result).catch(() => {});
   throw new PendingHostTaskError('pending_host_task_authority_required');
 }
-/** Existing allocation-row correlation only; no new permission identifier/ledger. */
-function selectionId(value: unknown) {
-  const hash = pendingHostTaskDecisionHash(['local-repository-selection-v1', value]);
-  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
-}
-
 /** Private composition only. Called with the ORIGINAL raw context captured by
  * the verified native callback before parsing model intent. No production tool,
  * allocation runner, native grant or fallback source/destination is registered. */
@@ -104,6 +119,8 @@ export async function captureLocalRepositoryPreparationAuthorization(
   } catch {
     throw new PendingHostTaskError('pending_host_task_invalid_input');
   }
+  const sourceIntent = input.source ?? { kind: 'existing' as const, path: input.path! };
+  const sourceIdentity = repositorySourceIdentity(sourceIntent);
   const binding = freezePendingHostTaskData(
     AccountBindingSchema.parse(structuredClone(context.session.accountBinding)),
   );
@@ -160,12 +177,12 @@ export async function captureLocalRepositoryPreparationAuthorization(
   assertOriginal();
   await context.assertCurrent();
   assertOriginal();
-  const id = selectionId({
+  const id = localRepositoryPreparationId({
     conversationId: context.conversationId,
-    runtimeId: context.runtimeId,
-    nativeTarget: context.nativeTarget,
-    callId: context.callId,
-    requestHash: context.requestHash,
+    workspaceId: context.workspace.id,
+    path: sourceIdentity,
+    base: input.base,
+    ...(input.newCheckout ? { generation: context.nativeTarget.commandId } : {}),
   });
   const request = freezePendingHostTaskData(
     PendingHostTaskRequestSchema.parse({
@@ -181,12 +198,14 @@ export async function captureLocalRepositoryPreparationAuthorization(
     }),
   );
   const qualified = await owners.qualifySource(
-    input.path,
+    sourceIdentity,
     context,
     Object.freeze({
       workspaceId: id,
-      sourcePath: input.path,
+      sourcePath: sourceIdentity,
       taskRoot: request.taskRoot,
+      base: input.base,
+      source: sourceIntent,
     }),
   );
   assertOriginal();
@@ -216,7 +235,11 @@ export async function captureLocalRepositoryPreparationAuthorization(
     .string()
     .regex(/^[a-f0-9]{64}$/)
     .parse(qualified.allocationFactsSha256);
-  if (source.path !== input.path)
+  if (
+    sourceIntent.kind === 'existing'
+      ? source.path !== sourceIntent.path
+      : !isDeepStrictEqual(allocationFacts.sourceIntent, sourceIntent)
+  )
     throw new PendingHostTaskError('pending_host_task_ownership_changed');
   const assertSourceLabels = () => {
     assertOriginal();
@@ -279,10 +302,20 @@ export async function captureLocalRepositoryPreparationAuthorization(
       adminBasename: `repo-${id}`,
     },
   };
-  const branchRef = join(source.commonDirectory, 'refs', 'heads', originalRecord.featureBranch);
+  const taskGit =
+    allocationFacts.layout === 'standalone'
+      ? join(request.taskRoot, `repo-${id}`, '.git')
+      : undefined;
+  const branchRef = join(
+    taskGit ?? source.commonDirectory,
+    'refs',
+    'heads',
+    originalRecord.featureBranch,
+  );
   const scope = freezePendingHostTaskData(
     PendingHostTaskDecisionScopeSchema.parse({
       version: 1,
+      ...(taskGit ? { layout: 'standalone' } : {}),
       oldWorkspace: context.workspace,
       create: { ...baseScope, intent: 'create' },
       use: { ...baseScope, intent: 'use' },
@@ -293,11 +326,11 @@ export async function captureLocalRepositoryPreparationAuthorization(
       referenceCoverage,
       allocationFactsSha256,
       sourceGitEffects: {
-        administrationDirectory: join(source.commonDirectory, 'worktrees', `repo-${id}`),
+        administrationDirectory: taskGit ?? join(source.commonDirectory, 'worktrees', `repo-${id}`),
         branchReference: branchRef,
         branchReferenceLock: branchRef + '.lock',
         branchLog: join(
-          source.commonDirectory,
+          taskGit ?? source.commonDirectory,
           'logs',
           'refs',
           'heads',
@@ -372,6 +405,7 @@ export async function captureLocalRepositoryPreparationAuthorization(
     allocationFacts,
     allocationFactsSha256,
     publicationPackedRefs,
+    objectSource: qualified.objectSource,
     async materialize(objects?: LocalRepositoryPreparationObjectData) {
       owner.assertCurrentSync();
       const operation = owners.workspaces.beginPendingHostTaskDecisionMaterialization(

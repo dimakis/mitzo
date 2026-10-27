@@ -104,7 +104,7 @@ function owner(context: NativeHostToolContext, root: string) {
 async function signedReadPositive(
   tool: 'DiscoverLocalRepository' | 'InspectLocalRepository',
   detachedViewer = false,
-  pathCase: 'root' | 'nested' | 'missing' | 'missing-parent' | 'catalog' = 'root',
+  pathCase: 'root' | 'nested' | 'missing' | 'missing-parent' | 'catalog' | 'query' = 'root',
 ) {
   const started = performance.now();
   let phase: 'setup' | 'call' | 'verification' = 'setup';
@@ -213,7 +213,11 @@ async function signedReadPositive(
     let result: Awaited<ReturnType<typeof f.a.call>>;
     try {
       result = await f.a.call(
-        pathCase === 'catalog' ? { query: 'mitzo' } : { path: requestedPath },
+        pathCase === 'catalog'
+          ? { query: 'mitzo' }
+          : pathCase === 'query'
+            ? { query: 'read-tools-source' }
+            : { path: requestedPath },
         { tool },
       );
     } finally {
@@ -299,6 +303,10 @@ async function signedReadPositive(
     );
   }
 }
+it.runIf(process.platform === 'darwin')(
+  'discovers an uncatalogued repository name through the signed native reader',
+  () => signedReadPositive('DiscoverLocalRepository', false, 'query'),
+);
 it.runIf(process.platform === 'darwin')(
   'resolves a configured name outside the task through the signed native reader',
   () => signedReadPositive('DiscoverLocalRepository', false, 'catalog'),

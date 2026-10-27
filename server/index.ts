@@ -69,7 +69,14 @@ import {
 setAuthRevocationStore(eventStore);
 import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
 import { bindOrdinaryTaskWorkerSession } from './ordinary-task-worker.js';
-import { getLocalRepositoryWorkspaces } from './repository-workspace-runtime.js';
+import {
+  getLocalRepositoryWorkspaces,
+  getRepositoryWorkspaces,
+} from './repository-workspace-runtime.js';
+import {
+  inventoryWorkspaceLifecycle,
+  type WorkspaceLifecycleClaim,
+} from './workspace-lifecycle.js';
 import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
 import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';
 import { storedEventToClientMessage } from '@mitzo/protocol';
@@ -1458,8 +1465,8 @@ checkPort(PORT).then(async (inUse) => {
     const repositoryMaintenance = startupRepositoryMaintenanceEnabled();
     // Eagerly reconcile sessions so the first /api/sessions request is fast and accurate.
     if (repositoryMaintenance) reconcileSessionsBackground();
-    // Clean up stale worktrees across all repos.
-    // Dirty worktrees (uncommitted work) are flagged in the mgmt inbox.
+    // Reconcile all task layouts without interpreting age or an empty in-memory
+    // registry as disposal authority. Explicit discard owns physical retirement.
     const inboxDir = BASE_REPO ? join(BASE_REPO, 'mgmt_lib', 'inbox') : undefined;
     const repoEntries: [string, string][] = [['primary', BASE_REPO]];
     try {
@@ -1486,6 +1493,60 @@ checkPort(PORT).then(async (inUse) => {
       cleanupPolicy,
       collectActiveWtIds,
       cleanup: cleanupStaleWorktrees,
+      inventory: async () => {
+        const repositoryState = join(codexPrivateDirectory(), 'repository-sources');
+        const claims: WorkspaceLifecycleClaim[] = existsSync(join(repositoryState, 'workspaces.db'))
+          ? getRepositoryWorkspaces(true).lifecycleClaims()
+          : [];
+        const byPath = new Map(claims.map((claim) => [claim.directory, claim]));
+        const sessions = eventStore.listSessions(2001);
+        for (const session of sessions.slice(0, 2000)) {
+          const paths = new Set(
+            [
+              session.cwd,
+              ...repoEntries.map(([label]) =>
+                eventStore.getLatestWorktreePath(session.sessionId, label),
+              ),
+            ].filter((path): path is string => !!path),
+          );
+          for (const directory of paths) {
+            const known = byPath.get(directory);
+            if (known) {
+              known.resumeReferences = [...new Set([...known.resumeReferences, session.sessionId])];
+              known.activeCommands = Math.max(known.activeCommands, session.isActive ? 1 : 0);
+            } else {
+              const claim: WorkspaceLifecycleClaim = {
+                id: session.sessionId,
+                directory,
+                ownership:
+                  session.conversationSource === 'external_import' ? 'external' : 'unknown',
+                state: session.isActive ? 'active' : 'resumable',
+                activeCommands: session.isActive ? 1 : 0,
+                queuedCommands: 0,
+                resumeReferences: [session.sessionId],
+                leaseState: 'unknown',
+              };
+              claims.push(claim);
+              byPath.set(directory, claim);
+            }
+          }
+        }
+        const result = await inventoryWorkspaceLifecycle({
+          roots: [
+            ...repoEntries.flatMap(([, path]) =>
+              ['.claude/worktrees', '.cursor/worktrees', '.claude/repository-tasks'].map((layout) =>
+                join(path, layout),
+              ),
+            ),
+            ordinaryWorkspaceTaskRoot(),
+            repositoryState,
+            join(repositoryState, 'archives'),
+          ],
+          claims,
+        });
+        if (sessions.length > 2000) result.truncated = true;
+        log.info('workspace lifecycle inventory', result);
+      },
       onError: (label, phase, err) => {
         log.warn(`${phase} worktree cleanup failed for ${label}`, {
           error: err instanceof Error ? err.message : 'unknown',

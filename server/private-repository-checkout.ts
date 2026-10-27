@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { validateLocalRepositoryRemote } from './local-repository-base.js';
 /** Fixed synthetic metadata only. Source configuration and attribute conversion
  * never enter this actor's private checkout. Git interprets actual copied OIDs. */
 export function privateRepositoryCheckoutConfig(format: 'sha1' | 'sha256') {
@@ -6,6 +7,15 @@ export function privateRepositoryCheckoutConfig(format: 'sha1' | 'sha256') {
 }
 export const privateRepositoryCheckoutAttributes =
   '* -text -ident -filter -working-tree-encoding\n';
+export function standaloneRepositoryCheckoutConfig(format: 'sha1' | 'sha256', remote?: string) {
+  const config = privateRepositoryCheckoutConfig(format).replace('bare = true', 'bare = false');
+  if (!remote) return config;
+  const url = validateLocalRepositoryRemote(remote).replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+  return (
+    config +
+    `\n[remote "origin"]\n\turl = "${url}"\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n`
+  );
+}
 export interface PrivateRepositoryCheckoutRequest {
   readonly scratch: string;
   readonly baseOid: string;

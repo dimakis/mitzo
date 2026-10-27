@@ -43,6 +43,7 @@ import {
   OrdinaryLocalCodexOwnedRuntime,
   type OrdinaryLocalCodexOwnedDispatch,
 } from './ordinary-local-codex-owned-runtime.js';
+import { reconcilePreparedRepositoryTransitionProjection } from './owned-prepared-repository-transition.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
 import type { HostRepositoryReservationInput } from './repository-workspaces.js';
 import { isDeepStrictEqual } from 'node:util';
@@ -175,9 +176,6 @@ import { homedir, platform } from 'os';
 import {
   createWorktree,
   createWorktreeAsync,
-  removeWorktree,
-  hasUncommittedWork,
-  rescueDirtyWorktree,
   symlinkRuntimeDirs,
   discoverSessionWorktrees,
 } from './worktree.js';
@@ -3295,8 +3293,30 @@ export async function startOwnedLocalCodexCommand(
     const ownerConnectionId = input.ownerConnectionId ?? operatorConnectionId;
     const ownerAuthSessionId = captured.auth.id;
     const reservation = structuredClone(input.reservation);
+    let workspaceKind = input.workspaceKind;
     const command = structuredClone(input.command);
     const sessionId = reservation.conversationId;
+    if (resume) {
+      const native = getCodexConversationStore();
+      const custody = native.readHostCustody(sessionId, reservation.binding);
+      if (!custody || !ordinaryOperatorOwnsConversation(custody.authSessionId, ownerAuthSessionId))
+        throw unavailable();
+      const adopted = reconcilePreparedRepositoryTransitionProjection({
+        workspace: getRepositoryWorkspaces(true),
+        events: eventStore,
+        native,
+        conversationId: sessionId,
+        binding: reservation.binding,
+        assertCurrentSync: () => {
+          signal.throwIfAborted();
+          captured.assertCurrent();
+        },
+      });
+      if (adopted) {
+        reservation.id = adopted.id;
+        workspaceKind = 'repository';
+      }
+    }
     if (eventStore.getLatestEvent(sessionId, 'adviser_task_scope') && !input.adviserScope)
       throw unavailable();
     if (input.adviserScope && (!(input.adviserScope instanceof AdviserTaskScope) || resume))
@@ -3324,11 +3344,9 @@ export async function startOwnedLocalCodexCommand(
       enabled: true,
       eventStore,
       library: getAgentLibrary(),
-      workspaceKind: input.workspaceKind,
+      workspaceKind,
       workspace:
-        input.workspaceKind === 'ordinary'
-          ? getOrdinaryWorkspaces(true)
-          : getRepositoryWorkspaces(true),
+        workspaceKind === 'ordinary' ? getOrdinaryWorkspaces(true) : getRepositoryWorkspaces(true),
       reservation,
       commandId,
       operatorConnectionId,
@@ -4757,91 +4775,16 @@ export async function interruptChat(
 
 // --- Session management ---
 
-/**
- * Best-effort cleanup of secondary worktrees for a session.
- * Primary worktree is preserved — the SDK encodes conversation data by CWD
- * path, so removing it breaks resume. Stale GC handles primary lifecycle.
- * Branches are always preserved for PRs.
- *
- * Dirty secondaries are auto-rescued (commit + push + draft PR) before removal.
- * If rescue fails the worktree is kept on disk to avoid data loss.
- */
+/** SDK/provider history remains bound to every task cwd across stop and
+ * restart. Session shutdown releases runtime resources, never filesystem custody.
+ * Explicit owner-controlled retirement is separate from query/transport lifetime. */
 export function cleanupSessionWorktrees(
   session: import('./session-registry.js').ManagedSession,
 ): void {
-  // Contributor workspaces belong to their selected task/source. Keep the durable
-  // marker effective for later ordinary cold resumes, not just this private query.
-  if (
-    session.sessionId &&
-    eventStore
-      .getSessionEvents(session.sessionId)
-      .some(
-        (event) =>
-          event.type === 'workspace_retention' && event.payload.policy === 'external-owner',
-      )
-  )
-    return;
-  const config = getRepoConfig();
-  const primaryPath = session.worktreePaths.get('primary')?.path;
-  for (const [repoName, { wtId, path }] of session.worktreePaths) {
-    if (repoName === 'primary') continue;
-    const repoPath = config.repos[repoName];
-    if (!repoPath) continue;
-    // Guard: never remove a secondary whose path matches the primary worktree.
-    if (primaryPath && resolve(path) === resolve(primaryPath)) {
-      log.info('skipping secondary cleanup — path matches primary worktree', {
-        repoName,
-        path,
-      });
-      continue;
-    }
-    try {
-      const dirty = hasUncommittedWork(path);
-      if (dirty) {
-        // Defer rescue so the cleanup loop can finish first — rescueDirtyWorktree
-        // makes up to 4 sync git/gh calls (~30s timeout each).
-        // Note: for...of with const destructuring creates per-iteration bindings,
-        // so closing over repoName/path/wtId/repoPath directly is safe.
-        setTimeout(() => {
-          try {
-            const branch = `session/${wtId}`;
-            const rescue = rescueDirtyWorktree(path, branch, wtId);
-            if (!rescue.success) {
-              // Worktree is orphaned from the session map (already cleared) but
-              // preserved on disk — stale GC will handle it after 96h.
-              log.warn('dirty secondary worktree rescue failed — preserved on disk for stale GC', {
-                repoName,
-                wtId,
-                error: rescue.error,
-              });
-              return;
-            }
-            log.info('auto-rescued dirty secondary worktree', {
-              repoName,
-              wtId,
-              prUrl: rescue.prUrl,
-            });
-            removeWorktree(wtId, repoPath);
-          } catch (err: unknown) {
-            log.warn('deferred rescue failed for secondary worktree', {
-              repoName,
-              error: err instanceof Error ? err.message : 'unknown',
-            });
-          }
-        }, 0);
-        continue;
-      }
-      removeWorktree(wtId, repoPath);
-    } catch (err: unknown) {
-      log.warn('failed to clean up session worktree', {
-        repoName,
-        error: err instanceof Error ? err.message : 'unknown',
-      });
-    }
-  }
-  const primary = session.worktreePaths.get('primary');
-  session.worktreePaths.clear();
-  if (primary) session.worktreePaths.set('primary', primary);
+  log.info('retaining session workspaces for owned retirement', {
+    sessionId: session.sessionId,
+    workspaces: session.worktreePaths.size,
+  });
 }
 
 /** Persist, echo, and enqueue a closeout prompt through the active provider runtime. */

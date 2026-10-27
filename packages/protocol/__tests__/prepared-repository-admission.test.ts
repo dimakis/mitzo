@@ -541,3 +541,79 @@ it.each([
     ),
   ).toThrow();
 });
+
+it('appends a prepared-workspace execution admission while preserving explicit input and original admission evidence', () => {
+  const store = fixture();
+  const followup = {
+    ...original,
+    clientMsgId: 'followup',
+    requestFingerprint: 'followup-fingerprint',
+    selection: { ...selection, thinking: 'low' },
+    payload: {
+      ...original.payload,
+      text: 'Stop the old task and explain the edits',
+      intent: 'New explicit steering',
+    },
+  };
+  store.admitOrdinaryLocalContinuation({ ...meta, reasoningEffort: 'low' }, binding, followup);
+  store.claimOrdinaryLocalCommandDispatch(followup.clientMsgId);
+  store.completeOrdinaryLocalCommand(followup.clientMsgId);
+  const historical = store.getOrdinaryLocalCommandAdmission(followup.clientMsgId);
+  const reserved = store.reservePreparedRepositoryContinuation('session', transition);
+  store.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+  store.rebindPreparedRepositoryQueuedCommands('session', reserved.childCommandId, transition, [
+    'followup',
+  ]);
+  expect(
+    store.getPreparedRepositoryCommandAdmissionEvidence('followup', reserved.childCommandId),
+  ).toEqual(historical);
+  expect(store.getSendCommand('followup')?.payload).toEqual(followup.payload);
+  expect(store.getOrdinaryLocalCommandExecutionAdmission('followup')).toMatchObject({
+    state: 'consumed',
+    workspace: { workspaceId: 'new', cwd: '/new' },
+    selection: followup.selection,
+    preparedRepositoryPrimaryCommandId: reserved.childCommandId,
+  });
+  expect(() =>
+    store.rebindPreparedRepositoryQueuedCommands('session', reserved.childCommandId, transition, [
+      'followup',
+    ]),
+  ).not.toThrow();
+  expect(() =>
+    store.rebindPreparedRepositoryQueuedCommands('session', reserved.childCommandId, transition, [
+      'missing',
+    ]),
+  ).toThrow();
+});
+
+it('observes a fresh cold bootstrap between the original prepared source and its later workspace transition', () => {
+  const store = fixture();
+  const initial = store.reservePreparedRepositoryContinuation('session', transition);
+  store.suspendUntransferredPreparedRepositoryContinuation(
+    'session',
+    transition.source,
+    transition.oldWorkspace,
+    transition.preparationId,
+  );
+  const resume = {
+    ...original,
+    clientMsgId: 'fresh-resume',
+    requestFingerprint: 'resume-fingerprint',
+    payload: { ...original.payload, text: 'Resume this retained task' },
+  };
+  store.admitOrdinaryLocalContinuation(meta, binding, resume);
+  store.claimOrdinaryLocalCommandDispatch(resume.clientMsgId);
+  store.completeOrdinaryLocalCommand(resume.clientMsgId);
+  const expected = store.getOrdinaryLocalCommandAdmission(resume.clientMsgId);
+  const reserved = store.reservePreparedRepositoryContinuation('session', transition);
+  expect(reserved.childCommandId).toBe(initial.childCommandId);
+  expect(
+    store.observePreparedRepositoryResumedBootstrapAdmission(
+      reserved.childCommandId,
+      resume.clientMsgId,
+    ),
+  ).toEqual(expected);
+  expect(() =>
+    store.observePreparedRepositoryBootstrapAdmission(reserved.childCommandId, resume.clientMsgId),
+  ).toThrow();
+});

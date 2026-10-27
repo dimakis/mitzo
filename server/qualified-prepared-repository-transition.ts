@@ -104,8 +104,10 @@ export function projectQualifiedPreparedRepositoryTransitionFacts(
         adminBasename: `repo-${request.id}`,
       },
     };
+    const taskGit =
+      allocation.layout === 'standalone' ? join(receipt.directory, '.git') : undefined;
     const branchReference = join(
-      labels.source.commonDirectory,
+      taskGit ?? labels.source.commonDirectory,
       'refs',
       'heads',
       record.featureBranch,
@@ -118,16 +120,14 @@ export function projectQualifiedPreparedRepositoryTransitionFacts(
       !isDeepStrictEqual(receipt.rootIdentity, taskRootIdentity) ||
       !isDeepStrictEqual(scope.create, { ...expectedScope, intent: 'create' }) ||
       !isDeepStrictEqual(scope.use, { ...expectedScope, intent: 'use' }) ||
+      scope.layout !== (taskGit ? 'standalone' : undefined) ||
       !isDeepStrictEqual(scope.sourceGitEffects, {
-        administrationDirectory: join(
-          labels.source.commonDirectory,
-          'worktrees',
-          `repo-${request.id}`,
-        ),
+        administrationDirectory:
+          taskGit ?? join(labels.source.commonDirectory, 'worktrees', `repo-${request.id}`),
         branchReference,
         branchReferenceLock: branchReference + '.lock',
         branchLog: join(
-          labels.source.commonDirectory,
+          taskGit ?? labels.source.commonDirectory,
           'logs',
           'refs',
           'heads',
@@ -165,7 +165,9 @@ export function projectQualifiedPreparedRepositoryTransitionFacts(
       receipt.directory !== task.directory ||
       task.featureBranch !== record.featureBranch ||
       !isDeepStrictEqual(task.localSource, source) ||
-      task.linkedGit?.directory !== scope.sourceGitEffects.administrationDirectory
+      (taskGit
+        ? task.linkedGit !== undefined
+        : task.linkedGit?.directory !== scope.sourceGitEffects.administrationDirectory)
     )
       throw unavailable();
     const facts: PreparedRepositoryTransitionFacts = {

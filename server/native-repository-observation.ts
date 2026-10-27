@@ -393,6 +393,7 @@ def repository_observation(request):
     for root in sorted(set([git, common])):
         scan(root, ['HEAD','config','config.worktree','commondir','packed-refs'] if plan['mode']=='base' else None)
         for name in ['config', 'config.worktree']: read(os.path.join(root, name), 65536)
+    if plan['mode'] == 'allocation': read(os.path.join(common, 'shallow'), 65536)
     for name in ['alternates', 'http-alternates']:
         pointer = read(os.path.join(common, 'objects', 'info', name), 65536)
         if pointer is not None and pointer.strip(): fail()

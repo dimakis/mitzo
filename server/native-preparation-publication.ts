@@ -1,4 +1,10 @@
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { standaloneRepositoryCheckoutConfig } from './private-repository-checkout.js';
+import {
+  validateLocalRepositoryRemote,
+  validateLocalRepositoryShallow,
+} from './local-repository-base.js';
 import { isDeepStrictEqual } from 'node:util';
 import type { LocalRepositoryAllocationFacts } from './local-repository-allocation-facts.js';
 import type {
@@ -16,6 +22,10 @@ import type { QualifiedLocalRepositoryPublication } from './qualified-local-repo
 
 export interface NativePreparationPublicationPlan {
   readonly version: 'prepared-repository-publication-v1';
+  readonly layout?: 'standalone';
+  readonly standaloneGit?: NativePreparationPublicationPlan['tree'];
+  readonly remote?: string;
+  readonly shallow?: string;
   readonly requestSha256: string;
   readonly allocationFactsSha256: string;
   readonly scopeSha256: string;
@@ -45,7 +55,8 @@ export interface NativePreparationPublicationPlan {
   readonly metadata: readonly NativeExclusiveFilePayload[];
   readonly deniedRoots: readonly string[];
 }
-const unavailable = () => Error('Prepared repository publication unavailable');
+const unavailable = (cause?: unknown) =>
+  Error('Prepared repository publication unavailable', { cause });
 const within = (child: string, parent: string) =>
   child === parent || child.startsWith(parent === '/' ? '/' : parent + '/');
 function data(value: unknown, keys: readonly string[]): Record<string, unknown> {
@@ -137,6 +148,15 @@ function payload(value: unknown, max: number): NativeExclusiveFilePayload {
 export function nativePreparationPublicationTargets(
   plan: Readonly<NativePreparationPublicationPlan>,
 ) {
+  if (plan.layout === 'standalone') {
+    const task = join(plan.taskRoot.rootPath, `repo-${plan.workspaceId}`);
+    return Object.freeze({
+      task,
+      admin: join(task, '.git'),
+      reference: join(task, '.git', 'refs', 'heads', 'mitzo', `repo-${plan.workspaceId}`),
+      files: Object.freeze([] as string[]),
+    });
+  }
   const common = plan.commonAnchor.rootPath,
     task = join(plan.taskRoot.rootPath, `repo-${plan.workspaceId}`),
     admin = join(common, 'worktrees', `repo-${plan.workspaceId}`),
@@ -156,6 +176,7 @@ export function nativePreparationPublicationTargets(
   });
 }
 function directorySteps(plan: Readonly<NativePreparationPublicationPlan>) {
+  if (plan.layout === 'standalone') return [];
   const { admin } = nativePreparationPublicationTargets(plan),
     parentPath = dirname(admin);
   const existing = plan.existingDirectories.find((entry) => entry.directory === parentPath);
@@ -191,10 +212,207 @@ function pythonJson(value: unknown): string {
     );
   return JSON.stringify(value);
 }
+function projectStandalonePlan(input: unknown): Readonly<NativePreparationPublicationPlan> {
+  const remoteProperty =
+    input && typeof input === 'object'
+      ? Object.getOwnPropertyDescriptor(input, 'remote')
+      : undefined;
+  if (remoteProperty && (!('value' in remoteProperty) || typeof remoteProperty.value !== 'string'))
+    throw unavailable();
+  const shallowProperty =
+    input && typeof input === 'object'
+      ? Object.getOwnPropertyDescriptor(input, 'shallow')
+      : undefined;
+  if (
+    shallowProperty &&
+    (!('value' in shallowProperty) || typeof shallowProperty.value !== 'string')
+  )
+    throw unavailable();
+  const item = data(input, [
+    'version',
+    'layout',
+    'standaloneGit',
+    'requestSha256',
+    'allocationFactsSha256',
+    'scopeSha256',
+    'workspaceId',
+    'baseOid',
+    'sourcePath',
+    'sourceAnchor',
+    'commonAnchor',
+    'taskRoot',
+    'directories',
+    'existingDirectories',
+    'packedRefs',
+    'tree',
+    'metadata',
+    'deniedRoots',
+    ...(remoteProperty ? ['remote'] : []),
+    ...(shallowProperty ? ['shallow'] : []),
+  ]);
+  const remote = remoteProperty ? validateLocalRepositoryRemote(remoteProperty.value) : undefined;
+  if (
+    item.version !== 'prepared-repository-publication-v1' ||
+    typeof item.workspaceId !== 'string' ||
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(
+      item.workspaceId,
+    ) ||
+    typeof item.baseOid !== 'string' ||
+    !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(item.baseOid)
+  )
+    throw unavailable();
+  const sourcePath = path(item.sourcePath),
+    sourceAnchor = anchor(item.sourceAnchor),
+    commonAnchor = anchor(item.commonAnchor),
+    taskRoot = anchor(item.taskRoot);
+  if (
+    sourcePath !== sourceAnchor.rootPath ||
+    within(taskRoot.rootPath, sourcePath) ||
+    within(taskRoot.rootPath, commonAnchor.rootPath) ||
+    array(item.directories, 0).length ||
+    array(item.metadata, 0).length
+  )
+    throw unavailable();
+  const existing = array(item.existingDirectories, 1).map((value) => {
+    const entry = data(value, ['directory', 'identity']);
+    return Object.freeze({ directory: path(entry.directory), identity: identity(entry.identity) });
+  });
+  if (
+    existing.length !== 1 ||
+    existing[0].directory !== taskRoot.rootPath ||
+    !isDeepStrictEqual(existing[0].identity, taskRoot.identity)
+  )
+    throw unavailable();
+  const deniedRoots = Object.freeze(
+    array(item.deniedRoots, 256).map((value) => (value === '/' ? '/' : path(value))),
+  );
+  const projectTree = (value: unknown) => {
+    const tree = data(value, ['payload', 'entries']),
+      staged = data(tree.payload, ['file_path', 'rootAnchor', 'parentIdentity', 'identity']);
+    const root = anchor(staged.rootAnchor),
+      directory = path(staged.file_path),
+      parent = identity(staged.parentIdentity);
+    if (
+      dirname(directory) !== root.rootPath ||
+      !isDeepStrictEqual(parent, root.identity) ||
+      [sourcePath, commonAnchor.rootPath, taskRoot.rootPath].some(
+        (target) => within(root.rootPath, target) || within(target, root.rootPath),
+      )
+    )
+      throw unavailable();
+    rejectNativeTreeExclusions(
+      [sourcePath, commonAnchor.rootPath, taskRoot.rootPath, directory],
+      deniedRoots,
+    );
+    return Object.freeze({
+      payload: Object.freeze({
+        file_path: directory,
+        rootAnchor: root,
+        parentIdentity: parent,
+        identity: identity(staged.identity),
+      }),
+      entries: projectNativeRepositoryTreeEntries(tree.entries),
+    });
+  };
+  const tree = projectTree(item.tree),
+    standaloneGit = projectTree(item.standaloneGit);
+  if (
+    !isDeepStrictEqual(tree.payload.rootAnchor, standaloneGit.payload.rootAnchor) ||
+    tree.payload.file_path === standaloneGit.payload.file_path
+  )
+    throw unavailable();
+  const shallow = shallowProperty
+    ? validateLocalRepositoryShallow(
+        shallowProperty.value,
+        (item.baseOid as string).length === 64 ? 'sha256' : 'sha1',
+      )
+    : standaloneGit.entries.some((entry) => entry.path === 'shallow')
+      ? item.baseOid + '\n'
+      : undefined;
+  if (shallowProperty && shallow !== shallowProperty.value) throw unavailable();
+  const branch = `refs/heads/mitzo/repo-${item.workspaceId}`;
+  const expected = new Map([
+    ['HEAD', `ref: ${branch}\n`],
+    [branch, item.baseOid + '\n'],
+    [
+      'config',
+      standaloneRepositoryCheckoutConfig(item.baseOid.length === 64 ? 'sha256' : 'sha1', remote),
+    ],
+  ]);
+  if (shallow) expected.set('shallow', shallow);
+  const allowedDirectory = (name: string) =>
+    [
+      'refs',
+      'refs/heads',
+      'refs/heads/mitzo',
+      'objects',
+      'objects/pack',
+      'objects/info',
+      'info',
+    ].includes(name) || /^objects\/[a-f0-9]{2}$/.test(name);
+  for (const entry of standaloneGit.entries) {
+    if (
+      entry.mode === '040000'
+        ? !allowedDirectory(entry.path)
+        : entry.mode !== '100644' ||
+          !(
+            expected.has(entry.path) ||
+            ['index', 'info/attributes'].includes(entry.path) ||
+            /^objects\/(?:[a-f0-9]{2}\/[a-f0-9]{38,62}|pack\/pack-[a-f0-9]{40,64}\.(?:pack|idx))$/.test(
+              entry.path,
+            )
+          )
+    )
+      throw unavailable();
+    const text = expected.get(entry.path);
+    if (
+      text !== undefined &&
+      (entry.size !== Buffer.byteLength(text) ||
+        entry.sha256 !== createHash('sha256').update(text).digest('hex'))
+    )
+      throw unavailable();
+  }
+  if (
+    [...expected.keys()].some((name) => !standaloneGit.entries.some((entry) => entry.path === name))
+  )
+    throw unavailable();
+  const plan: NativePreparationPublicationPlan = Object.freeze({
+    version: 'prepared-repository-publication-v1',
+    layout: 'standalone',
+    standaloneGit,
+    ...(remote ? { remote } : {}),
+    ...(shallow ? { shallow } : {}),
+    requestSha256: digest(item.requestSha256),
+    allocationFactsSha256: digest(item.allocationFactsSha256),
+    scopeSha256: digest(item.scopeSha256),
+    workspaceId: item.workspaceId,
+    baseOid: item.baseOid,
+    sourcePath,
+    sourceAnchor,
+    commonAnchor,
+    taskRoot,
+    directories: Object.freeze([]),
+    existingDirectories: Object.freeze(existing),
+    packedRefs: Object.freeze({ kind: 'absent' }),
+    tree,
+    metadata: Object.freeze([]),
+    deniedRoots,
+  });
+  if (Buffer.byteLength(JSON.stringify(plan)) > 2 * 1024 * 1024) throw unavailable();
+  return plan;
+}
 /** Plain bounded fixed phase DATA, not an operation list or authority producer. */
 export function projectNativePreparationPublicationPlan(
   input: unknown,
 ): Readonly<NativePreparationPublicationPlan> {
+  const layout =
+    input && typeof input === 'object'
+      ? Object.getOwnPropertyDescriptor(input, 'layout')
+      : undefined;
+  if (layout) {
+    if (!('value' in layout) || layout.value !== 'standalone') throw unavailable();
+    return projectStandalonePlan(input);
+  }
   const item = data(input, [
     'version',
     'requestSha256',
@@ -450,8 +668,13 @@ export function projectNativePreparationPublicationPlan(
 /** Exact frozen union: original planned absent directories, task tree, and the
  * six leaves only where not already beneath a newly-owned directory. */
 export function nativePreparationPublicationWriteRoots(input: NativePreparationPublicationPlan) {
-  const plan = projectNativePreparationPublicationPlan(input),
-    steps = directorySteps(plan),
+  const plan = projectNativePreparationPublicationPlan(input);
+  if (plan.layout === 'standalone')
+    return Object.freeze([
+      { path: plan.tree.payload.rootAnchor.rootPath, parentAnchor: plan.tree.payload.rootAnchor },
+      { path: nativePreparationPublicationTargets(plan).task, parentAnchor: plan.taskRoot },
+    ]);
+  const steps = directorySteps(plan),
     known = new Map(plan.existingDirectories.map((entry) => [entry.directory, entry.identity]));
   const candidates = [
     ...steps.map((step) => step.directory),
@@ -519,6 +742,16 @@ export async function publishNativePreparedRepository(
       directories: projected.directories,
       files: projected.files,
     } as QualifiedLocalRepositoryPublication);
+    if (plan.layout === 'standalone') {
+      if (
+        publication.directories.length !== 2 ||
+        publication.directories[0].directory !== targets.task ||
+        publication.directories[1].directory !== targets.admin ||
+        publication.files.length !== 0
+      )
+        throw unavailable();
+      return publication;
+    }
     const expected = directorySteps(plan).map((step) => step.directory);
     if (
       publication.directories.length !== expected.length ||
@@ -544,9 +777,9 @@ export async function publishNativePreparedRepository(
     )
       throw unavailable();
     return publication;
-  } catch {
+  } catch (cause) {
     signal.throwIfAborted();
-    throw unavailable();
+    throw unavailable(cause);
   }
 }
 
@@ -554,6 +787,7 @@ export async function publishNativePreparedRepository(
 export const nativePreparationPublicationPython = String.raw`
 def publish_prepared_repository(request):
     plan = request['preparationPlan']
+    if plan.get('layout') == 'standalone': return publish_standalone_repository(request)
     deadline = time.monotonic() + request['timeoutMs'] / 1000
     exclusions = plan['deniedRoots']
     common = plan['commonAnchor']['rootPath']
@@ -712,4 +946,50 @@ def publish_prepared_repository(request):
         return result
     finally:
         for directory in descriptors.values(): os.close(directory)
+
+def publish_standalone_repository(request):
+    plan = request['preparationPlan']; deadline = time.monotonic() + request['timeoutMs'] / 1000
+    root = plan['taskRoot']; task = os.path.join(root['rootPath'], 'repo-' + plan['workspaceId']); admin = os.path.join(task, '.git')
+    exclusions = plan['deniedRoots']; descriptors = []
+    def check():
+        if time.monotonic() >= deadline: raise RuntimeError('Prepared publication unavailable')
+    def ident(info): return {'dev': str(info.st_dev), 'ino': str(info.st_ino)}
+    def opened(path, expected):
+        fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        prefix = ''
+        try:
+            for part in [part for part in path.split('/') if part]:
+                check(); prefix += '/' + part
+                if any(prefix == denied or prefix.startswith(denied.rstrip('/') + '/') for denied in exclusions): raise RuntimeError('Prepared publication unavailable')
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd); os.close(fd); fd = child
+            if ident(os.fstat(fd)) != expected: raise RuntimeError('Prepared publication unavailable')
+            return fd
+        except:
+            os.close(fd); raise
+    def verify_roots():
+        for value in [root, plan['sourceAnchor'], plan['commonAnchor']]:
+            fd = opened(value['rootPath'], value['identity']); os.close(fd)
+    def tree_request(value, target, parent, target_id):
+        return dict(value, file_path=target, rootAnchor=root, parentIdentity=parent, targetIdentity=target_id, originalSourcePath=plan['sourcePath'], deniedRoots=exclusions, timeoutMs=request['timeoutMs'])
+    try:
+        verify_roots(); parent = opened(root['rootPath'], root['identity']); descriptors.append(parent)
+        try: os.stat(os.path.basename(task), dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError: pass
+        else: raise RuntimeError('Prepared publication unavailable')
+        work = tree_request(plan['tree'], task, root['identity'], None)
+        git = tree_request(plan['standaloneGit'], admin, root['identity'], None)
+        publish_tree(work, preflight_only=True, deadline=deadline); publish_tree(git, preflight_only=True, deadline=deadline)
+        verify_roots(); check(); os.mkdir(os.path.basename(task), 0o700, dir_fd=parent)
+        task_fd = os.open(os.path.basename(task), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent); descriptors.append(task_fd)
+        task_id = ident(os.fstat(task_fd)); work['targetIdentity'] = task_id
+        work_state = {}; result = json.loads(publish_tree(work, deadline=deadline, target_fd=task_fd, phase_state=work_state))
+        verify_roots(); os.mkdir('.git', 0o700, dir_fd=task_fd)
+        git_fd = os.open('.git', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=task_fd); descriptors.append(git_fd)
+        git_id = ident(os.fstat(git_fd)); git['targetIdentity'] = git_id; git['parentIdentity'] = task_id
+        git_state = {}; publish_tree(git, deadline=deadline, target_fd=git_fd, phase_state=git_state)
+        verify_roots(); publish_tree(work, deadline=deadline, target_fd=task_fd, phase_state=work_state, verify_only=True, extra_target_names={'.git'})
+        publish_tree(git, deadline=deadline, target_fd=git_fd, phase_state=git_state, verify_only=True); verify_roots(); check()
+        return json.dumps({'directories': [{'directory': task, 'identity': task_id}, {'directory': admin, 'identity': git_id}], 'files': [], 'tree': result}, ensure_ascii=True)
+    finally:
+        for fd in descriptors: os.close(fd)
 `;

@@ -5,7 +5,7 @@ import {
 } from './ordinary-repository-preparation-authority.js';
 import { githubRepositoryConnections } from './github-repository-connections.js';
 import { existsSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { loadRepoConfig } from './repo-config.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { loadAccountProfiles } from './account-profiles.js';
@@ -60,6 +60,28 @@ export function repositoryWorkspaceBinding(accountId: string, model: string) {
 export function configuredLocalRepositories(): Readonly<Record<string, string>> {
   const base = process.env.REPO_PATH;
   return base ? { ...loadRepoConfig(base).repos, primary: base } : {};
+}
+/** Host configuration supplies search hints, never filesystem read grants. */
+export function configuredLocalRepositoryDiscovery(workspace: string): {
+  repositoryCatalog: Readonly<Record<string, string>>;
+  discoveryRoots: string[];
+} {
+  const base = process.env.REPO_PATH;
+  const config = base ? loadRepoConfig(base) : undefined;
+  const repositoryCatalog = base ? { ...config?.repos, primary: base } : {};
+  const candidates = [
+    workspace,
+    ...(config?.roots ?? []).map((root) => root.path),
+    ...Object.values(repositoryCatalog).map((path) => dirname(path)),
+  ];
+  const discoveryRoots = [
+    ...new Set(
+      candidates.filter(
+        (path) => isAbsolute(path) && resolve(path) === path && dirname(path) !== path,
+      ),
+    ),
+  ];
+  return { repositoryCatalog, discoveryRoots };
 }
 function localRepositoryWorkspacesEnabled() {
   return ['CODEX', 'RESPONSES', 'VERTEX', 'GEMINI'].some(
