@@ -307,7 +307,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     '827241abb6adf82babe6b7d23488e7fffcb2f868b5e173d67d0d590faa42b3d2',
   '../__tests__/codex-conversation.test.ts':
-    '591384070afdf018b8deda15a108b1e0f0dfc0c86a80654d540f29a446587d32',
+    '006095d3b1c551fa31b3a8f852da053251ade2efe2494befe384bcc239f62294',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':
