@@ -134,6 +134,63 @@ function fixture() {
 const value = (result: { content: string } | undefined) => JSON.parse(result!.content);
 
 describe('private Local Mac repository read tools', () => {
+  it('resolves a configured repository name outside the active task workspace', async () => {
+    const canonical = await repository(join(root, 'tools', 'mitzo'));
+    const task = await repository(join(root, 'tasks', 'repo-old'));
+    const f = fixture();
+    f.policy.discoveryRoots = [task];
+    f.policy.repositoryCatalog = { mitzo: canonical, primary: task };
+    const result = value(
+      await sessionLocalRepositoryTools(f.owner).execute(
+        'DiscoverLocalRepository',
+        { query: 'Mitzo' },
+        signal(),
+      ),
+    );
+    expect(result).toMatchObject({ state: 'selected', candidates: [{ path: canonical }] });
+    expect(git(canonical, 'status', '--porcelain')).toBe('');
+  });
+
+  it('keeps configured discovery under current read permission and honors an explicit override', async () => {
+    const canonical = await repository(join(root, 'tools', 'mitzo'));
+    const override = await repository(join(root, 'override'));
+    const f = fixture();
+    f.policy.repositoryCatalog = { mitzo: canonical };
+    f.policy.accessScope = { kind: 'roots', roots: [override], deniedRoots: [] };
+    const tools = sessionLocalRepositoryTools(f.owner);
+    expect(
+      value(await tools.execute('DiscoverLocalRepository', { query: 'mitzo' }, signal())),
+    ).toMatchObject({ state: 'access-required', candidates: [], needed: ['read-access'] });
+    expect(
+      value(
+        await tools.execute(
+          'DiscoverLocalRepository',
+          { query: 'mitzo', path: override },
+          signal(),
+        ),
+      ),
+    ).toMatchObject({ state: 'selected', candidates: [{ path: override }] });
+  });
+
+  it('preserves ambiguity between matching configured repositories and deduplicates aliases', async () => {
+    const first = await repository(join(root, 'one', 'mitzo'));
+    const second = await repository(join(root, 'two', 'mitzo'));
+    const f = fixture();
+    f.policy.repositoryCatalog = { first, firstAlias: first, second };
+    const result = value(
+      await sessionLocalRepositoryTools(f.owner).execute(
+        'DiscoverLocalRepository',
+        { query: 'mitzo' },
+        signal(),
+      ),
+    );
+    expect(result.state).toBe('ambiguous');
+    expect(result.candidates.map((candidate: { path: string }) => candidate.path)).toEqual([
+      first,
+      second,
+    ]);
+  });
+
   it('withholds repository reads when the original enforced execution port is missing', () => {
     const owner = {
       ...fixture().owner,

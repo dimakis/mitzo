@@ -59,6 +59,8 @@ interface ReadRequest {
 export interface LocalRepositoryDiscoveryRequest extends ReadRequest {
   query?: string;
   explicitPath?: string;
+  /** Host configuration supplies source hints, never read authority. */
+  repositoryCatalog?: Readonly<Record<string, string>>;
   /** Bounded search locations, independent of the target's actual access scope. */
   discoveryRoots?: readonly string[];
   /** Ordering hints only: these neither grant access nor resolve ambiguity. */
@@ -412,6 +414,89 @@ async function context(request: ReadRequest) {
 export async function discoverLocalRepository(
   request: LocalRepositoryDiscoveryRequest,
 ): Promise<LocalRepositoryDiscoveryResult> {
+  const named = request.query?.trim().toLocaleLowerCase();
+  if (!request.explicitPath && named && request.repositoryCatalog) {
+    const entries = Object.entries(request.repositoryCatalog);
+    const exact = entries.filter(
+      ([name, path]) =>
+        name.toLocaleLowerCase() === named || basename(path).toLocaleLowerCase() === named,
+    );
+    const matches = [
+      ...new Set(
+        (exact.length
+          ? exact
+          : entries.filter(
+              ([name, path]) =>
+                name.toLocaleLowerCase().includes(named) ||
+                basename(path).toLocaleLowerCase().includes(named),
+            )
+        ).map(([, path]) => path),
+      ),
+    ].sort();
+    if (matches.length) {
+      const maximum = Math.max(1, Math.min(100, request.limits?.maxCandidates ?? 20));
+      const deadline =
+        Date.now() + Math.max(1, Math.min(60000, request.limits?.timeoutMs ?? 15000));
+      const combined: LocalRepositoryDiscoveryResult = {
+        state: 'ambiguous',
+        candidates: [],
+        truncated: matches.length > maximum,
+        limitReasons: matches.length > maximum ? ['candidates'] : [],
+        diagnostics: [],
+        needed: [],
+        visitedDirectories: 0,
+      };
+      for (const path of matches.slice(0, maximum)) {
+        request.signal?.throwIfAborted();
+        if (Date.now() >= deadline) {
+          combined.truncated = true;
+          combined.limitReasons.push('timeout');
+          break;
+        }
+        const candidate: LocalRepositoryDiscoveryRequest = {
+          ...request,
+          explicitPath: path,
+          repositoryCatalog: undefined,
+          limits: { ...request.limits, timeoutMs: Math.max(1, deadline - Date.now()) },
+        };
+        // Each source receives an independent observation under the same original
+        // native reader. Preserve its private descriptor across request projection.
+        const reader = Object.getOwnPropertyDescriptor(request, 'nativeReader');
+        if (reader) Object.defineProperty(candidate, 'nativeReader', reader);
+        const observed = await discoverLocalRepository(candidate);
+        combined.candidates.push(...observed.candidates);
+        combined.diagnostics.push(...observed.diagnostics);
+        combined.limitReasons.push(...observed.limitReasons);
+        combined.truncated ||= observed.truncated;
+        if (observed.restricted) combined.restricted = true;
+      }
+      combined.candidates = combined.candidates.filter(
+        (candidate, index, all) =>
+          all.findIndex((other) => other.path === candidate.path) === index,
+      );
+      combined.limitReasons = [...new Set(combined.limitReasons)];
+      const access = combined.diagnostics.some(
+        (diagnostic) => diagnostic.reason === 'read-access-required',
+      );
+      if (combined.truncated) combined.needed = ['narrower-search'];
+      else if (access) combined.needed = ['read-access'];
+      if (!combined.candidates.length) {
+        combined.state = access
+          ? 'access-required'
+          : combined.diagnostics.every((item) => item.reason === 'repository-not-found')
+            ? 'missing'
+            : 'ambiguous';
+        if (combined.state === 'missing') combined.needed = ['source', 'destination'];
+      } else if (
+        combined.candidates.length === 1 &&
+        !combined.diagnostics.length &&
+        !combined.truncated
+      ) {
+        combined.state = 'selected';
+      }
+      return combined;
+    }
+  }
   const ctx = await context(request);
   const result: LocalRepositoryDiscoveryResult = {
     state: 'missing',
