@@ -343,6 +343,20 @@ jobs:
           "$RUNNER_TEMP/telos-s9-python/bin/python" -m pip install --require-hashes -r tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-requirements.txt
           echo "S9_MGMT_PYTHON=$RUNNER_TEMP/telos-s9-python/bin/python" >> "$GITHUB_ENV"
           npx playwright install chromium
+      - name: Verify standalone repository proof mutation checks
+        if: ${{ !cancelled() }}
+        run: |
+          npx vitest run server/__tests__/qualified-standalone-repository-observation.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/standalone-task-proofs.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const result = JSON.parse(readFileSync('test-results/standalone-task-proofs.json', 'utf8'));
+          const suites = result.testResults;
+          if (!result.success || result.numPassedTests !== 13 || result.numPendingTests !== 0 ||
+              suites.length !== 1 || !suites[0].name.endsWith('/qualified-standalone-repository-observation.test.ts') ||
+              suites[0].assertionResults.length !== 13 || suites[0].assertionResults.some(test => test.status !== 'passed')) {
+            throw new Error('All thirteen standalone proof regressions must execute; skips are not qualification');
+          }
+          NODE
       - name: Verify complete native repository workflows on both owned account routes
         if: ${{ !cancelled() }}
         env:
@@ -374,6 +388,7 @@ jobs:
         with:
           name: native-repository-workflows-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            test-results/standalone-task-proofs.json
             test-results/native-repository-workflows.json
             test-results/native-repository-workflows/
           if-no-files-found: warn
