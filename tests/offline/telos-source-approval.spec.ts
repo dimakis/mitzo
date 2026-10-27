@@ -309,6 +309,8 @@ for (const theme of ['dark', 'light'] as const)
           });
         });
 
+        // Own timers from document startup so the later deadline jump also fires polling.
+        await page.clock.install();
         await navigateWithServiceHealth(page, () => page.goto('/chat/planning'));
         const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
         await input.fill('Keep this ordinary chat draft.');
@@ -691,7 +693,6 @@ for (const theme of ['dark', 'light'] as const)
         const replay = host.recoveryRequests();
         expect(replay).toHaveLength(1);
         expect(replay[0]).toMatchObject({ reviewKind: 'telos_source', recoveryOnly: true });
-        await page.clock.install();
         // Finish the next profile poll before unloading this document. WebKit
         // otherwise reports its intercepted fetch on reload as a pageerror.
         await waitForNewFixtureReads(page, ['/api/symposium/profile-proposals'], () =>
