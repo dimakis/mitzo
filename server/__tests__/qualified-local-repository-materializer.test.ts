@@ -634,6 +634,7 @@ actual(
     const serviceState = observePreparationService(diagnostics, f.f.workspace, (value) => {
       observedReceipt = value;
     });
+    cleanups.push(serviceState.restore);
     const assertInitialPrimary = capturePreparationPrimaryCustody(f);
     const finalize = f.f.workspace.finalizePendingHostTaskDecision;
     vi.spyOn(f.f.workspace, 'finalizePendingHostTaskDecision').mockImplementation((...args) => {

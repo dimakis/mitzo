@@ -369,6 +369,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
         process.env.MITZO_NATIVE_READ_TOOLS_SOURCE_PATH ?? join(f.f.root, 'source');
       const preparationDiagnostics = createPreparationAttemptDiagnostics();
       const preparationService = observePreparationService(preparationDiagnostics, f.f.workspace);
+      cleanups.push(preparationService.restore);
       // Representative retained history must not be replayed at every current-owner fence.
       for (let index = 0; index < 3000; index++)
         f.f.events.append(f.a.sessionId, 'block_delta', {
