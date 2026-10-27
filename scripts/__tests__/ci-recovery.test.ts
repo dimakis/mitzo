@@ -69,6 +69,34 @@ it('retries only failed jobs once for a current-head infrastructure interruption
     expect.objectContaining({ filter: 'latest', per_page: 100 }),
   );
 });
+
+it('accepts an interrupted wrapper exit but refuses its real command failure', async () => {
+  for (const [code, interruptedBy, expected] of [
+    [130, 'SIGINT', true],
+    [143, 'SIGTERM', true],
+    [7, null, false],
+    [1, 'SIGTERM', false],
+  ] as const) {
+    const f = fixture();
+    f.actions.downloadJobLogsForWorkflowRun.mockResolvedValue({
+      data:
+        '##[error]The runner has received a shutdown signal.\nCI_BROWSER_EXIT ' +
+        JSON.stringify({ code, signal: null, interruptedBy }),
+    });
+    expect(await f.execute()).toBe(expected);
+  }
+});
+
+it('does not classify a crashed test process as a host interruption', async () => {
+  const f = fixture();
+  f.actions.downloadJobLogsForWorkflowRun.mockResolvedValue({
+    data:
+      '##[error]The runner has received a shutdown signal.\nCI_BROWSER_EXIT ' +
+      JSON.stringify({ code: null, signal: 'SIGABRT', interruptedBy: null }),
+  });
+  expect(await f.execute()).toBe(false);
+  expect(f.actions.reRunWorkflowFailedJobs).not.toHaveBeenCalled();
+});
 it.each(['event', 'workflow', 'attempt', 'cancelled', 'fork', 'stale', 'closed', 'ambiguous'])(
   'does not resurrect %s work',
   async (condition) => {
@@ -85,29 +113,38 @@ it.each(['event', 'workflow', 'attempt', 'cancelled', 'fork', 'stale', 'closed',
     expect(f.actions.reRunWorkflowFailedJobs).not.toHaveBeenCalled();
   },
 );
-it.each(['assertion', 'timeout', 'unknown', 'missing-log', 'completed-failure', 'no-interruption'])(
-  'leaves %s failures visible without an automatic retry',
-  async (condition) => {
-    const f = fixture();
-    if (condition === 'assertion')
-      f.actions.downloadJobLogsForWorkflowRun.mockResolvedValue({
-        data: '1 failed\n##[error]The runner has received a shutdown signal.',
-      });
-    if (condition === 'timeout') f.jobs[0].conclusion = 'timed_out';
-    if (condition === 'unknown')
-      f.jobs.push({ id: 15, name: 'Unit tests (2/4)', conclusion: 'failure', steps: [] });
-    if (condition === 'missing-log')
-      f.actions.downloadJobLogsForWorkflowRun.mockRejectedValue(Error('404'));
-    if (condition === 'completed-failure')
-      f.jobs[0].steps.push({ name: 'Browser tests', conclusion: 'failure' });
-    if (condition === 'no-interruption')
-      f.actions.downloadJobLogsForWorkflowRun.mockResolvedValue({
-        data: 'Process exited with code 1',
-      });
-    expect(await f.execute()).toBe(false);
-    expect(f.actions.reRunWorkflowFailedJobs).not.toHaveBeenCalled();
-  },
-);
+it.each([
+  'assertion',
+  'colored-assertion',
+  'timeout',
+  'unknown',
+  'missing-log',
+  'completed-failure',
+  'no-interruption',
+])('leaves %s failures visible without an automatic retry', async (condition) => {
+  const f = fixture();
+  if (condition === 'assertion')
+    f.actions.downloadJobLogsForWorkflowRun.mockResolvedValue({
+      data: '1 failed\n##[error]The runner has received a shutdown signal.',
+    });
+  if (condition === 'colored-assertion')
+    f.actions.downloadJobLogsForWorkflowRun.mockResolvedValue({
+      data: '\u001b[31m1\u001b[39m failed\n##[error]The runner has received a shutdown signal.',
+    });
+  if (condition === 'timeout') f.jobs[0].conclusion = 'timed_out';
+  if (condition === 'unknown')
+    f.jobs.push({ id: 15, name: 'Unit tests (2/4)', conclusion: 'failure', steps: [] });
+  if (condition === 'missing-log')
+    f.actions.downloadJobLogsForWorkflowRun.mockRejectedValue(Error('404'));
+  if (condition === 'completed-failure')
+    f.jobs[0].steps.push({ name: 'Browser tests', conclusion: 'failure' });
+  if (condition === 'no-interruption')
+    f.actions.downloadJobLogsForWorkflowRun.mockResolvedValue({
+      data: 'Process exited with code 1',
+    });
+  expect(await f.execute()).toBe(false);
+  expect(f.actions.reRunWorkflowFailedJobs).not.toHaveBeenCalled();
+});
 it('rechecks run attempt and PR head immediately before issuing a retry', async () => {
   for (const change of ['run', 'head']) {
     const f = fixture();

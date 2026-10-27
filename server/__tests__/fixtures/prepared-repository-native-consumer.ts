@@ -294,4 +294,4 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
     },
   };
 }
-export { fixture, physical, cleanups, git };
+export { fixture, physical, cleanups, git, materializePreparation };

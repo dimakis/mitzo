@@ -34,6 +34,15 @@ Resolve `$ARGUMENTS` as PR URL, repository/number or current-branch PR. Read rep
 4. Ask only when a genuine unresolved product/security/data decision prevents a correct fix. Routine implementation fixes already within the user's task do not need another approval. Reply to and resolve review threads only where authorized by the task or invoked workflow; never pretend a reviewer approved a fix.
 5. Run focused offline checks within repository resource limits; complete local review below, then push and await required CI. Never remove coverage, weaken checks or mark failures green. CI optimizations must retain coverage.
 
+Before pushing a correction batch, collect the known type, format, test and review
+findings and validate their combined fix on a stable candidate. Avoid a sequence
+of individual repair pushes while the same CI cycle is still running. Recover a
+diagnosed infrastructure interruption by rerunning only affected failed jobs on
+the unchanged SHA; do not make an empty source commit to wake CI. Actual assertion
+failures still require investigation and correction. Record queue time, useful
+runtime, interruption cleanup, retry attempts and source-fix rounds separately;
+see [CI delivery](../../docs/operations/ci-delivery.md).
+
 Preserve deployment/live-test restrictions; landing does not authorize deployment. Real model-backed tests follow the user's test model/account rules; ordinary review is separate.
 
 ## Local review before push

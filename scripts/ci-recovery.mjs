@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { stripVTControlCharacters } from 'node:util';
 
 // Failure remains authoritative. This controller can request one real rerun;
 // it cannot issue statuses, skip checks, execute logs or accept test failures.
@@ -21,17 +22,37 @@ function currentPull(pr, run, repositoryId) {
   return pr.state === 'open' && pr.head?.sha === run.head_sha && pr.head?.repo?.id === repositoryId;
 }
 function infrastructureLog(data) {
-  const text = typeof data === 'string' ? data : Buffer.from(data).toString('utf8');
+  const text = stripVTControlCharacters(
+    typeof data === 'string' ? data : Buffer.from(data).toString('utf8'),
+  );
+  for (const line of text.split('\n')) {
+    const marker = line.indexOf('CI_BROWSER_EXIT ');
+    if (marker === -1) continue;
+    const result = JSON.parse(line.slice(marker + 'CI_BROWSER_EXIT '.length));
+    if (
+      result.signal &&
+      (!['SIGINT', 'SIGTERM'].includes(result.interruptedBy) ||
+        !['SIGINT', 'SIGTERM', 'SIGKILL'].includes(result.signal))
+    )
+      return false;
+    if (
+      result.error ||
+      (result.code !== null &&
+        result.code !== 0 &&
+        !(result.code === 130 && result.interruptedBy === 'SIGINT') &&
+        !(result.code === 143 && result.interruptedBy === 'SIGTERM'))
+    )
+      return false;
+  }
   return (
     text.length <= 16 * 1024 * 1024 &&
     /^.*##\[error\]The runner has received a shutdown signal\./m.test(text) &&
-    !/(?:\b[1-9][0-9]* failed\b|Error: expect\(|TimeoutError:|CI_BROWSER_EXIT.*"code":[1-9])/.test(
-      text,
-    )
+    !/(?:\b[1-9][0-9]* failed\b|Error: expect\(|TimeoutError:)/.test(text)
   );
 }
 export async function recoverCiRun({ github, context, core }) {
   const repositoryId = context.payload.repository.id;
+  if (!Number.isSafeInteger(repositoryId) || repositoryId <= 0) return false;
   const runId = context.payload.workflow_run.id;
   if (!Number.isSafeInteger(runId) || runId <= 0) return false;
   const repo = { owner: context.repo.owner, repo: context.repo.repo };

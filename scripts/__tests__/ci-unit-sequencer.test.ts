@@ -1,4 +1,17 @@
 import { expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { selectUnitShard, nativeConsumerOwners } from '../ci-unit-shards.mjs';
 
 const files = [
@@ -51,3 +64,55 @@ it('rejects invalid shard requests rather than omitting coverage silently', () =
   ])
     expect(() => selectUnitShard(files, '/checkout', index, count)).toThrow();
 });
+
+it('executes the configured sequencer in real Vitest and retains every file exactly once', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'ci-sequencer-')));
+  const selected = [
+    ...Object.keys(nativeConsumerOwners),
+    ...Array.from({ length: 8 }, (_, i) => `ordinary-${i}.test.ts`),
+  ];
+  try {
+    symlinkSync(resolve('node_modules'), join(root, 'node_modules'));
+    writeFileSync(
+      join(root, 'vitest.config.mjs'),
+      `import Sequencer from ${JSON.stringify(pathToFileURL(resolve('scripts/ci-unit-sequencer.ts')).href)};export default {test:{sequence:{sequencer:Sequencer}}};`,
+    );
+    for (const file of selected) {
+      mkdirSync(dirname(join(root, file)), { recursive: true });
+      writeFileSync(
+        join(root, file),
+        "import {test,expect} from 'vitest';test('offline fixture',()=>expect(true).toBe(true));",
+      );
+    }
+    const seen: string[] = [];
+    for (let shard = 1; shard <= 4; shard++) {
+      const report = join(root, `report-${shard}.json`);
+      const result = spawnSync(
+        process.execPath,
+        [
+          resolve('node_modules/vitest/vitest.mjs'),
+          'run',
+          `--shard=${shard}/4`,
+          '--maxWorkers=1',
+          '--reporter=json',
+          '--outputFile=' + report,
+        ],
+        {
+          cwd: root,
+          encoding: 'utf8',
+          env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=1024' },
+        },
+      );
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      const files = JSON.parse(readFileSync(report, 'utf8')).testResults.map(
+        (r: { name: string }) => r.name.slice(root.length + 1),
+      );
+      for (const [file, owner] of Object.entries(nativeConsumerOwners))
+        expect(files.includes(file)).toBe(owner === shard);
+      seen.push(...files);
+    }
+    expect(seen.sort()).toEqual(selected.sort());
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 20000);

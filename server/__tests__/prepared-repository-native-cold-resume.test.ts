@@ -1,4 +1,9 @@
-import { fixture, physical, cleanups } from './fixtures/prepared-repository-native-consumer.js';
+import {
+  fixture,
+  physical,
+  cleanups,
+  materializePreparation,
+} from './fixtures/prepared-repository-native-consumer.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { expect, it, vi } from 'vitest';
 import { join } from 'node:path';

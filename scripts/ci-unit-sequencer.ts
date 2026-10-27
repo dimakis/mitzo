@@ -1,5 +1,6 @@
 import { BaseSequencer, type TestSpecification } from 'vitest/node';
 import { selectUnitShard } from './ci-unit-shards.mjs';
+import { realpathSync } from 'node:fs';
 
 export default class CiUnitSequencer extends BaseSequencer {
   async shard(files: TestSpecification[]) {
@@ -8,7 +9,7 @@ export default class CiUnitSequencer extends BaseSequencer {
     const selected = new Set(
       selectUnitShard(
         files.map((file) => file.moduleId),
-        root,
+        realpathSync(root),
         shard.index,
         shard.count,
       ),
