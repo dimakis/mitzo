@@ -28,6 +28,29 @@ const compiled = build({
   },
 });
 
+// Load the offline host and bundle before the timed UI journey. Keep Node-side
+// network blocked between setup and each scenario as well as inside the cases.
+let restoreSetupFetch: (() => void) | undefined;
+test.beforeAll(async () => {
+  delete process.env.NTFY_TOPIC;
+  delete process.env.PUSHOVER_API_TOKEN;
+  delete process.env.PUSHOVER_USER_KEY;
+  const originalFetch = globalThis.fetch;
+  const externalFetches: string[] = [];
+  globalThis.fetch = async (input) => {
+    externalFetches.push(String(input));
+    throw Error('Offline source fixture forbids Node-side network');
+  };
+  restoreSetupFetch = () => {
+    globalThis.fetch = originalFetch;
+    expect(externalFetches).toEqual([]);
+  };
+  await compiled;
+  await import('../fixtures/telos-source-approval-data');
+  await import('../../server/telos-source-approval');
+});
+test.afterAll(() => restoreSetupFetch?.());
+
 for (const theme of ['dark', 'light'] as const)
   for (const responseLoss of ['source', 'canonical'] as const)
     test(`normal chat reviews exact Telos source, creates/adopts and recovers ${responseLoss} response loss (${theme})`, async ({

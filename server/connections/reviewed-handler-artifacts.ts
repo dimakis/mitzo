@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.721-local-repository-diagnostics';
+  'v1.0.722-local-repository-validation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2592,7 +2592,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../repository-git-container-policy.ts':
     'd6ba281d04e29552e89817f1ff899c77584c8b539a38c2bde58d764070a7d18b',
   '../__tests__/qualified-standalone-repository-observation.test.ts':
-    '78bffcda72f394606018aa42bef96edd97af9d11e1009a76137ffd45dcf37d11',
+    'de3c7ae943e87a97165186f5ca8a6e099548a9c341a9fddf31f6b0ca5f8b1855',
   '../../tests/integration/telos-s9/integrated-candidate/joined-fixture-processes.test.ts':
     '4d442ba9152d62d42cea7027194a3a4cbb589654a9dd4de6e0c56522ab2df676',
   '../../tests/integration/telos-s9/integrated-candidate/joined-fixture-processes.mjs':

@@ -4,7 +4,7 @@ import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import * as sandbox from '../sandboxed-command.js';
 import { captureLocalRepositoryReader } from '../local-repository-native-reader.js';
 import { repositoryObservationProgram } from '../native-repository-observation.js';
@@ -23,6 +23,17 @@ const env = {
   GIT_CONFIG_GLOBAL: '/dev/null',
   GIT_CONFIG_SYSTEM: '/dev/null',
 };
+// Keep first OS/tool startup outside the per-case proof budget. Every case
+// still creates a fresh repository and executes its own capture and verification.
+beforeAll(async () => {
+  if (process.platform !== 'darwin') return;
+  await promisify(execFile)('/usr/bin/git', ['--version'], { env, maxBuffer: 65536 });
+  await promisify(execFile)(
+    '/usr/bin/python3',
+    ['-I', '-c', 'import base64, hashlib, json, os, stat, sys, time'],
+    { env, maxBuffer: 65536 },
+  );
+});
 const git = (cwd: string, ...args: string[]) =>
   execFileSync(
     '/usr/bin/git',
