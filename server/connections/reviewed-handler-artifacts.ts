@@ -50,7 +50,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-codex-real-start.test.ts':
     '5f46e02300d1f5767fcf745be77a1e18a41863da40002ef67e6e208a4ffc1763',
   '../__tests__/retained-local-codex-recovery.test.ts':
-    'aad319ddf7bd340e9ea214acba684cb5ec6d1c9144fd90a2ad038bad40236fe3',
+    'ac3f8fd76393d43cd7d72a5c2f2b6a101c2646cfd4188992fbf1b23ef93f335c',
   '../retained-local-codex-recovery.ts':
     '5825421f387a6ff8050f77a564118ae6e9c5fad8ccb4b27ac99d68319fb77c67',
   '../../tests/offline/queue-status.spec.ts':
