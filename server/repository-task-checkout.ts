@@ -74,6 +74,94 @@ export async function snapshotRepositoryTaskCheckout(
   }
   if ((await readFile(head, 'utf8')).trim() !== `ref: refs/heads/${featureBranch}`)
     throw new Error('Retained repository task branch changed');
+  // Qualify mutable standalone metadata before Git can load its local config,
+  // common-store redirection or shallow/alternate paths. The bounded inspector
+  // parses config bytes outside the repository without following includes.
+  let objectFormat: 'sha1' | 'sha256' = 'sha1';
+  for (const name of ['config', 'config.worktree']) {
+    const path = join(gitDirectory, name);
+    const entry = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+      return null;
+    });
+    if (!entry && name === 'config.worktree') continue;
+    if (
+      !entry?.isFile() ||
+      entry.nlink !== 1 ||
+      entry.size > 65536 ||
+      (await realpath(path)) !== path
+    )
+      throw new Error('Standalone Git configuration is unavailable');
+    const parser = run(
+      '/usr/bin/git',
+      ['config', '--no-includes', '--file', '-', '--null', '--list'],
+      {
+        cwd: '/',
+        timeout: 5000,
+        maxBuffer: 131072,
+        env: {
+          PATH: '/usr/bin:/bin',
+          HOME: '/nonexistent',
+          GIT_CONFIG_SYSTEM: '/dev/null',
+          GIT_CONFIG_GLOBAL: '/dev/null',
+          GIT_CONFIG_NOSYSTEM: '1',
+        },
+      },
+    );
+    parser.child.stdin?.end(await readFile(path));
+    for (const setting of (await parser).stdout.split('\0').filter(Boolean)) {
+      const separator = setting.indexOf('\n');
+      const key = setting.slice(0, separator === -1 ? undefined : separator).toLowerCase();
+      const value = separator === -1 ? undefined : setting.slice(separator + 1);
+      if (
+        /^include(if)?\./.test(key) ||
+        (key.startsWith('extensions.') &&
+          !['extensions.objectformat', 'extensions.worktreeconfig'].includes(key)) ||
+        (key === 'core.worktree' && value !== directory) ||
+        (key === 'core.bare' && !['false', 'no', 'off', '0'].includes(value?.toLowerCase() ?? ''))
+      )
+        throw new Error('External standalone Git configuration is unavailable');
+      if (key === 'extensions.objectformat') {
+        if (value !== 'sha1' && value !== 'sha256')
+          throw new Error('Standalone Git object format is unavailable');
+        objectFormat = value;
+      }
+    }
+  }
+  for (const name of ['commondir', 'shallow']) {
+    const path = join(gitDirectory, name);
+    const entry = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+      return null;
+    });
+    if (!entry) continue;
+    if (
+      name === 'commondir' ||
+      !entry.isFile() ||
+      entry.nlink !== 1 ||
+      entry.size > 65536 ||
+      (await realpath(path)) !== path
+    )
+      throw new Error('External standalone Git storage is unavailable');
+    const oidLength = objectFormat === 'sha256' ? 64 : 40;
+    if (
+      !(await readFile(path, 'utf8'))
+        .split('\n')
+        .filter(Boolean)
+        .every((oid) => new RegExp(`^[a-f0-9]{${oidLength}}$`).test(oid))
+    )
+      throw new Error('Standalone shallow history is unavailable');
+  }
+  const objects = join(gitDirectory, 'objects');
+  if (!(await lstat(objects)).isDirectory() || (await realpath(objects)) !== objects)
+    throw new Error('Retained repository task object storage changed');
+  for (const name of ['info/alternates', 'info/http-alternates']) {
+    const entry = await lstat(join(objects, name)).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+      return null;
+    });
+    if (entry) throw new Error('External standalone Git storage is unavailable');
+  }
   const runGit = (args: string[]) =>
     run(
       readOnlyGitExecutable(),
@@ -102,17 +190,8 @@ export async function snapshotRepositoryTaskCheckout(
       throw new Error('Retained repository task Git history is unavailable');
     });
   const oid = (await runGit(['rev-parse', '--verify', 'HEAD'])).stdout.trim();
-  if (!/^[a-f0-9]{40}$/.test(oid)) throw new Error('Retained repository task branch changed');
-  const objects = join(gitDirectory, 'objects');
-  if (!(await lstat(objects)).isDirectory() || (await realpath(objects)) !== objects)
-    throw new Error('Retained repository task object storage changed');
-  for (const name of ['info/alternates', 'info/http-alternates']) {
-    const entry = await lstat(join(objects, name)).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== 'ENOENT') throw error;
-      return null;
-    });
-    if (entry) throw new Error('External standalone Git storage is unavailable');
-  }
+  if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(oid))
+    throw new Error('Retained repository task branch changed');
   // Verify the retained commit without project hooks, filters, lazy fetches or ambient credentials.
   await runGit(['cat-file', '-e', `${oid}^{commit}`]);
   const afterRoot = await lstat(directory),
@@ -141,7 +220,7 @@ export async function validateRepositoryTaskCheckout(
   const current = await snapshotRepositoryTaskCheckout(
     directory,
     expected.featureBranch,
-    expected.localSource,
+    expected.linkedGit ? expected.localSource : undefined,
   );
   if (
     current.root.dev !== expected.root.dev ||
@@ -151,5 +230,7 @@ export async function validateRepositoryTaskCheckout(
     JSON.stringify(current.linkedGit) !== JSON.stringify(expected.linkedGit)
   )
     throw new Error('Retained repository task identity changed');
-  return current;
+  return expected.localSource && !expected.linkedGit
+    ? { ...current, localSource: structuredClone(expected.localSource) }
+    : current;
 }

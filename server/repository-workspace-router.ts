@@ -5,7 +5,12 @@ import {
 import express from 'express';
 import { z } from 'zod';
 import type { AccountBinding } from '@mitzo/protocol';
-import type { AuthSession } from './auth.js';
+import { isAuthSessionCurrent, type AuthSession } from './auth.js';
+import { isDeepStrictEqual } from 'node:util';
+import type {
+  RepositoryWorkspace,
+  RepositoryRetirementAuthorization,
+} from './repository-workspaces.js';
 import { requireSameOriginJson } from './connections-router.js';
 import {
   RepositorySourceLimitError,
@@ -44,7 +49,23 @@ export function createRepositoryWorkspaceRouter(deps: {
   ): Promise<unknown>;
   prepare(id: string, binding: AccountBinding, signal: AbortSignal): Promise<unknown>;
   status?(id: string, binding: AccountBinding): unknown;
-  discard?(id: string, binding: AccountBinding): Promise<void>;
+  discard?(
+    id: string,
+    binding: AccountBinding,
+    authority: RepositoryRetirementAuthorization,
+  ): Promise<void>;
+  assertUnusedNativePreparation?(record: Readonly<RepositoryWorkspace>): void;
+  assertTaskStopped?(record: Readonly<RepositoryWorkspace>): void;
+  retireTask?(
+    id: string,
+    binding: AccountBinding,
+    authority: RepositoryRetirementAuthorization,
+  ): Promise<unknown>;
+  restoreTask?(
+    id: string,
+    binding: AccountBinding,
+    authority: RepositoryRetirementAuthorization,
+  ): Promise<unknown>;
 }) {
   const router = express.Router();
   router.use((req, res, next) => {
@@ -213,15 +234,79 @@ export function createRepositoryWorkspaceRouter(deps: {
       return res.status(404).json({ error: 'Repository preparation unavailable for this account' });
     }
   });
+  const retirementAuthority = (
+    auth: AuthSession,
+    selected: z.infer<typeof selection>,
+    binding: AccountBinding,
+  ): RepositoryRetirementAuthorization => {
+    const assertNative = deps.assertUnusedNativePreparation,
+      assertStopped = deps.assertTaskStopped;
+    return Object.freeze({
+      assertCurrent: async () => {
+        if (
+          !isAuthSessionCurrent(auth) ||
+          !isDeepStrictEqual(binding, deps.resolveBinding(selected.accountId, selected.model))
+        )
+          throw Error('Current retirement operator and account required');
+      },
+      ...(assertNative
+        ? {
+            assertUnusedNativePreparation: (record: Readonly<RepositoryWorkspace>) => {
+              if (
+                deps.assertUnusedNativePreparation !== assertNative ||
+                !isAuthSessionCurrent(auth)
+              )
+                throw Error('Current native retirement authority required');
+              assertNative(record);
+            },
+          }
+        : {}),
+      ...(assertStopped
+        ? {
+            assertTaskStopped: (record: Readonly<RepositoryWorkspace>) => {
+              if (deps.assertTaskStopped !== assertStopped || !isAuthSessionCurrent(auth))
+                throw Error('Current stopped task authority required');
+              assertStopped(record);
+            },
+          }
+        : {}),
+    });
+  };
+  for (const action of ['retire', 'restore'] as const)
+    router.post(`/:id/${action}`, requireSameOriginJson, async (req, res) => {
+      const input = selection.safeParse(req.body);
+      if (!input.success || !z.uuid().safeParse(req.params.id).success)
+        return res.status(400).json({ error: 'Invalid repository task selection' });
+      try {
+        const effect = action === 'retire' ? deps.retireTask : deps.restoreTask;
+        if (!effect || !deps.assertTaskStopped) throw Error('Task lifecycle owner unavailable');
+        const binding = deps.resolveBinding(input.data.accountId, input.data.model);
+        await effect(
+          String(req.params.id),
+          binding,
+          retirementAuthority(res.locals.authSession as AuthSession, input.data, binding),
+        );
+        return res.json({ [action === 'retire' ? 'archived' : 'restored']: true });
+      } catch {
+        return res.status(409).json({
+          error:
+            action === 'retire'
+              ? 'This task must be stopped with no queued work before it can be preserved and retired.'
+              : 'The archived task could not be safely restored. Its preserved files have been retained.',
+        });
+      }
+    });
   router.delete('/:id', requireSameOriginJson, async (req, res) => {
     const input = selection.safeParse(req.query);
     if (!input.success || !z.uuid().safeParse(req.params.id).success)
       return res.status(400).json({ error: 'Invalid repository preparation' });
     try {
       if (!deps.discard) throw new Error('unavailable');
+      const binding = deps.resolveBinding(input.data.accountId, input.data.model);
       await deps.discard(
         String(req.params.id),
-        deps.resolveBinding(input.data.accountId, input.data.model),
+        binding,
+        retirementAuthority(res.locals.authSession as AuthSession, input.data, binding),
       );
       return res.json({ discarded: true });
     } catch {

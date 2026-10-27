@@ -288,7 +288,10 @@ export async function inspectLocalRepositoryGitMetadata(
       ].slice(-8);
       if (ready.length) {
         for (const path of ready) await physical(path);
-        if (!(headOnly && request.readAccess.repositoryObservationMode === 'base'))
+        if (!(
+          headOnly &&
+          ['base', 'task-topology'].includes(request.readAccess.repositoryObservationMode ?? '')
+        ))
           await request.readAccess.preloadDirectories(ready);
         for (const path of ready) preloaded.add(path);
       }
@@ -299,7 +302,8 @@ export async function inspectLocalRepositoryGitMetadata(
     await physical(directory);
     const opened = request.readAccess
       ? (
-          await (headOnly && request.readAccess.repositoryObservationMode === 'base'
+          await (headOnly &&
+          ['base', 'task-topology'].includes(request.readAccess.repositoryObservationMode ?? '')
             ? request.readAccess.headMetadataEntries(directory)
             : request.readAccess.list(directory))
         ).map((entry) => ({

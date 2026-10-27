@@ -333,3 +333,131 @@ it('changes only current native workspace after the operation boundary and keeps
     reopened.close();
   }
 });
+
+it('verifies adopted-primary recovery custody without replaying its interrupted command', () => {
+  const f = fixture();
+  f.store.pauseForRecovery(
+    'conversation',
+    binding,
+    'original',
+    'interrupted',
+    'resume',
+    undefined,
+    true,
+    true,
+  );
+  const before = f.store.commands('conversation', binding);
+  expect(() =>
+    f.store.assertPreparedRepositoryRecovery('conversation', binding, 'original'),
+  ).not.toThrow();
+  expect(f.store.commands('conversation', binding)).toEqual(before);
+  expect(f.store.read('conversation', binding).recovery).toBe(1);
+  f.store.acknowledgeRecovery('conversation', binding);
+  expect(() =>
+    f.store.assertPreparedRepositoryRecovery('conversation', binding, 'original'),
+  ).not.toThrow();
+  expect(f.store.commandStatus('conversation', binding, 'original')).toBe('interrupted');
+});
+
+it('refuses recovery ownership when an interrupted primary lacks accepted native execution evidence', () => {
+  const f = fixture({ ack: false });
+  f.store.pauseForRecovery(
+    'conversation',
+    binding,
+    'original',
+    'interrupted',
+    'resume',
+    undefined,
+    true,
+    true,
+  );
+  expect(() =>
+    f.store.assertPreparedRepositoryRecovery('conversation', binding, 'original'),
+  ).toThrow();
+});
+
+it('holds existing and late explicit messages behind one prepared workspace transition without changing FIFO evidence', () => {
+  const f = fixture();
+  f.store.finish('conversation', binding, 'original', 'completed', 'turn');
+  f.store.enqueue('conversation', binding, { id: 'first', prompt: 'Stop the original task' });
+  const before = f.store.commands('conversation', binding);
+  const fence = f.store.holdPreparedRepositoryTransition('conversation', binding, source);
+  expect(() =>
+    f.store.assertCompletedPreparedRepositorySource('conversation', binding, source),
+  ).toThrow();
+  expect(() =>
+    f.store.assertCompletedPreparedRepositorySource(
+      'conversation',
+      binding,
+      source,
+      undefined,
+      fence,
+    ),
+  ).not.toThrow();
+  expect(f.store.claimNext('conversation', binding)).toBeUndefined();
+  f.store.enqueue('conversation', binding, {
+    id: 'late',
+    prompt: 'Use low reasoning',
+    model: 'offline',
+    reasoningEffort: 'low',
+  });
+  expect(f.store.claimNext('conversation', binding)).toBeUndefined();
+  expect(f.store.commands('conversation', binding).slice(0, before.length)).toEqual(before);
+  expect(f.store.read('conversation', binding).recovery).toBe(0);
+  expect(
+    f.store
+      .commands('conversation', binding)
+      .filter((command) => command.status === 'queued')
+      .map((command) => command.id),
+  ).toEqual(['first', 'late']);
+  expect(() =>
+    f.store.assertCompletedPreparedRepositorySource(
+      'conversation',
+      binding,
+      { ...source, resultSha256: 'e'.repeat(64) },
+      undefined,
+      fence,
+    ),
+  ).toThrow();
+});
+
+it('permits only an unused settled native preparation and refuses pending tools, work or transition holds', () => {
+  const f = fixture();
+  f.store.finish('conversation', binding, 'original', 'completed', 'turn');
+  const record = {
+    id: 'unused-preparation',
+    pendingHostTask: {
+      request: {
+        conversationId: 'conversation',
+        binding,
+        nativeTarget: f.store.completedNativeTurnTarget('conversation', binding),
+      },
+      directory: '/unused-task',
+    },
+  };
+  expect(() => f.store.assertUnusedNativePreparation(record as never)).not.toThrow();
+  f.store.holdPreparedRepositoryTransition('conversation', binding, source);
+  expect(() => f.store.assertUnusedNativePreparation(record as never)).toThrow();
+  const pending = fixture({ result: false });
+  pending.store.finish('conversation', binding, 'original', 'completed', 'turn');
+  expect(() => pending.store.assertUnusedNativePreparation(record as never)).toThrow();
+  const queued = fixture();
+  queued.store.finish('conversation', binding, 'original', 'completed', 'turn');
+  queued.store.enqueue('conversation', binding, { id: 'new-work', prompt: 'Keep working' });
+  expect(() => queued.store.assertUnusedNativePreparation(record as never)).toThrow();
+});
+
+it('verifies a stopped repository task without acknowledging recovery or releasing queued work', () => {
+  const f = fixture();
+  f.store.finish('conversation', binding, 'original', 'completed', 'turn');
+  const record = {
+    id: 'owned-task',
+    conversationId: 'conversation',
+    binding,
+    directory: '/original',
+  };
+  expect(() => f.store.assertRepositoryTaskStopped(record as never)).not.toThrow();
+  f.store.enqueue('conversation', binding, { id: 'pending', prompt: 'Continue' });
+  expect(() => f.store.assertRepositoryTaskStopped(record as never)).toThrow();
+  expect(f.store.commandStatus('conversation', binding, 'pending')).toBe('queued');
+});

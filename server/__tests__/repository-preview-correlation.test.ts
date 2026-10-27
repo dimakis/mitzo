@@ -285,6 +285,11 @@ it('recovers terminal ordinary metadata after actual prepare then discard withou
   expect(existsSync(original.directory)).toBe(true);
   await f.service.discard(original.id, binding);
   expect(existsSync(original.directory)).toBe(false);
+  expect(f.service.get(original.id).retirement).toMatchObject({
+    kind: 'unused',
+    disposition: 'retired',
+    receipt: { state: 'retired' },
+  });
   const before = f.rows(),
     inspected = f.inspect.mock.calls.length,
     captured = f.capture.mock.calls.length;
@@ -295,6 +300,7 @@ it('recovers terminal ordinary metadata after actual prepare then discard withou
     id: original.id,
     state: 'discarded',
   });
+  await expect(f.service.prepare(original.id, binding, signal())).rejects.toThrow('retiring');
   expect(f.rows()).toEqual(before);
   expect(f.prepare).toHaveBeenCalledOnce();
   expect(f.inspect).toHaveBeenCalledTimes(inspected);

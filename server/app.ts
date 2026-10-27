@@ -242,6 +242,7 @@ import {
   readCodexCapacityRecovery,
 } from './codex-chat-session.js';
 import { createCodexQueueRouter } from './codex-queue-routes.js';
+import { assertRepositoryTaskRetirement } from './repository-task-retirement.js';
 import { createCodexPathProtection } from './codex-private-path.js';
 import { isWorkspaceRuntimeAuthorityWritePath } from './workspace-runtime-private-paths.js';
 import { selectedOpenShellAccountRoute } from './codex-chat-session.js';
@@ -3224,7 +3225,29 @@ app.use(
       ),
     prepare: (id, binding, signal) => getRepositoryWorkspaces().prepare(id, binding, signal),
     status: (id, binding) => getRepositoryWorkspaces(true).qualifiedStatus(id, binding),
-    discard: (id, binding) => getRepositoryWorkspaces(true).discard(id, binding),
+    discard: (id, binding, authority) =>
+      getRepositoryWorkspaces(true).discard(id, binding, authority),
+    assertUnusedNativePreparation: (record) => {
+      const pending = record.pendingHostTask;
+      if (!pending?.directory) throw Error('Unused preparation reference custody unavailable');
+      eventStore.assertNoOtherWorkspaceReferences(
+        pending.request.conversationId,
+        pending.directory,
+      );
+      getCodexConversationStore().assertUnusedNativePreparation(record);
+    },
+    retireTask: (id, binding, authority) =>
+      getRepositoryWorkspaces(true).retireTask(id, binding, authority),
+    restoreTask: (id, binding, authority) =>
+      getRepositoryWorkspaces(true).restoreTask(id, binding, authority),
+    assertTaskStopped: (record) =>
+      assertRepositoryTaskRetirement(record, {
+        events: eventStore,
+        registry,
+        assertNativeStopped: (workspace) =>
+          getCodexConversationStore().assertRepositoryTaskStopped(workspace),
+        protectedDirectories: [process.cwd()],
+      }),
   }),
 );
 

@@ -260,20 +260,49 @@ export async function createAdvisorChildProcessFixture() {
     expect(() => process.kill(old.pid!, 0)).toThrow();
     await saveLifecycle();
   };
-  let closed = false;
-  const resources: { closeBrowser?: () => Promise<void>; closeFront?: () => Promise<void> } = {};
-  emergencyClose = async () => {
-    if (closed) return;
-    closed = true;
-    await resources.closeBrowser?.();
-    await operatorReader?.cancel().catch(() => {});
+  let closing: Promise<void> | undefined;
+  const disposeChild = async () => {
+    if (!child || child.exitCode !== null || child.signalCode !== null) return;
+    target = undefined;
+    const current = child;
+    await new Promise<void>((done, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(Error('Child App disposal did not join its protected commands'));
+      }, 35_000);
+      const cleanup = () => {
+        clearTimeout(timer);
+        current.off('message', onMessage);
+        current.off('exit', onExit);
+      };
+      const onMessage = (message: unknown) => {
+        if ((message as { type?: string })?.type !== 'disposed') return;
+        cleanup();
+        lifecycle.push({ event: 'disposed', pid: current.pid, generation });
+        done();
+      };
+      const onExit = () => {
+        cleanup();
+        reject(Error('Child App exited before joining its protected commands'));
+      };
+      current.on('message', onMessage);
+      current.once('exit', onExit);
+      current.send({ type: 'dispose' });
+    });
     await crash();
-    await resources.closeFront?.();
-    for (const c of cleanups.reverse()) await c();
-    await rm(initial, { recursive: true, force: true });
-    vi.restoreAllMocks();
-    vi.unstubAllEnvs();
   };
+  const resources: { closeBrowser?: () => Promise<void>; closeFront?: () => Promise<void> } = {};
+  emergencyClose = () =>
+    (closing ??= (async () => {
+      await resources.closeBrowser?.();
+      await operatorReader?.cancel().catch(() => {});
+      await disposeChild();
+      await resources.closeFront?.();
+      for (const c of cleanups.reverse()) await c();
+      await rm(initial, { recursive: true, force: true });
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+    })());
   const initialReady = await start();
   const proxy = express();
   proxy.use((req, res) => {

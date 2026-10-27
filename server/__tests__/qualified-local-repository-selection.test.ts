@@ -124,8 +124,6 @@ function fixture() {
     assertLocalRepositoryAccess: vi.fn(async () => {
       throw Error('No ambient source reads');
     }),
-    assertPendingHostTaskCurrentSync: vi.fn(() => {}),
-    assertPendingHostTaskAccess: vi.fn(async () => {}),
     ordinaryPreparation: {
       capture: vi.fn(async () => ({
         version: 1 as const,
@@ -288,17 +286,10 @@ it('refuses qualified-only rows in legacy selectors/status/materializers before 
     ),
   ).rejects.toThrow();
   await expect(f.service.qualifiedStatus(id, binding)).rejects.toThrow();
-  await expect(
-    f.service.reservePendingHostTask(f.input.request, new AbortController().signal),
-  ).rejects.toThrow();
-  await expect(
-    f.service.materializePendingHostTask(f.input.request, new AbortController().signal),
-  ).rejects.toThrow();
   await expect(f.service.claim(id, binding, 'legacy', taskRoot, false)).rejects.toThrow();
   await expect(f.service.releaseSource(id, binding, 'legacy')).rejects.toThrow();
   await expect(f.service.prepare(id, binding, new AbortController().signal)).rejects.toThrow();
   expect(f.deps.assertLocalRepositoryAccess).not.toHaveBeenCalled();
-  expect(f.deps.assertPendingHostTaskAccess).not.toHaveBeenCalled();
   expect(f.service.get(id)).toEqual(original);
 });
 

@@ -309,3 +309,61 @@ it('loads a durable chat draft through operator authentication without accepting
   });
   expect((await request(app).get(`/repositories/${id}/chat-preparation`)).status).toBe(404);
 });
+
+it('routes explicit task retirement/restoration through fresh operator authority and a stopped-task gate', async () => {
+  const app = express();
+  app.use(express.json());
+  const auth = { id: 'operator', expiresAt: Date.now() + 60000 };
+  app.use((_req, res, next) => {
+    res.locals.authSession = auth;
+    next();
+  });
+  const binding = {
+    accountId: 'account',
+    model: 'model',
+    provider: 'openai',
+    profileRevision: 'revision',
+  } as AccountBinding;
+  const record = {
+    id: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+  } as import('../repository-workspaces.js').RepositoryWorkspace;
+  const stopped = vi.fn();
+  const effect = vi.fn(
+    async (
+      _id,
+      _binding,
+      authority: import('../repository-workspaces.js').RepositoryRetirementAuthorization,
+    ) => {
+      await authority.assertCurrent(record);
+      authority.assertTaskStopped!(record);
+    },
+  );
+  app.use(
+    '/repositories',
+    createRepositoryWorkspaceRouter({
+      resolveBinding: () => binding,
+      catalog: vi.fn(),
+      preview: vi.fn(),
+      prepare: vi.fn(),
+      retireTask: effect,
+      restoreTask: effect,
+      assertTaskStopped: stopped,
+    }),
+  );
+  for (const action of ['retire', 'restore']) {
+    const response = await request(app)
+      .post(`/repositories/${record.id}/${action}`)
+      .send({ accountId: 'account', model: 'model' });
+    expect(response.status).toBe(200);
+  }
+  expect(effect).toHaveBeenCalledTimes(2);
+  expect(stopped).toHaveBeenCalledTimes(2);
+  effect.mockImplementationOnce(async (_id, _binding, authority) => {
+    auth.expiresAt = Date.now() - 1;
+    await authority.assertCurrent(record);
+  });
+  const refused = await request(app)
+    .post(`/repositories/${record.id}/retire`)
+    .send({ accountId: 'account', model: 'model' });
+  expect(refused.status).toBe(409);
+});

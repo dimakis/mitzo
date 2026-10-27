@@ -1,3 +1,4 @@
+import { repositoryGitEntrySizeLimit } from './repository-git-container-policy.js';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import type { NativeReadAnchor, NativeReadIdentity } from './native-file-operation.js';
 
@@ -157,9 +158,17 @@ export function projectNativeRepositoryTreeEntries(
 ): readonly NativeExclusiveTreeEntry[] {
   return projectTreeEntries(input, validNativeRepositoryTreeRelativePath);
 }
+/** Only the fixed independent Git administration phase may consume larger
+ * opaque pack/index containers. Tracked files and metadata keep their limit. */
+export function projectNativeRepositoryGitTreeEntries(
+  input: unknown,
+): readonly NativeExclusiveTreeEntry[] {
+  return projectTreeEntries(input, validNativeRepositoryTreeRelativePath, true);
+}
 function projectTreeEntries(
   input: unknown,
   validPath: (value: unknown) => value is string,
+  gitContainers = false,
 ): readonly NativeExclusiveTreeEntry[] {
   let bytes = 0;
   const entries = array(input, 10000).map((value) => {
@@ -174,7 +183,10 @@ function projectTreeEntries(
       typeof size !== 'number' ||
       !Number.isSafeInteger(size) ||
       size < 0 ||
-      size > 16 * 1024 * 1024 ||
+      size >
+        (gitContainers && mode === '100644'
+          ? repositoryGitEntrySizeLimit(relative)
+          : 16 * 1024 * 1024) ||
       (mode === '040000' && size !== 0) ||
       (mode === '120000' && size > 4096) ||
       typeof sha256 !== 'string' ||

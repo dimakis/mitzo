@@ -226,7 +226,8 @@ it.runIf(process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION 
     });
     let result: Awaited<ReturnType<typeof f.a.call>> | undefined;
     try {
-      result = await f.a.call({ path: source });
+      // The denial journey reads this deliberately modified local fixture snapshot.
+      result = await f.a.call({ path: source, base: { kind: 'ref', ref: 'HEAD' } });
     } finally {
       // No assertions in the callback or before this unconditional bounded record.
       // It contains no source contents, identities, paths or credential material.

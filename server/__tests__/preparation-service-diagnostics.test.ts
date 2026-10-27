@@ -7,6 +7,7 @@ import {
 } from './prepared-repository-candidate-fixture.js';
 import { materializeQualifiedLocalRepositoryTask } from '../qualified-local-repository-actor.js';
 import { createHash } from 'node:crypto';
+import { PendingHostTaskReceiptSchema } from '../pending-host-task.js';
 
 vi.mock('../qualified-local-repository-actor.js', () => ({
   materializeQualifiedLocalRepositoryTask: vi.fn(),
@@ -73,6 +74,7 @@ it.each(['actor', 'schema', 'bound', 'cas', 'success'] as const)(
     const serviceState = observePreparationService(diagnostics, f.service, (receipt) => {
       privatelyObserved = receipt;
     });
+    cleanups.push(serviceState.restore);
     const operation = f.service.beginPendingHostTaskDecisionMaterialization(
       f.record.pendingHostTask!.request,
       f.owner as never,
@@ -156,3 +158,28 @@ it.each(['actor', 'schema', 'bound', 'cas', 'success'] as const)(
     if (failure === 'cas') expect(diagnostics.snapshot().stages['row-cas'].errors).toHaveLength(1);
   },
 );
+
+it('observes repeated real lookups without mock histories and restores each method', () => {
+  const f = fixture();
+  const prepare = f.db.prepare;
+  const materialize = f.service.materializeQualifiedPendingHostTask;
+  const parse = PendingHostTaskReceiptSchema.parse;
+  const ownPrepare = Object.getOwnPropertyDescriptor(f.db, 'prepare');
+  const serviceState = observePreparationService(createPreparationAttemptDiagnostics(), f.service);
+  cleanups.push(serviceState.restore);
+  expect(vi.isMockFunction(f.db.prepare)).toBe(false);
+  expect(vi.isMockFunction(PendingHostTaskReceiptSchema.parse)).toBe(false);
+  expect(vi.isMockFunction(f.service.materializeQualifiedPendingHostTask)).toBe(false);
+  for (let index = 0; index < 1000; index++)
+    expect(f.db.prepare('SELECT 42 AS value').get()).toEqual({ value: 42 });
+  expect(serviceState()).toEqual({
+    receipt: { status: 'not-reached' },
+    cas: { calls: 0, returned: 0, zeroChanges: 0 },
+  });
+  serviceState.restore();
+  serviceState.restore();
+  expect(f.db.prepare).toBe(prepare);
+  expect(Object.getOwnPropertyDescriptor(f.db, 'prepare')).toEqual(ownPrepare);
+  expect(PendingHostTaskReceiptSchema.parse).toBe(parse);
+  expect(f.service.materializeQualifiedPendingHostTask).toBe(materialize);
+});

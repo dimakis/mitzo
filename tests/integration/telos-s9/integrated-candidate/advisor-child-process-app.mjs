@@ -8,6 +8,8 @@ import { pathToFileURL, URL } from 'node:url';
 import { createServer } from 'node:http';
 const config = JSON.parse(readFileSync(process.env.S9_RESTART_CONFIG, 'utf8'));
 const root = process.cwd();
+const { observeJoinedFixtureProcesses } = await import('./joined-fixture-processes.mjs');
+const fixtureProcesses = observeJoinedFixtureProcesses();
 const effect = (kind, detail = {}) =>
   appendFileSync(
     config.effectsPath,
@@ -180,7 +182,8 @@ await new Promise((done, reject) => {
 const port = server.address().port;
 if ([3100, 3101, 3190].includes(port)) throw Error('Reserved runtime port forbidden');
 process.env.PORT = String(port);
-process.on('message', async (message) => {
+const inFlightMessages = new Set();
+const handleMessage = async (message) => {
   if (message?.type === 'provider-reply') {
     try {
       const current = fakeNative.at(-1);
@@ -311,6 +314,24 @@ process.on('message', async (message) => {
   } catch (e) {
     process.send?.({ type: 'snapshot', id: message.id, error: String(e) });
   }
+};
+let disposal;
+process.on('message', (message) => {
+  if (message?.type === 'dispose') {
+    disposal ??= (async () => {
+      await new Promise((done, reject) =>
+        server.close((error) => (error ? reject(error) : done())),
+      );
+      await Promise.all([...inFlightMessages]);
+      await fixtureProcesses.close();
+      process.send?.({ type: 'disposed' });
+    })();
+    return;
+  }
+  if (disposal) return;
+  const operation = handleMessage(message);
+  inFlightMessages.add(operation);
+  void operation.finally(() => inFlightMessages.delete(operation));
 });
 process.send?.({
   type: 'ready',

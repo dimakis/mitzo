@@ -39,8 +39,11 @@ vi.mock('../local-repository-allocation-facts.js', async (original) => ({
   captureLocalRepositoryAllocationFacts: vi.fn(),
 }));
 const physical = vi.hoisted(() => ({ reader: vi.fn(), creation: vi.fn() }));
-vi.mock('../local-repository-native-read.js', async (original) => ({
-  ...(await original<typeof import('../local-repository-native-read.js')>()),
+// Explicit facade exports avoid loading cyclic consumers via importActual before
+// Vitest installs the controlled reader. No real native/SRT read may escape.
+vi.mock('../local-repository-native-read.js', () => ({
+  captureNativeReaderPathAuthorization: () => undefined,
+  preparedRepositoryValidationReadMs: 60000,
   capturePreparedRepositoryReader: physical.reader,
   captureNativeLocalRepositoryReader: physical.reader,
 }));
@@ -143,6 +146,8 @@ async function descriptor(request: NativeAnchoredReadRequest, signal: AbortSigna
 it.each([false, true])(
   'uses the ACTUAL signed callback receipt and durable hash at the completed boundary (candidate mismatch=%s)',
   async (mismatch) => {
+    physical.reader.mockClear();
+    physical.creation.mockClear();
     vi.stubGlobal(
       'fetch',
       vi.fn(() => {
@@ -275,6 +280,7 @@ it.each([false, true])(
       state: 'materialized',
     });
     expect(objectDispose).toHaveBeenCalledOnce();
+    expect(physical.reader).toHaveBeenCalledOnce();
     expect(readerDispose).toHaveBeenCalledOnce();
     expect(approve).toHaveBeenCalledOnce();
     expect(materialize).toHaveBeenCalledOnce();

@@ -94,23 +94,41 @@ jobs:
   offline:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
-    name: Offline layouts (${{ matrix.project }})
+    name: Offline layouts (${{ matrix.project }} ${{ matrix.shard }}/${{ matrix.shards }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
       contents: read
     strategy:
-      # Keep independent coverage and diagnostics even when another project fails.
+      # Bound each WebKit browser lifetime while retaining every test and its evidence.
+      # Keep independent coverage and diagnostics even when another shard fails.
       fail-fast: false
       matrix:
-        project: [mobile-webkit, mobile-chromium, desktop-chromium]
         include:
           - project: mobile-webkit
             browser: webkit
+            shard: 1
+            shards: 4
+          - project: mobile-webkit
+            browser: webkit
+            shard: 2
+            shards: 4
+          - project: mobile-webkit
+            browser: webkit
+            shard: 3
+            shards: 4
+          - project: mobile-webkit
+            browser: webkit
+            shard: 4
+            shards: 4
           - project: mobile-chromium
             browser: chromium
+            shard: 1
+            shards: 1
           - project: desktop-chromium
             browser: chromium
+            shard: 1
+            shards: 1
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -130,12 +148,12 @@ jobs:
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Verify shared theme and mobile layouts without a backend
         id: offline-tests
-        run: npm run test:ui -- --project=${{ matrix.project }}
+        run: npm run test:ui -- --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}
       - name: Retain offline layout failure evidence
         if: ${{ always() && steps.offline-tests.outcome == 'failure' }}
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-offline-failure-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: playwright-offline-failure-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/offline/
             playwright-report/offline/
@@ -146,7 +164,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: agent-tool-selection-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: agent-tool-selection-visuals-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/offline/**/agent-tools-*.png
             test-results/offline/**/tool-library-*.png
@@ -157,7 +175,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: responsiveness-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: responsiveness-visuals-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-results/offline/**/responsiveness-*.png
           retention-days: 7
           if-no-files-found: warn
@@ -166,7 +184,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: local-first-command-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: local-first-command-visuals-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/offline/**/local-*.png
             test-results/offline/**/quick-chat-settings-*.png
@@ -180,7 +198,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: telos-context-and-setup-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: telos-context-and-setup-visuals-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/offline/**/role-*.png
             test-results/offline/**/reviewed-context-*.png
@@ -192,7 +210,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: artefact-sharing-acceptance-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: artefact-sharing-acceptance-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/offline/**/artefact-sharing.png
             test-results/offline/**/file-options.png
@@ -203,7 +221,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: telos-saved-navigation-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: telos-saved-navigation-visuals-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/offline/telos-outcomes-workspace*/saved-link-*.png
             test-results/offline/telos-outcomes-workspace*/scroll-restored-*.png
@@ -343,6 +361,20 @@ jobs:
           "$RUNNER_TEMP/telos-s9-python/bin/python" -m pip install --require-hashes -r tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-requirements.txt
           echo "S9_MGMT_PYTHON=$RUNNER_TEMP/telos-s9-python/bin/python" >> "$GITHUB_ENV"
           npx playwright install chromium
+      - name: Verify standalone repository proof mutation checks
+        if: ${{ !cancelled() }}
+        run: |
+          npx vitest run server/__tests__/qualified-standalone-repository-observation.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/standalone-task-proofs.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const result = JSON.parse(readFileSync('test-results/standalone-task-proofs.json', 'utf8'));
+          const suites = result.testResults;
+          if (!result.success || result.numPassedTests !== 13 || result.numPendingTests !== 0 ||
+              suites.length !== 1 || !suites[0].name.endsWith('/qualified-standalone-repository-observation.test.ts') ||
+              suites[0].assertionResults.length !== 13 || suites[0].assertionResults.some(test => test.status !== 'passed')) {
+            throw new Error('All thirteen standalone proof regressions must execute; skips are not qualification');
+          }
+          NODE
       - name: Verify complete native repository workflows on both owned account routes
         if: ${{ !cancelled() }}
         env:
@@ -374,6 +406,7 @@ jobs:
         with:
           name: native-repository-workflows-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            test-results/standalone-task-proofs.json
             test-results/native-repository-workflows.json
             test-results/native-repository-workflows/
           if-no-files-found: warn
@@ -404,7 +437,7 @@ jobs:
           const required = [
             ['native-host-operator-lifetime.test.ts', 7],
             ['native-local-repository-preparation-registration-dispatch.test.ts', 4],
-            ['native-local-repository-read-tools.test.ts', 12],
+            ['native-local-repository-read-tools.test.ts', 14],
             ['native-reader-path-authorization.test.ts', 13],
           ];
           for (const [file, count] of required) {

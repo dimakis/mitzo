@@ -52,6 +52,7 @@ export interface LocalRepositoryReadPolicy {
    * Mode, profile instructions and repository files cannot supply this scope. */
   accessScope: LocalRepositoryReadScope;
   discoveryRoots: readonly string[];
+  repositoryCatalog?: Readonly<Record<string, string>>;
   orientationHints?: readonly string[];
   limits?: LocalRepositoryLimits;
   assertCurrentSync(): void;
@@ -246,6 +247,7 @@ export function sessionLocalRepositoryTools(
           const snapshot = structuredClone({
             accessScope: policy.accessScope,
             discoveryRoots: policy.discoveryRoots,
+            repositoryCatalog: policy.repositoryCatalog,
             orientationHints: policy.orientationHints,
             limits: policy.limits,
           });

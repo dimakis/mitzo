@@ -1,11 +1,20 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  realpathSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  lstatSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { RepositoryWorkspaces, type RepositoryWorkspace } from '../repository-workspaces.js';
+import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
 import { contextDigest } from '../agent-context-compiler.js';
 import {
   freezePendingHostTaskData,
@@ -73,8 +82,6 @@ async function fixture(kind: 'ordinary' | 'repository' = 'repository') {
       throw Error('No remote access');
     }),
     assertLocalRepositoryAccess: vi.fn(async () => {}),
-    assertPendingHostTaskCurrentSync: vi.fn(() => {}),
-    assertPendingHostTaskAccess: vi.fn(async () => {}),
     ordinaryPreparation: {
       capture: vi.fn(async () => ({
         version: 1 as const,
@@ -181,9 +188,27 @@ async function fixture(kind: 'ordinary' | 'repository' = 'repository') {
       requestHash: 'b'.repeat(64),
       taskRoot,
     };
-    await service.reservePendingHostTask(request, signal());
-    const receipt = await service.materializePendingHostTask(request, signal());
+    // SQL custody fixture: construct historical materialization explicitly. The
+    // removed ambient pending producer was never a production caller; active
+    // transition/CAS tests must not depend on an alternative creation owner.
     const record = service.get(ready.id);
+    const directory = join(taskRoot, `repo-${ready.id}`);
+    git(source, 'worktree', 'add', '-qb', record.featureBranch, directory, record.baseOid);
+    const root = lstatSync(taskRoot);
+    const receipt = {
+      version: 1 as const,
+      request,
+      rootIdentity: { dev: root.dev, ino: root.ino },
+      directory,
+      sourceDigest: record.sourceDigest!,
+      state: 'materialized' as const,
+      taskIdentity: await snapshotRepositoryTaskCheckout(
+        directory,
+        record.featureBranch,
+        record.localSource,
+      ),
+    };
+    record.pendingHostTask = receipt;
     const effect = {
       kind: 'local-repository-worktree' as const,
       workspaceId: ready.id,

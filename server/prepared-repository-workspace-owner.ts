@@ -5,6 +5,8 @@ import type { RepositoryTaskCheckout } from './repository-task-checkout.js';
 import type { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import { inspectLocalRepositoryGitMetadata } from './local-repository-git-inspection.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
+import { restoredRepositoryTaskIdentity } from './repository-workspace-restoration.js';
+import { readLocalRepositoryBaseReference } from './local-repository-base.js';
 
 const unavailable = () => Error('Qualified repository task custody unavailable');
 const equal = (actual: { dev: string; ino: string }, expected: { dev: number; ino: number }) =>
@@ -22,6 +24,62 @@ export async function assertPreparedRepositoryTaskTopology(
   const task = structuredClone(input),
     source = task.localSource,
     linked = task.linkedGit;
+  if (source && !linked) {
+    const git = join(task.directory, '.git');
+    if (
+      !/^mitzo\/[A-Za-z0-9._/-]+$/.test(task.featureBranch) ||
+      task.featureBranch.includes('..') ||
+      !isAbsolute(task.directory)
+    )
+      throw unavailable();
+    if (access.canCaptureRepositoryObservation)
+      await access.captureRepositoryObservation({
+        mode: 'task-topology',
+        sourcePath: task.directory,
+        readableRoots: [task.directory],
+      });
+    for (const [path, expected] of [
+      [task.directory, task.root],
+      [git, task.git],
+    ] as const)
+      if (!equal((await access.pinRoot(path)).identity, expected)) throw unavailable();
+    const metadata = await inspectLocalRepositoryGitMetadata({
+      path: task.directory,
+      mode: 'head',
+      readAccess: access,
+      assertReadable: (path) => access.assertPath(path),
+      timeoutMs: 30000,
+    });
+    if (metadata.gitDirectory !== git || metadata.commonDirectory !== git) throw unavailable();
+    if (
+      !(await access.read(join(git, 'HEAD'), 4096)).equals(
+        Buffer.from(`ref: refs/heads/${task.featureBranch}\n`),
+      )
+    )
+      throw unavailable();
+    const base = await readLocalRepositoryBaseReference(access, metadata, 'HEAD');
+    if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(base.oid)) throw unavailable();
+    for (const name of ['commondir', 'objects/info/alternates', 'objects/info/http-alternates'])
+      if (await access.stat(join(git, name))) throw unavailable();
+    const shallow = await access.stat(join(git, 'shallow'));
+    if (shallow) {
+      if (shallow.kind !== 'file' || shallow.nlink !== 1 || shallow.size > 65536)
+        throw unavailable();
+      const oidLength = metadata.objectFormat === 'sha256' ? 64 : 40;
+      if (
+        !(await access.read(join(git, 'shallow'), 65536))
+          .toString('utf8')
+          .split('\n')
+          .filter(Boolean)
+          .every((oid) => new RegExp(`^[a-f0-9]{${oidLength}}$`).test(oid))
+      )
+        throw unavailable();
+    }
+    const index = await access.stat(join(git, 'index'));
+    if (index?.kind !== 'file' || index.nlink !== 1) throw unavailable();
+    await access.verify();
+    return;
+  }
   if (
     !source ||
     !linked ||
@@ -172,7 +230,10 @@ export class PreparedRepositoryWorkspaceOwner {
       record.state !== 'claimed' ||
       record.sandbox ||
       !isDeepStrictEqual(record.binding, this.facts.request.binding) ||
-      !isDeepStrictEqual(record.taskIdentity, next.taskIdentity) ||
+      !isDeepStrictEqual(
+        record.taskIdentity,
+        restoredRepositoryTaskIdentity(record, next.taskIdentity),
+      ) ||
       !record.qualifiedLocalPreparation
     )
       throw unavailable();
@@ -184,10 +245,10 @@ export class PreparedRepositoryWorkspaceOwner {
       task = record.taskIdentity!,
       source = task.localSource,
       linked = task.linkedGit;
-    if (cwd !== record.directory || !source || !linked) throw unavailable();
+    if (cwd !== record.directory || !source) throw unavailable();
     for (const [path, retained, file] of [
       [task.directory, task.root, false],
-      [join(task.directory, '.git'), task.git, true],
+      [join(task.directory, '.git'), task.git, !!linked],
     ] as const) {
       const actual = lstatSync(path);
       if (
@@ -212,7 +273,7 @@ export class PreparedRepositoryWorkspaceOwner {
         this.assertCurrentSync(cwd);
         await assertPreparedRepositoryTaskTopology(
           access,
-          this.facts.newWorkspace.taskIdentity,
+          record.taskIdentity!,
           record.qualifiedLocalPreparation!.allocationFacts.source.gitDirectory,
         );
         signal.throwIfAborted();

@@ -63,6 +63,7 @@ function fixture(dispose?: () => void | Promise<void>) {
           requestHash: pendingHostTaskDecisionHash(input),
           session: { accountBinding: binding },
           accountBinding: binding,
+          workspace: { kind: 'ordinary', id: 'old-workspace', directory: '/fixture/old' },
           signal: AbortSignal.any([signal, lifetime.signal]),
           assertCurrentSync: current,
           assertCurrent: full,
@@ -78,9 +79,12 @@ function fixture(dispose?: () => void | Promise<void>) {
     ) as unknown as NativeHostToolContext;
     return context;
   });
-  const owners = { capture, events: {}, registry: {}, workspaces: {} } as unknown as Parameters<
-    typeof executeNativeLocalRepositoryPreparation
-  >[0];
+  const owners = {
+    capture,
+    events: {},
+    registry: {},
+    workspaces: { findLocalRepositoryPreparation: vi.fn(() => undefined) },
+  } as unknown as Parameters<typeof executeNativeLocalRepositoryPreparation>[0];
   const receipt = () => ({
     version: 1,
     request: {
@@ -154,6 +158,25 @@ function fixture(dispose?: () => void | Promise<void>) {
     capturedSignal: () => capturedSignal,
   };
 }
+it('observes an existing task preparation without acquiring or allocating a replacement', async () => {
+  const f = fixture();
+  vi.mocked(f.owners.workspaces.findLocalRepositoryPreparation).mockReturnValue({
+    id: f.receipt().request.id,
+    pendingHostTask: { ...f.receipt(), state: 'materializing', taskIdentity: undefined },
+  } as never);
+  const result = await executeNativeLocalRepositoryPreparation(
+    f.owners,
+    f.input,
+    f.controller.signal,
+  );
+  expect(JSON.parse(result.content)).toMatchObject({
+    preparationId: f.receipt().request.id,
+    state: 'pending',
+    preparationState: 'materializing',
+  });
+  expect(executeLocalRepositoryPreparation).not.toHaveBeenCalled();
+  expect(captureNativeLocalRepositoryPreparationSource).not.toHaveBeenCalled();
+});
 it('mints the actual envelope before original capture and forwards exact context/intent/fourth options/packed witness', async () => {
   const f = fixture();
   const result = await executeNativeLocalRepositoryPreparation(

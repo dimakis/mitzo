@@ -124,7 +124,7 @@ export class OrdinaryLocalWorkspaceOwner<K extends LocalWorkspaceKind = 'reposit
       ] as const) {
         const current = lstatSync(path);
         if (
-          (path === join(identity.directory, '.git') && identity.localSource
+          (path === join(identity.directory, '.git') && identity.linkedGit
             ? !current.isFile()
             : !current.isDirectory()) ||
           current.isSymbolicLink() ||
@@ -134,11 +134,11 @@ export class OrdinaryLocalWorkspaceOwner<K extends LocalWorkspaceKind = 'reposit
         )
           throw unavailable();
       }
-      if (identity.localSource) {
+      if (identity.linkedGit) {
         const linked = identity.linkedGit;
         if (
           !claimed.localSource ||
-          !linked ||
+          !identity.localSource ||
           !isDeepStrictEqual(claimed.localSource, identity.localSource)
         )
           throw unavailable();

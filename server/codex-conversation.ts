@@ -1429,7 +1429,7 @@ export class CodexConversation {
     this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding!);
     if (!this.ready) await this.reconnect();
     const recoveryTransportGeneration = this.transportGeneration;
-    if (automaticEpoch !== undefined) {
+    if (automaticEpoch !== undefined || this.opts.transportClosure === 'terminal') {
       const page = z
         .object({ data: z.array(z.object({ id: z.string(), status: z.string() })) })
         .parse(
@@ -1440,7 +1440,10 @@ export class CodexConversation {
             itemsView: 'notLoaded',
           }),
         );
-      if (page.data.some((turn) => !['completed', 'failed', 'interrupted'].includes(turn.status)))
+      if (
+        (this.opts.transportClosure === 'terminal' && page.data.length === 0) ||
+        page.data.some((turn) => !['completed', 'failed', 'interrupted'].includes(turn.status))
+      )
         throw new Error('Provider turn is still active; saved work remains queued');
     }
     // A provider turn may continue after turn/start returns. Recovery progress
@@ -2063,6 +2066,14 @@ export class CodexConversation {
     span.end();
   }
   private async beginNext() {
+    // Fresh owned input can already be in native FIFO while its coordinator
+    // still holds uncertain admission. Workspace transition effects must wait
+    // for the same consumption fence as provider dispatch. The caller wakes
+    // this queue again after the original coordinator commits consumption.
+    if (this.opts.canClaimCommand && this.binding) {
+      const next = this.opts.store.nextQueuedCommandId(this.opts.conversationId, this.binding);
+      if (next && this.opts.canClaimCommand(next) === false) return;
+    }
     if (this.opts.beforeRuntimeAdmission && this.binding && !this.active) {
       const boundary = this.opts.beforeRuntimeAdmission;
       const boundaryAdmit = typeof boundary === 'function' ? undefined : boundary.admit;
