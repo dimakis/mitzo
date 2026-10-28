@@ -153,6 +153,22 @@ GitHub-side cleanup after the process stops.
 
 ## One bounded infrastructure retry
 
+PR concurrency is scoped to both the PR and its combined candidate SHA. A new
+candidate can start while an older runner shuts down; identical-candidate runs
+still supersede each other. Main keeps its original SHA-scoped identity and is
+never cancelled by this cleanup.
+
+The trusted recovery workflow also handles requested CI runs after acceptance on
+the default branch. It fetches canonical current PR/run identities and requests
+force-cancellation only for older, active runs with a different head on that same
+open, same-repository PR. It rechecks the PR and old run immediately before each
+request. Current/newer heads, other PRs, forks, default-branch runs and incomplete
+identity evidence are excluded. A cancellation request is not proof that GitHub
+has finished retiring the runner; independent candidate concurrency prevents that
+shutdown tail from blocking new validation. This controller cannot execute PR
+code, write success statuses or merge. Before default-branch activation, retire
+the selected superseded runs manually after verifying their exact identities.
+
 `CI infrastructure recovery` activates only once its workflow and controller have
 been accepted on the default branch. A PR cannot validate that event activation
 before merge; policy behavior is checked offline with controlled API responses.

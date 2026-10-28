@@ -6,9 +6,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
-# Keep main validation intact; newer PR commits supersede older runs.
+# Isolate PR candidates from slow older-run shutdown; same-candidate reruns supersede.
+# Accepted default-branch recovery cleans up provably older PR heads.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
+  group: ci-${{ github.event.pull_request.number && format('{0}-{1}', github.event.pull_request.number, github.sha) || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

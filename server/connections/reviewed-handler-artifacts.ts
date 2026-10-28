@@ -2106,7 +2106,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-sqlite-owners.ts':
     '19ac125030b518a353b2f7dbe51a4a1eca7ff5b30bf719e45dc9d9b5debdb006',
   '../../scripts/__tests__/ci-cancellation.test.ts':
-    'ad174bd65a0e98221ffc8d81b283550cbacce72d5078b48518f425bc1214ef5d',
+    '680bb14ef3b8786afcd3a4c146576418c79445655caa6b2a02f64e16e1afa4b7',
   '../../scripts/__tests__/ci-required-gate.test.ts':
     'cfddc7352babb97cb2d6fc91d6681f641e52b8af0188a6e753233bf27ff6630f',
   '../../scripts/ci-required-gate.mjs':
@@ -2736,9 +2736,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/joined-fixture-processes.mjs':
     '8af22f0dc2dfb417780ddc61f3c915a8a1405b5efe8f9b6c4f966f9c90dc44b1',
   '../../.github/workflows/ci-recovery.yml':
-    '187d816bfa17941c57e4fabfda84b9e136f6917ce5d7c659289b878acd2add8e',
+    '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    'f68aefc269610d7e0687c18361aa590cc7de1c34d9c02605a886eb5b72cadb1a',
+    '2ad827f6ba9168a84a73651bd0098f22997c34e283225118fad68fd0ee7338e2',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
@@ -2751,7 +2751,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-joined-shards.test.ts':
     '36915cd9ec1df2634467a99416ccc3d03ed26b3fd6d65ab21a847858d8d0a321',
   '../../scripts/__tests__/ci-recovery.test.ts':
-    '6ad80e0c5b07630b5fe71e7a8ce66a7cdd46a21c47b0405c1122a8b5dee7f38a',
+    '92559bb14c80de9c28e7879c1bf218bf895cab2d2209958dd0499ddc5feda256',
   '../../scripts/__tests__/ci-source-preflight.test.ts':
     '5d5c5d72d3153966f59dad8f7974a3064fe02cdc592a523517abb093414d508b',
   '../../scripts/__tests__/ci-unit-sequencer.test.ts':
@@ -2765,7 +2765,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/ci-joined-gate.mjs':
     'aec3fa1106ed98cb715d973e5b186887b7252bca68309ae0bae1da3aa0a5b3bd',
   '../../scripts/ci-recovery.mjs':
-    'ed91a0348c4e4e2287b0c755f5279f4efc2bb385d4e1a96a6b8a31b2ed0db878',
+    'c1e0bc15bbda175a793bf524375870e788a9acc398a7770057d3fa586338214f',
   '../../scripts/ci-unit-sequencer.ts':
     '4f0a9ff0178d200f5e26ce8595a36c26741853cae8c0f4f171f2acdd8c81dd7b',
   '../../scripts/ci-unit-shards.mjs':
