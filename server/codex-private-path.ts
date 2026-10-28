@@ -23,6 +23,10 @@ function canonical(path: string): string {
 const observedProfileRoots = new Set<string>();
 export function protectCodexProfileRoots(roots: string[]) {
   const resolved = roots.map(canonical);
+  // This directory is always denied, including before the first login capture.
+  // Retain the ancestor itself so a later configuration change cannot expose
+  // homes that were reopened without registering a redundant child.
+  observedProfileRoots.add(canonical(codexPrivateDirectory()));
   for (const root of resolved) {
     // Reopening a retained login registers its private home. An existing
     // ancestor already denies that whole subtree; adding a redundant child

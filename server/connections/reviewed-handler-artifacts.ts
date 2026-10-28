@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.752-post-turn-admission';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.753-cold-private-root';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1365,7 +1365,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '3b2a43d80118c7cfc6f46d80922fef79719fef84f1d4f4d18079a2e76ac501e3',
   '../workspace-runtime-private-paths.ts':
     '5839c75aa2e5d325218af40547c28395ec92a56205fd50a023497330aa44811c',
-  '../codex-private-path.ts': '67a9e3ce41a961a1dce4f777e07d7337145af4929e998a43ef5a9ea696f3dd1d',
+  '../codex-private-path.ts': 'c59bcfb7b37677572d236f9f245d0d48c55562a085f7352a607ec8a6a30623de',
   '../workspace-runtime-client.ts':
     'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
   '../credential-sdk-boundary.ts':
@@ -2578,7 +2578,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/secret-relay.ts':
     '4ba8b9ef90ca4a9cabf8934ed3aafd87c4c0728d700c8e0f24468d3a3b3020a4',
   '../__tests__/codex-private-path.test.ts':
-    'a9576e584fbbad57cbeb6111afbdc4a5b0e54e884196f4407e499cbab47f285a',
+    '83519bcc87a103259d88478edc614bdfd090b21a295b202f3e8d319a22308cbf',
   '../__tests__/credential-sdk-boundary.test.ts':
     '5b11210dbc2e4b26352b34f3a169d23345ca045ebb702436dd93931f175c2907',
   '../__tests__/credential-sdk-tools.test.ts':
