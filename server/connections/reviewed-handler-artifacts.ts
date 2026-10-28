@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.754-draft-route-fixture-owner';
+  'v1.0.755-durable-task-review-controls';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2367,7 +2367,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/task-review-child-app.mjs':
     '47aed7532258034307687aff45dce586c31282f6550c76b9ee2b6545b301f767',
   '../../tests/integration/telos-s9/integrated-candidate/task-review-process-browser.contract.ts':
-    '78bb0226246657339f5a8ed328c30011113be538c9916978de12acbf4967d332',
+    'f20892a615c6d9095187a8ef11364171e020e676f0851f0102a8aa5431fd4155',
   '../../tests/integration/telos-s9/integrated-candidate/task-review-process-fixture.ts':
     'cdaad1e41973508c1267afb530dcf9c2441a0687e35d6f6734de33b4b2cec7ec',
   '../../tests/integration/telos-s9/integrated-candidate/tree-priority-browser.contract.ts':
