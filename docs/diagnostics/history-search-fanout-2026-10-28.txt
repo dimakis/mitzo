@@ -1,0 +1,39 @@
+History search validation fan-out — 28 October 2026
+
+Problem and causal evidence
+A single SearchPastSessions invocation scanned up to 100 summaries. For each candidate, the adapter refreshed the full native owner before authorization, the authorization adapter refreshed it again, and the caller refreshed it after authorization. The caller also retained every visited target, including nonmatches, and rechecked that growing collection before and after each refresh. Each target check re-entered the full native owner: operator, pending call, admission receipt, runtime configuration, executable metadata, login file, account profiles, workspace and session rows.
+
+The resulting cost for N visible nonmatching candidates in the composed adapter was 2*N*N + 14*N + 17 synchronous owner checks, 3*N + 4 asynchronous owner checks, and 2*N*N + 5*N target reads. At N=100: 21,417 sync checks, 304 async checks, 20,500 target reads. These counts were measured with the actual search and authorization adapter and a counted underlying owner, not inferred from elapsed time.
+
+Production evidence
+Retained trace cdb918efd9170e683ae6c326428ecf42 recorded 302 workspace checks and 302 credential checks under one 518,614 ms host tool execution corresponding to SearchPastSessions, before it ended with the session. The other active trace, 7f9251b2e658b9a88a27881d65254e12, recorded 95 workspace checks; 93 directly contained nine Keychain-read spans and two contained ten. Two host tool executions each contained 14 workspace checks and 140 Keychain reads. The shared server event loop reached 99% utilization and 4.4-second stalls while history requests took up to 11 seconds.
+
+The one-second client foreground probe can amplify congestion into reconnection. This is a separate transport resilience issue. The source deadline and disconnects are observed; individual client probe causality was not traced. This patch does not change that deadline.
+
+Offline reproduction
+The signed native history fixture uses real Mitzo owner/authorization/store code and synthetic provider RPC. It forbids fetch/SDK model calls, uses disposable private state and never reads production credentials. A full page of 100 candidates was searched with the same profiling wrappers before and after the patch. Both full-page measurements ran after Chrome was closed and memory pressure returned to normal. The earlier ten-candidate measurement spanned the Chrome shutdown and is not used for the paired timing claim. This is a single local pair, not a production or cross-machine performance guarantee.
+
+Metric                                  Before           After
+Whole invocation, ms                        81173.44          896.77
+Exclusive instrumented sync time, ms        50689.54          201.99
+Maximum observed 10-ms timer delay, ms        532.88           27.09
+Runtime checks                                 45608             138
+Executable checks                              91216             276
+Session reads                                 383810            1240
+Account profile loads                          45608             138
+
+The profiled synchronous time is exclusive across the instrumented wrappers and does not double-count their nested frames. It excludes uninstrumented CPU work. Event-loop delay is a synthetic timer observation in this fixture, not the production histogram. A native stack sample after the production incident was idle and cannot attribute the busy stack.
+
+Correction
+The native authorization adapter now exposes a bounded, per-invocation search-page operation. It validates the original owner around the synchronous candidate identity capture and again after its asynchronous refresh, then physically re-reads each authorized target's visible registration and original identity. The search projects that bounded page synchronously. Only matches selected for output are retained for final target revalidation; no nonmatching candidate is repeatedly carried through a growing validation loop. Owner validation, cancellation, target visibility/identity and final checks across the final await remain. There is no credential cache, TTL grant or cross-invocation authorization reuse. Owners without the batch operation retain the prior per-target path.
+
+Regressions cover linear full-page costs, bounded asynchronous validation, matching/nonmatching pages, hidden/unregistered targets, replacement/revocation/cancellation across awaits, hiding during projection and final refresh, malformed request bounds, and the signed native path. The existing transcript-read security tests remain unchanged. A full-page native test also limits runtime-check counts instead of asserting only output correctness.
+
+Why recent changes missed this
+#1132 improved per-call allocations and SQL statement reuse, but did not eliminate the number of owner-chain invocations here. #1144 batches synchronous transcript-row projection in ReadPastSession. SearchPastSessions still had a separate nested authorization loop. Its existing 100-candidate test used cheap owner stubs and asserted coverage/continuation, without an operation-count budget. The signed native history test used only a few candidates. A suite can therefore be functionally green while the real composed search monopolizes the server.
+
+Remaining repository multiplier
+A prepared-workspace validation currently performs nine nested credential reads: two at the qualified-read-owner boundaries, one to create the reader's scratch, four around the capture/verify helpers, one at the read-access final owner check, and one after reader disposal. Its caller then performs a separate credential check. This explains the common ten-per-workspace pattern. The helper barriers protect real asynchronous physical operations; deleting them or caching a current authorization is not justified by the search result. The next redesign should assign freshness checks to explicit operation boundaries and use bounded synchronous data projections inside them, with mutation/revocation tests at every await. It also needs composed operation-count budgets and foreground responsiveness checks under two active sessions. This patch does not claim to qualify that whole workload.
+
+Validation and delivery
+Focused history tests (37), signed native history integration, changed-file lint and formatting passed. Package declarations and the narrowed changed-path typecheck passed. Full repository test typecheck exceeded a 2 GiB heap and remains for CI. Source fingerprints and implementation revision passed the repository source-artifact check. Independent security review found no blocking issues. Broad CI, trusted current-head review and combined-base checks remain merge gates. No staging work, model calls or production activation occurred. Production adoption needs a separate explicit action.

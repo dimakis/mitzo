@@ -38,6 +38,9 @@ const COALESCE_MS = 200;
 /** Interval for background uncommitted work refresh (60 seconds). */
 const UNCOMMITTED_REFRESH_INTERVAL_MS = 60 * 1000;
 
+/** Keep background Git children bounded independently of the number of sessions. */
+const MAX_CONCURRENT_UNCOMMITTED_CHECKS = 4;
+
 // ─── State priority for "highest wins" ────────────────────────────────────────
 
 const STATE_PRIORITY: Record<SessionActivityState, number> = {
@@ -178,10 +181,19 @@ export class SessionOverviewEmitter {
     const now = Date.now();
     const activeSessions = this.deps.registry.getActiveSessions();
     const loopStatus = this.deps.getLoopStatus();
+    let taskTree: ReturnType<TaskStore['getTree']> | undefined;
+    const taskWaits = new Map<string, WaitReason | null>();
+    const taskWait = (goalId: string): WaitReason | null => {
+      if (!taskWaits.has(goalId)) {
+        taskTree ??= this.deps.taskStore.getTree();
+        taskWaits.set(goalId, this.checkTaskWaitState(goalId, taskTree));
+      }
+      return taskWaits.get(goalId) ?? null;
+    };
 
     const liveActivities = activeSessions
       .filter((s) => s.sessionId) // Skip sessions without SDK IDs
-      .map((s) => this.deriveActivity(s, loopStatus, now));
+      .map((s) => this.deriveActivity(s, loopStatus, now, taskWait));
 
     // Merge persistent attention sessions (awaiting user reply)
     const liveIds = new Set(liveActivities.map((a) => a.sessionId));
@@ -198,6 +210,7 @@ export class SessionOverviewEmitter {
     session: ActiveSessionInfo,
     loopStatus: LoopStatus,
     now: number,
+    taskWaitForGoal: (goalId: string) => WaitReason | null,
   ): SessionActivity {
     const sessionId = session.sessionId ?? '';
     const lastEventAt = this.lastEventTimes.get(session.clientId) ?? now;
@@ -219,7 +232,7 @@ export class SessionOverviewEmitter {
     // 2. Task board — check for blocked/pending_review tasks linked to this session
     if (session.taskContext) {
       taskId = session.taskContext.goalId;
-      const taskWait = this.checkTaskWaitState(session.taskContext.goalId);
+      const taskWait = taskWaitForGoal(session.taskContext.goalId);
       if (taskWait) {
         states.push('waiting');
         if (!waitReason) waitReason = taskWait;
@@ -414,13 +427,21 @@ export class SessionOverviewEmitter {
       if (cwds.size === 0) return;
 
       const now = Date.now();
-      await Promise.all(
-        [...cwds].map(async (cwd) => {
-          const result = await hasUncommittedWorkAsync(cwd);
-          const dirty = result !== null && !result.startsWith('[');
-          this.uncommittedCache.set(cwd, { dirty, checkedAt: now });
+      const remaining = cwds.values();
+      // Keep the round owned until every worker settles, including unexpected
+      // helper rejection, so an interval cannot overlap surviving Git children.
+      const workers = await Promise.allSettled(
+        Array.from({ length: Math.min(cwds.size, MAX_CONCURRENT_UNCOMMITTED_CHECKS) }, async () => {
+          for (const cwd of remaining) {
+            const result = await hasUncommittedWorkAsync(cwd);
+            const dirty = result !== null && !result.startsWith('[');
+            this.uncommittedCache.set(cwd, { dirty, checkedAt: now });
+          }
         }),
       );
+
+      const failed = workers.find((worker) => worker.status === 'rejected');
+      if (failed?.status === 'rejected') throw failed.reason;
 
       // Broadcast after cache update so clients see fresh uncommitted state
       this.scheduleBroadcast();
@@ -450,8 +471,11 @@ export class SessionOverviewEmitter {
   /**
    * Keep explicit review requests visible independently of aggregate task status.
    */
-  private checkTaskWaitState(goalId: string): WaitReason | null {
-    const pending = [...this.deps.taskStore.getTree()];
+  private checkTaskWaitState(
+    goalId: string,
+    taskTree: ReturnType<TaskStore['getTree']>,
+  ): WaitReason | null {
+    const pending = [...taskTree];
     let goal;
     while (pending.length) {
       const task = pending.pop()!;

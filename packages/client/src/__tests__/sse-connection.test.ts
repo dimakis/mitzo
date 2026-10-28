@@ -679,6 +679,114 @@ describe('SseConnection', () => {
     conn.disconnect();
   });
 
+  it('lets a pending replay own recovery across liveness checks', async () => {
+    const doc = new EventTarget();
+    Object.assign(doc, { visibilityState: 'visible' });
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('addEventListener', vi.fn());
+    vi.stubGlobal('removeEventListener', vi.fn());
+    let finishReplay!: (response: Response) => void;
+    const fetch = vi.fn((url: string) =>
+      url.endsWith('/reconnect')
+        ? new Promise<Response>((resolve) => {
+            finishReplay = resolve;
+          })
+        : Promise.resolve({ ok: true } as Response),
+    );
+    const conn = new SseConnection(createConfig({ fetch }));
+    try {
+      conn.trackSeq('slow-history', 12);
+      conn.connect();
+      const es = lastES();
+      es._emit('welcome', { connectionId: 'replaying' });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(es.readyState).not.toBe(2);
+      expect(MockEventSource.instances).toHaveLength(1);
+      expect(fetch.mock.calls.filter(([url]) => url.endsWith('/reconnect'))).toHaveLength(1);
+      finishReplay({ ok: true } as Response);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(conn.isConnected()).toBe(true);
+    } finally {
+      conn.disconnect();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('serializes a fresh resume after backgrounding during a pending replay', async () => {
+    const doc = new EventTarget();
+    Object.assign(doc, { visibilityState: 'visible' });
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('addEventListener', vi.fn());
+    vi.stubGlobal('removeEventListener', vi.fn());
+    const beacon = vi.fn();
+    vi.stubGlobal('navigator', { sendBeacon: beacon });
+    const replays: Array<(response: Response) => void> = [];
+    const fetch = vi.fn((url: string) =>
+      url.endsWith('/reconnect')
+        ? new Promise<Response>((resolve) => {
+            replays.push(resolve);
+          })
+        : Promise.resolve({ ok: true } as Response),
+    );
+    const listener = vi.fn();
+    const conn = new SseConnection(createConfig({ fetch, suspendUrl: '/suspend' }));
+    conn.onMessage(listener);
+    try {
+      conn.trackSeq('suspended-during-replay', 12);
+      conn.connect();
+      const es = lastES();
+      es._emit('welcome', { connectionId: 'replaying' });
+      Object.assign(doc, { visibilityState: 'hidden' });
+      doc.dispatchEvent(new Event('visibilitychange'));
+      expect(beacon).toHaveBeenCalledOnce();
+      Object.assign(doc, { visibilityState: 'visible' });
+      doc.dispatchEvent(new Event('visibilitychange'));
+      doc.dispatchEvent(new Event('visibilitychange'));
+      expect(replays).toHaveLength(1);
+      expect(es.readyState).not.toBe(2);
+      replays[0]({ ok: true } as Response);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(replays).toHaveLength(2);
+      expect(listener.mock.calls.filter(([event]) => event.type === '_open')).toHaveLength(0);
+      replays[1]({ ok: true } as Response);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(conn.isConnected()).toBe(true);
+      expect(listener.mock.calls.filter(([event]) => event.type === '_open')).toHaveLength(1);
+      expect(MockEventSource.instances).toHaveLength(1);
+    } finally {
+      conn.disconnect();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('still replaces a replay that exceeds its own deadline', async () => {
+    const doc = new EventTarget();
+    Object.assign(doc, { visibilityState: 'visible' });
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('addEventListener', vi.fn());
+    vi.stubGlobal('removeEventListener', vi.fn());
+    const fetch = vi.fn((url: string) =>
+      url.endsWith('/reconnect')
+        ? new Promise<Response>(() => {})
+        : Promise.resolve({ ok: true } as Response),
+    );
+    const conn = new SseConnection(createConfig({ fetch }));
+    try {
+      conn.trackSeq('stalled-history', 12);
+      conn.connect();
+      const es = lastES();
+      es._emit('welcome', { connectionId: 'stalled-replay' });
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(es.readyState).toBe(2);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(MockEventSource.instances).toHaveLength(2);
+      expect(conn.isConnected()).toBe(false);
+    } finally {
+      conn.disconnect();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('rebuilds a seemingly connected stream when its foreground probe receives no reply', async () => {
     const doc = new EventTarget();
     Object.assign(doc, { visibilityState: 'visible' });
