@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { Page, Request, Response } from '@playwright/test';
 import { expect, it, vi } from 'vitest';
-import { observeTaskChatReads } from './task-chat-read-observer';
+import { observeTaskChatReads, navigateToChatMetadata } from './task-chat-read-observer';
 
 function fixture() {
   const events = new EventEmitter();
@@ -74,3 +74,73 @@ it('requires the exact task GET, successful status and retained body, and remove
   expect(f.events.listenerCount('request')).toBe(0);
   expect(f.events.listenerCount('response')).toBe(0);
 });
+
+it('waits for fresh metadata for the destination conversation, including an already consumed command', async () => {
+  const f = fixture();
+  const old = f.request('/api/sessions/peer/meta');
+  const boundary = f.observer.boundary();
+  f.response(old, Promise.resolve({ sessionId: 'peer' }));
+  f.response(f.request('/api/sessions/other/meta'), new Promise(() => {}));
+  await expect(
+    f.observer.waitForSessionMeta('peer', boundary, { timeout: 20, interval: 1 }),
+  ).rejects.toThrow();
+  f.response(
+    f.request('/api/sessions/peer/meta'),
+    Promise.resolve({
+      sessionId: 'peer',
+      runtimeCommandScope: 'conversation',
+    }),
+  );
+  await expect(f.observer.waitForSessionMeta('peer', boundary)).resolves.toMatchObject({
+    path: '/api/sessions/peer/meta',
+    requestOrdinal: 3,
+    status: 200,
+  });
+  f.observer.close();
+});
+
+it('rejects failed, malformed, wrong-identity and non-GET destination metadata', async () => {
+  const f = fixture();
+  const boundary = f.observer.boundary();
+  f.response(f.request('/api/sessions/peer/meta'), Promise.resolve({ sessionId: 'peer' }), 503);
+  f.response(f.request('/api/sessions/peer/meta'), Promise.resolve({ sessionId: 'other' }));
+  f.response(f.request('/api/sessions/peer/meta'), Promise.resolve(null));
+  f.response(f.request('/api/sessions/peer/meta'), Promise.reject(Error('Discarded document')));
+  f.response(f.request('/api/sessions/peer/meta', 'POST'), Promise.resolve({ sessionId: 'peer' }));
+  await expect(
+    f.observer.waitForSessionMeta('peer', boundary, { timeout: 20, interval: 1 }),
+  ).rejects.toThrow();
+  f.observer.close();
+});
+
+it.each([false, true])(
+  'arms navigation reads before goto and releases its listeners (failure=%s)',
+  async (failure) => {
+    const events = new EventEmitter();
+    const destination = 'http://127.0.0.1/chat/peer';
+    const page = Object.assign(events, {
+      goto: vi.fn(async () => {
+        expect(events.listenerCount('request')).toBe(1);
+        expect(events.listenerCount('response')).toBe(1);
+        if (failure) throw Error('Navigation failed');
+        const request = {
+          url: () => 'http://127.0.0.1/api/sessions/peer/meta',
+          method: () => 'GET',
+        };
+        events.emit('request', request);
+        events.emit('response', {
+          request: () => request,
+          url: request.url,
+          status: () => 200,
+          json: async () => ({ sessionId: 'peer' }),
+        });
+      }),
+    });
+    const navigation = navigateToChatMetadata(page as unknown as Page, destination, 'peer');
+    if (failure) await expect(navigation).rejects.toThrow('Navigation failed');
+    else await navigation;
+    expect(page.goto).toHaveBeenCalledExactlyOnceWith(destination);
+    expect(events.listenerCount('request')).toBe(0);
+    expect(events.listenerCount('response')).toBe(0);
+  },
+);

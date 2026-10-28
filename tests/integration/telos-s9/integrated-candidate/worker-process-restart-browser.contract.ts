@@ -1,3 +1,4 @@
+import { navigateToChatMetadata } from './task-chat-read-observer';
 import type {
   TelosOrdinaryWorkDelegationInput,
   OrdinaryWorkspaceFirstCommand,
@@ -419,9 +420,9 @@ it('recovers the original delegated worker, bound execution task, attempt and ad
     await page.goto(front.origin + '/tasks?highlight=' + taskId);
     await browserExpect(page.getByText(taskBefore.title, { exact: true }).first()).toBeVisible();
     await capture('actual-delegated-task-progress-after-recovery');
-    await page.goto(front.origin + '/chat/' + leadId);
+    await navigateToChatMetadata(page, front.origin + '/chat/' + leadId, leadId);
     await browserExpect(composer).toHaveValue(leadDraft);
-    await page.goto(front.origin + '/chat/' + peerId);
+    await navigateToChatMetadata(page, front.origin + '/chat/' + peerId, peerId);
     await browserExpect(composer).toHaveValue(peerDraft);
     await capture('unrelated-job-draft-after-real-process-restart');
     expect(h.pageErrors).toEqual([]);

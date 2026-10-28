@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.737-chat-storage-quota-role-readiness';
+  'v1.0.738-chat-storage-quota-navigation-readiness';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2207,17 +2207,17 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/supplemental-shards.mjs':
     '8c8d58ddbf0c2049b8b54ec64bfb1198afdfe57744cc913f7ff2c2876a7999b0',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-read-observer.test.ts':
-    '776271cf18e6a7cb1c9183f693778ceadb3f92d9a80429547b1c1f2fb38c07f1',
+    'c238eefae23b033fb7fa6060cb616531a0ba2eb67584a2e819ffc186352f01b7',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-read-observer.ts':
-    '626da755ede8af92697b95c9cd7cc8dc0452ae3b008773498c765c55ad37ca96',
+    '90d20a115f5d85a78dd92e241d253c7b16ef77af6f57faf5518f47df7f48b387',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-tree-app.contract.ts':
-    'b7c9497a340ea91748227ca5086b38da8c9e1a38db2270a54811f70ab8cacb1d',
+    '248ff770a3ae6075462aaff0846ada337b9b96fc1da506ed788e2d71afcfb420',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-tree-geometry.ts':
     'bd72de1b8ba7afe8565118f111b142fdc049d65062b9efd85bbaaeed467dad18',
   '../../tests/integration/telos-s9/integrated-candidate/task-review-child-app.mjs':
     '47aed7532258034307687aff45dce586c31282f6550c76b9ee2b6545b301f767',
   '../../tests/integration/telos-s9/integrated-candidate/task-review-process-browser.contract.ts':
-    '580609c48ab674b4671abcdd5b59f7531e892b0488e58c391bbadc92125971f8',
+    '78bb0226246657339f5a8ed328c30011113be538c9916978de12acbf4967d332',
   '../../tests/integration/telos-s9/integrated-candidate/task-review-process-fixture.ts':
     'cdaad1e41973508c1267afb530dcf9c2441a0687e35d6f6734de33b4b2cec7ec',
   '../../tests/integration/telos-s9/integrated-candidate/tree-priority-browser.contract.ts':
@@ -2281,7 +2281,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/voice-image-browser.contract.ts':
     '941d09cbd960233b1733d84fe5e0b0bee77c640150520f8df65f54ad6fb0c750',
   '../../tests/integration/telos-s9/integrated-candidate/worker-process-restart-browser.contract.ts':
-    '662b39769589d1c3da2a76c53b60f3f5b3befca40984716eff7770e44c4bbf28',
+    '362e1925e89e458328764cfcfc8f1a82f712bbd5b447235c415637028493e640',
   '../../tests/integration/telos-s9/integrated-candidate/worker-process-restart-fixture.ts':
     '4cc9777e953115958667384dba406c40d69e3130b3ca0d91dcd6cc53331660d3',
   '../../tests/integration/telos-s9/integrated-candidate/worker-replacement-browser.contract.ts':
