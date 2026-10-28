@@ -33,13 +33,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/ci-prepared-consumer-gate.mjs':
     '9fe8ee3723c18bbf7315c006fea728441f421dbb41eb5c20607f8d6859e6aead',
   '../../scripts/pr-landing.mjs':
-    '6690e469fb0a929b10ea21f66b890e634c3e1bd0e926c8de9e40b0cb34a5a40d',
+    'b9b053bd41da755db77d8505869f3f15ccdd4e556be5bfed9a355e379b992769',
   '../../scripts/__tests__/ci-compile-preflight.test.ts':
     'ebdcec9743f3cd2f3fbba80c3f6d67db1d384c9faee2b28f9ca40a4525e1f9ee',
   '../../scripts/__tests__/ci-prepared-consumer-gate.test.ts':
     '3a9f82a8a9aedbb5ebdd8305cee2131704f3e1ec0fa5d665e02ea5a26f76a584',
   '../../scripts/__tests__/pr-landing.test.ts':
-    '12703be3e28eb2cfa75fa0975f65bdb554929aa47d8c6b375592f4b325af66c9',
+    '493e0950d647c0401723f516f1b97c8274f4455095599cf8cd9f9c338391fc9c',
   '../__tests__/centaur-merge-status.test.ts':
     '7ed6ce87f0c8f7bf8bebca3e8c6b40039ca7a3223f40f11774bac1e8c86eed7f',
   '../../tests/integration/telos-s9/integrated-candidate/joined-role-setup-ready.test.ts':

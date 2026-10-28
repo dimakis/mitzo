@@ -10,6 +10,13 @@ const get = async (g, c, route, args = {}) =>
   (await g.request(route, { ...scope(c), ...args })).data;
 const all = (g, c, route, args = {}) => g.paginate(route, { ...scope(c), per_page: 100, ...args });
 const instant = (c) => c.now ?? Date.now();
+// Legacy/failed dispatch titles retain raw input. Normalize their intent so an
+// alias revoke cannot disappear behind an older canonical authorization.
+function intentNumber(title) {
+  const raw = /^land-pr:([^:]*):(authorize|revoke)$/.exec(title)?.[1];
+  const number = Number(raw);
+  return Number.isSafeInteger(number) && number > 0 ? number : undefined;
+}
 async function repository(g, c) {
   return get(g, c, 'GET /repos/{owner}/{repo}');
 }
@@ -43,7 +50,12 @@ async function live(g, c, number) {
 }
 export async function buildRequest(g, c, input, actor) {
   const number = Number(input.pr_number);
-  if (!Number.isSafeInteger(number) || number <= 0 || !['authorize', 'revoke'].includes(input.mode))
+  if (
+    typeof input.pr_number !== 'string' ||
+    !/^[1-9]\d*$/.test(input.pr_number) ||
+    !Number.isSafeInteger(number) ||
+    !['authorize', 'revoke'].includes(input.mode)
+  )
     fail('Invalid request');
   if (!(await permitted(g, c, actor))) fail('Actor lacks repository write permission');
   if (input.mode === 'revoke') return { name: `revoke-pr-${number}`, number, mode: input.mode };
@@ -73,9 +85,7 @@ async function requestRuns(g, c) {
 }
 export async function latestRequest(g, c, number) {
   const { r, w, runs } = await requestRuns(g, c);
-  const match = runs.find((run) =>
-    new RegExp(`^land-pr:${number}:(authorize|revoke)$`).test(run.display_title),
-  );
+  const match = runs.find((run) => intentNumber(run.display_title) === number);
   if (!match) return { authorized: false, reason: 'No request' };
   const run = await get(g, c, 'GET /repos/{owner}/{repo}/actions/runs/{run_id}', {
     run_id: match.id,
@@ -264,10 +274,7 @@ export async function reconcile(g, c) {
   const { runs } = await requestRuns(g, c);
   const numbers = [
     ...new Set(
-      runs
-        .map((r) => /^land-pr:([1-9]\d*):(authorize|revoke)$/.exec(r.display_title)?.[1])
-        .filter(Boolean)
-        .map(Number),
+      runs.map((r) => intentNumber(r.display_title)).filter((number) => number !== undefined),
     ),
   ];
   const results = [];

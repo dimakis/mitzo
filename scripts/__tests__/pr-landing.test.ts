@@ -450,3 +450,43 @@ it('a later comment cannot clear an outstanding human change request', async () 
   );
   expect((await reconcile(f.github, f.config))[0].decision).toBe('blocked');
 });
+
+it.each(['07', ' 7', '7 ', '7e0', '+7', '0x7'])(
+  'rejects noncanonical new PR input %j',
+  async (pr_number) => {
+    const f = fixture();
+    await expect(
+      buildRequest(f.github, f.config, { pr_number, mode: 'revoke' }, 'owner'),
+    ).rejects.toThrow('Invalid request');
+  },
+);
+it.each(['07', ' 7', '7 ', '7e0', '+7', '0x7'])(
+  'newer legacy alias %j intent blocks an older canonical grant',
+  async (raw) => {
+    const f = fixture();
+    const newer = {
+      ...f.run,
+      id: 11,
+      display_title: `land-pr:${raw}:revoke`,
+      status: 'in_progress',
+      conclusion: null,
+    };
+    f.data['GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs'] = [newer, f.run];
+    f.data['GET /repos/{owner}/{repo}/actions/runs/{run_id}'] = (
+      args: ReturnType<typeof JSON.parse>,
+    ) => (args.run_id === 11 ? newer : f.run);
+    expect((await latestRequest(f.github, f.config, 7)).authorized).toBe(false);
+    await reconcile(f.github, f.config);
+    expect(f.calls.filter((r) => r.startsWith('PUT'))).toHaveLength(0);
+  },
+);
+it('discovers alias-only incomplete intents but never authorizes an alias title', async () => {
+  const f = fixture();
+  const alias = { ...f.run, display_title: 'land-pr:07:authorize' };
+  f.data['GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs'] = [alias];
+  f.data['GET /repos/{owner}/{repo}/actions/runs/{run_id}'] = alias;
+  expect(
+    (await reconcile(f.github, f.config)).map((r: ReturnType<typeof JSON.parse>) => r.number),
+  ).toEqual([7]);
+  expect(f.calls.filter((r) => r.startsWith('PUT'))).toHaveLength(0);
+});
