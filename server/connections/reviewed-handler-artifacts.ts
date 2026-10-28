@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.744-complete-prepared-flow';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.745-indexed-chat-records';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/lib/__tests__/indexed-chat-disk.test.ts':
+    'aeab2f483d1b50d2ad31d08d6b121276231e5633c8fd053e24b27a424f962d38',
+  '../../frontend/src/lib/indexed-chat-disk.ts':
+    '7499681f7e1a2baa3c81996525457c045baa2f21336e5911cdaea2512efec527',
   '../../tests/integration/telos-s9/integrated-candidate/joined-role-setup-ready.test.ts':
     '135c046f446cccdc941332395629b33db95e266fc5625c8b20ce45a300f8c2fb',
   '../../scripts/ci-prepared-consumers.mjs':
@@ -103,15 +107,15 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-command-json.test.ts':
     '675c6c281aebefef54c6fb8b067e14db554035f0a7ceea88f4ec4daeee9efcd7',
   '../../frontend/src/lib/large-chat-storage.ts':
-    '1583757b8298ba61cb1122407e48b30fcb373187df98ee2636d62c5ef301fc27',
+    '1f9452c0f33dc504d853a3179167990c361b0b7847359e321f402afa79bbae2b',
   '../../frontend/src/lib/__tests__/large-chat-storage.test.ts':
     '8cfd23321d205800a059acbfcd80ce3cff180b1f8cdf3f7b686454f69c247345',
   '../../frontend/src/render-app.tsx':
     '8244b4f22a4a068e6498434aa0bc540fa6d20e124a8b8e310dbd5a1ee92628f4',
   '../../tests/fixtures/large-chat-storage.ts':
-    '77c9836bf61b84e3f6aed46137a27c5dc648b709d9d18562fc86d8ff2e72e9e1',
+    'f968d00b76075ae92bbd32f0ffc33a73a16596f1c5cd325fb8a71403bb6a5314',
   '../../tests/offline/large-chat-storage.spec.ts':
-    'd7ad50dcf9fcc42b0ac25858fe4fb3c45192585af1e7f1edf8a8f3a7864111a8',
+    'edaab7ceece1b4ee3c0eaa0753133ee2998a18c92ba0a7d77d7087ad0f37a590',
   '../../scripts/__tests__/ci-browser-batches.test.ts':
     'dc7457039216fa6c5d9ec2e1a8df8313db042398cd72956c2b25de84fb822830',
   '../../scripts/ci-browser-batches.mjs':

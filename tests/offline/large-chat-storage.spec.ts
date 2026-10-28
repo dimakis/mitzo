@@ -13,8 +13,8 @@ const bundle = build({
   },
 });
 
-test.beforeEach(async ({ page }) => {
-  await page.route('**/*', async (route) => {
+test.beforeEach(async ({ context }) => {
+  await context.route('**/*', async (route) => {
     if (new URL(route.request().url()).hostname !== 'mitzo-ui.test') return route.abort();
     if (route.request().url().endsWith('/fixture.js'))
       return route.fulfill({
@@ -37,12 +37,19 @@ test('a saved screenshot and its smaller outgoing copy survive real Web Storage 
     (
       window as unknown as {
         storageFixture: {
-          saveNearQuota(): Promise<{ quotaName: string; rawLength: number }>;
+          saveNearQuota(): Promise<{
+            quotaName: string;
+            rawLength: number;
+            referenceRejected: boolean;
+            preserved: string;
+          }>;
         };
       }
     ).storageFixture.saveNearQuota(),
   );
   expect(saved.quotaName).toBe('QuotaExceededError');
+  expect(saved.referenceRejected).toBe(true);
+  expect(saved.preserved).toBe('Keep my existing draft');
   expect(saved.rawLength).toBeLessThan(256 * 1024);
   await page.reload();
   await page.waitForFunction(() => 'storageFixture' in window);
@@ -105,4 +112,59 @@ test('large draft and outgoing screenshots survive real IndexedDB reload beyond 
     ).storageFixture.readLegacy(),
   );
   expect(legacy).toBe(700000);
+});
+
+test('IndexedDB transactions refuse a stale writer and retain both edits', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => 'storageFixture' in window);
+  const result = await page.evaluate(() =>
+    (
+      window as unknown as { storageFixture: { crossTabConflict(): Promise<unknown> } }
+    ).storageFixture.crossTabConflict(),
+  );
+  expect(result).toEqual({ rejected: true, durable: 'committed A', unsaved: 'unsaved B' });
+});
+
+test('other tabs observe IndexedDB saves and tombstones without localStorage signals', async ({
+  page,
+  context,
+}) => {
+  const other = await context.newPage();
+  for (const tab of [page, other]) {
+    await tab.goto('/');
+    await tab.waitForFunction(() => 'storageFixture' in window);
+    await tab.evaluate(
+      () =>
+        (window as unknown as { storageFixture: { ready: Promise<void> } }).storageFixture.ready,
+    );
+  }
+  for (const value of ['shared text', null]) {
+    await page.evaluate(
+      (value) =>
+        (
+          window as unknown as {
+            storageFixture: { saveShared(value: string | null): Promise<void> };
+          }
+        ).storageFixture.saveShared(value),
+      value,
+    );
+    await expect
+      .poll(() =>
+        other.evaluate(() =>
+          (
+            window as unknown as { storageFixture: { readShared(): Promise<string | null> } }
+          ).storageFixture.readShared(),
+        ),
+      )
+      .toBe(value);
+  }
+  await other.reload();
+  await other.waitForFunction(() => 'storageFixture' in window);
+  expect(
+    await other.evaluate(() =>
+      (
+        window as unknown as { storageFixture: { readShared(): Promise<string | null> } }
+      ).storageFixture.readShared(),
+    ),
+  ).toBeNull();
 });
