@@ -1,3 +1,4 @@
+import { navigateToChatMetadata } from './task-chat-read-observer';
 import { expect, it, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { randomUUID, createHash } from 'node:crypto';
@@ -376,11 +377,11 @@ it('retains actual native task-tool evidence and pending review across App proce
     expect(afterApproval.native.commands).toEqual(cold.native.commands);
     expect(afterApproval.native.conversation.lastCompletedTurnId).toBeNull();
     await capture('explicit-task-done-outcome-still-unverified');
-    await page.goto(front.origin + '/chat/' + leadId);
+    await navigateToChatMetadata(page, front.origin + '/chat/' + leadId, leadId);
     await browserExpect(composer).toHaveValue(leadDraft);
-    await page.goto(front.origin + '/chat/' + peerId);
+    await navigateToChatMetadata(page, front.origin + '/chat/' + peerId, peerId);
     await browserExpect(composer).toHaveValue(peerDraft);
-    await page.goto(front.origin + '/chat/' + workerId);
+    await navigateToChatMetadata(page, front.origin + '/chat/' + workerId, workerId);
     await browserExpect(composer).toHaveValue(workerDraft);
     const effects = await h.effects();
     expect(effects.filter((e) => e.kind === 'native.launch')).toHaveLength(1);

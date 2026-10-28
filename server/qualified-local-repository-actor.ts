@@ -1,7 +1,7 @@
-import { repositoryGitEntrySizeLimit } from './repository-git-container-policy.js';
+import { capturePrivateRepositoryPublicationEntries } from './private-repository-publication-entries.js';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, writeFile, cp, readdir, readFile, chmod } from 'node:fs/promises';
+import { lstat, mkdir, open, writeFile, cp } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   captureNativeHostReadOwner,
@@ -262,45 +262,10 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
         force: false,
         errorOnExist: true,
       });
-      const gitEntries: NativeExclusiveTreeEntry[] = [];
-      let gitBytes = 0;
-      const walk = async (directory: string, prefix = '') => {
-        for (const name of await readdir(directory)) {
-          current();
-          const file = join(directory, name),
-            path = prefix ? `${prefix}/${name}` : name;
-          const info = await lstat(file);
-          if (gitEntries.length >= 10000 || info.isSymbolicLink()) throw unavailable();
-          if (info.isDirectory()) {
-            gitEntries.push({
-              path,
-              mode: '040000',
-              identity: await identity(file),
-              size: 0,
-              sha256: sha(''),
-            });
-            await walk(file, path);
-          } else {
-            if (
-              !info.isFile() ||
-              info.nlink !== 1 ||
-              info.size > repositoryGitEntrySizeLimit(path) ||
-              (gitBytes += info.size) > 128 * 1024 * 1024
-            )
-              throw unavailable();
-            await chmod(file, 0o644);
-            const bytes = await readFile(file);
-            gitEntries.push({
-              path,
-              mode: '100644',
-              identity: await identity(file),
-              size: bytes.length,
-              sha256: sha(bytes),
-            });
-          }
-        }
-      };
-      await walk(git);
+      const gitEntries = await capturePrivateRepositoryPublicationEntries(git, current, () => {
+        context.signal.throwIfAborted();
+        if (Date.now() >= deadline) throw unavailable();
+      });
       const plan: NativePreparationPublicationPlan = {
         version: 'prepared-repository-publication-v1',
         layout: 'standalone',

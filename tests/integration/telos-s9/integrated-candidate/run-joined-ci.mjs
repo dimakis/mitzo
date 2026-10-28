@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { runBrowserCommand } from '../../../../scripts/ci-browser-run.mjs';
 import process from 'node:process';
 import { createRequire } from 'node:module';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
@@ -38,9 +38,11 @@ for (const selected of cases) {
   };
   // CI uses retained accepted bytes, never a developer's MGMT checkout.
   delete env.S9_MGMT_SOURCE_ROOT;
-  const result = spawnSync(
-    process.execPath,
-    [
+  // Give each case its own process group and retire its descendants before the
+  // next case. Keep every original test, reporter, environment and deadline.
+  const exitCode = await runBrowserCommand({
+    command: process.execPath,
+    args: [
       vitest,
       'run',
       '--config',
@@ -51,20 +53,14 @@ for (const selected of cases) {
       '--reporter=json',
       '--outputFile=' + join(directory, 'run.json'),
     ],
-    {
-      cwd: root,
-      env,
-      encoding: 'utf8',
-      maxBuffer: 32 * 1024 * 1024,
-    },
-  );
-  writeFileSync(join(directory, 'stdout.log'), result.stdout ?? '');
-  writeFileSync(join(directory, 'stderr.log'), result.stderr ?? '');
-  process.stdout.write(result.stdout ?? '');
-  process.stderr.write(result.stderr ?? '');
+    cwd: root,
+    env,
+    directory,
+  });
+  const result = JSON.parse(readFileSync(join(directory, 'exit.json'), 'utf8'));
   try {
     const observed = JSON.parse(readFileSync(join(directory, 'run.json'), 'utf8'));
-    if (result.status !== 0 || result.signal || result.error)
+    if (exitCode !== 0 || result.signal || result.error)
       throw Error('Joined acceptance process did not complete successfully');
     requireJoinedReport(observed, selected);
     summary.push({ ...selected, status: 'passed', result: join(directory, 'run.json') });
@@ -73,11 +69,14 @@ for (const selected of cases) {
     summary.push({
       ...selected,
       status: 'failed',
-      exitCode: result.status,
+      exitCode,
       signal: result.signal,
       error: String(error),
     });
   }
+  // Cancellation retires this group and stops admission of later cases. The
+  // incomplete summary remains red under the unchanged complete-coverage gate.
+  if (result.interruptedBy) break;
 }
 writeFileSync(
   join(

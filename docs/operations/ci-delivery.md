@@ -49,6 +49,13 @@ though the responsible process still needs the added RSS diagnostics.
   `joined-validation` checks each shard summary and actual reporter, rejecting
   missing, duplicated, failed or skipped cases. Artifacts are scoped to the
   workflow run and replaced per shard, retaining successful evidence on retries.
+- Each of the two native repository account workflows runs in its own fresh
+  Vitest command, with the original 240-second case deadline and one worker.
+  Actual per-account reporters, exits, resource observations and native evidence
+  remain separate; neither case may reuse stale proof. Both exact cases and every
+  existing native-evidence check must pass. Cancellation stops later admission;
+  ordinary failures still permit the other required case to run. This isolates
+  test JavaScript lifetimes; native workers retain their own existing cleanup.
 - Signed native authorization, both native account workflows, the canonical
   macOS artifact journey, both supplemental shards, all layout projects, core
   checks and the final Centaur gate remain required.

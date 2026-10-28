@@ -50,6 +50,25 @@ export function observeTaskChatReads(page: Page) {
     since,
     boundary: () => ordinal,
     pending: () => [...pending.values()],
+    async waitForSessionMeta(
+      sessionId: string,
+      boundary: number,
+      options = { timeout: 10_000, interval: 100 },
+    ) {
+      return vi.waitFor(() => {
+        const read = since(boundary).find(
+          (read) =>
+            read.path === `/api/sessions/${encodeURIComponent(sessionId)}/meta` &&
+            read.status === 200 &&
+            read.body !== null &&
+            typeof read.body === 'object' &&
+            'sessionId' in read.body &&
+            read.body.sessionId === sessionId,
+        );
+        expect(read, 'new browser GET for the exact destination conversation').toBeDefined();
+        return read!;
+      }, options);
+    },
     async waitForTask(
       taskId: string,
       boundary: number,
@@ -73,4 +92,18 @@ export function observeTaskChatReads(page: Page) {
       page.off('response', onResponse);
     },
   };
+}
+
+/** A new document can mount an empty disabled composer before its own metadata
+ * arrives. Observe only this navigation's real read before asserting its draft.
+ */
+export async function navigateToChatMetadata(page: Page, destination: string, sessionId: string) {
+  const observer = observeTaskChatReads(page);
+  const boundary = observer.boundary();
+  try {
+    await page.goto(destination);
+    await observer.waitForSessionMeta(sessionId, boundary);
+  } finally {
+    observer.close();
+  }
 }

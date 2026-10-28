@@ -6,6 +6,63 @@ const ready = initializeChatStorage();
 Object.assign(window, {
   storageFixture: {
     ready,
+    async saveNearQuota() {
+      await ready;
+      const image = { data: 'AAAA'.repeat(35000), mediaType: 'image/png' };
+      chatStorage.setItem(
+        'quota-draft',
+        JSON.stringify({
+          text: 'Inspect this screenshot',
+          images: [{ ...image, preview: `data:image/png;base64,${image.data}` }],
+        }),
+      );
+      await chatStorage.flush();
+      // Keep enough room for a durable reference, but less than this screenshot.
+      localStorage.setItem('quota-reserve', 'x'.repeat(4096));
+      for (let index = 0; index < 1024; index++) {
+        try {
+          localStorage.setItem(`quota-fill-${index}`, 'x'.repeat(16384));
+        } catch (error) {
+          if (!(error instanceof DOMException) || error.name !== 'QuotaExceededError') throw error;
+          break;
+        }
+      }
+      localStorage.removeItem('quota-reserve');
+      const entry = {
+        scope: 1,
+        body: {
+          type: 'send',
+          sessionId: null,
+          clientMsgId: 'quota-command',
+          prompt: 'Inspect this screenshot',
+          images: [image],
+        },
+      };
+      const raw = JSON.stringify([entry]);
+      let quotaName: string | undefined;
+      try {
+        localStorage.setItem('quota-probe', raw);
+      } catch (error) {
+        quotaName = (error as Error).name;
+      }
+      localStorage.removeItem('quota-probe');
+      const outbox = createReviewedOutboxStorage(chatStorage, 'https://offline.test/quota/send');
+      outbox.setItem('queue', raw);
+      await chatStorage.flush();
+      return { quotaName, rawLength: raw.length };
+    },
+    async readNearQuota() {
+      await ready;
+      const draft = JSON.parse(chatStorage.getItem('quota-draft')!);
+      const outbox = createReviewedOutboxStorage(chatStorage, 'https://offline.test/quota/send');
+      const [entry] = JSON.parse(outbox.getItem('queue')!);
+      return {
+        draftText: draft.text,
+        prompt: entry.body.prompt,
+        sameImage: draft.images[0].data === entry.body.images[0].data,
+        imageLength: entry.body.images[0].data.length,
+      };
+    },
     async save() {
       await ready;
       const raw = JSON.stringify({

@@ -12,7 +12,7 @@ import {
   assertTaskReadability,
   tabToTaskControl,
 } from './task-chat-tree-geometry';
-import { observeTaskChatReads } from './task-chat-read-observer';
+import { observeTaskChatReads, navigateToChatMetadata } from './task-chat-read-observer';
 
 it('retains readable real task review and the exact attempt-associated worker chat-tree row across restart and approval', async () => {
   const h = await createTaskReviewProcessFixture();
@@ -412,7 +412,7 @@ it('retains readable real task review and the exact attempt-associated worker ch
       ).toBe(true);
       const readStart = readObserver.boundary(),
         writeStart = browserWorkRequests.length;
-      await page.goto(front.origin + allocation.workerPath);
+      await navigateToChatMetadata(page, front.origin + allocation.workerPath, workerId);
       const toggle = page.getByRole('button', { name: 'Toggle work tree', exact: true });
       const region = page.getByRole('region', { name: 'Work tree', exact: true });
       await browserExpect(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -607,11 +607,11 @@ it('retains readable real task review and the exact attempt-associated worker ch
     await inspect('done-after-explicit-approval', [320, 390]);
     await inspectChatTree('done-after-explicit-approval', 'done');
     await capture('explicit-task-done-outcome-still-unverified');
-    await page.goto(front.origin + '/chat/' + leadId);
+    await navigateToChatMetadata(page, front.origin + '/chat/' + leadId, leadId);
     await browserExpect(composer).toHaveValue(leadDraft);
-    await page.goto(front.origin + '/chat/' + peerId);
+    await navigateToChatMetadata(page, front.origin + '/chat/' + peerId, peerId);
     await browserExpect(composer).toHaveValue(peerDraft);
-    await page.goto(front.origin + '/chat/' + workerId);
+    await navigateToChatMetadata(page, front.origin + '/chat/' + workerId, workerId);
     await browserExpect(composer).toHaveValue(workerDraft);
     const effects = await h.effects();
     expect(effects.filter((e) => e.kind === 'native.launch')).toHaveLength(1);
