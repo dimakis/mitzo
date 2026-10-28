@@ -6,7 +6,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { ModelSession, ModelSessionConfig } from '@mitzo/harness';
 import type { AdviserRequest } from '../terminal-adviser.js';
 import type { AdviserFeatureOwner } from '../adviser-harness-runtime.js';
-import { createOrdinaryPublicationReview } from '../ordinary-publication-review.js';
+import {
+  createOrdinaryPublicationReview,
+  type OrdinaryPublicationReviewOwner,
+} from '../ordinary-publication-review.js';
 import { capturePublicationReviewEvidence } from '../ordinary-publication-review-context.js';
 
 const roots: string[] = [];
@@ -53,6 +56,7 @@ async function fixture() {
     operatorConnectionId: 'operator',
     binding: {
       accountId: 'offline',
+      accountLabel: 'Offline review account',
       provider: 'openai-codex',
       model: 'gpt-6-luna',
       profileRevision: 'offline',
@@ -61,7 +65,7 @@ async function fixture() {
     reasoningEffort: 'low',
     assertCurrent: current,
     assertCurrentSync: current,
-  };
+  } satisfies OrdinaryPublicationReviewOwner;
   let verdict = 'approve';
   let blocker = false;
   let nonBlocking = false;

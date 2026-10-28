@@ -30,6 +30,10 @@ vi.mock('../connections/capabilities/github-publish-pr-transport.js', async (ori
     },
   };
 });
+// Retain the individual 120-second production admission/review deadlines.
+// CI custody reads took 7–12 seconds versus about 2 seconds locally; this
+// envelope covers four admissions, two reviews and commit/verification work.
+vi.setConfig({ testTimeout: process.env.CI ? 900_000 : 420_000 });
 const execute = promisify(execFile);
 const localGit = async (args: readonly string[], signal: AbortSignal) =>
   execute('/usr/bin/git', [...args], {
@@ -408,15 +412,9 @@ it('commits through native host tools, reviews the exact artifact twice before p
         payload: { text: 'Continue the same task after the verified draft PR.' },
       }),
     ).toBe(true);
-    await vi.waitFor(
-      () =>
-        expect(
-          flow.f.native
-            .commands(flow.sessionId, flow.binding)
-            .find((command) => command.id === followup)?.status,
-        ).toBe('queued'),
-      { timeout: 30000 },
-    );
+    const followupAdmission = await flow.waitForDispatch(followup);
+    expect(followupAdmission.status, JSON.stringify(followupAdmission.body)).toBe(202);
+    expect(flow.f.native.commandStatus(flow.sessionId, flow.binding, followup)).toBe('queued');
     expect(flow.chat.eventStore.getSession(flow.sessionId)).toMatchObject({
       selectedModel: flow.originalBody.selection.model,
       reasoningEffort: flow.originalBody.selection.thinking,
@@ -497,4 +495,4 @@ it('commits through native host tools, reviews the exact artifact twice before p
       .filter((command) => command.id === followup),
   ).toHaveLength(1);
   expect(await readFile(sourceDirty, 'utf8')).toBe('Preserve the user unfinished source work');
-}, 420000);
+});

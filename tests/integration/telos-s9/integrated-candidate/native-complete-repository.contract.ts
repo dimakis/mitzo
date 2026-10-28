@@ -199,6 +199,9 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
+// Accepted main (393dc58ad) completed this whole journey in 118.686 seconds
+// against the former 120-second envelope. Keep every operation's own bound;
+// allow host-read jitter through the final exact retry and cold-retention checks.
 it('CT06/09/17 complete repository journey: native evidence and reviewed output, explicit task approval, verified outcome and original cold retention', async () => {
   vi.resetModules();
   vi.stubEnv('MITZO_KNOWLEDGE_LIBRARY_CONFIG', undefined);
@@ -1356,4 +1359,4 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
         'Original storage-owner reopen, not a full process/App restart, live runtime or whole criterion acceptance.',
     },
   });
-}, 120_000);
+}, 180_000);

@@ -32,6 +32,8 @@ import {
 import { OrdinaryRepositoryPreparationSchema } from '../../ordinary-repository-preparation.js';
 
 import { nativeStartupSessionId } from '../../ordinary-repository-startup.js';
+type FixtureRpcRequest = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
 export async function ownedRuntimeFixture(
   cleanups: Array<() => void | Promise<void>>,
   options: {
@@ -404,7 +406,7 @@ export async function ownedRuntimeFixture(
     const commandId = request.clientMsgId;
     const rpc = {
       initialize: vi.fn(async () => {}),
-      request: vi.fn(async (method: string): Promise<unknown> => {
+      request: vi.fn<FixtureRpcRequest>(async (method) => {
         if (method === 'account/read')
           return options.api
             ? { account: { type: 'apiKey' }, requiresOpenaiAuth: true }

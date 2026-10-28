@@ -14,6 +14,9 @@ allowed-tools:
   - Agent
   - TaskOutput
   - TaskStop
+  - GitCommit
+  - RequestGithubPublish
+  - ExecuteProviderCapability
 ---
 
 Follow the canonical `land-pr` instructions with `--prepare-only`, passing through `$ARGUMENTS` and other constraints. Mitzo includes the registry-selected dependency below; other skill hosts load `land-pr` from their available skill catalog. This alias owns no separate lifecycle, scheduler or review policy. If the canonical skill cannot be found, report that missing dependency rather than restoring an older workflow.

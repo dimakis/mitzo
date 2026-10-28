@@ -3,8 +3,14 @@ import { mkdtemp, mkdir, writeFile, readFile, chmod, rm, realpath } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { ManagedSession, SessionRegistry } from '@mitzo/harness';
-const mocks = vi.hoisted(() => ({ approve: vi.fn() }));
+import type { ManagedSession, ModelSession, SessionRegistry } from '@mitzo/harness';
+import type { AdviserSessionFactory } from '../terminal-adviser.js';
+import { login, authenticateToken, revokeAuthSession } from '../auth.js';
+import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+const mocks = vi.hoisted(() => ({ approve: vi.fn(), reviewSession: vi.fn() }));
+vi.mock('../terminal-adviser-model.js', () => ({
+  createTerminalAdviserSession: mocks.reviewSession,
+}));
 vi.mock('@mitzo/harness', async (original) => ({
   ...(await original<typeof import('@mitzo/harness')>()),
   buildPermissionHandler: () => mocks.approve,
@@ -160,20 +166,74 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
     });
     const session = {
       sessionId: 'conversation',
+      ownerConnectionId: 'seed-publishing-operator',
+      model: 'fixture',
       cwd: kind === 'host' ? seed : '/sandbox/workspaces/mgmt',
       mode: 'auto',
-      accountBinding: { accountId: 'selected', provider, model: 'fixture', profileRevision: '1' },
+      accountBinding: {
+        accountId: 'selected',
+        accountLabel: 'Offline selected account',
+        provider,
+        model: 'fixture',
+        profileRevision: '1',
+      },
       activeSkillPolicy: null,
     } as unknown as ManagedSession;
     const registry = {
       findBySessionId: () => ({ session, clientId: 'owner' }),
       get: () => session,
     } as unknown as SessionRegistry;
+    // This integration fixture keeps the real signed operator, owner capture,
+    // committed-artifact review and approval gate. Only adviser inference is synthetic.
+    const auth = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
+    if (!auth) throw Error('Offline signed publication operator required');
+    const releaseOperator = bindAgentLibraryTransport(session.ownerConnectionId!, auth);
+    mocks.reviewSession.mockReset();
+    mocks.reviewSession.mockImplementation((async (config, request, owner) => {
+      expect(config.tools).toEqual([]);
+      expect(request).toMatchObject({
+        accountId: 'selected',
+        model: 'fixture',
+        reasoningEffort: null,
+      });
+      expect(owner).toMatchObject({
+        authSessionId: auth.id,
+        operatorConnectionId: session.ownerConnectionId,
+        feature: { kind: 'github-publication' },
+      });
+      await config.beforeDispatch?.();
+      const adviser: ModelSession = {
+        provider: 'codex',
+        async *turn(messages) {
+          const evidence = /Evidence SHA-256: ([a-f0-9]{64})/.exec(
+            messages.map((message) => message.content).join(''),
+          );
+          if (!evidence) throw Error('Complete host review evidence required');
+          yield {
+            type: 'content_block_delta',
+            index: 0,
+            delta: {
+              type: 'text_delta',
+              text: JSON.stringify({
+                evidenceSha256: evidence[1],
+                reviewedAllEvidence: true,
+                verdict: 'approve',
+                findings: [],
+                requests: [],
+                unresolvedNeeds: [],
+              }),
+            },
+          };
+        },
+      };
+      return adviser;
+    }) satisfies AdviserSessionFactory);
+    const approvalReviewCounts: number[] = [];
     mocks.approve.mockReset();
-    mocks.approve.mockImplementation(async (_name, input) => ({
-      behavior: approved ? 'allow' : 'deny',
-      updatedInput: input,
-    }));
+    mocks.approve.mockImplementation(async (_name, input) => {
+      approvalReviewCounts.push(mocks.reviewSession.mock.calls.length);
+      return { behavior: approved ? 'allow' : 'deny', updatedInput: input };
+    });
     const tool = createGithubPublishingTool('conversation', registry, () =>
       kind === 'host'
         ? { runtime: 'host', workspace: seed, gitStorageRoots: [] }
@@ -204,10 +264,14 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
           body: 'Only committed changes',
           draft: true,
         },
-        AbortSignal.timeout(20000),
+        // The compound journey now includes two fresh host review passes and
+        // revalidation before the existing push/PR/remote-head verification.
+        AbortSignal.timeout(40000),
         { turnId: 'turn', callId: 'call' },
       );
       const detail = JSON.parse(result.content);
+      expect(mocks.reviewSession).toHaveBeenCalledTimes(2);
+      expect(approvalReviewCounts).toEqual([2]);
       if (!approved) {
         expect(detail).toMatchObject({ status: 'denied' });
         expect(git(upstream, 'for-each-ref', '--format=%(refname)', 'refs/heads')).toBe(
@@ -222,6 +286,7 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
         result: {
           pullRequestUrl: 'https://github.com/example/repo/pull/17',
           originalSourceOid: original,
+          review: { reports: [{ verdict: 'approve' }, { verdict: 'approve' }] },
         },
       });
       expect(mocks.approve).toHaveBeenCalledTimes(1);
@@ -240,10 +305,12 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
       expect(git(seed, 'status', '--short')).toBe('');
       expect(git(seed, 'remote')).toBe('');
     } finally {
+      releaseOperator();
+      revokeAuthSession(auth);
       tool.close();
       runtime.store.close();
       runtime.capabilityStore.close();
     }
   },
-  30000,
+  60000,
 );

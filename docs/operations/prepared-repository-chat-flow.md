@@ -41,6 +41,19 @@ provider invocation.
 
 ## Commit and publication
 
+For an ordinary Mitzo chat with `RequestGithubPublish`, use its host review path
+when native subagent tools are unavailable. After the checks and local commit,
+request publication through that tool. Before any push, the host runs two fresh,
+independent reviews over the exact committed change: correctness/integration and
+behavior/test/security. The host may serialize those isolated passes to respect
+resource limits. These are qualifying independent reviews only when their returned
+receipt identifies the committed artifact and evidence, both passes completed,
+and no blocking findings remain. Fix returned findings, commit, and request a
+fresh review for changed work. Do not treat a request, missing receipt, incomplete
+coverage or the absence of a native subagent tool as review approval. The host
+still requires the publication approval and rechecks the reviewed artifact before
+publishing. Required CI, Centaur, merge and deployment gates remain separate.
+
 Standalone task Git metadata includes empty real reflog parent directories before
 publication into the task. The projector admits only the required fixed directory
 chain; arbitrary reflog files, symlinks and substitute paths remain forbidden.

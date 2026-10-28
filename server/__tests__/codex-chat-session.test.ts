@@ -3667,12 +3667,25 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         'InvokeIntegrationTool',
       ].sort(),
     );
-    const execute = config.executeTool as (
-      name: string,
-      input: Record<string, unknown>,
-      signal: AbortSignal,
-      context: { turnId: string; callId: string },
-    ) => Promise<unknown>;
+    const execute =
+      config.executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    // CodexConversation is replaced by this controller fixture. Supply its
+    // private native invocation facet explicitly, retaining the original lease fence.
+    const publicationCall = (callId: string) => {
+      const context = { turnId: 'turn', callId };
+      Object.defineProperty(context, 'captureInferenceSelection', {
+        value: () => {
+          f.lease.assertCurrentSync();
+          return Object.freeze({
+            commandId: 'owned-command',
+            model: f.expected.selection.model,
+            reasoningEffort: f.expected.selection.thinking ?? null,
+            assertCurrentSync: () => f.lease.assertCurrentSync(),
+          });
+        },
+      });
+      return Object.freeze(context);
+    };
     vi.mocked(f.lease.assertCurrent).mockClear();
     for (const name of [
       'ListConnections',
@@ -3684,11 +3697,22 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         execute(name, {}, new AbortController().signal, { turnId: 'turn', callId: name }),
       ).rejects.toThrow('Tool unavailable for owned local Codex chat');
     expect(f.lease.assertCurrent).not.toHaveBeenCalled();
-    await expect(
-      execute('RequestGithubPublish', {}, new AbortController().signal, {
+    const missingSelection = await execute(
+      'RequestGithubPublish',
+      {},
+      new AbortController().signal,
+      {
         turnId: 'turn',
-        callId: 'publish',
-      }),
+        callId: 'missing-private-selection',
+      },
+    );
+    expect(missingSelection.isError).toBe(true);
+    expect(JSON.parse(missingSelection.content)).toMatchObject({
+      code: 'PUBLICATION_REVIEW_UNAVAILABLE',
+      operationRecorded: false,
+    });
+    await expect(
+      execute('RequestGithubPublish', {}, new AbortController().signal, publicationCall('publish')),
     ).resolves.toMatchObject({ content: expect.stringContaining('repositoryPath'), isError: true });
     expect(f.lease.assertCurrent).toHaveBeenCalled();
     const connection = {
@@ -3726,7 +3750,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
           draft: true,
         },
         new AbortController().signal,
-        { turnId: 'turn', callId: 'real-publication' },
+        publicationCall('real-publication'),
       ),
     ).resolves.toMatchObject({ isError: false });
     expect(resolve).toHaveBeenCalledWith(

@@ -2,6 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import { preparedRepositoryDeliveryFlow } from './fixtures/prepared-repository-delivery-flow.js';
 
+// These composed journeys retain each real admission's 120-second deadline.
+// CI custody reads took 7–12 seconds versus about 2 seconds locally: budget
+// four admissions + two 120-second reviews + commit/verification allowance.
+vi.setConfig({ testTimeout: process.env.CI ? 900_000 : 420_000 });
+
 it('recovers exact original delivery after adoption, then accepts repeated explicit prompts and a lost-response continuation without replay', async () => {
   const f = await preparedRepositoryDeliveryFlow();
   const nativeBefore = f.f.native.commands(f.sessionId, f.binding);
@@ -53,7 +58,7 @@ it('recovers exact original delivery after adoption, then accepts repeated expli
       ),
     ).toHaveLength(1);
   }
-}, 420000);
+});
 
 it.each([false, true])(
   'admits a deliberately retried never-admitted stale-workspace prompt through canonical adoption after capability deployment=%s without rewriting its frozen browser body',
@@ -130,10 +135,8 @@ it.each([false, true])(
     expect(f.store.getState().localCommand?.state).toBe('uncertain');
     if (changedCatalog) f.loseNextResponse();
     expect(f.store.getState().recoverLocalCommand()).toBe(true);
-    await vi.waitFor(
-      () => expect(f.requests.some((request) => !request.path.endsWith('/receipt'))).toBe(true),
-      { timeout: 30000 },
-    );
+    const dispatchResponse = await f.waitForDispatch(f.pendingBody.clientMsgId);
+    expect(dispatchResponse.status, JSON.stringify(dispatchResponse.body)).toBe(202);
     expect(
       f.requests.find((request) => !request.path.endsWith('/receipt')),
       JSON.stringify(f.requests),
@@ -165,7 +168,6 @@ it.each([false, true])(
     ).toBe(409);
     expect(f.f.native.commands(f.sessionId, f.binding)).toEqual(nativeAfter);
   },
-  420000,
 );
 
 it('recovers an exact already bridged command only while its earlier attempt never crossed the native dispatch boundary', async () => {
@@ -237,4 +239,4 @@ it('recovers an exact already bridged command only while its earlier attempt nev
       .commands(f.sessionId, f.binding)
       .filter((command) => command.id === request.clientMsgId),
   ).toHaveLength(1);
-}, 420000);
+});

@@ -3,7 +3,9 @@ import express from 'express';
 import requestHttp from 'supertest';
 import { expect, vi } from 'vitest';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { createMitzoStore } from '@mitzo/client';
+import { LocalCodexFirstCommandSchema } from '@mitzo/protocol';
 import { CodexAppServerClient } from '../../codex-app-server-client.js';
 import { codexNativeExecutionPolicy } from '../../codex-native-execution-policy.js';
 
@@ -24,14 +26,18 @@ export async function preparedRepositoryDeliveryFlow(
     ) => Pick<Storage, 'getItem' | 'setItem'> & { flush?: () => Promise<void> };
   } = {},
 ) {
-  const f = await fixture(true, 300000, options.images, options.publicationFlow);
+  // This synthetic operator covers the composed test envelope plus cleanup.
+  // Production authentication and the separate expiry-negative fixtures retain
+  // their own lifetimes; no authority is refreshed during an active operation.
+  const operatorLifetimeMs = process.env.CI ? 960_000 : 480_000;
+  const f = await fixture(true, operatorLifetimeMs, options.images, options.publicationFlow);
   const sessionId = f.first.sessionId;
   const binding = f.first.lease.binding;
-  const originalBody = {
+  const originalBody = LocalCodexFirstCommandSchema.parse({
     ...structuredClone(f.request),
-    runOn: 'local' as const,
+    runOn: 'local',
     repositoryWorkspaceId: f.reservation.id,
-  };
+  });
   const originalReceipt = f.events.getOrdinaryLocalCommandAdmission(f.request.clientMsgId);
   const originalMetadata = structuredClone(f.events.getSession(sessionId));
   const adopted = (await f.adopt())!;
@@ -127,12 +133,12 @@ export async function preparedRepositoryDeliveryFlow(
       .set('Authorization', 'Bearer ' + f.operatorToken)
       .set('Content-Type', 'application/json')
       .set('X-Connection-ID', browser.id)
-      .send(body);
+      .send(JSON.stringify(body));
   const pendingBody = options.unadmittedStaleWorkspace
     ? {
         ...originalBody,
         sessionId,
-        clientMsgId: 'stale-post-adoption-explicit-command',
+        clientMsgId: `stale-post-adoption-explicit-command-${randomUUID()}`,
         payload: { text: 'so is it not operational now?' },
       }
     : originalBody;
@@ -154,11 +160,14 @@ export async function preparedRepositoryDeliveryFlow(
     },
   };
   const requests: Array<{ path: string; body: Record<string, unknown>; status: number }> = [];
+  const dispatches = new Map<string, ReturnType<typeof post>>();
   let loseNextResponse = false;
   const fetch = vi.fn(async (path: string, init?: RequestInit) => {
     if (path.startsWith('/api/chat/local-codex/')) {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      const response = await post(path, body);
+      const pending = post(path, body);
+      if (!path.endsWith('/receipt')) dispatches.set(String(body.clientMsgId), pending);
+      const response = await pending;
       requests.push({ path, body, status: response.status });
       if (loseNextResponse && !path.endsWith('/receipt')) {
         loseNextResponse = false;
@@ -197,6 +206,13 @@ export async function preparedRepositoryDeliveryFlow(
     primary,
     requests,
     post,
+    async waitForDispatch(commandId: string) {
+      // Admission may perform several real physical custody checks. Await its
+      // exact public response under the production startup deadline, rather
+      // than guessing that native qualification finishes within a shorter poll.
+      await vi.waitFor(() => expect(dispatches.has(commandId)).toBe(true), { timeout: 5000 });
+      return await dispatches.get(commandId)!;
+    },
     launch,
     chat,
     saved: () => JSON.parse(storage.getItem('queue') ?? '[]'),

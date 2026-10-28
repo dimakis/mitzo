@@ -5,6 +5,8 @@ import { fileURLToPath } from 'url';
 import { SkillRegistry, SKILL_SIZE_LIMIT } from '../skills.js';
 import { renderSkillPrompt, resolveSlashCommand } from '../slash-commands.js';
 import { SessionRegistry } from '../session-registry.js';
+import { resolvePending } from '@mitzo/harness';
+import { capabilityApprovalForConversation } from '../connections/capabilities/approval.js';
 import { checkSkillPolicy, setSkillPolicy } from '../skill-policy.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -212,6 +214,55 @@ describe('bundled skills', () => {
   );
 
   it.each(['land-pr', 'autopilot', 'pr-shepherd', 'auto-pr-shepherd'])(
+    '/%s reaches the real publication approval queue and retains the Ask ceiling',
+    async (name) => {
+      const result = resolveSlashCommand(`/${name} 1090 --prepare-only`, registry, new Set());
+      if (result.type !== 'skill') throw Error('Expected a landing skill');
+      const sessions = new SessionRegistry();
+      const abort = new AbortController();
+      const requests: Array<Record<string, unknown>> = [];
+      sessions.register('approval', {
+        sessionId: 'landing-conversation',
+        transport: {
+          send: (event) => {
+            if (event.type === 'permission_request') requests.push(event);
+          },
+          isOpen: () => true,
+        },
+        abortController: abort,
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+      try {
+        setSkillPolicy(sessions, 'approval', result.allowedTools!);
+        const approve = capabilityApprovalForConversation(sessions, 'landing-conversation');
+        const request = {
+          capabilityId: 'github.publish-pr',
+          capabilityVersion: 1,
+          connectionId: 'github',
+          connectionRevision: 1,
+          operationId: 'reviewed-publication',
+          input: { repository: 'example/repo', reviewReceiptId: 'exact-reviewed-artifact' },
+          forcePrompt: true as const,
+        };
+        const decision = approve(request, abort.signal);
+        await Promise.resolve();
+        expect(requests).toHaveLength(1);
+        expect(
+          resolvePending(requests[0].permId as string, 'once', undefined, 'landing-conversation'),
+        ).toBe(true);
+        expect(await decision).toBe(true);
+        sessions.setMode('approval', 'ask');
+        expect(await approve({ ...request, operationId: 'ask-refusal' }, abort.signal)).toBe(false);
+        expect(requests).toHaveLength(1);
+      } finally {
+        abort.abort();
+        sessions.dispose();
+      }
+    },
+  );
+
+  it.each(['land-pr', 'autopilot', 'pr-shepherd', 'auto-pr-shepherd'])(
     '/%s admits local review delegation without admitting unrelated tools',
     (name) => {
       const result = resolveSlashCommand(`/${name} 1090 --prepare-only`, registry, new Set());
@@ -225,7 +276,14 @@ describe('bundled skills', () => {
           sessionAllowList: new Set(),
         });
         setSkillPolicy(sessions, 'review', result.allowedTools!);
-        for (const tool of ['Agent', 'TaskOutput', 'TaskStop']) {
+        for (const tool of [
+          'Agent',
+          'TaskOutput',
+          'TaskStop',
+          'GitCommit',
+          'RequestGithubPublish',
+          'ExecuteProviderCapability',
+        ]) {
           expect(checkSkillPolicy(sessions, 'review', tool)).toBe('allow');
         }
         expect(checkSkillPolicy(sessions, 'review', 'mcp__unrelated__write')).toBe('deny');
