@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.747-replay-foreground-resume';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.748-single-flight-reconciliation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/single-flight-reconciliation.test.ts':
+    '6842f8e58abaa88251d97058cd8bf60b54f4978a3b502d6647005a2e9fd4baed',
+  '../single-flight-reconciliation.ts':
+    '243227fbf5ff82d42687770551a3d3fa37ea11ea2d7c6d615e8b6bcb3d19def1',
   '../__tests__/session-history-native.test.ts':
     '9d98ee4ad565fd97b3b81e7587d2df8283cc63f41c64ca5cf1ddf4f6833614aa',
   '../__tests__/session-history-search-cost.test.ts':
@@ -1154,7 +1159,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '945d7eb8ffc97d53d16dc280698ad4dfacae8cb063cc974c269235058b5f7d14',
   '../url-access-tool.ts': '045e01d27a5c5428b9430e440916875a622ea8eb90f598c577d22a2da680a457',
   '../web-access-tool.ts': '0c5e1a8a589cc660983f814abd1994b6b877b1bd1f02b6bc8c26521f6ae1ba13',
-  '../index.ts': '5734660d0abb54898f0c134d342f9095054994de203a38e98f9f1bae1ca31265',
+  '../index.ts': '4663b88936cc7b6ecad6f048339c94c2736268a9f5133eb055b1ffa6eb7ed540',
   '../symposium-app-exit.ts': '6129588f968e7ae2cca592104fc0975081f112c9cfa8ef475c7b12c3a7af7d1d',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
   '../chat-rest-handler.ts': '828d8ce3babd1e437f8c9ed65da1657555f4c0caa2c759ef1f4d661124ccf809',
