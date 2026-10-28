@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.744-complete-prepared-flow';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.745-bounded-history-search';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/session-history-native.test.ts':
+    '9d98ee4ad565fd97b3b81e7587d2df8283cc63f41c64ca5cf1ddf4f6833614aa',
+  '../__tests__/session-history-search-cost.test.ts':
+    '490138007b9a7c7351557f406fbbc02c4cb5dce68924d01611503999304c4f0c',
+  '../__tests__/session-history-search-batch.test.ts':
+    '9db12e21d5717fe27540b9a44feb10e62ebed2aab7b57500d216858ec2a9f66b',
   '../../tests/integration/telos-s9/integrated-candidate/joined-role-setup-ready.test.ts':
     '135c046f446cccdc941332395629b33db95e266fc5625c8b20ce45a300f8c2fb',
   '../../scripts/ci-prepared-consumers.mjs':
@@ -359,8 +365,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/agent-communication-native.test.ts':
     '69203bda9ca703dcead99697ebfc942e7b51f2e5093680739945f2e7de36c028',
   '../session-history-authorization.ts':
-    '8c232f932469a9a39c3913b261d968bc051c800125895fbc22805cff44f2a7b8',
-  '../session-history-tools.ts': '3ad557d92c3cd4b66ecc39c4894f817066cb57b0f525c971d7f05941e1d39fc0',
+    '58b1062921da99ee58f85947f62849f526b5fdb2338e69b042a98159e82ae4f0',
+  '../session-history-tools.ts': 'f7fd83d23e03222cfa08b5a316211480b9b80748cafd86e7f10e2a94dc2babd8',
   '../local-repository-discovery.ts':
     'c3d0bc7ecc2c1838e11666f72681a4d9f1fb2f3adfa701356af6a06551ca9c43',
   '../session-local-repository-tools.ts':
