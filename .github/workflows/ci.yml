@@ -6,6 +6,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+# Browser archive socket-idle budget only; acceptance and job limits are unchanged.
+env:
+  PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: 60000
+
 # Isolate PR candidates from slow older-run shutdown; same-candidate reruns supersede.
 # Accepted default-branch recovery cleans up provably older PR heads.
 concurrency:

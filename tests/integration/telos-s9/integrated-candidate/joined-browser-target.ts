@@ -9,6 +9,7 @@ import { ConnectionRegistry } from '@mitzo/harness';
 import type { SessionSseRegistry } from '../../../../server/session-sse-registry.js';
 import type { AuthSession } from '../../../../server/auth.js';
 import type * as Chat from '../../../../server/chat.js';
+import { prepareJoinedFrontend } from './joined-frontend-ready';
 
 /** Test-only extraction of index.ts's ordinary SSE/REST composition. All registry,
  * authentication, reconnection, command and admission owners remain production
@@ -138,13 +139,29 @@ export async function createJoinedFrontend(app: Express, privateRoot: string) {
   );
   front.use(vite.middlewares);
   const server = createServer(front);
-  await new Promise<void>((done, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', done);
-  });
-  const address = server.address();
-  if (!address || typeof address === 'string' || [3100, 3101, 3190].includes(address.port))
-    throw Error('Private joined test listener required');
+  let address: ReturnType<typeof server.address>;
+  try {
+    await prepareJoinedFrontend(vite.environments.client);
+    await new Promise<void>((done, reject) => {
+      const onError = (error: Error) => reject(error);
+      server.once('error', onError);
+      server.listen(0, '127.0.0.1', () => {
+        server.off('error', onError);
+        done();
+      });
+    });
+    address = server.address();
+    if (!address || typeof address === 'string' || [3100, 3101, 3190].includes(address.port))
+      throw Error('Private joined test listener required');
+  } catch (error) {
+    await Promise.allSettled([
+      vite.close(),
+      ...(server.listening
+        ? [new Promise<void>((done, reject) => server.close((e) => (e ? reject(e) : done())))]
+        : []),
+    ]);
+    throw error;
+  }
   return {
     server,
     port: address.port,

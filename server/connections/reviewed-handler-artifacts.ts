@@ -22,6 +22,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../tests/integration/telos-s9/integrated-candidate/joined-frontend-ready.ts':
+    'da6e4c6c5531392d51ae0500ec350a735c769d954ba38c7ff0a15b4b67624cca',
+  '../../tests/integration/telos-s9/integrated-candidate/joined-frontend-ready.test.ts':
+    'bcbb51f676699c77993f0b3543162a18ec62753fccbb3158f519c912ecaca3e5',
   '../../.github/workflows/centaur-gate.yml':
     '498cb6e2256bbd0ec75879583f77e133ff2f2c9ecd2e84fd17cd05e524013a8f',
   '../../.github/workflows/centaur-review-event.yml':
@@ -2230,7 +2234,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-cli-3077.manifest.json':
     '4b3ffbd04971720a8b6648d5266b688466e47dafa8b5128e5f562c855a5bbebf',
   '../../tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts':
-    '95e4ec1b903a6419ff357cdfbd743a49c86a92efe0336ea860ba8ea337c51e66',
+    'cda0adeb449335d1c56a9a9cf4550e81f2b12764bf8777dc706ee68dab82c27c',
   '../../tests/integration/telos-s9/integrated-candidate/joined-canonical-cli.ts':
     '75770f88a7bbcbedbfea6ca5399fdb6f663b9771789eb1098a1fd763e1cd7c1f',
   '../../tests/integration/telos-s9/integrated-candidate/joined-fake-voice-effects.ts':
@@ -2738,7 +2742,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '2ad827f6ba9168a84a73651bd0098f22997c34e283225118fad68fd0ee7338e2',
+    '4b8ef96d04d4bf0896cfdf9aff75298f58b12bba193ee04a377574f60fe7c3b2',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
