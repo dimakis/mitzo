@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.740-chat-storage-quota-private-observation';
+  'v1.0.741-chat-storage-quota-native-isolation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../scripts/__tests__/ci-native-repository-workflows.test.ts':
+    '405de16c51d148efff936afa2eed01efb96096b224709edd7a3f4cef1257fc62',
+  '../../scripts/ci-native-repository-workflows.mjs':
+    '5709db20466381c1faf3f1d2e14ac80c1cbe9056c274886da429c74722299866',
   '../__tests__/private-repository-publication-entries.test.ts':
     '0e37ab9f651bd7cc1fbfc35854ea3fde696c9ac237f9d11e8a07ac2a53c629eb',
   '../private-repository-publication-entries.ts':
@@ -2659,7 +2663,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '187d816bfa17941c57e4fabfda84b9e136f6917ce5d7c659289b878acd2add8e',
   '../../.github/workflows/ci.yml':
-    '45752e342baaf59f3fe8712599c7731bf74952e024bae34d3db9e1ca12f2a36a',
+    'ce792e1269544130f15ca24cb3b596b82d208f3c44925b0dd2318d96577698b3',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',

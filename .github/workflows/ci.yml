@@ -401,13 +401,9 @@ jobs:
           MITZO_NATIVE_READ_TOOLS_SOURCE_PATH: ${{ github.workspace }}
           MITZO_NATIVE_REPOSITORY_EVIDENCE_DIR: test-results/native-repository-workflows
         run: |
-          npx vitest run server/__tests__/native-local-repository-read-registration.test.ts server/__tests__/native-local-repository-read-registration-api.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/native-repository-workflows.json
+          node scripts/ci-native-repository-workflows.mjs
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
-          const result=JSON.parse(readFileSync('test-results/native-repository-workflows.json','utf8'));
-          const cases=result.testResults.flatMap(suite=>suite.assertionResults);
-          if(!result.success || cases.length!==2 || cases.some(test=>test.status!=='passed') || result.numPendingTests!==0)
-            throw new Error('Both complete native repository workflows must execute; skips are not qualification');
           for(const account of ['subscription','api']) {
             const evidence=JSON.parse(readFileSync(`test-results/native-repository-workflows/${account}.json`,'utf8'));
             if(evidence.account!==account || evidence.phase!=='completed' || !evidence.coldResume || !evidence.viewerDetached ||
@@ -425,7 +421,7 @@ jobs:
           name: native-repository-workflows-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/standalone-task-proofs.json
-            test-results/native-repository-workflows.json
+            test-results/native-repository-workflows-processes/
             test-results/native-repository-workflows/
           if-no-files-found: warn
       - name: Run the complete offline journey with the real macOS artifact boundary
@@ -473,7 +469,7 @@ jobs:
           path: |
             test-results/ordinary-journey.json
             test-results/native-host-authorization.json
-            test-results/native-repository-workflows.json
+            test-results/native-repository-workflows-processes/
             test-results/native-repository-workflows/
             test-results/telos-s9-joined/
             test-results/telos-s9-supplemental/
