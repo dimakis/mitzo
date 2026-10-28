@@ -76,3 +76,31 @@ it('protects host OpenShell operator credentials from native agent reads', () =>
     ),
   ).toBe(true);
 });
+
+it('keeps a fresh-process policy stable when a retained login reopens before any capture', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-cold-private-'));
+  const privateRoot = join(root, 'private');
+  mkdirSync(privateRoot);
+  mkdirSync(join(privateRoot, 'host-login-retained'));
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', privateRoot);
+  vi.resetModules();
+  try {
+    const fresh = await import('../codex-private-path.js');
+    // A new process has no observed parent registration from capture(). Its
+    // configured private directory already protects every retained login.
+    const before = fresh.privateCodexPathSnapshot();
+    fresh.protectCodexProfileRoots([join(privateRoot, 'host-login-retained')]);
+    const after = fresh.privateCodexPathSnapshot();
+    expect(after.roots).toEqual(before.roots);
+    expect(after.isPrivate(join(privateRoot, 'host-login-retained', 'auth.json'))).toBe(true);
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'replacement'));
+    expect(
+      fresh
+        .privateCodexPathSnapshot()
+        .isPrivate(join(privateRoot, 'host-login-retained', 'auth.json')),
+    ).toBe(true);
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
