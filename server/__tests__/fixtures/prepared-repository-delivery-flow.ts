@@ -1,11 +1,11 @@
 import { fixture, cleanups } from './prepared-repository-native-consumer.js';
 import express from 'express';
-import requestHttp from 'supertest';
+import requestHttp, { type Response as HttpResponse } from 'supertest';
 import { expect, vi } from 'vitest';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createMitzoStore } from '@mitzo/client';
-import { LocalCodexFirstCommandSchema } from '@mitzo/protocol';
+import { LocalCodexFirstCommandSchema, LocalCodexFirstCommandReceiptSchema } from '@mitzo/protocol';
 import { CodexAppServerClient } from '../../codex-app-server-client.js';
 import { codexNativeExecutionPolicy } from '../../codex-native-execution-policy.js';
 
@@ -127,13 +127,34 @@ export async function preparedRepositoryDeliveryFlow(
     chat.setConnectionRegistry(null);
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
-  const post = async (path: string, body: unknown) =>
-    requestHttp(server)
+  const submissions = new Map<string, Promise<HttpResponse>>();
+  const post = (path: string, body: unknown) => {
+    const pending = requestHttp(server)
       .post(path)
       .set('Authorization', 'Bearer ' + f.operatorToken)
       .set('Content-Type', 'application/json')
       .set('X-Connection-ID', browser.id)
-      .send(JSON.stringify(body));
+      .send(JSON.stringify(body))
+      .then((response) => response);
+    const commandId =
+      body && typeof body === 'object' && 'clientMsgId' in body ? body.clientMsgId : undefined;
+    if (!path.endsWith('/receipt') && typeof commandId === 'string')
+      submissions.set(commandId, pending);
+    return pending;
+  };
+  const waitForDispatch = async (commandId: string) => {
+    // The HTTP owner has its own production startup deadline. Only its exact
+    // successful receipt releases the separate native acceptance observation.
+    await vi.waitFor(() => expect(submissions.has(commandId)).toBe(true), { timeout: 5000 });
+    const response = await submissions.get(commandId)!;
+    expect(response.status, JSON.stringify(response.body)).toBe(202);
+    expect(LocalCodexFirstCommandReceiptSchema.parse(response.body)).toMatchObject({
+      sessionId,
+      clientMsgId: commandId,
+      state: 'consumed',
+    });
+    return response;
+  };
   const pendingBody = options.unadmittedStaleWorkspace
     ? {
         ...originalBody,
@@ -160,13 +181,11 @@ export async function preparedRepositoryDeliveryFlow(
     },
   };
   const requests: Array<{ path: string; body: Record<string, unknown>; status: number }> = [];
-  const dispatches = new Map<string, ReturnType<typeof post>>();
   let loseNextResponse = false;
   const fetch = vi.fn(async (path: string, init?: RequestInit) => {
     if (path.startsWith('/api/chat/local-codex/')) {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       const pending = post(path, body);
-      if (!path.endsWith('/receipt')) dispatches.set(String(body.clientMsgId), pending);
       const response = await pending;
       requests.push({ path, body, status: response.status });
       if (loseNextResponse && !path.endsWith('/receipt')) {
@@ -206,13 +225,7 @@ export async function preparedRepositoryDeliveryFlow(
     primary,
     requests,
     post,
-    async waitForDispatch(commandId: string) {
-      // Admission may perform several real physical custody checks. Await its
-      // exact public response under the production startup deadline, rather
-      // than guessing that native qualification finishes within a shorter poll.
-      await vi.waitFor(() => expect(dispatches.has(commandId)).toBe(true), { timeout: 5000 });
-      return await dispatches.get(commandId)!;
-    },
+    waitForDispatch,
     launch,
     chat,
     saved: () => JSON.parse(storage.getItem('queue') ?? '[]'),
@@ -221,10 +234,16 @@ export async function preparedRepositoryDeliveryFlow(
       loseNextResponse = true;
     },
     async complete(commandId: string, beforeComplete?: () => Promise<void>) {
+      await waitForDispatch(commandId);
       await vi.waitFor(
         () =>
           expect(
             f.native.readNativeExecution(sessionId, binding, { id: commandId, attempt: 1 }),
+            JSON.stringify({
+              commandId,
+              status: f.native.commandStatus(sessionId, binding, commandId),
+              error: f.events.getLatestEvent(sessionId, 'error')?.payload,
+            }),
           ).toMatchObject({ phase: 'accepted' }),
         { timeout: 120000 },
       );

@@ -315,6 +315,7 @@ it('commits through native host tools, reviews the exact artifact twice before p
       },
     }),
   ).toBe(true);
+  await flow.waitForDispatch(commandId);
   const accepted = () =>
     flow.f.native.readNativeExecution(flow.sessionId, flow.binding, {
       id: commandId,

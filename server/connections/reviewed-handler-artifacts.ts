@@ -61,7 +61,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/prepared-repository-browser.ts':
     'aafba388d9f3a5df3475bd28415433c3088196868c44df520831c11e197e9bb7',
   '../__tests__/fixtures/prepared-repository-delivery-flow.ts':
-    'cd0600d8b66f6f9d2cd4064218041bc984134c678f5491414e3f752f24b55332',
+    '65e4251f1bc6a6bc07eb4c0f91989d16ecc186224fdfc8ae21a843a3bba9e432',
   '../__tests__/github-publication-review-gate.test.ts':
     'a3420102e73761a717f1d1dd10d0386905db03957eb75d46d8e08eeeb7df238b',
   '../__tests__/github-publishing-tool.test.ts':
@@ -73,7 +73,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-delivery-flow.test.ts':
     'a84cc0136345a3f13511b8bf59d59861c022af0667211b6e3ca7e22f767fa61d',
   '../__tests__/prepared-repository-publication-flow.test.ts':
-    '9a2391e9b7bce54c8f7478dbc5130044eebd90b626c2a14b20b1001242528040',
+    '8c32644151228c01e611ded319c9d5e0e0b9a3c084503df939081a76ce69dc97',
   '../github-publication-review-failure.ts':
     '32772ac35e4b846e589fd26fe6cdf2ecaa1ab0e58488cbd6e6662fb089bd52b0',
   '../ordinary-publication-review-context.ts':
