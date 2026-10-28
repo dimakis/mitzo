@@ -1,3 +1,4 @@
+import { chatStorage } from './large-chat-storage';
 import {
   AgentLibrarySourceContentSchema,
   AgentLibrarySourceSnapshotSchema,
@@ -24,7 +25,7 @@ function retained(revision: string): {
   pendingCommandId?: string;
   profileRevision?: number;
 } | null {
-  const raw = localStorage.getItem(prefix + revision);
+  const raw = chatStorage.getItem(prefix + revision);
   if (!raw) return null;
   const value: unknown = JSON.parse(raw);
   if (
@@ -109,7 +110,7 @@ export async function openAgentBuilderChat(
         'The retained Agent Builder conversation changed during its visibility check. Retry.',
       );
     if (!hidden) return `/chat/${encodeURIComponent(prior.sessionId)}`;
-    localStorage.removeItem(prefix + source.revision);
+    chatStorage.removeItem(prefix + source.revision);
     prior = null;
   }
   const existing = prior && getChatDraft(prior.draftId);
@@ -127,7 +128,7 @@ export async function openAgentBuilderChat(
   if (!saveChatDraft(draft))
     throw Error('Could not save the Agent Builder draft. Your profile edits were kept.');
   try {
-    localStorage.setItem(
+    chatStorage.setItem(
       prefix + source.revision,
       JSON.stringify({ ...prior, draftId: draft.id, profileRevision: guidanceRevision }),
     );
@@ -143,7 +144,7 @@ export function markAgentBuilderAssigned(draft: ChatDraft, sessionId: string): v
   const prior = retained(source.revision);
   if (!prior || prior.draftId !== draft.id || (prior.sessionId && prior.sessionId !== sessionId))
     return;
-  localStorage.setItem(
+  chatStorage.setItem(
     prefix + source.revision,
     JSON.stringify({ draftId: draft.id, sessionId, profileRevision: prior.profileRevision }),
   );
@@ -152,7 +153,7 @@ export function markAgentBuilderAssigned(draft: ChatDraft, sessionId: string): v
 const commandPrefix = prefix + 'command:';
 type CommandReceipt = { revision: string; sessionId?: string };
 function commandReceipt(clientMsgId: string): CommandReceipt | null {
-  const raw = localStorage.getItem(commandPrefix + clientMsgId);
+  const raw = chatStorage.getItem(commandPrefix + clientMsgId);
   if (!raw) return null;
   // Older pending records stored just their reviewed source hash.
   if (/^[a-f0-9]{64}$/.test(raw)) return { revision: raw };
@@ -189,11 +190,11 @@ export const agentBuilderCommandHandoff = {
         return false;
       const receipt = commandReceipt(command.clientMsgId);
       if (receipt && (receipt.revision !== source.revision || receipt.sessionId)) return false;
-      localStorage.setItem(
+      chatStorage.setItem(
         commandPrefix + command.clientMsgId,
         JSON.stringify({ revision: source.revision }),
       );
-      localStorage.setItem(
+      chatStorage.setItem(
         prefix + source.revision,
         JSON.stringify({ ...prior, pendingCommandId: command.clientMsgId }),
       );
@@ -233,8 +234,8 @@ export const agentBuilderCommandHandoff = {
       );
     // Write the historical receipt first. If the source write fails, its pending
     // identity remains and the exact outbox retry completes that assignment.
-    localStorage.setItem(commandPrefix + clientMsgId, JSON.stringify({ revision, sessionId }));
-    localStorage.setItem(
+    chatStorage.setItem(commandPrefix + clientMsgId, JSON.stringify({ revision, sessionId }));
+    chatStorage.setItem(
       prefix + revision,
       JSON.stringify({ draftId: prior.draftId, sessionId, profileRevision: prior.profileRevision }),
     );
@@ -252,7 +253,7 @@ export const agentBuilderCommandHandoff = {
     const revision = receipt.revision;
     const prior = retained(revision);
     if (prior?.pendingCommandId === clientMsgId)
-      localStorage.setItem(
+      chatStorage.setItem(
         prefix + revision,
         JSON.stringify({
           draftId: prior.draftId,
@@ -260,6 +261,6 @@ export const agentBuilderCommandHandoff = {
           ...(prior.sessionId ? { sessionId: prior.sessionId } : {}),
         }),
       );
-    localStorage.removeItem(commandPrefix + clientMsgId);
+    chatStorage.removeItem(commandPrefix + clientMsgId);
   },
 };

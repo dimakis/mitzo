@@ -71,8 +71,8 @@ describe('PDF import', () => {
   });
 
   it('rejects oversized PDFs before reading them', async () => {
-    const large = file(21 * 1024 * 1024);
-    await expect(pdfToImages(large, 10)).rejects.toThrow(/20 MB/);
+    const large = file(51 * 1024 * 1024);
+    await expect(pdfToImages(large, 10)).rejects.toThrow(/50 MiB/);
     expect(large.arrayBuffer).not.toHaveBeenCalled();
   });
 
@@ -96,8 +96,22 @@ describe('PDF import', () => {
 
 it('rejects documents whose rendered pages exceed the upload budget', async () => {
   vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
-    `data:image/jpeg;base64,${'A'.repeat(18 * 1024 * 1024)}`,
+    `data:image/jpeg;base64,${'A'.repeat(46 * 1024 * 1024)}`,
   );
-  await expect(pdfToImages(file(), 10)).rejects.toThrow(/12 MB/);
+  await expect(pdfToImages(file(), 10)).rejects.toThrow(/64 MiB|10 MiB/);
+  expect(destroy).toHaveBeenCalledOnce();
+});
+
+it('imports multiple PDFs with more than ten pages in total without omissions', async () => {
+  documentWithPages(12);
+  const first = await pdfToImages(file(30 * 1024 * 1024), 100);
+  const second = await pdfToImages(file(), 100 - first.length);
+  expect(first).toHaveLength(12);
+  expect(second).toHaveLength(12);
+  expect(second[11].name).toContain('page 12 of 12');
+});
+
+it('checks the remaining combined budget before adding any pages of the next PDF', async () => {
+  await expect(pdfToImages(file(), 100, 4)).rejects.toThrow(/remaining 64 MiB/);
   expect(destroy).toHaveBeenCalledOnce();
 });

@@ -1,3 +1,4 @@
+import { chatStorage, chatStorageKeys } from './large-chat-storage';
 import { z } from 'zod';
 import {
   SourceSnapshotsSchema,
@@ -113,7 +114,7 @@ export function createChatDraft(): ChatDraft {
 export function getChatDraft(id: string): ChatDraft | null {
   try {
     const parsed = ChatDraftSchema.safeParse(
-      JSON.parse(localStorage.getItem(PREFIX + id) || 'null'),
+      JSON.parse(chatStorage.getItem(PREFIX + id) || 'null'),
     );
     if (!parsed.success || parsed.data.id !== id) return null;
     const draft = parsed.data;
@@ -136,7 +137,7 @@ export function getChatDraft(id: string): ChatDraft | null {
 }
 export function listChatDrafts(): ChatDraft[] {
   try {
-    return Object.keys(localStorage)
+    return chatStorageKeys()
       .filter((key) => key.startsWith(PREFIX))
       .flatMap((key) => {
         const draft = getChatDraft(key.slice(PREFIX.length));
@@ -163,9 +164,9 @@ export function saveChatDraft(draft: ChatDraft): boolean {
       !draft.settings.retainRuntimeIntent &&
       !draft.settings.collaborationResponders
     )
-      localStorage.removeItem(PREFIX + draft.id);
+      chatStorage.removeItem(PREFIX + draft.id);
     else
-      localStorage.setItem(PREFIX + draft.id, JSON.stringify({ ...draft, updatedAt: Date.now() }));
+      chatStorage.setItem(PREFIX + draft.id, JSON.stringify({ ...draft, updatedAt: Date.now() }));
     changed();
     return true;
   } catch {
@@ -175,8 +176,8 @@ export function saveChatDraft(draft: ChatDraft): boolean {
 export function deleteChatDraft(id: string, options: { preserveText?: boolean } = {}): boolean {
   try {
     if (!allowComposerDraftPersistence(chatDraftStorageKey(id))) return false;
-    localStorage.removeItem(PREFIX + id);
-    if (!options.preserveText) localStorage.removeItem(chatDraftTextKey(id));
+    chatStorage.removeItem(PREFIX + id);
+    if (!options.preserveText) chatStorage.removeItem(chatDraftTextKey(id));
     changed();
     return true;
   } catch {
@@ -211,7 +212,7 @@ export function consumeChatDraft(
 }
 export function migrateLegacyChatDraft(): void {
   try {
-    const text = localStorage.getItem('mitzo-draft-new');
+    const text = chatStorage.getItem('mitzo-draft-new');
     if (!text?.trim()) return;
     // Older open tabs may still write the shared key after migration. Preserve
     // each distinct message, while retries of the same content remain idempotent.
@@ -225,7 +226,7 @@ export function migrateLegacyChatDraft(): void {
       draft.settings.selection = getDefaultAccountModel();
       if (!saveChatDraft(draft)) return;
     }
-    localStorage.removeItem('mitzo-draft-new');
+    chatStorage.removeItem('mitzo-draft-new');
   } catch {
     /* Keep the original if storage is unavailable. */
   }
@@ -256,7 +257,7 @@ const sessionBindingKey = (sessionId: string) =>
 const draftBindingKey = (draftId: string) =>
   `mitzo-chat-draft-assignment:${encodeURIComponent(draftId)}`;
 function readDraftBinding(key: string) {
-  const raw = localStorage.getItem(key);
+  const raw = chatStorage.getItem(key);
   return raw === null ? null : DraftSessionBindingSchema.parse(JSON.parse(raw));
 }
 /** Associate existing rich draft ownership only after an exact silent allocation receipt.
@@ -267,10 +268,10 @@ export function bindChatDraftToSession(
   sessionId: string,
 ): 'bound' | 'existing' | 'empty' | 'failed' {
   try {
-    if (localStorage.getItem(`mitzo-draft-${sessionId}`) !== null) return 'existing';
+    if (chatStorage.getItem(`mitzo-draft-${sessionId}`) !== null) return 'existing';
     const draft = getChatDraft(draftId);
     if (!draft)
-      return localStorage.getItem(chatDraftStorageKey(draftId)) === null ? 'empty' : 'failed';
+      return chatStorage.getItem(chatDraftStorageKey(draftId)) === null ? 'empty' : 'failed';
     const target = readDraftBinding(sessionBindingKey(sessionId));
     if (target && target.draftId !== draftId && getChatDraft(target.draftId)) return 'existing';
     const source = readDraftBinding(draftBindingKey(draftId));
@@ -278,11 +279,11 @@ export function bindChatDraftToSession(
     const value = DraftSessionBindingSchema.parse({ version: 1, draftId, sessionId });
     const encoded = JSON.stringify(value);
     // Keep the source reservation first; interruption can only recover this same binding.
-    localStorage.setItem(draftBindingKey(draftId), encoded);
-    localStorage.setItem(sessionBindingKey(sessionId), encoded);
+    chatStorage.setItem(draftBindingKey(draftId), encoded);
+    chatStorage.setItem(sessionBindingKey(sessionId), encoded);
     if (
-      localStorage.getItem(draftBindingKey(draftId)) !== encoded ||
-      localStorage.getItem(sessionBindingKey(sessionId)) !== encoded
+      chatStorage.getItem(draftBindingKey(draftId)) !== encoded ||
+      chatStorage.getItem(sessionBindingKey(sessionId)) !== encoded
     )
       return 'failed';
     changed();
@@ -294,7 +295,7 @@ export function bindChatDraftToSession(
 /** The ordinary composer continues using the same saved rich-draft owner. */
 export function getSessionChatDraft(sessionId: string): ChatDraft | null {
   try {
-    if (localStorage.getItem(`mitzo-draft-${sessionId}`) !== null) return null;
+    if (chatStorage.getItem(`mitzo-draft-${sessionId}`) !== null) return null;
     const target = readDraftBinding(sessionBindingKey(sessionId));
     if (!target || target.sessionId !== sessionId) return null;
     const source = readDraftBinding(draftBindingKey(target.draftId));

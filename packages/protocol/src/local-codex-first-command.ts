@@ -1,3 +1,8 @@
+import {
+  CHAT_MAX_COMMAND_BYTES,
+  ChatMessageTextSchema,
+  ChatImagesSchema,
+} from './chat-input-limits.js';
 import { z } from 'zod';
 import { SourceSnapshotsSchema } from './source-snapshot.js';
 import { OrdinaryLocalCommandSelectionSchema } from './ordinary-local-admission.js';
@@ -10,7 +15,7 @@ function validateCommandBounds(
 ) {
   if (request.runtime.mode !== request.selection.permission.mode)
     ctx.addIssue({ code: 'custom', message: 'Permission selection mismatch' });
-  if (new TextEncoder().encode(JSON.stringify(request)).length > 1048576)
+  if (new TextEncoder().encode(JSON.stringify(request)).length > CHAT_MAX_COMMAND_BYTES)
     ctx.addIssue({ code: 'custom', message: 'Command exceeds bound' });
 }
 /** Client intent only. The server derives workspace, prompt and owning authority. */
@@ -39,27 +44,9 @@ export const LocalCodexFirstCommandSchema = z
     }).strict(),
     payload: z.strictObject({
       sourceSnapshots: SourceSnapshotsSchema.optional(),
-      text: z.string().min(1).max(1_000_000),
-      intent: z.string().max(1_000_000).optional(),
-      images: z
-        .array(
-          z.strictObject({
-            data: z
-              .string()
-              .min(1)
-              .max(14_000_000)
-              .refine((data) => {
-                if (data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) return false;
-                const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-                if (data.endsWith('==')) return (alphabet.indexOf(data.at(-3)!) & 15) === 0;
-                if (data.endsWith('=')) return (alphabet.indexOf(data.at(-2)!) & 3) === 0;
-                return true;
-              }, 'Invalid canonical base64'),
-            mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
-          }),
-        )
-        .max(10)
-        .optional(),
+      text: ChatMessageTextSchema.refine((text) => text.length > 0),
+      intent: ChatMessageTextSchema.optional(),
+      images: ChatImagesSchema.optional(),
     }),
   })
   .superRefine(validateCommandBounds);
@@ -136,7 +123,7 @@ export const LocalVertexClaudeFirstCommandSchema = z
   .superRefine((request, ctx) => {
     if (request.runtime.mode !== request.selection.permission.mode)
       ctx.addIssue({ code: 'custom', message: 'Permission selection mismatch' });
-    if (new TextEncoder().encode(JSON.stringify(request)).length > 1048576)
+    if (new TextEncoder().encode(JSON.stringify(request)).length > CHAT_MAX_COMMAND_BYTES)
       ctx.addIssue({ code: 'custom', message: 'Command exceeds bound' });
   });
 export const LocalVertexClaudeContinuationCommandSchema =

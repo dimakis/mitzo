@@ -1,3 +1,8 @@
+import {
+  CHAT_MAX_PREPARED_PROMPT_CHARS,
+  ChatMessageTextSchema,
+  ChatImagesSchema,
+} from '@mitzo/protocol';
 import type { CodexNativeExecutionPolicy } from './codex-native-execution-policy.js';
 import type { SandboxOwnershipEvidence } from './sandbox-ownership-review.js';
 import {
@@ -143,32 +148,13 @@ export type AgentContextAdoptionSelection = z.infer<typeof AgentContextAdoption>
 const CommandInput = z
   .object({
     id: z.string().min(1).max(200),
-    prompt: z.string().min(1).max(1_000_000),
+    prompt: z.string().min(1).max(CHAT_MAX_PREPARED_PROMPT_CHARS),
     // Raw user-authored intent is retained separately from the provider prompt,
     // which may contain context files or rendered skill instructions.
-    intent: z.string().max(1_000_000).optional(),
+    intent: ChatMessageTextSchema.optional(),
     model: z.string().min(1).optional(),
     reasoningEffort: z.string().min(1).max(32).nullable().optional(),
-    images: z
-      .array(
-        z
-          .object({
-            data: z
-              .string()
-              .min(1)
-              .max(14_000_000)
-              .regex(/^[A-Za-z0-9+/]*={0,2}$/),
-            mediaType: z
-              .string()
-              .refine(
-                (value) => ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(value),
-                'Unsupported image type',
-              ),
-          })
-          .strict(),
-      )
-      .max(10)
-      .optional(),
+    images: ChatImagesSchema.optional(),
     allowedTools: z.array(z.string()).optional(),
     environmentContinuation: z
       .object({
@@ -182,7 +168,10 @@ const CommandInput = z
   })
   .strict();
 const WebSearchGrantSchema = z.enum(['unresolved', 'denied', 'allowed']);
-export type CodexCommandInput = z.infer<typeof CommandInput>;
+// Existing callers supply MIME strings; admission validates supported values.
+export type CodexCommandInput = Omit<z.infer<typeof CommandInput>, 'images'> & {
+  images?: Array<{ data: string; mediaType: string }>;
+};
 export type CodexCommand = CodexCommandInput & {
   status: 'queued' | 'running' | 'completed' | 'interrupted' | 'failed' | 'cancelled';
   attempt: number;

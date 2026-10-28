@@ -1,4 +1,5 @@
 import { prepareNativeProviderToolCall } from '../../../../server/__tests__/fixtures/native-provider-tool-call.js';
+import { navigateToReviewedRoleSetup } from './joined-role-setup-ready';
 import { afterAll, afterEach, expect, it as platformTest, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { installPrivateCanonicalReadCli } from './joined-canonical-cli';
@@ -486,7 +487,10 @@ it('CT06/17/18 repository counterpart: actual advisor, lead and worker pages ret
   const advisorSearch =
     'telosRoleItem=studio&telosRole=advisor&telosRoleMode=additional&telosAdvisor=child&agentProfile=ordinary-worker&profileRevision=1';
   await seedRoleDraft('s9-joined-advisor', advisorSearch);
-  await page.goto(front.origin + '/chat?draft=s9-joined-advisor&' + advisorSearch);
+  await navigateToReviewedRoleSetup(
+    page,
+    front.origin + '/chat?draft=s9-joined-advisor&' + advisorSearch,
+  );
   await browserExpect(page.getByRole('button', { name: 'Start chat', exact: true })).toBeEnabled();
   expect(nativeSessions).toHaveLength(0);
   await Promise.all([

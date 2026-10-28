@@ -1,15 +1,24 @@
+import {
+  CHAT_MAX_PDF_BYTES,
+  CHAT_MAX_ATTACHMENT_BYTES,
+  CHAT_MAX_IMAGE_BYTES,
+  base64DecodedBytes,
+} from '@mitzo/protocol';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import type { ImageAttachment } from '../types/chat';
 
 // Bundle the worker locally: importing a private PDF must not contact a CDN.
 GlobalWorkerOptions.workerSrc = `${import.meta.env.BASE_URL}pdfjs/pdf.worker.min.mjs`;
-const MAX_PDF_BYTES = 20 * 1024 * 1024;
+
 const MAX_PAGE_DIMENSION = 2000;
-const MAX_RENDERED_BYTES = 12 * 1024 * 1024;
 
 /** Render all pages or reject the whole import. Never silently omit pages. */
-export async function pdfToImages(file: File, available: number): Promise<ImageAttachment[]> {
-  if (file.size > MAX_PDF_BYTES) throw new Error('PDFs must be 20 MB or smaller.');
+export async function pdfToImages(
+  file: File,
+  available: number,
+  availableBytes = CHAT_MAX_ATTACHMENT_BYTES,
+): Promise<ImageAttachment[]> {
+  if (file.size > CHAT_MAX_PDF_BYTES) throw new Error('PDFs must be 50 MiB or smaller.');
   if (available < 1) throw new Error('Remove an attachment before importing a PDF.');
   const loading = getDocument({
     data: new Uint8Array(await file.arrayBuffer()),
@@ -43,9 +52,13 @@ export async function pdfToImages(file: File, available: number): Promise<ImageA
         const preview = canvas.toDataURL('image/jpeg', 0.9);
         const data = preview.split(',')[1];
         if (!data) throw new Error(`Could not render PDF page ${number}.`);
-        bytes += Math.ceil((data.length * 3) / 4);
-        if (bytes > MAX_RENDERED_BYTES)
-          throw new Error('Rendered PDF exceeds 12 MB. Split the PDF into smaller files.');
+        const pageBytes = base64DecodedBytes(data);
+        if (pageBytes > CHAT_MAX_IMAGE_BYTES) throw new Error(`PDF page ${number} exceeds 10 MiB.`);
+        bytes += pageBytes;
+        if (bytes > availableBytes)
+          throw new Error(
+            'Rendered PDF exceeds the remaining 64 MiB attachment budget. Split the PDF or remove attachments.',
+          );
         images.push({
           data,
           mediaType: 'image/jpeg',

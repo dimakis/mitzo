@@ -205,3 +205,17 @@ Evolved from [claude-command-center](https://github.com/Afstkla/claude-command-c
 by [Afstkla](https://github.com/Afstkla).
 
 [MIT license](LICENSE).
+
+### Message and attachment capacity
+
+Local and OpenShell chat commands support up to **100 screenshots or rendered PDF pages** per message,
+with **64 MiB combined decoded image data**, **10 MiB per image**, and **8 MiB of UTF-8 message text**.
+Multiple PDFs can be selected together; each PDF may be up to **50 MiB** and all of its pages must fit.
+PDF pages are rendered as images, including scanned pages. Imports never silently omit pages.
+The encoded HTTP command budget is **192 MiB**, allowing for base64 and JSON overhead.
+Selected providers and models may impose additional context or image limits.
+
+Large drafts and outgoing commands use IndexedDB rather than filling the browser's small Web Storage
+quota. Commands wait for durable storage before HTTP delivery; failed writes retain the draft and do
+not submit it. Existing drafts and exact receipt recovery remain supported. Browser/device storage
+capacity still applies, and unavailable storage is reported rather than silently weakening recovery.

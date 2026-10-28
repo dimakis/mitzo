@@ -1,3 +1,4 @@
+import { chatStorage, chatStorageKeys } from './large-chat-storage';
 import { OrdinaryRuntimeFirstCommandSchema } from '@mitzo/protocol';
 import { z } from 'zod';
 import {
@@ -30,7 +31,7 @@ type Receipt = z.infer<typeof schema>;
 const prefix = () => `mitzo-launch-delivery:${encodeURIComponent(getApiBaseUrl())}:`;
 const key = (id: string) => prefix() + encodeURIComponent(id);
 function read(id: string): Receipt | null {
-  const raw = localStorage.getItem(key(id));
+  const raw = chatStorage.getItem(key(id));
   if (!raw) return null;
   const record = schema.parse(JSON.parse(raw));
   if (record.draftId !== id) throw new Error('Launch owner changed');
@@ -40,11 +41,11 @@ function notify() {
   window.dispatchEvent(new Event(CHAT_DRAFTS_CHANGED));
 }
 function write(record: Receipt) {
-  localStorage.setItem(key(record.draftId), JSON.stringify(record));
+  chatStorage.setItem(key(record.draftId), JSON.stringify(record));
   notify();
 }
 function find(command: string) {
-  for (const stored of Object.keys(localStorage)) {
+  for (const stored of chatStorageKeys()) {
     if (!stored.startsWith(prefix())) continue;
     try {
       const record = read(decodeURIComponent(stored.slice(prefix().length)));
@@ -106,7 +107,7 @@ export function briefingLaunchUnsupportedReason(
   search = '',
 ): string | undefined {
   try {
-    const stored = id ? JSON.parse(localStorage.getItem(chatDraftStorageKey(id)) || 'null') : null;
+    const stored = id ? JSON.parse(chatStorage.getItem(chatDraftStorageKey(id)) || 'null') : null;
     const launch = stored?.settings?.launch ?? pending;
     if (!launch?.briefing) return;
     const unsupported = ['contextBlocks', 'telosTaskId', 'agentName', 'extraTools'];
@@ -322,7 +323,7 @@ export const launchDraftDelivery = {
     if (!record) return;
     if (state === 'failed' && record.state === 'accepted') return record.draftId;
     if (state === 'failed') {
-      localStorage.removeItem(key(record.draftId));
+      chatStorage.removeItem(key(record.draftId));
       notify();
       return record.draftId;
     }
@@ -330,7 +331,7 @@ export const launchDraftDelivery = {
     record.state = 'accepted';
     // Write the terminal lock before retiring a draft or preserving its independent text.
     write(record);
-    preserveText(record, localStorage.getItem(chatDraftTextKey(record.draftId)) ?? '');
+    preserveText(record, chatStorage.getItem(chatDraftTextKey(record.draftId)) ?? '');
     if (
       record.submitted &&
       (!getChatDraft(record.draftId) || consumeChatDraft(record.submitted, { preserveText: true }))

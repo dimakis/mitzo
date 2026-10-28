@@ -27,7 +27,7 @@ interface Config {
   fetch: (url: string, init?: RequestInit) => Promise<Response>;
   notify: (event: Record<string, unknown>) => void;
   headers?: () => Record<string, string>;
-  storage?: Pick<Storage, 'getItem' | 'setItem'>;
+  storage?: Pick<Storage, 'getItem' | 'setItem'> & { flush?: () => Promise<void> };
   timeoutMs?: number;
   requireDurableBriefings?: boolean;
   /** Independent launch commands survive tab replacement; never inherit another launch’s session. */
@@ -475,7 +475,9 @@ export class SendOutbox {
         entry.uncertain = true;
         return;
       }
-      this.retireLocal(entry, true);
+      if (this.config.storage?.flush) await this.config.storage.flush();
+      if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
+      await this.retireLocal(entry, true);
     } catch {
       // Observation failure never resends a command or overwrites its UI state.
     } finally {
@@ -493,7 +495,8 @@ export class SendOutbox {
       }
     }
   }
-  private retireLocal(entry: Entry, releaseTransport = false): void {
+  private async retireLocal(entry: Entry, releaseTransport = false): Promise<void> {
+    const generation = this.generation;
     const index = this.entries.indexOf(entry);
     if (index < 0) return;
     this.completingLocal.set(entry, index);
@@ -502,8 +505,15 @@ export class SendOutbox {
       // Hide only this entry from reentrant UI callbacks, while retaining its
       // durable receipt until the source handoff has successfully committed.
       this.notifyLocal(entry, 'consumed', true);
+      if (this.config.storage?.flush) await this.config.storage.flush();
+      if (generation !== this.generation) {
+        this.completingLocal.delete(entry);
+        this.persist();
+        return;
+      }
       this.completingLocal.delete(entry);
       if (!this.persist()) throw Error('Local completion could not be retained');
+      if (this.config.storage?.flush) await this.config.storage.flush();
     } catch {
       this.completingLocal.delete(entry);
       if (!this.entries.includes(entry))
@@ -567,6 +577,14 @@ export class SendOutbox {
     try {
       entry.uncertain = true;
       if (!this.persist()) throw Error('Local intent could not be retained');
+      if (this.config.storage?.flush) await this.config.storage.flush();
+      if (
+        generation !== this.generation ||
+        !this.active ||
+        abort.signal.aborted ||
+        !this.entries.includes(entry)
+      )
+        return;
       const { response, raw } = await Promise.race([
         this.config
           .fetch(this.localUrl(entry), {
@@ -601,7 +619,9 @@ export class SendOutbox {
           entry.uncertain = true;
           throw Error('Local receipt could not be retained');
         }
-        if (success.data.state === 'consumed') this.retireLocal(entry);
+        if (this.config.storage?.flush) await this.config.storage.flush();
+        if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
+        if (success.data.state === 'consumed') await this.retireLocal(entry);
         else this.notifyLocal(entry, success.data.state, true);
         this.persist();
       } else if (matching && response.status === 409 && observation.success) {
@@ -610,6 +630,7 @@ export class SendOutbox {
           state: observation.data.state,
         };
         if (!this.persist()) throw Error('Local observation could not be retained');
+        if (this.config.storage?.flush) await this.config.storage.flush();
         this.notifyLocal(entry, 'retained');
       } else this.notifyLocal(entry, 'uncertain');
     } catch {
@@ -663,6 +684,14 @@ export class SendOutbox {
           throw new Error('Reviewed attempt could not be retained');
         }
       }
+      if (this.config.storage?.flush) await this.config.storage.flush();
+      if (
+        generation !== this.generation ||
+        !this.active ||
+        abort.signal.aborted ||
+        !this.entries.includes(entry)
+      )
+        return;
       const { response, receipt } = await Promise.race([
         this.config
           .fetch(this.config.url, {
@@ -724,7 +753,7 @@ export class SendOutbox {
                 hasReviewedSource(entry.body)
               ? { kind: 'agent-library', revision: source.revision }
               : undefined;
-        // A synchronous durable handoff must finish before dropping this exact command.
+        // Handoff writes must commit before dropping this exact command.
         // If it throws, replay the original clientMsgId/body for the same server receipt.
         this.config.notify({
           type: '_send_accepted',
@@ -732,6 +761,8 @@ export class SendOutbox {
           originalSessionId: entry.body.sessionId,
           ...(sourceHandoff ? { sourceHandoff } : {}),
         });
+        if (this.config.storage?.flush) await this.config.storage.flush();
+        if (generation !== this.generation || !this.entries.includes(entry)) return;
         this.entries.shift();
         // Only unattempted follow-ups in the same draft inherit its session.
         if (!this.config.durableLaunches && entry.body.sessionId === null && receipt.sessionId) {

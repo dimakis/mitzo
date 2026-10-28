@@ -314,7 +314,7 @@ it('refuses builtin selection before request construction even when the user-lib
   expect(selection.agentProfile).toHaveProperty('kind', 'builtin');
 });
 
-it('bounds the entire UTF8 Local envelope and exposes a recovery reason without dropping attachments', () => {
+it('accepts the former UTF8 envelope overflow without dropping attachments', () => {
   const data = localInventoryFixture();
   const intent = {
     ...createChatRuntimeSelection(),
@@ -332,8 +332,8 @@ it('bounds the entire UTF8 Local envelope and exposes a recovery reason without 
   };
   expect(input.text.length + input.images[0].data.length).toBeLessThan(1048576);
   const result = prepareLocalFirstCommand(intent, data, input);
-  expect(result.request).toBeNull();
-  expect(result.reason).toMatch(/Remove or resize attachments, or shorten/);
+  expect(result.request?.payload.images).toEqual(input.images);
+  expect(result.reason).toBeUndefined();
   expect(input.images).toHaveLength(1);
   expect(
     prepareLocalFirstCommand(intent, data, { ...input, text: 'Shortened prompt' }).request,

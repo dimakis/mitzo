@@ -835,7 +835,11 @@ metadata arriving before the runtime check still supplies the actual conversatio
 settings without replacing device defaults. Running Local conversations expose Stop
 and retain follow-up drafts and existing queues, while queue creation and draining
 remain blocked. The composer validates the complete command envelope, including
-UTF8 metadata and attachments, and explains removal/resizing when it exceeds 1 MiB.
+UTF8 metadata and attachments. Shared product budgets allow 100 images or PDF pages,
+64 MiB of decoded attachments combined, 10 MiB per image, and 8 MiB of UTF-8 message
+text. The encoded command envelope allows 192 MiB for base64, JSON escaping and
+metadata; it is not the decoded attachment budget. PDF imports accept files up to
+50 MiB and render every page or reject the whole document before adding it.
 Recovery shows the original command tuple and resends its retained envelope only
 on a deliberate operator action. Authentication restoration does not replay it.
 
@@ -2315,3 +2319,20 @@ pass in dark Mint/System and light Teal/Georgia. Inspected captures:
 [phone](assets/first-command-feedback-mobile-dark.png) and
 [desktop](assets/first-command-feedback-desktop-light.png). Full-app builds and the
 complete offline matrix remain CI gates; these checks use no backend or models.
+
+Large chat input retains the existing composer, attachment editor and status styles.
+Drafts and per-command outbox payloads over 256 KiB use IndexedDB with small Web
+Storage references. Startup hydrates those references before rendering the app.
+The composer shows Saving while a write is pending and Saved only after commit;
+a failed write keeps the draft visible. Dispatch and receipt adoption await the
+same durable storage barrier. No layout, palette, motion or approved settings
+revision changes. Offline fixtures exercise six PDFs (12 complete pages), a
+screenshot above the former 1 MiB command limit, and exact large-payload recovery
+through real browser IndexedDB.
+
+Inspected captures: [12 PDF pages on mobile](assets/chat-large-input-mobile-dark.png)
+and [12 PDF pages on desktop](assets/chat-large-input-desktop-light.png). These
+isolated fixtures exercise dark Mint/System and light Teal/Georgia without a
+backend, credentials or models. Actual IndexedDB tests also verify recovery after
+a failed large legacy-draft migration; no source is deleted before its replacement
+commits. Production-bundle acceptance remains a CI check under local memory pressure.

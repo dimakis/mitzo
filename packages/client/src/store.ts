@@ -238,8 +238,14 @@ export interface MitzoStoreOptions {
   /** When provided, the store uses SSE + HTTP POST instead of WebSocket. */
   sseConfig?: SseConnectionConfig;
   /** Durable HTTP admission of initial reviewed briefing commands while WS receives events. */
-  reviewedSendConfig?: { url: string; storage: Pick<Storage, 'getItem' | 'setItem'> };
-  localFirstCommandConfig?: { url: string; storage: Pick<Storage, 'getItem' | 'setItem'> };
+  reviewedSendConfig?: {
+    url: string;
+    storage: Pick<Storage, 'getItem' | 'setItem'> & { flush?: () => Promise<void> };
+  };
+  localFirstCommandConfig?: {
+    url: string;
+    storage: Pick<Storage, 'getItem' | 'setItem'> & { flush?: () => Promise<void> };
+  };
   /** Start with transports latched off until restoreAuthentication() after an explicit login. */
   initiallyAuthenticated?: boolean;
   launchDrafts?: {

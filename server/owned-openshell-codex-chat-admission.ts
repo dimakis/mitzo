@@ -1,3 +1,8 @@
+import {
+  CHAT_MAX_IMAGES,
+  CHAT_MAX_PREPARED_PROMPT_CHARS,
+  ChatMessageTextSchema,
+} from '@mitzo/protocol';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { SourceSnapshotsSchema } from '@mitzo/protocol';
@@ -40,12 +45,12 @@ import type { OrdinarySessionRuntimeCatalog } from './ordinary-session-runtime.j
 const unavailable = () => new Error('Owned OpenShell Codex chat unavailable');
 export const OwnedOpenShellCodexPayloadSchema = z.strictObject({
   sourceSnapshots: SourceSnapshotsSchema.optional(),
-  text: z.string().min(1).max(1_000_000),
+  text: z.string().min(1).max(CHAT_MAX_PREPARED_PROMPT_CHARS),
   systemPrompt: z.string().max(1_000_000),
-  intent: z.string().max(1_000_000).optional(),
+  intent: ChatMessageTextSchema.optional(),
   images: z
     .array(z.strictObject({ data: z.string().min(1), mediaType: z.string().min(1).max(128) }))
-    .max(16)
+    .max(CHAT_MAX_IMAGES)
     .optional(),
 });
 const Payload = OwnedOpenShellCodexPayloadSchema;

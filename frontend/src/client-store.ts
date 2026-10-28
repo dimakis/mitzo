@@ -1,3 +1,4 @@
+import { chatStorage } from './lib/large-chat-storage';
 import { launchDraftDelivery } from './lib/launch-draft-delivery';
 import { agentBuilderCommandHandoff } from './lib/agent-builder-chat';
 import { createReviewedOutboxStorage } from './lib/reviewed-outbox-storage';
@@ -70,7 +71,7 @@ export const clientStore = createMitzoStore({
         localFirstCommandConfig: {
           url: `${getApiBaseUrl()}/api/chat/local-codex/send`,
           storage: createReviewedOutboxStorage(
-            localStorage,
+            chatStorage,
             new URL(`${getApiBaseUrl()}/api/chat/local-codex/send`, window.location.href).href,
             'local',
           ),
@@ -78,7 +79,7 @@ export const clientStore = createMitzoStore({
         reviewedSendConfig: {
           url: `${getApiBaseUrl()}/api/chat/send`,
           storage: createReviewedOutboxStorage(
-            localStorage,
+            chatStorage,
             new URL(`${getApiBaseUrl()}/api/chat/send`, window.location.href).href,
           ),
         },

@@ -23,7 +23,7 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-it.each(['before-enqueue', 'after-enqueue', 'accepted-paused'] as const)(
+it.each(['before-enqueue', 'after-enqueue', 'accepted-paused', 'accepted-paused-rich'] as const)(
   'recovers the exact retained %s command without replacing the chat, checkout or receipt',
   async (failure) => {
     const f = await ownedRuntimeFixture(cleanups),
@@ -39,7 +39,20 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused'] as const)(
     const request = {
       ...structuredClone(f.request),
       clientMsgId: randomUUID(),
-      payload: { text: 'Continue the unfinished task' },
+      payload: {
+        text:
+          failure === 'accepted-paused-rich'
+            ? 'Retained message '.repeat(80000)
+            : 'Continue the unfinished task',
+        ...(failure === 'accepted-paused-rich'
+          ? {
+              images: Array.from({ length: 30 }, (_, i) => ({
+                data: Buffer.from(`screenshot-${i}-`.repeat(5)).toString('base64'),
+                mediaType: 'image/png',
+              })),
+            }
+          : {}),
+      },
     };
     const dispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {
       if (failure === 'before-enqueue') throw Error('bootstrap deadline before native enqueue');
@@ -47,6 +60,7 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused'] as const)(
         id: value.commandId,
         prompt: value.payload.text,
         intent: value.payload.text,
+        images: value.payload.images,
         model: value.expected.selection.model,
         reasoningEffort: value.expected.selection.thinking,
       });
@@ -60,7 +74,7 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused'] as const)(
       launch: () => f.rpc,
     });
     cleanups.push(() => failed.close());
-    if (failure === 'accepted-paused') await failed.admitResume(request);
+    if (failure.startsWith('accepted-paused')) await failed.admitResume(request);
     else await expect(failed.admitResume(request)).rejects.toThrow();
     failed.close();
     const receipt = f.events.getOrdinaryCommandAdmission(request.clientMsgId)!;
@@ -96,6 +110,7 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused'] as const)(
         session: { cwd: checkout, mode: 'agent' },
         prompt: value.payload.text,
         intent: value.payload.intent,
+        images: value.payload.images,
         systemPrompt: value.payload.systemPrompt,
         model: value.expected.selection.model,
         reasoningEffort: value.expected.selection.thinking,
@@ -143,6 +158,7 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused'] as const)(
         id: value.commandId,
         prompt: value.payload.text,
         intent: value.payload.intent ?? value.payload.text,
+        images: value.payload.images,
         model: value.expected.selection.model,
         reasoningEffort: value.expected.selection.thinking,
       });
@@ -160,6 +176,7 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused'] as const)(
           id: value.commandId,
           prompt: value.payload.text,
           intent: value.payload.intent ?? value.payload.text,
+          images: value.payload.images,
           model: value.expected.selection.model,
           reasoningEffort: value.expected.selection.thinking,
         });
@@ -169,6 +186,18 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused'] as const)(
     cleanups.push(() => recovery.close());
     await expect(recovery.recoverResume(request)).resolves.toEqual({ dispatched: true });
     expect(recoverDispatch).toHaveBeenCalledOnce();
+    expect(f.events.getSendCommand(request.clientMsgId)?.payload).toMatchObject(request.payload);
+    const retained = native
+      .commands(original.sessionId, original.lease.binding)
+      .find((command) => command.id === request.clientMsgId)!;
+    expect(retained).toMatchObject({
+      id: request.clientMsgId,
+      prompt: request.payload.text,
+      intent: request.payload.text,
+      model: request.selection.model,
+      reasoningEffort: request.selection.thinking,
+    });
+    expect(retained.images ?? []).toEqual(request.payload.images ?? []);
     expect(f.events.getOrdinaryCommandAdmission(request.clientMsgId)).toEqual({
       ...receipt,
       state: 'consumed',
@@ -193,7 +222,9 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused'] as const)(
     expect(native.commands(original.sessionId, original.lease.binding)).toMatchObject([
       { id: request.clientMsgId, status: 'completed', attempt: 1 },
     ]);
-    for (let turn = 2; turn <= 4; turn++) {
+    // Text variants cover repeated follow-ups; rich recovery also proves one continuation.
+    const lastTurn = failure === 'accepted-paused-rich' ? 2 : 4;
+    for (let turn = 2; turn <= lastTurn; turn++) {
       const followup = {
         ...request,
         clientMsgId: randomUUID(),
@@ -211,7 +242,7 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused'] as const)(
         attempt: 1,
       });
     }
-    expect(turns).toBe(4);
+    expect(turns).toBe(lastTurn);
   },
 );
 

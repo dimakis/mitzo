@@ -1,3 +1,4 @@
+import { chatStorage } from '../lib/large-chat-storage';
 import { chatModelSettings } from '../lib/chat-model-settings';
 import { LegacyNativeContinuation } from '../components/LegacyNativeContinuation';
 import { reviewedBriefingLaunch } from '../lib/launch-draft-delivery';
@@ -938,7 +939,7 @@ export function ChatView() {
                   repositoryDraftControl.current.clear();
                 else {
                   try {
-                    localStorage.removeItem(promptKey);
+                    chatStorage.removeItem(promptKey);
                   } catch {
                     /* Optional browser storage. */
                   }

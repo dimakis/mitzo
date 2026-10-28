@@ -75,11 +75,14 @@ for (const theme of ['dark', 'light']) {
     ).toBeVisible();
     if (await more.isVisible()) await page.keyboard.press('Escape');
     const picker = page.locator('input[type=file]');
-    await picker.setInputFiles({
-      name: 'report.pdf',
-      mimeType: 'application/pdf',
-      buffer: pdfFixture(),
-    });
+    await picker.setInputFiles(
+      Array.from({ length: 6 }, (_, index) => ({
+        name: index === 0 ? 'report.pdf' : `report-${index + 1}.pdf`,
+        mimeType: 'application/pdf',
+        buffer: pdfFixture(),
+      })),
+    );
+    await expect(page.getByAltText('report-6.pdf — page 2 of 2')).toBeVisible();
     await expect(page.getByAltText('report.pdf — page 1 of 2')).toBeVisible();
     await expect(page.getByAltText('report.pdf — page 2 of 2')).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
@@ -97,7 +100,7 @@ for (const theme of ['dark', 'light']) {
     await page.getByRole('button', { name: 'Send message', exact: true }).click();
     await expect(page.getByLabel('Submitted message')).toContainText('report.pdf — page 2 of 2');
     const sent = JSON.parse((await page.getByLabel('Submitted message').textContent()) ?? '{}');
-    expect(sent.images).toHaveLength(2);
+    expect(sent.images).toHaveLength(12);
     expect(
       sent.images.every(
         (image: { mediaType: string; bytes: number }) =>

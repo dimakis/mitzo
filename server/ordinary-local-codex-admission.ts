@@ -1,3 +1,4 @@
+import { CHAT_MAX_COMMAND_BYTES } from '@mitzo/protocol';
 import { findNativeMacExecutionUnavailable } from './codex-native-artifact-qualification.js';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -29,7 +30,9 @@ export const OrdinaryLocalCodexCommandRequestSchema = z.strictObject({
   selection: Selection,
   payload: z
     .record(z.string(), z.json())
-    .refine((payload) => Buffer.byteLength(JSON.stringify(payload), 'utf8') <= 1048576),
+    .refine(
+      (payload) => Buffer.byteLength(JSON.stringify(payload), 'utf8') <= CHAT_MAX_COMMAND_BYTES,
+    ),
 });
 export const OrdinaryLocalResponsesCommandRequestSchema =
   OrdinaryLocalCodexCommandRequestSchema.extend({

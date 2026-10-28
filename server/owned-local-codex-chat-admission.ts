@@ -1,3 +1,8 @@
+import {
+  CHAT_MAX_IMAGES,
+  CHAT_MAX_PREPARED_PROMPT_CHARS,
+  ChatMessageTextSchema,
+} from '@mitzo/protocol';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import type { RetainedLocalCodexRecovery } from './retained-local-codex-recovery.js';
@@ -31,12 +36,12 @@ import type { PreparedRepositoryTransitionFacts } from './prepared-repository-tr
 const unavailable = () => new Error('Owned local Codex chat unavailable');
 const Images = z
   .array(z.strictObject({ data: z.string().min(1), mediaType: z.string().min(1).max(128) }))
-  .max(16);
+  .max(CHAT_MAX_IMAGES);
 const Payload = z.strictObject({
   sourceSnapshots: SourceSnapshotsSchema.optional(),
-  text: z.string().min(1).max(1_000_000),
+  text: z.string().min(1).max(CHAT_MAX_PREPARED_PROMPT_CHARS),
   systemPrompt: z.string().max(1_000_000),
-  intent: z.string().max(1_000_000).optional(),
+  intent: ChatMessageTextSchema.optional(),
   images: Images.optional(),
 });
 export interface OwnedLocalCodexChatOptions {
