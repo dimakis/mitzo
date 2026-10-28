@@ -7,7 +7,11 @@ assertPlaywrightHost();
 export default defineConfig({
   testDir: './tests/browser',
   outputDir: 'test-results/browser',
-  reporter: [['list'], ['html', { outputFolder: 'playwright-report/browser', open: 'never' }]],
+  reporter: [
+    ['list'],
+    ['html', { outputFolder: 'playwright-report/browser', open: 'never' }],
+    ['./scripts/ci-browser-failure-reporter.mjs'],
+  ],
   use: {
     baseURL: 'http://127.0.0.1:4179',
     trace: 'retain-on-failure',

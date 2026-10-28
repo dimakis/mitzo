@@ -6,6 +6,7 @@ for (const name of [
   'core',
   'unit-validation',
   'ordinary-journey',
+  'joined-validation',
   'ordinary-supplemental',
   'browser-validation',
 ]) {
