@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { apiFetch } from '../api-fetch';
 import { createChatDraft, getChatDraft, saveChatDraft } from '../chat-drafts';
 import { discardChatDraft } from '../discard-chat-draft';
+import { chatStorage } from '../large-chat-storage';
 
 vi.mock('../api-fetch', () => ({ apiFetch: vi.fn() }));
 const preparationId = '8ca30b0d-3e65-4eeb-8244-f6277350818f';
@@ -118,4 +119,29 @@ it('refuses an edited snapshot before making backend calls', async () => {
   saveChatDraft({ ...draft, text: 'Edit before confirming' });
   await expect(discardChatDraft(draft)).rejects.toThrow(/changed/);
   expect(apiFetch).not.toHaveBeenCalled();
+});
+
+it('does not confirm discard until the durable deletion has committed', async () => {
+  const draft = { ...createChatDraft(), text: 'Wait for the durable deletion' };
+  saveChatDraft(draft);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const flush = vi.spyOn(chatStorage, 'flush').mockReturnValue(gate);
+  const settled = vi.fn();
+  const discard = discardChatDraft(getChatDraft(draft.id)!).then(settled);
+  await Promise.resolve();
+  expect(flush).toHaveBeenCalledTimes(1);
+  expect(settled).not.toHaveBeenCalled();
+  release();
+  await discard;
+  expect(settled).toHaveBeenCalledTimes(1);
+});
+
+it('does not report success when durable deletion fails', async () => {
+  const draft = { ...createChatDraft(), text: 'Retain a failed discard outcome' };
+  saveChatDraft(draft);
+  vi.spyOn(chatStorage, 'flush').mockRejectedValue(Error('Database unavailable'));
+  await expect(discardChatDraft(getChatDraft(draft.id)!)).rejects.toThrow();
 });

@@ -305,6 +305,9 @@ function current() {
 }
 // Environments without IndexedDB retain the established small Web Storage behavior.
 export const chatStorage = {
+  get asynchronous() {
+    return typeof indexedDB !== 'undefined';
+  },
   get length() {
     return typeof indexedDB === 'undefined' ? localStorage.length : current().length;
   },

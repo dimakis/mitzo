@@ -2340,6 +2340,17 @@ async function exerciseBriefingReloadRecovery(
     .getByRole('textbox', { name: 'Message Mitzo', exact: true })
     .fill('Keep my unsent follow-up');
   if (retainedGeneric) {
+    // This fixture deliberately bypasses the UI launch barrier. Confirm the
+    // independent follow-up's durable bytes before materializing old work.
+    await expect
+      .poll(() =>
+        readChatStorage(
+          page,
+          (storage, id) => storage.getItem('mitzo-chat-draft-text:' + id),
+          launchDraftId,
+        ),
+      )
+      .toBe('Keep my unsent follow-up');
     // Materialize the pre-migration generic queue through its actual owner.
     // The current page never translates this retained receipt into owned work.
     await page.evaluate(() => {

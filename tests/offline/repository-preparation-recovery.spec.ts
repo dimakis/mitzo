@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { readChatStorage } from '../support/persisted-chat-storage';
 import {
   settingsHome,
@@ -19,6 +20,7 @@ import { build } from 'esbuild';
 import { resolve } from 'node:path';
 const output = build({
   entryPoints: [resolve('tests/fixtures/repository-preparation-recovery.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   external: ['/*.svg', '/*.png'],
   format: 'esm',

@@ -138,6 +138,7 @@ export function ChatView() {
   const preparationId = searchParams.get('repositoryPreparation');
   const repositoryHandoff = useRepositoryChatPreparation(preparationId, sessionId);
   const repositoryDraftControl = useRef<ChatInputDraftControl | null>(null);
+  const [launchDraftError, setLaunchDraftError] = useState<string | null>(null);
   const modeChangeReady = useMitzoStore((s) => s.modeChangeReady);
 
   // Select individual action functions — stable references
@@ -172,6 +173,9 @@ export function ChatView() {
     registrationSaving,
     retryRegistration,
   } = usePendingLaunch(sessionId ? null : searchParams.get('draft'), searchParams.toString());
+  useEffect(() => {
+    setLaunchDraftError(null);
+  }, [activeSessionId, sessionId, launch?.draftId]);
   const briefingChat = useBriefingChat(activeSessionId, launch);
 
   const savedLaunch = searchParams.get('draft')
@@ -800,6 +804,13 @@ export function ChatView() {
       (launch?.briefing && !explicitNew)
     )
       return false;
+    if (launching) {
+      if (repositoryDraftControl.current?.flush?.() !== true) {
+        setLaunchDraftError('Could not preserve this draft. Keep this chat open and retry.');
+        return false;
+      }
+      setLaunchDraftError(null);
+    }
     if (localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable && activeSessionId) {
       if (ctxBlocks?.length || launching || localRuntime.reason) return false;
       const command = prepareOrdinaryCommand(text, images);
@@ -1611,7 +1622,9 @@ export function ChatView() {
         />
         <AgentLibraryChatLink sources={builderSources} />
         {builderLinkError && <p role="alert">{builderLinkError}</p>}
-        {isSymposium && <ChatStatusMessage status={sendStatus} error={sendError} busy />}
+        {isSymposium && (
+          <ChatStatusMessage status={sendStatus} error={launchDraftError ?? sendError} busy />
+        )}
 
         {(historyLoading || (sessionId && sessionId !== activeSessionId)) && (
           <ChatStatusMessage status="Loading conversation…" busy />
@@ -1717,7 +1730,7 @@ export function ChatView() {
           }}
           pendingFeedback={
             !isSymposium ? (
-              <ChatStatusMessage status={sendStatus} error={sendError} busy />
+              <ChatStatusMessage status={sendStatus} error={launchDraftError ?? sendError} busy />
             ) : undefined
           }
           ordinaryComposer={

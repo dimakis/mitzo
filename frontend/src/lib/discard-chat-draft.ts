@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { apiFetch } from './api-fetch';
-import { deleteChatDraft, getChatDraft, type ChatDraft } from './chat-drafts';
+import { CHAT_DRAFTS_CHANGED, deleteChatDraft, getChatDraft, type ChatDraft } from './chat-drafts';
+import { chatStorage } from './large-chat-storage';
 
 const preparationSchema = z.object({
   id: z.uuid(),
@@ -52,4 +53,11 @@ export async function discardChatDraft(snapshot: ChatDraft): Promise<void> {
     assertUnchanged(snapshot);
   }
   if (!deleteChatDraft(snapshot.id)) throw new Error('Couldn’t discard this draft. Try again.');
+  try {
+    await chatStorage.flush();
+  } finally {
+    // A failed asynchronous deletion restores the disk's retained source.
+    // Refresh the list before reporting failure or allowing navigation.
+    window.dispatchEvent(new Event(CHAT_DRAFTS_CHANGED));
+  }
 }

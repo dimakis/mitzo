@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
 import { useLayoutEffect } from 'react';
+import { chatStorage } from '../../lib/large-chat-storage';
 import { useDraft, type DraftSessionAssignment } from '../useDraft';
 import {
   createChatDraft,
@@ -552,4 +553,12 @@ describe('useDraft', () => {
 
     vi.useRealTimers();
   });
+});
+
+it('offers plain text to asynchronous storage before the debounce or pagehide boundary', () => {
+  vi.useFakeTimers();
+  vi.spyOn(chatStorage, 'asynchronous', 'get').mockReturnValue(true);
+  const first = renderHook(() => useDraft('async-edit'));
+  act(() => first.result.current[1]('Keep the newest unsent edit'));
+  expect(localStorage.getItem('mitzo-draft-async-edit')).toBe('Keep the newest unsent edit');
 });

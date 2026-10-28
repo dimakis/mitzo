@@ -1,3 +1,4 @@
+import { useImperativeHandle } from 'react';
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
@@ -121,6 +122,7 @@ vi.mock('../../components/ChatInput', () => ({
     composerGeneration,
     settings,
     sendLabel,
+    draftControl,
   }: {
     initialText?: string;
     onStop: () => void;
@@ -136,30 +138,38 @@ vi.mock('../../components/ChatInput', () => ({
     composerGeneration?: number;
     settings?: React.ReactNode;
     sendLabel?: string;
-  }) => (
-    <>
-      <div data-testid="draft">{initialText}</div>
-      {settings}
-      <span data-testid="send-label">{sendLabel}</span>
-      <span data-testid="composer-running">{String(running)}</span>
-      <span data-testid="composer-generation">{composerGeneration}</span>
-      <button onClick={onStop}>Test Stop</button>
-      <button
-        disabled={!!sendDisabledReason}
-        onClick={() =>
-          onSend?.(
-            'hello',
-            undefined,
-            undefined,
-            () => {},
-            () => {},
-          )
-        }
-      >
-        Test send
-      </button>
-    </>
-  ),
+    draftControl?: { current: import('../../components/ChatInput').ChatInputDraftControl | null };
+  }) => {
+    useImperativeHandle(draftControl, () => ({
+      storageKey: undefined,
+      clear: () => {},
+      flush: () => true,
+    }));
+    return (
+      <>
+        <div data-testid="draft">{initialText}</div>
+        {settings}
+        <span data-testid="send-label">{sendLabel}</span>
+        <span data-testid="composer-running">{String(running)}</span>
+        <span data-testid="composer-generation">{composerGeneration}</span>
+        <button onClick={onStop}>Test Stop</button>
+        <button
+          disabled={!!sendDisabledReason}
+          onClick={() =>
+            onSend?.(
+              'hello',
+              undefined,
+              undefined,
+              () => {},
+              () => {},
+            )
+          }
+        >
+          Test send
+        </button>
+      </>
+    );
+  },
 }));
 afterEach(() => {
   cleanup();
