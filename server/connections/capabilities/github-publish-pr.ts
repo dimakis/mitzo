@@ -447,7 +447,9 @@ export function createGithubArtifactPublishPrExecutor(
       sourceBranch: state.inspection.sourceBranch,
       sourceOid: state.inspection.sourceOid,
     });
-  const reviewProjection = (receipt: GithubPublicationReviewReceipt | undefined) =>
+  const reviewProjection = (
+    receipt: GithubPublicationReviewReceipt | undefined,
+  ): Readonly<Record<string, string>> =>
     receipt
       ? {
           reviewReceiptId: receipt.receiptId,
@@ -547,7 +549,7 @@ export function createGithubArtifactPublishPrExecutor(
     state: Awaited<ReturnType<typeof inspect>>,
     existing: GithubPullRequest | null,
     receipt?: GithubPublicationReviewReceipt,
-  ) => ({
+  ): Readonly<Record<string, string | boolean>> => ({
     ...state.input,
     repository: state.repository,
     sourceBranch: state.inspection.sourceBranch!,

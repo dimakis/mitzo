@@ -1281,7 +1281,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',
   'capabilities/github-publish-pr.ts':
-    '5b30100ea71e73c1a90a92e06fc3a99710b7418fea2b4dfb0de660e2592606cc',
+    '12579c9c7522ebb1dd43b544b581dab4c79cec6dcbc39098049915f747107ec7',
   'capabilities/github-publish-pr-transport.ts':
     '434d2c56164bc372b9168fba26acb806f509a759eb2f8c24ba8eaff5c8c9f5f8',
   '../github-host-source.ts': '2720dd0fedf081780ebd64a485164ec5abc6dee7920de925d35e3e6aa647e084',
