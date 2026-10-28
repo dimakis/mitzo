@@ -142,8 +142,26 @@ it.each(['success', 'allocation', 'inference', 'evidence', 'receipt'] as const)(
         } as ModelSession;
       });
       const review = createOrdinaryPublicationReview({ resolveOwner: () => owner, session });
-      const reviewInput = {
-        operation: { id: 'operation', accountId: 'selected', conversationId: 'conversation' },
+      const reviewInput: Parameters<typeof review>[0] = {
+        operation: {
+          id: 'operation',
+          connectionId: f.connection.id,
+          connectionRevision: f.connection.revision,
+          capabilityId: 'github.publish-pr',
+          capabilityVersion: 1,
+          grantId: 'offline-review-grant',
+          accountId: 'selected',
+          conversationId: 'conversation',
+          turnId: 'offline-review-turn',
+          idempotencyKey: 'offline-review-operation',
+          inputHash: 'a'.repeat(64),
+          status: 'running',
+          externalResultId: null,
+          result: null,
+          failureCode: null,
+          createdAt: 0,
+          updatedAt: 0,
+        },
         repository: 'example/repo',
         baseBranch: 'main',
         sourceBranch: 'mitzo/task',
@@ -152,7 +170,7 @@ it.each(['success', 'allocation', 'inference', 'evidence', 'receipt'] as const)(
         bundle: Buffer.from('offline verified bundle'),
         signal: new AbortController().signal,
         assertRuntimeCurrent,
-      } as Parameters<typeof review>[0];
+      };
       if (stage === 'allocation' || stage === 'inference' || stage === 'evidence') {
         await expect(review(reviewInput)).rejects.toThrow(/revoked|review/i);
         expect(session).toHaveBeenCalledTimes(stage === 'evidence' ? 0 : 1);
