@@ -13,6 +13,8 @@ import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { createOrdinaryPublicationReview } from './ordinary-publication-review.js';
+import { captureGithubPublicationReviewOwner } from './github-publishing-tool.js';
 import { GoogleWorkspaceManagement } from './google-workspace-management.js';
 import {
   OpenAIKeyManagement,
@@ -416,6 +418,16 @@ export function createConnectionsRuntime(options: {
   };
   const githubExecutor = createGithubArtifactPublishPrExecutor({
     host: githubHost,
+    reviewCommittedChange: createOrdinaryPublicationReview({
+      resolveOwner: async (operation) => {
+        const owner = captureGithubPublicationReviewOwner(
+          operation.conversationId,
+          operation.turnId,
+        );
+        await owner.assertCurrent();
+        return owner;
+      },
+    }),
     resolveWorkspace: (operation) => publishingSource(operation)?.workspace,
     inspect: async (input) => {
       if (

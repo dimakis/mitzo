@@ -135,6 +135,10 @@ export interface MitzoStoreState {
   chatDraftRevision: number;
   /** Active-session queue metadata invalidation; contains no message content. */
   queueRevision: number;
+  /** Selected conversation metadata invalidation, independent of branch text. */
+  sessionMetadataRevision: number;
+  /** Local composer fence only; never provider input or dispatch authority. */
+  isSessionMetadataCurrent(sessionId: string, revision: number): boolean;
 
   // Current server-issued transport identity; never persisted across reconnect.
   getTransportConnectionId(): string | null;
@@ -1151,10 +1155,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     pendingSessionSending: false,
     chatDraftRevision: 0,
     queueRevision: 0,
+    sessionMetadataRevision: 0,
 
     // ── Actions ──────────────────────────────────────────────────────────
 
     getTransportConnectionId: () => connection.getConnectionId(),
+    isSessionMetadataCurrent: (sessionId, revision) =>
+      get().sessions.active === sessionId && get().sessionMetadataRevision === revision,
 
     dispatchMessages(action: MessagesAction) {
       if (action.type === 'SET_SESSION_CONTEXT') contextDisplayWritten = true;
@@ -2124,6 +2131,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // evicted it from memory, losing in-memory state), re-fetch messages from
     // the REST API if we have an active session but no messages in the store.
     if (msg.type === '_foreground') {
+      if (store.getState().sessions.active)
+        store.setState((state) => ({ sessionMetadataRevision: state.sessionMetadataRevision + 1 }));
       localOutbox?.wake();
       const { sessions, historyLoading } = store.getState();
       // An opening transcript or bounded reconnect already owns history. A
@@ -2136,7 +2145,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       return true;
     }
 
-    if (msg.type === '_open') localOutbox?.wake();
+    if (msg.type === '_open') {
+      if (store.getState().sessions.active)
+        store.setState((state) => ({ sessionMetadataRevision: state.sessionMetadataRevision + 1 }));
+      localOutbox?.wake();
+    }
 
     if (msg.type === 'session_resumed') {
       if (typeof console !== 'undefined') {
@@ -2475,6 +2488,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       (msg.type === 'codex_queue' || msg.type === 'user_message' || msg.type === 'session_end')
     )
       store.setState((state) => ({ queueRevision: state.queueRevision + 1 }));
+    if (
+      selectedEventSession &&
+      (msg.type === 'session_info' || msg.type === 'session_reconnect_snapshot')
+    )
+      store.setState((state) => ({ sessionMetadataRevision: state.sessionMetadataRevision + 1 }));
 
     if (msg.type === 'error' && msg.sessionId === awaitingModeHydration)
       awaitingModeHydration = undefined;

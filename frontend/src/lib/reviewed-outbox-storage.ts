@@ -1,7 +1,12 @@
 import { CHAT_MAX_COMMAND_BYTES } from '@mitzo/protocol';
 import { V2SendMessage } from '@mitzo/protocol';
 import { parseLocalCommandDelivery } from '@mitzo/client';
-import { acceptedComposerDraftKey, composerDraftProof } from './composer-draft-proof';
+import {
+  acceptedComposerDraftKey,
+  composerDraftProof,
+  composerDraftRevisionKey,
+  type ComposerDraftProof,
+} from './composer-draft-proof';
 
 type Disk = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 'removeItem'> & {
   flush?: () => Promise<void>;
@@ -46,6 +51,26 @@ export function createReviewedOutboxStorage(
     if (!parsed.success || parsed.data.sessionId !== null)
       throw new Error('Invalid reviewed command');
     return value;
+  }
+  function hasDifferentComposerRevision(proof: ComposerDraftProof): boolean {
+    try {
+      const current = JSON.parse(
+        disk.getItem(composerDraftRevisionKey(proof.storageKey)) ?? 'null',
+      );
+      return (
+        typeof current?.revisionToken === 'string' &&
+        /^\S{1,200}$/.test(current.revisionToken) &&
+        typeof current.textSha256 === 'string' &&
+        /^[a-f0-9]{64}$/.test(current.textSha256) &&
+        (current.richDraftSignature === undefined ||
+          current.richDraftSignature === '' ||
+          (typeof current.richDraftSignature === 'string' &&
+            /^[a-f0-9]{64}$/.test(current.richDraftSignature))) &&
+        current.revisionToken !== proof.revisionToken
+      );
+    } catch {
+      return false;
+    }
   }
   function all(): Map<string, string> {
     const result = new Map<string, string>();
@@ -112,9 +137,13 @@ export function createReviewedOutboxStorage(
           route === 'local' &&
           proof &&
           retired?.localReceipt?.state === 'consumed' &&
-          retired.uncertain === false
+          retired.uncertain === false &&
+          !hasDifferentComposerRevision(proof)
         )
-          // Commit local completion before dropping its last durable receipt.
+          // A different durable draft token already fences this submitted
+          // revision. Its obsolete marker cannot clear the current editor and
+          // must not prevent accepted delivery from retiring at storage quota.
+          // Commit a still-owned revision before dropping its last receipt.
           // A WebView can disappear before the composer's React effect runs.
           disk.setItem(acceptedComposerDraftKey(proof.storageKey), JSON.stringify(proof));
         disk.removeItem(key(id));

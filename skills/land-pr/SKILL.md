@@ -42,6 +42,19 @@ Preserve deployment/live-test restrictions; landing does not authorize deploymen
 
 Before the first reviewable push, run two read-only subagents concurrently within host capacity: correctness/integration/affected callers, and behavior/test adequacy/failure cases. Each must be independent of implementation in its scope. Add security review for concrete permission/security/data risks. These focused roles alone do not satisfy the full-pass rule below.
 
+For an ordinary Mitzo chat with `RequestGithubPublish`, use its host review path
+when native subagent tools are unavailable. After the checks and local commit,
+request publication through that tool. Before any push, the host runs two fresh,
+independent reviews over the exact committed change: correctness/integration and
+behavior/test/security. The host may serialize those isolated passes to respect
+resource limits. These are qualifying independent reviews only when their returned
+receipt identifies the committed artifact and evidence, both passes completed,
+and no blocking findings remain. Fix returned findings, commit, and request a
+fresh review for changed work. Do not treat a request, missing receipt, incomplete
+coverage or the absence of a native subagent tool as review approval. The host
+still requires the publication approval and rechecks the reviewed artifact before
+publishing. Required CI, Centaur, merge and deployment gates remain separate.
+
 Give both the diff, requirements, repository instructions, base and candidate SHA (or a fingerprint of all intended tracked/untracked content). Keep the candidate stable. Record reviewer/report identity, scope, coverage limits and concrete findings with severity, location, failure scenario and evidence. Consolidate findings; fix blockers together and document rejected/resolved dispositions. Ask relevant reviewers for a focused follow-up on batched fixes, affected callers and prior findings; reuse unchanged coverage. Repeat only for unresolved blockers or material scope changes; report persistent blockers without progress instead of looping.
 
 For pushed PRs, complete missing local coverage while CI runs. Reuse qualifying independent passes and follow-ups; verify coverage of the actual candidate before pushing. Use only exposed, permitted delegation tools; respect resource/live-test limits, avoiding parallel broad suites. If unavailable/denied, report unfinished local coverage and continue other preparation; obtain independent review through an authorized host before pushing. Never bypass via another CLI or claim self-approval. Local reviews do not replace Centaur or change its timing, configuration or final gate.

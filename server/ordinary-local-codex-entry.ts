@@ -1,3 +1,9 @@
+import {
+  capturePostAdoptionWire,
+  observePostAdoptionWire,
+  ordinaryWireFingerprint,
+  isKnownPostAdoptionCapability,
+} from './post-adoption-wire-admission.js';
 import { dispatchOwnedOrdinaryCommand } from './ordinary-scoped-command.js';
 import { RetainedLocalCodexRecovery } from './retained-local-codex-recovery.js';
 import { context, trace } from '@opentelemetry/api';
@@ -705,6 +711,54 @@ function createOwnedCodexEntryRouter(
           authority?.release();
         }
       }
+      // Keep the frozen browser body separate from its privately qualified
+      // execution namespace. Receipt observation can use only a stored bridge.
+      const originalLocalWire =
+        continuation && !ordinary && input.runOn === 'local' && input.runtime.harness === 'codex'
+          ? LocalCodexContinuationCommandSchema.parse(input)
+          : undefined;
+      let postAdoptionWire: ReturnType<typeof capturePostAdoptionWire> | undefined;
+      let storedPostAdoptionWire: ReturnType<typeof observePostAdoptionWire>;
+      let historicalCapabilityQualified = false;
+      if (originalLocalWire) {
+        try {
+          storedPostAdoptionWire = observePostAdoptionWire(ctx.eventStore, originalLocalWire);
+          if (storedPostAdoptionWire)
+            input = {
+              ...originalLocalWire,
+              repositoryWorkspaceId:
+                storedPostAdoptionWire.executionAdmission.workspace.workspaceId,
+            };
+          else if (
+            !observeOnly &&
+            !ctx.eventStore.getSendCommand(originalLocalWire.clientMsgId) &&
+            ctx.eventStore.getSession(originalLocalWire.sessionId)?.repositoryWorkspaceId !==
+              originalLocalWire.repositoryWorkspaceId
+          ) {
+            postAdoptionWire = capturePostAdoptionWire(ctx.eventStore, originalLocalWire, auth.id);
+            input = {
+              ...originalLocalWire,
+              repositoryWorkspaceId: postAdoptionWire.target.executionWorkspace.workspaceId,
+            };
+          }
+          const wirePrimary = postAdoptionWire?.target ?? storedPostAdoptionWire?.bridge;
+          historicalCapabilityQualified =
+            !!wirePrimary &&
+            isKnownPostAdoptionCapability(
+              ctx.eventStore,
+              originalLocalWire,
+              wirePrimary.primaryCommandId,
+            );
+        } catch {
+          return res.status(409).json({
+            ok: false,
+            code: 'retained_command',
+            error: unavailable,
+            clientMsgId: originalLocalWire.clientMsgId,
+            sessionId: originalLocalWire.sessionId,
+          });
+        }
+      }
       const repositoryWorkspaceId =
         'repositoryWorkspaceId' in input ? input.repositoryWorkspaceId : undefined;
       let ordinaryWorkspace: OrdinaryWorkspaceRecord | undefined;
@@ -944,7 +998,9 @@ function createOwnedCodexEntryRouter(
           continuation ? retainedRuntimeBinding : undefined,
         );
         if (
-          (!recoverRetained && result.capabilityRevision !== input.capabilityRevision) ||
+          (!recoverRetained &&
+            result.capabilityRevision !== input.capabilityRevision &&
+            !historicalCapabilityQualified) ||
           !result.routes.some(
             (route) =>
               isDeepStrictEqual(route.account, input.runtime.account) &&
@@ -1119,31 +1175,62 @@ function createOwnedCodexEntryRouter(
           payload: input.payload,
         };
         assertRetainedRouting();
-        const resultCommand = await dispatchOwnedOrdinaryCommand({
-          transport,
-          clientId: `${connectionId}:${sessionId}`,
-          sessionId,
-          commandId: input.clientMsgId,
-          command,
-          reservation,
-          operatorConnectionId,
-          ownerConnectionId: connectionId,
-          ownerAuthSessionId: auth.id,
-          signal: controller.signal,
-          continuation,
-          recovery: recoverRetained,
-          existingOwner: Boolean(existingOwner),
-          workspaceKind: ordinaryInput && !retainedRouting ? 'ordinary' : 'repository',
-          ...(!continuation && ordinaryWorkspace
-            ? { preparationOperationId: ordinaryWorkspace.allocationOperationId }
-            : preparedRepository
-              ? { preparationOperationId: preparedRepository.allocationOperationId }
+        const dispatchCurrentCommand = () =>
+          dispatchOwnedOrdinaryCommand({
+            transport,
+            clientId: `${connectionId}:${sessionId}`,
+            sessionId,
+            commandId: input.clientMsgId,
+            command,
+            reservation,
+            operatorConnectionId,
+            ownerConnectionId: connectionId,
+            ownerAuthSessionId: auth.id,
+            signal: controller.signal,
+            continuation,
+            recovery: recoverRetained,
+            existingOwner: Boolean(existingOwner),
+            workspaceKind: ordinaryInput && !retainedRouting ? 'ordinary' : 'repository',
+            ...(!continuation && ordinaryWorkspace
+              ? { preparationOperationId: ordinaryWorkspace.allocationOperationId }
+              : preparedRepository
+                ? { preparationOperationId: preparedRepository.allocationOperationId }
+                : {}),
+            profile,
+            ...(input.runOn === 'openshell'
+              ? { sandboxWorkdir: loadOrdinaryOpenShellCodexTarget()!.config.workdir }
               : {}),
-          profile,
-          ...(input.runOn === 'openshell'
-            ? { sandboxWorkdir: loadOrdinaryOpenShellCodexTarget()!.config.workdir }
-            : {}),
-        });
+          });
+        const resultCommand = originalLocalWire
+          ? await ctx.eventStore.withOrdinaryCommandWireAdmission(
+              {
+                sessionId,
+                commandId: input.clientMsgId,
+                wireFingerprint: ordinaryWireFingerprint(originalLocalWire),
+                ...((postAdoptionWire?.target ?? storedPostAdoptionWire?.bridge)
+                  ? { bridge: postAdoptionWire?.target ?? storedPostAdoptionWire!.bridge }
+                  : {}),
+                ...(historicalCapabilityQualified
+                  ? { historicalCapabilityRevision: originalLocalWire.capabilityRevision }
+                  : {}),
+              },
+              () => {
+                authority!.assertCurrent();
+                assertRetainedRouting();
+                postAdoptionWire?.assertCurrentSync();
+                if (
+                  historicalCapabilityQualified &&
+                  !isKnownPostAdoptionCapability(
+                    ctx.eventStore,
+                    originalLocalWire,
+                    (postAdoptionWire?.target ?? storedPostAdoptionWire!.bridge!).primaryCommandId,
+                  )
+                )
+                  throw Error(unavailable);
+              },
+              dispatchCurrentCommand,
+            )
+          : await dispatchCurrentCommand();
         authority.assertCurrent();
         const receipt =
           input.runOn === 'local' && input.runtime.harness === 'codex'

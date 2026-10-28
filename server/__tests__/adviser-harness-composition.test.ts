@@ -179,3 +179,39 @@ it('rejects changed account authority before allocating anything and never falls
   expect(mocks.prepare).not.toHaveBeenCalled();
   expect(mocks.dispatch).not.toHaveBeenCalled();
 });
+it('rechecks the originating feature authority after deferred allocation before dispatching a paid review', async () => {
+  let current = true;
+  const assertCurrentSync = vi.fn(() => {
+    if (!current) throw Error('Original publisher changed');
+  });
+  mocks.reserve.mockImplementationOnce(async (input) => {
+    await Promise.resolve();
+    current = false;
+    return {
+      id: 'workspace',
+      conversationId: 'task',
+      directory: '/task-root/empty-task',
+      hostReservation: { taskRoot: '/task-root' },
+      preparationFingerprint: 'fingerprint',
+      settings: input.settings,
+    };
+  });
+  const model = await createNativeAdviserSession(
+    config,
+    request,
+    {
+      ...owner,
+      feature: { kind: 'github-publication', operationId: 'operation' },
+      assertCurrentSync,
+    },
+    mocks.binding,
+  );
+  const read = async () => {
+    for await (const event of model.turn(request.messages)) {
+      void event; // Drain the independent review stream.
+    }
+  };
+  await expect(read()).rejects.toThrow('Original publisher changed');
+  expect(mocks.dispatch).not.toHaveBeenCalled();
+  expect(mocks.prepareSession).not.toHaveBeenCalled();
+});

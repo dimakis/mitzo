@@ -143,6 +143,75 @@ it('withholds repository presentation while metadata refresh is pending or fails
   expect(result.current.repositoryWorkspaceId).toBe(workspaceId);
 });
 
+it('keeps future inference intent and ignores an older metadata response after consecutive same-branch adoption invalidations', async () => {
+  const data = localInventoryFixture();
+  data.accounts[0].models.push({
+    id: 'future-luna',
+    label: 'Future Luna',
+    reasoningEfforts: ['low', 'high'],
+  });
+  const metadata = (workspaceId: string) => ({
+    sessionId: 'bound-session',
+    repositoryWorkspaceId: workspaceId,
+    runtimeBinding: {
+      version: 2,
+      account: data.accounts[0].account,
+      harness: { implementation: 'codex' },
+      execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
+    },
+    runtimeCommandScope: 'conversation',
+    mode: 'agent',
+    agentProfile: data.agentProfiles[0],
+    modelSelection: { model: 'luna-fixture', reasoningEffort: 'low' },
+  });
+  let defer = false;
+  const pending: Array<(response: Response) => void> = [];
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).endsWith('/meta')
+      ? defer
+        ? new Promise((resolve) => pending.push(resolve))
+        : Response.json(metadata('11111111-1111-4111-8111-111111111111'))
+      : Response.json(data),
+  );
+  const { result, rerender } = renderHook(
+    ({ revision }) =>
+      useExplicitLocalChat('draft', null, 'bound-session', true, '', undefined, revision),
+    { initialProps: { revision: 'same-branch:1' } },
+  );
+  await waitFor(() => expect(result.current.commandAvailable).toBe(true));
+  act(() =>
+    result.current.update({
+      ...result.current.intent,
+      account: { ...result.current.intent.account!, model: 'future-luna', reasoningEffort: 'high' },
+    }),
+  );
+  defer = true;
+  rerender({ revision: 'same-branch:2' });
+  expect(result.current.commandAvailable).toBe(false);
+  expect(result.current.intent.account).toMatchObject({
+    model: 'future-luna',
+    reasoningEffort: 'high',
+  });
+  await waitFor(() => expect(pending).toHaveLength(1));
+  rerender({ revision: 'same-branch:3' });
+  await waitFor(() => expect(pending).toHaveLength(2));
+  await act(async () =>
+    pending[1](Response.json(metadata('33333333-3333-4333-8333-333333333333'))),
+  );
+  await waitFor(() =>
+    expect(result.current.repositoryWorkspaceId).toBe('33333333-3333-4333-8333-333333333333'),
+  );
+  await act(async () =>
+    pending[0](Response.json(metadata('22222222-2222-4222-8222-222222222222'))),
+  );
+  expect(result.current.repositoryWorkspaceId).toBe('33333333-3333-4333-8333-333333333333');
+  expect(result.current.intent.account).toMatchObject({
+    model: 'future-luna',
+    reasoningEffort: 'high',
+  });
+  expect(result.current.intent.agentProfile).toEqual({ profileId: 'agent', revision: 1 });
+});
+
 it.each(['', 'agentProfile=agent&profileRevision=1'])(
   'resolves a fresh saved default to its current account identity without a second confirmation: %s',
   async (search) => {

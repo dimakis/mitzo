@@ -119,6 +119,26 @@ export class NativeResponsesRunner {
   getSelectedModel() {
     return this.selectedModel;
   }
+  currentInferenceSelection() {
+    return { model: this.selectedModel, reasoningEffort: this.reasoningEffort ?? null };
+  }
+  captureInferenceSelection() {
+    const active = this.active;
+    if (!active) throw Error('Active provider inference selection required');
+    active.signal.throwIfAborted();
+    const selected = this.currentInferenceSelection();
+    return Object.freeze({
+      ...selected,
+      assertCurrentSync: () => {
+        active.signal.throwIfAborted();
+        if (
+          this.active !== active ||
+          !isDeepStrictEqual(this.currentInferenceSelection(), selected)
+        )
+          throw Error('Original provider inference selection changed');
+      },
+    });
+  }
   waitUntilIdle() {
     if (!this.active) return Promise.resolve();
     return new Promise<void>((resolve) => this.idleWaiters.push(resolve));

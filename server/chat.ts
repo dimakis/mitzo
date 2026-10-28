@@ -2733,6 +2733,29 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         options.ordinarySdkAuthority
           ? () => options.ordinarySdkAuthority!.assertCurrent(abortController.signal)
           : undefined,
+        {
+          explicitSelection: () => {
+            // Ordinary SDK provider publication is disabled; an explicit operator
+            // action selects the trusted current command settings separately.
+            if (options.ordinarySdkAuthority) {
+              const id = session.sessionId ?? options.resume ?? '';
+              const settings =
+                eventStore.getOrdinaryWorkspaceConversationSettings(id) ??
+                eventStore.getOrdinaryConversationSettings(id);
+              if (!settings) throw Error('Explicit operator publication selection unavailable');
+              return {
+                model: settings.selection.model,
+                reasoningEffort: settings.selection.thinking ?? null,
+              };
+            }
+            // Legacy SDK queries retain their original model/thinking/effort;
+            // sendToChat refuses model changes for this fixed query.
+            return {
+              model: options.model ?? session.model ?? session.accountBinding?.model ?? '',
+              reasoningEffort: options.reasoningEffort ?? null,
+            };
+          },
+        },
       );
       abortController.signal.addEventListener('abort', () => githubPublishing.close(), {
         once: true,

@@ -87,22 +87,44 @@ async function materializePreparation(
 /** Real runtime/bootstrap/login/selection/admission, SQLite producer+CAS+FIFO.
  * Creation actor is synthetic and physical read transport is the controlled
  * descriptor fixture, NOT SRT/native actor qualification or a real model call. */
-async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
+async function fixture(
+  chatRoute = false,
+  operatorLifetimeMs?: number,
+  images?: Array<{ data: string; mediaType: string }>,
+  publicationFlow = false,
+) {
   let operatorToken: string | undefined;
   const f = await ownedRuntimeFixture(chatRoute ? publicAuthCleanups : cleanups, {
     localRepository: true,
     chatRoute,
     ...(chatRoute && publicEventPath ? { eventStorePath: publicEventPath } : {}),
     operatorLifetimeMs,
+    ...(publicationFlow
+      ? {
+          additionalModels: [
+            { id: 'publication-model', label: 'Publication model', reasoningEfforts: ['high'] },
+          ],
+        }
+      : {}),
     ...(chatRoute
       ? {
-          tools: ['Bash', 'Read', 'Write', 'Edit'].map((name) => ({
+          tools: [
+            'Bash',
+            'Read',
+            'Write',
+            'Edit',
+            ...(publicationFlow ? ['GitCommit', 'RequestGithubPublish'] : []),
+          ].map((name) => ({
             id: `mitzo:${name}`,
             version: 1,
           })),
         }
       : {}),
   });
+  const initialRequest = {
+    ...f.request,
+    payload: { ...f.request.payload, ...(images ? { images } : {}) },
+  };
   if (chatRoute) {
     publicEventPath ??= join(f.root, '.mitzo', 'events.db');
     vi.stubEnv('MITZO_INTERNAL_TOKEN_PATH', join(f.root, 'internal-token'));
@@ -136,6 +158,7 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
         id: value.commandId,
         prompt: value.payload.text,
         intent: value.payload.intent,
+        images: value.payload.images,
         model: value.expected.selection.model,
         reasoningEffort: value.expected.selection.thinking,
       };
@@ -149,6 +172,7 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
         id: value.commandId,
         prompt: value.payload.text,
         intent: value.payload.intent,
+        images: value.payload.images,
         model: value.expected.selection.model,
         reasoningEffort: value.expected.selection.thinking,
       };
@@ -157,7 +181,7 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
     },
   });
   cleanups.push(() => runtime.close());
-  await runtime.admit(f.request);
+  await runtime.admit(initialRequest);
   const first = f.dispatch.mock.calls[0][0],
     admission = first.admission;
   native.bindThread(
@@ -170,7 +194,14 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
           codexDynamicToolsOption(
             chatRoute
               ? [
-                  ...nativeToolDefinitions.filter((tool) => tool.name === 'AskUserQuestion'),
+                  ...nativeToolDefinitions.filter(
+                    (tool) =>
+                      tool.name === 'AskUserQuestion' ||
+                      (publicationFlow && tool.name === 'GitCommit'),
+                  ),
+                  ...(publicationFlow
+                    ? [(await import('../../github-publishing-tool.js')).githubPublishingDefinition]
+                    : []),
                   ...localEfficiencyToolDefinitions.filter((tool) => tool.name === 'SearchSkills'),
                 ]
               : [],
@@ -279,6 +310,7 @@ async function fixture(chatRoute = false, operatorLifetimeMs?: number) {
     );
   return {
     ...f,
+    request: initialRequest,
     operatorToken,
     runtime,
     native,

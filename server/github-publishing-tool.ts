@@ -6,6 +6,11 @@ import { z } from 'zod';
 import { toolInputError } from './tool-input-error.js';
 import { createLogger } from '@mitzo/harness';
 import { safeGithubSeedFailure, githubSeedFailureMessage } from './github-seeded-source.js';
+import {
+  GithubPublicationReviewError,
+  safeGithubPublicationReviewFailure,
+  githubPublicationReviewFailureMessage,
+} from './github-publication-review-failure.js';
 const publicationLog = createLogger('github-publication');
 import {
   buildPermissionHandler,
@@ -22,22 +27,97 @@ import {
 } from './capability-conversation-binding.js';
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
+import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 export const REQUEST_GITHUB_PUBLISH = 'RequestGithubPublish';
 // Shared across runtime replacements; closing one runtime cannot release its active operation.
 const publishingAdmissions = new Set<string>();
+interface PublicationInferenceSelection {
+  model: string;
+  reasoningEffort?: string | null;
+  assertCurrentSync(): void;
+}
+interface PublicationCall {
+  turnId: string;
+  callId: string;
+  captureInferenceSelection?(): PublicationInferenceSelection;
+}
+const operatorCalls = new WeakSet<PublicationCall>();
 interface OperatorPublishingRegistration {
   registry: SessionRegistry;
   conversationId: () => string;
   session?: unknown;
   account?: unknown;
+  assertRuntimeCurrent?: () => Promise<void>;
+  activeInvocation?: { turnId: string; callId: string; selection: PublicationInferenceSelection };
   execute: (
     input: unknown,
     signal: AbortSignal,
-    call: { turnId: string; callId: string },
+    call: PublicationCall,
   ) => Promise<{ content: string; isError: boolean }>;
 }
 // Runtime identity is stable before an SDK assigns its conversation ID.
 const operatorPublishing = new Map<string, OperatorPublishingRegistration>();
+/** Server-only source of the signed original publisher and explicit inference
+ * selection. Tool arguments cannot select a reviewer login or account. */
+export function captureGithubPublicationReviewOwner(conversationId: string, turnId?: string) {
+  const entries = [...operatorPublishing.entries()].filter(
+    ([, registered]) => registered.conversationId() === conversationId,
+  );
+  if (entries.length !== 1) throw Error('Exact live publishing runtime required for review');
+  const [runtimeId, active] = entries[0];
+  const current = active.registry.findBySessionId(conversationId);
+  const session = current?.session;
+  const operatorConnectionId = session?.ownerConnectionId;
+  if (!session || !operatorConnectionId || session !== active.session || !session.accountBinding)
+    throw Error('Authenticated original publishing owner required for review');
+  const authorization = captureAgentLibraryAuthorization(operatorConnectionId);
+  const authSessionId = authorization.auth.id;
+  const ownedAuth = session.ownedLocalAuthSessionId ?? session.ordinaryRuntimeOwner?.authSessionId;
+  if (ownedAuth && !ordinaryOperatorOwnsConversation(ownedAuth, authSessionId))
+    throw Error('Original publishing operator required for review');
+  const binding = structuredClone(session.accountBinding);
+  const invocation = active.activeInvocation;
+  if (turnId !== undefined && (!invocation || invocation.turnId !== turnId))
+    throw Error('Exact active publication invocation required for review');
+  const selection = invocation?.selection;
+  const model = selection?.model ?? session.model ?? binding.model;
+  const reasoningEffort = selection?.reasoningEffort ?? null;
+  if (!model) throw Error('Explicit publishing review model required');
+  const assertSync = () => {
+    authorization.assertCurrent();
+    selection?.assertCurrentSync();
+    if (
+      operatorPublishing.get(runtimeId) !== active ||
+      active.registry.findBySessionId(conversationId)?.session !== session ||
+      session.ownerConnectionId !== operatorConnectionId ||
+      !isDeepStrictEqual(session.accountBinding, binding) ||
+      !isDeepStrictEqual(active.account, binding) ||
+      (invocation
+        ? active.activeInvocation !== invocation
+        : (session.model ?? session.accountBinding?.model) !== model) ||
+      (session.ownedLocalAuthSessionId ?? session.ordinaryRuntimeOwner?.authSessionId) !==
+        ownedAuth ||
+      effectivePermissionMode(session) === 'ask' ||
+      checkSkillPolicy(active.registry, current!.clientId, REQUEST_GITHUB_PUBLISH) === 'deny'
+    )
+      throw Error('Original publishing review owner changed');
+  };
+  assertSync();
+  return Object.freeze({
+    authSessionId,
+    operatorConnectionId,
+    binding: Object.freeze(binding),
+    model,
+    reasoningEffort,
+    assertCurrentSync: assertSync,
+    assertCurrent: async () => {
+      assertSync();
+      await active.assertRuntimeCurrent?.();
+      assertSync();
+    },
+  });
+}
 export async function requestOperatorGithubPublication(
   conversationId: string,
   registry: SessionRegistry,
@@ -57,10 +137,13 @@ export async function requestOperatorGithubPublication(
     !isDeepStrictEqual(current.session.accountBinding, active.account)
   )
     throw new Error('The live publishing account or runtime changed');
-  return active.execute(input, signal, {
-    turnId: 'operator-' + randomUUID(),
-    callId: randomUUID(),
-  });
+  const call = { turnId: 'operator-' + randomUUID(), callId: randomUUID() };
+  operatorCalls.add(call);
+  try {
+    return await active.execute(input, signal, call);
+  } finally {
+    operatorCalls.delete(call);
+  }
 }
 export const GithubPublishingFields = {
   repositoryPath: z.string().min(1).max(256),
@@ -76,11 +159,11 @@ const Input = z.object(GithubPublishingFields).strict();
 export const githubPublishingDefinition: ToolDefinition = {
   name: REQUEST_GITHUB_PUBLISH,
   description:
-    'Request approval to publish committed workspace changes to a GitHub feature branch and create or update its pull request. Mitzo resolves the GitHub repository from the current workspace and selects its configured connection for this session account. It asks the user for repository-specific access when needed. Credentials remain on the controller. Supply the absolute local repository path inside the current workspace, base branch, title, body and draft choice; do not use direct GitHub writes.',
+    'Request host-backed independent review and approval to publish committed workspace changes to a GitHub feature branch and create or update its pull request. In ordinary chats, Mitzo reviews the exact committed artifact in two independent read-only passes before publication approval; use this tool when native subagent tools are unavailable. Blocking findings are returned for correction. Mitzo resolves the repository and configured GitHub connection for this session account; credentials remain on the controller. Supply the absolute repository path in the current workspace, base branch, title, body and draft choice; do not use direct GitHub writes.',
   input_schema: z.toJSONSchema(Input),
 };
 export const GITHUB_PUBLISHING_INSTRUCTIONS =
-  '\nUse RequestGithubPublish to publish committed local changes to a GitHub feature branch and pull request. This tool is available across account runtimes and routes the request to the user for approval. It resolves access for the current AI account; a provider being read-only does not mean this approval-backed tool is unavailable. If a managed GitHub connection is missing, explain the returned setup requirement and preserve the local commit. Do not substitute direct git push or gh API writes after denial.\n';
+  '\nUse RequestGithubPublish to publish committed local changes to a GitHub feature branch and pull request. In ordinary chats, this request obtains two independent host review passes over the exact committed artifact before the publication approval card. Invoke it to obtain review when native subagent tools are unavailable. Address returned blocking findings, commit the fixes and request publication again; preserve a failed or pending result without claiming publication succeeded. The host review does not replace required tests, CI, Centaur merge approval or deployment authorization. Prefer a draft PR unless the user requested a ready PR. This tool is available across account runtimes and resolves access for the current AI account; a provider being read-only does not mean this approval-backed tool is unavailable. If a managed GitHub connection is missing, explain the returned setup requirement and preserve the local commit. Do not substitute direct git push or gh API writes after denial.\n';
 export type GithubPublishingSource =
   | { runtime: 'host'; workspace: string; gitStorageRoots: readonly string[] }
   | { runtime: 'openshell'; workspace: string; sandboxName: string };
@@ -90,16 +173,16 @@ export function createGithubPublishingTool(
   source: () => GithubPublishingSource | undefined,
   ownerSession?: ReturnType<SessionRegistry['get']>,
   assertRuntimeCurrent?: () => Promise<void>,
+  inference?: {
+    requireNativeSelection?: boolean;
+    explicitSelection(): { model: string; reasoningEffort?: string | null };
+  },
 ) {
   const runtimeOwnerId = randomUUID();
   let closed = false;
   let bound:
     { conversationId: string; connectionId: string; connectionRevision: number } | undefined;
-  const run = async (
-    input: unknown,
-    signal: AbortSignal,
-    call: { turnId: string; callId: string },
-  ) => {
+  const run = async (input: unknown, signal: AbortSignal, call: PublicationCall) => {
     let stage = 'admission';
     const requestId = randomUUID();
     try {
@@ -363,18 +446,21 @@ export function createGithubPublishingTool(
           failureCode: operation.failureCode,
           ...(githubSeedFailureMessage(operation.failureCode)
             ? { message: githubSeedFailureMessage(operation.failureCode) }
-            : {}),
+            : githubPublicationReviewFailureMessage(operation.failureCode)
+              ? { message: githubPublicationReviewFailureMessage(operation.failureCode) }
+              : {}),
         }),
         isError: operation.status !== 'succeeded',
       };
     } catch (error) {
-      const failure = safeGithubSeedFailure(error) ?? {
-        code: 'GITHUB_PUBLICATION_FAILED',
-        message:
-          'Publication failed during ' +
-          stage +
-          '. Use the diagnostic request ID to inspect controller logs before retrying.',
-      };
+      const failure = safeGithubPublicationReviewFailure(error) ??
+        safeGithubSeedFailure(error) ?? {
+          code: 'GITHUB_PUBLICATION_FAILED',
+          message:
+            'Publication failed during ' +
+            stage +
+            '. Use the diagnostic request ID to inspect controller logs before retrying.',
+        };
       publicationLog.warn('GitHub publication failed', { requestId, stage, code: failure.code });
       return {
         content: JSON.stringify({
@@ -398,8 +484,41 @@ export function createGithubPublishingTool(
       };
     publishingAdmissions.add(conversationId);
     try {
+      const call = args[2];
+      let selection = call.captureInferenceSelection?.();
+      if (!selection) {
+        if (inference?.requireNativeSelection && !operatorCalls.has(call))
+          throw new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE');
+        const explicit = () =>
+          inference?.explicitSelection() ?? {
+            model: operatorSession?.model ?? operatorSession?.accountBinding?.model ?? '',
+            reasoningEffort: null,
+          };
+        const original = structuredClone(explicit());
+        selection = Object.freeze({
+          ...original,
+          assertCurrentSync: () => {
+            if (!isDeepStrictEqual(explicit(), original))
+              throw Error('Explicit publication inference selection changed');
+          },
+        });
+      }
+      selection.assertCurrentSync();
+      if (!selection.model)
+        throw new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE');
+      registration.activeInvocation = { turnId: call.turnId, callId: call.callId, selection };
       return await run(...args);
+    } catch (error) {
+      // run() handles execution failures. Failures here precede operation
+      // admission and mean the private inference selection cannot be captured.
+      const failure =
+        safeGithubPublicationReviewFailure(error) ??
+        safeGithubPublicationReviewFailure(
+          new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE'),
+        )!;
+      return { content: JSON.stringify({ ...failure, operationRecorded: false }), isError: true };
     } finally {
+      registration.activeInvocation = undefined;
       publishingAdmissions.delete(conversationId);
     }
   };
@@ -413,13 +532,15 @@ export function createGithubPublishingTool(
     )
       operatorPublishing.delete(id);
   }
-  operatorPublishing.set(runtimeOwnerId, {
+  const registration: OperatorPublishingRegistration = {
     registry,
     conversationId,
     execute,
     session: operatorSession,
     account: structuredClone(operatorSession?.accountBinding),
-  });
+    assertRuntimeCurrent,
+  };
+  operatorPublishing.set(runtimeOwnerId, registration);
   return Object.assign(execute, {
     runtimeOwnerId,
     close: () => {

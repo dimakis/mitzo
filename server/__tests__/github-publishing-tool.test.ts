@@ -1,18 +1,39 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ManagedSession, SessionRegistry } from '@mitzo/harness';
-const mocks = vi.hoisted(() => ({ runtime: null as unknown, approve: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  runtime: null as unknown,
+  approve: vi.fn(),
+  captureAuthorization: vi.fn(),
+}));
+vi.mock('../agent-library-transport.js', () => ({
+  captureAgentLibraryAuthorization: mocks.captureAuthorization,
+}));
 vi.mock('../connections-runtime.js', () => ({ getConnectionsRuntime: () => mocks.runtime }));
 vi.mock('@mitzo/harness', async (original) => ({
   ...(await original<typeof import('@mitzo/harness')>()),
   buildPermissionHandler: () => mocks.approve,
 }));
-import { createGithubPublishingTool } from '../github-publishing-tool.js';
+import {
+  captureGithubPublicationReviewOwner,
+  createGithubPublishingTool,
+  requestOperatorGithubPublication,
+} from '../github-publishing-tool.js';
 import {
   getLiveCapabilityConversationBinding,
   clearLiveCapabilityConversationBinding,
 } from '../capability-conversation-binding.js';
+import {
+  authenticateToken,
+  isAuthSessionCurrent,
+  login,
+  revokeAuthSession,
+  type AuthSession,
+} from '../auth.js';
+const signedSessions: AuthSession[] = [];
+afterEach(() => signedSessions.splice(0).forEach(revokeAuthSession));
 beforeEach(() => {
   mocks.approve.mockReset();
+  mocks.captureAuthorization.mockReset();
   clearLiveCapabilityConversationBinding('conversation');
 });
 const input = {
@@ -22,6 +43,183 @@ const input = {
   body: 'Change',
   draft: true,
 };
+it('captures only the original authenticated live publisher and pins its inference selection', async () => {
+  const f = fixture('openai');
+  f.session.ownerConnectionId = 'signed-operator';
+  f.session.ownedLocalAuthSessionId = 'auth';
+  f.session.model = 'selected-model';
+  const assertAuthorization = vi.fn();
+  mocks.captureAuthorization.mockReturnValue({
+    auth: { id: 'auth' },
+    assertCurrent: assertAuthorization,
+  });
+  const owner = captureGithubPublicationReviewOwner('conversation');
+  expect(owner).toMatchObject({
+    authSessionId: 'auth',
+    operatorConnectionId: 'signed-operator',
+    model: 'selected-model',
+    binding: f.session.accountBinding,
+  });
+  await expect(owner.assertCurrent()).resolves.toBeUndefined();
+  f.session.model = 'replacement-model';
+  await expect(owner.assertCurrent()).rejects.toThrow();
+  f.execute.close();
+});
+it('captures the exact active native publication selection and refuses a different turn or expired callback', async () => {
+  const f = fixture('openai');
+  f.session.ownerConnectionId = 'signed-operator';
+  f.session.model = 'startup-model';
+  mocks.captureAuthorization.mockReturnValue({ auth: { id: 'auth' }, assertCurrent: vi.fn() });
+  let current = true;
+  const assertCurrentSync = () => {
+    if (!current) throw Error('Original command expired');
+  };
+  const call = { turnId: 'current-turn', callId: 'publish' };
+  Object.defineProperty(call, 'captureInferenceSelection', {
+    value: () => {
+      assertCurrentSync();
+      return Object.freeze({
+        commandId: 'current-command',
+        model: 'active-model',
+        reasoningEffort: 'high',
+        assertCurrentSync,
+      });
+    },
+  });
+  let captured: ReturnType<typeof captureGithubPublicationReviewOwner> | undefined;
+  f.invoke.mockImplementation(async () => {
+    expect(() => captureGithubPublicationReviewOwner('conversation', 'future-turn')).toThrow();
+    captured = captureGithubPublicationReviewOwner('conversation', 'current-turn');
+    expect(captured).toMatchObject({ model: 'active-model', reasoningEffort: 'high' });
+    f.session.model = 'queued-future-model';
+    await expect(captured.assertCurrent()).resolves.toBeUndefined();
+    current = false;
+    expect(() => captured!.assertCurrentSync()).toThrow('expired');
+    return { id: 'operation', status: 'succeeded' };
+  });
+  try {
+    expect(await f.execute(input, new AbortController().signal, call)).toMatchObject({
+      isError: false,
+    });
+    expect(captured).toBeDefined();
+    expect(() => captureGithubPublicationReviewOwner('conversation', 'current-turn')).toThrow();
+  } finally {
+    f.execute.close();
+  }
+});
+it('requires a private native selection while explicit operator requests use their separately selected current settings', async () => {
+  const settings = { model: 'operator-current-model', reasoningEffort: 'high' };
+  const f = fixture('openai', {
+    requireNativeSelection: true,
+    explicitSelection: () => ({ ...settings }),
+  });
+  f.session.ownerConnectionId = 'signed-operator';
+  mocks.captureAuthorization.mockReturnValue({ auth: { id: 'auth' }, assertCurrent: vi.fn() });
+  try {
+    const refused = await f.execute(input, new AbortController().signal, {
+      turnId: 'native-without-selection',
+      callId: 'native',
+    });
+    expect(refused).toMatchObject({ isError: true });
+    expect(JSON.parse(refused.content)).toMatchObject({
+      code: 'PUBLICATION_REVIEW_UNAVAILABLE',
+      operationRecorded: false,
+    });
+    expect(f.invoke).not.toHaveBeenCalled();
+    f.invoke.mockImplementation(async (operation) => {
+      const owner = captureGithubPublicationReviewOwner('conversation', operation.turnId);
+      expect(owner).toMatchObject(settings);
+      settings.model = 'changed-manual-selection';
+      expect(() => owner.assertCurrentSync()).toThrow('changed');
+      return { id: 'operator-operation', status: 'succeeded' };
+    });
+    expect(
+      await requestOperatorGithubPublication(
+        'conversation',
+        f.registry,
+        input,
+        new AbortController().signal,
+      ),
+    ).toMatchObject({ isError: false });
+    expect(f.invoke).toHaveBeenCalledOnce();
+  } finally {
+    f.execute.close();
+  }
+});
+it('returns a bounded unavailable result when explicit operator selection is unavailable', async () => {
+  const f = fixture('openai', {
+    requireNativeSelection: true,
+    explicitSelection: () => {
+      throw Error('Private settings unavailable');
+    },
+  });
+  try {
+    const result = await requestOperatorGithubPublication(
+      'conversation',
+      f.registry,
+      input,
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content)).toMatchObject({
+      code: 'PUBLICATION_REVIEW_UNAVAILABLE',
+      operationRecorded: false,
+    });
+    expect(result.content).not.toContain('Private settings');
+    expect(f.invoke).not.toHaveBeenCalled();
+  } finally {
+    f.execute.close();
+  }
+});
+it('refuses another operator and expires review ownership with the publishing runtime', async () => {
+  const f = fixture('openai');
+  f.session.ownerConnectionId = 'signed-operator';
+  f.session.ownedLocalAuthSessionId = 'original-auth';
+  mocks.captureAuthorization.mockReturnValue({
+    auth: { id: 'other-auth' },
+    assertCurrent: vi.fn(),
+  });
+  expect(() => captureGithubPublicationReviewOwner('conversation')).toThrow();
+  mocks.captureAuthorization.mockReturnValue({
+    auth: { id: 'original-auth' },
+    assertCurrent: vi.fn(),
+  });
+  const owner = captureGithubPublicationReviewOwner('conversation');
+  f.execute.close();
+  await expect(owner.assertCurrent()).rejects.toThrow();
+});
+it('accepts a renewed verified operator without rewriting creator provenance and fences review revocation', async () => {
+  const signedIn = async () => {
+    const token = await login(process.env.AUTH_PASSPHRASE!);
+    const session = await authenticateToken(token!);
+    if (!session) throw Error('Offline signed operator required');
+    signedSessions.push(session);
+    return session;
+  };
+  const original = await signedIn(),
+    renewed = await signedIn();
+  expect(renewed.id).not.toBe(original.id);
+  const f = fixture('openai');
+  try {
+    f.session.ownerConnectionId = 'renewed-signed-operator';
+    f.session.ownedLocalAuthSessionId = original.id;
+    mocks.captureAuthorization.mockReturnValue({
+      auth: renewed,
+      assertCurrent: () => {
+        if (!isAuthSessionCurrent(renewed)) throw Error('Original reviewer login revoked');
+      },
+    });
+    const owner = captureGithubPublicationReviewOwner('conversation');
+    expect(owner.authSessionId).toBe(renewed.id);
+    expect(f.session.ownedLocalAuthSessionId).toBe(original.id);
+    await expect(owner.assertCurrent()).resolves.toBeUndefined();
+    revokeAuthSession(renewed);
+    expect(() => owner.assertCurrentSync()).toThrow('revoked');
+    await expect(owner.assertCurrent()).rejects.toThrow('revoked');
+  } finally {
+    f.execute.close();
+  }
+});
 it('explains rejected publishing fields and accepts a corrected retry without weakening bounds', async () => {
   const f = fixture('openai');
   const result = await f.execute(
@@ -41,7 +239,7 @@ it('explains rejected publishing fields and accepts a corrected retry without we
     }),
   ).toMatchObject({ isError: false });
 });
-function fixture(provider: string) {
+function fixture(provider: string, inference?: Parameters<typeof createGithubPublishingTool>[5]) {
   const session = {
     sessionId: 'conversation',
     cwd: '/workspace',
@@ -88,11 +286,18 @@ function fixture(provider: string) {
     grant,
     connection,
     invoke,
-    execute: createGithubPublishingTool('conversation', registry, () => ({
-      runtime: 'host',
-      workspace: '/workspace',
-      gitStorageRoots: [],
-    })),
+    execute: createGithubPublishingTool(
+      'conversation',
+      registry,
+      () => ({
+        runtime: 'host',
+        workspace: '/workspace',
+        gitStorageRoots: [],
+      }),
+      undefined,
+      undefined,
+      inference,
+    ),
   };
 }
 it.each(['openai-codex', 'openai', 'google-vertex', 'anthropic-vertex'])(

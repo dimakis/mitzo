@@ -24,6 +24,7 @@ import { repositorySourceIdentity } from '../local-repository-base.js';
 import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
 import { captureQualifiedLocalRepositoryTask } from '../qualified-local-repository-task.js';
 import { nativeFileHelperProgram } from '../native-file-operation.js';
+import { executeTrustedGitCommit } from '../trusted-native-operation.js';
 import {
   preparationObjectStoreCommand,
   parsePreparationObjectStoreCapture,
@@ -275,6 +276,28 @@ it('pins fresh remote main before approval, then independently materializes it w
       expect(await readFile(join(result.taskIdentity.directory, 'code.txt'), 'utf8')).toBe(
         'fresh main',
       );
+      // Exercise the first approved commit against the actual independently
+      // prepared metadata. No Git command or privileged mkdir repairs it first.
+      const task = result.taskIdentity;
+      await writeFile(join(task.directory, 'code.txt'), 'prepared task change');
+      await writeFile(join(task.directory, 'unselected.txt'), 'retain unrelated work');
+      await executeTrustedGitCommit(
+        task.directory,
+        ['code.txt'],
+        'fix: first prepared task change',
+        f.context.signal,
+        undefined,
+        undefined,
+        undefined,
+        task,
+      );
+      expect(await git(task.directory, 'show', '--format=', '--name-only', 'HEAD')).toBe(
+        'code.txt',
+      );
+      expect(await git(task.directory, 'status', '--porcelain')).toBe('?? unselected.txt');
+      expect(
+        (await lstat(join(task.directory, '.git', 'logs', 'refs', 'heads', 'mitzo'))).isDirectory(),
+      ).toBe(true);
       expect(await git(f.source, 'rev-parse', 'HEAD')).toBe(f.previous);
       expect(await git(f.source, 'status', '--porcelain')).toContain('unfinished.txt');
     } finally {

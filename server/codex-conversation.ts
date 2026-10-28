@@ -173,6 +173,13 @@ export interface CodexConversationOptions {
       assertCurrentSync?(): void;
       /** Nonenumerable original-call capability, absent without a native base policy. */
       captureNativeBaseReadScope?(): NativeBaseReadScope;
+      /** Private original-command selection; never copied into tool labels or arguments. */
+      captureInferenceSelection?(): Readonly<{
+        commandId: string;
+        model: string;
+        reasoningEffort: string | null;
+        assertCurrentSync(): void;
+      }>;
     }>,
   ): Promise<CodexToolResult>;
   /** Called only after an exact host tool result can be replayed durably. */
@@ -3289,6 +3296,27 @@ export class CodexConversation {
       callId: call.callId,
     };
     Object.defineProperty(invocation, 'assertCurrentSync', { value: assertOriginalCallCurrent });
+    const inferenceModel = active.command.model ?? callbackBinding.model;
+    const inferenceEffort = active.command.reasoningEffort ?? null;
+    const inferenceSelection = Object.freeze({
+      commandId: active.command.id,
+      model: inferenceModel,
+      reasoningEffort: inferenceEffort,
+      assertCurrentSync: () => {
+        assertOriginalCallCurrent();
+        if (
+          (active.command.model ?? callbackBinding.model) !== inferenceModel ||
+          (active.command.reasoningEffort ?? null) !== inferenceEffort
+        )
+          throw Error('Original native command inference selection changed');
+      },
+    });
+    Object.defineProperty(invocation, 'captureInferenceSelection', {
+      value: () => {
+        inferenceSelection.assertCurrentSync();
+        return inferenceSelection;
+      },
+    });
     const nativePolicy = active.nativeExecution;
     if (nativePolicy) {
       assertOriginalCallCurrent();

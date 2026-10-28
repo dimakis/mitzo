@@ -1,3 +1,4 @@
+import { ordinaryWireFingerprint } from '../post-adoption-wire-admission.js';
 import { OrdinaryRepositoryPreparationSchema } from '../ordinary-repository-preparation.js';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
 import { canonicalJson } from '../connections/capabilities/input-validation.js';
@@ -20,6 +21,7 @@ import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import { contextDigest } from '../agent-context-compiler.js';
 import {
   LocalCodexFirstCommandSchema,
+  LocalCodexContinuationCommandSchema,
   OrdinaryLocalCommandSelectionSchema,
   PROFILE_BUILDER_ID,
   DEFAULT_MITZO_PROFILE_ID,
@@ -834,6 +836,32 @@ it.each([
         ),
       };
     };
+    // A separate late-wire receipt must survive subsequent canonical adoptions
+    // without moving its immutable requested workspace or its original admission.
+    const lateWire =
+      kind === 'repository' ? { ...original, clientMsgId: 'post-adoption-wire' } : undefined;
+    if (lateWire) {
+      await store.withOrdinaryCommandWireAdmission(
+        {
+          sessionId,
+          commandId: lateWire.clientMsgId,
+          wireFingerprint: ordinaryWireFingerprint(
+            LocalCodexContinuationCommandSchema.parse(lateWire),
+          ),
+          bridge: store.preparedRepositoryWireTarget(sessionId, workspaceId, child.childCommandId),
+        },
+        () => {},
+        async () =>
+          store.admitPreparedRepositoryPrimaryContinuation(
+            store.getSession(sessionId)!,
+            resolved.binding,
+            admissionAtCurrent(lateWire.clientMsgId),
+            child.childCommandId,
+          ),
+      );
+      store.claimOrdinaryLocalCommandDispatch(lateWire.clientMsgId);
+      store.completeOrdinaryLocalCommand(lateWire.clientMsgId);
+    }
     const firstPrimaryId = child.childCommandId;
     let intermediateId: string | undefined;
     if (hops > 1) {
@@ -876,6 +904,7 @@ it.each([
       store.rebindPreparedRepositoryQueuedCommands(sessionId, child.childCommandId, transition, [
         original.clientMsgId,
         ...(intermediateId ? [intermediateId] : []),
+        ...(lateWire ? [lateWire.clientMsgId] : []),
       ]);
       store.finalizePreparedRepositoryContinuation(
         sessionId,
@@ -1035,6 +1064,20 @@ it.each([
       const firstRetry = await post(namespace, firstPath, firstWire);
       expect(firstRetry.status, JSON.stringify(firstRetry.body)).toBe(202);
       expect(firstRetry.body.dispatched).toBe(false);
+      if (lateWire) {
+        const lateReceipt = await post(namespace, '/continue/receipt', lateWire);
+        expect(lateReceipt.status, JSON.stringify(lateReceipt.body)).toBe(202);
+        expect(lateReceipt.body).toMatchObject({ state: 'consumed', dispatched: false });
+        expect(
+          (
+            await post(namespace, '/continue/receipt', {
+              ...lateWire,
+              payload: { text: 'forged receipt' },
+            })
+          ).status,
+        ).toBe(409);
+        expect(fixtures.start).not.toHaveBeenCalled();
+      }
       // Receipt observation remains read-only even when no native replay proof exists.
       fixtures.queuedRecovery = false;
       const observed = await post(namespace, '/continue/receipt', body);

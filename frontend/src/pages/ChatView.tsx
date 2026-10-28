@@ -129,6 +129,8 @@ export function ChatView() {
   const sendError = useMitzoStore((s) => s.sendError);
   const sendStatus = useMitzoStore((s) => s.sendStatus);
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
+  const sessionMetadataRevision = useMitzoStore((s) => s.sessionMetadataRevision);
+  const isSessionMetadataCurrent = useMitzoStore((s) => s.isSessionMetadataCurrent);
   const telosRoute = useTelosChatRoute(activeSessionId);
   const conversationTitle = useMitzoStore(
     (s) => s.sessions.list?.find((item) => item.id === s.sessions.active)?.summary,
@@ -226,7 +228,7 @@ export function ChatView() {
     (!launch || briefingOwnedDraft) && !briefingLaunchReason && !repositoryHandoff.present,
     searchParams.toString(),
     newChatDraft.restored ? newChatDraft.draft.settings.selection : undefined,
-    messages.branch,
+    JSON.stringify([messages.branch, sessionMetadataRevision]),
   );
   const explicitNew = localRuntime.visible && !activeSessionId;
   const conversationRepository = conversationRepositoryLabel({
@@ -790,6 +792,7 @@ export function ChatView() {
     composerDraft?: import('@mitzo/client').SendMessageOptions['composerDraft'],
   ): boolean {
     if (
+      (activeSessionId && !isSessionMetadataCurrent(activeSessionId, sessionMetadataRevision)) ||
       roleSetupRequested ||
       controlsBlocked ||
       builderSourceReason ||

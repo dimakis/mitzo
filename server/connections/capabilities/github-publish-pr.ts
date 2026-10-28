@@ -10,6 +10,10 @@ import type {
 import { CapabilityRecoveryPendingError } from './types.js';
 import { canonicalJson } from './input-validation.js';
 import { capabilityApprovalPayload } from './approval.js';
+import {
+  GithubPublicationReviewError,
+  markGithubPublicationNotDispatched,
+} from '../../github-publication-review-failure.js';
 
 /** A deliberately small binary budget. The sandbox must not become a data exfiltration channel. */
 export const GITHUB_PUBLISH_MAX_BUNDLE_BYTES = 16 * 1024 * 1024;
@@ -169,7 +173,66 @@ export interface GithubPublishPrDependencies {
   resolvePublicConfig(
     operation: CapabilityOperation,
   ): Readonly<Record<string, string | readonly string[]>> | undefined;
+  reviewCommittedChange?: GithubPublicationReview;
 }
+
+/** Host-only frozen publication evidence. The directory is never model context
+ * or tool authority: the reviewer extracts bounded Git object text itself. */
+export interface GithubPublicationReviewInput {
+  operation: CapabilityOperation;
+  repository: string;
+  sourceBranch: string;
+  sourceOid: string;
+  baseBranch: string;
+  bundle: Buffer;
+  directory: string;
+  signal: AbortSignal;
+  assertRuntimeCurrent?: () => Promise<void>;
+}
+export interface GithubPublicationReviewReceipt {
+  receiptId: string;
+  evidenceSha256: string;
+  summary: string;
+  reports?: readonly GithubPublicationReviewReport[];
+  /** Revalidate original authority and exact semantic Git evidence against the
+   * fresh host reconstruction. This closure is never accepted from tool JSON. */
+  assertCurrent(input: GithubPublicationReviewInput): Promise<void>;
+}
+export interface GithubPublicationReviewReport {
+  reportId: string;
+  scope: string;
+  accountId: string;
+  model: string;
+  reasoningEffort: string | null;
+  evidenceSha256: string;
+  verdict: 'approve';
+  findings: readonly { severity: 'blocking' | 'non_blocking'; path: string; summary: string }[];
+  coverage: {
+    changedPaths: readonly string[];
+    changedPathCount: number;
+    fullContextPaths: readonly string[];
+    fullContextPathCount: number;
+    contextReads: readonly {
+      path: string;
+      startLine: number;
+      endLine: number;
+      totalLines: number;
+      remainingBefore: number;
+      remainingAfter: number;
+      complete: boolean;
+    }[];
+    contextReadCount: number;
+    searches: readonly { query: string; pathPrefix?: string; matchedPathCount: number }[];
+    searchCount: number;
+    rounds: number;
+    checksRun: false;
+    unresolvedNeeds: readonly string[];
+    summary?: string;
+  };
+}
+export type GithubPublicationReview = (
+  input: GithubPublicationReviewInput,
+) => Promise<GithubPublicationReviewReceipt>;
 
 type Input = Readonly<{
   connectionId: string;
@@ -324,6 +387,7 @@ export function createGithubPublishPrExecutor(
   return createGithubArtifactPublishPrExecutor({
     host: deps.host,
     resolvePublicConfig: deps.resolvePublicConfig,
+    reviewCommittedChange: deps.reviewCommittedChange,
     resolveWorkspace: (operation) => deps.resolveConversation(operation)?.workspace,
     inspect: (input) => {
       const conversation = deps.resolveConversation(input.operation);
@@ -343,6 +407,9 @@ export function createGithubPublishPrExecutor(
 export interface GithubArtifactPublishDependencies {
   host: GithubHostPublisher;
   resolvePublicConfig: GithubPublishPrDependencies['resolvePublicConfig'];
+  /** Ordinary publication supplies its independent host reviewer. Existing
+   * sealed Symposium publication retains its separately owned review fence. */
+  reviewCommittedChange?: GithubPublicationReview;
   resolveWorkspace(operation: CapabilityOperation): string | undefined;
   inspect(
     input: Omit<Parameters<GithubSandboxTransport['inspect']>[0], 'sandboxName'> & {
@@ -358,6 +425,74 @@ export interface GithubArtifactPublishDependencies {
 export function createGithubArtifactPublishPrExecutor(
   deps: GithubArtifactPublishDependencies,
 ): CapabilityExecutor {
+  // Durable approval projections describe review, but cannot recreate its
+  // private authority. A restarted owner must review again on a new operation;
+  // uncertain writes continue through the existing read-only recovery path.
+  const reviews = new Map<
+    string,
+    { binding: string; receipt: GithubPublicationReviewReceipt; expiresAt: number }
+  >();
+  const reviewBinding = (
+    context: CapabilityExecutionContext,
+    state: Awaited<ReturnType<typeof inspect>>,
+  ) =>
+    canonicalJson({
+      operationId: context.operation.id,
+      conversationId: context.operation.conversationId,
+      accountId: context.operation.accountId,
+      connectionId: context.operation.connectionId,
+      connectionRevision: context.operation.connectionRevision,
+      input: state.input,
+      repository: state.repository,
+      sourceBranch: state.inspection.sourceBranch,
+      sourceOid: state.inspection.sourceOid,
+    });
+  const reviewProjection = (receipt: GithubPublicationReviewReceipt | undefined) =>
+    receipt
+      ? {
+          reviewReceiptId: receipt.receiptId,
+          reviewEvidenceSha256: receipt.evidenceSha256,
+          reviewSummary: receipt.summary,
+        }
+      : {};
+  const exportedBundle = async (
+    context: CapabilityExecutionContext,
+    state: Awaited<ReturnType<typeof inspect>>,
+  ) => {
+    const bundle = await deps.exportBundle({
+      operation: context.operation,
+      repositoryPath: state.repositoryPath,
+      sourceBranch: state.inspection.sourceBranch!,
+      sourceOid: state.inspection.sourceOid,
+      baseBranch: state.input.baseBranch,
+      maxBytes: GITHUB_PUBLISH_MAX_BUNDLE_BYTES,
+      signal: context.signal,
+    });
+    context.signal.throwIfAborted();
+    if (
+      !Buffer.isBuffer(bundle) ||
+      !bundle.length ||
+      bundle.length > GITHUB_PUBLISH_MAX_BUNDLE_BYTES
+    )
+      reject('Committed change export exceeds the safety limit');
+    return bundle;
+  };
+  const reviewInput = (
+    context: CapabilityExecutionContext,
+    state: Awaited<ReturnType<typeof inspect>>,
+    bundle: Buffer,
+    directory: string,
+  ): GithubPublicationReviewInput => ({
+    operation: structuredClone(context.operation),
+    repository: state.repository,
+    sourceBranch: state.inspection.sourceBranch!,
+    sourceOid: state.inspection.sourceOid,
+    baseBranch: state.input.baseBranch,
+    bundle: Buffer.from(bundle),
+    directory,
+    signal: context.signal,
+    ...(context.assertRuntimeCurrent ? { assertRuntimeCurrent: context.assertRuntimeCurrent } : {}),
+  });
   const inspect = async (context: CapabilityExecutionContext) => {
     const input = inputOf(context.input);
     if (input.connectionId !== context.operation.connectionId) reject('GitHub connection changed');
@@ -411,6 +546,7 @@ export function createGithubArtifactPublishPrExecutor(
   const approval = (
     state: Awaited<ReturnType<typeof inspect>>,
     existing: GithubPullRequest | null,
+    receipt?: GithubPublicationReviewReceipt,
   ) => ({
     ...state.input,
     repository: state.repository,
@@ -425,27 +561,94 @@ export function createGithubArtifactPublishPrExecutor(
     existingPullRequestId: existing?.id ?? '',
     existingPullRequestUrl: existing?.url ?? '',
     ...(state.inspection.seededPublication ?? {}),
+    ...reviewProjection(receipt),
   });
   const assertApproved = (
     context: CapabilityExecutionContext,
     state: Awaited<ReturnType<typeof inspect>>,
     existing: GithubPullRequest | null,
+    receipt?: GithubPublicationReviewReceipt,
   ) => {
     // CapabilityService always supplies this field after durable preflight.
     // Production must never permit a direct executor caller to skip the same
     // reviewed action card. Development-only direct unit fixtures remain
     // useful, while the service contract is enforced in every environment.
-    if (!context.approvalInput && process.env.NODE_ENV === 'production')
+    if (
+      !context.approvalInput &&
+      (deps.reviewCommittedChange || process.env.NODE_ENV === 'production')
+    )
       reject('GitHub publish approval is required');
     if (
       context.approvalInput &&
-      canonicalJson(context.approvalInput) !== canonicalJson(approval(state, existing))
+      canonicalJson(context.approvalInput) !== canonicalJson(approval(state, existing, receipt))
     )
       reject('GitHub repository changed after approval');
   };
   return {
     async preflight(context) {
       const state = await inspect(context);
+      let receipt: GithubPublicationReviewReceipt | undefined;
+      if (deps.reviewCommittedChange) {
+        reviews.delete(context.operation.id);
+        const bundle = await exportedBundle(context, state);
+        let cleanup: string | undefined;
+        try {
+          const reconstructed = await deps.host.reconstruct({
+            repository: state.repository,
+            sourceBranch: state.inspection.sourceBranch!,
+            sourceOid: state.inspection.sourceOid,
+            baseBranch: state.input.baseBranch,
+            bundle,
+            operationId: context.operation.id,
+            signal: context.signal,
+            ...(context.assertRuntimeCurrent
+              ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+              : {}),
+          });
+          cleanup = reconstructed.cleanupDirectory ?? reconstructed.directory;
+          if (!reconstructed.directory) reject('Host reconstruction failed');
+          const evidence = reviewInput(context, state, bundle, reconstructed.directory);
+          receipt = await deps.reviewCommittedChange(evidence);
+          if (
+            !receipt ||
+            typeof receipt.receiptId !== 'string' ||
+            !/^[A-Za-z0-9._:-]{1,128}$/.test(receipt.receiptId) ||
+            !/^[a-f0-9]{64}$/.test(receipt.evidenceSha256) ||
+            typeof receipt.summary !== 'string' ||
+            !receipt.summary.trim() ||
+            receipt.summary.length > 512 ||
+            typeof receipt.assertCurrent !== 'function'
+          )
+            reject('GitHub independent review receipt is invalid');
+          if (
+            receipt.reports &&
+            (receipt.reports.length !== 2 ||
+              Buffer.byteLength(JSON.stringify(receipt.reports), 'utf8') > 20000)
+          )
+            reject('GitHub independent review reports are invalid');
+          receipt = Object.freeze({
+            receiptId: receipt.receiptId,
+            evidenceSha256: receipt.evidenceSha256,
+            summary: receipt.summary,
+            ...(receipt.reports ? { reports: structuredClone(receipt.reports) } : {}),
+            assertCurrent: receipt.assertCurrent.bind(receipt),
+          });
+          await receipt.assertCurrent(evidence);
+          if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+          context.signal.throwIfAborted();
+          // Keep the process-local authority bounded even when action approval
+          // is denied or abandoned. Expiration only requires another review.
+          for (const [id, entry] of reviews) if (entry.expiresAt <= Date.now()) reviews.delete(id);
+          while (reviews.size >= 128) reviews.delete(reviews.keys().next().value!);
+          reviews.set(context.operation.id, {
+            binding: reviewBinding(context, state),
+            receipt,
+            expiresAt: Date.now() + 15 * 60_000,
+          });
+        } finally {
+          if (cleanup) await deps.host.cleanup(cleanup);
+        }
+      }
       const existing = await deps.host.findOpen({
         repository: state.repository,
         sourceBranch: state.inspection.sourceBranch!,
@@ -459,7 +662,7 @@ export function createGithubArtifactPublishPrExecutor(
           sourceBranch: state.inspection.sourceBranch!,
           baseBranch: state.input.baseBranch,
         });
-      const approvalInput = approval(state, existing);
+      const approvalInput = approval(state, existing, receipt);
       // The preflight projection is the exact flat action card eventually
       // presented by the shared permission handler, including JSON escaping.
       capabilityApprovalPayload({
@@ -487,119 +690,132 @@ export function createGithubArtifactPublishPrExecutor(
       };
     },
     async execute(context) {
-      const state = await inspect(context);
-      const existingBeforeWrite = await deps.host.findOpen({
-        repository: state.repository,
-        sourceBranch: state.inspection.sourceBranch!,
-        baseBranch: state.input.baseBranch,
-        operationId: context.operation.id,
-        signal: context.signal,
-      });
-      assertApproved(context, state, existingBeforeWrite);
-      if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
-      context.signal.throwIfAborted();
-      const bundle = await deps.exportBundle({
-        operation: context.operation,
-        repositoryPath: state.repositoryPath,
-        sourceBranch: state.inspection.sourceBranch!,
-        sourceOid: state.inspection.sourceOid,
-        baseBranch: state.input.baseBranch,
-        maxBytes: GITHUB_PUBLISH_MAX_BUNDLE_BYTES,
-        signal: context.signal,
-      });
-      context.signal.throwIfAborted();
-      if (
-        !Buffer.isBuffer(bundle) ||
-        bundle.length === 0 ||
-        bundle.length > GITHUB_PUBLISH_MAX_BUNDLE_BYTES
-      )
-        reject('Committed change export exceeds the safety limit');
-      let directory: string | undefined;
-      let cleanupDirectory: string | undefined;
+      let publicationAttempted = false;
       try {
-        if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
-        context.signal.throwIfAborted();
-        const reconstructed = await deps.host.reconstruct({
-          repository: state.repository,
-          sourceBranch: state.inspection.sourceBranch!,
-          sourceOid: state.inspection.sourceOid,
-          baseBranch: state.input.baseBranch,
-          bundle,
-          operationId: context.operation.id,
-          signal: context.signal,
-          ...(context.assertRuntimeCurrent
-            ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-            : {}),
-        });
-        directory = reconstructed.directory;
-        cleanupDirectory = reconstructed.cleanupDirectory ?? directory;
-        if (!directory) reject('Host reconstruction failed');
-        if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
-        context.signal.throwIfAborted();
-        await deps.host.push({
-          directory,
-          sourceBranch: state.inspection.sourceBranch!,
-          operationId: context.operation.id,
-          signal: context.signal,
-          ...(context.assertRuntimeCurrent
-            ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-            : {}),
-        });
-        context.signal.throwIfAborted();
-        const existing = await deps.host.findOpen({
+        const reviewed = reviews.get(context.operation.id);
+        // Consume before awaits. A simultaneous executor call cannot reuse a
+        // review receipt, and a failed write never authorizes another attempt.
+        reviews.delete(context.operation.id);
+        if (deps.reviewCommittedChange && (!reviewed || reviewed.expiresAt <= Date.now()))
+          throw new GithubPublicationReviewError('PUBLICATION_REVIEW_REQUIRED');
+        const state = await inspect(context);
+        if (deps.reviewCommittedChange && reviewed!.binding !== reviewBinding(context, state))
+          throw new GithubPublicationReviewError('PUBLICATION_REVIEW_CHANGED');
+        const existingBeforeWrite = await deps.host.findOpen({
           repository: state.repository,
           sourceBranch: state.inspection.sourceBranch!,
           baseBranch: state.input.baseBranch,
           operationId: context.operation.id,
           signal: context.signal,
-          ...(context.assertRuntimeCurrent
-            ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-            : {}),
         });
-        // A close/replace race after the branch push must never change an
-        // approved create into an update (or vice versa).
-        assertApproved(context, state, existing);
+        assertApproved(context, state, existingBeforeWrite, reviewed?.receipt);
         if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
         context.signal.throwIfAborted();
-        const pr = assertPullRequest(
-          existing
-            ? await deps.host.update({
-                repository: state.repository,
-                sourceBranch: state.inspection.sourceBranch!,
-                baseBranch: state.input.baseBranch,
-                pullRequest: existing,
-                title: state.input.title,
-                body: state.input.body,
-                draft: state.input.draft,
-                operationId: context.operation.id,
-                signal: context.signal,
-                ...(context.assertRuntimeCurrent
-                  ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-                  : {}),
-              })
-            : await deps.host.create({
-                repository: state.repository,
-                sourceBranch: state.inspection.sourceBranch!,
-                baseBranch: state.input.baseBranch,
-                title: state.input.title,
-                body: state.input.body,
-                draft: state.input.draft,
-                operationId: context.operation.id,
-                signal: context.signal,
-                ...(context.assertRuntimeCurrent
-                  ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-                  : {}),
-              }),
-          {
+        const bundle = await exportedBundle(context, state);
+        let directory: string | undefined;
+        let cleanupDirectory: string | undefined;
+        try {
+          if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+          context.signal.throwIfAborted();
+          const reconstructed = await deps.host.reconstruct({
+            repository: state.repository,
+            sourceBranch: state.inspection.sourceBranch!,
+            sourceOid: state.inspection.sourceOid,
+            baseBranch: state.input.baseBranch,
+            bundle,
+            operationId: context.operation.id,
+            signal: context.signal,
+            ...(context.assertRuntimeCurrent
+              ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+              : {}),
+          });
+          directory = reconstructed.directory;
+          cleanupDirectory = reconstructed.cleanupDirectory ?? directory;
+          if (!directory) reject('Host reconstruction failed');
+          if (reviewed)
+            await reviewed.receipt.assertCurrent(reviewInput(context, state, bundle, directory));
+          if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+          context.signal.throwIfAborted();
+          publicationAttempted = true;
+          await deps.host.push({
+            directory,
+            sourceBranch: state.inspection.sourceBranch!,
+            operationId: context.operation.id,
+            signal: context.signal,
+            ...(context.assertRuntimeCurrent
+              ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+              : {}),
+          });
+          context.signal.throwIfAborted();
+          const existing = await deps.host.findOpen({
             repository: state.repository,
             sourceBranch: state.inspection.sourceBranch!,
             baseBranch: state.input.baseBranch,
-          },
-        );
-        assertRequestedMetadata(pr, state.input);
-        return { output: output(pr, state.inspection, !existing), externalResultId: pr.url };
-      } finally {
-        if (cleanupDirectory) await deps.host.cleanup(cleanupDirectory);
+            operationId: context.operation.id,
+            signal: context.signal,
+            ...(context.assertRuntimeCurrent
+              ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+              : {}),
+          });
+          // A close/replace race after the branch push must never change an
+          // approved create into an update (or vice versa).
+          assertApproved(context, state, existing, reviewed?.receipt);
+          if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+          context.signal.throwIfAborted();
+          const pr = assertPullRequest(
+            existing
+              ? await deps.host.update({
+                  repository: state.repository,
+                  sourceBranch: state.inspection.sourceBranch!,
+                  baseBranch: state.input.baseBranch,
+                  pullRequest: existing,
+                  title: state.input.title,
+                  body: state.input.body,
+                  draft: state.input.draft,
+                  operationId: context.operation.id,
+                  signal: context.signal,
+                  ...(context.assertRuntimeCurrent
+                    ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+                    : {}),
+                })
+              : await deps.host.create({
+                  repository: state.repository,
+                  sourceBranch: state.inspection.sourceBranch!,
+                  baseBranch: state.input.baseBranch,
+                  title: state.input.title,
+                  body: state.input.body,
+                  draft: state.input.draft,
+                  operationId: context.operation.id,
+                  signal: context.signal,
+                  ...(context.assertRuntimeCurrent
+                    ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+                    : {}),
+                }),
+            {
+              repository: state.repository,
+              sourceBranch: state.inspection.sourceBranch!,
+              baseBranch: state.input.baseBranch,
+            },
+          );
+          assertRequestedMetadata(pr, state.input);
+          const result = output(pr, state.inspection, !existing) as Record<string, JsonValue>;
+          if (reviewed)
+            result.review = {
+              receiptId: reviewed.receipt.receiptId,
+              evidenceSha256: reviewed.receipt.evidenceSha256,
+              summary: reviewed.receipt.summary,
+              ...(reviewed.receipt.reports
+                ? { reports: JSON.parse(JSON.stringify(reviewed.receipt.reports)) as JsonValue }
+                : {}),
+            };
+          return { output: result, externalResultId: pr.url };
+        } finally {
+          if (cleanupDirectory) await deps.host.cleanup(cleanupDirectory);
+        }
+      } catch (error) {
+        if (deps.reviewCommittedChange && !publicationAttempted)
+          throw markGithubPublicationNotDispatched(error);
+        throw error;
       }
     },
     async verify(context, result) {
@@ -741,6 +957,8 @@ export function createGithubArtifactPublishPrExecutor(
         });
         if (assertRuntimeCurrent) await assertRuntimeCurrent();
         signal.throwIfAborted();
+        if (!existing && deps.reviewCommittedChange)
+          throw new CapabilityRecoveryPendingError('GitHub pull request recovery remains pending');
         pr = existing
           ? await completeExisting(existing)
           : await deps.host.create({

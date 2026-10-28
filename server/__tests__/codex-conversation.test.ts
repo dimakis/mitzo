@@ -2061,8 +2061,7 @@ it.each([
       tool: 'Read',
       arguments: { file_path: 'note' },
     };
-    let invocation:
-      { readonly turnId: string; readonly callId: string; assertCurrentSync?(): void } | undefined;
+    let invocation: Parameters<CodexConversationOptions['executeTool']>[3] | undefined;
     let entered!: () => void;
     let release!: () => void;
     const executing = new Promise<void>((resolve) => {
@@ -2090,6 +2089,8 @@ it.each([
     expect(Object.keys(invocation!)).toEqual(['turnId', 'callId']);
     expect(structuredClone(invocation)).toEqual({ turnId: input.turnId, callId: input.callId });
     expect(() => invocation!.assertCurrentSync!()).not.toThrow();
+    const selection = invocation!.captureInferenceSelection!();
+    expect(() => selection.assertCurrentSync()).not.toThrow();
     if (outcome === 'aborted') controller.abort();
     if (outcome === 'closed') f.c.close();
     if (outcome === 'turn-completed')
@@ -2098,8 +2099,10 @@ it.each([
         turn: { id: input.turnId, status: 'completed' },
       });
     if (outcome === 'mutated-input') actualInput!.file_path = 'substituted';
-    if (['aborted', 'closed', 'turn-completed', 'mutated-input'].includes(outcome))
+    if (['aborted', 'closed', 'turn-completed', 'mutated-input'].includes(outcome)) {
       expect(() => invocation!.assertCurrentSync!()).toThrow();
+      expect(() => selection.assertCurrentSync()).toThrow();
+    }
     if (outcome === 'result-write-failure')
       vi.spyOn(f.store, 'recordToolResult').mockImplementationOnce(() => {
         throw Error('Synthetic result write failure');
@@ -2109,12 +2112,81 @@ it.each([
       await expect(callback).rejects.toThrow('Synthetic result write failure');
     else await callback;
     expect(() => invocation!.assertCurrentSync!()).toThrow();
+    expect(() => selection.assertCurrentSync()).toThrow();
     expect(executions).toBe(1);
     expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
     if (['success', 'error', 'throw', 'result-write-failure'].includes(outcome))
       expect(f.c.queue()[0].status).toBe('running');
   },
 );
+
+it('pins private inference selection to the invoking command rather than startup or a queued future command', async () => {
+  const f = await setup();
+  await f.c.send({
+    id: 'current',
+    prompt: 'publish',
+    model: 'other-model',
+    reasoningEffort: 'high',
+  });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let entered!: () => void;
+  const executing = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let invocation: Parameters<CodexConversationOptions['executeTool']>[3] | undefined;
+  let selection:
+    | {
+        commandId: string;
+        model: string;
+        reasoningEffort?: string | null;
+        assertCurrentSync(): void;
+      }
+    | undefined;
+  f.conversationOptions.executeTool = async (_name, _input, _signal, context) => {
+    invocation = context;
+    selection = context.captureInferenceSelection!();
+    entered();
+    await held;
+    return { content: 'published', isError: false };
+  };
+  const callback = f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'publish',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  await Promise.race([
+    executing,
+    callback.then(() => {
+      throw Error('Native selection capture did not enter');
+    }),
+  ]);
+  expect(Object.keys(invocation!)).toEqual(['turnId', 'callId']);
+  expect(Object.isFrozen(selection)).toBe(true);
+  expect(selection).toMatchObject({
+    commandId: 'current',
+    model: 'other-model',
+    reasoningEffort: 'high',
+  });
+  await f.c.send({ id: 'future', prompt: 'later', model: 'test-model', reasoningEffort: 'low' });
+  expect(() => selection!.assertCurrentSync()).not.toThrow();
+  expect(invocation!.captureInferenceSelection!()).toMatchObject({
+    model: 'other-model',
+    reasoningEffort: 'high',
+  });
+  release();
+  await callback;
+  expect(() => selection!.assertCurrentSync()).toThrow();
+  expect(() => invocation!.captureInferenceSelection!()).toThrow();
+});
 
 it.each(['native', 'no-policy'] as const)(
   'exposes a private base-read capture only on the original %s tool invocation',

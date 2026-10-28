@@ -349,3 +349,155 @@ it.each([undefined, { version: 2, phase: 'send' }, { version: 2, phase: 'first',
     expect(disk.length).toBe(0);
   },
 );
+
+it('retires exact accepted screenshot delivery without journalling an obsolete composer revision over a newer retained draft at quota', async () => {
+  const { SendOutbox } = await import('../../../../packages/client/src/send-outbox');
+  const { LargeChatStorage } = await import('../large-chat-storage');
+  const { composerDraftRevisionKey, acceptedComposerDraftKey } =
+    await import('../composer-draft-proof');
+  const { sha256Hex } = await import('../browser-crypto');
+  const disk = memory();
+  const blobs = new Map<string, string>();
+  let quota = Infinity;
+  const originalSet = disk.setItem;
+  disk.setItem = (key, value) => {
+    let used = key.length + value.length;
+    for (let index = 0; index < disk.length; index++) {
+      const existing = disk.key(index)!;
+      if (existing !== key) used += existing.length + disk.getItem(existing)!.length;
+    }
+    if (used > quota) throw new DOMException('Web Storage is full', 'QuotaExceededError');
+    originalSet(key, value);
+  };
+  const large = new LargeChatStorage(disk, {
+    get: async (id) => blobs.get(id) ?? null,
+    put: async (id, value) => {
+      blobs.set(id, value);
+    },
+    delete: async (id) => {
+      blobs.delete(id);
+    },
+  });
+  const url = 'https://one.test/api/chat/local-codex/send';
+  const storage = createReviewedOutboxStorage(large, url, 'local');
+  const composerDraft = {
+    storageKey: 'mitzo-draft-prepared-chat',
+    revisionToken: 'submitted-before-adoption',
+  };
+  const body = {
+    ...ordinaryBody,
+    payload: {
+      text: 'Create the repository from this screenshot',
+      images: [
+        {
+          mediaType: 'image/png',
+          data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jf6kAAAAASUVORK5CYII=',
+        },
+      ],
+    },
+  };
+  storage.getItem('queue');
+  storage.setItem(
+    'queue',
+    JSON.stringify([
+      {
+        body,
+        scope: 1,
+        uncertain: true,
+        ordinaryDelivery: { version: 2, phase: 'continue' },
+        composerDraft,
+        localReceipt: { state: 'uncertain', sessionId: body.sessionId },
+      },
+    ]),
+  );
+  large.setItem(composerDraft.storageKey, 'yep lets open the pr to fix it');
+  large.setItem(
+    composerDraftRevisionKey(composerDraft.storageKey),
+    JSON.stringify({
+      revisionToken: 'newer-unsent-draft',
+      textSha256: sha256Hex('yep lets open the pr to fix it'),
+    }),
+  );
+  await large.flush();
+  quota = Array.from({ length: disk.length }, (_, index) => disk.key(index)!).reduce(
+    (sum, key) => sum + key.length + disk.getItem(key)!.length,
+    0,
+  );
+  const notify = vi.fn();
+  const fetch = vi.fn(async (_url: string, _init?: RequestInit) =>
+    Response.json(
+      {
+        ok: true,
+        clientMsgId: body.clientMsgId,
+        sessionId: body.sessionId,
+        state: 'consumed',
+        dispatched: false,
+      },
+      { status: 202 },
+    ),
+  );
+  const outbox = new SendOutbox({ url, storage, localFirstCommand: true, fetch, notify });
+  outbox.start();
+  outbox.selectLocalSession(body.sessionId);
+  try {
+    await vi.waitFor(() => expect(JSON.parse(storage.getItem('queue')!)).toEqual([]));
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0][0]).toBe('/api/ordinary/workspaces/commands/continue/receipt');
+    expect(notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({ state: 'consumed', acknowledged: true }),
+    );
+    expect(large.getItem(composerDraft.storageKey)).toBe('yep lets open the pr to fix it');
+    expect(JSON.parse(large.getItem(composerDraftRevisionKey(composerDraft.storageKey))!)).toEqual({
+      revisionToken: 'newer-unsent-draft',
+      textSha256: sha256Hex('yep lets open the pr to fix it'),
+    });
+    expect(large.getItem(acceptedComposerDraftKey(composerDraft.storageKey))).toBeNull();
+  } finally {
+    outbox.stop();
+  }
+});
+
+it.each([
+  undefined,
+  {},
+  { revisionToken: 'exact-revision' },
+  { revisionToken: 'malformed token' },
+  { revisionToken: 'different-valid-token', textSha256: 'malformed' },
+  { revisionToken: 'different-valid-token', textSha256: 'a'.repeat(64), richDraftSignature: 42 },
+])(
+  'still requires the original acceptance journal when composer revision is absent, malformed or unchanged: %j',
+  async (current) => {
+    const { composerDraftRevisionKey, acceptedComposerDraftKey } =
+      await import('../composer-draft-proof');
+    const disk = memory();
+    const proof = { storageKey: 'mitzo-draft-chat', revisionToken: 'exact-revision' };
+    if (current !== undefined)
+      disk.setItem(composerDraftRevisionKey(proof.storageKey), JSON.stringify(current));
+    const storage = createReviewedOutboxStorage(
+      disk,
+      'https://one.test/api/chat/local-codex/send',
+      'local',
+    );
+    storage.getItem('queue');
+    storage.setItem(
+      'queue',
+      JSON.stringify([
+        {
+          body: ordinaryBody,
+          scope: 1,
+          uncertain: false,
+          ordinaryDelivery: { version: 2, phase: 'continue' },
+          composerDraft: proof,
+          localReceipt: { state: 'consumed', sessionId: ordinaryBody.sessionId },
+        },
+      ]),
+    );
+    const set = disk.setItem;
+    disk.setItem = (key, value) => {
+      if (key === acceptedComposerDraftKey(proof.storageKey)) throw Error('Journal quota');
+      set(key, value);
+    };
+    expect(() => storage.setItem('queue', '[]')).toThrow('Journal quota');
+    expect(JSON.parse(storage.getItem('queue')!)).toHaveLength(1);
+  },
+);

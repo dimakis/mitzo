@@ -6,6 +6,8 @@ export interface AdviserFeatureOwner {
   authSessionId: string;
   operatorConnectionId: string;
   feature: AdviserTaskSnapshot['feature'];
+  /** Private originating feature authority, retained through allocation awaits. */
+  assertCurrentSync?(): void;
 }
 interface TaskObservation {
   scope: AdviserTaskScope;
@@ -190,6 +192,7 @@ export async function createNativeAdviserSession(
         )
       : undefined;
   const current = () => {
+    owner.assertCurrentSync?.();
     authorization.assertCurrent();
     const profiles = loadAccountProfiles();
     const now = profiles.resolve(binding.accountId, request.model);
@@ -203,6 +206,7 @@ export async function createNativeAdviserSession(
       JSON.stringify(fresh.binding) !== JSON.stringify(resolved.binding)
     )
       throw Error('Original adviser execution target changed');
+    owner.assertCurrentSync?.();
   };
   current();
   return {

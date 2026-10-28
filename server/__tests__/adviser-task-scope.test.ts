@@ -52,6 +52,15 @@ it('bounds accumulated text and requires a nonempty successful response', () => 
   expect(() => scope.result('x'.repeat(32769))).toThrow();
   expect(scope.result('Advice')).toEqual({ text: 'Advice' });
 });
+it('pins an independent publication review to its host operation', () => {
+  const scope = new AdviserTaskScope(
+    { ...input(), feature: { kind: 'github-publication', operationId: 'publication' } },
+    () => {},
+    new AbortController().signal,
+  );
+  expect(scope.feature()).toEqual({ kind: 'github-publication', operationId: 'publication' });
+  expect(scope.sdkPolicy().tools).toEqual([]);
+});
 it('constrains SDK settings and every tool effect, including apparently safe reads', async () => {
   const scope = new AdviserTaskScope(input(), () => {}, new AbortController().signal);
   const settings = scope.sdkPolicy();
