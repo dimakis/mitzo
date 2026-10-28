@@ -30,6 +30,28 @@ export function captureSessionHistoryAuthorization(owners: {
     await context.assertCurrent();
     assertCurrent();
   };
+  const captureTarget = (conversationId: string) => {
+    const original = events.getSession(conversationId);
+    if (!original || original.isHidden) return null;
+    const { createdAt, conversationSource } = original;
+    const assertIdentity = () => {
+      const current = events.getSession(conversationId);
+      if (
+        !current ||
+        current.isHidden ||
+        current.createdAt !== createdAt ||
+        current.conversationSource !== conversationSource
+      )
+        throw Error('History target unavailable');
+    };
+    const target = {
+      assertCurrent() {
+        assertCurrent();
+        assertIdentity();
+      },
+    };
+    return { target, assertIdentity };
+  };
   assertCurrent();
   return {
     signal: context.signal,
@@ -43,24 +65,33 @@ export function captureSessionHistoryAuthorization(owners: {
       await assertCurrentAsync();
       // Match the existing signed-operator product policy: only registered
       // visible conversations, never SDK artifacts or filesystem transcripts.
-      const original = events.getSession(conversationId);
-      if (!original || original.isHidden) throw Error('History target unavailable');
-      const target = {
-        assertCurrent() {
-          assertCurrent();
-          const current = events.getSession(conversationId);
-          if (
-            !current ||
-            current.isHidden ||
-            current.createdAt !== original.createdAt ||
-            current.conversationSource !== original.conversationSource
-          )
-            throw Error('History target unavailable');
-        },
-      };
+      const captured = captureTarget(conversationId);
+      if (!captured) throw Error('History target unavailable');
+      const { target } = captured;
       targets.set(conversationId, target);
       target.assertCurrent();
       return target;
+    },
+    async authorizeSearchPage(conversationIds, signal) {
+      signal.throwIfAborted();
+      if (
+        owners.toolName !== 'SearchPastSessions' ||
+        conversationIds.length > 100 ||
+        conversationIds.some((id) => typeof id !== 'string' || !id.trim() || id.length > 128)
+      )
+        throw Error('History search page unavailable');
+      await assertCurrentAsync();
+      signal.throwIfAborted();
+      // These SQL identity reads are synchronous and publish no data. Repeating
+      // the entire native owner per row multiplies filesystem, credential and
+      // workspace checks. The exact owner is refreshed on both sides of this
+      // bounded batch; every target is physically re-read after the final await.
+      const captured = conversationIds.map(captureTarget);
+      await assertCurrentAsync();
+      signal.throwIfAborted();
+      for (const entry of captured) entry?.assertIdentity();
+      assertCurrent();
+      return captured.map((entry) => entry?.target ?? null);
     },
     readBoundary(conversationId) {
       assertCurrent();

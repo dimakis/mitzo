@@ -163,6 +163,7 @@ import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { mountApplicationChatTransport } from './chat-rest-handler.js';
 import { initializeSymposiumNativeHost } from './symposium-native-host.js';
+import { singleFlightReconciliation } from './single-flight-reconciliation.js';
 
 const log = createLogger('server');
 
@@ -250,17 +251,21 @@ function configureConnectionsRuntime(): void {
         error: error instanceof Error ? error.message : 'unknown',
       });
     });
+    const reconcileConnections = singleFlightReconciliation(
+      () => runtime.service.reconcile(AbortSignal.timeout(120_000)),
+      (error) => {
+        log.warn('Connections reconciliation pending', {
+          error: error instanceof Error ? error.message : 'unknown',
+        });
+      },
+    );
     const reconcile = () => {
       void runtime.openAIKeys?.recover(AbortSignal.timeout(120_000)).catch(() => {
         log.warn('OpenAI key synchronization needs attention');
       });
       // Reconciliation can need Podman's 45-second stop/delete timeout while
       // draining a quarantined sandbox, plus gateway polling overhead.
-      void runtime.service.reconcile(AbortSignal.timeout(120_000)).catch((error) => {
-        log.warn('Connections reconciliation pending', {
-          error: error instanceof Error ? error.message : 'unknown',
-        });
-      });
+      reconcileConnections();
     };
     reconcile();
     setInterval(reconcile, 30_000).unref();

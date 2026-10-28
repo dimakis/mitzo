@@ -33,6 +33,7 @@ import {
   installSignedNativeReadStages,
 } from './synchronous-stage-profiler.js';
 import { createPreparationAttemptDiagnostics } from './preparation-attempt-diagnostics.js';
+import { observePrivateHelperBoundary } from './private-helper-boundary-diagnostics.js';
 import { observePreparationService } from './preparation-service-diagnostics.js';
 import { nativeRepositoryFixtureWorkerSources } from './native-repository-worker-sources.js';
 
@@ -329,6 +330,11 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
             trace.helperMs += phase.totalMs;
           }
         };
+      const privateHelperBoundaries: unknown[] = [];
+      const privateHelper = sandbox.executePrivateNativeFileHelper;
+      vi.spyOn(sandbox, 'executePrivateNativeFileHelper').mockImplementation((input) =>
+        observePrivateHelperBoundary(input, privateHelper, privateHelperBoundaries),
+      );
       const enforced = sandbox.executeSandboxedCommand;
       const observe = sandbox.executePrivateRepositoryObservation;
       const helperTransport = vi
@@ -464,6 +470,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
               metrics: f.a.metrics,
               synchronous: synchronous.snapshot(),
               filesystemCallBudget,
+              privateHelperBoundaries,
               preparationDiagnostics: preparationDiagnostics.snapshot(),
               preparationService: preparationService(),
               trace,

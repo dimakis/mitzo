@@ -26,6 +26,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   listSessions: () => [],
 }));
 import { randomUUID } from 'node:crypto';
+import { OrdinaryLocalCodexHostRuntime } from '../ordinary-local-codex-host-runtime.js';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { CodexAppServerClient, type CodexLifecycleTransport } from '../codex-app-server-client.js';
 import { login, authenticateToken, setAuthRevocationStore, revokeAuthSession } from '../auth.js';
@@ -44,6 +45,7 @@ afterAll(async () => {
 });
 
 it('runs history through the signed native owner without publication configuration, and withholds hidden/revoked targets', async () => {
+  const runtimeChecks = vi.spyOn(OrdinaryLocalCodexHostRuntime.prototype, 'assertCurrentSync');
   const f = await ownedRuntimeFixture(cleanups, {
     chatRoute: true,
     tools: [
@@ -100,6 +102,12 @@ it('runs history through the signed native owner without publication configurati
   await vi.waitFor(() =>
     expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1),
   );
+  for (let index = 0; index < 100; index++)
+    chat.eventStore.upsertSession({
+      sessionId: `search-cost-${index}`,
+      conversationSource: 'mitzo',
+      summary: 'Unrelated public summary',
+    });
   chat.eventStore.upsertSession({
     sessionId: 'history-target',
     conversationSource: 'mitzo',
@@ -139,6 +147,13 @@ it('runs history through the signed native owner without publication configurati
     const text = (response.contentItems as Array<{ text: string }>)[0].text;
     return { response, text, value: response.success ? JSON.parse(text) : undefined };
   };
+  runtimeChecks.mockClear();
+  const unmatched = await invoke('SearchPastSessions', { query: 'unmatchable-needle' });
+  expect(unmatched.response.success).toBe(true);
+  expect(unmatched.value.sessions).toEqual([]);
+  // A bounded summary search must not fan out through thousands of full
+  // native runtime/credential/workspace fences while blocking other chats.
+  expect(runtimeChecks.mock.calls.length).toBeLessThan(1000);
   const searched = await invoke('SearchPastSessions', { query: 'Prior project' });
   expect(searched.response.success).toBe(true);
   expect(searched.value.sessions).toMatchObject([

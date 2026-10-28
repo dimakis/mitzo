@@ -45,6 +45,14 @@ export interface HistoryAccess {
   /** Must reject hidden, unregistered, private or otherwise unauthorized targets
    * under the existing operator policy and applicable task/tool scope. */
   authorizeRead(conversationId: string, signal: AbortSignal): Promise<{ assertCurrent(): void }>;
+  /** Original owner may authorize one bounded summary page under shared fresh
+   * async fences. Entries align with the requested IDs; null means denied.
+   * Each returned target must still provide its own current identity/visibility
+   * check. No authorization result survives this tool invocation. */
+  authorizeSearchPage?(
+    conversationIds: readonly string[],
+    signal: AbortSignal,
+  ): Promise<readonly ({ assertCurrent(): void } | null)[]>;
   /** Called after authorization. Existing EventStore.captureReconnectState(id,
    * 0, false).cursor supplies a durable highwater without loading transcripts. */
   readBoundary(conversationId: string): number;
@@ -141,6 +149,18 @@ export function sessionHistoryTools(owners: Owners) {
           current();
           if (candidates.length > scanLimit || typeof page.hasMore !== 'boolean')
             throw Error('Invalid search bound');
+          const candidateIds = candidates.map((candidate) =>
+            conversationId.parse(candidate.sessionId),
+          );
+          const pageTargets = captured.authorizeSearchPage
+            ? await captured.authorizeSearchPage(candidateIds, signal)
+            : undefined;
+          current();
+          if (
+            captured.authorizeSearchPage &&
+            (!Array.isArray(pageTargets) || pageTargets.length !== candidates.length)
+          )
+            throw Error('Invalid search authorization page');
           const sessions: {
             conversationId: string;
             summary: string;
@@ -155,15 +175,25 @@ export function sessionHistoryTools(owners: Owners) {
             capped: request.offset === MAX_SEARCH_OFFSET,
           };
           let consumed = 0;
-          for (const candidate of candidates) {
+          for (const [index, candidate] of candidates.entries()) {
             if (sessions.length >= request.limit) break;
-            const id = conversationId.parse(candidate.sessionId);
-            try {
-              await authorizeRead(id);
-            } catch {
-              await refresh();
-              consumed++;
-              continue;
+            const id = candidateIds[index];
+            const target = pageTargets?.[index];
+            if (pageTargets) {
+              if (target === null) {
+                consumed++;
+                continue;
+              }
+              if (!target || typeof target.assertCurrent !== 'function')
+                throw Error('Current target authority required');
+            } else {
+              try {
+                await authorizeRead(id);
+              } catch {
+                await refresh();
+                consumed++;
+                continue;
+              }
             }
             if (
               candidate.summary != null &&
@@ -196,8 +226,12 @@ export function sessionHistoryTools(owners: Owners) {
             )
               break;
             sessions.push(entry);
+            if (target) selectedTargets.push(target);
             consumed++;
-            current();
+            // The authorized page projection has no await or outward effect.
+            // Recheck its selected targets together at the final refresh, as
+            // for ReadPastSession, instead of rescanning every prior candidate.
+            if (!pageTargets) current();
           }
           const more = consumed < candidates.length || page.hasMore;
           const next = request.offset + consumed;
