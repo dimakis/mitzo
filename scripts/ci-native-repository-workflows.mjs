@@ -20,6 +20,7 @@ function requireNativeEvidence(value, account) {
   if (
     value.account !== account ||
     value.phase !== 'completed' ||
+    value.wholeCaseBudgetMs !== (process.env.CI ? 480000 : 240000) ||
     !value.coldResume ||
     !value.viewerDetached ||
     value.outcomes?.DiscoverLocalRepository?.state !== 'selected' ||

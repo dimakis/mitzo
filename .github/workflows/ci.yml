@@ -21,6 +21,7 @@ jobs:
     outputs:
       browser: ${{ steps.select.outputs.browser }}
       native: ${{ steps.select.outputs.native }}
+      prepared: ${{ steps.select.outputs.prepared }}
     steps:
       - uses: actions/checkout@v7
       - name: Select dependent checks
@@ -771,9 +772,45 @@ jobs:
             exit 1
           fi
 
+  prepared-consumers:
+    name: Composed prepared repository consumers (macOS)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.prepared == 'true') }}
+    runs-on: macos-26
+    # Measured composed journeys plus setup; individual 15-minute cases stay intact.
+    # Hosted contention still fails closed at this finite lane boundary.
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    env:
+      NODE_OPTIONS: --max-old-space-size=1024
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --global npm@11.18.0
+      - run: npm install --no-audit
+      - run: npx tsc -b packages/protocol packages/harness packages/client
+      - name: Run all five offline delivery and publication cases in isolated processes
+        run: node scripts/ci-prepared-consumers.mjs
+      - name: Retain exact consumer reports, exits and resource evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: prepared-consumers-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/prepared-consumers/
+          retention-days: 7
+          if-no-files-found: error
+
   unit:
     name: Unit tests (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    env:
+      MITZO_CI_PREPARED_CONSUMERS: '1'
     strategy:
       # Finish every shard to retain complete coverage and failure evidence.
       fail-fast: false
@@ -854,6 +891,7 @@ jobs:
         browser-validation,
         native,
         unit-validation,
+        prepared-consumers,
       ]
     if: always()
     runs-on: ubuntu-latest

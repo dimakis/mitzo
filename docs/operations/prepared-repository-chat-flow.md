@@ -79,8 +79,12 @@ that review.
 
 Credential-free reads address pinned objects in the private host reconstruction.
 Runtime qualification surrounds each complete evidence batch; individual Git
-reads retain cancellation checks. Qualification before inference and publication
-remains separate. This avoids multiplying a full physical task check by every
+reads retain cancellation checks. A genuine captured publishing owner privately
+records its exact runtime callback, so the combined owner check qualifies that
+same runtime once per boundary. Copies, wrappers and unrelated callbacks retain
+independent checks; no successful validation is cached. An asynchronous adviser
+setup hook still requires a fresh check afterward. Qualification before inference
+and publication remains separate. This avoids multiplying a full physical task check by every
 unchanged source file while still refusing a batch whose owner was revoked.
 
 An approved review receipt is private, short-lived and tied to the exact operation,

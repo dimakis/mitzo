@@ -50,6 +50,7 @@ function evidence(account: string) {
   return {
     account,
     phase: 'completed',
+    wholeCaseBudgetMs: process.env.CI ? 480000 : 240000,
     coldResume: true,
     viewerDetached: true,
     outcomes: {
@@ -121,6 +122,8 @@ it.each([
   'missing-evidence',
   'incomplete-evidence',
   'stale-report',
+  'wrong-outer-budget',
+  'timeout',
 ])('keeps %s red and still admits the other required account', async (failure) => {
   const root = fixture();
   let calls = 0;
@@ -133,6 +136,12 @@ it.each([
         const e = evidence(c.account);
         if (calls === 1) {
           if (failure === 'skip') r.numPendingTests = 1;
+          if (failure === 'wrong-outer-budget') e.wholeCaseBudgetMs = 1;
+          if (failure === 'timeout') {
+            r.success = false;
+            r.numFailedTests = 1;
+            r.numPassedTests = 0;
+          }
           if (failure === 'wrong-file') r.testResults[0].name = '/repo/other.test.ts';
           if (failure === 'wrong-account')
             r.testResults[0].assertionResults[0].fullName = 'other account';
@@ -188,4 +197,51 @@ it('stops account admission on cancellation and leaves incomplete qualification 
       ),
     ),
   ).toHaveLength(1);
+});
+
+it('applies only a CI outer envelope while preserving local and per-operation bounds', async () => {
+  const { createSourceFile, ScriptTarget, isFunctionDeclaration, transpile } =
+    await import('typescript');
+  const { runInNewContext } = await import('node:vm');
+  const source = readFileSync(
+    'server/__tests__/fixtures/native-repository-registered-workflow.ts',
+    'utf8',
+  );
+  const ast = createSourceFile('fixture.ts', source, ScriptTarget.Latest, true);
+  const registration = ast.statements.find(
+    (node) => isFunctionDeclaration(node) && node.name?.text === 'registerNativeRepositoryWorkflow',
+  )!;
+  for (const [CI, expected] of [
+    [undefined, 240000],
+    ['true', 480000],
+  ] as const) {
+    let observed: unknown[] = [];
+    runInNewContext(
+      transpile(
+        registration
+          .getText()
+          .replace('export ', '')
+          .replaceAll('import.meta', '({url:"file:///unused"})'),
+      ) + '\nregisterNativeRepositoryWorkflow("subscription");',
+      {
+        process: { platform: 'darwin', env: { CI, MITZO_RUN_NATIVE_READ_TOOLS_MECHANICAL: '1' } },
+        it: {
+          skipIf:
+            () =>
+            (...args: unknown[]) => {
+              observed = args;
+            },
+        },
+      },
+    );
+    expect(observed[0]).toContain('subscription');
+    expect(observed[1]).toBeTypeOf('function');
+    expect(observed[2]).toBe(expected);
+  }
+  // The expanded whole-case budget cannot alter helper, handoff or revocation fences.
+  expect(source).toContain('expect(args[0].timeoutMs).toBeLessThanOrEqual(30000)');
+  expect(source).toContain('{ timeout: 120000, interval: 100 }');
+  expect(source).toContain("phase = 'revoked'");
+  expect(source).toContain('expect(factsBudgets).toHaveLength(factsBeforeRevoke)');
+  expect(source).toMatch(/wholeCaseBudgetMs[,\n]/);
 });

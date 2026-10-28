@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
 import { relative } from 'node:path';
+import { preparedConsumerCases } from './ci-prepared-consumers.mjs';
 
 // Retained Linux timings: about six minutes of consumer work per shard.
-// Ordinary tests keep Vitest's path-hash partition; no file is excluded.
+// Ordinary tests keep Vitest's path-hash partition. CI transfers only the
+// separately declared composed owner; local unsharded coverage is unchanged.
 export const nativeConsumerOwners = Object.freeze({
   'server/__tests__/prepared-repository-native-cold-resume.test.ts': 1,
   'server/__tests__/prepared-repository-native-public-completed.test.ts': 1,
@@ -13,7 +15,7 @@ export const nativeConsumerOwners = Object.freeze({
   'server/__tests__/prepared-repository-native-public-partial-adoption.test.ts': 4,
   'server/__tests__/prepared-repository-native-public-retained-http.test.ts': 4,
 });
-export function selectUnitShard(files, root, index, count) {
+export function selectUnitShard(files, root, index, count, transferPreparedConsumers = false) {
   if (
     !Number.isSafeInteger(index) ||
     !Number.isSafeInteger(count) ||
@@ -23,6 +25,11 @@ export function selectUnitShard(files, root, index, count) {
   )
     throw Error('Invalid unit shard');
   const path = (file) => relative(root, file).replaceAll('\\', '/');
+  if (transferPreparedConsumers) {
+    if (count !== 4) throw Error('Prepared consumer transfer requires all four CI unit shards');
+    const transferred = new Set(preparedConsumerCases.map((entry) => entry.file));
+    files = files.filter((file) => !transferred.has(path(file)));
+  }
   const owner = (file) => (count === 4 ? nativeConsumerOwners[path(file)] : undefined);
   const ordinary = files
     .filter((file) => !owner(file))

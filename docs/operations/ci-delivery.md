@@ -44,13 +44,44 @@ though the responsible process still needs the added RSS diagnostics.
   distributes eight expensive files across the existing four unit jobs; other
   files retain a path-hash partition. Complete discovery and exact once-only file
   coverage remain mandatory in `ci-unit-gate.mjs`.
+- The five new composed prepared-repository delivery/publication cases have a
+  separate one-worker macOS owner. The delivery file's four cases run in one fresh Vitest process, followed by
+  a second fresh process for the publication file's one case. These exercise
+  LocalMac behavior with synthetic provider/model transport; no live model or
+  account credentials are used. Only these two files transfer from the four
+  Linux shards. Full discovery still lists them, the unit gate requires both
+  declared paths and rejects Linux execution of either, and every other discovered
+  file remains covered exactly once by Linux. Local unsharded tests retain both.
+  The owner validates exact file and full case identities, counts, statuses and
+  successful process exits, rejecting skips, duplicates, stale or partial reports.
+  It retains JSON reports, exits, resource traces and a summary, including failures.
+  Cancellation stops admission of the next file. Its finite 40-minute job budget
+  allows setup and hosted timing variance over the measured 8–27 minute journeys.
+  It is a lane resource bound, not a sum-of-case-budgets guarantee; the five
+  individual 15-minute envelopes remain unchanged, and the job cutoff fails closed.
+  No production, operation, assertion or authentication deadline is expanded.
+  Runtime and unknown changes conservatively select this owner, as do incomplete
+  diffs and main. Bundled skills, AGENTS.md, CLAUDE.md and authority rules also
+  select it. Only ordinary prose and iOS-only changes may skip it; the final
+  `ci` gate rejects absent selections or outcomes contradicting selection.
 - The twelve joined groups (fourteen actual App file cases) run in three separate
   macOS jobs. The original unsharded command still runs the complete selection.
   `joined-validation` checks each shard summary and actual reporter, rejecting
   missing, duplicated, failed or skipped cases. Artifacts are scoped to the
   workflow run and replaced per shard, retaining successful evidence on retries.
 - Each of the two native repository account workflows runs in its own fresh
-  Vitest command, with the original 240-second case deadline and one worker.
+  Vitest command, with one worker. The finite whole-case envelope is 480 seconds
+  in CI and remains 240 seconds locally. Identical native worker input/output
+  hashes on retained #1153 attempts showed preparation taking 81.45–136.28 seconds;
+  a complete API journey passed at 238.12 seconds while subscription hit the old
+  240-second whole-case cutoff during a subsequent observation. All earlier
+  helpers succeeded; the final helper was killed after 0.887 seconds of its
+  30-second allowance. This is an outer resource allowance for loaded hosted
+  runners, not a newly asserted per-stage arithmetic contract. Every existing
+  30-second helper, reader deadline, 120-second handoff wait, revocation, custody
+  and account assertion remains unchanged. The chosen outer budget is retained
+  in each account's evidence and checked by its runner. Timeouts still fail; no
+  automatic timeout retry is introduced.
   Actual per-account reporters, exits, resource observations and native evidence
   remain separate; neither case may reuse stale proof. Both exact cases and every
   existing native-evidence check must pass. Cancellation stops later admission;

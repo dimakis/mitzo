@@ -58,6 +58,17 @@ interface OperatorPublishingRegistration {
 }
 // Runtime identity is stable before an SDK assigns its conversation ID.
 const operatorPublishing = new Map<string, OperatorPublishingRegistration>();
+// Only this private producer can establish that the feature owner already
+// qualifies the exact capability runtime. Copied owners retain no provenance.
+const publicationReviewRuntimes = new WeakMap<object, (() => Promise<void>) | undefined>();
+export async function assertGithubPublicationReviewOwnerCurrent(
+  owner: { assertCurrent(): void | Promise<void> },
+  assertRuntimeCurrent?: () => Promise<void>,
+) {
+  if (assertRuntimeCurrent && publicationReviewRuntimes.get(owner) !== assertRuntimeCurrent)
+    await assertRuntimeCurrent();
+  await owner.assertCurrent();
+}
 /** Server-only source of the signed original publisher and explicit inference
  * selection. Tool arguments cannot select a reviewer login or account. */
 export function captureGithubPublicationReviewOwner(conversationId: string, turnId?: string) {
@@ -66,6 +77,7 @@ export function captureGithubPublicationReviewOwner(conversationId: string, turn
   );
   if (entries.length !== 1) throw Error('Exact live publishing runtime required for review');
   const [runtimeId, active] = entries[0];
+  const assertRuntimeCurrent = active.assertRuntimeCurrent;
   const current = active.registry.findBySessionId(conversationId);
   const session = current?.session;
   const operatorConnectionId = session?.ownerConnectionId;
@@ -89,6 +101,7 @@ export function captureGithubPublicationReviewOwner(conversationId: string, turn
     selection?.assertCurrentSync();
     if (
       operatorPublishing.get(runtimeId) !== active ||
+      active.assertRuntimeCurrent !== assertRuntimeCurrent ||
       active.registry.findBySessionId(conversationId)?.session !== session ||
       session.ownerConnectionId !== operatorConnectionId ||
       !isDeepStrictEqual(session.accountBinding, binding) ||
@@ -104,7 +117,7 @@ export function captureGithubPublicationReviewOwner(conversationId: string, turn
       throw Error('Original publishing review owner changed');
   };
   assertSync();
-  return Object.freeze({
+  const owner = Object.freeze({
     authSessionId,
     operatorConnectionId,
     binding: Object.freeze(binding),
@@ -113,10 +126,12 @@ export function captureGithubPublicationReviewOwner(conversationId: string, turn
     assertCurrentSync: assertSync,
     assertCurrent: async () => {
       assertSync();
-      await active.assertRuntimeCurrent?.();
+      await assertRuntimeCurrent?.();
       assertSync();
     },
   });
+  publicationReviewRuntimes.set(owner, assertRuntimeCurrent);
+  return owner;
 }
 export async function requestOperatorGithubPublication(
   conversationId: string,

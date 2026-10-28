@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { preparedConsumerCases } from '../ci-prepared-consumers.mjs';
 import { selectUnitShard, nativeConsumerOwners } from '../ci-unit-shards.mjs';
 
 const files = [
@@ -116,3 +117,15 @@ it('executes the configured sequencer in real Vitest and retains every file exac
     rmSync(root, { recursive: true, force: true });
   }
 }, 20000);
+
+it('transfers only the two declared composed files when the separate CI owner is enabled', () => {
+  const transferred = preparedConsumerCases.map((c) => '/checkout/' + c.file);
+  const discovery = [...files, ...transferred];
+  const shards = [1, 2, 3, 4].flatMap((index) =>
+    selectUnitShard(discovery, '/checkout', index, 4, true),
+  );
+  expect(shards.sort()).toEqual([...files].sort());
+  expect(new Set([...shards, ...transferred]).size).toBe(discovery.length);
+  const local = [1, 2, 3, 4].flatMap((index) => selectUnitShard(discovery, '/checkout', index, 4));
+  expect(local.sort()).toEqual([...discovery].sort());
+});

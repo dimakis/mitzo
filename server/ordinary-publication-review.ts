@@ -17,6 +17,7 @@ import {
 } from './ordinary-publication-review-context.js';
 import { TextAdviser, type AdviserSessionFactory } from './terminal-adviser.js';
 import { createTerminalAdviserSession } from './terminal-adviser-model.js';
+import { assertGithubPublicationReviewOwnerCurrent } from './github-publishing-tool.js';
 
 const MAX_REVIEW_ROUNDS = 5;
 const ContextRequest = z.discriminatedUnion('kind', [
@@ -62,6 +63,20 @@ const scopes = [
   'correctness, integration, affected callers, backwards compatibility and failure handling',
   'behavior, test adequacy, permission/security boundaries, data preservation and regression cases',
 ] as const;
+/** An upstream asynchronous setup hook requires fresh qualification afterward;
+ * an absent hook introduces no separate authority boundary. */
+export function publicationReviewBeforeDispatch(
+  assertOwner: () => Promise<void>,
+  beforeDispatch?: () => Promise<void>,
+) {
+  return async () => {
+    await assertOwner();
+    if (beforeDispatch) {
+      await beforeDispatch();
+      await assertOwner();
+    }
+  };
+}
 /** Each pass has independent, tool-free inference with its own faithful context
  * history. Only this host reads pinned Git objects in response to structured
  * requests; source paths never become model filesystem or execution authority. */
@@ -91,8 +106,7 @@ export function createOrdinaryPublicationReview(deps: {
     const assertOwner = async () => {
       input.signal.throwIfAborted();
       owner.assertCurrentSync?.();
-      await input.assertRuntimeCurrent?.();
-      await owner.assertCurrent();
+      await assertGithubPublicationReviewOwnerCurrent(owner, input.assertRuntimeCurrent);
       owner.assertCurrentSync?.();
       if (
         !isDeepStrictEqual(selected(), selection) ||
@@ -108,11 +122,7 @@ export function createOrdinaryPublicationReview(deps: {
       return (deps.session ?? createTerminalAdviserSession)(
         {
           ...config,
-          beforeDispatch: async () => {
-            await assertOwner();
-            await beforeDispatch?.();
-            await assertOwner();
-          },
+          beforeDispatch: publicationReviewBeforeDispatch(assertOwner, beforeDispatch),
         },
         request,
         featureOwner,

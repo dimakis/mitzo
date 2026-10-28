@@ -68,6 +68,11 @@ afterEach(async () => {
 // process launch, actual existing SRT/Python read transport against scratch.
 // This does not qualify a provider turn or the synthetic UNUSED companion.
 export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription') {
+  // Whole-journey resource envelope only: retained CI evidence shows completed
+  // account journeys near 238s, with identical sources varying by over 50s in
+  // preparation on loaded hosts. Keep every helper/read/admission/handoff bound.
+  // This finite CI allowance includes all phases and cleanup; local stays 240s.
+  const wholeCaseBudgetMs = process.env.CI ? 480_000 : 240_000;
   it.skipIf(
     process.platform !== 'darwin' || process.env.MITZO_RUN_NATIVE_READ_TOOLS_MECHANICAL !== '1',
   )(
@@ -448,6 +453,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
               revocationOnly,
               phase,
               setupMs,
+              wholeCaseBudgetMs,
               operationTimings,
               outcomes,
               cleanupMs,
@@ -739,6 +745,6 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
       phase = 'completed';
       await writeEvidence();
     },
-    240000,
+    wholeCaseBudgetMs,
   );
 }

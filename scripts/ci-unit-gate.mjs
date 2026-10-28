@@ -1,5 +1,8 @@
+import process from 'node:process';
+import console from 'node:console';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { preparedConsumerCases } from './ci-prepared-consumers.mjs';
 
 // Final `ci` requires this validation: matrix success alone cannot prove every shard ran.
 try {
@@ -11,6 +14,7 @@ try {
   if (!directory) throw Error('Unit evidence directory is required');
   const read = (name) => JSON.parse(readFileSync(join(directory, name), 'utf8'));
   let expected;
+  let discovery;
   let passed = 0;
   const seen = new Set();
   for (let shard = 1; shard <= 4; shard++) {
@@ -19,9 +23,15 @@ try {
     const files = manifest.map((entry) => entry.file).sort();
     if (files.some((file) => typeof file !== 'string') || new Set(files).size !== files.length)
       throw Error('Invalid test discovery');
-    if (expected && JSON.stringify(expected) !== JSON.stringify(files))
+    if (discovery && JSON.stringify(discovery) !== JSON.stringify(files))
       throw Error('Shards discovered different full test suites');
-    expected = files;
+    discovery = files;
+    for (const selected of preparedConsumerCases)
+      if (files.filter((file) => file.endsWith('/' + selected.file)).length !== 1)
+        throw Error('Full discovery must retain each transferred prepared consumer file');
+    expected = files.filter(
+      (file) => !preparedConsumerCases.some((selected) => file.endsWith('/' + selected.file)),
+    );
     const report = read(`report-${shard}.json`);
     if (
       report.success !== true ||
@@ -44,9 +54,10 @@ try {
       seen.add(result.name);
     }
   }
-  if (seen.size !== expected.length) throw Error('Unit shards did not cover the full test suite');
+  if (seen.size !== expected.length)
+    throw Error('Unit shards did not cover every Linux-owned file');
   if (passed < 250) throw Error(`Test count dropped below 250 (got ${passed})`);
-  const summary = `${passed} passed tests across ${seen.size} files; all 4 shards and core checks passed`;
+  const summary = `${passed} passed tests across ${seen.size} files; all 4 shards and core checks passed; 2 composed files require their separate owner`;
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY)
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Unit tests\n\n${summary}\n`);
