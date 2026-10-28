@@ -81,6 +81,8 @@ interface Owner {
   qualifiedColdPrimary?: Readonly<{ commandId: string; assertCurrentSync(): void }>;
   nativeStore?: CodexConversationStore;
   recovery?: RetainedLocalCodexRecovery;
+  /** Private live owner observation, invoked only after exact dispatch admission. */
+  authorizeNativeThreadDispatch?: (commandId: string) => void;
   preparedRepositoryBoundary?: {
     assertCurrentSync(): void;
     adopt(
@@ -891,6 +893,7 @@ export class OwnedLocalCodexChatAdmission {
       this.#expected.selection.thinking,
     );
     this.#dispatched = true;
+    this.owner.authorizeNativeThreadDispatch?.(commandId);
   }
   assertModelSelection(model: string, thinking?: string | null): void {
     if (this.#primary) return this.#primary.assertModelSelection(model, thinking);
