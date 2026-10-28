@@ -556,7 +556,7 @@ export const runPublicColdAdmission = async (
         { timeout: 30000 },
       );
       expect(
-        f.rpc.request.mock.calls.filter(
+        packets.filter(
           ([method, params]) =>
             method === 'turn/start' && params?.clientUserMessageId === request.clientMsgId,
         ),
