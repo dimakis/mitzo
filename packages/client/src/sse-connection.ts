@@ -1153,6 +1153,16 @@ export class SseConnection implements ChatConnection {
   }
 
   private probeForeground(resumeSessions = true): void {
+    // Replay already owns a bounded recovery attempt for this exact stream.
+    // The periodic liveness check must not replace it at 10s before its 15s
+    // deadline, or slow history replay can repeatedly restart without finishing.
+    if (
+      this.es &&
+      this._connectionId &&
+      this.replayRequest?.es === this.es &&
+      this.replayRequest.connectionId === this._connectionId
+    )
+      return;
     if (!this._connected || !this.es || !this._connectionId) {
       this.checkAndReconnect();
       return;
