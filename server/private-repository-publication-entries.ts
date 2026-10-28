@@ -18,56 +18,64 @@ export async function capturePrivateRepositoryPublicationEntries(
 ): Promise<NativeExclusiveTreeEntry[]> {
   const entries: NativeExclusiveTreeEntry[] = [];
   let bytes = 0;
+  // One batch budget spans directory recursion too: a Git object store can
+  // contain hundreds of empty shard directories and only a few pack files.
+  let observations = 0;
+  const checkpoint = () => {
+    active();
+    if (observations++ % 32 === 0) current();
+  };
   const identity = async (file: string) => {
+    checkpoint();
     const info = await lstat(file, { bigint: true });
+    active();
     return Object.freeze({ dev: String(info.dev), ino: String(info.ino) });
   };
   const walk = async (directory: string, prefix = '') => {
-    current();
+    checkpoint();
     const names = await readdir(directory);
-    current();
-    for (let index = 0; index < names.length; index += 32) {
-      current();
-      for (const name of names.slice(index, index + 32)) {
+    active();
+    for (const name of names) {
+      checkpoint();
+      const file = join(directory, name),
+        path = prefix ? `${prefix}/${name}` : name;
+      const info = await lstat(file);
+      active();
+      if (entries.length >= 10000 || info.isSymbolicLink()) throw unavailable();
+      if (info.isDirectory()) {
+        entries.push({
+          path,
+          mode: '040000',
+          identity: await identity(file),
+          size: 0,
+          sha256: sha(''),
+        });
+        await walk(file, path);
+      } else {
+        if (
+          !info.isFile() ||
+          info.nlink !== 1 ||
+          info.size > repositoryGitEntrySizeLimit(path) ||
+          (bytes += info.size) > 128 * 1024 * 1024
+        )
+          throw unavailable();
+        checkpoint();
+        await chmod(file, 0o644);
         active();
-        const file = join(directory, name),
-          path = prefix ? `${prefix}/${name}` : name;
-        const info = await lstat(file);
+        checkpoint();
+        const content = await readFile(file);
         active();
-        if (entries.length >= 10000 || info.isSymbolicLink()) throw unavailable();
-        if (info.isDirectory()) {
-          entries.push({
-            path,
-            mode: '040000',
-            identity: await identity(file),
-            size: 0,
-            sha256: sha(''),
-          });
-          await walk(file, path);
-        } else {
-          if (
-            !info.isFile() ||
-            info.nlink !== 1 ||
-            info.size > repositoryGitEntrySizeLimit(path) ||
-            (bytes += info.size) > 128 * 1024 * 1024
-          )
-            throw unavailable();
-          await chmod(file, 0o644);
-          active();
-          const content = await readFile(file);
-          active();
-          entries.push({
-            path,
-            mode: '100644',
-            identity: await identity(file),
-            size: content.length,
-            sha256: sha(content),
-          });
-        }
+        entries.push({
+          path,
+          mode: '100644',
+          identity: await identity(file),
+          size: content.length,
+          sha256: sha(content),
+        });
       }
-      current();
     }
   };
+  current();
   await walk(root);
   current();
   return entries;

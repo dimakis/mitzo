@@ -55,12 +55,13 @@ it('refuses the complete result when the owner is revoked across an observation 
   const root = await fixture();
   await writeFile(join(root, 'config'), 'bytes');
   let active = true;
+  let observations = 0;
   const current = vi.fn(() => {
     if (!active) throw Error('Owner revoked');
   });
   await expect(
     capturePrivateRepositoryPublicationEntries(root, current, () => {
-      active = false;
+      if (++observations === 3) active = false;
     }),
   ).rejects.toThrow('Owner revoked');
 });
@@ -76,4 +77,14 @@ it('honors cancellation or expiry inside a batch before continuing private work'
       },
     ),
   ).rejects.toThrow('Expired');
+});
+
+it('bounds full owner checks across many empty private object shards', async () => {
+  const root = await fixture();
+  await Promise.all(Array.from({ length: 512 }, (_, n) => mkdir(join(root, String(n)))));
+  const current = vi.fn();
+  const entries = await capturePrivateRepositoryPublicationEntries(root, current, () => {});
+  expect(entries).toHaveLength(512);
+  expect(entries.every((entry) => entry.mode === '040000')).toBe(true);
+  expect(current.mock.calls.length).toBeLessThan(80);
 });
