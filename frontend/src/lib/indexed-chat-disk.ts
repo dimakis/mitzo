@@ -5,7 +5,9 @@ export interface ChatDiskRecord {
   key: string;
   value: string | null;
   revision: string;
+  legacy: string | null;
 }
+type PendingWrite = { record: ChatDiskRecord; legacy: string | null };
 interface Backend {
   read(): Promise<ChatDiskRecord[]>;
   write(
@@ -22,7 +24,8 @@ const conflict = () =>
  */
 export class IndexedChatDisk {
   private records = new Map<string, ChatDiskRecord>();
-  private writes = new Map<string, { record: ChatDiskRecord; legacy: string | null }>();
+  private writes = new Map<string, PendingWrite>();
+  private revocations = new Map<string, PendingWrite>();
   private errors = new Map<string, unknown>();
   private scheduled = new Set<string>();
   private reading: Promise<void> | undefined;
@@ -55,7 +58,10 @@ export class IndexedChatDisk {
         ...this.records.keys(),
         ...this.writes.keys(),
       ]),
-    ].filter((key) => this.getItem(key) !== null));
+    ].filter((key) => {
+      const record = this.writes.get(key)?.record ?? this.records.get(key);
+      return record ? record.value !== null : this.legacy.getItem(key) !== null;
+    }));
   }
   ready(): Promise<void> {
     return (this.reading ??= this.hydrate().finally(() => {
@@ -83,6 +89,7 @@ export class IndexedChatDisk {
   getItem(key: string): string | null {
     if (!this.initialized) throw Error('Saved chat storage is loading');
     const record = this.writes.get(key)?.record ?? this.records.get(key);
+    if (record && this.legacy.getItem(key) !== record.legacy) throw conflict();
     return record ? record.value : this.legacy.getItem(key);
   }
   setItem(key: string, value: string) {
@@ -94,8 +101,13 @@ export class IndexedChatDisk {
   private replace(key: string, value: string | null) {
     if (this.getItem(key) === value && !this.errors.has(key)) return;
     this.keyCache = undefined;
+    const previous = this.writes.get(key);
+    // removeItem revokes existing authority before a replacement. Keep one
+    // deletion checkpoint even when rapid edits coalesce their later values.
+    if (previous?.record.value === null && value !== null && !this.revocations.has(key))
+      this.revocations.set(key, previous);
     this.writes.set(key, {
-      record: { key, value, revision: createBrowserId() },
+      record: { key, value, revision: createBrowserId(), legacy: this.legacy.getItem(key) },
       legacy: this.legacy.getItem(key),
     });
     this.errors.delete(key);
@@ -106,7 +118,8 @@ export class IndexedChatDisk {
       .then(async () => {
         try {
           while (true) {
-            const write = this.writes.get(key);
+            const revocation = this.revocations.get(key);
+            const write = revocation ?? this.writes.get(key);
             if (!write) return;
             const expected = this.records.get(key)?.revision ?? null;
             let failed = false;
@@ -124,9 +137,11 @@ export class IndexedChatDisk {
                 () => this.legacy.getItem(key) === write.legacy,
               );
               this.records.set(key, write.record);
-              if (this.writes.get(key) === write) this.writes.delete(key);
+              if (revocation) this.revocations.delete(key);
+              else if (this.writes.get(key) === write) this.writes.delete(key);
               this.errors.delete(key);
             } catch (error) {
+              if (revocation) this.revocations.delete(key);
               if (this.writes.get(key) === write) {
                 this.errors.set(key, error);
                 if (write.record.value === null) {
@@ -196,7 +211,7 @@ export function createIndexedChatDisk(
             if (
               (current !== undefined && !validRecord(current)) ||
               ((current as ChatDiskRecord | undefined)?.revision ?? null) !== expected ||
-              (expected === null && !legacyUnchanged())
+              !legacyUnchanged()
             ) {
               error = conflict();
               tx.abort();
@@ -230,6 +245,7 @@ function validRecord(value: unknown): value is ChatDiskRecord {
   return (
     typeof record.key === 'string' &&
     typeof record.revision === 'string' &&
+    (record.legacy === null || typeof record.legacy === 'string') &&
     (record.value === null || typeof record.value === 'string')
   );
 }

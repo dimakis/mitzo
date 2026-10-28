@@ -7,6 +7,70 @@ const ready = initializeChatStorage();
 Object.assign(window, {
   storageFixture: {
     ready,
+    async upgradeLegacyPointer() {
+      await ready;
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('mitzo-chat-payloads', 1);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('payloads', 'readwrite');
+        tx.objectStore('payloads').put('old pointer draft', 'legacy-payload');
+        tx.oncomplete = () => resolve();
+        tx.onabort = tx.onerror = () => reject(tx.error);
+      });
+      localStorage.setItem('legacy-pointer', 'mitzo-large-chat:v1:legacy-payload');
+      await initializeChatStorage();
+      const original = chatStorage.getItem('legacy-pointer');
+      chatStorage.setItem('legacy-pointer', 'upgraded draft');
+      await chatStorage.flush();
+      db.close();
+      return original;
+    },
+    async readUpgrade() {
+      await ready;
+      return {
+        value: chatStorage.getItem('legacy-pointer'),
+        legacy: localStorage.getItem('legacy-pointer'),
+      };
+    },
+    async rejectOldFrontendEdit() {
+      await ready;
+      localStorage.setItem('legacy-pointer', 'newer edit from older frontend');
+      try {
+        chatStorage.setItem('legacy-pointer', 'must not overwrite');
+        return false;
+      } catch {
+        return true;
+      }
+    },
+    async revokedRevision() {
+      await ready;
+      chatStorage.setItem('revision-checkpoint', 'old-proof');
+      await chatStorage.flush();
+      const original = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function (value, key) {
+        if (value?.value === 'new-proof') throw Error('Selective revision failure');
+        return original.call(this, value, key);
+      };
+      try {
+        chatStorage.removeItem('revision-checkpoint');
+        chatStorage.setItem('revision-checkpoint', 'new-proof');
+        try {
+          await chatStorage.flush();
+          return false;
+        } catch {
+          return true;
+        }
+      } finally {
+        IDBObjectStore.prototype.put = original;
+      }
+    },
+    async readRevokedRevision() {
+      await ready;
+      return chatStorage.getItem('revision-checkpoint');
+    },
     async saveShared(value: string | null) {
       await ready;
       if (value === null) chatStorage.removeItem('shared-draft');

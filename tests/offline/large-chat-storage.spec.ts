@@ -168,3 +168,56 @@ test('other tabs observe IndexedDB saves and tombstones without localStorage sig
     ),
   ).toBeNull();
 });
+
+test('upgrades a real legacy payload pointer and fences later edits from an older frontend', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.waitForFunction(() => 'storageFixture' in window);
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as { storageFixture: { upgradeLegacyPointer(): Promise<string> } }
+      ).storageFixture.upgradeLegacyPointer(),
+    ),
+  ).toBe('old pointer draft');
+  await page.reload();
+  await page.waitForFunction(() => 'storageFixture' in window);
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as { storageFixture: { readUpgrade(): Promise<unknown> } }
+      ).storageFixture.readUpgrade(),
+    ),
+  ).toEqual({ value: 'upgraded draft', legacy: 'mitzo-large-chat:v1:legacy-payload' });
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as { storageFixture: { rejectOldFrontendEdit(): Promise<boolean> } }
+      ).storageFixture.rejectOldFrontendEdit(),
+    ),
+  ).toBe(true);
+});
+
+test('a failed revision replacement cannot restore revoked acceptance authority after reload', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.waitForFunction(() => 'storageFixture' in window);
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as { storageFixture: { revokedRevision(): Promise<boolean> } }
+      ).storageFixture.revokedRevision(),
+    ),
+  ).toBe(true);
+  await page.reload();
+  await page.waitForFunction(() => 'storageFixture' in window);
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as { storageFixture: { readRevokedRevision(): Promise<string | null> } }
+      ).storageFixture.readRevokedRevision(),
+    ),
+  ).toBeNull();
+});

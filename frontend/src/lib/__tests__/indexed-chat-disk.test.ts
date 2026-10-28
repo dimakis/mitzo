@@ -284,3 +284,56 @@ it('joins overlapping startup reads so neither caller sees an uninitialized stor
     'Preserve this draft',
   ]);
 });
+
+it('refuses to shadow a newer draft written by an already-open older frontend', async () => {
+  const f = fixture();
+  const disk = f.open();
+  await disk.ready();
+  disk.setItem('old-draft', 'new frontend draft');
+  await disk.flush();
+  f.legacy.set('old-draft', 'newer old frontend edit');
+  expect(() => disk.getItem('old-draft')).toThrow(/another tab/);
+  expect(() => disk.setItem('old-draft', 'overwrite')).toThrow(/another tab/);
+  const cold = f.open();
+  await cold.ready();
+  expect(() => cold.getItem('old-draft')).toThrow(/another tab/);
+  expect(f.records.get('old-draft')?.value).toBe('new frontend draft');
+  expect(f.legacy.get('old-draft')).toBe('newer old frontend edit');
+});
+
+it('rejects an old-frontend edit that arrives while an existing IndexedDB record is committing', async () => {
+  const f = fixture();
+  const write = f.backend.write;
+  f.backend.write = vi.fn(async (...args) => {
+    if (!args[2]()) throw Error('Draft changed in another tab');
+    await write(...args);
+  });
+  const disk = f.open();
+  await disk.ready();
+  disk.setItem('old-draft', 'first saved');
+  await disk.flush();
+  disk.setItem('old-draft', 'pending replacement');
+  f.legacy.set('old-draft', 'old frontend edit');
+  await expect(disk.flush()).rejects.toThrow(/another tab/);
+  expect(f.records.get('old-draft')?.value).toBe('first saved');
+});
+
+it('commits revision revocation before its replacement so a failed same-value edit cannot revive old authority', async () => {
+  const f = fixture();
+  const disk = f.open();
+  await disk.ready();
+  disk.setItem('revision', 'old-acceptance-proof');
+  await disk.flush();
+  const write = f.backend.write;
+  f.backend.write = vi.fn(async (...args) => {
+    if (args[0].value === 'new-proof') throw Error('Replacement failed');
+    await write(...args);
+  });
+  disk.removeItem('revision');
+  disk.setItem('revision', 'new-proof');
+  await expect(disk.flush()).rejects.toThrow('Replacement failed');
+  const cold = f.open();
+  await cold.ready();
+  expect(cold.getItem('revision')).toBeNull();
+  expect(disk.getItem('revision')).toBe('new-proof');
+});
