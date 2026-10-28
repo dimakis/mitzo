@@ -16,9 +16,16 @@ export default class BrowserBatchReporter {
       const project = test.parent.project()?.name ?? '';
       const file = relative(config.rootDir, test.location.file).replaceAll('\\', '/');
       const titles = [test.title];
-      for (let parent = test.parent; parent?.type === 'describe'; parent = parent.parent)
-        titles.unshift(parent.title);
-      return { id: test.id, project, selector: `[${project}] › ${file} › ${titles.join(' › ')}` };
+      let owner = test.parent;
+      for (; owner?.type === 'describe'; owner = owner.parent)
+        if (owner.title) titles.unshift(owner.title);
+      if (owner?.type !== 'file' || !owner.location?.file)
+        throw Error('Browser case has no owning spec file');
+      const ownerFile = relative(config.rootDir, owner.location.file).replaceAll('\\', '/');
+      // Playwright filters file loading by the owning spec, then case selection
+      // by declaration location. Imported cases need both qualified entries.
+      const qualify = (file) => `[${project}] › ${file} › ${titles.join(' › ')}`;
+      return { id: test.id, project, selector: qualify(file), loadSelector: qualify(ownerFile) };
     });
     this.save();
   }

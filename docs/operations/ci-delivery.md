@@ -56,7 +56,8 @@ though the responsible process still needs the added RSS diagnostics.
   Each layout job keeps one worker; all browser jobs have a 20-minute deadline.
   The CI layout command discovers the original shard and runs at most five primary
   cases per fresh Playwright process, with startup dependencies repeated. Collected
-  and completed IDs must exactly match each batch. Intentional skips and expected
+  and completed IDs must exactly match each batch. Imported tests retain both their
+  declaration location and owning spec, so wrapper hooks still apply. Intentional skips and expected
   failures retain their original meaning; unexpected outcomes fail the job. Each
   batch retains its configured HTML report and output artifacts in a separate
   directory. Individual assertions and test deadlines are unchanged.

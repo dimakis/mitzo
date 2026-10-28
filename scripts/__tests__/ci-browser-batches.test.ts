@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import {
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -102,16 +103,25 @@ it('executes the exact real Playwright selection in fresh browser-free worker ba
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'ci-browser-batch-')));
   try {
     symlinkSync(resolve('node_modules'), join(root, 'node_modules'));
+    mkdirSync(join(root, 'specs'));
     writeFileSync(
-      join(root, 'playwright.config.mjs'),
-      `export default {testDir:${JSON.stringify(root)},reporter:[['list'],['html',{open:'never',outputFolder:'report'}]],projects:[{name:'browser-startup-0',testMatch:'setup.spec.js'},{name:'mobile-webkit',testMatch:'cases.spec.js',dependencies:['browser-startup-0']}]};`,
+      join(root, 'shared.js'),
+      "const {test,expect}=require('@playwright/test');test.describe('imported group',()=>test('imported case',()=>expect(globalThis.ownerHook).toBe(true)));",
     );
     writeFileSync(
-      join(root, 'setup.spec.js'),
+      join(root, 'playwright.config.mjs'),
+      `export default {testDir:${JSON.stringify(join(root, 'specs'))},reporter:[['list'],['html',{open:'never',outputFolder:'report'}]],projects:[{name:'browser-startup-0',testMatch:'setup.spec.js'},{name:'mobile-webkit',testMatch:['cases.spec.js','imported.spec.js'],dependencies:['browser-startup-0']}]};`,
+    );
+    writeFileSync(
+      join(root, 'specs/setup.spec.js'),
       "const {test,expect}=require('@playwright/test');test('startup',()=>expect(true).toBe(true));",
     );
     writeFileSync(
-      join(root, 'cases.spec.js'),
+      join(root, 'specs/imported.spec.js'),
+      "const {test}=require('@playwright/test');test.beforeEach(()=>{globalThis.ownerHook=true;});require('../shared.js');",
+    );
+    writeFileSync(
+      join(root, 'specs/cases.spec.js'),
       "const {test,expect}=require('@playwright/test');for(let i=0;i<12;i++)test('case '+i,()=>expect(i).toBeLessThan(12));test('intentional skip',()=>test.skip());test('expected failure',()=>{test.fail();expect(1).toBe(2)});",
     );
     expect(
@@ -124,9 +134,9 @@ it('executes the exact real Playwright selection in fresh browser-free worker ba
     ).toBe(0);
     const evidence = join(root, 'test-results/offline/evidence');
     const summary = JSON.parse(readFileSync(join(evidence, 'summary.json'), 'utf8'));
-    expect(summary.selected.length).toBe(14);
+    expect(summary.selected.length).toBe(15);
     expect(summary.batches.map((batch: { tests: string[] }) => batch.tests.length)).toEqual([
-      5, 5, 4,
+      5, 5, 5,
     ]);
     const reports = summary.batches.map((batch: { name: string }) =>
       JSON.parse(readFileSync(join(evidence, batch.name + '.json'), 'utf8')),

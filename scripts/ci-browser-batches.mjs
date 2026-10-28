@@ -132,7 +132,14 @@ export function runBrowserBatches({
     rmSync(reportPath, { force: true });
     writeFileSync(
       listPath,
-      [...batch.dependencies, ...batch.tests].map((test) => test.selector).join('\n') + '\n',
+      [
+        ...new Set(
+          [...batch.dependencies, ...batch.tests].flatMap((test) => [
+            test.selector,
+            test.loadSelector ?? test.selector,
+          ]),
+        ),
+      ].join('\n') + '\n',
     );
     console.log(
       `CI_BROWSER_BATCH ${index + 1}/${batches.length}: ${batch.tests.length} selected cases; fresh worker and browser`,

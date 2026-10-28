@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.727-ci-validation-partitions';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.728-ci-validation-partitions';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,11 +23,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-browser-batches.test.ts':
-    'b589fabc19b3636d782a0e678c062f65d86f8422019e7f47c02667550bdc0373',
+    'dc7457039216fa6c5d9ec2e1a8df8313db042398cd72956c2b25de84fb822830',
   '../../scripts/ci-browser-batches.mjs':
-    '4fe08bcada3a6756e25c0867e5480a7d5aa6fa6a4d34d250e06c2a347bcc4a3f',
+    'fbba7afa0fdc4c46dbe228a8728b5e06070e1107e62f5f649e903268981fa2a0',
   '../../scripts/ci-browser-batch-reporter.mjs':
-    '5c564c18175a71002746ff24e41ae0f44d883373a00222f2aa55a23eadb0425c',
+    '18dd32bf19a3e129810a5d24691e89841cacb2677d2821dc76f09b9bed3253f2',
 
   '../../frontend/src/components/__tests__/CodexQueueStatus.local-recovery.test.tsx':
     '0c3594115ce0329297a327d7a22e8042e83e86c48b1cce216ed164cda948dd54',
