@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.738-chat-storage-quota-navigation-readiness';
+  'v1.0.739-chat-storage-quota-private-observation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/private-repository-publication-entries.test.ts':
+    'ce6bfc8d9708f1240f97bb04d49bb976c429a392ed4d4375b0afdfd4a8a6525a',
+  '../private-repository-publication-entries.ts':
+    '65cd094395fb2b452fa995c757b1e487ba44c107388852865bb1c2d1f97b81cc',
   '../__tests__/prepared-repository-native-public-tool-rollover.test.ts':
     '3f37ba34c311207689c552a04ef016d74f611e21b7f5b970d398d1b0c57000e1',
   '../__tests__/prepared-repository-native-public-tool-rollover-queued.test.ts':
@@ -230,7 +234,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../private-repository-checkout.ts':
     'd147a054bfa26b2af6a44399505bcd59ccd2c8e94cdd8450925bf0f89371b262',
   '../qualified-local-repository-actor.ts':
-    '8ae78259188bde67e196d9813adb37b7387cc92329919f3e4fbb49f322524543',
+    '45094c19f08293d5cb274398e59a32621f9c59bf3fed41ccc0e7b52f5f61721f',
   '../qualified-local-repository-task.ts':
     '1446ef68f9790d5897f4423ccc3f6b0a08244e12a01568171fb682179ea47092',
   '../__tests__/native-exclusive-tree.test.ts':
