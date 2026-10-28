@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
+import { observePrivateHelperBoundary } from './fixtures/private-helper-boundary-diagnostics.js';
 import { executePrivateNativeFileHelper } from '../sandboxed-command.js';
 vi.mock('node:child_process', async (original) => ({
   ...(await original<typeof import('node:child_process')>()),
@@ -152,3 +153,50 @@ it('consumes the same deadline during the full pre-spawn gate and refuses before
   expect(spawn).not.toHaveBeenCalled();
   expect(checks).toBe(3);
 });
+
+it.each(['current', 'expired', 'revoked'] as const)(
+  'joins an exit-zero worker and preserves the post-worker %s owner gate',
+  async (mode) => {
+    let now = Date.now();
+    const input = await fixture(now + 30_000);
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    let checks = 0;
+    let joined = false;
+    input.revalidate = async function () {
+      expect(this).toBe(input);
+      if (++checks === 3) {
+        expect(joined).toBe(true);
+        if (mode === 'expired') now = input.deadline + 1;
+        if (mode === 'revoked') throw Error('synthetic owner revoked');
+      }
+    };
+    vi.mocked(spawn).mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), {
+        pid: 12345678,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+      });
+      setImmediate(() => {
+        child.stdout.end('synthetic bounded output');
+        child.stderr.end();
+        joined = true;
+        child.emit('close', 0, null);
+      });
+      return child as ReturnType<typeof spawn>;
+    });
+    const rows: unknown[] = [];
+    const running = observePrivateHelperBoundary(input, executePrivateNativeFileHelper, rows);
+    if (mode === 'current') await expect(running).resolves.toBeDefined();
+    else await expect(running).rejects.toThrow('Private native file helper unavailable');
+    expect(checks).toBe(3);
+    expect(joined).toBe(true);
+    const report = rows[0] as {
+      remainingMs: number;
+      gates: Array<{ kind: string; status: string }>;
+    };
+    expect(report.gates.filter((gate) => gate.kind === 'async').map((gate) => gate.status)).toEqual(
+      ['returned', 'returned', mode === 'revoked' ? 'rejected' : 'returned'],
+    );
+    expect(report.remainingMs > 0).toBe(mode !== 'expired');
+  },
+);
