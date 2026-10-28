@@ -339,3 +339,18 @@ it('commits revision revocation before its replacement so a failed same-value ed
   expect(cold.getItem('revision')).toBeNull();
   expect(disk.getItem('revision')).toBe('new-proof');
 });
+
+it('enumerates a deleted key rewritten by an older frontend so outbox scans detect the conflict', async () => {
+  const f = fixture();
+  const disk = f.open();
+  await disk.ready();
+  disk.removeItem('old-draft');
+  await disk.flush();
+  f.legacy.set('old-draft', 'newer old frontend work');
+  disk.invalidateLegacy();
+  expect(disk.keys()).toContain('old-draft');
+  const cold = f.open();
+  await cold.ready();
+  expect(cold.keys()).toContain('old-draft');
+  expect(() => cold.getItem('old-draft')).toThrow(/another tab/);
+});

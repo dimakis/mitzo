@@ -23,9 +23,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/__tests__/indexed-chat-disk.test.ts':
-    '8aa77679b1b4d0546b6fbd1a939235d9c8ccb726b6295fd16f4dedaf979637e8',
+    '8c8325ef5018cc55d60949151a248623e3bceb0eea59368ba4dedd046a8edcd4',
   '../../frontend/src/lib/indexed-chat-disk.ts':
-    '704f2c41015aa51cfe1701dee1c3212ef78aea49ca4824c4679c36d07e665aef',
+    '6cbcee6b5de5aa6daeb8019d9308ea515fd8d66f573cb827698f4395aef8192a',
   '../../tests/integration/telos-s9/integrated-candidate/joined-role-setup-ready.test.ts':
     '135c046f446cccdc941332395629b33db95e266fc5625c8b20ce45a300f8c2fb',
   '../../scripts/ci-prepared-consumers.mjs':
@@ -107,7 +107,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-command-json.test.ts':
     '675c6c281aebefef54c6fb8b067e14db554035f0a7ceea88f4ec4daeee9efcd7',
   '../../frontend/src/lib/large-chat-storage.ts':
-    '1f9452c0f33dc504d853a3179167990c361b0b7847359e321f402afa79bbae2b',
+    '1ab7f286c80a963b647e4b28bcc26ec5c7aa3dd4ca1d08775649579b4fb1109d',
   '../../frontend/src/lib/__tests__/large-chat-storage.test.ts':
     '8cfd23321d205800a059acbfcd80ce3cff180b1f8cdf3f7b686454f69c247345',
   '../../frontend/src/render-app.tsx':

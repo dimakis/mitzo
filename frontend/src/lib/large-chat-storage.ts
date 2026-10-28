@@ -343,7 +343,8 @@ export async function initializeChatStorage(): Promise<void> {
 }
 if (typeof window !== 'undefined')
   window.addEventListener('storage', (event) => {
-    if (event.storageArea !== localStorage || !event.newValue?.startsWith(PREFIX)) return;
+    if (event.storageArea !== localStorage) return;
+    disk?.invalidateLegacy();
     void initializeChatStorage()
       .then(() => {
         window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));

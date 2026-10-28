@@ -60,8 +60,13 @@ export class IndexedChatDisk {
       ]),
     ].filter((key) => {
       const record = this.writes.get(key)?.record ?? this.records.get(key);
-      return record ? record.value !== null : this.legacy.getItem(key) !== null;
+      return record
+        ? record.value !== null || this.legacy.getItem(key) !== record.legacy
+        : this.legacy.getItem(key) !== null;
     }));
+  }
+  invalidateLegacy() {
+    this.keyCache = undefined;
   }
   ready(): Promise<void> {
     return (this.reading ??= this.hydrate().finally(() => {
