@@ -2260,7 +2260,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts':
     '09c6f749f26b6917123394302c7943be280051fa0def05cb63062e4d6402e1ae',
   '../../tests/integration/telos-s9/integrated-candidate/stop-isolation-browser.contract.ts':
-    'e9ac251d00724915639238b8a4e12e3933220115907f84924a16bf14cbbca6cf',
+    '0fe482c48388c6e1f7d90ff8f90bc307167afb47c85ca62211e8b22c23d66f7a',
   '../../tests/integration/telos-s9/integrated-candidate/supplemental-shards.mjs':
     '8c8d58ddbf0c2049b8b54ec64bfb1198afdfe57744cc913f7ff2c2876a7999b0',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-read-observer.test.ts':
