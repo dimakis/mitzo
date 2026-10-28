@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.749-bounded-session-overview';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.750-helper-boundary-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/joined-frontend-startup.test.ts':
+    '766aa9029a525f5071ae6411a9a32454330e51f8a67b29be159b543a229f406c',
+  '../__tests__/private-helper-boundary-diagnostics.test.ts':
+    'aa27583871aa488a3f75455ce2e82eaaddd973c80b4b242742e3ebddc4da9ff4',
+  '../__tests__/fixtures/private-helper-boundary-diagnostics.ts':
+    '7c5b5b0a48a4d6403868c449be9fd14e35607621fed2e79bff9fac0806313e84',
   '../__tests__/session-overview.test.ts':
     '15b1b0ee328919eda94cebb80cf0ae02d286e87d75ccccd9bfbc5e6ec476807d',
   '../__tests__/single-flight-reconciliation.test.ts':
@@ -195,7 +201,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-openshell-login-continuation.test.ts':
     '93d3023e2a6180d6ee2e634c876bd0d1b241b83a722f152cd496b29299d78f72',
   '../__tests__/fixtures/native-repository-registered-workflow.ts':
-    '273d7b2d46933756ee421a265276693292fb7a0c1d495589c31504c0744b6d99',
+    '7ad37cece53ff2c1b9625fa9a61f5db56226aa3b192220b7cf3a7bd25b04bed5',
   '../__tests__/native-local-repository-read-registration-api.test.ts':
     'a9727a723647947bef931292a467765a910a09361ad6b1651032813552b87a15',
   '../__tests__/native-repository-object-store.test.ts':
@@ -299,7 +305,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-exclusive-file-batch.test.ts':
     'ec4e064004085ac04b6ec81a2ede0701d9d9c74cc4ae36cfe1039b08d484c370',
   '../__tests__/private-helper-deadline.test.ts':
-    '6d7d3f12605e45355bce7dcfaca13dc4289190b8cffbd8ca078b54dd92919315',
+    '68c58b49ae247be9042cec0a4e471a1941cec42b7082865cd74a918392bd4f16',
   '../native-tree-publication.ts':
     'f2c351fe07781a7e95d098372e04178d9de512d3d99f48e3d41bcecbb0dce54b',
   '../private-repository-checkout.ts':
@@ -2222,7 +2228,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-cli-3077.manifest.json':
     '4b3ffbd04971720a8b6648d5266b688466e47dafa8b5128e5f562c855a5bbebf',
   '../../tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts':
-    '95e4ec1b903a6419ff357cdfbd743a49c86a92efe0336ea860ba8ea337c51e66',
+    'ea1bc0926623bb73a55a4b526c0f4d94e6401e59bda1401fe028409f8149bad4',
   '../../tests/integration/telos-s9/integrated-candidate/joined-canonical-cli.ts':
     '75770f88a7bbcbedbfea6ca5399fdb6f663b9771789eb1098a1fd763e1cd7c1f',
   '../../tests/integration/telos-s9/integrated-candidate/joined-fake-voice-effects.ts':
