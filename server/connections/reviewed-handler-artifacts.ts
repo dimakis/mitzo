@@ -81,13 +81,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../skills/land-pr/SKILL.md':
     '5e71b7c7c625735ec72e1cffb04ff2f9cb9ab140d80e7708b61f6b9d8b21258d',
   '../../tests/integration/prepared-repository/composer-delivery.test.tsx':
-    'f3e7e51a5d71219dc8e8d4172c866d82ed1097358b8216558727c6d87bcab01d',
+    'f0db3f23aa4ccd5f02a472993e0dc5f20941b7d8bf40f2cc33f26ae64b26678a',
   '../__tests__/capability-service.test.ts':
     '52d69523ad9b7b090ec4d17b2a8315957d7a8f3ec3c3a1ebaf14e15f88cdfc9d',
   '../__tests__/fixtures/prepared-repository-browser.ts':
     'aafba388d9f3a5df3475bd28415433c3088196868c44df520831c11e197e9bb7',
   '../__tests__/fixtures/prepared-repository-delivery-flow.ts':
-    '65e4251f1bc6a6bc07eb4c0f91989d16ecc186224fdfc8ae21a843a3bba9e432',
+    '785ec3d46aff65dc174df9d95791559cbcd07bc9963538119433efb41a0f2029',
   '../__tests__/github-publication-review-gate.test.ts':
     'a3420102e73761a717f1d1dd10d0386905db03957eb75d46d8e08eeeb7df238b',
   '../__tests__/github-publishing-tool.test.ts':

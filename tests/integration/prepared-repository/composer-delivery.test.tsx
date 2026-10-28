@@ -369,7 +369,10 @@ it('keeps the newer composer draft and sends repeated prompts after exact screen
     if (id === 'composer-2') {
       await waitFor(() => expect(f.store.getState().localCommand?.state).toBe('uncertain'));
       expect(input).toHaveProperty('value', `Explicit ${id}`);
-      act(() => f.reconnect());
+      await act(async () => {
+        f.reconnect();
+        await f.waitForReceipt(id);
+      });
     }
     await waitFor(() => expect(input).toHaveProperty('value', ''));
     expect(f.saved()).toEqual([]);
