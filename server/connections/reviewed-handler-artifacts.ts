@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.733-chat-input-capacity';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.734-chat-storage-quota';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -29,15 +29,15 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-command-json.test.ts':
     '675c6c281aebefef54c6fb8b067e14db554035f0a7ceea88f4ec4daeee9efcd7',
   '../../frontend/src/lib/large-chat-storage.ts':
-    '89460ae8aac4ab8e8e7aec5a477278e7639e38f772a5af1464ba1e9eab044380',
+    '1583757b8298ba61cb1122407e48b30fcb373187df98ee2636d62c5ef301fc27',
   '../../frontend/src/lib/__tests__/large-chat-storage.test.ts':
-    '496e40a186d92f483beaf4ab6cd286d63cef93b901378ef7c56b2593c2e4d719',
+    '8cfd23321d205800a059acbfcd80ce3cff180b1f8cdf3f7b686454f69c247345',
   '../../frontend/src/render-app.tsx':
     '8244b4f22a4a068e6498434aa0bc540fa6d20e124a8b8e310dbd5a1ee92628f4',
   '../../tests/fixtures/large-chat-storage.ts':
-    '72ad69ce07befa47c3a52d85aeb4559de2933cee02d4c2711ce3fdbbe4055ca6',
+    '77c9836bf61b84e3f6aed46137a27c5dc648b709d9d18562fc86d8ff2e72e9e1',
   '../../tests/offline/large-chat-storage.spec.ts':
-    'acffa813abbaee27c9922c41808fbfc91577341ac5625fa0527a8dcb07831e15',
+    'd7ad50dcf9fcc42b0ac25858fe4fb3c45192585af1e7f1edf8a8f3a7864111a8',
   '../../scripts/__tests__/ci-browser-batches.test.ts':
     'dc7457039216fa6c5d9ec2e1a8df8313db042398cd72956c2b25de84fb822830',
   '../../scripts/ci-browser-batches.mjs':
