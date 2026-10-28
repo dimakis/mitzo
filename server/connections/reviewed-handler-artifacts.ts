@@ -2268,7 +2268,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/process-restart-fixture.ts':
     '9ad7d8272497c383d4a9a07d003f342461ea84b2bd20e44bcf81d6cee47e791a',
   '../../tests/integration/telos-s9/integrated-candidate/repository-browser.contract.ts':
-    'fcb8373a16e7aeb7886340b65117d5bf1fb31867f34e86da0aa2b6d03eddbd3c',
+    '086087ff09b8dc66191457f62cf880368c99d6678bce4e01d1550f7b9f7eeb28',
   '../../tests/integration/telos-s9/integrated-candidate/restart-child-app.mjs':
     '9e1bdc20f6fb5f5987c68e8fbf989618f194a4d49b95d3e629f7c51a13d0ccc8',
   '../../tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs':
@@ -2408,7 +2408,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/telos-worker-materials.ts':
     '362c2f64970802cbacaccdac3c38af153768aee385d3094031f5d32e56959134',
   '../__tests__/native-host-operator-lifetime.test.ts':
-    'ccf58d17751c96aed4c17ae39c47d3922c19ebaff688dde594fbbcc581173262',
+    '5cdea52664247d4d5f8bfe93e1649cf86e8e77fd66eeb1f40bd3b0a4d71ef5ff',
   '../../frontend/src/components/__tests__/TelosSourceReview.test.tsx':
     'c573b2ef7c636b6331ebf3a8f5d1af4d5943956f42805082a102af20627ffb80',
   '../../frontend/src/hooks/__tests__/useDraft.test.ts':
@@ -2747,7 +2747,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-browser-failure-reporter.test.ts':
     '730da0151f559054652bcf9e34db39da29153044d53ee35ecef927088ecee544',
   '../../scripts/__tests__/ci-browser-run.test.ts':
-    'fa3d52b55e20635e2162b89d0b486b10e52c29ff5d7a4a551c307c9bb062ee8d',
+    '91614fd9998c89b2ea9d1206d3d23ab790ed2ff279b6206948ce680d12382597',
   '../../scripts/__tests__/ci-joined-shards.test.ts':
     '36915cd9ec1df2634467a99416ccc3d03ed26b3fd6d65ab21a847858d8d0a321',
   '../../scripts/__tests__/ci-recovery.test.ts':
@@ -2761,7 +2761,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/ci-browser-failure-reporter.mjs':
     'b22313559453a57bb106403e09c3c0f2ff1648a1045ad0293404cbc1c173f7e6',
   '../../scripts/ci-browser-run.mjs':
-    '0f49a02ed7a96c58c22a27fd142a005d2ddadb4c67b1a3240d0a789682cf9aaf',
+    '56b09e908a6acaf302c0e6a29fe2de3afd5173ff9ada5f862b5c5b3f5e015136',
   '../../scripts/ci-joined-gate.mjs':
     'aec3fa1106ed98cb715d973e5b186887b7252bca68309ae0bae1da3aa0a5b3bd',
   '../../scripts/ci-recovery.mjs':

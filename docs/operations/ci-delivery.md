@@ -63,6 +63,39 @@ The measured publication duration bounds the useful parallel test time at about
 measured end-to-end improvement: the extra macOS job may wait for hosted capacity.
 Compare subsequent clean runs including queue delays before claiming a speedup.
 
+## Executable qualification and hosted fixture budgets, 28 October 2026
+
+A focused offline run with the same hash-qualified native Codex fixture passed
+its non-Git browser journey in 26.573 seconds. A second run with a CPU profile
+passed in 27.109 seconds. Of the worker profile's 27.948 seconds, SHA-256 self
+time accounted for 9.948 seconds (35.6%), garbage collection for 0.311 seconds
+(1.1%) and Vite/Vitest self time for 0.911 seconds (3.3%). All executable inspection
+stacks accounted for 11.535 seconds inclusive (41.3%); these overlap the hash and
+I/O costs and must not be added to them. The largest stack was preparation
+qualification through `credentialDigest`, a fresh host runtime and executable
+measurement. This profile covers the test worker, not browser or native child CPU.
+
+The current qualification contract independently measures native code for each
+qualification and new adoption. These observations do not authorize caching
+attestation across qualifications or removing a fence. The 1 GiB local worker
+profile does not support increasing its heap to address this workload.
+
+On [run 40772836271](https://github.com/dimakis/mitzo/actions/runs/40772836271/job/123115590491),
+the non-Git journey passed in 100.317 seconds. The repository journey reached
+saved native output, completed another bootstrap and started its worker, then
+exhausted its 120-second outer test allowance at 120.726 seconds. The same full
+repository case passed locally in 38.576 seconds. Its finite whole-fixture
+allowance is now 240 seconds in CI and remains 120 seconds locally. Every
+operation, helper, bootstrap, UI wait and assertion retains its existing bound.
+This changes the hosted resource allowance, not a product latency requirement.
+
+The two cold-resume lifetime cases similarly retain their original five-second
+local allowance and use fifteen seconds for the complete fixture in CI. An
+unchanged hosted case expired at 5.241 seconds after successful bootstraps;
+local cold-resume cases passed in 1.489 and 1.172 seconds. The complete seven-case
+local suite passed with custody, execution, revocation, logout and expiry
+assertions intact. All native operation and authorization deadlines remain.
+
 ## Execution and completeness
 
 - The native consumer family retains the same 32 collected cases and 178
@@ -133,7 +166,12 @@ Compare subsequent clean runs including queue delays before claiming a speedup.
 cgroup/pressure observations and top process RSS (without command arguments) every thirty seconds. It preserves the actual test
 exit status and forwards termination to its own process group. Diagnostics are
 retained alongside Playwright evidence even after cancellation, when the runner
-is still able to upload. Console observations remain useful if the host exits
+is still able to upload. macOS also records available CPU count, the owned command's
+PID/process group and the top sixteen processes by CPU then RSS, including cumulative
+CPU time, state and executable name. Arguments and environment are never collected.
+The process query has a two-second/128 KiB bound; missing diagnostics do not replace
+the command outcome. Attribution is cleared before each launch to prevent stale PID
+evidence. Console observations remain useful if the host exits
 before artifact upload.
 
 The additional reporter emits `CI_BROWSER_TEST_FAILURE` immediately for an

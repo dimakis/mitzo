@@ -1,11 +1,35 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { freemem, totalmem, loadavg, release, constants } from 'node:os';
+import { freemem, totalmem, loadavg, release, constants, availableParallelism } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import console from 'node:console';
 import { setInterval, setTimeout, clearInterval, clearTimeout } from 'node:timers';
+
+/** Executable names only: never collect process arguments or environment. */
+export function readMacProcessDiagnostics(run = execFileSync) {
+  try {
+    return run('/bin/ps', ['-axo', 'pid=,ppid=,pgid=,%cpu=,rss=,time=,state=,comm='], {
+      encoding: 'utf8',
+      timeout: 2000,
+      maxBuffer: 128 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .trim()
+      .split('\n')
+      .map((line) => {
+        const fields = line.trim().split(/\s+/);
+        return { line: line.trim(), cpu: Number(fields[3]), rss: Number(fields[4]) };
+      })
+      .filter((row) => row.line && Number.isFinite(row.cpu) && Number.isFinite(row.rss))
+      .sort((a, b) => b.cpu - a.cpu || b.rss - a.rss)
+      .slice(0, 16)
+      .map((row) => row.line);
+  } catch {
+    /* Missing process diagnostics must not replace the command's result. */
+  }
+}
 
 export async function runBrowserCommand({
   command,
@@ -20,6 +44,12 @@ export async function runBrowserCommand({
   writeFileSync(join(directory, 'stdout.log'), '');
   writeFileSync(join(directory, 'stderr.log'), '');
   writeFileSync(join(directory, 'resources.jsonl'), '');
+  try {
+    writeFileSync(join(directory, 'command-process.json'), 'null\n');
+  } catch {
+    /* Optional attribution must not replace the command's result. */
+  }
+  let commandProcess = null;
   const snapshot = () => {
     const record = {
       timestamp: new Date().toISOString(),
@@ -27,6 +57,8 @@ export async function runBrowserCommand({
       totalMemory: totalmem(),
       freeMemory: freemem(),
       load: loadavg(),
+      cpuCount: availableParallelism(),
+      commandProcess,
       linux: {},
     };
     for (const path of [
@@ -65,6 +97,7 @@ export async function runBrowserCommand({
       }
     }
     if (process.platform === 'darwin') {
+      record.processes = readMacProcessDiagnostics();
       try {
         record.macos = execFileSync(
           '/usr/sbin/sysctl',
@@ -97,6 +130,15 @@ export async function runBrowserCommand({
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  if (child.pid) {
+    commandProcess = { pid: child.pid, pgid: child.pid };
+    try {
+      writeFileSync(join(directory, 'command-process.json'), JSON.stringify(commandProcess) + '\n');
+      console.log('CI_BROWSER_PROCESS ' + JSON.stringify(commandProcess));
+    } catch {
+      /* Optional attribution must not replace the command's result. */
+    }
+  }
   const retireDescendants = () => {
     if (!child.pid) return;
     try {
