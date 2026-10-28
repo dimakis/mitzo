@@ -1976,6 +1976,19 @@ async function openCodexChatBound(
         : hostGithubPublishingSource(options.session, options.publishingGitStorageRoots),
     undefined,
     ownedHost ? assertHostCurrent : undefined,
+    {
+      requireNativeSelection: true,
+      explicitSelection: () => {
+        const settings =
+          options.eventStore.getOrdinaryWorkspaceConversationSettings(options.conversationId) ??
+          options.eventStore.getOrdinaryConversationSettings(options.conversationId);
+        if (!settings) throw Error('Explicit operator publication selection unavailable');
+        return {
+          model: settings.selection.model,
+          reasoningEffort: settings.selection.thinking ?? null,
+        };
+      },
+    },
   );
   const events = new AsyncQueue<Record<string, unknown>>();
   let closed = false;

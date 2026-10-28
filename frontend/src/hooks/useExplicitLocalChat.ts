@@ -381,11 +381,11 @@ export function useExplicitLocalChat(
     );
   }, [sessionId, currentMeta, inventory, metadataPending]);
   const selectedIntent =
-    bound && currentMeta?.intent
-      ? future?.sessionId === sessionId
-        ? future.intent
-        : currentMeta.intent
-      : intent;
+    future?.sessionId === sessionId
+      ? future.intent
+      : bound && currentMeta?.intent
+        ? currentMeta.intent
+        : intent;
   const selectedLocal = selectedIntent.execution.location === 'local';
   // A preference alone must not enroll a server with runtime entry disabled.
   // Explicit/shared edits and saved runtime intent still retain their own route.

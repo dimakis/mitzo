@@ -23,7 +23,7 @@ const selection = JSON.parse(
     'utf8',
   ),
 );
-function fixture(native = 'true') {
+function fixture(native = 'true', prepared = 'true') {
   return Object.fromEntries(
     [
       'changes',
@@ -34,11 +34,16 @@ function fixture(native = 'true') {
       'ordinary-supplemental',
       'browser-validation',
       'native',
+      'prepared-consumers',
     ].map((name) => [
       name,
       {
-        result: name === 'native' && native === 'false' ? 'skipped' : 'success',
-        ...(name === 'changes' ? { outputs: { native } } : {}),
+        result:
+          (name === 'native' && native === 'false') ||
+          (name === 'prepared-consumers' && prepared === 'false')
+            ? 'skipped'
+            : 'success',
+        ...(name === 'changes' ? { outputs: { native, prepared } } : {}),
       },
     ]),
   );
@@ -61,6 +66,7 @@ it('runs core concurrently and keeps ci required across every selected owner res
     'browser-validation',
     'native',
     'unit-validation',
+    'prepared-consumers',
   ]);
   expect(workflow.jobs.ci.steps.some((s) => s.run === 'node scripts/ci-required-gate.mjs')).toBe(
     true,
@@ -144,4 +150,42 @@ it('rejects omitted unit completeness even when every upstream owner succeeds', 
   const needs = fixture();
   delete needs['unit-validation'];
   expect(run(needs).status).toBe(1);
+});
+
+it('requires the selected prepared consumer owner and rejects unknown or contradictory selection', () => {
+  for (const selected of ['true', 'false', '', 'unknown'])
+    for (const result of ['success', 'failure', 'cancelled', 'skipped', '']) {
+      const needs = fixture('true', selected);
+      needs['prepared-consumers'].result = result;
+      expect(run(needs).status).toBe(
+        (selected === 'true' && result === 'success') ||
+          (selected === 'false' && result === 'skipped')
+          ? 0
+          : 1,
+      );
+    }
+  const needs = fixture();
+  delete needs['prepared-consumers'];
+  expect(run(needs).status).toBe(1);
+});
+it('runs the transferred owner offline on macOS with retained structured proof and a finite job bound', () => {
+  const job = workflow.jobs['prepared-consumers'];
+  expect(job).toBeDefined();
+  const value = job as typeof job & {
+    'runs-on': string;
+    'timeout-minutes': number;
+    env: Record<string, string>;
+  };
+  expect(value['runs-on']).toBe('macos-26');
+  expect(value['timeout-minutes']).toBe(40);
+  expect(value.env.NODE_OPTIONS).toBe('--max-old-space-size=1024');
+  expect(job.if).toContain("needs.changes.outputs.prepared == 'true'");
+  expect(job.steps.some((s) => s.run === 'node scripts/ci-prepared-consumers.mjs')).toBe(true);
+  const units = workflow.jobs.unit as typeof job & { env: Record<string, string> };
+  expect(units.env.MITZO_CI_PREPARED_CONSUMERS).toBe('1');
+  const uploads = job.steps as Array<{ uses?: string; if?: string; with?: Record<string, string> }>;
+  expect(uploads.find((s) => s.uses === 'actions/upload-artifact@v7')).toMatchObject({
+    if: '${{ always() }}',
+    with: { path: 'test-results/prepared-consumers/', 'if-no-files-found': 'error' },
+  });
 });

@@ -12,11 +12,14 @@ allowed-tools:
   - Agent
   - TaskOutput
   - TaskStop
+  - GitCommit
+  - RequestGithubPublish
+  - ExecuteProviderCapability
 ---
 
 # Land PR
 
-Resolve `$ARGUMENTS` as PR URL, repository/number or current-branch PR. Read repository instructions; refresh head, base, CI, threads and merge state. Attach the PR where supported.
+Select `$ARGUMENTS` (PR URL, repo/number or current branch). Read repo rules; refresh head/base, CI, reviews and merge state. Attach the PR where supported.
 
 ## Scope and ownership
 
@@ -42,9 +45,11 @@ Preserve deployment/live-test restrictions; landing does not authorize deploymen
 
 Before the first reviewable push, run two read-only subagents concurrently within host capacity: correctness/integration/affected callers, and behavior/test adequacy/failure cases. Each must be independent of implementation in its scope. Add security review for concrete permission/security/data risks. These focused roles alone do not satisfy the full-pass rule below.
 
-Give both the diff, requirements, repository instructions, base and candidate SHA (or a fingerprint of all intended tracked/untracked content). Keep the candidate stable. Record reviewer/report identity, scope, coverage limits and concrete findings with severity, location, failure scenario and evidence. Consolidate findings; fix blockers together and document rejected/resolved dispositions. Ask relevant reviewers for a focused follow-up on batched fixes, affected callers and prior findings; reuse unchanged coverage. Repeat only for unresolved blockers or material scope changes; report persistent blockers without progress instead of looping.
+Without native delegation, ordinary Mitzo may use `RequestGithubPublish` host review under [this contract](../../docs/operations/prepared-repository-chat-flow.md). Every other gate below remains.
 
-For pushed PRs, complete missing local coverage while CI runs. Reuse qualifying independent passes and follow-ups; verify coverage of the actual candidate before pushing. Use only exposed, permitted delegation tools; respect resource/live-test limits, avoiding parallel broad suites. If unavailable/denied, report unfinished local coverage and continue other preparation; obtain independent review through an authorized host before pushing. Never bypass via another CLI or claim self-approval. Local reviews do not replace Centaur or change its timing, configuration or final gate.
+Give both the diff, requirements, repo rules, base and candidate SHA (or full tracked/untracked fingerprint). Keep it stable. Record reviewer/report IDs, scope, limits and evidence-backed findings: severity, location and failure scenario. Consolidate and fix blockers together; document rejected/resolved dispositions. Request focused follow-ups on batched fixes, affected callers and prior findings; reuse unchanged coverage. Repeat only for unresolved blockers or material scope changes; report persistent blockers instead of looping.
+
+Complete missing local coverage while CI runs. Reuse qualifying reviews and follow-ups; verify actual candidate coverage before pushing. Use only exposed, permitted delegation; respect resource/live-test limits and avoid parallel broad suites. If unavailable or denied, report unfinished coverage, continue other preparation, and obtain independent review through an authorized host before pushing. Never bypass with another CLI or self-approve. Local review never replaces Centaur or changes its timing, configuration or final gate.
 
 ## Review convergence
 
@@ -65,7 +70,7 @@ For a valid current-head review with pending status, inspect the writer and use 
 
 Validate the combined PR plus current base before merging. Prefer a native merge queue where the repository supports it and all required checks (including the trusted review gate) support its merge-group contract. Do not enable a queue before those checks are wired and tested. On a repository without queue support, retain strict up-to-date protection: integrate the latest base at the final landing turn and run required CI on that combined result. Do not refresh every waiting branch when main advances. Preserve completed review; re-evaluate only the relevant integration delta.
 
-Immediately before merge, refresh the head and base, required checks, review threads, trusted final review and mergeability. CI evidence must cover the exact candidate against the accepted base; a changed combined tree needs fresh applicable checks. All required checks must pass; skips qualify only under the repository's explicit conditional-check contract. If main or the PR changes during validation, refresh the integration evidence. Never copy green statuses from another SHA, disable strict protection to save builds, or bypass an unknown or contradictory gate.
+Before merging, refresh head/base, required checks, threads, trusted final review and mergeability. CI must cover the exact candidate against the accepted base; changed combined trees require fresh checks. All required checks must pass; skips require the repository's explicit conditional-check contract. Refresh integration evidence if main or the PR changes. Never copy statuses between SHAs, disable strict protection or bypass unknown/contradictory gates.
 
 In prepare-only mode, report the verified state and remaining final-integration work, then stop. In authorized landing mode, mark a draft ready once its scoped work is complete, then merge using the repository's method and an exact-head guard, for example:
 

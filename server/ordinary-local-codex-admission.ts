@@ -110,6 +110,7 @@ type Store = Pick<
   Partial<
     Pick<
       EventStore,
+      | 'qualifiesOrdinaryCommandCapability'
       | 'admitOrdinaryLocalContinuation'
       | 'admitPreparedOrdinaryCommand'
       | 'admitPreparedOrdinaryWorkspaceCommand'
@@ -287,6 +288,8 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
           }
         : undefined,
       store: {
+        qualifiesOrdinaryCommandCapability:
+          dependencies.store.qualifiesOrdinaryCommandCapability?.bind(dependencies.store),
         admitOrdinaryLocalCommand: dependencies.store.admitOrdinaryLocalCommand.bind(
           dependencies.store,
         ),
@@ -415,7 +418,18 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     assertNativeCodexContextAdmission(request.selection.context, admittedMeta.agentContext);
     reconcileSessionMetadata(admittedMeta, request);
     const inventory = structuredClone(d.catalog.inventory());
-    if (inventory.capabilityRevision !== request.capabilityRevision) fail('capability_changed');
+    if (
+      inventory.capabilityRevision !== request.capabilityRevision &&
+      !(
+        continuation &&
+        !d.adapter &&
+        d.store.qualifiesOrdinaryCommandCapability?.(
+          request.clientMsgId,
+          request.capabilityRevision,
+        )
+      )
+    )
+      fail('capability_changed');
     const resolution = structuredClone(d.catalog.resolve(request.runtime));
     if (resolution.status !== 'compatible') fail('configuration_unavailable');
     const binding = resolution.binding;

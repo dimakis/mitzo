@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
 import { createJoinedOrdinaryApplication } from './joined-ordinary-application';
+import { navigateToChatMetadata, observeTaskChatReads } from './task-chat-read-observer';
 
 // UX18/21/22 bounded current-contract journey. Bound chat intentionally keeps
 // legacy local queues behind guarded admission and omits replacement interrupts.
@@ -137,7 +138,7 @@ it('Actual App Stop cancels only the selected unrelated outcome while retaining 
   const readQueues = () =>
     page.evaluate((entries) => entries.map((entry) => localStorage.getItem(entry.key)), queues);
   expect(await readQueues()).toEqual(queues.map((q) => q.value));
-  await page.goto(front.origin + '/chat/' + ids[0]);
+  await navigateToChatMetadata(page, front.origin + '/chat/' + ids[0], ids[0]);
   await browserExpect(composer).toHaveValue(drafts[0]);
   await browserExpect(stop).toBeVisible();
   const [cancel] = await Promise.all([
@@ -171,7 +172,7 @@ it('Actual App Stop cancels only the selected unrelated outcome while retaining 
       path: join(process.env.S9_JOINED_SCREENSHOT_DIR, 'studio-stopped-draft-retained.png'),
       fullPage: true,
     });
-  await page.goto(front.origin + '/chat/' + ids[1]);
+  await navigateToChatMetadata(page, front.origin + '/chat/' + ids[1], ids[1]);
   await browserExpect(composer).toHaveValue(drafts[1]);
   await browserExpect(stop).toBeVisible();
   const survivor = nativeSessions[1];
@@ -199,11 +200,20 @@ it('Actual App Stop cancels only the selected unrelated outcome while retaining 
       path: join(process.env.S9_JOINED_SCREENSHOT_DIR, 'quarterly-unaffected-completed.png'),
       fullPage: true,
     });
-  await page.reload();
+  // Reload keeps its actual document boundary; only its new destination GET
+  // may prove readiness before checking the still-retained draft.
+  const reloadReads = observeTaskChatReads(page);
+  const reloadBoundary = reloadReads.boundary();
+  try {
+    await page.reload();
+    await reloadReads.waitForSessionMeta(ids[1], reloadBoundary);
+  } finally {
+    reloadReads.close();
+  }
   await browserExpect(composer).toHaveValue(drafts[1]);
   await browserExpect(page.getByText(reply, { exact: true })).toBeVisible();
   expect(await readQueues()).toEqual(queues.map((q) => q.value));
-  await page.goto(front.origin + '/chat/' + ids[0]);
+  await navigateToChatMetadata(page, front.origin + '/chat/' + ids[0], ids[0]);
   await browserExpect(composer).toHaveValue(drafts[0]);
   await browserExpect(page.getByText(reply, { exact: true })).toHaveCount(0);
   expect(await readQueues()).toEqual(queues.map((q) => q.value));

@@ -12,6 +12,7 @@ export default class CiUnitSequencer extends BaseSequencer {
         realpathSync(root),
         shard.index,
         shard.count,
+        process.env.MITZO_CI_PREPARED_CONSUMERS === '1',
       ),
     );
     return files.filter((file) => selected.has(file.moduleId));

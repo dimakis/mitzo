@@ -1,3 +1,4 @@
+import { observeTaskChatReads } from './task-chat-read-observer';
 import { navigateToReviewedRoleSetup } from './joined-role-setup-ready';
 import { waitForPreparedConversation } from './joined-conversation-ready';
 import {
@@ -1024,7 +1025,14 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
   // Original actual operator Task Approve browser action remains unchanged.
   // Fake operator explicitly reads/verifies retained bytes before approving.
   expect(canonical.artifacts.read(output.id, output.revision).bytes.toString()).toBe(report);
-  await page.goto(front.origin + '/tasks?highlight=' + taskId);
+  const taskReads = observeTaskChatReads(page);
+  const taskBoundary = taskReads.boundary();
+  try {
+    await page.goto(front.origin + '/tasks?highlight=' + taskId);
+    await taskReads.waitForTask(taskId, taskBoundary);
+  } finally {
+    taskReads.close();
+  }
   await browserExpect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
   if (process.env.S9_JOINED_SCREENSHOT_DIR)
     await page.screenshot({
@@ -1198,4 +1206,4 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
         'Original storage-owner reopen, not a full process/App restart, live runtime or whole criterion acceptance.',
     },
   });
-}, 120_000);
+});

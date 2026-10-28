@@ -23,3 +23,12 @@ if (
   console.error('Selected native CI owner incomplete or selection unavailable');
   process.exit(1);
 }
+
+const selectedPrepared = needs.changes.outputs?.prepared;
+if (
+  !['true', 'false'].includes(selectedPrepared) ||
+  needs['prepared-consumers']?.result !== (selectedPrepared === 'true' ? 'success' : 'skipped')
+) {
+  console.error('Selected composed prepared consumer owner incomplete or selection unavailable');
+  process.exit(1);
+}

@@ -32,6 +32,8 @@ import {
 import { OrdinaryRepositoryPreparationSchema } from '../../ordinary-repository-preparation.js';
 
 import { nativeStartupSessionId } from '../../ordinary-repository-startup.js';
+type FixtureRpcRequest = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
 export async function ownedRuntimeFixture(
   cleanups: Array<() => void | Promise<void>>,
   options: {
@@ -52,6 +54,7 @@ export async function ownedRuntimeFixture(
     /** Explicit offline native diagnostic; real model turns must still be intercepted. */
     nativeExecutablePath?: string;
     modelId?: string;
+    additionalModels?: Array<{ id: string; label: string; reasoningEfforts: string[] }>;
     continuityV2?: boolean;
     realPreparationAuthority?: boolean;
     historicalPreparation?: (
@@ -124,7 +127,10 @@ export async function ownedRuntimeFixture(
       email: 'fixture@example.test',
       planType: 'plus',
       ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
-      models: [{ id: modelId, label: 'Fixture model', reasoningEfforts: ['low'] }],
+      models: [
+        { id: modelId, label: 'Fixture model', reasoningEfforts: ['low'] },
+        ...(options.additionalModels ?? []),
+      ],
     },
   ];
   if (options.api)
@@ -133,7 +139,10 @@ export async function ownedRuntimeFixture(
       label: 'Work API',
       provider: 'openai',
       credentialRef: { provider: 'keychain', service: 'offline-test', account: 'work' },
-      models: [{ id: modelId, label: 'Fixture model', reasoningEfforts: ['low'] }],
+      models: [
+        { id: modelId, label: 'Fixture model', reasoningEfforts: ['low'] },
+        ...(options.additionalModels ?? []),
+      ],
     } as never;
   const writeProfiles = () =>
     writeFileSync(configPath, JSON.stringify(configuration), { mode: 0o600 });
@@ -397,7 +406,7 @@ export async function ownedRuntimeFixture(
     const commandId = request.clientMsgId;
     const rpc = {
       initialize: vi.fn(async () => {}),
-      request: vi.fn(async (method: string): Promise<unknown> => {
+      request: vi.fn<FixtureRpcRequest>(async (method) => {
         if (method === 'account/read')
           return options.api
             ? { account: { type: 'apiKey' }, requiresOpenaiAuth: true }
@@ -411,6 +420,13 @@ export async function ownedRuntimeFixture(
                 displayName: 'Fixture',
                 supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
               },
+              ...(options.additionalModels ?? []).map((model) => ({
+                model: model.id,
+                displayName: model.label,
+                supportedReasoningEfforts: model.reasoningEfforts.map((reasoningEffort) => ({
+                  reasoningEffort,
+                })),
+              })),
             ],
             nextCursor: null,
           };
@@ -438,6 +454,7 @@ export async function ownedRuntimeFixture(
         prompt: value.payload.text,
         systemPrompt: value.payload.systemPrompt,
         intent: value.payload.intent,
+        images: value.payload.images,
         model: request.selection.model,
         reasoningEffort: request.selection.thinking,
         agentProfile: value.expected.agentProfile,

@@ -25,11 +25,14 @@ function fixture() {
   return { events, observer, request, response };
 }
 
+const task = (id = 'exact-task', status = 'pending_review') => ({ id, status, children: [] });
+const taskBody = (id = 'exact-task') => ({ tasks: [task(id)] });
+
 it('observes the fresh exact task while an unrelated earlier response body never settles', async () => {
   const f = fixture();
   f.response(f.request('/api/sessions/old/meta'), new Promise(() => {}));
   const boundary = f.observer.boundary();
-  f.response(f.request(), Promise.resolve([{ id: 'exact-task', status: 'pending_review' }]));
+  f.response(f.request(), Promise.resolve(taskBody()));
 
   await expect(
     f.observer.waitForTask('exact-task', boundary, { timeout: 50, interval: 1 }),
@@ -42,14 +45,14 @@ it('does not count an older request whose body completes after the navigation bo
   const f = fixture();
   const old = f.request();
   const boundary = f.observer.boundary();
-  f.response(old, Promise.resolve([{ id: 'exact-task' }]));
+  f.response(old, Promise.resolve(taskBody()));
   await vi.waitFor(() => expect(f.observer.reads).toHaveLength(1));
   expect(f.observer.since(boundary)).toEqual([]);
   await expect(
     f.observer.waitForTask('exact-task', boundary, { timeout: 20, interval: 1 }),
   ).rejects.toThrow();
 
-  f.response(f.request(), Promise.resolve([{ id: 'exact-task' }]));
+  f.response(f.request(), Promise.resolve(taskBody()));
   await expect(f.observer.waitForTask('exact-task', boundary)).resolves.toMatchObject({
     requestOrdinal: 2,
   });
@@ -60,9 +63,9 @@ it('requires the exact task GET, successful status and retained body, and remove
   const f = fixture();
   const boundary = f.observer.boundary();
   f.response(f.request('/api/telos/work/items/exact-task'), Promise.resolve({ id: 'exact-task' }));
-  f.response(f.request('/api/tasks', 'POST'), Promise.resolve([{ id: 'exact-task' }]));
-  f.response(f.request(), Promise.resolve([{ id: 'other-task' }]));
-  f.response(f.request(), Promise.resolve([{ id: 'exact-task' }]), 503);
+  f.response(f.request('/api/tasks', 'POST'), Promise.resolve(taskBody()));
+  f.response(f.request(), Promise.resolve(taskBody('other-task')));
+  f.response(f.request(), Promise.resolve(taskBody()), 503);
   f.response(f.request(), Promise.reject(new Error('discarded body')));
   await vi.waitFor(() => expect(f.observer.reads).toHaveLength(4));
   await expect(
@@ -74,6 +77,54 @@ it('requires the exact task GET, successful status and retained body, and remove
   expect(f.events.listenerCount('request')).toBe(0);
   expect(f.events.listenerCount('response')).toBe(0);
 });
+
+it.each([
+  ['serialized body', JSON.stringify(taskBody())],
+  ['bare task array', [task()]],
+  ['malformed tasks field', { tasks: 'exact-task' }],
+  ['unrelated description', { tasks: [{ ...task('other-task'), description: 'exact-task' }] }],
+  ['different task ID containing the target', taskBody('exact-task-other')],
+  ['invalid status', { tasks: [task('exact-task', 'approved')] }],
+  ['missing children', { tasks: [{ id: 'exact-task', status: 'pending_review' }] }],
+  ['malformed children', { tasks: [{ ...task(), children: {} }] }],
+  ['malformed sibling', { tasks: [task(), null] }],
+  ['invalid nested status', { tasks: [{ ...task(), children: [task('child', 'approved')] }] }],
+])('rejects a task read with %s', async (_label, body) => {
+  const f = fixture();
+  const boundary = f.observer.boundary();
+  f.response(f.request(), Promise.resolve(body));
+  await expect(
+    f.observer.waitForTask('exact-task', boundary, { timeout: 20, interval: 1 }),
+  ).rejects.toThrow();
+  f.observer.close();
+});
+
+it('finds an exact nested task ID in a valid task tree', async () => {
+  const f = fixture();
+  const boundary = f.observer.boundary();
+  f.response(
+    f.request(),
+    Promise.resolve({
+      tasks: [{ ...task('parent', 'active'), children: [task()] }],
+    }),
+  );
+  await expect(f.observer.waitForTask('exact-task', boundary)).resolves.toMatchObject({
+    path: '/api/tasks',
+    status: 200,
+  });
+  f.observer.close();
+});
+
+it.each(['pending', 'active', 'done', 'pending_review', 'blocked', 'skipped', 'failed'])(
+  'accepts the supported task status %s',
+  async (status) => {
+    const f = fixture();
+    const boundary = f.observer.boundary();
+    f.response(f.request(), Promise.resolve({ tasks: [task('exact-task', status)] }));
+    await expect(f.observer.waitForTask('exact-task', boundary)).resolves.toBeDefined();
+    f.observer.close();
+  },
+);
 
 it('waits for fresh metadata for the destination conversation, including an already consumed command', async () => {
   const f = fixture();

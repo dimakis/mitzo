@@ -1,3 +1,4 @@
+import { actToReviewedRoleSetup, actToRoleSetupDraft } from './joined-role-setup-ready';
 import { it, expect, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
@@ -61,17 +62,25 @@ it('saves a child through a normal advisor planning exchange and actual proposal
       workspace.getByRole('heading', { name: 'Home studio', exact: true }),
     ).toBeVisible();
     await workspace.getByRole('button', { name: 'Overview', exact: true }).click();
-    await workspace.getByRole('button', { name: 'Add child with advisor', exact: true }).click();
-    await browserExpect(
-      page.getByRole('region', { name: 'Work conversation setup', exact: true }),
-    ).toBeVisible();
-    await openChatSetting(page, 'execution');
-    await page.getByRole('button', { name: 'Local Mac', exact: true }).click();
-    await chooseSetting(page, 'Account', 'ordinary-personal');
-    await chooseSetting(page, 'Model', 'fixture-model');
-    await chooseSetting(page, 'Thinking level', 'low');
-    await chooseAgent(page, JSON.stringify(['saved', 'ordinary-worker', 1]));
-    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await actToReviewedRoleSetup(
+      page,
+      { origin: front.origin, itemId: 'studio', role: 'advisor' },
+      async () => {
+        await actToRoleSetupDraft(page, front.origin, () =>
+          workspace.getByRole('button', { name: 'Add child with advisor', exact: true }).click(),
+        );
+        await browserExpect(
+          page.getByRole('region', { name: 'Work conversation setup', exact: true }),
+        ).toBeVisible();
+        await openChatSetting(page, 'execution');
+        await page.getByRole('button', { name: 'Local Mac', exact: true }).click();
+        await chooseSetting(page, 'Account', 'ordinary-personal');
+        await chooseSetting(page, 'Model', 'fixture-model');
+        await chooseSetting(page, 'Thinking level', 'low');
+        await chooseAgent(page, JSON.stringify(['saved', 'ordinary-worker', 1]));
+        await page.getByRole('button', { name: 'Done', exact: true }).click();
+      },
+    );
     await browserExpect(
       page.getByRole('button', { name: 'Start chat', exact: true }),
     ).toBeEnabled();

@@ -809,6 +809,10 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         enabled: this.owners.enabled,
         store: coldPrimary
           ? {
+              qualifiesOrdinaryCommandCapability:
+                this.owners.eventStore.qualifiesOrdinaryCommandCapability.bind(
+                  this.owners.eventStore,
+                ),
               admitOrdinaryLocalCommand: this.owners.eventStore.admitOrdinaryLocalCommand.bind(
                 this.owners.eventStore,
               ),
@@ -1404,6 +1408,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
         enabled: this.owners.enabled,
         store: {
+          qualifiesOrdinaryCommandCapability:
+            this.owners.eventStore.qualifiesOrdinaryCommandCapability.bind(this.owners.eventStore),
           admitOrdinaryLocalContinuation: (...args) => {
             assertAdmissionCurrent();
             const primary = admission.currentPreparedRepositoryPrimaryCommandId();

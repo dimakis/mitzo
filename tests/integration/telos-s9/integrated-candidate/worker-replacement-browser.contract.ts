@@ -1,3 +1,4 @@
+import { actToReviewedRoleSetup, actToRoleSetupDraft } from './joined-role-setup-ready';
 import { it, expect } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
@@ -40,17 +41,24 @@ it('keeps an additional worker distinct from explicit replacement and retains th
   const workerRow = (label: string) =>
     page.locator('.telos-chat-row').filter({ has: page.getByText(label, { exact: true }) });
   const chooserRows: Array<Record<string, unknown>> = [];
-  const configure = async (label: string) => {
-    await browserExpect(
-      page.getByRole('region', { name: 'Work conversation setup', exact: true }),
-    ).toBeVisible();
-    await openChatSetting(page, 'execution');
-    await page.getByRole('button', { name: 'Local Mac', exact: true }).click();
-    await chooseSetting(page, 'Account', 'ordinary-personal');
-    await chooseSetting(page, 'Model', 'fixture-model');
-    await chooseSetting(page, 'Thinking level', 'low');
-    await chooseAgent(page, JSON.stringify(['saved', 'ordinary-worker', 1]));
-    await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const configure = async (label: string, openSetup: () => Promise<unknown>) => {
+    await actToReviewedRoleSetup(
+      page,
+      { origin: front.origin, itemId: 'recording-slice', role: 'worker' },
+      async () => {
+        await actToRoleSetupDraft(page, front.origin, openSetup);
+        await browserExpect(
+          page.getByRole('region', { name: 'Work conversation setup', exact: true }),
+        ).toBeVisible();
+        await openChatSetting(page, 'execution');
+        await page.getByRole('button', { name: 'Local Mac', exact: true }).click();
+        await chooseSetting(page, 'Account', 'ordinary-personal');
+        await chooseSetting(page, 'Model', 'fixture-model');
+        await chooseSetting(page, 'Thinking level', 'low');
+        await chooseAgent(page, JSON.stringify(['saved', 'ordinary-worker', 1]));
+        await page.getByRole('button', { name: 'Done', exact: true }).click();
+      },
+    );
     await browserExpect(page.getByRole('button', { name: label, exact: true })).toBeEnabled();
     await capture(
       label === 'Start chat'
@@ -212,8 +220,9 @@ it('keeps an additional worker distinct from explicit replacement and retains th
     await browserExpect(
       page.getByRole('heading', { name: 'Chats · 1', exact: true }),
     ).toBeVisible();
-    await page.getByRole('button', { name: 'New chat', exact: true }).click();
-    const additional = await configure('Start chat');
+    const additional = await configure('Start chat', () =>
+      page.getByRole('button', { name: 'New chat', exact: true }).click(),
+    );
     expect(additional.submitted.input.role).toBe('worker');
     expect(additional.submitted.input.expectedAssignmentRevision).toBeNull();
     const afterAdditional = await api.read('recording-slice');
@@ -227,8 +236,9 @@ it('keeps an additional worker distinct from explicit replacement and retains th
     await browserExpect(workerRow('Assigned worker')).toHaveCount(1);
     await browserExpect(workerRow('Additional worker')).toHaveCount(1);
     await capture('additional-worker-does-not-replace-current');
-    await page.getByRole('button', { name: 'Change worker', exact: true }).click();
-    const replacement = await configure('Assign worker & open chat');
+    const replacement = await configure('Assign worker & open chat', () =>
+      page.getByRole('button', { name: 'Change worker', exact: true }).click(),
+    );
     expect(replacement.submitted.input.role).toBe('worker');
     expect(replacement.submitted.input.expectedAssignmentRevision).toBe(1);
     await fillDraft('Keep the explicitly assigned replacement draft.');

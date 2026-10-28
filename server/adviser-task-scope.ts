@@ -8,6 +8,10 @@ const Snapshot = z.strictObject({
   feature: z.discriminatedUnion('kind', [
     z.strictObject({ kind: z.literal('terminal'), terminalId: z.string().min(1).max(200) }),
     z.strictObject({ kind: z.literal('agent-library') }),
+    z.strictObject({
+      kind: z.literal('github-publication'),
+      operationId: z.string().min(1).max(200),
+    }),
     z.strictObject({ kind: z.literal('paid-reasoning'), phaseId: z.string().min(1).max(200) }),
   ]),
   accountId: z.string().min(1).max(200),
@@ -39,7 +43,8 @@ export class AdviserTaskScope {
     this.#snapshot = Snapshot.parse(structuredClone(input));
     if (
       this.#snapshot.messages.at(-1)?.role !== 'user' ||
-      JSON.stringify(this.#snapshot).length > 500000
+      JSON.stringify(this.#snapshot).length >
+        (this.#snapshot.feature.kind === 'github-publication' ? 1000000 : 500000)
     )
       throw Error('Reviewed adviser context exceeds its scope');
     this.contextSha256 = createHash('sha256').update(JSON.stringify(this.#snapshot)).digest('hex');

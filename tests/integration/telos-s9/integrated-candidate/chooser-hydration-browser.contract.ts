@@ -1,4 +1,6 @@
-import { expect, it } from 'vitest';
+import { TelosWorkItemSchema, TelosWorkViewSchema } from '@mitzo/protocol';
+import { observeTaskChatReads } from './task-chat-read-observer';
+import { expect, it, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
@@ -83,7 +85,29 @@ it('keeps an interactive chooser disclosure and keyboard focus while canonical c
     }
     await route.continue();
   });
-  await page.goto(front.origin + '/todos/studio?view=Chat');
+  // The held collection is the experiment. Readiness comes only from this
+  // navigation's own canonical work and record reads for the displayed item.
+  const chooserReads = observeTaskChatReads(page);
+  const chooserBoundary = chooserReads.boundary();
+  try {
+    await page.goto(front.origin + '/todos/studio?view=Chat');
+    await vi.waitFor(
+      () => {
+        const reads = chooserReads.since(chooserBoundary);
+        const work = reads.find(
+          (read) => read.path === '/api/telos/work/items/studio' && read.status === 200,
+        );
+        const record = reads.find(
+          (read) => read.path === '/api/telos/work/items/studio/record' && read.status === 200,
+        );
+        expect(TelosWorkViewSchema.parse(work?.body).itemId).toBe('studio');
+        expect(TelosWorkItemSchema.parse(record?.body).itemId).toBe('studio');
+      },
+      { timeout: 10_000 },
+    );
+  } finally {
+    chooserReads.close();
+  }
   await browserExpect(page.getByRole('heading', { name: 'Chats · 2', exact: true })).toBeVisible();
   const row = page.getByRole('button', { name: 'Open Assigned lead: Hydration lead', exact: true });
   await browserExpect(row.locator('time')).toBeVisible();

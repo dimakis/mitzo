@@ -1,4 +1,8 @@
 import { safeGithubSeedFailure } from '../../github-seeded-source.js';
+import {
+  consumeGithubPublicationNotDispatched,
+  safeGithubPublicationReviewFailure,
+} from '../../github-publication-review-failure.js';
 import { trackCapabilityOperation } from '../../capability-operation-owner.js';
 import { createHash } from 'node:crypto';
 import type { CapabilityTemplate, JsonValue } from '../types.js';
@@ -21,7 +25,9 @@ const MAX_RESULT_BYTES = 32 * 1024;
 function failCode(error: unknown): string {
   return error instanceof Error && error.name === 'AbortError'
     ? 'CANCELLED'
-    : (safeGithubSeedFailure(error)?.code ?? 'EXECUTION_FAILED');
+    : (safeGithubPublicationReviewFailure(error)?.code ??
+        safeGithubSeedFailure(error)?.code ??
+        'EXECUTION_FAILED');
 }
 function redactionTokens(values: readonly string[]): { long: string[]; short: string[] } {
   // Exact request values are secrets for this purpose. De-duplicate and sort
@@ -549,15 +555,21 @@ export class CapabilityService {
       });
     } catch (error) {
       const current = this.options.store.get(operation.id);
+      const notDispatched = consumeGithubPublicationNotDispatched(error);
       if (
         !current ||
-        current.status === 'verification_pending' ||
-        (current.status !== 'pending_approval' && current.status !== 'running')
+        (current.status === 'verification_pending' && !notDispatched) ||
+        (current.status !== 'pending_approval' &&
+          current.status !== 'running' &&
+          current.status !== 'verification_pending')
       )
         return current ?? operation;
       const status = failCode(error) === 'CANCELLED' ? 'cancelled' : 'failed';
       return this.options.store.transition(operation.id, current.status, status, {
         failureCode: failCode(error),
+        ...(safeGithubPublicationReviewFailure(error)
+          ? { result: { review: safeGithubPublicationReviewFailure(error)! } }
+          : {}),
       });
     } finally {
       this.inFlight.delete(operation.id);

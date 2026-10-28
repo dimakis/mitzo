@@ -2,7 +2,16 @@ import { afterEach, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -38,11 +47,15 @@ async function fixture() {
   const commonAnchor = { rootPath: join(source, '.git'), identity: await id(join(source, '.git')) };
   const taskRoot = { rootPath: tasks, identity: await id(tasks) },
     scratchAnchor = { rootPath: scratch, identity: await id(scratch) };
-  const tree = async (name: string, contents: Record<string, string>) => {
+  const tree = async (
+    name: string,
+    contents: Record<string, string>,
+    emptyDirectories: string[] = [],
+  ) => {
     const directory = join(scratch, name);
     await mkdir(directory);
     const entries: NativeExclusiveTreeEntry[] = [],
-      directories = new Set<string>();
+      directories = new Set<string>(emptyDirectories);
     for (const path of Object.keys(contents)) {
       const parts = path.split('/');
       for (let count = 1; count < parts.length; count++)
@@ -96,12 +109,16 @@ async function fixture() {
     metadata: [],
     deniedRoots: [],
     tree: await tree('checkout', { 'code.txt': 'tracked content' }),
-    standaloneGit: await tree('git', {
-      HEAD: `ref: refs/heads/mitzo/repo-${workspaceId}\n`,
-      config: privateRepositoryCheckoutConfig('sha1').replace('bare = true', 'bare = false'),
-      [`refs/heads/mitzo/repo-${workspaceId}`]: baseOid + '\n',
-      ['objects/aa/' + 'a'.repeat(38)]: 'opaque object',
-    }),
+    standaloneGit: await tree(
+      'git',
+      {
+        HEAD: `ref: refs/heads/mitzo/repo-${workspaceId}\n`,
+        config: privateRepositoryCheckoutConfig('sha1').replace('bare = true', 'bare = false'),
+        [`refs/heads/mitzo/repo-${workspaceId}`]: baseOid + '\n',
+        ['objects/aa/' + 'a'.repeat(38)]: 'opaque object',
+      },
+      ['logs', 'logs/refs', 'logs/refs/heads', 'logs/refs/heads/mitzo'],
+    ),
   };
   return { root, plan, task: join(tasks, `repo-${workspaceId}`), source };
 }
@@ -127,10 +144,65 @@ it('publishes independent Git administration with no source effects through the 
   ]);
   expect(await readFile(join(f.task, 'code.txt'), 'utf8')).toBe('tracked content');
   expect(await readFile(join(f.task, '.git', 'HEAD'), 'utf8')).toContain(f.plan.workspaceId);
+  expect((await lstat(join(f.task, '.git', 'logs', 'refs', 'heads', 'mitzo'))).isDirectory()).toBe(
+    true,
+  );
   await expect(lstat(join(f.source, '.git', 'worktrees'))).rejects.toMatchObject({
     code: 'ENOENT',
   });
 });
+it.each(['missing', 'symlink', 'file', 'log-entry'] as const)(
+  'refuses invalid reflog metadata (%s) before publishing any task files',
+  async (change) => {
+    const f = await fixture();
+    const git = f.plan.standaloneGit!;
+    const logs = join(git.payload.file_path, 'logs');
+    const outside = join(f.root, 'outside');
+    await mkdir(outside);
+    await writeFile(join(outside, 'canary'), 'Preserve external metadata');
+    let plan = f.plan;
+    if (change === 'missing')
+      plan = {
+        ...plan,
+        standaloneGit: {
+          ...git,
+          entries: git.entries.filter((entry) => !entry.path.startsWith('logs')),
+        },
+      };
+    else if (change === 'log-entry')
+      plan = {
+        ...plan,
+        standaloneGit: {
+          ...git,
+          entries: [
+            ...git.entries,
+            { ...git.entries.find((entry) => entry.path === 'HEAD')!, path: 'logs/HEAD' },
+          ],
+        },
+      };
+    else {
+      await rm(logs, { recursive: true });
+      if (change === 'symlink') await symlink(outside, logs);
+      else await writeFile(logs, 'Not a directory');
+    }
+    await expect(
+      publishNativePreparedRepository(
+        plan,
+        new AbortController().signal,
+        15000,
+        async (invocation) => {
+          const result = await execute('/bin/sh', ['-c', invocation.command], {
+            signal: invocation.signal,
+            maxBuffer: invocation.maxOutputBytes,
+          });
+          return { stdout: result.stdout, isError: false };
+        },
+      ),
+    ).rejects.toThrow();
+    await expect(lstat(f.task)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(join(outside, 'canary'), 'utf8')).toBe('Preserve external metadata');
+  },
+);
 it('refuses occupied destinations and executable/private Git metadata before any task effects', async () => {
   const f = await fixture();
   const launch = async (invocation: {

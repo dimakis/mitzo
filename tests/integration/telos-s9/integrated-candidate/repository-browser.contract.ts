@@ -1,3 +1,5 @@
+import { waitForPreparedConversation } from './joined-conversation-ready';
+import { navigateToChatMetadata, observeTaskChatReads } from './task-chat-read-observer';
 import { prepareNativeProviderToolCall } from '../../../../server/__tests__/fixtures/native-provider-tool-call.js';
 import { navigateToReviewedRoleSetup } from './joined-role-setup-ready';
 import { afterAll, afterEach, expect, it as platformTest, vi } from 'vitest';
@@ -845,6 +847,7 @@ it('CT06/17/18 repository counterpart: actual advisor, lead and worker pages ret
   expect(workerContext!.sources).toEqual([originalSource]);
   expect(workerContext!.artifacts).toContainEqual(material);
   await page.goto(front.origin + '/chat/' + workerId);
+  await waitForPreparedConversation(page, browserNetwork, workerId);
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
   await page
     .getByRole('textbox', { name: 'Message Mitzo' })
@@ -1003,7 +1006,14 @@ it('CT06/17/18 repository counterpart: actual advisor, lead and worker pages ret
   expect(items.read(childId).status).toBe('active');
   // Fake operator explicitly reads/verifies retained bytes before approving.
   expect(canonical.artifacts.read(output.id, output.revision).bytes.toString()).toBe(report);
-  await page.goto(front.origin + '/tasks?highlight=' + taskId);
+  const taskReads = observeTaskChatReads(page);
+  const taskBoundary = taskReads.boundary();
+  try {
+    await page.goto(front.origin + '/tasks?highlight=' + taskId);
+    await taskReads.waitForTask(taskId, taskBoundary);
+  } finally {
+    taskReads.close();
+  }
   await browserExpect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
   if (process.env.S9_JOINED_SCREENSHOT_DIR)
     await page.screenshot({
@@ -1040,7 +1050,7 @@ it('CT06/17/18 repository counterpart: actual advisor, lead and worker pages ret
   // Reconnect through the actual page/SSE owner, not a synthetic replacement.
   const workerClientId = worker.clientId;
   const beforeReattachTurns = workerTurnStarts();
-  await page.goto(front.origin + '/chat/' + workerId);
+  await navigateToChatMetadata(page, front.origin + '/chat/' + workerId, workerId);
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
   await vi.waitFor(() => expect(chat.registry.isAttached(workerClientId)).toBe(true));
   expect(chat.registry.findBySessionId(workerId)?.clientId).toBe(workerClientId);

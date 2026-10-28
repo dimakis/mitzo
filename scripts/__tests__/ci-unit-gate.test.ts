@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import {
   copyFileSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -8,9 +9,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { load } from 'js-yaml';
+import { preparedConsumerCases } from '../ci-prepared-consumers.mjs';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const script = fileURLToPath(new URL('../ci-unit-gate.mjs', import.meta.url));
@@ -20,6 +22,7 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'ci-unit-gate-'));
   roots.push(root);
   const files = [1, 2, 3, 4].map((shard) => ({ file: `/checkout/test-${shard}.test.ts` }));
+  const transferred = preparedConsumerCases.map((c) => ({ file: '/checkout/' + c.file }));
   const reports = files.map(({ file }) => ({
     success: true,
     numPassedTests: 100,
@@ -34,7 +37,10 @@ function fixture() {
   function write() {
     reports.forEach((report, index) => {
       writeFileSync(join(root, `report-${index + 1}.json`), JSON.stringify(report));
-      writeFileSync(join(root, `files-${index + 1}.json`), JSON.stringify(files));
+      writeFileSync(
+        join(root, `files-${index + 1}.json`),
+        JSON.stringify([...files, ...transferred]),
+      );
     });
   }
   function run() {
@@ -44,7 +50,7 @@ function fixture() {
     });
   }
   write();
-  return { root, files, reports, needs, write, run };
+  return { root, files, reports, needs, write, run, transferred };
 }
 
 describe('required core CI gate', () => {
@@ -110,13 +116,21 @@ describe('required core CI gate', () => {
     );
     writeFileSync(
       join(f.root, 'vitest.config.mjs'),
-      "export default { test: { include: ['*.test.js'] } };\n",
+      `import Sequencer from ${JSON.stringify(new URL('../ci-unit-sequencer.ts', import.meta.url).href)};
+export default {test:{include:['**/*.test.js','**/*.test.ts'],sequence:{sequencer:Sequencer}}};`,
     );
     for (let file = 1; file <= 4; file++)
       writeFileSync(
         join(f.root, `test-${file}.test.js`),
         "import { test, expect } from 'vitest'; for (let i=0; i<70; i++) test('case '+i, () => expect(i).toBe(i));\n",
       );
+    for (const c of preparedConsumerCases) {
+      mkdirSync(dirname(join(f.root, c.file)), { recursive: true });
+      writeFileSync(
+        join(f.root, c.file),
+        "import {test} from 'vitest';test('dedicated owner',()=>{throw Error('must never run in Linux shards')});",
+      );
+    }
     writeFileSync(
       join(f.root, 'skipped.test.js'),
       "import { test } from 'vitest'; test.skip('intentional skip', () => {});\n",
@@ -125,7 +139,11 @@ describe('required core CI gate', () => {
       const result = spawnSync(process.execPath, [vitest, ...args, '--maxWorkers=1'], {
         cwd: f.root,
         encoding: 'utf8',
-        env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=1024' },
+        env: {
+          ...process.env,
+          NODE_OPTIONS: '--max-old-space-size=1024',
+          MITZO_CI_PREPARED_CONSUMERS: '1',
+        },
       });
       expect(result.status, result.stdout + result.stderr).toBe(0);
     }
@@ -179,4 +197,16 @@ it('runs four complete unit shards independently of static/build validation', ()
       (step) => step.run === 'node scripts/ci-unit-gate.mjs unit-results',
     ),
   ).toBe(true);
+});
+
+it('rejects missing transferred discovery and any duplicate execution in Linux', () => {
+  const f = fixture();
+  f.reports[0].testResults.push({ name: f.transferred[0].file, status: 'passed' });
+  f.write();
+  expect(f.run().status).toBe(1);
+  f.reports[0].testResults.pop();
+  f.write();
+  for (let i = 1; i <= 4; i++)
+    writeFileSync(join(f.root, `files-${i}.json`), JSON.stringify(f.files));
+  expect(f.run().status).toBe(1);
 });

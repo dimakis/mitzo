@@ -211,6 +211,28 @@ describe('deferred Gemini durable compatibility', () => {
     );
     expect(opts.executeTool).not.toHaveBeenCalled();
   });
+  it('captures the active provider inference selection only during its original tool turn', async () => {
+    fetchMock.mockResolvedValueOnce(response(1)).mockResolvedValueOnce(response());
+    const opts = { ...options(), reasoningEffort: 'low' };
+    const runner = new NativeResponsesRunner(opts);
+    expect(() => runner.captureInferenceSelection()).toThrow();
+    let captured: ReturnType<typeof runner.captureInferenceSelection> | undefined;
+    opts.executeTool.mockImplementation(async (block) => {
+      captured = runner.captureInferenceSelection();
+      expect(Object.isFrozen(captured)).toBe(true);
+      expect(captured).toMatchObject({ model: binding.model, reasoningEffort: 'low' });
+      expect(() => captured!.assertCurrentSync()).not.toThrow();
+      return { type: 'tool_result', tool_use_id: block.id, content: 'done' };
+    });
+    await collect(runner.run('publish'));
+    expect(captured).toBeDefined();
+    expect(() => captured!.assertCurrentSync()).toThrow();
+    expect(() => runner.captureInferenceSelection()).toThrow();
+    expect(runner.currentInferenceSelection()).toEqual({
+      model: binding.model,
+      reasoningEffort: 'low',
+    });
+  });
   it('runs and resumes Gemini tool turns with the same durable native tool loop', async () => {
     const googleBinding = { ...binding, provider: 'google-vertex', model: 'gemini-3.8-flash' };
     let turn = 0;

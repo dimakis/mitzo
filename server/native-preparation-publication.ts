@@ -343,6 +343,7 @@ function projectStandalonePlan(input: unknown): Readonly<NativePreparationPublic
     ],
   ]);
   if (shallow) expected.set('shallow', shallow);
+  const reflogDirectories = ['logs', 'logs/refs', 'logs/refs/heads', 'logs/refs/heads/mitzo'];
   const allowedDirectory = (name: string) =>
     [
       'refs',
@@ -352,6 +353,7 @@ function projectStandalonePlan(input: unknown): Readonly<NativePreparationPublic
       'objects/pack',
       'objects/info',
       'info',
+      ...reflogDirectories,
     ].includes(name) || /^objects\/[a-f0-9]{2}$/.test(name);
   for (const entry of standaloneGit.entries) {
     if (
@@ -376,7 +378,13 @@ function projectStandalonePlan(input: unknown): Readonly<NativePreparationPublic
       throw unavailable();
   }
   if (
-    [...expected.keys()].some((name) => !standaloneGit.entries.some((entry) => entry.path === name))
+    [...expected.keys()].some(
+      (name) => !standaloneGit.entries.some((entry) => entry.path === name),
+    ) ||
+    reflogDirectories.some(
+      (name) =>
+        !standaloneGit.entries.some((entry) => entry.path === name && entry.mode === '040000'),
+    )
   )
     throw unavailable();
   const plan: NativePreparationPublicationPlan = Object.freeze({

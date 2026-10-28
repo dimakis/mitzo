@@ -1,3 +1,4 @@
+import { actToReviewedRoleSetup, actToRoleSetupDraft } from './joined-role-setup-ready';
 import { it, expect } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { createHash } from 'node:crypto';
@@ -89,16 +90,24 @@ it('refuses an actual UI-reviewed role material selection when retained r1 is pa
     await capture('actual-r2-before-role-material-refusal');
 
     await page.goto(front.origin + '/todos/recording-slice');
-    await workspace.getByRole('button', { name: 'Refine item', exact: true }).click();
     const setup = page.getByRole('region', { name: 'Work conversation setup', exact: true });
-    await browserExpect(setup).toBeVisible();
-    await openChatSetting(page, 'execution');
-    await page.getByRole('button', { name: 'Local Mac', exact: true }).click();
-    await chooseSetting(page, 'Account', 'ordinary-personal');
-    await chooseSetting(page, 'Model', 'fixture-model');
-    await chooseSetting(page, 'Thinking level', 'low');
-    await chooseAgent(page, JSON.stringify(['saved', 'ordinary-worker', 1]));
-    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await actToReviewedRoleSetup(
+      page,
+      { origin: front.origin, itemId: 'recording-slice', role: 'advisor' },
+      async () => {
+        await actToRoleSetupDraft(page, front.origin, () =>
+          workspace.getByRole('button', { name: 'Refine item', exact: true }).click(),
+        );
+        await browserExpect(setup).toBeVisible();
+        await openChatSetting(page, 'execution');
+        await page.getByRole('button', { name: 'Local Mac', exact: true }).click();
+        await chooseSetting(page, 'Account', 'ordinary-personal');
+        await chooseSetting(page, 'Model', 'fixture-model');
+        await chooseSetting(page, 'Thinking level', 'low');
+        await chooseAgent(page, JSON.stringify(['saved', 'ordinary-worker', 1]));
+        await page.getByRole('button', { name: 'Done', exact: true }).click();
+      },
+    );
     await browserExpect(
       setup.getByRole('button', { name: 'Start chat', exact: true }),
     ).toBeEnabled();

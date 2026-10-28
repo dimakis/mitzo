@@ -239,6 +239,9 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
         errorOnExist: true,
       });
       await mkdir(join(git, 'refs', 'heads', 'mitzo'), { recursive: true });
+      // The trusted commit executor requires the complete real reflog parent
+      // chain. Publish it with the freshly owned metadata, before task adoption.
+      await mkdir(join(git, 'logs', 'refs', 'heads', 'mitzo'), { recursive: true });
       await mkdir(join(git, 'info'), { recursive: true });
       await writeFile(join(git, 'HEAD'), `ref: refs/heads/${facts.featureBranch}\n`, {
         flag: 'wx',

@@ -11,6 +11,10 @@ import { capabilityApprovalPayload } from '../connections/capabilities/approval.
 import { canonicalJson } from '../connections/capabilities/input-validation.js';
 import { createHash } from 'node:crypto';
 import type { CapabilityExecutor } from '../connections/capabilities/types.js';
+import {
+  GithubPublicationReviewError,
+  markGithubPublicationNotDispatched,
+} from '../github-publication-review-failure.js';
 
 const template: CapabilityTemplate = {
   id: 'test.mutate',
@@ -126,6 +130,37 @@ function request(overrides: Record<string, unknown> = {}) {
 }
 
 describe('CapabilityService', () => {
+  it.each([true, false])(
+    'retains uncertainty unless the publication executor proves no dispatch (%s)',
+    async (proved) => {
+      const f = await fixture();
+      const error = new GithubPublicationReviewError('PUBLICATION_REVIEW_CHANGED');
+      f.execute.mockRejectedValue(proved ? markGithubPublicationNotDispatched(error) : error);
+      const operation = await f.service.invoke(request(), new AbortController().signal);
+      expect(operation.status).toBe(proved ? 'failed' : 'verification_pending');
+      if (proved) expect(operation.failureCode).toBe('PUBLICATION_REVIEW_CHANGED');
+      expect(f.recover).not.toHaveBeenCalled();
+    },
+  );
+  it('returns trusted review findings before approval without dispatching a publication', async () => {
+    const details = {
+      findings: [{ severity: 'high', path: 'changed.ts', message: 'Missing guard' }],
+    };
+    const f = await fixture({
+      preflight: async () => {
+        throw new GithubPublicationReviewError('PUBLICATION_REVIEW_BLOCKED', details);
+      },
+    });
+    const operation = await f.service.invoke(request(), new AbortController().signal);
+    expect(operation).toMatchObject({
+      status: 'failed',
+      failureCode: 'PUBLICATION_REVIEW_BLOCKED',
+      result: { review: { code: 'PUBLICATION_REVIEW_BLOCKED', details } },
+    });
+    expect(f.approve).not.toHaveBeenCalled();
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.store.get(operation.id)?.result).toEqual(operation.result);
+  });
   it('persists the executor preflight projection and recovery intent before approval', async () => {
     const approvalInput = {
       repository: 'acme/widget',

@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { selectCiJobs } from '../ci-selection.mjs';
 
 it.each(['AGENTS.md', 'CLAUDE.md', 'skills/land-pr/SKILL.md', '.cursor/rules/ci-discipline.mdc'])(
-  'keeps core CI for policy prose without unrelated browser/native builds: %s',
+  'selects composed authority coverage without unrelated browser/native builds: %s',
   (filename) => {
     expect(selectCiJobs({ eventName: 'pull_request', files: [{ filename }] })).toEqual({
       browser: false,
       native: false,
+      prepared: true,
     });
   },
 );
@@ -17,7 +18,7 @@ it('retains dependent coverage when a rename crosses the prose boundary', () => 
       eventName: 'pull_request',
       files: [{ filename: 'skills/land-pr/SKILL.md', previous_filename: 'frontend/src/api.ts' }],
     }),
-  ).toEqual({ browser: true, native: false });
+  ).toEqual({ browser: true, native: false, prepared: true });
 });
 
 describe('CI job selection', () => {
@@ -28,7 +29,7 @@ describe('CI job selection', () => {
       { eventName: 'pull_request', files: [{ filename: 'future/build.config' }] },
       { eventName: 'pull_request', files: [{ filename: 'README.md' }], complete: false },
     ]) {
-      expect(selectCiJobs(input)).toEqual({ browser: true, native: true });
+      expect(selectCiJobs(input)).toEqual({ browser: true, native: true, prepared: true });
     }
   });
 
@@ -50,6 +51,7 @@ describe('CI job selection', () => {
     expect(selectCiJobs({ eventName: 'pull_request', files: [{ filename }] })).toEqual({
       browser,
       native,
+      prepared: browser,
     });
   });
 
@@ -62,6 +64,15 @@ describe('CI job selection', () => {
           { filename: 'tests/browser/removed.spec.ts', status: 'removed' },
         ],
       }),
-    ).toEqual({ browser: true, native: true });
+    ).toEqual({ browser: true, native: true, prepared: true });
   });
+});
+
+it('fails closed on malformed diff entries rather than omitting the composed owner', () => {
+  for (const filename of ['', undefined])
+    expect(selectCiJobs({ eventName: 'pull_request', files: [{ filename }] })).toEqual({
+      browser: true,
+      native: true,
+      prepared: true,
+    });
 });

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute, resolve, sep } from 'node:path';
 import {
   openTelosOwnedDatabase,
@@ -342,6 +343,11 @@ const SCHEMA = `
     UNIQUE(command_id,transition_id)
   );
 
+  CREATE TABLE IF NOT EXISTS ordinary_post_adoption_wire_admissions (
+    command_id TEXT PRIMARY KEY, evidence TEXT NOT NULL,
+    execution_admission TEXT NOT NULL, payload_fingerprint TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS client_command_claims (
     client_msg_id TEXT PRIMARY KEY,
     request_fingerprint TEXT NOT NULL
@@ -409,7 +415,34 @@ const SCHEMA = `
   );
 `;
 
+const PreparedRepositoryWireTargetSchema = z.strictObject({
+  kind: z.literal('post-adoption-explicit-v1'),
+  sessionId: z.string().min(1).max(200).regex(/^\S+$/),
+  primaryCommandId: z.string().min(1).max(200).regex(/^\S+$/),
+  requestedWorkspace: OrdinaryLocalCommandAdmissionSchema.shape.workspace,
+  executionWorkspace: OrdinaryLocalCommandAdmissionSchema.shape.workspace,
+  binding: OrdinaryLocalCommandAdmissionSchema.shape.binding,
+  agent: OrdinaryLocalCommandAdmissionSchema.shape.selection.shape.agent,
+  context: OrdinaryLocalCommandAdmissionSchema.shape.selection.shape.context,
+  permission: OrdinaryLocalCommandAdmissionSchema.shape.selection.shape.permission,
+  lineageFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+});
+type PreparedRepositoryWireTarget = z.infer<typeof PreparedRepositoryWireTargetSchema>;
+const OrdinaryCommandWireScopeSchema = z.strictObject({
+  sessionId: z.string().min(1).max(200).regex(/^\S+$/),
+  commandId: z.string().min(1).max(200).regex(/^\S+$/),
+  wireFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  bridge: PreparedRepositoryWireTargetSchema.optional(),
+  historicalCapabilityRevision: z.string().min(1).max(200).regex(/^\S+$/).optional(),
+});
+type OrdinaryCommandWireScope = z.infer<typeof OrdinaryCommandWireScopeSchema>;
+
 export class EventStore {
+  private readonly ordinaryWireAdmission = new AsyncLocalStorage<{
+    scope: OrdinaryCommandWireScope;
+    assertCurrentSync: () => void;
+    used: boolean;
+  }>();
   private db: Database.Database | null;
   private readonly sessionOutputs: SessionOutputReferenceStore;
   private readonly sessionCollaborations: SessionCollaborationStore;
@@ -1689,6 +1722,165 @@ export class EventStore {
     return this.admitOrdinaryContinuation(meta, binding, input, 'local', primaryCommandId);
   }
 
+  /** Private current-primary identity for a newly submitted stale-view command.
+   * This is distinct from the insertion-ordered held-command history. */
+  preparedRepositoryWireTarget(
+    sessionId: string,
+    requestedWorkspaceId: string,
+    primaryCommandId: string,
+  ) {
+    const target = this.readPreparedRepositoryWireTarget(
+      sessionId,
+      requestedWorkspaceId,
+      primaryCommandId,
+    );
+    const session = this.getSession(sessionId);
+    if (
+      !session ||
+      session.repositoryWorkspaceId !== target.executionWorkspace.workspaceId ||
+      session.ordinaryWorkspaceId != null ||
+      session.cwd !== target.executionWorkspace.cwd ||
+      !isDeepStrictEqual(this.getSessionRuntimeBinding(sessionId), target.binding)
+    )
+      throw Error('Post-adoption wire target is not current');
+    return target;
+  }
+
+  private readPreparedRepositoryWireTarget(
+    sessionId: string,
+    requestedWorkspaceId: string,
+    primaryCommandId: string,
+  ): PreparedRepositoryWireTarget {
+    const primary = this.readPreparedRepositoryTransition(primaryCommandId);
+    if (
+      primary.state !== 'consumed' ||
+      this.getSendCommand(primaryCommandId)?.sessionId !== sessionId
+    )
+      throw Error('Committed post-adoption primary required');
+    const transitions: PreparedRepositoryTransition[] = [];
+    let current = primaryCommandId;
+    let requested: PreparedRepositoryTransition['oldWorkspace'] | undefined;
+    for (let depth = 0; depth < 100; depth++) {
+      const admission = this.readPreparedRepositoryTransition(current);
+      const transition = admission.preparedRepositoryTransition!;
+      if (admission.state !== 'consumed' || this.getSendCommand(current)?.sessionId !== sessionId)
+        throw Error('Post-adoption wire ancestry changed');
+      transitions.push(transition);
+      if (
+        transition.oldWorkspace.kind === 'repository' &&
+        transition.oldWorkspace.id === requestedWorkspaceId
+      )
+        requested = transition.oldWorkspace;
+      if (!transition.priorPrimaryCommandId) {
+        this.observePreparedRepositoryBootstrapAdmission(
+          primaryCommandId,
+          transition.source.commandId,
+        );
+        if (!requested || primary.workspace.workspaceId === requestedWorkspaceId)
+          throw Error('Post-adoption wire workspace is not an ancestor');
+        return PreparedRepositoryWireTargetSchema.parse({
+          kind: 'post-adoption-explicit-v1',
+          sessionId,
+          primaryCommandId,
+          requestedWorkspace: { workspaceId: requested.id, cwd: requested.directory },
+          executionWorkspace: primary.workspace,
+          binding: primary.binding,
+          agent: primary.selection.agent,
+          context: primary.selection.context,
+          permission: primary.selection.permission,
+          lineageFingerprint: createHash('sha256')
+            .update(JSON.stringify(transitions))
+            .digest('hex'),
+        });
+      }
+      current = transition.priorPrimaryCommandId;
+    }
+    throw Error('Post-adoption wire ancestry exceeds bound');
+  }
+
+  /** Server composition only. The wire never supplies this callback/context.
+   * One exact continuation can consume it once; it cannot authorize nested work. */
+  withOrdinaryCommandWireAdmission<T>(
+    scope: OrdinaryCommandWireScope,
+    assertCurrentSync: () => void,
+    action: () => Promise<T>,
+  ): Promise<T> {
+    const enclosing = this.ordinaryWireAdmission.getStore();
+    if (enclosing && (!enclosing.used || enclosing.scope.commandId === scope.commandId))
+      throw Error('Nested ordinary wire admission unavailable');
+    const frozen = OrdinaryCommandWireScopeSchema.parse(scope);
+    return this.ordinaryWireAdmission.run(
+      { scope: frozen, assertCurrentSync, used: false },
+      action,
+    );
+  }
+
+  /** Private HTTP admission context only; normal catalog choice checks still run. */
+  qualifiesOrdinaryCommandCapability(commandId: string, revision: string): boolean {
+    const wire = this.ordinaryWireAdmission.getStore();
+    if (
+      !wire ||
+      wire.used ||
+      !wire.scope.bridge ||
+      wire.scope.commandId !== commandId ||
+      wire.scope.historicalCapabilityRevision !== revision
+    )
+      return false;
+    const checked: unknown = wire.assertCurrentSync();
+    if (checked !== undefined) {
+      if (checked instanceof Promise) void checked.catch(() => {});
+      throw Error('Synchronous ordinary wire owner required');
+    }
+    return true;
+  }
+
+  /** Read-only exact-wire observation. It cannot create an admission bridge. */
+  observePostAdoptionWireAdmission(commandId: string, wireFingerprint: string) {
+    const row = this.db!.prepare(
+      'SELECT evidence,execution_admission,payload_fingerprint FROM ordinary_post_adoption_wire_admissions WHERE command_id=?',
+    ).get(commandId) as
+      { evidence: string; execution_admission: string; payload_fingerprint: string } | undefined;
+    if (!row) return undefined;
+    const evidence = OrdinaryCommandWireScopeSchema.parse(JSON.parse(row.evidence));
+    if (
+      !evidence.bridge ||
+      evidence.commandId !== commandId ||
+      evidence.wireFingerprint !== wireFingerprint
+    )
+      throw Error('Original post-adoption wire identity changed');
+    if (
+      !isDeepStrictEqual(
+        evidence.bridge,
+        this.readPreparedRepositoryWireTarget(
+          evidence.sessionId,
+          evidence.bridge.requestedWorkspace.workspaceId,
+          evidence.bridge.primaryCommandId,
+        ),
+      )
+    )
+      throw Error('Original post-adoption wire ancestry changed');
+    const send = this.getSendCommand(commandId);
+    const raw = this.db!.prepare(
+      'SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?',
+    ).get(commandId) as { ordinary_admission: string | null } | undefined;
+    const admission = OrdinaryLocalCommandAdmissionSchema.parse(
+      raw?.ordinary_admission ? JSON.parse(raw.ordinary_admission) : undefined,
+    );
+    const expected = OrdinaryLocalCommandAdmissionSchema.parse(JSON.parse(row.execution_admission));
+    if (
+      !send ||
+      send.error ||
+      send.sessionId !== evidence.sessionId ||
+      createHash('sha256').update(JSON.stringify(send.payload)).digest('hex') !==
+        row.payload_fingerprint ||
+      !isDeepStrictEqual({ ...admission, state: 'reserved' }, expected) ||
+      !isDeepStrictEqual(admission.workspace, evidence.bridge.executionWorkspace) ||
+      admission.preparedRepositoryPrimaryCommandId !== evidence.bridge.primaryCommandId
+    )
+      throw Error('Post-adoption execution admission changed');
+    return { ...evidence, executionAdmission: admission };
+  }
+
   /** Repository custody CAS has already succeeded. Commit metadata plus native
    * child admission together. Failure retains uncertainty and forbids replay. */
   commitPreparedRepositoryContinuation(
@@ -2005,6 +2197,59 @@ export class EventStore {
           meta.reasoningEffort !== admission.selection.thinking)
       )
         throw new Error('Ordinary continuation binding cannot be replaced or enrolled');
+      const enclosingWire = this.ordinaryWireAdmission.getStore();
+      if (enclosingWire?.used && enclosingWire.scope.commandId === input.clientMsgId)
+        throw Error('Ordinary wire admission already consumed');
+      const wire = enclosingWire?.used ? undefined : enclosingWire;
+      const priorWire = this.db!.prepare(
+        'SELECT evidence FROM ordinary_post_adoption_wire_admissions WHERE command_id=?',
+      ).get(input.clientMsgId) as { evidence: string } | undefined;
+      if (wire) {
+        if (wire.used) throw Error('Ordinary wire admission already consumed');
+        wire.used = true;
+        if (
+          wire.scope.commandId !== input.clientMsgId ||
+          wire.scope.sessionId !== meta.sessionId ||
+          location !== 'local'
+        )
+          throw Error('Ordinary wire admission command changed');
+        const checked: unknown = wire.assertCurrentSync();
+        if (checked !== undefined) {
+          if (checked instanceof Promise) void checked.catch(() => {});
+          throw Error('Synchronous ordinary wire owner required');
+        }
+        if (priorWire) {
+          const originalWire = OrdinaryCommandWireScopeSchema.parse(JSON.parse(priorWire.evidence));
+          if (
+            originalWire.commandId !== wire.scope.commandId ||
+            originalWire.sessionId !== wire.scope.sessionId ||
+            originalWire.wireFingerprint !== wire.scope.wireFingerprint ||
+            !isDeepStrictEqual(originalWire.bridge, wire.scope.bridge)
+          )
+            throw Error('Original ordinary command wire changed');
+        }
+        const bridge = wire.scope.bridge;
+        if (
+          bridge &&
+          (!isDeepStrictEqual(
+            bridge,
+            this.preparedRepositoryWireTarget(
+              meta.sessionId,
+              bridge.requestedWorkspace.workspaceId,
+              bridge.primaryCommandId,
+            ),
+          ) ||
+            preparedPrimaryCommandId !== bridge.primaryCommandId ||
+            !isDeepStrictEqual(admission.workspace, bridge.executionWorkspace) ||
+            !isDeepStrictEqual(admission.binding, bridge.binding) ||
+            !isDeepStrictEqual(admission.selection.agent, bridge.agent) ||
+            !isDeepStrictEqual(admission.selection.context, bridge.context) ||
+            !isDeepStrictEqual(admission.selection.permission, bridge.permission))
+        )
+          throw Error('Post-adoption wire owner changed before admission');
+        if (bridge && this.getSendCommand(input.clientMsgId) && !priorWire)
+          throw Error('Existing ordinary command cannot become a post-adoption wire admission');
+      }
       const existing = this.getSendCommand(input.clientMsgId);
       if (existing) {
         const previous = this.getOrdinaryCommandAdmission(input.clientMsgId);
@@ -2028,6 +2273,15 @@ export class EventStore {
         JSON.stringify(admission),
         input.clientMsgId,
       );
+      if (wire?.scope.bridge)
+        this.db!.prepare(
+          'INSERT INTO ordinary_post_adoption_wire_admissions(command_id,evidence,execution_admission,payload_fingerprint) VALUES (?,?,?,?)',
+        ).run(
+          input.clientMsgId,
+          JSON.stringify(wire.scope),
+          JSON.stringify(admission),
+          createHash('sha256').update(JSON.stringify(input.payload)).digest('hex'),
+        );
       return { duplicate: false, admission };
     }).immediate();
   }
