@@ -1,3 +1,4 @@
+import { initializeChatStorage } from '../../frontend/src/lib/large-chat-storage';
 import { useEffect, useState } from 'react';
 import { onKeyboardToggle } from '../../frontend/src/lib/keyboard';
 import { createRoot } from 'react-dom/client';
@@ -188,8 +189,10 @@ function Surface() {
     </>
   );
 }
-createRoot(document.getElementById('root')!).render(
-  <MemoryRouter initialEntries={['/chat']}>
-    <Surface />
-  </MemoryRouter>,
-);
+void initializeChatStorage().then(() => {
+  createRoot(document.getElementById('root')!).render(
+    <MemoryRouter initialEntries={['/chat']}>
+      <Surface />
+    </MemoryRouter>,
+  );
+});

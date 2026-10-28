@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../tests/fixtures/chat-settings-surface.tsx':
+    '2db96d2164acd3426af64c6a300391cfec41f0f6eb48007646dab19f71380ca2',
   '../../tests/support/chat-storage-bootstrap.ts':
     'e17a6d2b2a05a7be8029d3f929c212c6a69c7e6fdcf8ddd928d9529d5c9be41d',
   '../../tests/support/persisted-chat-storage.ts':
@@ -59,7 +61,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/device-continuity.spec.ts':
     'b07844c64f14c8ca84c9ae79888307e418781902b440acfbf1a3615c7b8db0e4',
   '../../tests/offline/chat-settings-surface.spec.ts':
-    '3698a084b0c02d147ae331a68a8152b1cf247d139d6d3651ace0f8a8f0c440c7',
+    '723801bf293794ea06ca3cff7a5fe9287bfc69e75982102464d269c4c0396d08',
   '../../tests/offline/chat-drafts-updates.spec.ts':
     '1c64216328f6259475fe1f7d67fc540b4a1e8ba4560f87b749f164c4b6547dcb',
   '../../tests/offline/briefing-owned-launch.spec.ts':
