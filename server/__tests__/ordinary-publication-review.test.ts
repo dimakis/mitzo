@@ -191,6 +191,106 @@ it('runs two independent tool-less reviews on complete committed text and pins t
   await expect(receipt.assertCurrent(f.input)).rejects.toThrow();
 });
 
+it('reviews the task delta from its pinned merge base while retaining the advanced base tip', async () => {
+  const f = await fixture();
+  const mergeBaseOid = f.git('rev-parse', 'refs/remotes/origin/main');
+  const deletedContent = f.git('show', `${mergeBaseOid}:route.ts`) + '\n';
+  f.git('rm', 'route.ts');
+  f.git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'remove task route');
+  const sourceOid = f.git('rev-parse', 'HEAD');
+  f.git('switch', '-q', 'main');
+  await writeFile(join(f.directory, 'change.ts'), 'export const answer = 99;\n');
+  await writeFile(join(f.directory, 'route.ts'), 'Main-only replacement route\n');
+  await writeFile(join(f.directory, 'main-only.txt'), 'Accepted main-only content\n');
+  f.git('add', '.');
+  f.git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'advance accepted main');
+  const baseOid = f.git('rev-parse', 'HEAD');
+  f.git('update-ref', 'refs/remotes/origin/main', baseOid);
+  f.git('switch', '-q', 'mitzo/task');
+  const input = { ...f.input, sourceOid };
+  const captured = await capturePublicationReviewEvidence(input);
+  expect(captured.packet).toMatchObject({ baseOid, mergeBaseOid, sourceOid });
+  expect(captured.packet.changedPaths).toEqual(['change.ts', 'route.ts']);
+  expect(captured.packet.diff).toContain('-export const answer = 1;');
+  expect(captured.packet.diff).not.toContain('answer = 99');
+  expect(captured.text).not.toContain('Accepted main-only content');
+  expect(captured.packet.contents).toContainEqual({
+    path: 'route.ts',
+    revision: 'merge-base',
+    content: deletedContent,
+  });
+  const receipt = await f.review(input);
+  expect(f.session).toHaveBeenCalledTimes(2);
+  f.git('update-ref', 'refs/remotes/origin/main', mergeBaseOid);
+  await expect(receipt.assertCurrent(input)).rejects.toThrow();
+});
+
+it('does not charge main-only files against the task changed-file or evidence bounds', async () => {
+  const f = await fixture();
+  const mergeBaseOid = f.git('rev-parse', 'refs/remotes/origin/main');
+  f.git('switch', '-q', 'main');
+  await Promise.all(
+    Array.from({ length: 65 }, (_, index) =>
+      writeFile(join(f.directory, `main-only-${index}.txt`), 'x'.repeat(13000)),
+    ),
+  );
+  f.git('add', '.');
+  f.git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'large independent main advance');
+  const baseOid = f.git('rev-parse', 'HEAD');
+  f.git('update-ref', 'refs/remotes/origin/main', baseOid);
+  f.git('switch', '-q', 'mitzo/task');
+  const captured = await capturePublicationReviewEvidence(f.input);
+  expect(captured.packet).toMatchObject({ baseOid, mergeBaseOid });
+  expect(captured.packet.changedPaths).toEqual(['change.ts']);
+  expect(captured.text).not.toContain('main-only-');
+  await expect(f.review(f.input)).resolves.toHaveProperty('evidenceSha256');
+});
+
+it.each(['unrelated', 'ambiguous'] as const)(
+  'refuses %s merge-base history before inference',
+  async (history) => {
+    const f = await fixture();
+    const rootOid = f.git('rev-parse', 'refs/remotes/origin/main');
+    const rootTree = f.git('rev-parse', `${rootOid}^{tree}`);
+    let sourceOid = f.input.sourceOid;
+    let baseOid: string;
+    if (history === 'unrelated')
+      baseOid = f.git('commit-tree', rootTree, '-m', 'unrelated accepted root');
+    else {
+      const other = f.git('commit-tree', rootTree, '-p', rootOid, '-m', 'other task');
+      const sourceTree = f.git('rev-parse', `${sourceOid}^{tree}`);
+      const originalSource = sourceOid;
+      sourceOid = f.git(
+        'commit-tree',
+        sourceTree,
+        '-p',
+        originalSource,
+        '-p',
+        other,
+        '-m',
+        'task merge',
+      );
+      baseOid = f.git(
+        'commit-tree',
+        rootTree,
+        '-p',
+        other,
+        '-p',
+        originalSource,
+        '-m',
+        'base merge',
+      );
+      f.git('update-ref', 'refs/heads/mitzo/task', sourceOid);
+    }
+    f.git('update-ref', 'refs/remotes/origin/main', baseOid);
+    await expect(f.review({ ...f.input, sourceOid })).rejects.toMatchObject({
+      code: 'PUBLICATION_REVIEW_UNAVAILABLE',
+      details: { reason: 'merge_base_unavailable' },
+    });
+    expect(f.session).not.toHaveBeenCalled();
+  },
+);
+
 it('serves bounded Git context requests independently for each pass and reports exact partial coverage', async () => {
   const f = await fixture();
   const large = [

@@ -64,6 +64,9 @@ committed source. Two isolated review passes inspect complete changed files,
 applicable policies and relevant unchanged context from pinned Git objects. Each
 pass can request bounded additional source reads and literal searches. Missing
 context, evidence limits, malformed output or blocking findings stop publication.
+The change set and deleted-file contents come from the unique pinned merge base,
+so upstream-only changes do not count as task changes. Evidence also binds the
+current base tip; unrelated or ambiguous histories stop review.
 These reviews cannot execute tools or checks; their reports state that limitation.
 The originating account, model, operator and permission selection remain fenced
 through asynchronous allocation and dispatch.

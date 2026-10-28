@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.742-complete-prepared-flow';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.743-complete-prepared-flow';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -49,7 +49,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../post-adoption-wire-admission.ts':
     '5d3824c6783a2565d4803af8f213c080c96cdad8d18d49537ef125f992f59d3d',
   '../../docs/operations/prepared-repository-chat-flow.md':
-    'f3f371e70d0e24d9da2dbba631007bc35ad066ee8f6cd46ba65a0f9ae869c138',
+    '0794fcd5e1a1b8ca1adc2c25fe2188667ae0916f49eacaf0f0858c1c55dbfbfd',
   '../../frontend/src/lib/__tests__/reviewed-outbox-storage.test.ts':
     'ea9d8dd311e212e565682f45bda0300114483131306e53d93d7fd9af7a8939e4',
   '../../skills/land-pr/SKILL.md':
@@ -69,7 +69,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-publication-review-composition.test.ts':
     '337160d4bd9333362511814d8caef8ea883e111e1f36e1bf1befda4911fab6f6',
   '../__tests__/ordinary-publication-review.test.ts':
-    '59fe1bb9a42bc8c73b70bd60da74f853ffffc0535eae144f674fb9a392395deb',
+    '2d032cb591b2a757c9aa923e807033fa754605a35b9d086f035e57836f09ea55',
   '../__tests__/prepared-repository-delivery-flow.test.ts':
     'a84cc0136345a3f13511b8bf59d59861c022af0667211b6e3ca7e22f767fa61d',
   '../__tests__/prepared-repository-publication-flow.test.ts':
@@ -77,7 +77,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../github-publication-review-failure.ts':
     '32772ac35e4b846e589fd26fe6cdf2ecaa1ab0e58488cbd6e6662fb089bd52b0',
   '../ordinary-publication-review-context.ts':
-    '48cb9c6512e25a8ce746ffb3e9db1ff1c6a54c0148ddea2a25c30f4254652a76',
+    'd49d3588de025f8641fc4a8ae3b95cda25ce1afe29c1665bea9e83d9c2e83b0b',
   '../ordinary-publication-review.ts':
     'fcb6bf506409c8f5f3c8faaa5f289f36a1c170ad501a37842e3e9b30926654e5',
   '../__tests__/prepared-repository-native-public-tool-rollover.test.ts':

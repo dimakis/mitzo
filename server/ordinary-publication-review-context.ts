@@ -176,7 +176,16 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
   ).trim();
   if (source !== input.sourceOid || !oid.test(base))
     publicationReviewUnavailable('committed_identity_unavailable');
-  const changedPaths = (await git(input, ['diff', '--name-only', '-z', base, source, '--']))
+  // Compare only task-owned changes. The accepted base tip can advance after
+  // branching; keep it pinned separately as integration evidence in the packet.
+  const mergeBases = (await git(input, ['merge-base', '--all', base, source], true))
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  if (mergeBases.length !== 1 || !oid.test(mergeBases[0]))
+    publicationReviewUnavailable('merge_base_unavailable');
+  const mergeBase = mergeBases[0];
+  const changedPaths = (await git(input, ['diff', '--name-only', '-z', mergeBase, source, '--']))
     .split('\0')
     .filter(Boolean);
   if (!changedPaths.length || changedPaths.length > 64)
@@ -192,17 +201,17 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
     '--no-ext-diff',
     '--no-textconv',
     '--binary',
-    base,
+    mergeBase,
     source,
     '--',
   ]);
-  const contents: Array<{ path: string; revision: 'source' | 'base'; content: string }> = [];
+  const contents: Array<{ path: string; revision: 'source' | 'merge-base'; content: string }> = [];
   let bytes = Buffer.byteLength(diff, 'utf8');
   const read = async (path: string, revision = source) =>
     git(input, ['show', '--no-ext-diff', '--no-textconv', `${revision}:${path}`]);
   const add = async (path: string) => {
-    const revision = all.has(path) ? ('source' as const) : ('base' as const);
-    const content = await read(path, revision === 'source' ? source : base);
+    const revision = all.has(path) ? ('source' as const) : ('merge-base' as const);
+    const content = await read(path, revision === 'source' ? source : mergeBase);
     bytes += Buffer.byteLength(content, 'utf8');
     if (bytes > PUBLICATION_REVIEW_MAX_EVIDENCE_BYTES)
       publicationReviewUnavailable('evidence_limit');
@@ -291,6 +300,7 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
     repository: input.repository,
     baseBranch: input.baseBranch,
     baseOid: base,
+    mergeBaseOid: mergeBase,
     sourceBranch: input.sourceBranch,
     sourceOid: source,
     changedPaths,
