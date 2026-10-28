@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.733-chat-input-capacity';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.734-cold-thread-rollover';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,16 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/prepared-repository-native-public-tool-rollover.test.ts':
+    '3f37ba34c311207689c552a04ef016d74f611e21b7f5b970d398d1b0c57000e1',
+  '../__tests__/prepared-repository-native-public-tool-rollover-queued.test.ts':
+    '5208719587dff071ae173eab5af63413556cc3261300b9b98c296877c3c9eac0',
+  '../__tests__/prepared-repository-native-public-tool-rollover-interrupted.test.ts':
+    '3b59627989ccbc1b2e33fc1f4276595c96e986107770c9863175ccb000fa8d1b',
+  '../__tests__/prepared-repository-cold-rollover-regression.test.ts':
+    '0d20394394e5dcd0119dcf39427f2f9aeb9d46d180b0766c729bc6e9b3d85f46',
+  '../__tests__/codex-live-thread-owner.test.ts':
+    'bebba424df972c381c9935757c9398881bf0c3d231f096302a38552c2d424061',
   '../../frontend/src/main.tsx': '679688aa3e04496cddf90bc14300efc7c8344f4bccb5718643948a3332b70bb1',
   '../../packages/protocol/src/chat-input-limits.ts':
     '1199f2630bd0333de58964af965b87c8466976268f935993e24da693b54a0aeb',
@@ -1019,7 +1029,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-codex-selection-owner.ts':
     '5783eb933490e0bf5407b108c17efad94f85a183974c9c1a691740231c3c1296',
   '../ordinary-local-codex-owned-runtime.ts':
-    'd8530a66721df649e0b72d741b996d539e6ff02afd942a4fbf7e0df3c551f354',
+    '81d1940e5c728ae7d9f601c0abce6fd8d7a6cb83405d5274a40375af675f232e',
   '../frozen-host-codex-api-login.ts':
     'eb7eddc2842845761c95ee309d9308db5dd8515051d347b165c37e54aeb2b730',
   '../frozen-host-codex-login.ts':
@@ -1031,7 +1041,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../owned-codex-lifecycle-bridge.ts':
     'b76d973b736e98d2b140b87e0bcd767449539a1bf8fa5f6d41d95e3839408a96',
   '../owned-local-codex-chat-admission.ts':
-    'd59c2af2aff08063710c47bf502893b9a2299639b18d0f357a5fc2df8fa3c4b7',
+    'ee0dc23e274a3ff6d15c50985ab1d19be03e7a80d734f488f8619a4501396a5d',
   '../codex-account.ts': 'dc2ac5efec915495b6af3c7a3001ea4856427ca2d185648a864d2ceeb6593e71',
   '../codex-runtime-policy.ts': 'd11ab33ef4c5c69a5b5d8754ce474afd8a1a712df4b45e93f0690b97636859ab',
   '../model-catalog.ts': 'e6922550fed2f7d6d3330299dfe83726d97d126e79c4a3abdb5e3334020ce90a',
@@ -1146,7 +1156,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
   '../codex-conversation.ts': '70ec7668382678e9bd400e72af3cad737a756b75a7575613d5ec38197ac4ac74',
   '../codex-conversation-store.ts':
-    '828dd95805fa295983ff3252c124b4b97711fc8375c27db0ba5d21fd53dbd011',
+    'ed3c9ba0baeddec6ff295268eff9b4aae20ce5d5e705c2c631be6b40c62c6647',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':
@@ -2681,7 +2691,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/prepared-repository-native-consumer.ts':
     'c6f9efdab1bf12283b1f53da5a9dd7abc376de25c5811ac4b10b96157a6c12ac',
   '../__tests__/fixtures/prepared-repository-native-public.ts':
-    '6aabaaa9732a149149b2e4b839b46cf18a270721443421def3577d8fa824bc45',
+    '4ec766ceacfb7a0c2b61c79294b38e2a6e05704621e89baa7eeba0cc9ac16982',
   '../__tests__/prepared-repository-native-cold-resume.test.ts':
     '84fd791e57fc2854aa1e429b32752310070fa935464779d00d6750118c55408d',
   '../__tests__/prepared-repository-native-owner-guards.test.ts':

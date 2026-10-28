@@ -421,9 +421,22 @@ const hotReadSql = {
         WHERE t.conversation_id=? AND t.call_id=? AND c.status='running'`,
 } as const;
 
+type LiveThreadEvent = {
+  phase: 'dispatch' | 'reject' | 'accept' | 'complete';
+  thread: string;
+  commandId?: string;
+  attempt?: number;
+  turn?: string;
+  before?: unknown;
+};
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
   private readonly db: Database.Database;
+  private liveThreadStoreClosed = false;
+  private readonly liveThreadObservers = new Map<string, Set<(event: LiveThreadEvent) => void>>();
+  private notifyLiveThreadOwners(id: string, event: LiveThreadEvent): void {
+    for (const observe of this.liveThreadObservers.get(id) ?? []) observe(event);
+  }
   private readonly preparedQueueFences = new WeakMap<object, string>();
   private readonly hotReadStatements = new Map<keyof typeof hotReadSql, Database.Statement>();
   private hotReadStatement(name: keyof typeof hotReadSql): Database.Statement {
@@ -1336,6 +1349,232 @@ export class CodexConversationStore {
       )
       .run(id);
   }
+  /** An in-memory evidence fence for one already-qualified live owner. Persisted
+   * pending work is never inherited. Only the owner's separately admitted exact
+   * running command can explain a later dispatch or acknowledged generation.
+   * This observes continuity; it grants no provider, credential or file access. */
+  captureLiveThreadOwner(id: string, binding: AccountBinding) {
+    const b = structuredClone(binding);
+    const initial = this.read(id, b);
+    if (!initial.threadId) throw Error('Codex live thread owner requires a retained thread');
+    this.assertNoPendingThreadDispatch(id, b);
+    this.assertNoPendingThreadOwnership(id, b);
+    const generations = () =>
+      this.db
+        .prepare(
+          `SELECT generation,thread_id AS threadId,parent_thread_id AS parentThreadId,
+            reason,created_at AS createdAt FROM codex_thread_generations
+          WHERE conversation_id=? AND generation>=? ORDER BY generation`,
+        )
+        .all(id, initial.threadGeneration) as Array<{
+        generation: number;
+        threadId: string;
+        parentThreadId: string | null;
+        reason: string;
+        createdAt: number;
+      }>;
+    const baseline = generations();
+    if (baseline.length !== 1 || baseline[0].threadId !== initial.threadId)
+      throw Error('Codex live thread owner baseline changed');
+    const acceptances = () =>
+      this.db
+        .prepare(
+          'SELECT * FROM codex_thread_acceptances WHERE conversation_id=? AND generation>? ORDER BY generation,command_id,attempt',
+        )
+        .all(id, initial.threadGeneration) as Array<{
+        command_id: string;
+        attempt: number;
+        thread_id: string;
+        generation: number;
+        turn_id: string;
+        ownership_pending: number;
+        terminal_conflict: number;
+      }>;
+    const pending = () =>
+      this.db
+        .prepare('SELECT * FROM codex_pending_thread_dispatches WHERE conversation_id=?')
+        .get(id) as
+        | {
+            parent_thread_id: string;
+            parent_generation: number;
+            thread_id: string;
+            command_id: string;
+            attempt: number;
+          }
+        | undefined;
+    const runningCommand = (commandId: string) =>
+      this.db
+        .prepare('SELECT id,status,attempt FROM codex_commands WHERE conversation_id=? AND id=?')
+        .get(id, commandId) as { id: string; status: string; attempt: number } | undefined;
+    const key = (commandId: string, attempt: number) => JSON.stringify([commandId, attempt]);
+    const authorized = new Set<string>();
+    const dispatched = new Set<string>();
+    let expectedRows = baseline;
+    let expectedAcceptances = acceptances();
+    if (expectedAcceptances.length) throw Error('Codex live thread owner has future acceptance');
+    let expectedPending: ReturnType<typeof pending>;
+    let disposed = false,
+      invalid = false;
+    const assertCurrentSync = () => {
+      if (disposed || this.liveThreadStoreClosed) throw Error('Codex live thread owner closed');
+      const state = this.read(id, b);
+      const current = expectedRows.at(-1)!;
+      if (
+        disposed ||
+        invalid ||
+        state.threadId !== current.threadId ||
+        state.threadGeneration !== current.generation ||
+        !isDeepStrictEqual(generations(), expectedRows) ||
+        !isDeepStrictEqual(acceptances(), expectedAcceptances) ||
+        !isDeepStrictEqual(pending(), expectedPending)
+      )
+        throw Error('Codex live thread owner evidence changed');
+      const ownership = this.db
+        .prepare(
+          'SELECT * FROM codex_thread_acceptances WHERE conversation_id=? AND ownership_pending=1',
+        )
+        .all(id);
+      if (
+        !isDeepStrictEqual(
+          ownership,
+          expectedAcceptances.filter((row) => row.ownership_pending),
+        )
+      )
+        throw Error('Codex live thread owner pending ownership changed');
+      if (expectedPending) {
+        const command = runningCommand(expectedPending.command_id);
+        if (command?.status !== 'running' || command.attempt !== expectedPending.attempt)
+          throw Error('Codex live thread owner dispatch command changed');
+      }
+    };
+    // Only these committed store operations can advance the private expectation.
+    // Reading a plausible ledger row can never mint live dispatch/ACK evidence.
+    const observe = (event: LiveThreadEvent) => {
+      if (disposed || invalid) return;
+      try {
+        const current = expectedRows.at(-1)!;
+        if (event.phase === 'dispatch') {
+          const next = pending();
+          const commandKey = key(event.commandId!, event.attempt!);
+          if (
+            expectedPending ||
+            !authorized.delete(commandKey) ||
+            dispatched.has(commandKey) ||
+            !next ||
+            next.command_id !== event.commandId ||
+            next.attempt !== event.attempt ||
+            next.thread_id !== event.thread ||
+            next.parent_thread_id !== current.threadId ||
+            next.parent_generation !== current.generation ||
+            event.thread === current.threadId
+          )
+            throw Error('Codex live dispatch event changed');
+          dispatched.add(commandKey);
+          expectedPending = next;
+        } else if (event.phase === 'reject') {
+          if (!expectedPending || !isDeepStrictEqual(event.before, expectedPending) || pending())
+            throw Error('Codex live rejection event changed');
+          expectedPending = undefined;
+        } else if (event.phase === 'accept') {
+          if (!expectedPending || !isDeepStrictEqual(event.before, expectedPending))
+            throw Error('Codex live acceptance event changed');
+          const rows = generations(),
+            receipts = acceptances();
+          const row = rows.at(-1)!,
+            receipt = receipts.at(-1)!;
+          if (
+            !isDeepStrictEqual(rows.slice(0, -1), expectedRows) ||
+            !isDeepStrictEqual(receipts.slice(0, -1), expectedAcceptances) ||
+            row.generation !== current.generation + 1 ||
+            row.parentThreadId !== current.threadId ||
+            row.threadId !== expectedPending.thread_id ||
+            receipt.thread_id !== row.threadId ||
+            receipt.command_id !== expectedPending.command_id ||
+            receipt.attempt !== expectedPending.attempt ||
+            receipt.generation !== row.generation ||
+            receipt.turn_id !== event.turn ||
+            receipt.ownership_pending !== 1 ||
+            receipt.terminal_conflict !== 0 ||
+            !['tool_surface_change', 'provider_transport_failure'].includes(row.reason) ||
+            pending()
+          )
+            throw Error('Codex live accepted lineage changed');
+          expectedRows = rows;
+          expectedAcceptances = receipts;
+          expectedPending = undefined;
+        } else {
+          const index = expectedAcceptances.findIndex(
+            (row) => row.ownership_pending && row.thread_id === event.thread,
+          );
+          if (index < 0 || !isDeepStrictEqual(event.before, expectedAcceptances[index]))
+            throw Error('Codex live ownership completion changed');
+          expectedAcceptances = expectedAcceptances.map((row, i) =>
+            i === index ? { ...row, ownership_pending: 0 } : row,
+          );
+        }
+        assertCurrentSync();
+      } catch {
+        invalid = true;
+      }
+    };
+    assertCurrentSync();
+    const observers =
+      this.liveThreadObservers.get(id) ?? new Set<(event: LiveThreadEvent) => void>();
+    this.liveThreadObservers.set(id, observers);
+    observers.add(observe);
+    return Object.freeze({
+      assertCurrentSync,
+      assertAcceptedCommand: (commandId: string) => {
+        assertCurrentSync();
+        const command = runningCommand(commandId);
+        if (
+          !command ||
+          (!authorized.has(key(command.id, command.attempt)) &&
+            !dispatched.has(key(command.id, command.attempt)))
+        )
+          throw Error('Codex live thread owner command was not authorized');
+        const receipt = this.readNativeExecution(id, b, command);
+        const row = this.db
+          .prepare('SELECT native_turns FROM codex_commands WHERE conversation_id=? AND id=?')
+          .get(id, commandId) as { native_turns: string | null };
+        const targets = this.nativeTurns(row.native_turns).filter(
+          (turn) => turn.attempt === command.attempt,
+        );
+        const target = targets.length === 1 ? targets[0] : undefined;
+        const current = expectedRows.at(-1)!;
+        if (
+          receipt?.phase !== 'accepted' ||
+          !target ||
+          receipt.threadId !== current.threadId ||
+          receipt.generation !== current.generation ||
+          target.threadId !== receipt.threadId ||
+          target.generation !== receipt.generation ||
+          target.turnId !== receipt.turnId
+        )
+          throw Error('Codex live thread owner native acceptance unavailable');
+      },
+      authorizeDispatch: (commandId: string) => {
+        assertCurrentSync();
+        if (expectedPending || expectedAcceptances.some((row) => row.ownership_pending))
+          throw Error('Codex live thread owner dispatch still pending');
+        const command = runningCommand(commandId);
+        if (
+          command?.status !== 'running' ||
+          authorized.has(key(command.id, command.attempt)) ||
+          dispatched.has(key(command.id, command.attempt))
+        )
+          throw Error('Codex live thread owner dispatch command changed');
+        authorized.add(key(command.id, command.attempt));
+      },
+      dispose: () => {
+        disposed = true;
+        observers.delete(observe);
+        if (!observers.size) this.liveThreadObservers.delete(id);
+        authorized.clear();
+      },
+    });
+  }
+
   /** A pre-RPC fence: a lost acknowledgment must never recreate/replay a child. */
   beginThreadReplacementDispatch(
     id: string,
@@ -1357,6 +1596,12 @@ export class CodexConversationStore {
         )
         .run(id, parent ?? null, thread, command.id, command.attempt, state.threadGeneration);
     })();
+    this.notifyLiveThreadOwners(id, {
+      phase: 'dispatch',
+      thread,
+      commandId: command.id,
+      attempt: command.attempt,
+    });
   }
   assertNoPendingThreadDispatch(id: string, b: AccountBinding) {
     this.read(id, b);
@@ -1373,15 +1618,20 @@ export class CodexConversationStore {
     thread: string,
     command: CodexCommand,
   ) {
-    this.db.transaction(() => {
+    const before = this.db.transaction(() => {
       this.read(id, b);
+      const pending = this.db
+        .prepare('SELECT * FROM codex_pending_thread_dispatches WHERE conversation_id=?')
+        .get(id);
       const deleted = this.db
         .prepare(
           'DELETE FROM codex_pending_thread_dispatches WHERE conversation_id=? AND thread_id=? AND command_id=? AND attempt=?',
         )
         .run(id, thread, command.id, command.attempt);
       if (deleted.changes !== 1) throw new Error('Codex replacement rejection fence changed');
+      return pending;
     })();
+    this.notifyLiveThreadOwners(id, { phase: 'reject', thread, before });
   }
   acceptThreadReplacement(
     id: string,
@@ -1394,7 +1644,7 @@ export class CodexConversationStore {
     reason: 'tool_surface_change' | 'provider_transport_failure' = 'tool_surface_change',
     turnId?: string,
   ) {
-    this.db.transaction(() => {
+    const before = this.db.transaction(() => {
       if (!turnId) throw new Error('Codex replacement acknowledgment turn is missing');
       const pending = this.db
         .prepare('SELECT * FROM codex_pending_thread_dispatches WHERE conversation_id=?')
@@ -1436,7 +1686,9 @@ export class CodexConversationStore {
       this.db
         .prepare('DELETE FROM codex_pending_thread_dispatches WHERE conversation_id=?')
         .run(id);
+      return pending;
     })();
+    this.notifyLiveThreadOwners(id, { phase: 'accept', thread, before, turn: turnId });
   }
   readThreadAcceptances(id: string, b: AccountBinding) {
     this.read(id, b);
@@ -1473,17 +1725,24 @@ export class CodexConversationStore {
     return pending[0];
   }
   completeThreadOwnership(id: string, b: AccountBinding, thread: string) {
-    this.db.transaction(() => {
+    const before = this.db.transaction(() => {
       const pending = this.pendingThreadOwnership(id, b);
       if (!pending || pending.threadId !== thread)
         throw new Error('Codex provider thread ownership fence changed');
+      const receipt = this.db
+        .prepare(
+          'SELECT * FROM codex_thread_acceptances WHERE conversation_id=? AND command_id=? AND attempt=?',
+        )
+        .get(id, pending.commandId, pending.attempt);
       const changed = this.db
         .prepare(
           'UPDATE codex_thread_acceptances SET ownership_pending=0 WHERE conversation_id=? AND command_id=? AND attempt=? AND ownership_pending=1',
         )
         .run(id, pending.commandId, pending.attempt);
       if (changed.changes !== 1) throw new Error('Codex provider thread ownership fence changed');
+      return receipt;
     })();
+    this.notifyLiveThreadOwners(id, { phase: 'complete', thread, before });
   }
   recordAcceptedThreadConflict(
     id: string,
@@ -3565,14 +3824,17 @@ export class CodexConversationStore {
   /** Observe retained adopted-workspace custody during explicit recovery.
    * This does not acknowledge recovery, retry a command or grant dispatch. An
    * interrupted command remains historical only with its exact accepted native
-   * turn; provider settlement is checked by the conversation recovery owner. */
+   * turn and fully acknowledged descendant lineage. The returned private witness
+   * pins that historical receipt and native target across later live turns;
+   * provider settlement is checked by the conversation recovery owner. */
   assertPreparedRepositoryRecovery(
     id: string,
     binding: AccountBinding,
     primaryCommandId: string,
     liveCommandId?: string,
-  ): void {
-    this.db.transaction(() => {
+  ): Readonly<{ assertCurrentSync(): void }> | undefined {
+    const bindingSnapshot = structuredClone(binding);
+    const witness = this.db.transaction(() => {
       const state = this.read(id, binding);
       const commands = this.commands(id, binding);
       const revision = this.preparedRepositoryWorkspaceTransition(id, binding, primaryCommandId);
@@ -3593,7 +3855,20 @@ export class CodexConversationStore {
         throw Error('Prepared repository recovery custody unavailable');
       this.assertNoPendingThreadOwnership(id, binding);
       this.assertNoPendingThreadDispatch(id, binding);
-      const verifyInterrupted = (command: CodexCommand) => {
+      const evidence = (command: Pick<CodexCommand, 'id' | 'attempt'>) => {
+        const active = this.db
+          .prepare(
+            'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+          )
+          .get(id, command.id) as
+          { status: string; attempt: number; native_turns: string | null } | undefined;
+        const receipt = this.readNativeExecution(id, bindingSnapshot, command);
+        const targets =
+          active &&
+          this.nativeTurns(active.native_turns).filter((turn) => turn.attempt === command.attempt);
+        return { status: active?.status, attempt: active?.attempt, receipt, targets };
+      };
+      const verifyInterrupted = (command: CodexCommand, historicalPrimary = false) => {
         const receipt = this.readNativeExecution(id, binding, command);
         const row = this.db
           .prepare('SELECT native_turns FROM codex_commands WHERE conversation_id=? AND id=?')
@@ -3606,15 +3881,81 @@ export class CodexConversationStore {
           command.status !== 'interrupted' ||
           receipt?.phase !== 'accepted' ||
           !target ||
-          receipt.threadId !== state.threadId ||
-          receipt.generation !== state.threadGeneration ||
+          (!historicalPrimary &&
+            (receipt.threadId !== state.threadId ||
+              receipt.generation !== state.threadGeneration)) ||
           receipt.turnId !== target.turnId ||
           receipt.threadId !== target.threadId ||
           receipt.generation !== target.generation
         )
           throw Error('Prepared repository interrupted turn evidence unavailable');
+        if (historicalPrimary) {
+          const lineage = this.db
+            .prepare(
+              'SELECT generation,thread_id,parent_thread_id,reason FROM codex_thread_generations WHERE conversation_id=? AND generation>=? ORDER BY generation',
+            )
+            .all(id, target.generation) as Array<{
+            generation: number;
+            thread_id: string;
+            parent_thread_id: string | null;
+            reason: string;
+          }>;
+          if (
+            lineage.length !== state.threadGeneration - target.generation + 1 ||
+            lineage[0]?.generation !== target.generation ||
+            lineage[0]?.thread_id !== target.threadId
+          )
+            throw Error('Prepared repository interrupted history lineage unavailable');
+          for (let i = 1; i < lineage.length; i++) {
+            const edge = lineage[i],
+              parent = lineage[i - 1];
+            const receipts = this.db
+              .prepare(
+                'SELECT command_id,attempt,thread_id,turn_id,ownership_pending,terminal_conflict FROM codex_thread_acceptances WHERE conversation_id=? AND generation=?',
+              )
+              .all(id, edge.generation) as Array<{
+              command_id: string;
+              attempt: number;
+              thread_id: string;
+              turn_id: string;
+              ownership_pending: number;
+              terminal_conflict: number;
+            }>;
+            const ack = receipts[0];
+            if (
+              edge.generation !== parent.generation + 1 ||
+              edge.parent_thread_id !== parent.thread_id ||
+              !['tool_surface_change', 'provider_transport_failure'].includes(edge.reason) ||
+              receipts.length !== 1 ||
+              ack.thread_id !== edge.thread_id ||
+              ack.ownership_pending ||
+              ack.terminal_conflict
+            )
+              throw Error('Prepared repository interrupted history acceptance unavailable');
+            const accepted = evidence({ id: ack.command_id, attempt: ack.attempt });
+            const native = accepted.targets?.length === 1 ? accepted.targets[0] : undefined;
+            if (
+              accepted.receipt?.phase !== 'accepted' ||
+              !native ||
+              accepted.receipt.threadId !== edge.thread_id ||
+              accepted.receipt.generation !== edge.generation ||
+              accepted.receipt.turnId !== ack.turn_id ||
+              accepted.receipt.replacement?.parentThreadId !== parent.thread_id ||
+              accepted.receipt.replacement?.parentGeneration !== parent.generation ||
+              native.threadId !== edge.thread_id ||
+              native.generation !== edge.generation ||
+              native.turnId !== ack.turn_id
+            )
+              throw Error('Prepared repository interrupted history native ACK unavailable');
+          }
+          if (
+            lineage.at(-1)?.generation !== state.threadGeneration ||
+            lineage.at(-1)?.thread_id !== state.threadId
+          )
+            throw Error('Prepared repository interrupted history current thread changed');
+        }
       };
-      if (primary.status === 'interrupted') verifyInterrupted(primary);
+      if (primary.status === 'interrupted') verifyInterrupted(primary, true);
       if (state.recovery) {
         const unresolved = this.db
           .prepare(
@@ -3626,10 +3967,42 @@ export class CodexConversationStore {
         for (const row of unresolved) {
           const command = commands.find((candidate) => candidate.id === row.id);
           if (!command) throw Error('Prepared repository recovery command unavailable');
-          verifyInterrupted(command);
+          verifyInterrupted(command, command.id === primary.id);
         }
       }
+      if (primary.status !== 'interrupted') return undefined;
+      const command = { id: primary.id, attempt: primary.attempt };
+      const sourceGeneration = evidence(primary).targets![0].generation;
+      const historicalPrefix = () => {
+        const generations = this.db
+          .prepare(
+            `SELECT generation,thread_id,parent_thread_id,reason,created_at
+          FROM codex_thread_generations WHERE conversation_id=? AND generation>=? AND generation<=? ORDER BY generation`,
+          )
+          .all(id, sourceGeneration, state.threadGeneration);
+        const acceptances = this.db
+          .prepare(
+            `SELECT * FROM codex_thread_acceptances WHERE conversation_id=? AND generation>? AND generation<=?
+          ORDER BY generation,command_id,attempt`,
+          )
+          .all(id, sourceGeneration, state.threadGeneration) as Array<{
+          command_id: string;
+          attempt: number;
+        }>;
+        const native = acceptances.map((acceptance) => {
+          const accepted = evidence({ id: acceptance.command_id, attempt: acceptance.attempt });
+          return { receipt: accepted.receipt, targets: accepted.targets };
+        });
+        return { primary: evidence(command), generations, acceptances, native };
+      };
+      const snapshot = structuredClone(historicalPrefix());
+      return () => {
+        this.read(id, bindingSnapshot);
+        if (!isDeepStrictEqual(historicalPrefix(), snapshot))
+          throw Error('Prepared repository interrupted historical evidence changed');
+      };
     })();
+    return witness && Object.freeze({ assertCurrentSync: witness });
   }
   /** Verify a completed source without reviving its expired native callback.
    * This does not authorize a read, a workspace change or another provider turn.
@@ -4091,6 +4464,8 @@ export class CodexConversationStore {
       : undefined;
   }
   close() {
+    this.liveThreadStoreClosed = true;
+    this.liveThreadObservers.clear();
     this.db.close();
   }
 }

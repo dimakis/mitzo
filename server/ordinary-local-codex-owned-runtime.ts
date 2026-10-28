@@ -152,6 +152,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   #operator: ReturnType<typeof retainAgentContextAuthority>;
   #lease?: FrozenHostCodexBootstrapLease;
   #admission?: OwnedLocalCodexChatAdmission;
+  #liveThreadOwner?: ReturnType<CodexConversationStore['captureLiveThreadOwner']>;
   #expected?: Readonly<OrdinaryLocalCodexAdmissionExpectation>;
   readonly #workspaceOwner: OrdinaryLocalWorkspaceOwner<K>;
   #workspace?: LocalWorkspaceRecord<K>;
@@ -288,6 +289,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
     let bootstrap: FrozenHostCodexBootstrapAuthority | undefined;
     let capturedBootstrap: FrozenHostCodexBootstrapAuthority | undefined;
     let capturedLeaseGetter: FrozenHostCodexBootstrapAuthority['currentLease'] | undefined;
+    let coldThreadOwner: ReturnType<CodexConversationStore['captureLiveThreadOwner']> | undefined;
     const coldCurrentLease = () => {
       if (
         !capturedBootstrap ||
@@ -394,6 +396,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                   'assertNoPendingThreadOwnership',
                   'assertPreparedRepositoryRecovery',
                   'preparedRepositoryWorkspaceTransition',
+                  'captureLiveThreadOwner',
+                  'readNativeExecution',
                 ],
               },
             ]
@@ -428,6 +432,15 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         coldFacts &&
         this.owners.nativeStore!.read(this.#reservation.conversationId, this.#reservation.binding);
       const coldCustody = custody && freezePendingHostTaskData(structuredClone(custody));
+      coldThreadOwner =
+        coldFacts &&
+        this.owners.nativeStore!.captureLiveThreadOwner(
+          this.#reservation.conversationId,
+          this.#reservation.binding,
+        );
+      let coldPrimaryInterrupted: ReturnType<
+        CodexConversationStore['assertPreparedRepositoryRecovery']
+      >;
       const assertColdEvidence = () => {
         assertColdSources();
         this.assertCurrent();
@@ -491,8 +504,9 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           !isDeepStrictEqual(meta.accountBinding, this.#reservation.binding) ||
           state.cwd !== coldFacts.newWorkspace.directory ||
           !state.threadId ||
-          state.threadId !== coldNative.threadId ||
-          state.threadGeneration !== coldNative.threadGeneration ||
+          (!this.#admission &&
+            (state.threadId !== coldNative.threadId ||
+              state.threadGeneration !== coldNative.threadGeneration)) ||
           !isDeepStrictEqual(
             native.readHostCustody(this.#reservation.conversationId, this.#reservation.binding),
             coldCustody,
@@ -513,21 +527,29 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
               })))
         )
           throw unavailable();
-        if (state.recovery || command?.status === 'interrupted')
-          native.assertPreparedRepositoryRecovery(
+        if (this.#admission) coldThreadOwner!.assertCurrentSync();
+        coldPrimaryInterrupted?.assertCurrentSync();
+        if (command?.status === 'interrupted' && !coldPrimaryInterrupted && this.#admission)
+          coldThreadOwner!.assertAcceptedCommand(command.id);
+        if (state.recovery || (command?.status === 'interrupted' && !coldPrimaryInterrupted)) {
+          const witness = native.assertPreparedRepositoryRecovery(
             this.#reservation.conversationId,
             this.#reservation.binding,
             coldPrimary,
             this.#admission ? this.owners.commandId : undefined,
           );
-        native.assertNoPendingThreadDispatch(
-          this.#reservation.conversationId,
-          this.#reservation.binding,
-        );
-        native.assertNoPendingThreadOwnership(
-          this.#reservation.conversationId,
-          this.#reservation.binding,
-        );
+          coldPrimaryInterrupted ??= witness;
+        }
+        if (!this.#admission) {
+          native.assertNoPendingThreadDispatch(
+            this.#reservation.conversationId,
+            this.#reservation.binding,
+          );
+          native.assertNoPendingThreadOwnership(
+            this.#reservation.conversationId,
+            this.#reservation.binding,
+          );
+        }
         assertColdSources();
       };
       const coldWorkspace =
@@ -880,6 +902,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
               throw unavailable();
             lease.assertCurrentSync();
             const withQualifiedReadOwner = lease.withQualifiedWorkspaceReadOwner;
+            const liveThreadOwner = coldThreadOwner;
             const owner = {
               eventStore: this.owners.eventStore,
               workspaceKind: this.#workspaceOwner.kind,
@@ -891,6 +914,13 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
               authSessionId: this.#authSessionId,
               nativeStore: this.owners.nativeStore,
               recovery,
+              authorizeNativeThreadDispatch:
+                liveThreadOwner &&
+                ((commandId: string) => {
+                  this.assertCurrent();
+                  if (!this.#admission || this.#lease !== lease) throw unavailable();
+                  liveThreadOwner.authorizeDispatch(commandId);
+                }),
               qualifiedColdPrimary:
                 coldWorkspace &&
                 Object.freeze({
@@ -1190,6 +1220,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
               this.#adoptedWorkspace = coldWorkspace.get();
             }
             this.#admission = admission;
+            this.#liveThreadOwner = coldThreadOwner;
             this.#expected = structuredClone(expected);
             this.#workspace = structuredClone(claimedWorkspace);
             await this.owners.dispatch({
@@ -1209,6 +1240,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           },
         },
       );
+      if (!result.dispatched && coldThreadOwner !== this.#liveThreadOwner)
+        coldThreadOwner?.dispose();
       return result;
     } catch (error) {
       // A rejected later retry must not dispose the original live conversation.
@@ -1217,6 +1250,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       // explicit close, operator invalidation and task cancellation own this driver.
       const lease = bootstrap?.currentLease();
       if (lease && lease !== retainedLease) lease.close();
+      if (coldThreadOwner !== this.#liveThreadOwner || this.#lease !== retainedLease)
+        coldThreadOwner?.dispose();
       const capabilityError = findNativeMacExecutionUnavailable(error);
       if (capabilityError) throw capabilityError;
       throw unavailable();
@@ -1565,6 +1600,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
     this.#controller.abort(unavailable());
     this.#signal?.removeEventListener('abort', this.#onAbort);
     this.#operator?.release();
+    this.#liveThreadOwner?.dispose();
     this.#lease?.close();
   }
 }

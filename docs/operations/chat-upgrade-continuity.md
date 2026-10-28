@@ -122,6 +122,40 @@ and it does not claim to identify the inner cause of every historical bootstrap
 refusal. New pre-dispatch diagnostics record only a bounded lifecycle stage and
 command/conversation identity, without prompts, upstream error text or credentials.
 
+## Cold Local Mac owner and provider thread replacement
+
+After a cold resume into an adopted repository, a changed tool surface can require
+an ordinary provider thread replacement. The cold qualification snapshot used to
+remain the live thread fence: the legitimate pending replacement then invalidated
+its own lease on an early notification, before the ACK could be recorded.
+
+Cold admission still rejects pending dispatch or ownership. Once admission succeeds,
+a disposable in-memory owner tracks only its exact admitted command and attempt.
+Committed store operations advance its expected pending child, ACK lineage and
+ownership completion. Reading plausible database rows cannot grant this authority;
+rejection consumes the attempt, and closing the runtime or store disposes it.
+Historical interrupted primaries require an accepted native receipt, matching turn
+and verified generation lineage; their evidence remains immutable as later turns
+advance. Operator, credentials, custody and physical workspace checks still apply.
+
+| Effect                      | Verification and retained boundary                                                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Immediate continuation   | Early replacement events before ACK preserve the lease; the predecessor remains current until ACK.                                          |
+| 2. Ordering and authority   | Only the admitted attempt can advance the expected child; forged ledger changes, stale events and revoked authority fail closed.            |
+| 3. Later work               | Independent later commands and another cold tool refresh preserve the adopted checkout and advance to the next generation.                  |
+| 4. Restart and interruption | Completed, queued and interrupted prepared primaries are covered; pending uncertainty cannot become restart authority or replay permission. |
+| 5. Commit and retained data | The real host-task validator and trusted selected-file commit executor preserve unrelated dirty files and custody after rollover.           |
+
+The consumer tests use real SQLite, public admission, lifecycle bridges and native
+queues with intercepted provider RPCs. The commit assertion exercises the validator
+and trusted executor directly; it is not a live provider tool-authorization test.
+No real models, production credentials or production task files are used.
+
+This prevention fix does not reconcile a previously stranded ambiguous dispatch.
+A missing ACK does not prove that execution never started. Existing pending records
+remain fenced for explicit evidence-based recovery; they must not be deleted or
+silently replayed. Deployment and live verification remain separate operations.
+
 ## Verification
 
 Synthetic server regressions cover legacy OpenShell restart and new command
