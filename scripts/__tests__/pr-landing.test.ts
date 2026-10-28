@@ -324,6 +324,29 @@ it('never retries an uncertain merge mutation', async () => {
   expect((await reconcile(f.github, f.config))[0].reason).toBe('connection lost');
   expect(f.calls.filter((r) => r.startsWith('PUT'))).toHaveLength(1);
 });
+it.each([
+  [{}, 'refs/heads/main', false],
+  [{ PR_LANDING_APP_ID: '' }, 'refs/heads/main', false],
+  [{ PR_LANDING_APP_ID: '123' }, 'refs/heads/feature', false],
+  [{ PR_LANDING_APP_ID: '123' }, 'refs/heads/main', true],
+])(
+  'enables the writer only after default-branch provisioning (%j, %s)',
+  async (variables, ref, expected) => {
+    const { readFileSync } = await import('node:fs');
+    const { load } = await import('js-yaml');
+    const { Script } = await import('node:vm');
+    const writer = load(
+      readFileSync('.github/workflows/pr-landing-reconcile.yml', 'utf8'),
+    ) as ReturnType<typeof JSON.parse>;
+    const result = new Script(writer.jobs.reconcile.if).runInNewContext({
+      github: { ref, event: { repository: { default_branch: 'main' } } },
+      vars: new Proxy(variables, { get: (target, key) => Reflect.get(target, key) ?? '' }),
+      format: (template: string, value: string) => template.replace('{0}', value),
+    });
+    expect(result).toBe(expected);
+  },
+);
+
 it('keeps credentials in a dedicated default-branch environment and executes only trusted checkout', async () => {
   const { readFileSync } = await import('node:fs');
   const { load } = await import('js-yaml');

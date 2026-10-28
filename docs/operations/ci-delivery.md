@@ -168,7 +168,7 @@ exit status and forwards termination to its own process group. Diagnostics are
 retained alongside Playwright evidence even after cancellation, when the runner
 is still able to upload. macOS also records available CPU count, the owned command's
 PID/process group and the top sixteen processes by CPU then RSS, including cumulative
-CPU time, state and executable name. Arguments and environment are never collected.
+CPU time and state. Process fields are numeric only apart from validated CPU time and state; process names, titles, arguments and environment are never collected.
 The process query has a two-second/128 KiB bound; missing diagnostics do not replace
 the command outcome. Attribution is cleared before each launch to prevent stale PID
 evidence. Console observations remain useful if the host exits
@@ -319,13 +319,17 @@ for that API. Do not expand or reuse Centaur's status-writing credential.
   Checks, Commit statuses, Issues and Pull requests **read**, and Contents **write**.
   Do not grant bypass permissions or add it to a branch-protection bypass list.
 - Create environment `pr-landing-writer` and restrict its deployment branches to
-  the actual default branch. Store `PR_LANDING_APP_PRIVATE_KEY` only there and set
-  repository variable `PR_LANDING_APP_ID` to its numeric App ID.
+  the actual default branch. Store `PR_LANDING_APP_PRIVATE_KEY` only there.
 - Keep the existing dedicated `CENTAUR_STATUS_APP_ID` and configure
   `CENTAUR_STATUS_APP_LOGIN` to that status App's exact `slug[bot]` identity.
   Keep `CENTAUR_REVIEWER_LOGIN` consistent with the trusted reviewer configuration.
 - Retain strict required CI and the Centaur App-bound status. Confirm environment
   restrictions and the App's actual permissions before issuing a real request.
+
+Set repository variable `PR_LANDING_APP_ID` to the numeric landing App ID **last**,
+after the App, environment branch policy, private key and other required variables
+are ready. Until that ID is set, the reconcile job is intentionally disabled;
+scheduled runs do not create an empty environment or fail while minting a token.
 
 Missing provisioning fails closed. This change does not install an App, grant
 merge authorization, or dispatch a request. The other CI improvements operate

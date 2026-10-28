@@ -7,10 +7,10 @@ import process from 'node:process';
 import console from 'node:console';
 import { setInterval, setTimeout, clearInterval, clearTimeout } from 'node:timers';
 
-/** Executable names only: never collect process arguments or environment. */
+/** Numeric attribution and bounded CPU time/state only; never collect process names. */
 export function readMacProcessDiagnostics(run = execFileSync) {
   try {
-    return run('/bin/ps', ['-axo', 'pid=,ppid=,pgid=,%cpu=,rss=,time=,state=,comm='], {
+    return run('/bin/ps', ['-axo', 'pid=,ppid=,pgid=,%cpu=,rss=,time=,state='], {
       encoding: 'utf8',
       timeout: 2000,
       maxBuffer: 128 * 1024,
@@ -20,9 +20,18 @@ export function readMacProcessDiagnostics(run = execFileSync) {
       .split('\n')
       .map((line) => {
         const fields = line.trim().split(/\s+/);
-        return { line: line.trim(), cpu: Number(fields[3]), rss: Number(fields[4]) };
+        if (
+          fields.length !== 7 ||
+          !fields.slice(0, 3).every((value) => /^\d+$/.test(value)) ||
+          !/^\d+(?:\.\d+)?$/.test(fields[3]) ||
+          !/^\d+$/.test(fields[4]) ||
+          !/^(?:\d+-)?\d+:\d{2}(?::\d{2})?(?:\.\d+)?$/.test(fields[5]) ||
+          !/^[A-Z][A-Z0-9s+<>=N-]{0,15}$/.test(fields[6])
+        )
+          return null;
+        return { line: fields.join(' '), cpu: Number(fields[3]), rss: Number(fields[4]) };
       })
-      .filter((row) => row.line && Number.isFinite(row.cpu) && Number.isFinite(row.rss))
+      .filter((row) => row && Number.isFinite(row.cpu) && Number.isFinite(row.rss))
       .sort((a, b) => b.cpu - a.cpu || b.rss - a.rss)
       .slice(0, 16)
       .map((row) => row.line);
@@ -80,15 +89,11 @@ export async function runBrowserCommand({
     }
     if (process.platform === 'linux') {
       try {
-        record.processes = execFileSync(
-          'ps',
-          ['-e', '-o', 'pid,ppid,pgid,rss,comm', '--sort=-rss'],
-          {
-            encoding: 'utf8',
-            timeout: 2000,
-            maxBuffer: 128 * 1024,
-          },
-        )
+        record.processes = execFileSync('ps', ['-e', '-o', 'pid,ppid,pgid,rss', '--sort=-rss'], {
+          encoding: 'utf8',
+          timeout: 2000,
+          maxBuffer: 128 * 1024,
+        })
           .trim()
           .split('\n')
           .slice(0, 16);

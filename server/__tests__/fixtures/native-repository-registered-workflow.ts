@@ -33,6 +33,7 @@ import {
   installSignedNativeReadStages,
 } from './synchronous-stage-profiler.js';
 import { createPreparationAttemptDiagnostics } from './preparation-attempt-diagnostics.js';
+import { observePrivateHelperBoundary } from './private-helper-boundary-diagnostics.js';
 import { observePreparationService } from './preparation-service-diagnostics.js';
 import { nativeRepositoryFixtureWorkerSources } from './native-repository-worker-sources.js';
 
@@ -329,6 +330,11 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
             trace.helperMs += phase.totalMs;
           }
         };
+      const privateHelperBoundaries: unknown[] = [];
+      const privateHelper = sandbox.executePrivateNativeFileHelper;
+      const observedPrivateHelper = (input: Parameters<typeof privateHelper>[0]) =>
+        observePrivateHelperBoundary(input, privateHelper, privateHelperBoundaries);
+      vi.spyOn(sandbox, 'executePrivateNativeFileHelper').mockImplementation(observedPrivateHelper);
       const enforced = sandbox.executeSandboxedCommand;
       const observe = sandbox.executePrivateRepositoryObservation;
       const helperTransport = vi
@@ -373,7 +379,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
       const sourcePath =
         process.env.MITZO_NATIVE_READ_TOOLS_SOURCE_PATH ?? join(f.f.root, 'source');
       const preparationDiagnostics = createPreparationAttemptDiagnostics();
-      const privateFileHelper = sandbox.executePrivateNativeFileHelper;
+      const privateFileHelper = observedPrivateHelper;
       vi.spyOn(sandbox, 'executePrivateNativeFileHelper').mockImplementation((options) => {
         let publication = false;
         try {
@@ -483,6 +489,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
               metrics: f.a.metrics,
               synchronous: synchronous.snapshot(),
               filesystemCallBudget,
+              privateHelperBoundaries,
               preparationDiagnostics: preparationDiagnostics.snapshot(),
               preparationService: preparationService(),
               trace,

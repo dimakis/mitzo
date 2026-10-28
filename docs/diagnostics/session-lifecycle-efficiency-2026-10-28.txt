@@ -1,0 +1,83 @@
+Mitzo session lifecycle efficiency audit — 28 October 2026
+
+Scope and evidence
+This extends history-search-fanout-2026-10-28.txt from one tool to the session lifecycle. The evidence comprises retained production logs/traces, source inspection, deterministic offline regressions and a signed native fixture with synthetic provider RPC. No production changes, deployments, staging activation or real model calls were performed. The phase inventory below is not exhaustive live-workload qualification. Source-derived costs and unmeasured hypotheses are identified explicitly.
+
+The remaining 1,240 session reads
+A diagnostic wrapper around the actual native history fixture reproduced 1,240 EventStore.getSession calls during one 100-candidate nonmatching search. Stack attribution gives:
+  100 candidate registration captures
+  100 candidate registration/identity rechecks after refresh
+  160 selection execution-admission reads that internally load the session
+  160 OrdinaryLocalCodexOwnedRuntime.assertCurrent reads
+  160 direct selection-owner session reads
+  138 isSelectionPending reads from bootstrap.assertSync
+  138 isSelectionPending reads from bootstrap.selections
+  102 admission-receipt execution-admission reads
+  102 admission-receipt direct session reads
+   44 resolveOwnedTelosWorkCommandScope reads
+   36 native-context direct session reads
+Total: 200 candidate reads and 1,040 surrounding ownership/authorization reads.
+
+The 160 owned-runtime reads are a different class from the original profile's 138 OrdinaryLocalCodexHostRuntime.assertCurrentSync calls. The 276 executable assertions comprise 138 main executable assertions plus 138 recursive companion assertions. They are not 276 checks of one artifact. Stack instrumentation is used for counts, not a new elapsed-time performance comparison.
+
+This is still substantial overhead. The bounded search fixes its quadratic growth, but does not establish an acceptable end-to-end operation budget. Bootstrap currently observes isSelectionPending twice per fence. The concrete ordinary runtime closure reads admission/native status; a private, provenance-checked pure observation could share that result within the fence and save 138 reads here. Generic callbacks may mutate state, and prepared/cold variants have different admission readers. Do not simply pass an arbitrary caller-supplied checked flag or cache the observation across effects/awaits.
+
+Corrections implemented and regression evidence
+1. Native history search: bounded page authorization, synchronous projection, only output matches retained for final checks. See the companion report for the 383,810 -> 1,240 read reduction and 81.17s -> 0.897s single local timing pair. Visibility, target identity, cancellation and owner checks remain fresh across awaits. Legacy owners keep their old path.
+2. SSE replay recovery: the 10s periodic liveness check previously replaced a stream whose replay was still inside its own 15s deadline. The exact current EventSource/connection replay now owns recovery until settlement/deadline. Foreground transitions during replay mark that request dirty and coalesce a subsequent replay, preserving resumption if a background suspend arrived after the server's initial resume. Periodic checks do not dirty the request. Tests reproduce premature replacement, preserve the deadline, and cover hidden -> visible transitions and coalescing. This mechanism is proven offline; its contribution to each production disconnect was not traced.
+3. Overview task projection: one lazily read task tree per synchronous snapshot, with goal-result reuse inside that snapshot. Previously S task sessions caused S full-tree SQL reads and conversions. The next snapshot reads fresh state. Traversal still costs O(G*T) for G distinct goals and T tasks; this change does not claim a one-pass tree index.
+4. Overview Git refresh: U unique workspace paths previously started U simultaneous Git status children. Four workers now bound concurrency while covering all paths. The refresh remains owned until all workers settle, including rejection, preventing the next interval from overlapping surviving workers. Failed reads do not become successful clean results. Four is a conservative process ceiling, not a measured optimum.
+5. Background Connections reconciliation: startup and the 30s timer now share one pending reservation. The service allows a 120s operation deadline and serializes through its credential gate; redundant timer invocations previously could queue behind slow work. The scheduler skips ticks while pending, releases only on settlement, handles synchronous and asynchronous failures, and admits a later tick. Independent OpenAI-key recovery and manual/route reconciliation are outside this scheduler's scope.
+
+End-to-end inventory and next investigations
+
+Connection, selection and switch
+Entry: packages/client/src/store.ts switchSession; sse-connection.ts; server chat transport/reconnect handlers.
+Opening switch POST and transcript GET already start in parallel. The later switch containing the installed history cursor is an intentional replay boundary, not a duplicate to delete. Opening GETs are aborted on replacement and response/session generations fence stale UI updates. Foreground and bounded recovery lack equivalent AbortSignal propagation. The server messages handler does not propagate disconnect to readers. Cancellation of a client request does not prove the server stopped projecting.
+Next: composed cancellation and ownership tests for overlapping opening, foreground and bounded restores; retain replay acknowledgements when a restore is superseded.
+
+History loading and replay
+Entry: server/session-messages-route.ts; chat.ts getSessionTranscript/getReconnectTranscript; protocol conversation-replay-store.ts.
+Full or bounded-prefix reads use synchronous SQLite .all and row deserialization, then reconstruct the transcript and serialize the response. Repeated requests repeat this work. Legacy workspace recovery exits cheaply for an existing cwd or an explicit non-Vertex provider; it is not an SDK scan on every native restore.
+Source risk: replaySingleEventsToTranscript and legacy replayEventsToMessages revisit all accumulated messages at each session_end to interrupt unanswered tools. With many terminal events this can scale with terminals times accumulated history. Retained-error grouping also searches/reorders messages per retained error. These are source-derived complexity findings, not measured incident attribution.
+Next: count row deserializations, block visits and serialized bytes for 1/10/100 turns and concurrent restores. Consider immutable cursor-keyed projections only with correct source identity, provenance validation, bounded memory and invalidation. Preserve delayed tool-result and Symposium attribution semantics.
+
+Command admission and currentness
+Entry: ordinary-local-codex-owned-runtime.ts, selection-owner, owned chat admission, frozen-host bootstrap, native-host-tool-context.ts.
+Each wrapper can re-enter the same runtime, profile, credential, executable, workspace, event and native-store graph. Native context brackets an original owner callback with full context checks. Bootstrap brackets selection/login/executable checks with custody identity. The counts above show the real composed cost; cheap leaf mocks do not establish acceptable cost.
+Next: private pure row projections within a bounded synchronous operation, explicit authority identity/lifetime and fresh checks at effects. Account for external SQLite writers and filesystem mutations; an in-process generation alone is insufficient. Extend actual-owner fixtures to ordinary, prepared, cold-resume and changed-account paths.
+
+Prepared workspace and credential validation
+Entry: PreparedRepositoryWorkspaceOwner.validate, withQualifiedWorkspaceReadOwner and the physical repository reader.
+Observed common pattern: nine credential reads inside one workspace check, plus its outer tool check. These bracket entry, scratch acquisition, capture and verify helpers, final owner verification, disposal and exit. Several boundaries are real awaits/process effects. Removing them by TTL or a recursion-depth checked-set would weaken revocation and substitution defenses.
+Next: redesign capture+verify as one explicitly owned physical helper operation with bounded immutable output, retaining credential checks before/after the combined effect and appropriate scratch lifecycle checks. Require workspace/gitfile swaps, auth/key replacement, revocation, malformed output, cancellation, reentrancy and cleanup-failure tests. This protocol redesign is not implemented in this patch.
+
+Context, configuration, skills and knowledge
+Entry: chat.ts assemblePrompt/buildSdkChildEnvironment; skills.ts; mcp-config.ts; knowledge-library-runtime.ts; agent-context-compiler.ts.
+Context-block files are read completely before their output is truncated to 100KB: the output limit does not bound input allocation or synchronous I/O. Skill discovery scans synchronously once per registry fill; MCP defaults load at initialization, not every turn. Knowledge configuration is size-bounded; retained documents have source freshness checks around awaits.
+Next: bounded byte reads with UTF-8/marker-equivalence tests; large registry/context workloads; per-document composed authority budgets. Do not erase source revocation to reduce document checks.
+
+Provider setup and resume
+Entry: chat.ts resolveSshAuthSock and validateResumable; native runtime setup.
+Synchronous launchctl and git helpers have 500ms and 5s deadlines respectively. They can block unrelated sessions; production time attribution is unmeasured. Native latest-completed-turn lookup uses 64-entry metadata pages, stops at the first completed turn and fences repeated cursors; it does not hydrate every transcript.
+Next: async/cancellable startup helpers through their callers, blocked-child tests, bounded metadata paging and account-expiry tests. No real model call is needed to test these paths.
+
+Streaming, persistence and publication
+Entry: query-loop.ts sendOrBuffer; protocol event-store append; CodexSessionEvents; Symposium sink.
+Each v2 event is serialized and synchronously inserted before fanout; statements are already prepared. This preserves durability-before-delivery. Native events enter the same path. Symposium adds attempt/delivery/provenance validation and predecessor lookup; its preaccept buffer is bounded at 512 events/1MiB. Snapshot block lookup can scan blocks per delta; fragmented tool inputs accumulate strings. Magnitude under two active sessions is not yet measured.
+Next: offline two-session delta-rate tests counting inserts, bytes, block visits and watcher serialization, with separate timer-delay measurement. Any batching must preserve durability, ordering, error visibility and stream/seat identities. Do not simply move persistence after broadcast.
+
+Tools and tool returns
+Entry: codex-chat-session native context, native-tool-executor and tool adapters.
+Beyond history, repository read adapters already split cheap projection and full boundaries; profile/task list reducers do not obviously refresh the full owner per output row; Telos backlog has guarded transactional reads. TaskSet assertions precede distinct mutations. Knowledge reads and communications cross real source/transport awaits. Tool results retain exact-result durability before mapping; authority cleanup retry is bounded.
+Next: composed count budgets for each tool family, not a blanket inference from search. For mutation batches, define atomic store/effect authority before sharing validation.
+
+Completion, idle and teardown
+Entry: query-loop finally, task-orchestrator, session-overview, notification-center, index timers, session-registry detach/closeout.
+Task orchestration is event-driven, but recursive next-task lookup repeats child queries. Notification flush already guards overlap and uses due/pending work. Closeout has bounded per-session timers and repeated detach clears older timers. Saved-queue recovery uses bounded backoff attempts. Timer delay under shared loop stalls affects all of them. Overview and timed Connections fixes are described above.
+Next: timer/queue depth metrics and overlapping slow-maintenance tests. OpenAI-key recovery still has an independent 30s timer. Measure it before claiming all maintenance overlap is resolved.
+
+Acceptance and delivery boundaries
+Focused regressions must remain green along with changed-path type checking, lint, formatting, source fingerprints and CI. A complete acceptance workload still needs two synthetic active sessions while history, tools and background work compete, with operation counts and event-loop responsiveness. Retain mutation/revocation tests at every relevant await/effect. The broad repository test typecheck exceeded a 2GiB local heap earlier; it remains a CI gate rather than being silently omitted. Trusted exact-head review and combined-base checks remain mandatory before merge. Production adoption is a separate explicit user action.
+
+Combined local validation: 9 focused test files, 194 tests passed using one worker and a command-local 2GiB Node heap. Package compilation, combined changed-path typechecking, changed-file lint/formatting and source-artifact verification passed. Independent implementation review found no blocking findings; this does not replace the trusted exact-head merge gate.
