@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.752-ci-reliable-handoff';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.754-ci-reliable-handoff';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -447,7 +447,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-barrier-read.test.ts':
     'ec51b1508ffd3bb482d849d71697060cbcb43281a0f906757829cd2fee6ce9d4',
   '../__tests__/codex-prepared-repository-boundary.test.ts':
-    'c234156f09150c54aa3027ea0cd43314462cda53b2e18b49d503e89d9d4429fd',
+    '3289a0ef8f908a5912caeb83330d2e54816595f582881e790d41591329ae7297',
   '../../packages/harness/__tests__/permission-decision-observation.test.ts':
     '95652995cce184b5a89d022b1e9787e3fa2576af162cf8cab44ca09fc12a84d4',
   '../codex-tool-result.ts': 'a0693aa5a7e0979f7d1c92f7ba138ecafe90c95cf80d18a0be81e92c2d5350f4',
@@ -480,7 +480,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-codex-native-execution.test.ts':
     '0bdb9518e1a704fb6bee5106e6e9fc1706d4ed5e75e88a86528b42ccf1ccb12b',
   '../__tests__/owned-local-codex-native-policy.test.ts':
-    '6fcad4b0b9f08df6112df56bf140c1d6327d7f2f4694799e904396648016f47e',
+    '96fc87492984cb31a9e6cc64f8f62ba7d756648f95f11d65a930720d740b41a5',
   '../__tests__/owned-local-codex-native-unqualified.test.ts':
     'a472401aa366f081b91fd99d4d52939375076a88365570a2413ad39354a7e762',
   '../codex-native-approvals.ts':
@@ -1143,7 +1143,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../owned-codex-lifecycle-bridge.ts':
     'b76d973b736e98d2b140b87e0bcd767449539a1bf8fa5f6d41d95e3839408a96',
   '../owned-local-codex-chat-admission.ts':
-    'ee0dc23e274a3ff6d15c50985ab1d19be03e7a80d734f488f8619a4501396a5d',
+    'b94b1e7f8b0b8b55ac543faf8636b274d96d6b3960057a3b9ac0be40541f4a6f',
   '../codex-account.ts': 'dc2ac5efec915495b6af3c7a3001ea4856427ca2d185648a864d2ceeb6593e71',
   '../codex-runtime-policy.ts': 'd11ab33ef4c5c69a5b5d8754ce474afd8a1a712df4b45e93f0690b97636859ab',
   '../model-catalog.ts': 'e6922550fed2f7d6d3330299dfe83726d97d126e79c4a3abdb5e3334020ce90a',
@@ -1258,7 +1258,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
   '../codex-conversation.ts': 'd891c85615946a61bf6eeeebdc89ed04b979f512bd1286d1a6eed0dca4d62610',
   '../codex-conversation-store.ts':
-    'ed3c9ba0baeddec6ff295268eff9b4aae20ce5d5e705c2c631be6b40c62c6647',
+    '41cb3e4f58948dc558eadd6213614cb4574e7bb1ad4a85c5b93d6e7888d02423',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':
@@ -1385,7 +1385,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '3b2a43d80118c7cfc6f46d80922fef79719fef84f1d4f4d18079a2e76ac501e3',
   '../workspace-runtime-private-paths.ts':
     '5839c75aa2e5d325218af40547c28395ec92a56205fd50a023497330aa44811c',
-  '../codex-private-path.ts': '016cf23f1a58450738176d553076e88bcb9ca0ce09043992b3592554d2a81290',
+  '../codex-private-path.ts': 'c59bcfb7b37677572d236f9f245d0d48c55562a085f7352a607ec8a6a30623de',
   '../workspace-runtime-client.ts':
     'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
   '../credential-sdk-boundary.ts':
@@ -2598,7 +2598,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/secret-relay.ts':
     '4ba8b9ef90ca4a9cabf8934ed3aafd87c4c0728d700c8e0f24468d3a3b3020a4',
   '../__tests__/codex-private-path.test.ts':
-    'a9576e584fbbad57cbeb6111afbdc4a5b0e54e884196f4407e499cbab47f285a',
+    '83519bcc87a103259d88478edc614bdfd090b21a295b202f3e8d319a22308cbf',
   '../__tests__/credential-sdk-boundary.test.ts':
     '5b11210dbc2e4b26352b34f3a169d23345ca045ebb702436dd93931f175c2907',
   '../__tests__/credential-sdk-tools.test.ts':
