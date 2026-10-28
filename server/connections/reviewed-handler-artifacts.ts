@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/__tests__/indexed-chat-disk.test.ts':
-    'fc2d86f47341edbc9c9da6c8832a8092676e4b3deb91a6ea6fcc333ce0f6c797',
+    '8aa77679b1b4d0546b6fbd1a939235d9c8ccb726b6295fd16f4dedaf979637e8',
   '../../frontend/src/lib/indexed-chat-disk.ts':
     '704f2c41015aa51cfe1701dee1c3212ef78aea49ca4824c4679c36d07e665aef',
   '../../tests/integration/telos-s9/integrated-candidate/joined-role-setup-ready.test.ts':

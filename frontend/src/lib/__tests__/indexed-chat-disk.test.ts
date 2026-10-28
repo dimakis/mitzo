@@ -22,11 +22,13 @@ function fixture() {
   };
   const backend = {
     read: async () => [...records.values()],
-    write: vi.fn(async (record: ChatDiskRecord, expected: string | null) => {
-      if ((records.get(record.key)?.revision ?? null) !== expected)
-        throw Error('Draft changed in another tab');
-      records.set(record.key, record);
-    }),
+    write: vi.fn(
+      async (record: ChatDiskRecord, expected: string | null, legacyUnchanged: () => boolean) => {
+        if (!legacyUnchanged() || (records.get(record.key)?.revision ?? null) !== expected)
+          throw Error('Draft changed in another tab');
+        records.set(record.key, record);
+      },
+    ),
   };
   return { legacy, records, disk, backend, open: () => new IndexedChatDisk(disk, backend) };
 }
