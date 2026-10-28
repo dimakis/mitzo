@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.750-helper-boundary-evidence';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.751-fixture-type-boundaries';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,8 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../__tests__/joined-frontend-startup.test.ts':
-    '766aa9029a525f5071ae6411a9a32454330e51f8a67b29be159b543a229f406c',
+  '../../tests/integration/telos-s9/integrated-candidate/joined-frontend-startup.test.ts':
+    '6b0b127f8ba6f6561c155bf4cc76376e419c713e44497c219713c57a15e67f93',
   '../__tests__/private-helper-boundary-diagnostics.test.ts':
     'aa27583871aa488a3f75455ce2e82eaaddd973c80b4b242742e3ebddc4da9ff4',
   '../__tests__/fixtures/private-helper-boundary-diagnostics.ts':
@@ -305,7 +305,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-exclusive-file-batch.test.ts':
     'ec4e064004085ac04b6ec81a2ede0701d9d9c74cc4ae36cfe1039b08d484c370',
   '../__tests__/private-helper-deadline.test.ts':
-    '68c58b49ae247be9042cec0a4e471a1941cec42b7082865cd74a918392bd4f16',
+    '09d25a8d10a4abd44fcc17fb31f1343b63269226f6e30e46769da43024df012f',
   '../native-tree-publication.ts':
     'f2c351fe07781a7e95d098372e04178d9de512d3d99f48e3d41bcecbb0dce54b',
   '../private-repository-checkout.ts':

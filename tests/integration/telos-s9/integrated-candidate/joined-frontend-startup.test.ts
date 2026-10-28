@@ -22,7 +22,7 @@ vi.mock('node:http', () => ({
 }));
 vi.mock('@vitejs/plugin-react', () => ({ default: () => ({}) }));
 vi.mock('@playwright/test', () => ({ chromium: {} }));
-import { createJoinedFrontend } from '../../tests/integration/telos-s9/integrated-candidate/joined-browser-target';
+import { createJoinedFrontend } from './joined-browser-target';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {

@@ -182,7 +182,7 @@ it.each(['current', 'expired', 'revoked'] as const)(
         joined = true;
         child.emit('close', 0, null);
       });
-      return child as ReturnType<typeof spawn>;
+      return child as unknown as ReturnType<typeof spawn>;
     });
     const rows: unknown[] = [];
     const running = observePrivateHelperBoundary(input, executePrivateNativeFileHelper, rows);
