@@ -1,4 +1,5 @@
 import { waitForPreparedConversation } from './joined-conversation-ready';
+import { navigateToReviewedRoleSetup } from './joined-role-setup-ready';
 import {
   allowNativeCompleteCallbacks,
   publishNativeCompleteAdvisorProfile,
@@ -520,7 +521,10 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
   });
   const advisorSearch = `telosRoleItem=studio&telosRole=advisor&telosRoleMode=additional&telosAdvisor=child&agentProfile=${originalAdvisorProfile.profileId}&profileRevision=${originalAdvisorProfile.revision}`;
   await seedRoleDraft('s9-joined-advisor', advisorSearch, advisorSelection);
-  await page.goto(front.origin + '/chat?draft=s9-joined-advisor&' + advisorSearch);
+  await navigateToReviewedRoleSetup(
+    page,
+    front.origin + '/chat?draft=s9-joined-advisor&' + advisorSearch,
+  );
   await browserExpect(page.getByRole('button', { name: 'Start chat', exact: true })).toBeEnabled();
   expect(nativeSessions).toHaveLength(0);
   await Promise.all([

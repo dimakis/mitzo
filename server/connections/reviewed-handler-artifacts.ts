@@ -2354,7 +2354,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/native-complete-non-git.contract.ts':
     '1644a9445579b486a15865785eacee5e0adc8a2e1e3a5a3802d4f9f832c7b7e7',
   '../../tests/integration/telos-s9/integrated-candidate/native-complete-repository.contract.ts':
-    '4f74066c1a3183778e6bf872c23bc918c6a167867919e21aaaf62f05d8b965da',
+    '7f4bdf852deb6237089d0c8b91af89b96e7fce5234d68a5714846be4e2094b44',
   '../../tests/integration/telos-s9/integrated-candidate/native-complete-support.ts':
     '969a4600241a54428ef8a0d7da262f6ca4c0b1bb2b011cb25c4cc39ebc997d69',
   '../../tests/integration/telos-s9/integrated-candidate/vitest.native-complete-non-git.config.ts':
