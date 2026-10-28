@@ -1161,8 +1161,12 @@ export class SseConnection implements ChatConnection {
       this._connectionId &&
       this.replayRequest?.es === this.es &&
       this.replayRequest.connectionId === this._connectionId
-    )
+    ) {
+      // A suspend hint may arrive after this replay resumed the sessions.
+      // Coalesce foreground intent into one subsequent replay before opening.
+      if (resumeSessions) this.replayRequest.dirty = true;
       return;
+    }
     if (!this._connected || !this.es || !this._connectionId) {
       this.checkAndReconnect();
       return;
