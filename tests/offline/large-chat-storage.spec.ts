@@ -13,9 +13,7 @@ const bundle = build({
   },
 });
 
-test('large draft and outgoing screenshots survive real IndexedDB reload beyond Web Storage quota', async ({
-  page,
-}) => {
+test.beforeEach(async ({ page }) => {
   await page.route('**/*', async (route) => {
     if (new URL(route.request().url()).hostname !== 'mitzo-ui.test') return route.abort();
     if (route.request().url().endsWith('/fixture.js'))
@@ -28,6 +26,46 @@ test('large draft and outgoing screenshots survive real IndexedDB reload beyond 
       contentType: 'text/html',
     });
   });
+});
+
+test('a saved screenshot and its smaller outgoing copy survive real Web Storage exhaustion', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.waitForFunction(() => 'storageFixture' in window);
+  const saved = await page.evaluate(() =>
+    (
+      window as unknown as {
+        storageFixture: {
+          saveNearQuota(): Promise<{ quotaName: string; rawLength: number }>;
+        };
+      }
+    ).storageFixture.saveNearQuota(),
+  );
+  expect(saved.quotaName).toBe('QuotaExceededError');
+  expect(saved.rawLength).toBeLessThan(256 * 1024);
+  await page.reload();
+  await page.waitForFunction(() => 'storageFixture' in window);
+  const restored = await page.evaluate(() =>
+    (
+      window as unknown as {
+        storageFixture: {
+          readNearQuota(): Promise<unknown>;
+        };
+      }
+    ).storageFixture.readNearQuota(),
+  );
+  expect(restored).toEqual({
+    draftText: 'Inspect this screenshot',
+    prompt: 'Inspect this screenshot',
+    sameImage: true,
+    imageLength: 140000,
+  });
+});
+
+test('large draft and outgoing screenshots survive real IndexedDB reload beyond Web Storage quota', async ({
+  page,
+}) => {
   await page.goto('/');
   await page.waitForFunction(() => 'storageFixture' in window);
   const saved = await page.evaluate(() =>

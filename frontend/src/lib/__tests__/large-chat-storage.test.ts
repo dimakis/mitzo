@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { SendOutbox } from '../../../../packages/client/src/send-outbox';
 import { LargeChatStorage } from '../large-chat-storage';
+import { createReviewedOutboxStorage } from '../reviewed-outbox-storage';
 function fixture() {
   const disk = new Map<string, string>();
   const blobs = new Map<string, string>();
@@ -29,6 +30,105 @@ function fixture() {
   };
   return { disk, blobs, storage, backend };
 }
+it.each(['local', 'openshell'] as const)(
+  'sends the smaller %s outbox snapshot when a saved screenshot draft has exhausted Web Storage headroom',
+  async (runOn) => {
+    const f = fixture();
+    const write = f.storage.setItem;
+    f.storage.setItem = (key, value) => {
+      if (value.length > 1000) throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      write(key, value);
+    };
+    const storage = new LargeChatStorage(f.storage, f.backend);
+    const image = { data: 'AAAA'.repeat(35000), mediaType: 'image/png' };
+    const draft = JSON.stringify({
+      text: 'Inspect this screenshot',
+      images: [{ ...image, preview: `data:image/png;base64,${image.data}` }],
+    });
+    storage.setItem('draft', draft);
+    await storage.flush();
+    const draftReference = f.disk.get('draft');
+    const body = {
+      runOn,
+      clientMsgId: 'screenshot-command',
+      capabilityRevision: 'caps-r1',
+      runtime: {
+        account: { accountId: 'personal', provider: 'openai-codex', profileRevision: 'r1' },
+        harness: 'codex',
+        targetId: runOn === 'local' ? 'mac' : 'sandbox',
+        mode: 'agent',
+      },
+      selection: {
+        version: 1,
+        agent: { profileId: 'agent', revision: 1 },
+        model: 'luna-fixture',
+        thinking: 'low',
+        context: { source: 'none', revision: null },
+        permission: { mode: 'agent', revision: 0 },
+      },
+      payload: { text: 'Inspect this screenshot', images: [image] },
+    };
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const put = f.backend.put;
+    f.backend.put = async (id, value) => {
+      await gate;
+      await put(id, value);
+    };
+    const url = 'https://offline.test/api/chat/local-codex/send';
+    const fetch = vi.fn().mockRejectedValue(Error('Lost acknowledgement'));
+    const outbox = new SendOutbox({
+      url,
+      storage: createReviewedOutboxStorage(storage, url, 'local'),
+      localFirstCommand: true,
+      fetch,
+      notify: vi.fn(),
+    });
+    outbox.start();
+    try {
+      expect(outbox.enqueue(body, 1, 'screenshot-draft')).toBe(true);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(storage.getItem('draft')).toBe(draft);
+      release();
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(body);
+      expect(f.disk.get('draft')).toBe(draftReference);
+      const cold = new LargeChatStorage(f.storage, f.backend);
+      await cold.ready();
+      expect(cold.getItem('draft')).toBe(draft);
+      const [retained] = JSON.parse(
+        createReviewedOutboxStorage(cold, url, 'local').getItem('queue')!,
+      );
+      expect(retained.body).toEqual(body);
+      expect(retained.localDraftId).toBe('screenshot-draft');
+    } finally {
+      release();
+      outbox.stop();
+    }
+  },
+);
+
+it('keeps a small quota fallback unconfirmed when IndexedDB cannot save it', async () => {
+  const f = fixture();
+  const write = f.storage.setItem;
+  f.storage.setItem = (key, value) => {
+    if (value.length > 1000) throw new DOMException('Quota exceeded', 'QuotaExceededError');
+    write(key, value);
+  };
+  f.backend.put = async () => {
+    throw Error('Database unavailable');
+  };
+  const storage = new LargeChatStorage(f.storage, f.backend);
+  const value = 'x'.repeat(2000);
+  storage.setItem('outgoing', value);
+  await expect(storage.flush()).rejects.toThrow('Database unavailable');
+  expect(storage.getItem('outgoing')).toBe(value);
+  expect(f.disk.has('outgoing')).toBe(false);
+  expect(storage.failed).toBe(true);
+});
+
 it('retains large drafts and commands beyond localStorage quota and reloads their exact bytes', async () => {
   const f = fixture();
   const first = new LargeChatStorage(f.storage, f.backend);
