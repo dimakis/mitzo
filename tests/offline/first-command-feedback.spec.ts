@@ -1,8 +1,10 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
 const output = build({
   entryPoints: [resolve('tests/fixtures/first-command-feedback.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   external: ['/*.png', '/*.svg'],
   format: 'esm',
@@ -75,7 +77,7 @@ for (const theme of ['dark', 'light'])
       await page.getByRole('button', { name: 'Restore fixture storage' }).click();
       await page.getByRole('button', { name: 'Start session', exact: true }).click();
       await expect(input).toHaveValue('');
-      expect(sends).toBe(1);
+      await expect.poll(() => sends).toBe(1);
       await expect(page.getByRole('alert')).toHaveCount(0);
       expect(errors).toEqual([]);
     });

@@ -1,3 +1,4 @@
+import { readChatStorage } from '../support/persisted-chat-storage';
 import {
   settingRow,
   chooseSetting,
@@ -604,8 +605,9 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(trigger).toBeFocused();
     await expect
       .poll(() =>
-        page.evaluate(
-          (draftId) => JSON.parse(localStorage.getItem(`mitzo-chat-draft:${draftId}`)!),
+        readChatStorage(
+          page,
+          (storage, draftId) => JSON.parse(storage.getItem(`mitzo-chat-draft:${draftId}`)!),
           draftId,
         ),
       )
@@ -737,8 +739,9 @@ for (const appearance of ['light', 'dark'] as const) {
     ).toBeEnabled();
     await expect
       .poll(() =>
-        page.evaluate(
-          (draftId) => JSON.parse(localStorage.getItem(`mitzo-chat-draft:${draftId}`)!),
+        readChatStorage(
+          page,
+          (storage, draftId) => JSON.parse(storage.getItem(`mitzo-chat-draft:${draftId}`)!),
           draftId,
         ),
       )
@@ -819,8 +822,9 @@ for (const appearance of ['light', 'dark'] as const) {
     ).toBeEnabled();
     await expect
       .poll(() =>
-        page.evaluate(
-          (draftId) => JSON.parse(localStorage.getItem(`mitzo-chat-draft:${draftId}`)!),
+        readChatStorage(
+          page,
+          (storage, draftId) => JSON.parse(storage.getItem(`mitzo-chat-draft:${draftId}`)!),
           draftId,
         ),
       )
@@ -900,9 +904,10 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(composer).toHaveValue('Keep this development draft across environments');
     await expect
       .poll(() =>
-        page.evaluate(
-          (id) =>
-            JSON.parse(localStorage.getItem(`mitzo-chat-draft:${id}`)!).settings.runtimeSelection,
+        readChatStorage(
+          page,
+          (storage, id) =>
+            JSON.parse(storage.getItem(`mitzo-chat-draft:${id}`)!).settings.runtimeSelection,
           confirmationDraftId,
         ),
       )
@@ -914,9 +919,10 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(account).toHaveAttribute('data-value', 'api');
     await expect
       .poll(() =>
-        page.evaluate(
-          (id) =>
-            JSON.parse(localStorage.getItem(`mitzo-chat-draft:${id}`)!).settings.runtimeSelection,
+        readChatStorage(
+          page,
+          (storage, id) =>
+            JSON.parse(storage.getItem(`mitzo-chat-draft:${id}`)!).settings.runtimeSelection,
           confirmationDraftId,
         ),
       )
@@ -1005,10 +1011,10 @@ for (const appearance of ['light', 'dark'] as const) {
     ).toBeDisabled();
     await expect
       .poll(() =>
-        page.evaluate(() => {
-          const drafts = Object.keys(localStorage)
+        readChatStorage(page, (storage) => {
+          const drafts = Object.keys(storage)
             .filter((key) => key.startsWith('mitzo-chat-draft:'))
-            .map((key) => JSON.parse(localStorage.getItem(key)!));
+            .map((key) => JSON.parse(storage.getItem(key)!));
           return drafts.find(
             (draft) => draft.text === 'Keep this development draft across environments',
           )?.settings.runtimeSelection;
@@ -1078,10 +1084,10 @@ for (const appearance of ['light', 'dark'] as const) {
     await chooseSetting(page, 'Thinking level', 'low');
     await expect
       .poll(() =>
-        page.evaluate(() => {
-          const drafts = Object.keys(localStorage)
+        readChatStorage(page, (storage) => {
+          const drafts = Object.keys(storage)
             .filter((key) => key.startsWith('mitzo-chat-draft:'))
-            .map((key) => JSON.parse(localStorage.getItem(key)!));
+            .map((key) => JSON.parse(storage.getItem(key)!));
           return drafts.find(
             (draft) => draft.text === 'Keep this development draft across environments',
           )?.settings.runtimeSelection;
@@ -1128,10 +1134,10 @@ for (const appearance of ['light', 'dark'] as const) {
     ).toBeDisabled();
     await expect
       .poll(() =>
-        page.evaluate(() => {
-          const drafts = Object.keys(localStorage)
+        readChatStorage(page, (storage) => {
+          const drafts = Object.keys(storage)
             .filter((key) => key.startsWith('mitzo-chat-draft:'))
-            .map((key) => JSON.parse(localStorage.getItem(key)!));
+            .map((key) => JSON.parse(storage.getItem(key)!));
           return drafts.find(
             (draft) => draft.text === 'Keep this development draft across environments',
           )?.settings.runtimeSelection;

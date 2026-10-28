@@ -1,3 +1,4 @@
+import { readChatStorage } from '../support/persisted-chat-storage';
 import {
   settingsHome,
   settingRow,
@@ -564,11 +565,12 @@ for (const workspaceChoice of ['select', 'default'] as const) {
       ).toEqual(['codex', 'codex', 'claude-sdk', 'gemini']);
       if (workspaceChoice === 'default') {
         const original = commands.at(-1)!;
-        const retained = await page.evaluate(
-          (id) =>
-            Object.keys(localStorage)
+        const retained = await readChatStorage(
+          page,
+          (storage, id) =>
+            Object.keys(storage)
               .filter((key) => key.startsWith('mitzo-local-first-command-outbox:'))
-              .map((key) => JSON.parse(localStorage.getItem(key)!))
+              .map((key) => JSON.parse(storage.getItem(key)!))
               .find((entry) => entry.body.clientMsgId === id),
           original.clientMsgId,
         );
@@ -631,11 +633,12 @@ for (const workspaceChoice of ['select', 'default'] as const) {
           1,
         );
         expect(
-          await page.evaluate(
-            (id) =>
-              Object.keys(localStorage)
+          await readChatStorage(
+            page,
+            (storage, id) =>
+              Object.keys(storage)
                 .filter((key) => key.startsWith('mitzo-local-first-command-outbox:'))
-                .map((key) => JSON.parse(localStorage.getItem(key)!))
+                .map((key) => JSON.parse(storage.getItem(key)!))
                 .find((entry) => entry.body.clientMsgId === id),
             original.clientMsgId,
           ),

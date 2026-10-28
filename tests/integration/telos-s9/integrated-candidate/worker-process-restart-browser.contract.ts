@@ -1,3 +1,4 @@
+import { readChatStorage } from '../../../support/persisted-chat-storage';
 import { navigateToChatMetadata } from './task-chat-read-observer';
 import type {
   TelosOrdinaryWorkDelegationInput,
@@ -210,10 +211,10 @@ it('recovers the original delegated worker, bound execution task, attempt and ad
       { timeout: 10_000 },
     );
     const outbox = () =>
-      page.evaluate(() =>
-        Object.keys(localStorage)
+      readChatStorage(page, (storage) =>
+        Object.keys(storage)
           .filter((key) => key.startsWith('mitzo-local-first-command-outbox:'))
-          .map((key) => JSON.parse(localStorage.getItem(key)!)),
+          .map((key) => JSON.parse(storage.getItem(key)!)),
       );
     await vi.waitFor(async () =>
       expect(

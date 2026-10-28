@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -5,6 +6,7 @@ import { reviewedContextBrowserData } from '../fixtures/telos-reviewed-context-d
 
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/telos-readable-context.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/mitzo-telos-reviewed-context.js',

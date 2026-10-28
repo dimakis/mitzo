@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -5,6 +6,7 @@ import { resolve } from 'node:path';
 // Actual retained-context renderer and ordinary composer; no app build or backend.
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/telos-readable-context.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/mitzo-telos-readable-context.js',

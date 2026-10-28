@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { expect, test } from '@playwright/test';
 import ledger from '../../docs/design/approved/ledger.json' with { type: 'json' };
 import { build } from 'esbuild';
@@ -7,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 // Bundle the changed controls with the real desktop shell. No backend, provider or model.
 const output = build({
   entryPoints: [resolve('tests/fixtures/chat-settings-surface.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   external: [
     '/mitzo-wordmark.png',

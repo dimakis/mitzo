@@ -1,3 +1,4 @@
+import { chatStorage } from '../../frontend/src/lib/large-chat-storage';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { createMitzoStore, type WebSocketLike } from '@mitzo/client';
@@ -29,7 +30,7 @@ const store = createMitzoStore({
   localFirstCommandConfig: {
     url: '/api/chat/local-codex/send',
     storage: createReviewedOutboxStorage(
-      localStorage,
+      chatStorage,
       new URL('/api/chat/local-codex/send', location.href).href,
       'local',
     ),
@@ -37,7 +38,7 @@ const store = createMitzoStore({
   reviewedSendConfig: {
     url: '/api/chat/send',
     storage: createReviewedOutboxStorage(
-      localStorage,
+      chatStorage,
       new URL('/api/chat/send', location.href).href,
     ),
   },

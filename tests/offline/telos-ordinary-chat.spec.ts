@@ -1,3 +1,5 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
+import { readChatStorage } from '../support/persisted-chat-storage';
 import { test, expect } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -9,6 +11,7 @@ import { settingsHome, settingRow } from '../support/chat-settings';
 test.use({ baseURL: 'https://mitzo-ui.test' });
 const compiled = build({
   entryPoints: [resolve('tests/fixtures/telos-ordinary-chat.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/telos-ordinary-chat.js',
@@ -383,12 +386,13 @@ for (const theme of ['dark', 'light'] as const)
     releaseRecovery();
     await expect
       .poll(() =>
-        page.evaluate(
-          (id) =>
-            Object.keys(localStorage).some(
+        readChatStorage(
+          page,
+          (storage, id) =>
+            Object.keys(storage).some(
               (key) =>
                 key.startsWith('mitzo-local-first-command-outbox:') &&
-                JSON.parse(localStorage.getItem(key)!).body.clientMsgId === id,
+                JSON.parse(storage.getItem(key)!).body.clientMsgId === id,
             ),
           requests[0].body.clientMsgId,
         ),
@@ -417,7 +421,7 @@ for (const theme of ['dark', 'light'] as const)
       fullPage: true,
     });
     expect(
-      await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), retainedKey),
+      await readChatStorage(page, (storage, key) => JSON.parse(storage.getItem(key)!), retainedKey),
     ).toEqual(olderEntry);
     for (const read of receiptReads) expect(read.body).toEqual(requests[0].body);
     expect(errors).toEqual([]);

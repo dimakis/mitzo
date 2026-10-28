@@ -1,3 +1,4 @@
+import { chatStorage } from '../../frontend/src/lib/large-chat-storage';
 import { createRoot } from 'react-dom/client';
 import { createMitzoStore } from '@mitzo/client';
 import { MitzoStoreProvider, useMitzoStore } from '@mitzo/client/hooks';
@@ -44,7 +45,7 @@ const store = createMitzoStore({
   localFirstCommandConfig: {
     url: '/api/chat/local-codex/send',
     storage: createReviewedOutboxStorage(
-      localStorage,
+      chatStorage,
       location.origin + '/api/chat/local-codex/send',
       'local',
     ),

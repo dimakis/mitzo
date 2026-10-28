@@ -1,3 +1,4 @@
+import { readChatStorage } from '../../../support/persisted-chat-storage';
 import { observeTaskChatReads, navigateToChatMetadata } from './task-chat-read-observer';
 import type { OrdinaryWorkspaceFirstCommand } from '@mitzo/protocol';
 import { expect, it, vi } from 'vitest';
@@ -150,10 +151,10 @@ it('preserves an actual admitted command and honest lost-result state through ab
       { timeout: 10_000 },
     );
     const outbox = () =>
-      page.evaluate(() =>
-        Object.keys(localStorage)
+      readChatStorage(page, (storage) =>
+        Object.keys(storage)
           .filter((key) => key.startsWith('mitzo-local-first-command-outbox:'))
-          .map((key) => JSON.parse(localStorage.getItem(key)!)),
+          .map((key) => JSON.parse(storage.getItem(key)!)),
       );
     await vi.waitFor(async () =>
       expect(

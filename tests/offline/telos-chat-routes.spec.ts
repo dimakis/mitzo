@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { settingsHome, settingRow } from '../support/chat-settings';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
@@ -13,6 +14,7 @@ import { localInventoryFixture } from '../../frontend/src/test-utils/local-inven
 test.use({ baseURL: 'https://mitzo-ui.test' });
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/telos-chat-routes.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/telos-chat-routes.js',

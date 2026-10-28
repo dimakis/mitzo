@@ -1,3 +1,4 @@
+import { readChatStorage } from '../../../support/persisted-chat-storage';
 import { observeTaskChatReads } from './task-chat-read-observer';
 import { navigateToReviewedRoleSetup } from './joined-role-setup-ready';
 import { waitForPreparedConversation } from './joined-conversation-ready';
@@ -516,10 +517,10 @@ it('CT18 actual browser: consumed first-command response loss, document reload a
   const directory = chat.eventStore.getSession(advisorId)!.cwd!;
   const inode = (await stat(directory)).ino;
   const savedEntries = () =>
-    page.evaluate(() =>
-      Object.keys(localStorage)
+    readChatStorage(page, (storage) =>
+      Object.keys(storage)
         .filter((key) => key.startsWith('mitzo-local-first-command-outbox:'))
-        .map((key) => JSON.parse(localStorage.getItem(key)!)),
+        .map((key) => JSON.parse(storage.getItem(key)!)),
     );
   await vi.waitFor(async () =>
     expect(

@@ -1,3 +1,4 @@
+import { chatStorage } from '../../frontend/src/lib/large-chat-storage';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { createMitzoStore } from '@mitzo/client';
@@ -33,7 +34,7 @@ draft.images = [
 saveChatDraft(draft);
 let blockStorage = true;
 const disk = createReviewedOutboxStorage(
-  localStorage,
+  chatStorage,
   location.origin + '/api/chat/local-codex/send',
   'local',
 );
@@ -70,6 +71,7 @@ const store = createMitzoStore({
     url: '/api/chat/local-codex/send',
     storage: {
       getItem: disk.getItem,
+      flush: disk.flush,
       setItem: (name, value) => {
         if (blockStorage) throw Error('Synthetic storage quota');
         disk.setItem(name, value);

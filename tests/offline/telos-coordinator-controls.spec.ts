@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { navigateWithServiceHealth } from '../support/service-health-navigation';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
@@ -9,6 +10,7 @@ import type { TelosWorkControlView } from '@mitzo/protocol';
 test.use({ baseURL: 'https://mitzo-ui.test' });
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/telos-chat-routes.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/telos-coordinator-controls.js',

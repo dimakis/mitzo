@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -5,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 
 const bundled = build({
   entryPoints: [resolve('tests/fixtures/approved-chat.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   external: ['/*.png', '/*.svg'],
   write: false,

@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { waitForNewFixtureReads } from '../support/fixture-reads';
 import { localInventoryFixture } from '../../frontend/src/test-utils/local-inventory-fixture';
 import { expect, test } from '@playwright/test';
@@ -10,6 +11,7 @@ import { readFile } from 'node:fs/promises';
 test.use({ baseURL: 'https://mitzo-ui.test' });
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/telos-outcomes-workspace.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/telos-workspace.js',

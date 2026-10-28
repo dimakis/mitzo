@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { expect, test, type Page } from '@playwright/test';
 import { chooseSetting, openChatSetting, settingRow, settingsHome } from '../support/chat-settings';
 import { build } from 'esbuild';
@@ -19,6 +20,7 @@ import { V2SendMessage } from '../../packages/protocol/src/ws-schemas-v2';
 test.use({ baseURL: 'https://mitzo-ui.test' });
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/agent-library-builder.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/agent-library-builder.js',

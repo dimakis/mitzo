@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -12,6 +13,7 @@ import { sharedConversationView } from '../fixtures/symposium-shared-conversatio
 // No installed application owners or provider calls: this establishes UI behavior only.
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/symposium-shared-conversation.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/mitzo-shared-conversation.js',

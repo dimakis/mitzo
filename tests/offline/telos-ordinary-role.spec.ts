@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -7,6 +8,7 @@ import type { TelosOrdinaryWorkRoleSetupInput as TelosWorkRoleSetupInput } from 
 // Actual client, hook, setup component and ChatInput; all traffic intercepted.
 const compiled = build({
   entryPoints: [resolve('tests/fixtures/telos-ordinary-role.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/telos-ordinary-role.js',

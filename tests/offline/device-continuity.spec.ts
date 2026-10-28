@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -6,6 +7,7 @@ import { resolve } from 'node:path';
 // This focused fixture needs no app build, backend, credentials or model.
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/device-continuity.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/mitzo-device-continuity.js',
