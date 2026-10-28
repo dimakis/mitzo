@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import process from 'node:process';
+import { performance } from 'node:perf_hooks';
 
 // This owner transfers only these five composed cases from Linux unit shards.
 // Native registration's two account workflows retain their separate proof schema.
@@ -47,21 +48,28 @@ export function requirePreparedConsumerReport(report, selected) {
   )
     throw Error('Every composed prepared repository case must pass exactly once: ' + selected.name);
 }
-export async function runPreparedConsumers({ root, runner = runBrowserCommand }) {
+export async function runPreparedConsumers({ root, group, runner = runBrowserCommand }) {
+  const selection = group
+    ? preparedConsumerCases.filter((entry) => entry.name === group)
+    : preparedConsumerCases;
+  if (!selection.length) throw Error('Unknown prepared consumer group: ' + group);
   const require = createRequire(import.meta.url);
   const vitest = join(dirname(require.resolve('vitest/package.json')), 'vitest.mjs');
   const base = join(root, 'test-results/prepared-consumers');
   mkdirSync(base, { recursive: true });
-  rmSync(join(base, 'summary.json'), { force: true });
+  const summaryPath = join(base, group ? `summary-${group}.json` : 'summary.json');
+  rmSync(summaryPath, { force: true });
   // Delete every old result before any process starts, including cancellation.
-  for (const selected of preparedConsumerCases)
+  for (const selected of selection)
     for (const file of ['run.json', 'exit.json'])
       rmSync(join(base, selected.name, file), { force: true });
   const summary = [];
-  for (const selected of preparedConsumerCases) {
+  for (const selected of selection) {
     const directory = join(base, selected.name);
     mkdirSync(directory, { recursive: true });
     const report = join(directory, 'run.json');
+    const startedAt = new Date().toISOString();
+    const started = performance.now();
     const code = await runner({
       command: process.execPath,
       args: [
@@ -90,6 +98,9 @@ export async function runPreparedConsumers({ root, runner = runBrowserCommand })
         cases: selected.cases.length,
         status: 'passed',
         report,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        durationMs: Math.round(performance.now() - started),
       });
     } catch (error) {
       summary.push({
@@ -98,17 +109,23 @@ export async function runPreparedConsumers({ root, runner = runBrowserCommand })
         status: 'failed',
         code,
         error: String(error),
+        startedAt,
+        completedAt: new Date().toISOString(),
+        durationMs: Math.round(performance.now() - started),
       });
     }
     if (exit?.interruptedBy) break;
   }
-  writeFileSync(join(base, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
-  if (summary.length !== preparedConsumerCases.length || summary.some((r) => r.status !== 'passed'))
+  writeFileSync(summaryPath, JSON.stringify(summary, null, 2) + '\n');
+  if (summary.length !== selection.length || summary.some((r) => r.status !== 'passed'))
     throw Error('All five composed prepared repository cases must pass');
   return summary;
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  if (process.platform !== 'darwin' || process.argv.length !== 2)
+  if (process.platform !== 'darwin' || process.argv.length > 3)
     throw Error('Select the complete offline macOS prepared consumer owner');
-  await runPreparedConsumers({ root: fileURLToPath(new URL('..', import.meta.url)) });
+  await runPreparedConsumers({
+    root: fileURLToPath(new URL('..', import.meta.url)),
+    group: process.argv[2],
+  });
 }

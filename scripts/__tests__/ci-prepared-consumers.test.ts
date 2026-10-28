@@ -133,3 +133,48 @@ it('cancellation stops further admission and cannot reuse stale passing evidence
     JSON.parse(readFileSync(join(root, 'test-results/prepared-consumers/summary.json'), 'utf8')),
   ).toHaveLength(1);
 });
+
+it.each(['delivery', 'publication'])(
+  'runs only the selected %s group with independent evidence',
+  async (group) => {
+    const root = fixture();
+    const selected = preparedConsumerCases.find((c) => c.name === group)!;
+    let calls = 0;
+    await runPreparedConsumers({
+      root,
+      group,
+      runner: async (o: { directory: string; args: string[] }) => {
+        calls++;
+        expect(o.args).toContain(selected.file);
+        writeFileSync(join(o.directory, 'run.json'), JSON.stringify(report(selected)));
+        writeFileSync(join(o.directory, 'exit.json'), JSON.stringify({ code: 0, signal: null }));
+        return 0;
+      },
+    });
+    expect(calls).toBe(1);
+    const summary = JSON.parse(
+      readFileSync(join(root, 'test-results/prepared-consumers', `summary-${group}.json`), 'utf8'),
+    );
+    expect(summary).toHaveLength(1);
+    expect(summary[0]).toMatchObject({
+      name: group,
+      status: 'passed',
+      durationMs: expect.any(Number),
+    });
+  },
+);
+
+it('rejects an unknown group before starting a process', async () => {
+  let calls = 0;
+  await expect(
+    runPreparedConsumers({
+      root: fixture(),
+      group: 'missing',
+      runner: async () => {
+        calls++;
+        return 0;
+      },
+    }),
+  ).rejects.toThrow('Unknown prepared consumer group');
+  expect(calls).toBe(0);
+});

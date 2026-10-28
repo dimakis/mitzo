@@ -36,6 +36,33 @@ and SwapFree to 212 KiB immediately before runner termination; almost 15 GiB
 became free when its test processes stopped. This proves severe memory pressure,
 though the responsible process still needs the added RSS diagnostics.
 
+## macOS composed consumer profile, 28 October 2026
+
+On [run 40751528302](https://github.com/dimakis/mitzo/actions/runs/40751528302/job/123039324810),
+the composed consumer job spent 14.4 minutes in two serial Vitest processes.
+The four delivery cases took 158.459, 66.957, 73.864 and 113.980 seconds;
+the publication case took 442.930 seconds. Including import/transform, the
+processes took 417.92 and 448.49 seconds respectively. The publication case's
+three native host tool executions took 22.637, 21.024 and 204.802 seconds.
+Repeated native workspace checks dominated the trace: 204 observations totalled
+835.235 seconds, but these overlap other phases and are not additive wall time.
+The 7 GiB hosted runner reported normal macOS pressure and no swap throughout;
+low free memory alone does not prove resource exhaustion.
+
+Delivery and publication now occupy two independent macOS jobs, retaining the
+same one-worker fresh-process isolation and all five case deadlines/assertions.
+The unsharded command still runs both groups. Each group retains its own summary,
+start/end timestamps, process duration, actual reporter, exit and resource trace.
+The aggregate gate validates both actual reports and successful exits, including
+exact file/case identities; a passing matrix status alone is insufficient.
+Run-scoped group artifacts replace only the retried group's evidence. Explicitly
+unselected work may skip the owner only with a successful selection result.
+
+The measured publication duration bounds the useful parallel test time at about
+7.5 minutes before setup, queueing and aggregation. This is an estimate, not a
+measured end-to-end improvement: the extra macOS job may wait for hosted capacity.
+Compare subsequent clean runs including queue delays before claiming a speedup.
+
 ## Execution and completeness
 
 - The native consumer family retains the same 32 collected cases and 178
@@ -45,8 +72,8 @@ though the responsible process still needs the added RSS diagnostics.
   files retain a path-hash partition. Complete discovery and exact once-only file
   coverage remain mandatory in `ci-unit-gate.mjs`.
 - The five new composed prepared-repository delivery/publication cases have a
-  separate one-worker macOS owner. The delivery file's four cases run in one fresh Vitest process, followed by
-  a second fresh process for the publication file's one case. These exercise
+  separate one-worker macOS owner with delivery/publication matrix groups. The delivery file's four cases run in one fresh Vitest process, and
+  a separate job runs a fresh process for the publication file's one case. These exercise
   LocalMac behavior with synthetic provider/model transport; no live model or
   account credentials are used. Only these two files transfer from the four
   Linux shards. Full discovery still lists them, the unit gate requires both
@@ -147,6 +174,19 @@ and [failed-jobs rerun API](https://docs.github.com/en/rest/actions/workflow-run
 
 ## Batch a candidate
 
+The required `Compile and source preflight` job builds and verifies server sources,
+checks all server TypeScript including test mocks, checks frontend TypeScript and
+independently verifies source pins. It attempts every independent check after a
+failure; cancellation stops the remaining checks. A failed preflight prevents
+admission of the expensive unit, browser and macOS jobs, while the aggregate CI
+gate remains red. Conservative affected-job selection still applies after a
+successful preflight.
+
+Core and unit owners retain their original compilation and build prerequisites.
+This intentionally duplicates some compilation on a clean run, preserving exact
+owner evidence without introducing cross-job build-artifact reuse. Measure that
+overhead alongside avoided failed matrix runs before claiming a total speedup.
+
 Collect all known compiler, format, test and review findings before pushing.
 Complete focused offline checks and independent local review on a stable
 candidate, then push one validated correction batch. For a genuine infrastructure
@@ -171,6 +211,73 @@ protection and exact-head review; integrate an advancing base at the actual
 landing turn rather than refreshing every waiting branch.
 
 This workflow requires no staging, deployment or live model calls.
+
+## Review events and durable landing
+
+Review submissions, edits and dismissals run the credential-free
+`Centaur review event` signal. Its completion wakes the default-branch Centaur
+status writer, which reads canonical PRs and reports rather than trusting the
+signal's head, result or artifacts. Scheduled reconciliation is only a fallback;
+GitHub does not guarantee its requested interval. Both workflows must be accepted
+on the default branch before the bridge operates.
+
+The optional `PR landing request` / `PR landing reconciliation` workflows retain
+an explicitly authorized merge independently of the chat agent. Implementation,
+inspection and prepare-only tasks do not authorize a landing request. After the
+user authorizes merging a reviewed candidate, integrate the current accepted
+base, push the candidate, then register the full head and base SHAs before waiting:
+
+```bash
+gh workflow run pr-landing-request.yml --repo OWNER/REPO --ref main \
+  -f mode=authorize -f pr_number=NUMBER -f expected_head=FULL_HEAD_SHA \
+  -f expected_base=FULL_BASE_SHA -f confirmation=MERGE
+```
+
+Use the repository's actual default branch instead of `main` where different.
+The dispatch actor must retain repository write permission. The workflow creates
+a seven-day receipt in GitHub's immutable artifact metadata. Reconciliation
+never downloads artifact contents or checks out PR code. The most recent request
+for a PR supersedes earlier requests immediately, including unfinished or failed
+requests. Revoke a pending request with:
+
+```bash
+gh workflow run pr-landing-request.yml --repo OWNER/REPO --ref main \
+  -f mode=revoke -f pr_number=NUMBER
+```
+
+CI completion, a new landing request and Centaur status reconciliation wake the
+controller. Manual dispatch and a scheduled fallback can also reconcile pending
+requests. It rechecks the head, base, actor permission, receipt, trusted final
+report, App status, required checks, review threads and strict branch protection
+before the merge API call. A head or base change stops the request; integrate,
+review the relevant delta, and explicitly renew authorization. The controller
+never refreshes a branch or invents approval. GitHub applies branch protection
+and the expected-head guard to the actual merge. An uncertain API outcome is
+reported without an immediate blind retry; later reconciliation reads canonical
+PR state. There is no delivery-time guarantee.
+
+Provision a **separate** landing App before enabling this optional controller.
+The ordinary Actions token cannot read the complete branch-protection settings;
+GitHub requires [Administration read permission](https://docs.github.com/en/rest/branches/branch-protection#get-branch-protection)
+for that API. Do not expand or reuse Centaur's status-writing credential.
+
+- Install the new App only on the selected repository with Actions, Administration,
+  Checks, Commit statuses, Issues and Pull requests **read**, and Contents **write**.
+  Do not grant bypass permissions or add it to a branch-protection bypass list.
+- Create environment `pr-landing-writer` and restrict its deployment branches to
+  the actual default branch. Store `PR_LANDING_APP_PRIVATE_KEY` only there and set
+  repository variable `PR_LANDING_APP_ID` to its numeric App ID.
+- Keep the existing dedicated `CENTAUR_STATUS_APP_ID` and configure
+  `CENTAUR_STATUS_APP_LOGIN` to that status App's exact `slug[bot]` identity.
+  Keep `CENTAUR_REVIEWER_LOGIN` consistent with the trusted reviewer configuration.
+- Retain strict required CI and the Centaur App-bound status. Confirm environment
+  restrictions and the App's actual permissions before issuing a real request.
+
+Missing provisioning fails closed. This change does not install an App, grant
+merge authorization, or dispatch a request. The other CI improvements operate
+without this optional setup. Workflow/API behavior is validated with offline
+fixtures; first hosted activation must be checked against the configured App and
+environment before claiming the interruption handoff works end to end.
 
 ## Browser journey readiness
 

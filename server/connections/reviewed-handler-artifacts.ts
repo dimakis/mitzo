@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.744-complete-prepared-flow';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.745-ci-reliable-handoff';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,12 +22,32 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../.github/workflows/centaur-gate.yml':
+    '498cb6e2256bbd0ec75879583f77e133ff2f2c9ecd2e84fd17cd05e524013a8f',
+  '../../.github/workflows/centaur-review-event.yml':
+    '15d8c9ad15cd3ba3e07db0153cd9e690a1557d87432b825db2e48b489ddf0ae1',
+  '../../.github/workflows/pr-landing-request.yml':
+    'ce492cbd5043ec5d22190d9ba644a264bac14593e7788de4215fc4ae62b5bede',
+  '../../.github/workflows/pr-landing-reconcile.yml':
+    '51a4f0c9fcd5e3cf1c18dbbb6be82939193b8d7bf83d62eaac248988bc1837cb',
+  '../../scripts/ci-prepared-consumer-gate.mjs':
+    '9fe8ee3723c18bbf7315c006fea728441f421dbb41eb5c20607f8d6859e6aead',
+  '../../scripts/pr-landing.mjs':
+    '6690e469fb0a929b10ea21f66b890e634c3e1bd0e926c8de9e40b0cb34a5a40d',
+  '../../scripts/__tests__/ci-compile-preflight.test.ts':
+    'ebdcec9743f3cd2f3fbba80c3f6d67db1d384c9faee2b28f9ca40a4525e1f9ee',
+  '../../scripts/__tests__/ci-prepared-consumer-gate.test.ts':
+    '3a9f82a8a9aedbb5ebdd8305cee2131704f3e1ec0fa5d665e02ea5a26f76a584',
+  '../../scripts/__tests__/pr-landing.test.ts':
+    '12703be3e28eb2cfa75fa0975f65bdb554929aa47d8c6b375592f4b325af66c9',
+  '../__tests__/centaur-merge-status.test.ts':
+    '7ed6ce87f0c8f7bf8bebca3e8c6b40039ca7a3223f40f11774bac1e8c86eed7f',
   '../../tests/integration/telos-s9/integrated-candidate/joined-role-setup-ready.test.ts':
     '135c046f446cccdc941332395629b33db95e266fc5625c8b20ce45a300f8c2fb',
   '../../scripts/ci-prepared-consumers.mjs':
-    '7a26d4438345758530ebf237d47f9eddf1a52270bcfbc946b452a957504b24c5',
+    '6d186ab76eb13ac61a1b60a1b0abbe8187f01976180ff00f2092ad2bb5708583',
   '../../scripts/__tests__/ci-prepared-consumers.test.ts':
-    '3f6ff47a0ac93c02aa1a0e272d8dde506e7cb4427de07f2819ee742840c865b2',
+    'c317d609def84023fbc43e51d4e6b6b6806f4bb8d4302bd74cbcca51b06bf516',
   '../../scripts/__tests__/ci-native-repository-workflows.test.ts':
     '01ddf5c74d6eb75940b193e2f72ac50f6c9c6d75f25f6b664a38b420b9a83f72',
   '../../scripts/ci-native-repository-workflows.mjs':
@@ -2088,9 +2108,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-cancellation.test.ts':
     'ad174bd65a0e98221ffc8d81b283550cbacce72d5078b48518f425bc1214ef5d',
   '../../scripts/__tests__/ci-required-gate.test.ts':
-    'bd1b8393cbd15188f5c947def05ce3361f91a220b3646256d2a9438b310e710f',
+    'cfddc7352babb97cb2d6fc91d6681f641e52b8af0188a6e753233bf27ff6630f',
   '../../scripts/ci-required-gate.mjs':
-    'a1c62ddf6b74315c1866984cc0e9048499841527d34dc6ee707c7be556aade95',
+    '41f625ddd84f7d540fac09ecb803325c855e6dcde56f6d77c4e7080048a5f44a',
   '../__tests__/agent-communication-nongit-app.test.ts':
     'da8d6f78621b75c4fcda23b1693065439fe7d106fd83cd1388a240628e30103e',
   '../__tests__/agent-communication-nongit-native.test.ts':
@@ -2468,7 +2488,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-native-authorization.test.ts':
     '27e1f121c8132a45953a1204545277c33a7f17e0f3b6e970dbea383f5b4b358a',
   '../../scripts/__tests__/ci-unit-gate.test.ts':
-    '0b2d1f3b5b2ed6692fe49b07e52a65975a11eef60d59e3e4d5f35c36b93d7496',
+    '35470a91a0b2c43d1e5f266974281969a18bdcf1924d155db90f1886579d3fb5',
   '../../scripts/ci-unit-gate.mjs':
     'cb2b475bb2dda66c893796fc0ec89d5ad200af1f1e4299df72d4f1f13881ec56',
   '../__tests__/bundled-skills.test.ts':
@@ -2718,7 +2738,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '187d816bfa17941c57e4fabfda84b9e136f6917ce5d7c659289b878acd2add8e',
   '../../.github/workflows/ci.yml':
-    'e8d2039fe1f7a7377deeb18c9facde2d5310159dc3618adbca2cab3adff1f4de',
+    'f68aefc269610d7e0687c18361aa590cc7de1c34d9c02605a886eb5b72cadb1a',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',

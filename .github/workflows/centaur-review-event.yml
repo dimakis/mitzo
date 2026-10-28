@@ -1,0 +1,16 @@
+name: Centaur review event
+
+on:
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+# This workflow runs at a PR merge ref, including for forks. It has no secrets,
+# checkout, artifacts or write token; completion only wakes the trusted writer.
+permissions: {}
+
+jobs:
+  signal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake default-branch reconciliation
+        run: 'true'
