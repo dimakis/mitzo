@@ -393,6 +393,58 @@ describe('Codex app-server transport', () => {
     expect(child.kill).toHaveBeenCalled();
   });
 
+  it('receives large native user-message echoes and remains usable for the next RPC', async () => {
+    const { child, sent, reply } = processStub();
+    const notifications: Array<{
+      item: { content: Array<{ type: string; text?: string; url?: string }> };
+    }> = [];
+    const client = new CodexAppServerClient(child, {
+      lifecycle: {
+        onClose: vi.fn(),
+        onRequest: vi.fn(),
+        onNotification: (_method, params) => {
+          notifications.push(params as (typeof notifications)[number]);
+        },
+      },
+    });
+    try {
+      const ready = client.initialize();
+      reply({ id: sent[0].id, result: {} });
+      await ready;
+      const text = 'x'.repeat(5 * 1024 * 1024);
+      const image = 'data:image/png;base64,' + Buffer.alloc(128 * 1024).toString('base64');
+      const params = {
+        threadId: 'thread',
+        turnId: 'turn',
+        item: {
+          id: 'item',
+          type: 'userMessage',
+          content: [
+            { type: 'text', text: '\0'.repeat(64 * 1024) },
+            { type: 'text', text: 'source'.repeat(300000) },
+            { type: 'text', text },
+            ...Array.from({ length: 30 }, () => ({ type: 'image', url: image })),
+          ],
+        },
+      };
+      for (const method of ['item/started', 'item/completed']) {
+        const frame = Buffer.from(JSON.stringify({ method, params }) + '\n');
+        for (let offset = 0; offset < frame.length; offset += 65536)
+          child.stdout.write(frame.subarray(offset, offset + 65536));
+      }
+      expect(notifications).toHaveLength(2);
+      expect(notifications[1].item.content[2].text === text).toBe(true);
+      expect(notifications[1].item.content).toHaveLength(33);
+      expect(notifications[1].item.content[32].url === image).toBe(true);
+      const subsequent = client.request('account/read', {});
+      reply({ id: sent.at(-1)!.id, result: { ok: true } });
+      await expect(subsequent).resolves.toEqual({ ok: true });
+      expect(child.kill).not.toHaveBeenCalled();
+    } finally {
+      client.close();
+    }
+  });
+
   it('fails closed on oversized and malformed protocol frames', async () => {
     for (const frame of ['{broken}\n', 'x'.repeat(65)]) {
       const { child } = processStub();

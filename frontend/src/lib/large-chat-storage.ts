@@ -15,7 +15,8 @@ interface PayloadStore {
 export class LargeChatStorage {
   private cache = new Map<string, { reference: string; value: string }>();
   private revisions = new Map<string, number>();
-  private writes = new Map<string, { revision: number; value: string }>();
+  private writes = new Map<string, { revision: number; value: string; expected: string | null }>();
+  private scheduled = new Set<string>();
   private removals = new Map<string, number>();
   private errors = new Map<string, unknown>();
   private tail: Promise<void> = Promise.resolve();
@@ -47,7 +48,7 @@ export class LargeChatStorage {
     ].filter((key) => !this.removals.has(key));
   }
   async ready(): Promise<void> {
-    await Promise.all(
+    const results = await Promise.allSettled(
       this.keys().map(async (key) => {
         const reference = this.disk.getItem(key);
         if (!reference?.startsWith(PREFIX) || this.writes.has(key)) return;
@@ -57,6 +58,7 @@ export class LargeChatStorage {
         this.cache.set(key, { reference, value });
       }),
     );
+    for (const result of results) if (result.status === 'rejected') throw result.reason;
   }
   getItem(key: string): string | null {
     if (this.removals.has(key)) return null;
@@ -86,36 +88,63 @@ export class LargeChatStorage {
     this.revisions.set(key, revision);
     this.errors.delete(key);
     this.removals.delete(key);
-    this.writes.set(key, { revision, value });
+    this.writes.set(key, { revision, value, expected });
+    // Register the barrier before notifying synchronous migration/save listeners.
+    this.enqueueWrite(key);
     this.changed();
-    this.tail = this.tail
-      .catch(() => {})
-      .then(async () => {
-        const id = createBrowserId();
+  }
+  private enqueueWrite(key: string) {
+    if (this.scheduled.has(key)) return;
+    this.scheduled.add(key);
+    // Queued closures hold only a key. The map retains one latest snapshot, plus
+    // at most the one put already in flight, regardless of typing frequency.
+    this.tail = this.tail.catch(() => {}).then(() => this.drainWrite(key));
+  }
+  private async drainWrite(key: string): Promise<void> {
+    try {
+      // Replacements stay inside this barrier, ahead of queued source cleanup.
+      while (true) {
+        const write = this.writes.get(key);
+        if (!write || this.revisions.get(key) !== write.revision) return;
+        const { revision, value, expected } = write;
+        let id: string | undefined;
+        let failed = false;
         try {
+          if (this.disk.getItem(key) !== expected)
+            throw Error(
+              'This draft changed in another tab. Keep this window open and preserve your edits.',
+            );
+          id = createBrowserId();
           await this.payloads.put(id, value);
           if (this.revisions.get(key) !== revision) {
             this.clean(PREFIX + id);
-            return;
+            continue;
           }
           if (this.disk.getItem(key) !== expected)
             throw Error(
               'This draft changed in another tab. Keep this window open and preserve your edits.',
             );
-          const old = expected;
           const reference = PREFIX + id;
           this.disk.setItem(key, reference);
           this.cache.set(key, { reference, value });
           this.writes.delete(key);
           this.errors.delete(key);
-          this.clean(old);
+          this.clean(expected);
         } catch (error) {
-          this.clean(PREFIX + id);
-          if (this.revisions.get(key) === revision) this.errors.set(key, error);
+          if (id) this.clean(PREFIX + id);
+          if (this.revisions.get(key) === revision) {
+            this.errors.set(key, error);
+            failed = true;
+          }
         } finally {
           this.changed();
         }
-      });
+        // A notification can install a newer value even after a failed put.
+        if (failed && this.revisions.get(key) === revision) return;
+      }
+    } finally {
+      this.scheduled.delete(key);
+    }
   }
   removeItem(key: string): void {
     const expected = this.disk.getItem(key);

@@ -21,7 +21,11 @@ import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
 import { isAbsolute, posix } from 'node:path';
-import { AccountBindingSchema, type AccountBinding } from '@mitzo/protocol';
+import {
+  AccountBindingSchema,
+  CHAT_MAX_NATIVE_FRAME_BYTES,
+  type AccountBinding,
+} from '@mitzo/protocol';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
 import { createLogger } from './logger.js';
@@ -470,7 +474,7 @@ export class CodexAppServerClient {
     this.observeTurnStartWrite = options.observeTurnStartWrite;
     this.loginOnly = options.loginOnly ?? false;
     this.timeoutMs = options.timeoutMs ?? 30_000;
-    this.maxFrameBytes = options.maxFrameBytes ?? 4 * 1024 * 1024;
+    this.maxFrameBytes = options.maxFrameBytes ?? CHAT_MAX_NATIVE_FRAME_BYTES;
     this.environmentLaunch = options.environmentLaunch;
     this.bindChild(child);
   }

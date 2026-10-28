@@ -12,6 +12,14 @@ export const CHAT_MAX_PDF_BYTES = 50 * MiB;
 export const CHAT_MAX_COMMAND_BYTES = 192 * MiB;
 // Server-prepared prompts also contain source snapshots and application context.
 export const CHAT_MAX_PREPARED_PROMPT_CHARS = 32 * MiB;
+// Native item notifications echo the prepared prompt and separate saved-source
+// (2 MiB) / continuity (64 KiB) text. JSON can escape each UTF-16 unit to six
+// bytes. The final MiB covers source wrappers, image padding/URLs and RPC metadata.
+const NATIVE_AUXILIARY_TEXT_BYTES = 2 * MiB + 64 * 1024;
+export const CHAT_MAX_NATIVE_FRAME_BYTES =
+  6 * (CHAT_MAX_PREPARED_PROMPT_CHARS + NATIVE_AUXILIARY_TEXT_BYTES) +
+  4 * Math.ceil(CHAT_MAX_ATTACHMENT_BYTES / 3) +
+  MiB;
 
 export function base64DecodedBytes(data: string): number {
   return Math.floor((data.length * 3) / 4) - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);

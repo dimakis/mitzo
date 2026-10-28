@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.731-chat-input-capacity';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.732-chat-input-capacity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,14 +24,14 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/main.tsx': '679688aa3e04496cddf90bc14300efc7c8344f4bccb5718643948a3332b70bb1',
   '../../packages/protocol/src/chat-input-limits.ts':
-    '54d585132760f4104fbb3c3686489ddc26ef5d7ad81af24fa58052eae58d3945',
+    '1199f2630bd0333de58964af965b87c8466976268f935993e24da693b54a0aeb',
   '../chat-command-json.ts': '53751991386b497dd8e6be2267bac61ff4d3344d46e5816d159fa8f0039eecc0',
   '../__tests__/chat-command-json.test.ts':
     '675c6c281aebefef54c6fb8b067e14db554035f0a7ceea88f4ec4daeee9efcd7',
   '../../frontend/src/lib/large-chat-storage.ts':
-    'c0572a62ddcabd3a4b14e46bbad6b5e2c388545e86f650dbe0c7c198f945e9d4',
+    '89460ae8aac4ab8e8e7aec5a477278e7639e38f772a5af1464ba1e9eab044380',
   '../../frontend/src/lib/__tests__/large-chat-storage.test.ts':
-    '6f803b5d364e881ca7f366f653f4c60afbaf5d18fb51a11421a9b0f74a934e6d',
+    '496e40a186d92f483beaf4ab6cd286d63cef93b901378ef7c56b2593c2e4d719',
   '../../frontend/src/render-app.tsx':
     '8244b4f22a4a068e6498434aa0bc540fa6d20e124a8b8e310dbd5a1ee92628f4',
   '../../tests/fixtures/large-chat-storage.ts':
@@ -1052,7 +1052,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-approval-scope.ts':
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
-    '9674b0980aed3fddd7092a7e98e3344dc55b62894fc5407138491e25c14a7c30',
+    'fca3b751d221ee5f422f1cd99647749d101cd86ed729b991a55f1c112aedf5a8',
   '../codex-mcp-tools.ts': '4e4b62af34964f9d3c0e29624b3b37ee70478849715b8b1c8ebcf3efbd01c0f3',
   '../codex-runtime-diagnostics.ts':
     '00b48e32557feff7923a5d548f085d2107383491689ec43f75f465287552f4c9',
@@ -1950,7 +1950,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-provider-admission.test.ts':
     '487b01b94336c384d247af35f4b5d0d520ebd36d0444f27f3ba45fb009f865a1',
   '../__tests__/codex-app-server-client.test.ts':
-    '88b88fa0f85578c5e59b32ba1c7a2376dc41ab7f97bbfef21b02e2bd3a963b60',
+    '3c26879a976c02f8308bf33a62184f75a4aa0feef6766e7e3ae2b5ec42e0da83',
   '../__tests__/codex-chat-dispatch.test.ts':
     '274484967b1ab918912ee8efb3857cce461f7324d2bcecac8ea3f998be487928',
   '../__tests__/codex-isolated-api-launch.test.ts':

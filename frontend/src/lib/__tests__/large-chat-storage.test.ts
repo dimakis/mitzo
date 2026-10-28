@@ -1,4 +1,5 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+import { SendOutbox } from '../../../../packages/client/src/send-outbox';
 import { LargeChatStorage } from '../large-chat-storage';
 function fixture() {
   const disk = new Map<string, string>();
@@ -163,4 +164,228 @@ it('preserves a pending save when an immediate native removal throws', async () 
   const cold = new LargeChatStorage(f.storage, f.backend);
   await cold.ready();
   expect(cold.getItem('draft')).toBe('large'.repeat(60000));
+});
+
+it('coalesces queued attachment draft edits before allocating payloads', async () => {
+  const f = fixture();
+  const put = vi.fn(f.backend.put);
+  const store = new LargeChatStorage(f.storage, { ...f.backend, put });
+  const body = 'image-payload'.repeat(25000);
+  for (let edit = 0; edit < 50; edit++) store.setItem('draft', body + edit);
+  await store.flush();
+  expect(put).toHaveBeenCalledTimes(1);
+  const cold = new LargeChatStorage(f.storage, f.backend);
+  await cold.ready();
+  expect(cold.getItem('draft') === body + 49).toBe(true);
+});
+
+it('keeps migration cleanup behind the latest replacement of an in-flight destination', async () => {
+  const f = fixture();
+  const store = new LargeChatStorage(f.storage, f.backend);
+  const source = 'source'.repeat(50000);
+  store.setItem('source', source);
+  await store.flush();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const written: string[] = [];
+  const put = f.backend.put;
+  f.backend.put = async (id, value) => {
+    written.push(value.slice(-10));
+    if (written.length === 1) await gate;
+    await put(id, value);
+  };
+  // The store retains the backend object, so this starts the first real put.
+  store.setItem('destination', source + 'old');
+  await vi.waitFor(() => expect(written).toHaveLength(1));
+  for (let edit = 0; edit < 20; edit++) store.setItem('destination', source + edit);
+  store.removeItem('source');
+  const originalRemove = f.storage.removeItem;
+  f.storage.removeItem = (key) => {
+    if (key === 'source') expect(written.at(-1)).toBe((source + 19).slice(-10));
+    originalRemove(key);
+  };
+  release();
+  await store.flush();
+  expect(written).toHaveLength(2);
+  const cold = new LargeChatStorage(f.storage, f.backend);
+  await cold.ready();
+  expect(cold.getItem('source')).toBeNull();
+  expect(cold.getItem('destination') === source + 19).toBe(true);
+});
+
+it.each(['missing', 'unreadable'] as const)(
+  'settles a slow valid Local outbox hydration before propagating an unrelated %s payload',
+  async (failure) => {
+    const f = fixture();
+    const key = 'mitzo-send-outbox:/local/send';
+    const command = {
+      runOn: 'local',
+      repositoryWorkspaceId: '11111111-1111-4111-8111-111111111111',
+      clientMsgId: 'retained-command',
+      capabilityRevision: 'caps-r1',
+      runtime: {
+        account: { accountId: 'personal', provider: 'openai-codex', profileRevision: 'r1' },
+        harness: 'codex',
+        targetId: 'mac',
+        mode: 'agent',
+      },
+      selection: {
+        version: 1,
+        agent: { profileId: 'agent', revision: 1 },
+        model: 'luna-fixture',
+        thinking: 'low',
+        context: { source: 'none', revision: null },
+        permission: { mode: 'agent', revision: 0 },
+      },
+      payload: { text: 'saved'.repeat(60000) },
+    };
+    f.disk.set('bad-draft', 'mitzo-large-chat:v1:missing');
+    f.disk.set(key, 'mitzo-large-chat:v1:good');
+    f.blobs.set('good', JSON.stringify([{ body: command, scope: 1, uncertain: true }]));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const store = new LargeChatStorage(f.storage, {
+      ...f.backend,
+      get: async (id) => {
+        if (id === 'good') await gate;
+        if (id === 'missing' && failure === 'unreadable') throw Error('Unreadable payload');
+        return f.backend.get(id);
+      },
+    });
+    const settled = vi.fn();
+    const ready = store.ready();
+    void ready.then(
+      () => settled(),
+      () => settled(),
+    );
+    // Let all currently runnable hydration promises settle, without releasing good.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    try {
+      expect(settled).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
+    await expect(ready).rejects.toThrow(/unavailable|Unreadable/);
+    const notify = vi.fn();
+    const fetch = vi.fn();
+    const outbox = new SendOutbox({
+      url: '/local/send',
+      storage: store,
+      fetch,
+      notify,
+      localFirstCommand: true,
+    });
+    outbox.start();
+    try {
+      expect(notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: '_local_command_state',
+          clientMsgId: 'retained-command',
+          state: 'uncertain',
+        }),
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      outbox.stop();
+    }
+  },
+);
+
+it('does not let an obsolete failed put poison its latest replacement', async () => {
+  const f = fixture();
+  let reject!: (error: Error) => void;
+  const gate = new Promise<void>((_resolve, fail) => {
+    reject = fail;
+  });
+  const put = f.backend.put;
+  let calls = 0;
+  f.backend.put = async (id, value) => {
+    if (++calls === 1) await gate;
+    await put(id, value);
+  };
+  const store = new LargeChatStorage(f.storage, f.backend);
+  store.setItem('draft', 'old'.repeat(100000));
+  await vi.waitFor(() => expect(calls).toBe(1));
+  const latest = 'latest'.repeat(50000);
+  store.setItem('draft', latest);
+  reject(Error('Old snapshot quota failure'));
+  await store.flush();
+  expect(calls).toBe(2);
+  expect(store.failed).toBe(false);
+  const cold = new LargeChatStorage(f.storage, f.backend);
+  await cold.ready();
+  expect(cold.getItem('draft') === latest).toBe(true);
+});
+
+it('registers a destination barrier before synchronous cleanup listeners run', async () => {
+  const f = fixture();
+  let armed = false;
+  let entered = false;
+  const store = new LargeChatStorage(f.storage, f.backend, () => {
+    if (armed && !entered) {
+      entered = true;
+      store.removeItem('source');
+    }
+  });
+  const source = 'source'.repeat(50000);
+  store.setItem('source', source);
+  await store.flush();
+  f.backend.put = async () => {
+    throw Error('Copy failed');
+  };
+  armed = true;
+  store.setItem('destination', source);
+  await expect(store.flush()).rejects.toThrow('Copy failed');
+  const cold = new LargeChatStorage(f.storage, f.backend);
+  await cold.ready();
+  expect(cold.getItem('source') === source).toBe(true);
+  expect(cold.getItem('destination')).toBeNull();
+});
+
+it('drains a newer value installed by its terminal changed notification', async () => {
+  const f = fixture();
+  const first = 'first'.repeat(60000),
+    last = 'last'.repeat(75000);
+  let replaced = false;
+  const store = new LargeChatStorage(f.storage, f.backend, () => {
+    if (!replaced && !store.pending && store.getItem('draft') === first) {
+      replaced = true;
+      store.setItem('draft', last);
+    }
+  });
+  store.setItem('draft', first);
+  await store.flush();
+  expect(store.pending).toBe(false);
+  const cold = new LargeChatStorage(f.storage, f.backend);
+  await cold.ready();
+  expect(cold.getItem('draft') === last).toBe(true);
+});
+
+it('refuses a queued foreign-pointer conflict before allocating an obsolete payload', async () => {
+  const f = fixture();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const put = f.backend.put;
+  let calls = 0;
+  f.backend.put = async (id, value) => {
+    if (++calls === 1) await gate;
+    await put(id, value);
+  };
+  const store = new LargeChatStorage(f.storage, f.backend);
+  store.setItem('blocking', 'block'.repeat(60000));
+  await vi.waitFor(() => expect(calls).toBe(1));
+  const local = 'pending'.repeat(50000);
+  store.setItem('draft', local);
+  f.disk.set('draft', 'foreign committed edit');
+  release();
+  await expect(store.flush()).rejects.toThrow(/another tab/);
+  expect(calls).toBe(1);
+  expect(f.disk.get('draft')).toBe('foreign committed edit');
+  expect(store.getItem('draft') === local).toBe(true);
 });
