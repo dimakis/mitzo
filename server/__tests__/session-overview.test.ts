@@ -741,6 +741,124 @@ describe('SessionOverviewEmitter', () => {
     expect(activities[0].sessionId).toBe('session-1');
   });
 
+  it('reads one fresh task tree per snapshot across all task sessions', () => {
+    const goals = [
+      { id: 'goal-a', status: 'blocked', children: [] },
+      { id: 'goal-b', status: 'pending_review', children: [] },
+    ];
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() =>
+          goals.map((goal) =>
+            makeActiveSession({
+              clientId: goal.id,
+              sessionId: goal.id,
+              taskContext: { currentTaskId: goal.id, goalId: goal.id },
+            }),
+          ),
+        ),
+      } as unknown as SessionOverviewDeps['registry'],
+      taskStore: { getTree: vi.fn(() => goals) } as unknown as SessionOverviewDeps['taskStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    expect(emitter.getSnapshot().map((activity) => activity.waitReason)).toEqual([
+      'blocked',
+      'review',
+    ]);
+    expect(deps.taskStore.getTree).toHaveBeenCalledTimes(1);
+    goals[0].status = 'done';
+    expect(emitter.getSnapshot().map((activity) => activity.waitReason)).toEqual([
+      undefined,
+      'review',
+    ]);
+    expect(deps.taskStore.getTree).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds background git checks and visits every unique cwd without overlapping rounds', async () => {
+    const sessions = Array.from({ length: 13 }, (_, index) =>
+      makeActiveSession({
+        clientId: `client-${index}`,
+        sessionId: `session-${index}`,
+        cwd: `/workspace/${index % 12}`,
+      }),
+    );
+    const pending: Array<() => void> = [];
+    let active = 0;
+    let peak = 0;
+    mockHasUncommittedWorkAsync.mockClear();
+    mockHasUncommittedWorkAsync.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          active++;
+          peak = Math.max(peak, active);
+          pending.push(() => {
+            active--;
+            resolve('M dirty.ts');
+          });
+        }),
+    );
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => sessions),
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    expect(mockHasUncommittedWorkAsync).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mockHasUncommittedWorkAsync).toHaveBeenCalledTimes(4);
+    for (let batch = 0; batch < 3; batch++) {
+      pending.splice(0).forEach((finish) => finish());
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(peak).toBe(4);
+    expect(mockHasUncommittedWorkAsync).toHaveBeenCalledTimes(12);
+    expect(new Set(mockHasUncommittedWorkAsync.mock.calls.map(([cwd]) => cwd)).size).toBe(12);
+    expect(emitter.getSnapshot().every((activity) => activity.uncommittedWork)).toBe(true);
+    mockHasUncommittedWorkAsync.mockImplementation(async () => null);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mockHasUncommittedWorkAsync).toHaveBeenCalledTimes(24);
+    expect(emitter.getSnapshot().every((activity) => !activity.uncommittedWork)).toBe(true);
+  });
+
+  it('keeps the refresh guard until all Git workers settle after a check rejects', async () => {
+    const sessions = Array.from({ length: 8 }, (_, index) =>
+      makeActiveSession({
+        clientId: `client-${index}`,
+        sessionId: `session-${index}`,
+        cwd: `/workspace/${index}`,
+      }),
+    );
+    const pending: Array<() => void> = [];
+    mockHasUncommittedWorkAsync.mockClear();
+    mockHasUncommittedWorkAsync.mockImplementation((cwd: string) => {
+      if (cwd === '/workspace/0') return Promise.reject(new Error('unexpected check failure'));
+      return new Promise<string>((resolve) => pending.push(() => resolve('M dirty.ts')));
+    });
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => sessions),
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockHasUncommittedWorkAsync).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mockHasUncommittedWorkAsync).toHaveBeenCalledTimes(4);
+    for (let batch = 0; batch < 3; batch++) {
+      pending.splice(0).forEach((finish) => finish());
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(mockHasUncommittedWorkAsync).toHaveBeenCalledTimes(8);
+    expect(
+      emitter.getSnapshot().find((activity) => activity.sessionId === 'session-0')?.uncommittedWork,
+    ).toBe(false);
+    expect(emitter.getSnapshot().filter((activity) => activity.uncommittedWork)).toHaveLength(7);
+    mockHasUncommittedWorkAsync.mockImplementation(async () => 'M recovered.ts');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mockHasUncommittedWorkAsync).toHaveBeenCalledTimes(16);
+    expect(emitter.getSnapshot().every((activity) => activity.uncommittedWork)).toBe(true);
+  });
+
   // ─── Background uncommitted work refresh ────────────────────────────────
 
   it('does not call git synchronously during compute', async () => {
