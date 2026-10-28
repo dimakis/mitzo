@@ -461,3 +461,52 @@ it('verifies a stopped repository task without acknowledging recovery or releasi
   expect(() => f.store.assertRepositoryTaskStopped(record as never)).toThrow();
   expect(f.store.commandStatus('conversation', binding, 'pending')).toBe('queued');
 });
+
+it.each([false, true])(
+  'selects a completed preparation source only for a successful durable tool result (error=%s)',
+  (error) => {
+    const f = fixture({ error });
+    f.store.finish('conversation', binding, f.command.id, 'completed', 'turn');
+    const target = f.store.completedPreparedRepositorySourceTarget('conversation', binding);
+    expect(target).toEqual(
+      error
+        ? undefined
+        : {
+            commandId: source.commandId,
+            attempt: source.attempt,
+            threadId: source.threadId,
+            turnId: source.turnId,
+            generation: source.generation,
+          },
+    );
+  },
+);
+it('keeps an unfinished preparation fenced after provider completion', () => {
+  const f = fixture({ result: false });
+  f.store.finish('conversation', binding, f.command.id, 'completed', 'turn');
+  expect(() => f.store.completedPreparedRepositorySourceTarget('conversation', binding)).toThrow(
+    'preparation result',
+  );
+});
+it('does not reuse an earlier preparation result for a later ordinary completed turn', () => {
+  const f = fixture();
+  f.store.finish('conversation', binding, f.command.id, 'completed', 'turn');
+  f.store.enqueue('conversation', binding, { id: 'followup', prompt: 'Continue task' });
+  const command = f.store.claimNext('conversation', binding)!;
+  const policy = codexNativeExecutionPolicy({
+    bindingRevision: 'binding',
+    mode: 'agent',
+    cwd: '/original',
+    readableRoots: ['/selected'],
+    writableRoots: ['/original'],
+    deniedRoots: ['/credentials'],
+  });
+  f.store.prepareNativeExecution('conversation', binding, command, 'thread', policy);
+  f.store.recordNativeTurnAck('conversation', binding, command, 'thread', 'later-turn');
+  f.store.acceptNativeExecution('conversation', binding, command, 'thread', 'later-turn');
+  f.store.finish('conversation', binding, command.id, 'completed', 'later-turn');
+  expect(f.store.completedNativeTurnTarget('conversation', binding)).toMatchObject({
+    commandId: 'followup',
+  });
+  expect(f.store.completedPreparedRepositorySourceTarget('conversation', binding)).toBeUndefined();
+});

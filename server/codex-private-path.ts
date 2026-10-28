@@ -23,7 +23,16 @@ function canonical(path: string): string {
 const observedProfileRoots = new Set<string>();
 export function protectCodexProfileRoots(roots: string[]) {
   const resolved = roots.map(canonical);
-  resolved.forEach((root) => observedProfileRoots.add(root));
+  for (const root of resolved) {
+    // Reopening a retained login registers its private home. An existing
+    // ancestor already denies that whole subtree; adding a redundant child
+    // would change other live conversations' native permission fingerprints.
+    const covered = [...observedProfileRoots].some((parent) => {
+      const rel = relative(parent, root);
+      return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('../'));
+    });
+    if (!covered) observedProfileRoots.add(root);
+  }
 }
 
 export function privateCodexRoots(extraRoots: string[] = []): string[] {

@@ -183,3 +183,34 @@ it.each(['async', 'value', 'replace'] as const)(
     expect(capture).not.toHaveBeenCalled();
   },
 );
+
+it('keeps the native policy stable when another chat reopens a home already covered by a private root', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-private-reopen-')));
+  try {
+    const workspace = join(root, 'task'),
+      privateRoot = join(root, 'private');
+    mkdirSync(workspace);
+    mkdirSync(privateRoot);
+    const home = join(privateRoot, 'host-login-reopened');
+    mkdirSync(home);
+    privatePaths.protectCodexProfileRoots([privateRoot]);
+    const input = {
+      session: { cwd: workspace, mode: 'agent', worktreePaths: new Map() } as ManagedSession,
+      binding: { accountId: 'fixture', profileRevision: 'revision' } as never,
+      assertCurrentSync: () => {},
+    };
+    const before = composeOwnedLocalNativeExecutionPolicy(input);
+    privatePaths.protectCodexProfileRoots([home]);
+    const after = composeOwnedLocalNativeExecutionPolicy(input);
+    expect(after).toEqual(before);
+    expect(privatePaths.isPrivateCodexPath(join(home, 'auth.json'))).toBe(true);
+    const separate = join(root, 'separate-private');
+    mkdirSync(separate);
+    privatePaths.protectCodexProfileRoots([separate]);
+    expect(composeOwnedLocalNativeExecutionPolicy(input).policyRevision).not.toBe(
+      before.policyRevision,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
