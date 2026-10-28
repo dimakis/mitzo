@@ -203,7 +203,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-openshell-login-continuation.test.ts':
     '93d3023e2a6180d6ee2e634c876bd0d1b241b83a722f152cd496b29299d78f72',
   '../__tests__/fixtures/native-repository-registered-workflow.ts':
-    '273d7b2d46933756ee421a265276693292fb7a0c1d495589c31504c0744b6d99',
+    '314f74eebe45a1d59d87f315d96d91cebb81ab0dd4b60618405c4561bc2fe4b8',
   '../__tests__/native-local-repository-read-registration-api.test.ts':
     'a9727a723647947bef931292a467765a910a09361ad6b1651032813552b87a15',
   '../__tests__/native-repository-object-store.test.ts':
@@ -255,7 +255,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/preparation-service-diagnostics.ts':
     '6b9bf792a00a4e13c1a0d6cba1b7eeade26cc6a439ea409e1ee0d96ef48f26aa',
   '../__tests__/preparation-attempt-diagnostics.test.ts':
-    'f8c07cea36124ec920f3d1119d296257c0a559c4a95f9b4aa14dbf6b38f67d2d',
+    'e97bef5dbcdae783baa36e174c67bbda2aa4d6341ab7dbcb59fb519b4829fa15',
   '../__tests__/preparation-service-diagnostics.test.ts':
     '3951f40b9968f083d99742f8af4c2981279b5b431ea2014b8e8376b2550318bb',
   '../__tests__/pending-host-task-error-cause.test.ts':
@@ -2743,7 +2743,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
   '../../scripts/__tests__/browser-failure-evidence.test.ts':
-    'd7cd012d4c73e7e4f456ec66efc9719efd3ae53f2b9ff6903dbd4d034348e00c',
+    '42260048152bbed7fe731e9fa062cee28e5bf78ace72aafcc094ba1c8ea3ff1e',
   '../../scripts/__tests__/ci-browser-failure-reporter.test.ts':
     '730da0151f559054652bcf9e34db39da29153044d53ee35ecef927088ecee544',
   '../../scripts/__tests__/ci-browser-run.test.ts':
