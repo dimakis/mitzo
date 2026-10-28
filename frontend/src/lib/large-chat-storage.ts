@@ -76,14 +76,21 @@ export class LargeChatStorage {
     const expected = this.disk.getItem(key);
     if (value.length <= THRESHOLD && !value.startsWith(PREFIX)) {
       // A failed synchronous replacement must not invalidate an earlier save.
-      this.disk.setItem(key, value);
-      this.revisions.set(key, revision);
-      this.errors.delete(key);
-      this.writes.delete(key);
-      this.removals.delete(key);
-      this.cache.delete(key);
-      this.clean(expected);
-      return;
+      try {
+        this.disk.setItem(key, value);
+        this.revisions.set(key, revision);
+        this.errors.delete(key);
+        this.writes.delete(key);
+        this.removals.delete(key);
+        this.cache.delete(key);
+        this.clean(expected);
+        return;
+      } catch (error) {
+        if (!(error instanceof DOMException) || error.name !== 'QuotaExceededError') throw error;
+        // A draft can spill to IndexedDB while its smaller outgoing copy still
+        // takes this path. Quota depends on all stored data, not just this value.
+        // Use the same durable barrier below; never discard other saved records.
+      }
     }
     this.revisions.set(key, revision);
     this.errors.delete(key);
