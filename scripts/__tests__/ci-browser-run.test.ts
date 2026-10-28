@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -40,6 +40,28 @@ it('fails a missing executable and records that launch failure', async () => {
     await runBrowserCommand({ command: join(root, 'missing'), args: [], directory: root }),
   ).toBe(127);
   expect(JSON.parse(readFileSync(join(root, 'exit.json'), 'utf8')).error).toContain('ENOENT');
+});
+
+it('preserves a joined case working directory, private environment and separate output streams', async () => {
+  const root = directory();
+  const env = { ...process.env, JOINED_CASE_ID: 'private-case' };
+  expect(
+    await runBrowserCommand({
+      command: process.execPath,
+      args: [
+        '-e',
+        'console.log(process.cwd());console.log(process.env.JOINED_CASE_ID);console.error("case stderr");process.exitCode=7',
+      ],
+      directory: join(root, 'diagnostics'),
+      cwd: root,
+      env,
+    }),
+  ).toBe(7);
+  expect(readFileSync(join(root, 'diagnostics', 'stdout.log'), 'utf8')).toBe(
+    realpathSync(root) + '\nprivate-case\n',
+  );
+  expect(readFileSync(join(root, 'diagnostics', 'stderr.log'), 'utf8')).toBe('case stderr\n');
+  expect(process.env.JOINED_CASE_ID).toBeUndefined();
 });
 
 it.each(['ignore', 'inherit'] as const)(

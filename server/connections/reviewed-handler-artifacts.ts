@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.734-chat-storage-quota';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.735-chat-storage-quota-case-isolation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2180,7 +2181,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs':
     'ffa36338b9a352d5087ec9ea5dd069d840fe1e6b19f49a497bf489c1a28008a6',
   '../../tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs':
-    '3dae4247321b3b4f068d43e10b62d017662469941d2a5c4f5b558fb59746ea99',
+    '9f519174ab687ed770a51e7d0192913376fce84ae0c2c11a595ac437e7e038a0',
   '../../tests/integration/telos-s9/integrated-candidate/run-supplemental-ci.mjs':
     '4cf721f89a392b86055483af7efaf7a667fe8129b52c1e13c0f7374fd6813a06',
   '../../tests/integration/telos-s9/integrated-candidate/run-ux-composition.mjs':
@@ -2653,7 +2654,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-browser-failure-reporter.test.ts':
     '730da0151f559054652bcf9e34db39da29153044d53ee35ecef927088ecee544',
   '../../scripts/__tests__/ci-browser-run.test.ts':
-    '6fc396b5a86878316c27db45dfb09b70e48c3d001abfab8e0ba9181eb5c9de8c',
+    'fa3d52b55e20635e2162b89d0b486b10e52c29ff5d7a4a551c307c9bb062ee8d',
   '../../scripts/__tests__/ci-joined-shards.test.ts':
     '36915cd9ec1df2634467a99416ccc3d03ed26b3fd6d65ab21a847858d8d0a321',
   '../../scripts/__tests__/ci-recovery.test.ts':
@@ -2667,7 +2668,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/ci-browser-failure-reporter.mjs':
     'b22313559453a57bb106403e09c3c0f2ff1648a1045ad0293404cbc1c173f7e6',
   '../../scripts/ci-browser-run.mjs':
-    '312b1e1d0ef693d3e49a988e329c4aab7afc4346f11ed25abc686b65aeed3192',
+    '0f49a02ed7a96c58c22a27fd142a005d2ddadb4c67b1a3240d0a789682cf9aaf',
   '../../scripts/ci-joined-gate.mjs':
     'aec3fa1106ed98cb715d973e5b186887b7252bca68309ae0bae1da3aa0a5b3bd',
   '../../scripts/ci-recovery.mjs':

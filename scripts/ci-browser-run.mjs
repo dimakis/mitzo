@@ -7,10 +7,18 @@ import process from 'node:process';
 import console from 'node:console';
 import { setInterval, setTimeout, clearInterval, clearTimeout } from 'node:timers';
 
-export async function runBrowserCommand({ command, args, directory }) {
+export async function runBrowserCommand({
+  command,
+  args,
+  directory,
+  cwd = undefined,
+  env = undefined,
+}) {
   mkdirSync(directory, { recursive: true });
   const logPath = join(directory, 'command.log');
   writeFileSync(logPath, '');
+  writeFileSync(join(directory, 'stdout.log'), '');
+  writeFileSync(join(directory, 'stderr.log'), '');
   writeFileSync(join(directory, 'resources.jsonl'), '');
   const snapshot = () => {
     const record = {
@@ -43,13 +51,33 @@ export async function runBrowserCommand({ command, args, directory }) {
         record.processes = execFileSync(
           'ps',
           ['-e', '-o', 'pid,ppid,pgid,rss,comm', '--sort=-rss'],
-          { encoding: 'utf8', timeout: 2000, maxBuffer: 128 * 1024 },
+          {
+            encoding: 'utf8',
+            timeout: 2000,
+            maxBuffer: 128 * 1024,
+          },
         )
           .trim()
           .split('\n')
           .slice(0, 16);
       } catch {
         /* Observability must not replace the test result. */
+      }
+    }
+    if (process.platform === 'darwin') {
+      try {
+        record.macos = execFileSync(
+          '/usr/sbin/sysctl',
+          ['kern.memorystatus_vm_pressure_level', 'vm.swapusage'],
+          {
+            encoding: 'utf8',
+            timeout: 2000,
+            maxBuffer: 128 * 1024,
+            stdio: ['ignore', 'pipe', 'ignore'],
+          },
+        ).trim();
+      } catch {
+        /* Resource diagnostics must not change the command's result. */
       }
     }
     const meminfo = record.linux['/proc/meminfo'] ?? '';
@@ -63,7 +91,12 @@ export async function runBrowserCommand({ command, args, directory }) {
   };
   snapshot();
   // A separate group lets cancellation reach only this command's descendants.
-  const child = spawn(command, args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(command, args, {
+    cwd,
+    env,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
   const retireDescendants = () => {
     if (!child.pid) return;
     try {
@@ -75,12 +108,13 @@ export async function runBrowserCommand({ command, args, directory }) {
   // Descendants can retain inherited pipes after npm exits, preventing `close`.
   // Retire them on direct-child exit; still await `close` to drain both streams.
   child.once('exit', retireDescendants);
-  for (const [stream, output] of [
-    [child.stdout, process.stdout],
-    [child.stderr, process.stderr],
+  for (const [stream, output, name] of [
+    [child.stdout, process.stdout, 'stdout.log'],
+    [child.stderr, process.stderr, 'stderr.log'],
   ])
     stream.on('data', (data) => {
       appendFileSync(logPath, data);
+      appendFileSync(join(directory, name), data);
       output.write(data);
     });
   const heartbeat = setInterval(snapshot, 30000);
