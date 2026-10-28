@@ -22,10 +22,6 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../../tests/integration/telos-s9/integrated-candidate/joined-frontend-ready.ts':
-    '48dd9d57a154a91f6ac210073857027bbefe68714cfa8c9335bc94b2817b37f1',
-  '../../tests/integration/telos-s9/integrated-candidate/joined-frontend-ready.test.ts':
-    '117b2152f028791fc0d8440457fe9e03b59546ec72b5e0980e500bd41a68a669',
   '../../.github/workflows/centaur-gate.yml':
     '498cb6e2256bbd0ec75879583f77e133ff2f2c9ecd2e84fd17cd05e524013a8f',
   '../../.github/workflows/centaur-review-event.yml':
@@ -2234,7 +2230,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-cli-3077.manifest.json':
     '4b3ffbd04971720a8b6648d5266b688466e47dafa8b5128e5f562c855a5bbebf',
   '../../tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts':
-    'cda0adeb449335d1c56a9a9cf4550e81f2b12764bf8777dc706ee68dab82c27c',
+    '95e4ec1b903a6419ff357cdfbd743a49c86a92efe0336ea860ba8ea337c51e66',
   '../../tests/integration/telos-s9/integrated-candidate/joined-canonical-cli.ts':
     '75770f88a7bbcbedbfea6ca5399fdb6f663b9771789eb1098a1fd763e1cd7c1f',
   '../../tests/integration/telos-s9/integrated-candidate/joined-fake-voice-effects.ts':
@@ -2412,7 +2408,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/telos-worker-materials.ts':
     '362c2f64970802cbacaccdac3c38af153768aee385d3094031f5d32e56959134',
   '../__tests__/native-host-operator-lifetime.test.ts':
-    '4c138955b1a90f33c096dcbfff818d54a65ec9d394c1e771db0b317cc30541eb',
+    'ccf58d17751c96aed4c17ae39c47d3922c19ebaff688dde594fbbcc581173262',
   '../../frontend/src/components/__tests__/TelosSourceReview.test.tsx':
     'c573b2ef7c636b6331ebf3a8f5d1af4d5943956f42805082a102af20627ffb80',
   '../../frontend/src/hooks/__tests__/useDraft.test.ts':
@@ -2742,7 +2738,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '4b8ef96d04d4bf0896cfdf9aff75298f58b12bba193ee04a377574f60fe7c3b2',
+    '2ad827f6ba9168a84a73651bd0098f22997c34e283225118fad68fd0ee7338e2',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',

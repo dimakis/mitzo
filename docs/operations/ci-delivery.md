@@ -96,21 +96,6 @@ Compare subsequent clean runs including queue delays before claiming a speedup.
   `joined-validation` checks each shard summary and actual reporter, rejecting
   missing, duplicated, failed or skipped cases. Artifacts are scoped to the
   workflow run and replaced per shard, retaining successful evidence on retries.
-- Joined development-entry fixtures compile the real Vite boot, dynamic renderer,
-  chat and work-route entries and await their static imports before exposing the
-  private HTTP listener. This prepares
-  server compilation only: the browser remains fresh, and no application state
-  or API request is primed. The original role-navigation and whole-case deadlines
-  remain unchanged. Preparation failures close resources and fail the fixture.
-  In run `40764829950`, a cold 530-asset load took 9.17 seconds and the valid exact
-  role review arrived at 10.79 seconds, outside its ten-second window. Preparing
-  the module graph removes compiler setup from that interaction's timing.
-- The two signed cold-resume integration cases have a finite 15-second whole-test
-  allowance for real filesystem/SQLite setup and two admissions. The default
-  five-second Vitest allowance expired at 5.241 seconds despite successful
-  bootstraps. Custody, positive execution, revocation and execution-count
-  assertions remain intact; native admission, operation and expiry limits are
-  unchanged.
 - Each of the two native repository account workflows runs in its own fresh
   Vitest command, with one worker. The finite whole-case envelope is 480 seconds
   in CI and remains 240 seconds locally. Identical native worker input/output
@@ -143,12 +128,6 @@ Compare subsequent clean runs including queue delays before claiming a speedup.
   directory. Individual assertions and test deadlines are unchanged.
 
 ## Diagnose an interrupted browser job
-
-Browser archive setup uses a 60-second socket-idle budget through
-`PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT`. This is Playwright's
-[download-only setting](https://playwright.dev/docs/browsers#install-behind-a-firewall-or-a-proxy),
-not a test, navigation, assertion, native-helper or overall-job deadline. Existing
-finite job/setup limits still apply; failed installation cannot qualify a test.
 
 `ci-browser-run.mjs` streams command output plus memory, load, kernel and Linux
 cgroup/pressure observations and top process RSS (without command arguments) every thirty seconds. It preserves the actual test
