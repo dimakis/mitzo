@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.732-chat-input-capacity';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.733-chat-input-capacity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -70,6 +70,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-overview.ts': '930f9bceda110d6083485e889f318b0feb3cba2ab8e0fe691474218e1a28d81e',
   '../__tests__/credential-sdk-runtime-authority.test.ts':
     'acd04063ee9c604bc568df422cce201dafbbbd21a98675573c10d94af9b85f28',
+  '../../tests/integration/telos-s9/integrated-candidate/joined-role-setup-ready.ts':
+    'cb6689b5b23cfb253e659bf698f3a490a0b178d374dad184706415b796296873',
   '../../tests/integration/telos-s9/integrated-candidate/joined-conversation-ready.ts':
     'aee1f95a1bd8f7b01f772d1fa04c5c38ab4908f23ff13e95b58109000d25fd81',
   '../__tests__/legacy-native-source-composition.test.ts':
@@ -2158,7 +2160,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/navigation-context-browser.contract.ts':
     'd84fe557dfef602138e8a4df2618e03af5f75bf169a0d99aad75927c37e8be2d',
   '../../tests/integration/telos-s9/integrated-candidate/non-git-browser.contract.ts':
-    'efe8364b5cfceb50f4f3820d87a1797cc07b5622f3f20a250301b116e2157b3b',
+    'f6f2bf714e506ed6905a5bd2d4bf26b7135787c76ae6defaa6ca889f4092cf80',
   '../../tests/integration/telos-s9/integrated-candidate/observe-private-command-lifecycle.ts':
     'b18fb120d756f111c0904a15791841000dc81734bba00ce041e780707d23b920',
   '../../tests/integration/telos-s9/integrated-candidate/ordinary-parity-browser.contract.ts':
@@ -2172,7 +2174,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/process-restart-fixture.ts':
     '9ad7d8272497c383d4a9a07d003f342461ea84b2bd20e44bcf81d6cee47e791a',
   '../../tests/integration/telos-s9/integrated-candidate/repository-browser.contract.ts':
-    '58b71379f5c65ef7d5bba142b667ddf48ec1f3703ce97fed1c9b8aa02004abe7',
+    'dc7734f45279c13e0d94ba027adaede7844da1300a9e5f07140ab6bb3a265fdb',
   '../../tests/integration/telos-s9/integrated-candidate/restart-child-app.mjs':
     '9e1bdc20f6fb5f5987c68e8fbf989618f194a4d49b95d3e629f7c51a13d0ccc8',
   '../../tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs':

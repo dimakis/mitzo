@@ -1,4 +1,5 @@
 import { waitForPreparedConversation } from './joined-conversation-ready';
+import { navigateToReviewedRoleSetup } from './joined-role-setup-ready';
 import { prepareNativeProviderToolCall } from '../../../../server/__tests__/fixtures/native-provider-tool-call.js';
 import { afterAll, afterEach, expect, it as platformTest, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
@@ -445,12 +446,10 @@ it('CT07/09 joined candidate: actual advisor, lead and worker pages retain sourc
   const advisorSearch =
     'telosRoleItem=studio&telosRole=advisor&telosRoleMode=additional&telosAdvisor=child&agentProfile=ordinary-worker&profileRevision=1';
   await seedRoleDraft('s9-joined-advisor', advisorSearch);
-  await page.goto(front.origin + '/chat?draft=s9-joined-advisor&' + advisorSearch);
-  // A cold Vite lazy-route transform can outlive document load. Establish the
-  // real route first; the business control keeps its normal five-second check.
-  await browserExpect(
-    page.getByRole('region', { name: 'Work conversation setup', exact: true }),
-  ).toBeVisible({ timeout: 10_000 });
+  await navigateToReviewedRoleSetup(
+    page,
+    front.origin + '/chat?draft=s9-joined-advisor&' + advisorSearch,
+  );
   await browserExpect(page.getByRole('button', { name: 'Start chat', exact: true })).toBeEnabled();
   expect(nativeSessions).toHaveLength(0);
   await Promise.all([
