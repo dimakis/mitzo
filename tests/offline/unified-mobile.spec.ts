@@ -2264,6 +2264,10 @@ async function exerciseBriefingReloadRecovery(
         registered = true;
         return route.fulfill({ json: { ...binding, createdAt: '2026-10-10T07:00:00Z' } });
       }
+      // Confirmation lookup may finish after the click resolves. Keep that
+      // navigation boundary asynchronous before inspecting the draft owner.
+      if (url.searchParams.has('date'))
+        await new Promise<void>((resolve) => setTimeout(resolve, 250));
       return route.fulfill({
         json: registered ? [{ ...binding, createdAt: '2026-10-10T07:00:00Z' }] : [],
       });
@@ -2334,6 +2338,7 @@ async function exerciseBriefingReloadRecovery(
     ).toBe(true);
   const picker = page.getByRole('dialog');
   await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  await expect(page).toHaveURL(/\/chat\?.*draft=/);
   const launchDraftId = new URL(page.url()).searchParams.get('draft')!;
   if (!retainedGeneric) await reviewBriefingRuntime(page);
   await page
