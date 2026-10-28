@@ -248,8 +248,29 @@ it('CT07/09 joined candidate: actual advisor, lead and worker pages retain sourc
         body: await response.text().catch(() => '<stream>'),
       });
   });
+  // Preserve the cold development-route evidence even when its first control
+  // never appears. API reads alone cannot distinguish loading from a route error.
+  page.on('requestfinished', (request) => {
+    if (['document', 'script', 'stylesheet'].includes(request.resourceType()))
+      browserNetwork.push({
+        kind: 'asset',
+        path: new URL(request.url()).pathname,
+        timing: request.timing(),
+      });
+  });
+  page.on('requestfailed', (request) =>
+    browserNetwork.push({
+      kind: 'requestfailed',
+      path: new URL(request.url()).pathname,
+      error: request.failure()?.errorText,
+      timing: request.timing(),
+    }),
+  );
   const pageErrors: string[] = [];
-  page.on('pageerror', (e) => pageErrors.push(e.message));
+  page.on('pageerror', (e) => {
+    pageErrors.push(e.message);
+    browserNetwork.push({ kind: 'pageerror', message: e.message });
+  });
   const rawRpc = f.first.rpc.request.getMockImplementation()!;
   vi.spyOn(native.CodexAppServerClient, 'launchIsolated').mockImplementation(
     (_home, _env, lifecycle) => {
@@ -425,6 +446,11 @@ it('CT07/09 joined candidate: actual advisor, lead and worker pages retain sourc
     'telosRoleItem=studio&telosRole=advisor&telosRoleMode=additional&telosAdvisor=child&agentProfile=ordinary-worker&profileRevision=1';
   await seedRoleDraft('s9-joined-advisor', advisorSearch);
   await page.goto(front.origin + '/chat?draft=s9-joined-advisor&' + advisorSearch);
+  // A cold Vite lazy-route transform can outlive document load. Establish the
+  // real route first; the business control keeps its normal five-second check.
+  await browserExpect(
+    page.getByRole('region', { name: 'Work conversation setup', exact: true }),
+  ).toBeVisible({ timeout: 10_000 });
   await browserExpect(page.getByRole('button', { name: 'Start chat', exact: true })).toBeEnabled();
   expect(nativeSessions).toHaveLength(0);
   await Promise.all([
