@@ -149,6 +149,106 @@ function v2msg(type: string, rest: Record<string, unknown> = {}) {
   return expect.objectContaining({ v: 2, type, ...rest });
 }
 
+it('updates two interleaved message snapshots without searching their block arrays', async () => {
+  const run = async (sessionId: string) => {
+    const transport = fakeTransport();
+    const registry = fakeRegistry(transport);
+    registry.setSessionId('client', sessionId);
+    let visits = 0;
+    let contents: string[] = [];
+    let allDone = false;
+    let cleared = false;
+    async function* stream() {
+      yield { type: 'stream_event', event: { type: 'message_start', message: { id: sessionId } } };
+      for (let index = 0; index < 100; index++) {
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_start',
+            index,
+            content_block: { type: 'text' },
+          },
+        };
+      }
+      const snapshot = registry.get('client')!.currentSnapshot!;
+      for (const block of snapshot.blocks) {
+        const id = block.blockId;
+        Object.defineProperty(block, 'blockId', {
+          get() {
+            visits++;
+            return id;
+          },
+        });
+      }
+      for (let index = 0; index < 100; index++) {
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index,
+            delta: { type: 'text_delta', text: `${sessionId}-${index}` },
+          },
+        };
+      }
+      contents = snapshot.blocks.map((b) => b.content);
+      // The completed assistant payload can arrive before block stops. Force
+      // completion through result and retain the same reconnect snapshot objects.
+      yield { type: 'assistant', session_id: sessionId, message: { content: [] } };
+      yield { type: 'result', session_id: sessionId };
+      allDone = snapshot.blocks.every((b) => b.done);
+      cleared = registry.get('client')!.currentSnapshot === null;
+    }
+    await runQueryLoop(stream(), 'client', registry, new AbortController());
+    expect(contents).toEqual(Array.from({ length: 100 }, (_, index) => `${sessionId}-${index}`));
+    expect(allDone).toBe(true);
+    expect(cleared).toBe(true);
+    expect(transport.sent.filter((e) => e.type === 'block_end')).toHaveLength(100);
+    expect(transport.sent.filter((e) => e.type === 'message_end')).toHaveLength(1);
+    return visits;
+  };
+  expect(await Promise.all([run('first'), run('second')])).toEqual([0, 0]);
+});
+
+it('does not let duplicate block stops finish another open block', async () => {
+  const transport = fakeTransport();
+  const registry = fakeRegistry(transport);
+  let prematureEnds: number | undefined;
+  let activeContent: string | undefined;
+  async function* stream() {
+    yield { type: 'stream_event', event: { type: 'message_start', message: { id: 'message' } } };
+    for (const index of [0, 1]) {
+      yield {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_start',
+          index,
+          content_block: { type: 'text' },
+        },
+      };
+    }
+    yield { type: 'assistant', session_id: 'session', message: { content: [] } };
+    for (const index of [0, 0, 99]) {
+      yield { type: 'stream_event', event: { type: 'content_block_stop', index } };
+    }
+    prematureEnds = transport.sent.filter((e) => e.type === 'message_end').length;
+    yield {
+      type: 'stream_event',
+      event: {
+        type: 'content_block_delta',
+        index: 1,
+        delta: { type: 'text_delta', text: 'still active' },
+      },
+    };
+    activeContent = registry.get('client')?.currentSnapshot?.blocks[1].content;
+    yield { type: 'stream_event', event: { type: 'content_block_stop', index: 1 } };
+  }
+  await runQueryLoop(stream(), 'client', registry, new AbortController());
+  expect(prematureEnds).toBe(0);
+  expect(activeContent).toBe('still active');
+  expect(transport.sent.filter((e) => e.type === 'block_end')).toHaveLength(2);
+  expect(transport.sent.filter((e) => e.type === 'message_end')).toHaveLength(1);
+});
+
 describe('runQueryLoop', () => {
   let transport: SessionTransport & { sent: Record<string, unknown>[] };
   let registry: SessionRegistry;

@@ -10,7 +10,8 @@ import {
   TRACE_CONTENT_MAX_CHARS,
 } from './constants.js';
 import { createLogger } from './logger.js';
-import type { SessionRegistry, SnapshotBlock } from './session-registry.js';
+import type { SessionRegistry, MessageSnapshot } from './session-registry.js';
+import { MessageStreamState } from './message-stream-state.js';
 import type { EventStore } from './event-store.js';
 import { updateSessionSdkId } from './session-index.js';
 import { sendTurnCompleteNotification as ntfyTurnComplete } from './notify.js';
@@ -273,11 +274,7 @@ async function _runQueryLoopInner(
   const connRegistry = options?.connRegistry;
   const onSessionResolved = options?.onSessionResolved;
   const onInitialPrompt = options?.onInitialPrompt;
-  // Tool input buffers keyed by content block index (reset per message_start).
-  const toolInputBuffers = new Map<
-    number,
-    { name: string; id: string; inputBuf: string; blockId: string }
-  >();
+  const messageState = new MessageStreamState();
 
   // Progress tracker — intercepts TodoWrite calls, emits structured events.
   const progressTracker = new ProgressTracker();
@@ -307,9 +304,6 @@ async function _runQueryLoopInner(
     }
   >();
 
-  // Map content block index → blockId for all block types.
-  const blockIdByIndex = new Map<number, string>();
-
   // Persistent map: toolId → blockId (for subagent parent lookup)
   const toolIdToBlockId = new Map<string, string>();
   // Results may arrive after a newer assistant message has started thinking.
@@ -318,9 +312,7 @@ async function _runQueryLoopInner(
   let blockCounter = 0;
   let caughtError = false;
   let terminalError: Error | undefined;
-  let currentMessageId: string | null = null;
   let doneSent = false;
-  let openBlockCount = 0;
   let pendingMessageEnd: Record<string, unknown> | null = null;
   let resolvedSessionId: string | undefined;
   let initialPromptPending = !!initialPrompt;
@@ -506,12 +498,12 @@ async function _runQueryLoopInner(
     return `b${blockCounter++}`;
   }
 
-  function tryFlushMessageEnd(session: { currentSnapshot: unknown | null }) {
-    if (pendingMessageEnd && openBlockCount === 0) {
+  function tryFlushMessageEnd(session: { currentSnapshot: MessageSnapshot | null }) {
+    if (pendingMessageEnd && messageState.openBlockCount === 0) {
       emit(pendingMessageEnd);
       pendingMessageEnd = null;
-      currentMessageId = null;
-      (session as { currentSnapshot: null }).currentSnapshot = null;
+      messageState.clear();
+      session.currentSnapshot = null;
       // End turn span when message is fully flushed
       if (currentTurnSpan) {
         currentTurnSpan.setAttribute('turn.block_count', turnBlockCount);
@@ -523,18 +515,11 @@ async function _runQueryLoopInner(
     }
   }
 
-  function forceFlushPendingMessage(session: {
-    currentSnapshot: { blocks: SnapshotBlock[] } | null;
-  }) {
+  function forceFlushPendingMessage(session: { currentSnapshot: MessageSnapshot | null }) {
     if (!pendingMessageEnd) return;
-    for (const [index, bid] of blockIdByIndex) {
-      if (openBlockCount <= 0) break;
-      const snap = session.currentSnapshot?.blocks.find((b) => b.blockId === bid);
-      if (snap && !snap.done) {
-        snap.done = true;
-        const toolEntry = toolInputBuffers.get(index);
+    for (const { blockId: bid, snapshot: snap, tool: toolEntry } of messageState.closeOpen()) {
+      if (snap) {
         if (toolEntry) {
-          toolInputBuffers.delete(index);
           let toolInput: Record<string, unknown> = {};
           try {
             toolInput = JSON.parse(toolEntry.inputBuf || '{}');
@@ -543,7 +528,7 @@ async function _runQueryLoopInner(
           }
           emit(
             v2('block_end', {
-              messageId: currentMessageId,
+              messageId: messageState.messageId,
               blockId: bid,
               blockType: 'tool_use',
               toolName: toolEntry.name,
@@ -554,18 +539,17 @@ async function _runQueryLoopInner(
         } else {
           emit(
             v2('block_end', {
-              messageId: currentMessageId,
+              messageId: messageState.messageId,
               blockId: bid,
               blockType: snap.blockType,
             }),
           );
         }
-        openBlockCount = Math.max(0, openBlockCount - 1);
       }
     }
     emit(pendingMessageEnd);
     pendingMessageEnd = null;
-    currentMessageId = null;
+    messageState.clear();
     session.currentSnapshot = null;
   }
 
@@ -689,9 +673,9 @@ async function _runQueryLoopInner(
           }
 
           // Turn complete — defer message_end until all blocks are closed.
-          if (currentMessageId) {
+          if (messageState.messageId) {
             pendingMessageEnd = v2('message_end', {
-              messageId: currentMessageId,
+              messageId: messageState.messageId,
               ...(msg.session_id ? { sessionId: msg.session_id } : {}),
             });
             tryFlushMessageEnd(currentSession);
@@ -1125,23 +1109,24 @@ async function _runQueryLoopInner(
               currentTurnSpan = null;
             }
             forceFlushPendingMessage(currentSession);
-            toolInputBuffers.clear();
-            blockIdByIndex.clear();
             progressTracker.reset();
             blockCounter = 0;
-            openBlockCount = 0;
             turnBlockCount = 0;
             const apiMsg = evt.message as Record<string, unknown> | undefined;
-            currentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
-            lastContextMessageId = currentMessageId;
-            currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
+            currentSession.currentSnapshot = messageState.begin(
+              (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`,
+            );
+            lastContextMessageId = messageState.messageId;
 
             // Start turn child span under the session span
             currentTurnSpan = tracer.startSpan('turn', {}, context.active());
             currentTurnSpan.setAttribute('turn.index', turnIndex);
-            currentTurnSpan.setAttribute('turn.message_id', currentMessageId);
+            currentTurnSpan.setAttribute(
+              'turn.message_id',
+              currentSession.currentSnapshot.messageId,
+            );
 
-            emit(v2('message_start', { messageId: currentMessageId }));
+            emit(v2('message_start', { messageId: messageState.messageId }));
 
             // Extract agent context from message_start usage.
             // Only track parent agent (parent_tool_use_id === null) — sub-agent
@@ -1293,33 +1278,30 @@ async function _runQueryLoopInner(
             // Auto-init message context if SDK delivers blocks before message_start.
             // On the first turn, AssistantMessage can win the async iterator race
             // and the first content_block_start arrives before message_start.
-            if (!currentMessageId) {
-              currentMessageId = `msg-${Date.now()}`;
-              lastContextMessageId = currentMessageId;
-              currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
-              emit(v2('message_start', { messageId: currentMessageId }));
+            if (!messageState.messageId) {
+              currentSession.currentSnapshot = messageState.begin(`msg-${Date.now()}`);
+              lastContextMessageId = messageState.messageId;
+              emit(v2('message_start', { messageId: messageState.messageId }));
             }
             const contentBlock = evt.content_block as Record<string, unknown> | undefined;
             const index = evt.index as number;
             const blockId = nextBlockId();
-            blockIdByIndex.set(index, blockId);
-            openBlockCount++;
-
             const blockType = contentBlock?.type as string | undefined;
+            messageState.start(
+              index,
+              blockId,
+              blockType,
+              blockType === 'tool_use'
+                ? { name: contentBlock!.name as string, id: contentBlock!.id as string }
+                : undefined,
+            );
             log.debug('content block start', { clientId, blockType });
 
             if (blockType === 'thinking' || blockType === 'redacted_thinking') {
               log.info('thinking block detected', { clientId, blockType });
-              const snapshotBlock: SnapshotBlock = {
-                blockId,
-                blockType: blockType as 'thinking' | 'redacted_thinking',
-                content: '',
-                done: false,
-              };
-              currentSession.currentSnapshot?.blocks.push(snapshotBlock);
               emit(
                 v2('block_start', {
-                  messageId: currentMessageId,
+                  messageId: messageState.messageId,
                   blockId,
                   blockType,
                 }),
@@ -1327,18 +1309,8 @@ async function _runQueryLoopInner(
             } else if (blockType === 'tool_use') {
               const toolName = contentBlock!.name as string;
               const toolId = contentBlock!.id as string;
-              toolInputBuffers.set(index, { name: toolName, id: toolId, inputBuf: '', blockId });
               toolIdToBlockId.set(toolId, blockId); // Track toolId → blockId for subagent lookup
-              if (currentMessageId) toolIdToMessageId.set(toolId, currentMessageId);
-              const snapshotBlock: SnapshotBlock = {
-                blockId,
-                blockType: 'tool_use',
-                content: '',
-                done: false,
-                toolName,
-                toolId,
-              };
-              currentSession.currentSnapshot?.blocks.push(snapshotBlock);
+              if (messageState.messageId) toolIdToMessageId.set(toolId, messageState.messageId);
 
               // Start tool child span under the current turn span
               const toolParent = currentTurnSpan
@@ -1353,23 +1325,16 @@ async function _runQueryLoopInner(
 
               emit(
                 v2('block_start', {
-                  messageId: currentMessageId,
+                  messageId: messageState.messageId,
                   blockId,
                   blockType: 'tool_use',
                   toolName,
                 }),
               );
             } else if (blockType === 'text') {
-              const snapshotBlock: SnapshotBlock = {
-                blockId,
-                blockType: 'text',
-                content: '',
-                done: false,
-              };
-              currentSession.currentSnapshot?.blocks.push(snapshotBlock);
               emit(
                 v2('block_start', {
-                  messageId: currentMessageId,
+                  messageId: messageState.messageId,
                   blockId,
                   blockType: 'text',
                 }),
@@ -1415,18 +1380,17 @@ async function _runQueryLoopInner(
 
             const delta = evt.delta as Record<string, unknown> | undefined;
             const index = evt.index as number;
-            const blockId = blockIdByIndex.get(index);
+            const entry = messageState.get(index);
+            const blockId = entry?.blockId;
 
             if (delta?.type === 'text_delta' && blockId) {
               const text = delta.text as string;
               // Update snapshot
-              const block = currentSession.currentSnapshot?.blocks.find(
-                (b) => b.blockId === blockId,
-              );
+              const block = entry?.snapshot;
               if (block) block.content += text;
               emit(
                 v2('block_delta', {
-                  messageId: currentMessageId,
+                  messageId: messageState.messageId,
                   blockId,
                   blockType: 'text',
                   delta: text,
@@ -1435,21 +1399,18 @@ async function _runQueryLoopInner(
             } else if (delta?.type === 'thinking_delta' && blockId) {
               log.debug('thinking delta', { clientId });
               const text = delta.thinking as string;
-              const block = currentSession.currentSnapshot?.blocks.find(
-                (b) => b.blockId === blockId,
-              );
+              const block = entry?.snapshot;
               if (block) block.content += text;
               emit(
                 v2('block_delta', {
-                  messageId: currentMessageId,
+                  messageId: messageState.messageId,
                   blockId,
                   blockType: 'thinking',
                   delta: text,
                 }),
               );
             } else if (delta?.type === 'input_json_delta') {
-              const entry = toolInputBuffers.get(index);
-              if (entry) entry.inputBuf += delta.partial_json as string;
+              if (entry?.tool) entry.tool.inputBuf += delta.partial_json as string;
             }
           } else if (evt?.type === 'content_block_stop') {
             const parentToolUseId = msg.parent_tool_use_id as string | undefined;
@@ -1512,11 +1473,12 @@ async function _runQueryLoopInner(
             }
 
             const index = evt.index as number;
-            const blockId = blockIdByIndex.get(index);
-            const toolEntry = toolInputBuffers.get(index);
+            const closed = messageState.close(index);
+            if (!closed) continue;
+            const blockId = closed.blockId;
+            const toolEntry = closed.tool;
 
             if (toolEntry && blockId) {
-              toolInputBuffers.delete(index);
               let toolInput: Record<string, unknown> = {};
               try {
                 toolInput = JSON.parse(toolEntry.inputBuf || '{}');
@@ -1541,18 +1503,15 @@ async function _runQueryLoopInner(
               }
 
               // Mark snapshot block done with tool metadata.
-              const block = currentSession.currentSnapshot?.blocks.find(
-                (b) => b.blockId === blockId,
-              );
+              const block = closed.snapshot;
               if (block) {
-                block.done = true;
                 block.toolInput = summarized;
                 block.rawInput = rawInput;
               }
 
               emit(
                 v2('block_end', {
-                  messageId: currentMessageId,
+                  messageId: messageState.messageId,
                   blockId,
                   blockType: 'tool_use',
                   toolName: toolEntry.name,
@@ -1563,9 +1522,9 @@ async function _runQueryLoopInner(
               );
 
               // Intercept TodoWrite — emit structured progress events
-              if (toolEntry.name === 'TodoWrite' && currentMessageId) {
+              if (toolEntry.name === 'TodoWrite' && messageState.messageId) {
                 const progressEvents = progressTracker.handleTodoWrite(
-                  currentMessageId,
+                  messageState.messageId,
                   toolEntry.id,
                   toolEntry.inputBuf,
                 );
@@ -1575,12 +1534,9 @@ async function _runQueryLoopInner(
               }
             } else if (blockId) {
               // Text or thinking block — mark done in snapshot, record in traces + logs.
-              const block = currentSession.currentSnapshot?.blocks.find(
-                (b) => b.blockId === blockId,
-              );
+              const block = closed.snapshot;
               if (block) {
                 const bt = block.blockType;
-                block.done = true;
 
                 // Record content in turn span and logs
                 if (block.content && (bt === 'thinking' || bt === 'text')) {
@@ -1603,14 +1559,13 @@ async function _runQueryLoopInner(
 
                 emit(
                   v2('block_end', {
-                    messageId: currentMessageId,
+                    messageId: messageState.messageId,
                     blockId,
                     blockType: bt,
                   }),
                 );
               }
             }
-            openBlockCount = Math.max(0, openBlockCount - 1);
             turnBlockCount++;
             tryFlushMessageEnd(currentSession);
           }
@@ -1647,7 +1602,7 @@ async function _runQueryLoopInner(
                   v2('context_compaction', {
                     id,
                     phase,
-                    afterMessageId: currentMessageId ?? lastContextMessageId,
+                    afterMessageId: messageState.messageId ?? lastContextMessageId,
                     turnIndex,
                     ...(Number.isSafeInteger(metadata.pre_tokens)
                       ? { beforeTokens: metadata.pre_tokens }
@@ -1832,7 +1787,7 @@ async function _runQueryLoopInner(
 
                 emit(
                   v2('tool_result', {
-                    messageId: toolIdToMessageId.get(block.tool_use_id) ?? currentMessageId,
+                    messageId: toolIdToMessageId.get(block.tool_use_id) ?? messageState.messageId,
                     toolId: block.tool_use_id || '',
                     result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
                     isError: block.is_error === true,
@@ -1912,6 +1867,7 @@ async function _runQueryLoopInner(
         // the same exact-session fence as session_end for durable/watch delivery.
         closeUnconfirmedCompaction(finalSession.sessionId ?? resolvedSessionId);
         finalSession.currentSnapshot = null;
+        messageState.clear();
         if (!doneSent) {
           // Use sendOrBuffer to persist to EventStore (not just send) so that
           // reconnect replay includes session_end and clears stale running state.
