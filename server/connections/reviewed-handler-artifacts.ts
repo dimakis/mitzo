@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.728-ci-validation-partitions';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.729-ci-validation-partitions';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2635,7 +2635,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-browser-failure-reporter.test.ts':
     '730da0151f559054652bcf9e34db39da29153044d53ee35ecef927088ecee544',
   '../../scripts/__tests__/ci-browser-run.test.ts':
-    '63fa61768c14b8ed8a765d48d85a75a37c548dbc5ee34bee3567e56f287bd87d',
+    '6fc396b5a86878316c27db45dfb09b70e48c3d001abfab8e0ba9181eb5c9de8c',
   '../../scripts/__tests__/ci-joined-shards.test.ts':
     '36915cd9ec1df2634467a99416ccc3d03ed26b3fd6d65ab21a847858d8d0a321',
   '../../scripts/__tests__/ci-recovery.test.ts':
@@ -2649,7 +2649,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/ci-browser-failure-reporter.mjs':
     'b22313559453a57bb106403e09c3c0f2ff1648a1045ad0293404cbc1c173f7e6',
   '../../scripts/ci-browser-run.mjs':
-    '8472c4451b97262083a094e5b8175cbeb9af9a6970e0dd942f4c8dd61544f142',
+    '312b1e1d0ef693d3e49a988e329c4aab7afc4346f11ed25abc686b65aeed3192',
   '../../scripts/ci-joined-gate.mjs':
     'aec3fa1106ed98cb715d973e5b186887b7252bca68309ae0bae1da3aa0a5b3bd',
   '../../scripts/ci-recovery.mjs':

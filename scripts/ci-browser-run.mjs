@@ -64,6 +64,17 @@ export async function runBrowserCommand({ command, args, directory }) {
   snapshot();
   // A separate group lets cancellation reach only this command's descendants.
   const child = spawn(command, args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const retireDescendants = () => {
+    if (!child.pid) return;
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      /* No remaining process in the owned group. */
+    }
+  };
+  // Descendants can retain inherited pipes after npm exits, preventing `close`.
+  // Retire them on direct-child exit; still await `close` to drain both streams.
+  child.once('exit', retireDescendants);
   for (const [stream, output] of [
     [child.stdout, process.stdout],
     [child.stderr, process.stderr],
@@ -112,14 +123,8 @@ export async function runBrowserCommand({ command, args, directory }) {
     clearTimeout(escalation);
     process.off('SIGINT', interrupt);
     process.off('SIGTERM', stop);
-    // Retire any descendants still in the owned group after npm exits.
-    if (child.pid) {
-      try {
-        process.kill(-child.pid, 'SIGKILL');
-      } catch {
-        /* No remaining child. */
-      }
-    }
+    child.off('exit', retireDescendants);
+    retireDescendants();
     snapshot();
   }
 }

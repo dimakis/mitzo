@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -42,44 +42,59 @@ it('fails a missing executable and records that launch failure', async () => {
   expect(JSON.parse(readFileSync(join(root, 'exit.json'), 'utf8')).error).toContain('ENOENT');
 });
 
-it('retires a descendant that ignores SIGTERM after its direct parent closes', async () => {
-  const root = directory();
-  const pidFile = join(root, 'descendant.pid');
-  const childSource = `process.on('SIGTERM',()=>{});require('fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid));setInterval(()=>{},1000);`;
-  const parentSource = `require('child_process').spawn(process.execPath,['-e',${JSON.stringify(childSource)}],{stdio:'ignore'});const timer=setInterval(()=>{if(require('fs').existsSync(${JSON.stringify(pidFile)})){clearInterval(timer);process.exit(0)}},10);`;
-  let pid: number | undefined;
-  try {
-    expect(
-      await runBrowserCommand({
-        command: process.execPath,
-        args: ['-e', parentSource],
-        directory: root,
-      }),
-    ).toBe(0);
-    pid = Number(readFileSync(pidFile, 'utf8'));
-    await expect
-      .poll(
-        () => {
-          try {
-            process.kill(pid!, 0);
-            return true;
-          } catch {
-            return false;
-          }
-        },
-        { timeout: 1000 },
-      )
-      .toBe(false);
-  } finally {
-    if (pid) {
-      try {
-        process.kill(pid, 'SIGKILL');
-      } catch {
-        /* Already reaped. */
+it.each(['ignore', 'inherit'] as const)(
+  'retires a descendant that ignores SIGTERM after its direct parent exits with %s stdio',
+  async (stdio) => {
+    const root = directory();
+    const pidFile = join(root, 'descendant.pid');
+    const parentPidFile = join(root, 'parent.pid');
+    const childSource = `process.on('SIGTERM',()=>{});console.log('descendant stdout');console.error('descendant stderr');require('fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid));setInterval(()=>{},1000);`;
+    const parentSource = `require('fs').writeFileSync(${JSON.stringify(parentPidFile)},String(process.pid));require('child_process').spawn(process.execPath,['-e',${JSON.stringify(childSource)}],{stdio:${JSON.stringify(stdio)}});const timer=setInterval(()=>{if(require('fs').existsSync(${JSON.stringify(pidFile)})){clearInterval(timer);process.exit(0)}},10);`;
+    let completed = false;
+    const running = runBrowserCommand({
+      command: process.execPath,
+      args: ['-e', parentSource],
+      directory: root,
+    }).then((code: number) => {
+      completed = true;
+      return code;
+    });
+    try {
+      await expect.poll(() => completed, { timeout: 1500 }).toBe(true);
+      expect(await running).toBe(0);
+      const pid = Number(readFileSync(pidFile, 'utf8'));
+      await expect
+        .poll(
+          () => {
+            try {
+              process.kill(pid, 0);
+              return true;
+            } catch {
+              return false;
+            }
+          },
+          { timeout: 1000 },
+        )
+        .toBe(false);
+      if (stdio === 'inherit') {
+        const output = readFileSync(join(root, 'command.log'), 'utf8');
+        expect(output).toContain('descendant stdout');
+        expect(output).toContain('descendant stderr');
       }
+    } finally {
+      // Bound the red regression too: retire only this fixture's detached group
+      // if the implementation remains blocked waiting for inherited pipes.
+      if (existsSync(parentPidFile)) {
+        try {
+          process.kill(-Number(readFileSync(parentPidFile, 'utf8')), 'SIGKILL');
+        } catch {
+          /* Already retired. */
+        }
+      }
+      await running;
     }
-  }
-});
+  },
+);
 it('forwards cancellation to the owned process group and retains a failing signal exit', async () => {
   const root = directory();
   const script = resolve('scripts/ci-browser-run.mjs');
