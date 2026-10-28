@@ -1,3 +1,5 @@
+import { actToReviewedRoleSetup, actToRoleSetupDraft } from './joined-role-setup-ready';
+import { observeTaskChatReads } from './task-chat-read-observer';
 import { expect, it, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
@@ -136,17 +138,36 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
       });
     }
   };
-  const configure = async (label: string, profileId: string) => {
-    await browserExpect(
-      page.getByRole('region', { name: 'Work conversation setup' }),
-    ).toBeVisible();
-    await openChatSetting(page, 'execution');
-    await page.getByRole('button', { name: 'Local Mac', exact: true }).click();
-    await chooseSetting(page, 'Account', 'ordinary-personal');
-    await chooseSetting(page, 'Model', 'fixture-model');
-    await chooseSetting(page, 'Thinking level', 'low');
-    await chooseAgent(page, JSON.stringify(['saved', profileId, 1]));
-    await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const openRetainedChat = async (id: string, action: () => Promise<unknown>) => {
+    const reads = observeTaskChatReads(page);
+    const boundary = reads.boundary();
+    try {
+      await action();
+      await reads.waitForSessionMeta(id, boundary);
+    } finally {
+      reads.close();
+    }
+  };
+  const configure = async (label: string, profileId: string, chooser: string) => {
+    await actToReviewedRoleSetup(
+      page,
+      { origin: front.origin, itemId: 'studio', role: 'lead' },
+      async () => {
+        await actToRoleSetupDraft(page, front.origin, () =>
+          page.getByRole('button', { name: chooser, exact: true }).click(),
+        );
+        await browserExpect(
+          page.getByRole('region', { name: 'Work conversation setup' }),
+        ).toBeVisible();
+        await openChatSetting(page, 'execution');
+        await page.getByRole('button', { name: 'Local Mac', exact: true }).click();
+        await chooseSetting(page, 'Account', 'ordinary-personal');
+        await chooseSetting(page, 'Model', 'fixture-model');
+        await chooseSetting(page, 'Thinking level', 'low');
+        await chooseAgent(page, JSON.stringify(['saved', profileId, 1]));
+        await page.getByRole('button', { name: 'Done', exact: true }).click();
+      },
+    );
     await browserExpect(page.getByRole('button', { name: label, exact: true })).toBeEnabled();
     const [response] = await Promise.all([
       page.waitForResponse(
@@ -194,8 +215,11 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
   };
   await page.goto(front.origin + '/todos/studio?view=Chat');
   await browserExpect(page.getByRole('heading', { name: 'Chats · 1', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Choose lead collaborator', exact: true }).click();
-  const first = await configure('Assign lead & open chat', 'ordinary-worker');
+  const first = await configure(
+    'Assign lead & open chat',
+    'ordinary-worker',
+    'Choose lead collaborator',
+  );
   expect(first.submitted.input.expectedAssignmentRevision).toBe(0);
   expect((await api.read('studio')).assignments).toMatchObject([
     { role: 'lead', revision: 1, conversation: { conversationId: first.id } },
@@ -206,8 +230,7 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill(leadDraft);
   await page.getByRole('button', { name: 'Chats for this item: 2', exact: true }).click();
   await browserExpect(page.getByRole('heading', { name: 'Chats · 2', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'New chat', exact: true }).click();
-  const additional = await configure('Start chat', 'independent-reviewer');
+  const additional = await configure('Start chat', 'independent-reviewer', 'New chat');
   expect(additional.submitted.input.expectedAssignmentRevision).toBeNull();
   expect((await api.read('studio')).assignments).toMatchObject([
     { role: 'lead', revision: 1, conversation: { conversationId: first.id } },
@@ -218,7 +241,9 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill(extraDraft);
   await page.getByRole('button', { name: 'Chats for this item: 3', exact: true }).click();
   await browserExpect(page.getByRole('heading', { name: 'Chats · 3', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: /^Open Assigned lead/ }).click();
+  await openRetainedChat(first.id, () =>
+    page.getByRole('button', { name: /^Open Assigned lead/ }).click(),
+  );
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + first.id));
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(leadDraft);
   await openChatSetting(page, 'agent');
@@ -229,12 +254,15 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
   await page.getByRole('button', { name: 'Chats for this item: 3', exact: true }).click();
   const reviewerRow = page.locator('.telos-chat-row').filter({ hasText: 'Independent reviewer' });
   await browserExpect(reviewerRow).toHaveCount(1);
-  await reviewerRow.click();
+  await openRetainedChat(additional.id, () => reviewerRow.click());
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + additional.id));
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(extraDraft);
   await page.getByRole('button', { name: 'Chats for this item: 3', exact: true }).click();
-  await page.getByRole('button', { name: 'Change lead collaborator', exact: true }).click();
-  const replacement = await configure('Assign lead & open chat', 'ordinary-worker');
+  const replacement = await configure(
+    'Assign lead & open chat',
+    'ordinary-worker',
+    'Change lead collaborator',
+  );
   expect(replacement.submitted.input.expectedAssignmentRevision).toBe(1);
   expect((await api.read('studio')).assignments).toMatchObject([
     { role: 'lead', revision: 2, conversation: { conversationId: replacement.id } },
@@ -257,7 +285,9 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
   ];
   await observeAssignmentLabels('after-replacement', expectedLabels);
   await page.getByRole('button', { name: 'Materials', exact: true }).click();
-  await page.getByRole('button', { name: 'Open original chat', exact: true }).click();
+  await openRetainedChat('planning', () =>
+    page.getByRole('button', { name: 'Open original chat', exact: true }).click(),
+  );
   await browserExpect(page).toHaveURL(/\/chat\/planning\?/);
   expect(new URL(page.url()).searchParams.get('telosSource')).toBe(sources[0].snapshotId);
   await browserExpect(
@@ -328,17 +358,21 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
   expect(new URL(page.url()).pathname).toBe('/todos/studio');
   await observeAssignmentLabels('after-reconnect', expectedLabels);
   const titleFor = await catalogTitles();
-  await page
-    .locator('.telos-chat-row')
-    .filter({ hasText: titleFor(first.id) })
-    .click();
+  await openRetainedChat(first.id, () =>
+    page
+      .locator('.telos-chat-row')
+      .filter({ hasText: titleFor(first.id) })
+      .click(),
+  );
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + first.id));
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(leadDraft);
   await page.getByRole('button', { name: 'Chats for this item: 5', exact: true }).click();
-  await page
-    .locator('.telos-chat-row')
-    .filter({ hasText: titleFor(additional.id) })
-    .click();
+  await openRetainedChat(additional.id, () =>
+    page
+      .locator('.telos-chat-row')
+      .filter({ hasText: titleFor(additional.id) })
+      .click(),
+  );
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + additional.id));
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(extraDraft);
   await page.getByRole('button', { name: 'Chats for this item: 5', exact: true }).click();

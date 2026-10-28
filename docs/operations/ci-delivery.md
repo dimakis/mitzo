@@ -171,3 +171,9 @@ protection and exact-head review; integrate an advancing base at the actual
 landing turn rather than refreshing every waiting branch.
 
 This workflow requires no staging, deployment or live model calls.
+
+## Browser journey readiness
+
+Observe each navigation or chooser action before it starts. Fresh draft runtime inventory must be consumed before configuring ordinary settings; role review depends on those settings, so its ten-second response phase follows configuration. Retain existing UI assertions and interaction deadlines. Require exact item/role or conversation identity, successful status and completed schema-valid bodies; task-page waits match a valid task tree by exact task ID. Deliberately delayed collection reads remain outside chooser readiness when canonical record/work reads are the tested dependency.
+
+The complete native non-git journey keeps its 120-second local envelope and uses a finite 180-second CI envelope. Retained hosted-runner evidence completed it in 106–112 seconds and cut off a valid final replay at 120 seconds. This is a composed fixture allowance; production, individual request, helper, approval and handoff deadlines remain unchanged. Timeouts still require diagnosis rather than automatic retry.

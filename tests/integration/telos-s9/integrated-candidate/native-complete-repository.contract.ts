@@ -1,3 +1,4 @@
+import { observeTaskChatReads } from './task-chat-read-observer';
 import { waitForPreparedConversation } from './joined-conversation-ready';
 import { navigateToReviewedRoleSetup } from './joined-role-setup-ready';
 import {
@@ -1165,7 +1166,14 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
   // Original actual operator Task Approve browser action remains unchanged.
   // Fake operator explicitly reads/verifies retained bytes before approving.
   expect(canonical.artifacts.read(output.id, output.revision).bytes.toString()).toBe(report);
-  await page.goto(front.origin + '/tasks?highlight=' + taskId);
+  const taskReads = observeTaskChatReads(page);
+  const taskBoundary = taskReads.boundary();
+  try {
+    await page.goto(front.origin + '/tasks?highlight=' + taskId);
+    await taskReads.waitForTask(taskId, taskBoundary);
+  } finally {
+    taskReads.close();
+  }
   await browserExpect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
   if (process.env.S9_JOINED_SCREENSHOT_DIR)
     await page.screenshot({

@@ -1,3 +1,4 @@
+import { observeTaskChatReads } from './task-chat-read-observer';
 import { navigateToReviewedRoleSetup } from './joined-role-setup-ready';
 import { waitForPreparedConversation } from './joined-conversation-ready';
 import { afterAll, afterEach, expect, it as platformTest, vi } from 'vitest';
@@ -546,7 +547,14 @@ it('CT18 actual browser: consumed first-command response loss, document reload a
     turn: { id: nativeOwner.turnId, status: 'completed' },
   });
   await browserExpect(page.getByText(reply, { exact: true })).toBeVisible();
-  await page.reload();
+  const reloadReads = observeTaskChatReads(page);
+  const reloadBoundary = reloadReads.boundary();
+  try {
+    await page.reload();
+    await reloadReads.waitForSessionMeta(advisorId, reloadBoundary);
+  } finally {
+    reloadReads.close();
+  }
   await browserExpect(composer).toHaveValue(laterDraft);
   await vi.waitFor(() => expect(chat.registry.isAttached(clientId)).toBe(true));
   expect(chat.registry.findBySessionId(advisorId)?.clientId).toBe(clientId);

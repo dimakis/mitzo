@@ -1,3 +1,4 @@
+import { observeTaskChatReads } from './task-chat-read-observer';
 import type { Socket } from 'node:net';
 import { expect, it, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
@@ -338,8 +339,15 @@ it('uses healthy real service/proxy paths for synthetic voice and delivers saved
     });
   }
   for (const [index, id] of ids.entries()) {
-    await page.goto(front.origin + '/chat/' + id);
-    await page.reload();
+    const reloadReads = observeTaskChatReads(page);
+    try {
+      await page.goto(front.origin + '/chat/' + id);
+      const reloadBoundary = reloadReads.boundary();
+      await page.reload();
+      await reloadReads.waitForSessionMeta(id, reloadBoundary);
+    } finally {
+      reloadReads.close();
+    }
     await browserExpect(composer).toHaveValue(rows[index].draft);
     await browserExpect(page.getByText(rows[index].reply, { exact: true })).toBeVisible();
     await browserExpect(page.getByText(rows[1 - index].reply, { exact: true })).toHaveCount(0);

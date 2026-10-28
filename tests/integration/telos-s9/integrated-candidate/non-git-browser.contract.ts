@@ -1,3 +1,4 @@
+import { observeTaskChatReads } from './task-chat-read-observer';
 import { waitForPreparedConversation } from './joined-conversation-ready';
 import { navigateToReviewedRoleSetup } from './joined-role-setup-ready';
 import { prepareNativeProviderToolCall } from '../../../../server/__tests__/fixtures/native-provider-tool-call.js';
@@ -868,7 +869,14 @@ it('CT07/09 joined candidate: actual advisor, lead and worker pages retain sourc
   expect(items.read(childId).status).toBe('active');
   // Fake operator explicitly reads/verifies retained bytes before approving.
   expect(canonical.artifacts.read(output.id, output.revision).bytes.toString()).toBe(report);
-  await page.goto(front.origin + '/tasks?highlight=' + taskId);
+  const taskReads = observeTaskChatReads(page);
+  const taskBoundary = taskReads.boundary();
+  try {
+    await page.goto(front.origin + '/tasks?highlight=' + taskId);
+    await taskReads.waitForTask(taskId, taskBoundary);
+  } finally {
+    taskReads.close();
+  }
   await browserExpect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
   if (process.env.S9_JOINED_SCREENSHOT_DIR)
     await page.screenshot({

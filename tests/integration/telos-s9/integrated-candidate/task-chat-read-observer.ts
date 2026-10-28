@@ -9,6 +9,40 @@ type Read = {
   bodyReadError?: string;
 };
 
+type TaskRead = { id: string; status: string; children: TaskRead[] };
+const taskStatuses = new Set([
+  'pending',
+  'active',
+  'done',
+  'pending_review',
+  'blocked',
+  'skipped',
+  'failed',
+]);
+
+// GET /api/tasks returns a tree envelope. Validate its consumer fields before
+// matching identity; text in a description or a malformed body cannot release it.
+function isTaskRead(value: unknown): value is TaskRead {
+  if (value === null || typeof value !== 'object') return false;
+  const task = value as Partial<TaskRead>;
+  return (
+    typeof task.id === 'string' &&
+    task.id.length > 0 &&
+    typeof task.status === 'string' &&
+    taskStatuses.has(task.status) &&
+    Array.isArray(task.children) &&
+    task.children.every(isTaskRead)
+  );
+}
+
+function containsTask(body: unknown, taskId: string): boolean {
+  if (body === null || typeof body !== 'object' || !('tasks' in body)) return false;
+  const tasks = body.tasks;
+  if (!Array.isArray(tasks) || !tasks.every(isTaskRead)) return false;
+  const matches = (task: TaskRead): boolean => task.id === taskId || task.children.some(matches);
+  return tasks.some(matches);
+}
+
 /** Retain real browser reads without attributing old response completions to a new route. */
 export function observeTaskChatReads(page: Page) {
   const reads: Read[] = [];
@@ -79,9 +113,7 @@ export function observeTaskChatReads(page: Page) {
       return vi.waitFor(() => {
         const read = since(boundary).find(
           (read) =>
-            read.path === '/api/tasks' &&
-            read.status === 200 &&
-            JSON.stringify(read.body)?.includes(taskId),
+            read.path === '/api/tasks' && read.status === 200 && containsTask(read.body, taskId),
         );
         expect(read, 'new browser GET /api/tasks with the exact task').toBeDefined();
         return read!;

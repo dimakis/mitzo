@@ -1,3 +1,4 @@
+import { observeTaskChatReads, navigateToChatMetadata } from './task-chat-read-observer';
 import type { OrdinaryWorkspaceFirstCommand } from '@mitzo/protocol';
 import { expect, it, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
@@ -212,7 +213,14 @@ it('preserves an actual admitted command and honest lost-result state through ab
     expect(recoveredStatus).toBe('interrupted');
     expect(recoveredCommandIdentity).toEqual(beforeCommandIdentity);
     expect(cold.native.conversation.recovery).toBe(1);
-    await page.reload();
+    const reloadReads = observeTaskChatReads(page);
+    const reloadBoundary = reloadReads.boundary();
+    try {
+      await page.reload();
+      await reloadReads.waitForSessionMeta(sessionId, reloadBoundary);
+    } finally {
+      reloadReads.close();
+    }
     await browserExpect(composer).toHaveValue(laterDraft);
     await vi.waitFor(async () =>
       expect(
@@ -304,7 +312,7 @@ it('preserves an actual admitted command and honest lost-result state through ab
     expect(await api.read('quiet-job')).toEqual(peerBefore);
     expect((await h.effects()).filter((e) => e.kind === 'native.launch')).toHaveLength(1);
     expect((await h.effects()).filter((e) => e.kind === 'turn/start')).toHaveLength(1);
-    await page.goto(front.origin + '/chat/' + peerId);
+    await navigateToChatMetadata(page, front.origin + '/chat/' + peerId, peerId);
     await browserExpect(composer).toHaveValue(peerDraft);
     await capture('unrelated-job-draft-after-real-process-restart');
     expect(h.pageErrors).toEqual([]);

@@ -1,3 +1,5 @@
+import { TelosWorkItemSchema } from '@mitzo/protocol';
+import { observeTaskChatReads } from './task-chat-read-observer';
 import { expect, it, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
@@ -104,6 +106,21 @@ it('keeps attached scope usable despite unrelated transport failure and fences o
     });
     return result.work.assignments[0].conversation.conversationId;
   };
+  const recordReads = observeTaskChatReads(page);
+  const waitForAttachedRecords = (boundary: number) =>
+    vi.waitFor(
+      () => {
+        const reads = recordReads.since(boundary);
+        for (let index = 0; index < 6; index++) {
+          const itemId = `refresh-feature-${index}`;
+          const read = reads.find(
+            (read) => read.path === `/api/telos/work/items/${itemId}/record` && read.status === 200,
+          );
+          expect(TelosWorkItemSchema.parse(read?.body).itemId).toBe(itemId);
+        }
+      },
+      { timeout: 10_000 },
+    );
   try {
     await add('refresh-coordinator', null, 'Refresh coordinator', 'coordinator');
     for (let i = 0; i < 6; i++)
@@ -116,22 +133,11 @@ it('keeps attached scope usable despite unrelated transport failure and fences o
       unrelatedFailures++;
       await route.abort('failed');
     });
-    // Wait for actual canonical discovery, then retain the original UI oracle.
-    const attachedRecords = Promise.all(
-      Array.from({ length: 6 }, (_, index) =>
-        page.waitForResponse(
-          (response) =>
-            response.request().method() === 'GET' &&
-            new URL(response.url()).pathname ===
-              `/api/telos/work/items/refresh-feature-${index}/record`,
-        ),
-      ),
-    );
+    // Require this document's completed canonical records before retaining
+    // the original control assertions under the unrelated transport failure.
+    const initialRecordBoundary = recordReads.boundary();
     await page.goto(front.origin + '/chat/' + oldId);
-    const readyRecords = await attachedRecords;
-    expect(readyRecords.map((response) => response.status())).toEqual([
-      200, 200, 200, 200, 200, 200,
-    ]);
+    await waitForAttachedRecords(initialRecordBoundary);
     const controls = page.getByRole('region', { name: 'Coordinator controls', exact: true });
     // Affected scope is read from actual canonical endpoints. No response is
     // fulfilled for the unrelated failure, and no attached record is changed.
@@ -161,7 +167,9 @@ it('keeps attached scope usable despite unrelated transport failure and fences o
     await capture('unrelated-failure-valid-attached-scope');
     await save();
     await page.unroute(unrelatedPattern);
+    const reloadRecordBoundary = recordReads.boundary();
     await page.reload();
+    await waitForAttachedRecords(reloadRecordBoundary);
     await controls.getByRole('button', { name: 'Refresh feature 0', exact: true }).click();
     const [requestedResponse] = await Promise.all([
       page.waitForResponse(
@@ -263,6 +271,7 @@ it('keeps attached scope usable despite unrelated transport failure and fences o
     });
     await save();
   } finally {
+    recordReads.close();
     release();
     await save();
   }
