@@ -25,6 +25,8 @@ const workflow = load(
       permissions: Record<string, string>;
       needs: string | string[];
       if?: string;
+      'runs-on': string;
+      'timeout-minutes': number;
       strategy?: {
         matrix: {
           include: { project: string; browser: string; shard: number; shards: number }[];
@@ -72,15 +74,16 @@ describe('browser failure evidence', () => {
         { outputFolder: `playwright-report/${directory}`, open: 'never' },
       ]);
       expect(config.retries ?? 0).toBe(0);
+      expect(config.reporter).toContainEqual(['./scripts/ci-browser-failure-reporter.mjs']);
     }
   });
 
   it.each([
-    ['browser', 'browser-tests', 'npm run test:browser'],
+    ['browser', 'browser-tests', 'node scripts/ci-browser-run.mjs test:browser'],
     [
       'offline',
       'offline-tests',
-      'npm run test:ui -- --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}',
+      'node scripts/ci-browser-run.mjs test:ui:ci --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}',
     ],
   ])(
     'uploads %s failure evidence immediately after its suite and keeps rerun attempts separate',
@@ -91,10 +94,11 @@ describe('browser failure evidence', () => {
       expect(steps[index].id).toBe(id);
       const upload = steps[index + 1];
       expect(upload.uses).toMatch(/^actions\/upload-artifact@/);
-      expect(upload.if).toBe(`\${{ always() && steps.${id}.outcome == 'failure' }}`);
+      expect(upload.if).toBe(`\${{ always() && steps.${id}.outcome != 'success' }}`);
       expect(String(upload.with?.path).trim().split(/\s+/)).toEqual([
         `test-results/${suite}/`,
         `playwright-report/${suite}/`,
+        `test-results/browser-diagnostics/`,
       ]);
       expect(upload.with?.name).toBe(
         `playwright-${suite}-failure-${suite === 'offline' ? '${{ matrix.project }}-shard-${{ matrix.shard }}-' : ''}\${{ github.run_id }}-\${{ github.run_attempt }}`,
@@ -119,13 +123,17 @@ describe('browser failure evidence', () => {
     );
     for (const project of projects) {
       const entries = matrix.include.filter((entry) => entry.project === project.name);
-      const count = project.name === 'mobile-webkit' ? 4 : 1;
+      const count = project.name === 'mobile-webkit' ? 4 : 3;
       expect(entries.map((entry) => entry.shard).sort((a, b) => a - b)).toEqual(
         Array.from({ length: count }, (_, index) => index + 1),
       );
       expect(entries.every((entry) => entry.shards === count)).toBe(true);
     }
     expect(offline.workers).toBe(1);
+    for (const job of ['browser', 'offline']) {
+      expect(workflow.jobs[job]['runs-on']).toBe('ubuntu-24.04');
+      expect(workflow.jobs[job]['timeout-minutes']).toBe(20);
+    }
     for (const job of ['browser', 'offline', 'browser-validation']) {
       expect(workflow.jobs[job].permissions).toEqual({ contents: 'read' });
     }

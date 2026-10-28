@@ -34,6 +34,8 @@ Resolve `$ARGUMENTS` as PR URL, repository/number or current-branch PR. Read rep
 4. Ask only when a genuine unresolved product/security/data decision prevents a correct fix. Routine implementation fixes already within the user's task do not need another approval. Reply to and resolve review threads only where authorized by the task or invoked workflow; never pretend a reviewer approved a fix.
 5. Run focused offline checks within repository resource limits; complete local review below, then push and await required CI. Never remove coverage, weaken checks or mark failures green. CI optimizations must retain coverage.
 
+Batch known fixes before pushing. Run `npm run check:source-artifacts`; retain and regenerate source pins for changed/extracted files. See [CI delivery](../../docs/operations/ci-delivery.md) for complete preflight, retry and timing rules.
+
 Preserve deployment/live-test restrictions; landing does not authorize deployment. Real model-backed tests follow the user's test model/account rules; ordinary review is separate.
 
 ## Local review before push
@@ -59,7 +61,7 @@ For pushed PRs, complete missing local coverage while CI runs. Reuse qualifying 
 
 For Centaur-governed repositories, require the trusted publisher's non-dismissed **final LGTM**, recommendation **`merge`**, and **zero new and unresolved blocking findings** for the exact live head. That report may combine the retained thorough review with verified follow-ups or explicit trusted continuity evidence; a fresh full pass on every SHA is not required. `fix`, `human_decision`, missing or stale evidence blocks merge. Verify the repository's required `Centaur final LGTM` status and its configured App identity, not only text in a comment. Use a repository-provided gate helper where available, after checking it implements the current contract.
 
-For a valid current-head review with pending status, inspect the status writer and use its documented PR-scoped reconciliation trigger. Do not request another model review or write replacement approval yourself. Scheduled reconciliation has no guaranteed deadline.
+For a valid current-head review with pending status, inspect the writer and use its documented PR-scoped reconciliation trigger. Never substitute another review or write approval yourself. Reconciliation has no guaranteed deadline.
 
 Validate the combined PR plus current base before merging. Prefer a native merge queue where the repository supports it and all required checks (including the trusted review gate) support its merge-group contract. Do not enable a queue before those checks are wired and tested. On a repository without queue support, retain strict up-to-date protection: integrate the latest base at the final landing turn and run required CI on that combined result. Do not refresh every waiting branch when main advances. Preserve completed review; re-evaluate only the relevant integration delta.
 
@@ -73,4 +75,4 @@ gh pr merge NUMBER --repo OWNER/REPO --squash --match-head-commit VERIFIED_SHA
 
 Never use `--admin`. Do not delete a branch still used by a worktree or another session. If the head changes or merge is rejected, refresh evidence before retrying. Confirm `MERGED` and the merge commit from GitHub before reporting success.
 
-Keep updates focused on changes and the next blocker. Wait without tight polling; do useful independent work while CI/review runs. If progress needs human input or a broken external service, report the concrete blocker and evidence without claiming readiness. Record CI queue/run time, model review passes versus continuity reuse, and avoidable refreshes when evaluating this workflow. Cancel superseded PR runs and retain affected-job selection, complete required coverage, and final combined-result validation.
+Report changes and the next blocker. Avoid tight polling. Report concrete external blockers without claiming readiness. Record queue/run time, review/continuity passes and avoidable refreshes. Cancel superseded PR runs; retain affected-job selection, full coverage and combined-result validation.

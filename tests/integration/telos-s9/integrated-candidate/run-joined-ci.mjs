@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
+import { parseJoinedShardArgs, selectJoinedShard, requireJoinedReport } from './joined-shards.mjs';
 
 // Test-only entry for the existing macOS offline owner. Every required case must
 // execute fully. A platform skip or a green default Vitest suite is insufficient.
@@ -18,69 +19,8 @@ if (
 const root = fileURLToPath(new URL('../../../../', import.meta.url));
 const require = createRequire(import.meta.url);
 const vitest = join(dirname(require.resolve('vitest/package.json')), 'vitest.mjs');
-const suite = 'tests/integration/telos-s9/integrated-candidate';
-const cases = [
-  { name: 'non-git', config: 'vitest.joined.config.ts', file: 'non-git-browser.contract.ts' },
-  {
-    name: 'repository',
-    config: 'vitest.repository-joined.config.ts',
-    file: 'repository-browser.contract.ts',
-  },
-  {
-    name: 'lost-response-recovery',
-    config: 'vitest.recovery-joined.config.ts',
-    file: 'lost-response-browser.contract.ts',
-  },
-  {
-    name: 'tree-priority',
-    config: 'vitest.tree-priority-joined.config.ts',
-    file: 'tree-priority-browser.contract.ts',
-  },
-  {
-    name: 's8-chooser',
-    config: 'vitest.s8-joined.config.ts',
-    file: 's8-chooser-browser.contract.ts',
-  },
-  {
-    name: 'stop-isolation',
-    config: 'vitest.stop-isolation.config.ts',
-    file: 'stop-isolation-browser.contract.ts',
-  },
-  {
-    name: 's6-app-owners',
-    config: 'vitest.s6-app-owners.config.ts',
-    files: [
-      'server/__tests__/telos-ordinary-canonical-journey.test.ts',
-      'server/__tests__/agent-communication-nongit-app.test.ts',
-      'server/__tests__/telos-coordinator-v2-native-journey.test.ts',
-    ],
-  },
-  {
-    name: 'native-lead-worker-workflow',
-    configPath: 'tests/integration/telos-s5b/vitest.native-role-composition.config.ts',
-    files: ['tests/integration/telos-s5b/native-role-composition.contract.ts'],
-  },
-  {
-    name: 'worker-first-completion',
-    configPath: 'tests/integration/telos-s9/worker-first-completion/vitest.config.ts',
-    files: ['tests/integration/telos-s9/worker-first-completion/first-completion.contract.ts'],
-  },
-  {
-    name: 'native-complete-non-git',
-    config: 'vitest.native-complete-non-git.config.ts',
-    file: 'native-complete-non-git.contract.ts',
-  },
-  {
-    name: 'native-complete-repository',
-    config: 'vitest.native-complete-repository.config.ts',
-    file: 'native-complete-repository.contract.ts',
-  },
-  {
-    name: 'selected-model-readiness',
-    configPath: 'tests/integration/telos-s9/model-readiness/vitest.config.ts',
-    files: ['tests/integration/telos-s9/model-readiness/model-readiness.contract.ts'],
-  },
-];
+const shard = parseJoinedShardArgs(process.argv.slice(2));
+const cases = selectJoinedShard(shard);
 const failures = [];
 const summary = [];
 for (const selected of cases) {
@@ -104,7 +44,9 @@ for (const selected of cases) {
       vitest,
       'run',
       '--config',
-      selected.configPath ?? join(suite, selected.config),
+      selected.configPath,
+      '--maxWorkers=1',
+      '--no-file-parallelism',
       '--reporter=default',
       '--reporter=json',
       '--outputFile=' + join(directory, 'run.json'),
@@ -122,26 +64,9 @@ for (const selected of cases) {
   process.stderr.write(result.stderr ?? '');
   try {
     const observed = JSON.parse(readFileSync(join(directory, 'run.json'), 'utf8'));
-    const requiredFiles = selected.files ?? [suite + '/' + selected.file];
-    const completeFiles = requiredFiles.every((path) => {
-      const matches = observed.testResults.filter((r) => r.name.endsWith('/' + path));
-      return (
-        matches.length === 1 &&
-        matches[0].assertionResults.length === 1 &&
-        matches[0].assertionResults[0].status === 'passed'
-      );
-    });
-    if (
-      result.status !== 0 ||
-      !observed.success ||
-      observed.numTotalTests !== requiredFiles.length ||
-      observed.numPassedTests !== requiredFiles.length ||
-      observed.numFailedTests !== 0 ||
-      observed.numPendingTests !== 0 ||
-      observed.testResults.length !== requiredFiles.length ||
-      !completeFiles
-    )
-      throw Error('Every required actual App case must pass exactly once with zero skips');
+    if (result.status !== 0 || result.signal || result.error)
+      throw Error('Joined acceptance process did not complete successfully');
+    requireJoinedReport(observed, selected);
     summary.push({ ...selected, status: 'passed', result: join(directory, 'run.json') });
   } catch (error) {
     failures.push(selected.name);
@@ -155,7 +80,11 @@ for (const selected of cases) {
   }
 }
 writeFileSync(
-  join(root, 'test-results/telos-s9-joined/required-summary.json'),
+  join(
+    root,
+    'test-results/telos-s9-joined',
+    shard ? `required-summary-${shard.replace('/', '-of-')}.json` : 'required-summary.json',
+  ),
   JSON.stringify(summary, null, 2) + '\n',
 );
 if (failures.length) throw Error('Joined acceptance remains red: ' + failures.join(', '));

@@ -19,6 +19,10 @@ function enabled(condition: string | undefined, state: string) {
 }
 
 it.each([
+  'codex-resume',
+  'quotes',
+  'lint',
+  'format',
   'design',
   'typecheck-server',
   'typecheck-frontend',

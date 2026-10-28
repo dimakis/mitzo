@@ -196,6 +196,9 @@ staging conventions. Changes go through branches and pull requests. Keep the
 README focused on the product and entry points; document detailed behavior in
 the relevant guide under `docs/`.
 
+See [CI delivery](docs/operations/ci-delivery.md) for parallel coverage, retained
+failure evidence, bounded infrastructure recovery and batching a landing candidate.
+
 ## Attribution and license
 
 Evolved from [claude-command-center](https://github.com/Afstkla/claude-command-center)

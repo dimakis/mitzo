@@ -9,7 +9,11 @@ assertPlaywrightHost();
 export default defineConfig({
   testDir: './tests/offline',
   outputDir: 'test-results/offline',
-  reporter: [['list'], ['html', { outputFolder: 'playwright-report/offline', open: 'never' }]],
+  reporter: [
+    ['list'],
+    ['html', { outputFolder: 'playwright-report/offline', open: 'never' }],
+    ['./scripts/ci-browser-failure-reporter.mjs'],
+  ],
   workers: 1,
   use: {
     baseURL: 'http://mitzo-ui.test',

@@ -30,6 +30,7 @@ function fixture(native = 'true') {
       'core',
       'unit-validation',
       'ordinary-journey',
+      'joined-validation',
       'ordinary-supplemental',
       'browser-validation',
       'native',
@@ -55,6 +56,7 @@ it('runs core concurrently and keeps ci required across every selected owner res
     'changes',
     'core',
     'ordinary-journey',
+    'joined-validation',
     'ordinary-supplemental',
     'browser-validation',
     'native',
@@ -66,8 +68,10 @@ it('runs core concurrently and keeps ci required across every selected owner res
   expect(workflow.jobs['ordinary-supplemental'].strategy?.['fail-fast']).toBe(false);
   expect(workflow.jobs['ordinary-supplemental'].strategy?.matrix.shard).toEqual([1, 2]);
   expect(
-    workflow.jobs['ordinary-journey'].steps.some(
-      (s) => s.run === 'node tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs',
+    workflow.jobs['ordinary-joined'].steps.some(
+      (s) =>
+        s.run ===
+        'node tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs --shard=${{ matrix.shard }}/3',
     ),
   ).toBe(true);
 });
@@ -83,6 +87,7 @@ it.each(['failure', 'cancelled', 'skipped', ''])(
       'core',
       'unit-validation',
       'ordinary-journey',
+      'joined-validation',
       'ordinary-supplemental',
       'browser-validation',
     ]) {
