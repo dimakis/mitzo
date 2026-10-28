@@ -23,9 +23,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/joined-frontend-ready.ts':
-    'da6e4c6c5531392d51ae0500ec350a735c769d954ba38c7ff0a15b4b67624cca',
+    '48dd9d57a154a91f6ac210073857027bbefe68714cfa8c9335bc94b2817b37f1',
   '../../tests/integration/telos-s9/integrated-candidate/joined-frontend-ready.test.ts':
-    'bcbb51f676699c77993f0b3543162a18ec62753fccbb3158f519c912ecaca3e5',
+    '117b2152f028791fc0d8440457fe9e03b59546ec72b5e0980e500bd41a68a669',
   '../../.github/workflows/centaur-gate.yml':
     '498cb6e2256bbd0ec75879583f77e133ff2f2c9ecd2e84fd17cd05e524013a8f',
   '../../.github/workflows/centaur-review-event.yml':
@@ -2412,7 +2412,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/telos-worker-materials.ts':
     '362c2f64970802cbacaccdac3c38af153768aee385d3094031f5d32e56959134',
   '../__tests__/native-host-operator-lifetime.test.ts':
-    'ccf58d17751c96aed4c17ae39c47d3922c19ebaff688dde594fbbcc581173262',
+    '4c138955b1a90f33c096dcbfff818d54a65ec9d394c1e771db0b317cc30541eb',
   '../../frontend/src/components/__tests__/TelosSourceReview.test.tsx':
     'c573b2ef7c636b6331ebf3a8f5d1af4d5943956f42805082a102af20627ffb80',
   '../../frontend/src/hooks/__tests__/useDraft.test.ts':

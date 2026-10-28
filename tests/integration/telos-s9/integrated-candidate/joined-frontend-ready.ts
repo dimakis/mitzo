@@ -4,8 +4,15 @@ import type { DevEnvironment } from 'vite';
  * readiness deadline. No browser document, API call or application state runs. */
 export async function prepareJoinedFrontend(
   client: Pick<DevEnvironment, 'transformRequest' | 'waitForRequestsIdle'>,
-  entry = '/src/main.tsx',
+  entries: readonly string[] = [
+    '/src/main.tsx',
+    '/src/render-app.tsx',
+    '/src/components/ResponsiveChatView.tsx',
+    '/src/pages/TaskBoard.tsx',
+  ],
 ) {
-  if (!(await client.transformRequest(entry))) throw Error('Joined frontend entry unavailable');
+  // Start every dynamic entry before the idle observer settles its first crawl.
+  const transformed = await Promise.all(entries.map((entry) => client.transformRequest(entry)));
+  if (transformed.some((result) => !result)) throw Error('Joined frontend entry unavailable');
   await client.waitForRequestsIdle();
 }

@@ -96,14 +96,21 @@ Compare subsequent clean runs including queue delays before claiming a speedup.
   `joined-validation` checks each shard summary and actual reporter, rejecting
   missing, duplicated, failed or skipped cases. Artifacts are scoped to the
   workflow run and replaced per shard, retaining successful evidence on retries.
-- Joined development-entry fixtures compile the real Vite client entry and await
-  its static imports before exposing the private HTTP listener. This prepares
+- Joined development-entry fixtures compile the real Vite boot, dynamic renderer,
+  chat and work-route entries and await their static imports before exposing the
+  private HTTP listener. This prepares
   server compilation only: the browser remains fresh, and no application state
   or API request is primed. The original role-navigation and whole-case deadlines
   remain unchanged. Preparation failures close resources and fail the fixture.
   In run `40764829950`, a cold 530-asset load took 9.17 seconds and the valid exact
   role review arrived at 10.79 seconds, outside its ten-second window. Preparing
   the module graph removes compiler setup from that interaction's timing.
+- The two signed cold-resume integration cases have a finite 15-second whole-test
+  allowance for real filesystem/SQLite setup and two admissions. The default
+  five-second Vitest allowance expired at 5.241 seconds despite successful
+  bootstraps. Custody, positive execution, revocation and execution-count
+  assertions remain intact; native admission, operation and expiry limits are
+  unchanged.
 - Each of the two native repository account workflows runs in its own fresh
   Vitest command, with one worker. The finite whole-case envelope is 480 seconds
   in CI and remains 240 seconds locally. Identical native worker input/output

@@ -1,19 +1,21 @@
 import { mkdtemp, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer, type DevEnvironment } from 'vite';
+import { createServer, type DevEnvironment, type InlineConfig } from 'vite';
 import { expect, it, vi } from 'vitest';
 import { prepareJoinedFrontend } from './joined-frontend-ready';
 
-it('prepares the real client entry and its static dependency before returning without a browser', async () => {
+it('prepares dynamic boot and route entries before returning without a browser', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'joined-frontend-ready-')));
   const transformed: string[] = [];
+  await writeFile(join(root, 'main.js'), 'void import("./render.js");');
+  await writeFile(join(root, 'render.js'), 'export const render = () => import("./route.js");');
   await writeFile(
-    join(root, 'main.js'),
+    join(root, 'route.js'),
     'import { value } from "./dependency.js"; console.log(value);',
   );
   await writeFile(join(root, 'dependency.js'), 'export const value = 42;');
-  const vite = await createServer({
+  const configuration = {
     configFile: false,
     root,
     cacheDir: join(root, 'private-cache'),
@@ -22,14 +24,25 @@ it('prepares the real client entry and its static dependency before returning wi
     plugins: [
       {
         name: 'observe-transforms',
-        transform(_code, id) {
+        transform(_code: string, id: string) {
           transformed.push(id);
         },
       },
     ],
-  });
+  } satisfies InlineConfig;
+  const cold = await createServer(configuration);
   try {
-    await prepareJoinedFrontend(vite.environments.client, '/main.js');
+    await cold.environments.client.transformRequest('/main.js');
+    await cold.environments.client.waitForRequestsIdle();
+    // The original single-entry warmup never crosses these dynamic boundaries.
+    expect(transformed).not.toContain(join(root, 'dependency.js'));
+  } finally {
+    await cold.close();
+  }
+  transformed.length = 0;
+  const vite = await createServer(configuration);
+  try {
+    await prepareJoinedFrontend(vite.environments.client, ['/main.js', '/render.js', '/route.js']);
     expect(transformed).toContain(join(root, 'dependency.js'));
     const dependency = await vite.environments.client.moduleGraph.getModuleByUrl('/dependency.js');
     expect(dependency?.transformResult?.code).toContain('42');
@@ -42,14 +55,14 @@ it('prepares the real client entry and its static dependency before returning wi
   }
 });
 
-it('waits for both the entry transform and static-import idle barrier', async () => {
-  let transformed!: (value: unknown) => void;
+it('starts every explicit entry and waits for all transforms before the static-import idle barrier', async () => {
+  const transforms: Array<(value: unknown) => void> = [];
   let idle!: () => void;
   const client = {
-    transformRequest: vi.fn(
+    transformRequest: vi.fn<(url: string) => Promise<unknown>>(
       () =>
         new Promise((resolve) => {
-          transformed = resolve;
+          transforms.push(resolve);
         }),
     ),
     waitForRequestsIdle: vi.fn(
@@ -63,9 +76,17 @@ it('waits for both the entry transform and static-import idle barrier', async ()
   const preparation = prepareJoinedFrontend(client as unknown as DevEnvironment).then(() => {
     ready = true;
   });
-  expect(client.transformRequest).toHaveBeenCalledWith('/src/main.tsx');
+  expect(client.transformRequest.mock.calls.map((args) => args[0])).toEqual([
+    '/src/main.tsx',
+    '/src/render-app.tsx',
+    '/src/components/ResponsiveChatView.tsx',
+    '/src/pages/TaskBoard.tsx',
+  ]);
   expect(client.waitForRequestsIdle).not.toHaveBeenCalled();
-  transformed({ code: 'entry' });
+  for (const resolve of transforms.slice(1)) resolve({ code: 'entry' });
+  await Promise.resolve();
+  expect(client.waitForRequestsIdle).not.toHaveBeenCalled();
+  transforms[0]({ code: 'entry' });
   await vi.waitFor(() => expect(client.waitForRequestsIdle).toHaveBeenCalledOnce());
   expect(ready).toBe(false);
   idle();
@@ -78,9 +99,11 @@ it.each(['missing-entry', 'transform-error', 'idle-error'])(
   async (failure) => {
     const error = Error('Synthetic preparation failure');
     const client = {
-      transformRequest: vi.fn(async () => {
+      transformRequest: vi.fn(async (url: string) => {
         if (failure === 'transform-error') throw error;
-        return failure === 'missing-entry' ? null : { code: 'entry' };
+        return failure === 'missing-entry' && url === '/src/pages/TaskBoard.tsx'
+          ? null
+          : { code: 'entry' };
       }),
       waitForRequestsIdle: vi.fn(async () => {
         if (failure === 'idle-error') throw error;

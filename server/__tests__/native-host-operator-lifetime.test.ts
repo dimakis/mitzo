@@ -44,6 +44,9 @@ it.runIf(process.platform === 'darwin').each([false, true])(
     expect((await f.a.call({ query: 'after-revocation' })).response.success).toBe(false);
     expect(execute).toHaveBeenCalledOnce();
   },
+  // Real filesystem/SQLite setup plus two cold admissions exceeded Vitest's
+  // default 5s on hosted macOS. Native operation and expiry bounds stay intact.
+  15000,
 );
 
 it.runIf(process.platform === 'darwin')(
