@@ -251,7 +251,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-codex-queue-recovery-routing.test.ts':
     '1bd7274e6f157f69b3ef2fefb55a40eeaec1d878c8875b701d439bf8cf3376b3',
   '../__tests__/owned-local-codex-real-start.test.ts':
-    '5f46e02300d1f5767fcf745be77a1e18a41863da40002ef67e6e208a4ffc1763',
+    '4b6292af61021e16edae43572fc61537da8cc7102590b914e90f326967db6930',
   '../__tests__/retained-local-codex-recovery.test.ts':
     'ac3f8fd76393d43cd7d72a5c2f2b6a101c2646cfd4188992fbf1b23ef93f335c',
   '../retained-local-codex-recovery.ts':
@@ -1975,7 +1975,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prompt-trace-timing.test.ts':
     'e5ac6f87bfd69c1e788304b274cd7b25768869099361dc4e69d0e35c535bf6c1',
   '../__tests__/prompt-trace-timing.e2e.test.ts':
-    '751a6e2763c3a6affca6a03ccaa76e7e70971f40fced7a4535eaf01f3f0fe504',
+    'ed53518dc4ed693a2bc282bc6a01b71419d906afe0fe8bef516b852175a17ef4',
   '../__tests__/fixtures/prompt-trace-timing.ts':
     '7f6af8c9c7d623f8cdcb2e7bbe21a5d5d31f4ad94a6faca86dc25817e6904e8d',
   '../../scripts/validate-prompt-timing.ts':
@@ -2366,7 +2366,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/peer-messaging.required-contract.ts':
     'b7f8b3cbccd5269b21e8a3d089d039809bfdc8a76dd72d299b63e256a0da0fae',
   '../../tests/integration/telos-s9/integrated-candidate/process-restart-browser.contract.ts':
-    'cc2d10adb17a0b693cb8a609b4e898e62310bc5999af8f288f982085d2d55497',
+    'f8acee5b0d72a51e55b5ccc17b54c8af294a7b9396082615155289e722110129',
   '../../tests/integration/telos-s9/integrated-candidate/process-restart-fixture.ts':
     '9ad7d8272497c383d4a9a07d003f342461ea84b2bd20e44bcf81d6cee47e791a',
   '../../tests/integration/telos-s9/integrated-candidate/repository-browser.contract.ts':
@@ -2520,7 +2520,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/ChatViewSavedDrafts.test.tsx':
     '1c96f88be3f0faa381d42d7dffd126f9080629e5cf1b0d4fb352f8bdad9ed7b1',
   '../../scripts/__tests__/ci-native-operator.test.ts':
-    '17abcb7fc40b356ccc220946cb46633566d84abed2aef40900ee01ba349cd3cf',
+    '490df07a76e1b6e1896d7c68a44831a21ad45c1faf38b74fd894f6cc2297816b',
   '../__tests__/agent-tool-catalog.test.ts':
     '473a8140415d977cef238602e08ee8d9b1281d5419904ff45c86e886459ea0e2',
   '../__tests__/telos-item-store.test.ts':
@@ -2588,7 +2588,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/__tests__/live-prefix-delivery.test.ts':
     '7c18084f6e5b9996b25e4ce44d351ab56cb4bcae2d86abf23d25cc48efc3321f',
   '../../scripts/__tests__/ci-native-authorization.test.ts':
-    '27e1f121c8132a45953a1204545277c33a7f17e0f3b6e970dbea383f5b4b358a',
+    '531e0931d201fbe56834f56adb2dfea18ca3330de3bab4c5621d234cfe110843',
   '../../scripts/__tests__/ci-unit-gate.test.ts':
     '35470a91a0b2c43d1e5f266974281969a18bdcf1924d155db90f1886579d3fb5',
   '../../scripts/ci-unit-gate.mjs':
@@ -2823,7 +2823,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/repository-preview-correlation.test.ts':
     '4cb40085154b286f4b2630acca5fa48a3a2f697ab53da9e32545589d1502a103',
   '../__tests__/fixtures/native-repository-worker-sources.ts':
-    'b7f90bd984539b49330f5da01daa812ac32e92d4f59a791f48f91ad47f92c151',
+    '7ddb7ac5a894cad58e1342445cf92d6127ee1255ad796448b92ce50f49e089de',
   '../__tests__/native-repository-worker-module-closure.test.ts':
     '1efdd91982a2f17c79fe12b14bacd8e5b3aca16ffce76850bf89b259a2e301e1',
   '../__tests__/native-repository-git-container-limits.test.ts':
@@ -2839,7 +2839,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '2ad827f6ba9168a84a73651bd0098f22997c34e283225118fad68fd0ee7338e2',
+    'bf2726c75b351b0caf62930516dded82009805df46b6f7a23cf46c0fbfa76599',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
@@ -2876,7 +2876,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/prepared-repository-native-consumer.ts':
     '99ee4410665d8d5c8541e63c6c31ea2cde4942c13e0e73b11333261c4a446cd6',
   '../__tests__/fixtures/prepared-repository-native-public.ts':
-    '4ec766ceacfb7a0c2b61c79294b38e2a6e05704621e89baa7eeba0cc9ac16982',
+    '482ff36b1cbcef54be8e72558f22682716c05c08212c6ce20e40b52969659e5c',
   '../__tests__/prepared-repository-native-cold-resume.test.ts':
     '3acbfad8d5e7f56bbfeaa1d75419c61a570b87deadea4b2aacc7b9cbcb97e7ef',
   '../__tests__/prepared-repository-native-owner-guards.test.ts':

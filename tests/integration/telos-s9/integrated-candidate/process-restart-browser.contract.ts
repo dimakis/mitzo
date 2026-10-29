@@ -157,11 +157,13 @@ it('preserves an actual admitted command and honest lost-result state through ab
           .filter((key) => key.startsWith('mitzo-local-first-command-outbox:'))
           .map((key) => JSON.parse(storage.getItem(key)!)),
       );
-    await vi.waitFor(async () =>
-      expect(
+    // The durable read crosses the browser and IndexedDB; use the browser
+    // assertion deadline rather than Vitest's one-second in-process poll.
+    await browserExpect
+      .poll(async () =>
         (await outbox()).find((entry) => entry.body?.clientMsgId === original.clientMsgId),
-      ).toMatchObject({ uncertain: true, body: original }),
-    );
+      )
+      .toMatchObject({ uncertain: true, body: original });
     const laterDraft = 'Keep this newer draft while the original result remains unknown.';
     await composer.fill(laterDraft);
     const before = await h.snapshot(sessionId, original.clientMsgId),
@@ -224,11 +226,11 @@ it('preserves an actual admitted command and honest lost-result state through ab
       reloadReads.close();
     }
     await browserExpect(composer).toHaveValue(laterDraft);
-    await vi.waitFor(async () =>
-      expect(
+    await browserExpect
+      .poll(async () =>
         (await outbox()).find((entry) => entry.body?.clientMsgId === original.clientMsgId),
-      ).toMatchObject({ uncertain: true, body: original }),
-    );
+      )
+      .toMatchObject({ uncertain: true, body: original });
     expect(requests).toHaveLength(1);
     expect((await h.effects()).filter((e) => e.kind === 'native.launch')).toHaveLength(1);
     expect((await h.effects()).filter((e) => e.kind === 'turn/start')).toHaveLength(1);
