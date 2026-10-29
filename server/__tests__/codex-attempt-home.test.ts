@@ -39,6 +39,7 @@ function attempt(
   const requests: { method: string; params: Record<string, unknown> }[] = [];
   const accepted = vi.fn();
   const dispatched = vi.fn();
+  const errors = vi.fn();
   const options: CodexConversationOptions = {
     conversationId: 'seat-runtime',
     cwd: '/workspace',
@@ -60,6 +61,7 @@ function attempt(
     executeTool: async () => ({ content: '', isError: false }),
     onProviderAccepted: accepted,
     onProviderDispatch: dispatched,
+    onError: errors,
     createClient: (cb) => {
       callbacks = cb;
       return {
@@ -87,10 +89,14 @@ function attempt(
     requests,
     accepted,
     dispatched,
-    complete: (status: 'completed' | 'failed' | 'interrupted' = 'completed') =>
+    errors,
+    complete: (
+      status: 'completed' | 'failed' | 'interrupted' = 'completed',
+      error?: Record<string, unknown>,
+    ) =>
       callbacks.onNotification('turn/completed', {
         threadId: id,
-        turn: { id: `turn-${id}`, status },
+        turn: { id: `turn-${id}`, status, ...(error ? { error } : {}) },
       }),
   };
 }
@@ -192,7 +198,28 @@ it.each(['failed', 'interrupted'] as const)(
     await two.c.send({ id: 'claim2', prompt: 'Recall' });
     const retained = store.read('seat-runtime', binding).rolloverContext;
     expect(retained).toContain('cedar otter 27');
-    two.complete(status);
+    // The positive replay case needs a provider-confirmed rejection; a bare
+    // failed status leaves effects unknown and must not authorize dispatch.
+    two.complete(
+      status,
+      status === 'failed' ? { codexErrorInfo: 'contextWindowExceeded' } : undefined,
+    );
+    if (status === 'failed') {
+      expect(two.errors).toHaveBeenCalledWith(
+        expect.objectContaining({
+          failure: expect.objectContaining({
+            category: 'context',
+            code: 'context_window_exceeded',
+            retryable: false,
+            ambiguous: false,
+          }),
+        }),
+      );
+      expect(store.commandLifecycle('seat-runtime', binding, 'claim2')).toMatchObject({
+        state: 'terminal_failure',
+        effectStatus: 'not_established',
+      });
+    }
     expect(store.read('seat-runtime', binding).rolloverContext).toBe(retained);
     two.c.close();
     const three = attempt(store, 'three', history);
@@ -202,8 +229,53 @@ it.each(['failed', 'interrupted'] as const)(
       { type: 'text', text: retained },
       { type: 'text', text: 'Recall again' },
     ]);
+    three.complete();
+    expect(store.read('seat-runtime', binding).rolloverContext).toBeNull();
   },
 );
+it('retains replay and withholds a new turn after an unknown provider failure', async () => {
+  const store = fixture();
+  const one = attempt(store, 'one', []);
+  await one.c.initialize();
+  one.c.close();
+  const history = [
+    { role: 'user' as const, text: 'Remember cedar otter 27' },
+    { role: 'assistant' as const, text: 'Remembered' },
+  ];
+  const two = attempt(store, 'two', history);
+  await two.c.initialize();
+  await two.c.send({ id: 'claim2', prompt: 'Recall' });
+  const retained = store.read('seat-runtime', binding).rolloverContext;
+  expect(retained).toContain('cedar otter 27');
+  two.complete('failed');
+  expect(two.errors).toHaveBeenCalledWith(
+    expect.objectContaining({
+      failure: expect.objectContaining({ category: 'unknown', ambiguous: true }),
+    }),
+  );
+  two.c.close();
+  const three = attempt(store, 'three', history);
+  await three.c.initialize(); // Metadata/thread preparation is not a provider turn.
+  await expect(three.c.send({ id: 'claim3', prompt: 'Recall again' })).rejects.toThrow(
+    /effects.*reconciliation/,
+  );
+  expect(three.requests.some((request) => request.method === 'turn/start')).toBe(false);
+  expect(three.dispatched).not.toHaveBeenCalled();
+  expect(three.accepted).not.toHaveBeenCalled();
+  expect(three.c.queue()).toEqual([
+    expect.objectContaining({ id: 'claim2', prompt: 'Recall', status: 'failed' }),
+    expect.objectContaining({ id: 'claim3', prompt: 'Recall again', status: 'queued' }),
+  ]);
+  expect(store.read('seat-runtime', binding)).toMatchObject({
+    rolloverContext: retained,
+    recovery: 1,
+  });
+  expect(store.commandLifecycle('seat-runtime', binding, 'claim2')).toMatchObject({
+    state: 'ambiguous_effect',
+    effectStatus: 'unknown',
+    nextAction: 'reconcile_native_outcome',
+  });
+});
 it('quotes a legacy durable fragment before replay and rejects JSON-expanded overflow', async () => {
   const store = fixture();
   const one = attempt(store, 'one', []);
