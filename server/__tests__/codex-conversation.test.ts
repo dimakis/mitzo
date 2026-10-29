@@ -7909,3 +7909,31 @@ it.each(['pending_tool_result', 'pending_completion_hook'] as const)(
     });
   },
 );
+
+it('omits oversized optional diagnostic correlation without replacing the original executor failure', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'oversized-correlation', prompt: 'offline' });
+  f.execute.mockRejectedValue(Object.assign(Error('SECRET original'), { code: 'EPERM' }));
+  const call = {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    callId: 'x'.repeat(250),
+    tool: 'Read',
+    arguments: {},
+  };
+  const result = await f.callbacks.onRequest('item/tool/call', call, new AbortController().signal);
+  const text = (result.contentItems as Array<{ text: string }>)[0].text;
+  expect(JSON.parse(text).diagnostic).toMatchObject({
+    reason: 'filesystem_denied',
+    effectStatus: 'unknown',
+  });
+  expect(JSON.parse(text).diagnostic).not.toHaveProperty('callId');
+  expect(text).not.toContain('SECRET');
+  expect(
+    f.store.replayToolResult('app', f.getBinding(), 'oversized-correlation', call.callId, {
+      turnId: call.turnId,
+      toolName: call.tool,
+      requestHash: createHash('sha256').update('{}').digest('hex'),
+    })?.content,
+  ).toBe(text);
+});

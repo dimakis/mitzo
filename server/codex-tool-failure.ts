@@ -115,11 +115,12 @@ export function codexToolFailureResult(
                 : code === 'invalid_input'
                   ? 'invalid_input'
                   : 'unknown';
+  const checkedIdentity = CodexDiagnosticIdentitySchema.safeParse(identity);
   const diagnostic = {
     ...(typed?.diagnostic
       ? typed.diagnostic
       : { stage: boundary ? 'repository_preparation' : stage, reason, effectStatus: 'unknown' }),
-    ...(identity ? CodexDiagnosticIdentitySchema.parse(identity) : {}),
+    ...(checkedIdentity.success ? checkedIdentity.data : {}),
   };
   const actions: Record<ToolFailureCode, string> = {
     approval_unavailable:

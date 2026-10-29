@@ -24,7 +24,7 @@ import { performance } from 'node:perf_hooks';
 import { SearchSkillsInput, searchNativeSkills } from './local-agent-efficiency.js';
 import { applicationVersion } from './application-version.js';
 import { diagnosticReleaseRevision } from './codex-diagnostic-release.js';
-import { codexToolFailureResult } from './codex-tool-failure.js';
+import { codexToolFailureResult, CodexDiagnosticIdentitySchema } from './codex-tool-failure.js';
 import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
 import type { ToolDefinition } from '@mitzo/harness';
@@ -3558,7 +3558,7 @@ export class CodexConversation {
     // owner later must neither relabel this result nor replace its original cause.
     const diagnosticIdentity = (() => {
       try {
-        return {
+        const candidate = {
           ...this.diagnosticRuntimeIdentity(),
           commandId: active.command.id,
           attempt: active.command.attempt,
@@ -3568,6 +3568,8 @@ export class CodexConversation {
           generation: this.opts.store.read(this.opts.conversationId, callbackBinding)
             .threadGeneration,
         };
+        const checked = CodexDiagnosticIdentitySchema.safeParse(candidate);
+        return checked.success ? checked.data : undefined;
       } catch {
         return undefined;
       }
