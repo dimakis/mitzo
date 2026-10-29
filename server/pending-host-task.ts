@@ -78,7 +78,8 @@ export class PendingHostTaskError extends Error {
       | 'pending_host_task_access_required'
       | 'pending_host_task_ownership_changed'
       | 'pending_host_task_uncertain'
-      | 'pending_host_task_invalid_input',
+      | 'pending_host_task_invalid_input'
+      | 'pending_host_task_base_conflict',
     options?: ErrorOptions,
   ) {
     super(code, options);
