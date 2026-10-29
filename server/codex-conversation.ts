@@ -22,6 +22,7 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { performance } from 'node:perf_hooks';
 import { SearchSkillsInput, searchNativeSkills } from './local-agent-efficiency.js';
+import { applicationVersion } from './application-version.js';
 import { codexToolFailureResult } from './codex-tool-failure.js';
 import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
@@ -31,6 +32,7 @@ import {
   CodexRequestError,
   CodexServerRequestResolvedError,
   CodexTransportError,
+  SUPPORTED_CODEX_CLI_VERSION,
   type CodexLifecycleTransport,
   type CodexServerRequestContext,
 } from './codex-app-server-client.js';
@@ -503,6 +505,15 @@ export class CodexConversation {
     this.disableProjectDocuments = opts.disableProjectDocuments === true;
     this.client = this.createClient();
   }
+  private diagnosticRuntimeIdentity() {
+    const traceId = trace.getSpan(context.active())?.spanContext().traceId;
+    return {
+      release: applicationVersion,
+      nativeVersion: SUPPORTED_CODEX_CLI_VERSION,
+      workspaceDigest: createHash('sha256').update(this.opts.cwd).digest('hex'),
+      ...(traceId && /^[a-f0-9]{32}$/.test(traceId) && !/^0+$/.test(traceId) ? { traceId } : {}),
+    };
+  }
   private createClient() {
     const generation = ++this.transportGeneration;
     return this.opts.createClient({
@@ -527,6 +538,39 @@ export class CodexConversation {
       error instanceof CodexTransportError && error.diagnostic
         ? { failure: codexRuntimeErrorTelemetry(error) }
         : {};
+    if (this.binding && this.active) {
+      try {
+        const diagnostic = error instanceof CodexTransportError ? error.diagnostic : undefined;
+        this.opts.store.recordTransportDiagnostic(
+          this.opts.conversationId,
+          this.binding,
+          this.active.command,
+          {
+            stage: 'native_transport',
+            reason:
+              diagnostic &&
+              ['child_exit', 'process_error', 'stream_error'].includes(diagnostic.reason)
+                ? (diagnostic.reason as 'child_exit' | 'process_error' | 'stream_error')
+                : error instanceof CodexTransportError && error.category === 'timeout'
+                  ? 'timeout'
+                  : error instanceof CodexTransportError && error.category === 'protocol'
+                    ? 'protocol'
+                    : 'connection',
+            ...(diagnostic?.reason === 'child_exit'
+              ? { exitCode: diagnostic.exitCode, signal: diagnostic.signal }
+              : {}),
+            ...(diagnostic?.stream ? { stream: diagnostic.stream } : {}),
+            ...(diagnostic?.causeCode ? { causeCode: diagnostic.causeCode } : {}),
+            ...this.diagnosticRuntimeIdentity(),
+          },
+        );
+      } catch {
+        // Closing and fencing unknown work must survive diagnostic storage failure.
+        log.warn('Native transport diagnostic could not be retained', {
+          conversationId: this.opts.conversationId,
+        });
+      }
+    }
     if (this.opts.transportClosure === 'terminal') {
       try {
         this.opts.onTransportClosed?.({ activeTurn: !!this.active, reason: 'closed', ...failure });
@@ -3397,11 +3441,24 @@ export class CodexConversation {
         await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation),
       );
     } catch (error) {
-      result = codexToolFailureResult(error, toolSignal.aborted);
-      const diagnostic = JSON.parse(result.content) as { diagnosticId: string; error: string };
+      result = codexToolFailureResult(error, toolSignal.aborted, {
+        ...this.diagnosticRuntimeIdentity(),
+        commandId: active.command.id,
+        attempt: active.command.attempt,
+        callId: call.callId,
+        threadId: call.threadId,
+        turnId: call.turnId,
+        generation: this.opts.store.read(this.opts.conversationId, this.binding!).threadGeneration,
+      });
+      const diagnostic = JSON.parse(result.content) as {
+        diagnosticId: string;
+        error: string;
+        diagnostic: Record<string, unknown>;
+      };
       log.warn('Dynamic tool failed', {
         diagnosticId: diagnostic.diagnosticId,
         toolFailureCode: diagnostic.error,
+        diagnostic: diagnostic.diagnostic,
         conversationId: this.opts.conversationId,
         callId: call.callId,
       });

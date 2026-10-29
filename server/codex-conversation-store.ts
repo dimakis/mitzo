@@ -184,6 +184,38 @@ export const CodexNativeTurnTargetSchema = z.strictObject({
   generation: z.number().int().nonnegative().safe(),
 });
 export type CodexNativeTurnTarget = z.infer<typeof CodexNativeTurnTargetSchema>;
+const CommandTransportDiagnosticSchema = z.strictObject({
+  stage: z.literal('native_transport'),
+  reason: z.enum([
+    'child_exit',
+    'process_error',
+    'stream_error',
+    'timeout',
+    'connection',
+    'protocol',
+  ]),
+  exitCode: z.number().int().safe().nullable().optional(),
+  signal: z
+    .string()
+    .regex(/^SIG[A-Z0-9]+$/)
+    .max(32)
+    .nullable()
+    .optional(),
+  stream: z.enum(['stdin', 'stdout', 'stderr']).optional(),
+  causeCode: z
+    .string()
+    .regex(/^[A-Z][A-Z0-9_]+$/)
+    .max(40)
+    .optional(),
+  release: z.string().min(1).max(200),
+  nativeVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
+  workspaceDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  traceId: z
+    .string()
+    .regex(/^[a-f0-9]{32}$/)
+    .optional(),
+});
+export type CommandTransportDiagnostic = z.infer<typeof CommandTransportDiagnosticSchema>;
 const CompletedPreparedRepositorySourceSchema = CodexNativeTurnTargetSchema.extend({
   callId: z.string().min(1).max(200),
   toolName: z.literal('PrepareLocalRepository'),
@@ -643,6 +675,8 @@ export class CodexConversationStore {
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN native_turns TEXT');
       if (!columns.some((column) => column.name === 'native_execution_history'))
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN native_execution_history TEXT');
+      if (!columns.some((column) => column.name === 'transport_diagnostic'))
+        this.db.exec('ALTER TABLE codex_commands ADD COLUMN transport_diagnostic TEXT');
       const pendingColumns = this.db
         .prepare('PRAGMA table_info(codex_pending_thread_dispatches)')
         .all() as Array<{ name: string }>;
@@ -2157,6 +2191,86 @@ export class CodexConversationStore {
       if (row.status !== 'queued' && row.status !== 'cancelled') return state.threadId ?? undefined;
     }
     return undefined;
+  }
+
+  /** Outcome evidence lives with its existing exact command attempt. Observers
+   * cannot replace the first recorded native cause or rewrite command input. */
+  recordTransportDiagnostic(
+    id: string,
+    binding: AccountBinding,
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+    diagnostic: CommandTransportDiagnostic,
+  ) {
+    const value = JSON.stringify(CommandTransportDiagnosticSchema.parse(diagnostic));
+    this.read(id, binding);
+    const updated = this.db
+      .prepare(
+        `UPDATE codex_commands SET transport_diagnostic=COALESCE(transport_diagnostic,?)
+      WHERE conversation_id=? AND id=? AND attempt=?`,
+      )
+      .run(value, id, command.id, command.attempt);
+    if (updated.changes !== 1) throw Error('Transport diagnostic command attempt changed');
+  }
+
+  /** Read-only projection over command/acceptance receipts; no new lifecycle owner. */
+  commandLifecycle(id: string, binding: AccountBinding, commandId: string) {
+    this.read(id, binding);
+    const row = this.db
+      .prepare(
+        `SELECT status,attempt,ambiguous,pre_dispatch_failure,native_turns,transport_diagnostic
+      FROM codex_commands WHERE conversation_id=? AND id=?`,
+      )
+      .get(id, commandId) as
+      | {
+          status: CodexCommand['status'];
+          attempt: number;
+          ambiguous: number | null;
+          pre_dispatch_failure: number;
+          native_turns: string | null;
+          transport_diagnostic: string | null;
+        }
+      | undefined;
+    if (!row) throw Error('Command lifecycle unavailable');
+    const targets = this.nativeTurns(row.native_turns).filter(
+      (turn) => turn.attempt === row.attempt,
+    );
+    const nativeTarget =
+      targets.length === 1 ? this.nativeTarget(commandId, targets[0]) : undefined;
+    const state =
+      row.status === 'queued'
+        ? 'queued'
+        : row.status === 'running'
+          ? 'executing'
+          : row.status === 'completed'
+            ? 'completed'
+            : row.ambiguous === 1
+              ? 'ambiguous_effect'
+              : row.pre_dispatch_failure === 1
+                ? 'pre_effect_failure'
+                : 'terminal_failure';
+    return {
+      commandId,
+      attempt: row.attempt,
+      state,
+      nextAction:
+        state === 'ambiguous_effect'
+          ? 'reconcile_native_outcome'
+          : state === 'pre_effect_failure'
+            ? 'retry_admission'
+            : state === 'queued'
+              ? 'wait_for_admission'
+              : state === 'executing'
+                ? 'wait_for_native_outcome'
+                : 'inspect_retained_work',
+      ...(nativeTarget ? { nativeTarget } : {}),
+      ...(row.transport_diagnostic
+        ? {
+            diagnostic: CommandTransportDiagnosticSchema.parse(
+              JSON.parse(row.transport_diagnostic),
+            ),
+          }
+        : {}),
+    };
   }
 
   commands(id: string, b: AccountBinding): CodexCommand[] {

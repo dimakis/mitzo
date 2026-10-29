@@ -7601,3 +7601,86 @@ it.each(['completed', 'cleanup-failure', 'transport-loss'] as const)(
     });
   },
 );
+
+it('retains a safe tool diagnostic with its exact durable call identity across restart', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'diagnostic-command', prompt: 'read' });
+  f.execute.mockRejectedValue(Object.assign(Error('SECRET /private/key'), { code: 'EPERM' }));
+  const call = {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    callId: 'diagnostic-call',
+    tool: 'Read',
+    arguments: { file_path: 'note' },
+  };
+  const result = await f.callbacks.onRequest('item/tool/call', call, new AbortController().signal);
+  const text = (result.contentItems as Array<{ text: string }>)[0].text;
+  const parsed = JSON.parse(text);
+  expect(parsed.diagnostic).toMatchObject({
+    stage: 'tool_execution',
+    reason: 'filesystem_denied',
+    effectStatus: 'unknown',
+    commandId: 'diagnostic-command',
+    attempt: 1,
+    callId: 'diagnostic-call',
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    generation: 0,
+    release: expect.any(String),
+    nativeVersion: expect.any(String),
+    workspaceDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+  });
+  expect(text).not.toContain('SECRET');
+  f.c.close();
+  const resumed = await setup(f.store);
+  const receipt = f.store.replayToolResult(
+    'app',
+    f.getBinding(),
+    'diagnostic-command',
+    call.callId,
+    {
+      turnId: call.turnId,
+      toolName: call.tool,
+      requestHash: createHash('sha256').update(JSON.stringify(call.arguments)).digest('hex'),
+    },
+  );
+  expect(receipt?.content).toBe(text);
+  expect(resumed.execute).not.toHaveBeenCalled();
+});
+
+it('retains native process outcome on the existing command across transport shutdown and restart', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'native-diagnostic', prompt: 'work' });
+  await f.c.send({ id: 'next-after-native', prompt: 'queued' });
+  f.callbacks.onClose(
+    new CodexTransportError('connection', {
+      reason: 'child_exit',
+      exitCode: null,
+      signal: 'SIGKILL',
+    }),
+  );
+  const projection = f.store.commandLifecycle('app', f.getBinding(), 'native-diagnostic');
+  expect(projection).toMatchObject({
+    state: 'ambiguous_effect',
+    nextAction: 'reconcile_native_outcome',
+    nativeTarget: {
+      commandId: 'native-diagnostic',
+      attempt: 1,
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      generation: 0,
+    },
+    diagnostic: {
+      stage: 'native_transport',
+      reason: 'child_exit',
+      exitCode: null,
+      signal: 'SIGKILL',
+      release: expect.any(String),
+    },
+  });
+  f.c.close();
+  const resumed = await setup(f.store);
+  expect(f.store.commandLifecycle('app', f.getBinding(), 'native-diagnostic')).toEqual(projection);
+  expect(resumed.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  expect(resumed.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
+});
