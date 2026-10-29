@@ -2278,10 +2278,10 @@ export class CodexConversationStore {
           throw Error('Native recovery terminal outcome conflicts with completed work');
         this.db
           .prepare(
-            `UPDATE codex_commands SET status=?,ambiguous=CASE WHEN ?='completed' AND NOT EXISTS (SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? AND result_content IS NULL) THEN 0 ELSE ambiguous END,retryable=0
+            `UPDATE codex_commands SET status=?,retryable=0
         WHERE conversation_id=? AND id=? AND attempt=? AND status IN ('interrupted','failed')`,
           )
-          .run(status, status, id, target.commandId, id, target.commandId, target.attempt);
+          .run(status, id, target.commandId, target.attempt);
         if (status === 'completed')
           this.db
             .prepare(

@@ -427,3 +427,38 @@ describe('native terminal evidence preserves unknown tool effects', () => {
     },
   );
 });
+
+it('does not clear downstream hook uncertainty using only a completed native turn receipt', () => {
+  const f = fixture();
+  f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+  f.store.recordTransportDiagnostic('conversation', binding, f.command, {
+    stage: 'workspace_transition',
+    reason: 'completion_hook_failed',
+    release: 'offline',
+    nativeVersion: '0.160.0',
+    workspaceDigest: 'd'.repeat(64),
+  });
+  f.store.pauseForRecovery(
+    'conversation',
+    binding,
+    f.command.id,
+    'interrupted',
+    'resume',
+    undefined,
+    false,
+    true,
+  );
+  f.store.reconcileNativeRecovery(
+    'conversation',
+    binding,
+    f.store.nativeRecoveryTarget('conversation', binding)!,
+    'completed',
+    'thread',
+    0,
+  );
+  expect(f.store.commandLifecycle('conversation', binding, f.command.id)).toMatchObject({
+    state: 'completed',
+    effectStatus: 'unknown',
+    nextAction: 'inspect_retained_work',
+  });
+});
