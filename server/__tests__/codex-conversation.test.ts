@@ -4039,7 +4039,7 @@ it('closes and reports a completion hook that exceeds its deadline', async () =>
   await vi.waitFor(() => expect(onClosed).toHaveBeenCalledTimes(1));
   expect(hookSignal.aborted).toBe(true);
   expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.any(String) }));
-  expect(c.queue()[0].status).toBe('failed');
+  expect(c.queue()[0].status).toBe('completed');
 });
 
 it('does not report a late turn-start failure after close owns recovery', async () => {
@@ -7827,3 +7827,33 @@ it('retains original diagnostic generation when native identity changes during a
   const text = (result.contentItems as Array<{ text: string }>)[0].text;
   expect(JSON.parse(text).diagnostic).toMatchObject({ generation: 0, reason: 'filesystem_denied' });
 });
+
+it.each(['hook_failure', 'transport_closed'] as const)(
+  'preserves exact provider completion when later phase has %s',
+  async (failure) => {
+    let reject!: (error: Error) => void;
+    const gate = new Promise<void>((_resolve, fail) => {
+      reject = fail;
+    });
+    const f = await setup(undefined, undefined, () => gate);
+    const terminal = vi.fn();
+    f.conversationOptions.onProviderTerminal = terminal;
+    await f.c.send({ id: 'provider-done', prompt: 'work' });
+    await f.c.send({ id: 'remaining-phase', prompt: 'follow up' });
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    if (failure === 'hook_failure') reject(Error('SECRET hook error'));
+    else {
+      f.callbacks.onClose(
+        new CodexTransportError('connection', { reason: 'child_exit', exitCode: 1, signal: null }),
+      );
+      reject(Error('SECRET late hook error'));
+    }
+    await vi.waitFor(() => expect(f.c.isPaused()).toBe(true));
+    expect(f.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+    expect(terminal).toHaveBeenCalledExactlyOnceWith('provider-done', 'turn-1', 'completed');
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  },
+);

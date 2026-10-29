@@ -388,3 +388,42 @@ describe('native execution receipts in the existing command owner', () => {
     },
   );
 });
+
+describe('native terminal evidence preserves unknown tool effects', () => {
+  it.each(['completed', 'failed', 'interrupted'] as const)(
+    'retains the pending tool receipt after native %s',
+    (status) => {
+      const f = fixture();
+      f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+      f.store.claimTool('conversation', binding, f.command.id, 'effect-without-result', {
+        turnId: 'turn',
+        toolName: 'RequestGithubPublish',
+        requestHash: 'c'.repeat(64),
+      });
+      f.store.pauseForRecovery(
+        'conversation',
+        binding,
+        f.command.id,
+        'interrupted',
+        'resume',
+        undefined,
+        false,
+        true,
+      );
+      const target = f.store.nativeRecoveryTarget('conversation', binding)!;
+      f.store.reconcileNativeRecovery('conversation', binding, target, status, 'thread', 0);
+      expect(f.store.commandLifecycle('conversation', binding, f.command.id)).toMatchObject({
+        state: status === 'completed' ? 'completed' : 'ambiguous_effect',
+        effectStatus: 'unknown',
+      });
+      expect(
+        f.store.replayToolResult('conversation', binding, f.command.id, 'effect-without-result', {
+          turnId: 'turn',
+          toolName: 'RequestGithubPublish',
+          requestHash: 'c'.repeat(64),
+        }),
+      ).toBeNull();
+      expect(f.store.commands('conversation', binding)).toMatchObject([{ status }]);
+    },
+  );
+});

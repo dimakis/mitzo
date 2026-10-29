@@ -185,7 +185,7 @@ export const CodexNativeTurnTargetSchema = z.strictObject({
 });
 export type CodexNativeTurnTarget = z.infer<typeof CodexNativeTurnTargetSchema>;
 const CommandTransportDiagnosticSchema = z.strictObject({
-  stage: z.literal('native_transport'),
+  stage: z.enum(['native_transport', 'workspace_transition']),
   reason: z.enum([
     'child_exit',
     'process_error',
@@ -193,6 +193,7 @@ const CommandTransportDiagnosticSchema = z.strictObject({
     'timeout',
     'connection',
     'protocol',
+    'completion_hook_failed',
   ]),
   exitCode: z.number().int().safe().nullable().optional(),
   signal: z
@@ -2277,10 +2278,10 @@ export class CodexConversationStore {
           throw Error('Native recovery terminal outcome conflicts with completed work');
         this.db
           .prepare(
-            `UPDATE codex_commands SET status=?,ambiguous=0,retryable=0
+            `UPDATE codex_commands SET status=?,ambiguous=CASE WHEN ?='completed' AND NOT EXISTS (SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? AND result_content IS NULL) THEN 0 ELSE ambiguous END,retryable=0
         WHERE conversation_id=? AND id=? AND attempt=? AND status IN ('interrupted','failed')`,
           )
-          .run(status, id, target.commandId, target.attempt);
+          .run(status, status, id, target.commandId, id, target.commandId, target.attempt);
         if (status === 'completed')
           this.db
             .prepare(
@@ -2372,6 +2373,12 @@ export class CodexConversationStore {
       commandId,
       attempt: row.attempt,
       state,
+      effectStatus:
+        row.ambiguous === 1
+          ? 'unknown'
+          : row.status === 'completed'
+            ? 'completed'
+            : 'not_established',
       nextAction:
         state === 'ambiguous_effect'
           ? 'reconcile_native_outcome'
@@ -2508,7 +2515,7 @@ export class CodexConversationStore {
       | undefined;
     const operation = this.db
       .prepare(
-        `SELECT id FROM codex_commands WHERE conversation_id=? AND recovery_acknowledged=0 AND status IN ('failed','interrupted') AND transport_diagnostic IS NOT NULL ORDER BY sequence DESC LIMIT 1`,
+        `SELECT id FROM codex_commands WHERE conversation_id=? AND recovery_acknowledged=0 AND status IN ('failed','interrupted','completed') AND transport_diagnostic IS NOT NULL ORDER BY sequence DESC LIMIT 1`,
       )
       .get(id) as { id: string } | undefined;
     const capacity = this.capacityRecovery(id, b);
@@ -3672,14 +3679,15 @@ export class CodexConversationStore {
     commandId: string,
     status: 'completed' | 'interrupted' | 'failed',
     providerTurnId?: string,
+    effectsUnknown = false,
   ) {
     this.db.transaction(() => {
       const current = this.read(id, b);
       const updated = this.db
         .prepare(
-          "UPDATE codex_commands SET status=?, recovery_acknowledged=0 WHERE conversation_id=? AND id=? AND status='running'",
+          `UPDATE codex_commands SET status=?, recovery_acknowledged=0, ambiguous=CASE WHEN ?=1 OR EXISTS (SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? AND result_content IS NULL) THEN 1 ELSE ambiguous END WHERE conversation_id=? AND id=? AND status='running'`,
         )
-        .run(status, id, commandId);
+        .run(status, effectsUnknown ? 1 : 0, id, commandId, id, commandId);
       if (updated.changes === 1 && status === 'completed' && providerTurnId)
         this.db
           .prepare(
@@ -4669,7 +4677,7 @@ export class CodexConversationStore {
         this.db.prepare('DELETE FROM codex_capacity_recoveries WHERE conversation_id=?').run(id);
       this.db
         .prepare(
-          "UPDATE codex_commands SET recovery_acknowledged=1 WHERE conversation_id=? AND status IN ('interrupted','failed')",
+          "UPDATE codex_commands SET recovery_acknowledged=1 WHERE conversation_id=? AND (status IN ('interrupted','failed') OR (status='completed' AND transport_diagnostic IS NOT NULL))",
         )
         .run(id);
       this.db

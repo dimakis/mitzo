@@ -430,6 +430,7 @@ type ActiveCommand = {
   completions: Map<string, { first: ObjectValue; conflict?: ObjectValue }>;
   replySources: Map<string, string>;
   completionHook?: 'pending' | 'done';
+  providerCompletionRetained?: boolean;
   completionOperation?: Promise<void>;
   interruptRequested?: boolean;
   targetedInterruptClaimed?: boolean;
@@ -595,6 +596,12 @@ export class CodexConversation {
       }
       return;
     }
+    try {
+      this.retainConfirmedProviderCompletion(this.active);
+    } catch {
+      log.warn('Completed provider outcome requires diagnostic reconciliation');
+    }
+    if (this.closed) return;
     // Invalidate every in-flight request owned by this transport. Its rejection
     // is recovery fallout, not a second fatal send failure.
     this.transportGeneration += 1;
@@ -605,12 +612,13 @@ export class CodexConversation {
     const automatic =
       !this.paused && !active?.interruptRequested && !this.automaticTransportRecoveryAttempted;
     const status = active?.accepted ? 'interrupted' : 'failed';
-    this.finishTurnSpan(status, 'transport');
+    this.finishTurnSpan(active?.providerCompletionRetained ? 'completed' : status, 'transport');
     const commandId = active?.command.id;
     // Transport loss occurs after dispatch and has an unknown provider outcome.
     // An accepted command stays interrupted and ambiguous, never a failed
     // dispatch eligible for replay. This does not claim remote cancellation.
-    if (commandId) this.opts.onProviderComplete?.(commandId, status);
+    if (commandId && !active?.providerCompletionRetained)
+      this.opts.onProviderComplete?.(commandId, status);
     this.active?.abort.abort();
     this.active = undefined;
     let recoveryPersistenceFailed = false;
@@ -2790,6 +2798,42 @@ export class CodexConversation {
       }
     }
   }
+  /** The provider outcome and downstream completion phase are separate. The
+   * existing retirement owner retains only an accepted exact unconflicted ACK. */
+  private retainConfirmedProviderCompletion(active?: ActiveCommand): boolean {
+    if (!active || !this.binding || !active.accepted || !active.turnId) return false;
+    if (active.providerCompletionRetained) return true;
+    const completion = active.completions.get(active.turnId);
+    const terminal = z
+      .object({
+        threadId: z.string(),
+        turn: z.object({ id: z.string(), status: z.literal('completed') }),
+      })
+      .safeParse(completion?.first);
+    if (
+      !terminal.success ||
+      completion?.conflict ||
+      terminal.data.threadId !== this.threadId ||
+      terminal.data.turn.id !== active.turnId
+    )
+      return false;
+    this.opts.store.finish(
+      this.opts.conversationId,
+      this.binding,
+      active.command.id,
+      'completed',
+      active.turnId,
+      active.completionHook === 'pending',
+    );
+    active.providerCompletionRetained = true;
+    this.terminalTurns.set(JSON.stringify([this.threadId, active.turnId]), {
+      commandId: active.command.id,
+      status: 'completed',
+    });
+    this.opts.onProviderTerminal?.(active.command.id, active.turnId, 'completed');
+    this.opts.onProviderComplete?.(active.command.id, 'completed');
+    return true;
+  }
   private persistAcceptedTerminalConflict(thread: string, turn: string) {
     if (this.binding)
       this.opts.store.conflictCapacityTurn(this.opts.conversationId, this.binding, thread, turn);
@@ -2989,6 +3033,20 @@ export class CodexConversation {
           })
           .catch(() => {
             if (this.active !== active || this.closed) return;
+            try {
+              this.opts.store.recordTransportDiagnostic(
+                this.opts.conversationId,
+                this.binding!,
+                active.command,
+                {
+                  stage: 'workspace_transition',
+                  reason: 'completion_hook_failed',
+                  ...this.diagnosticRuntimeIdentity(),
+                },
+              );
+            } catch {
+              /* Retirement still retains the known provider outcome. */
+            }
             this.opts.onError?.(new Error('Project completion hook failed or blocked the turn.'));
             this.close();
           });
@@ -3783,9 +3841,13 @@ export class CodexConversation {
       attempt(() =>
         this.startupObserverAbort?.abort(new Error('Startup transport is closed or replaced')),
       );
-      attempt(() => this.finishTurnSpan('failed', 'close'));
+      attempt(() => this.retainConfirmedProviderCompletion(active));
+      attempt(() =>
+        this.finishTurnSpan(active?.providerCompletionRetained ? 'completed' : 'failed', 'close'),
+      );
       attempt(() => {
-        if (active) this.opts.onProviderComplete?.(active.command.id, closeStatus);
+        if (active && !active.providerCompletionRetained)
+          this.opts.onProviderComplete?.(active.command.id, closeStatus);
       });
       attempt(() => {
         try {
