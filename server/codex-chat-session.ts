@@ -2527,11 +2527,12 @@ async function openCodexChatBound(
       : {}),
     agentContextSource: agentContext?.source,
     disableProjectDocuments: agentContext?.source === 'packs',
-    beforeComplete: connectedOpenShell
-      ? undefined
-      : async (signal) => {
-          await hooks?.run('Stop', { stop_hook_active: false }, signal);
-        },
+    beforeComplete:
+      !connectedOpenShell && hooks?.hasMatching('Stop', { stop_hook_active: false })
+        ? async (signal) => {
+            await hooks.run('Stop', { stop_hook_active: false }, signal);
+          }
+        : undefined,
     ...(runtimeManager
       ? {
           prepareSystemPrompt: async (signal: AbortSignal, turn?: { commandId: string }) =>

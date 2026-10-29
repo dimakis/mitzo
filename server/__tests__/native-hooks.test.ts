@@ -270,3 +270,15 @@ it('never falls back to host execution when runtime hook protection is unavailab
   ).rejects.toThrow(/^Project SessionStart hook failed\.$/);
   expect(existsSync(join(root, 'authority-tampered'))).toBe(false);
 });
+
+it('reports only matching enabled Stop hooks without executing them', () => {
+  const hooks = setup({
+    Stop: [
+      { matcher: '^other$', hooks: [{ type: 'command', command: 'exit 9' }] },
+      { matcher: '^$', hooks: [] },
+    ],
+  });
+  expect(hooks.hasMatching('Stop', { stop_hook_active: false })).toBe(false);
+  expect(hooks.hasMatching('Stop', { reason: 'other' })).toBe(true);
+  expect(new NativeHooks('/no-project', 'offline', {}, false).hasMatching('Stop', {})).toBe(false);
+});
