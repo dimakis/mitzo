@@ -724,6 +724,7 @@ test('drafts: unsent new input saves separately and legacy input migrates withou
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue('');
   await input.fill('A separate new message');
+  await expect(page.locator('.chat-draft-save-status')).toHaveText('Draft saved on this device');
   await page.goto('/sessions/drafts');
   await expect(page.getByRole('link', { name: /Existing legacy briefing draft/ })).toBeVisible();
   await expect(page.getByRole('link', { name: /A separate new message/ })).toBeVisible();

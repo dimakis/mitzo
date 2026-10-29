@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.756-storage-cold-recovery-integration';
+  'v1.0.757-confirmed-draft-recovery-checks';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -78,7 +78,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/telos-ordinary-files.spec.ts':
     'c510776ef7d525873580cc2d6b001d8068392fa29daa8b5e49e51475101fa8ab',
   '../../tests/offline/telos-ordinary-chat.spec.ts':
-    '2db66e87b3af2acd28e84f320eb9a511ca4e044a30032f6ea8fd109d542d7f1d',
+    '25240cff6fc36927eb7d145fd7b7457ef63109faae1cd8dbd5c303640898ffca',
   '../../tests/offline/telos-coordinator-controls.spec.ts':
     'f0d759f8a493f966f1d10795e45ad9d394248f95e91ab5f137b3a0fb45175f3f',
   '../../tests/offline/telos-chooser-hydration.spec.ts':
@@ -96,7 +96,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/chat-settings-surface.spec.ts':
     '723801bf293794ea06ca3cff7a5fe9287bfc69e75982102464d269c4c0396d08',
   '../../tests/offline/chat-drafts-updates.spec.ts':
-    '1c64216328f6259475fe1f7d67fc540b4a1e8ba4560f87b749f164c4b6547dcb',
+    '0747af6c516619f7340ad3bce2505cb663b20fe7b75c67ba13960907382d59a9',
   '../../tests/offline/briefing-owned-launch.spec.ts':
     '11e510ce71940d73fbed12ae990b77e71c2049c566894a087019f6f87e5be520',
   '../../tests/offline/approved-chat.spec.ts':
@@ -2361,7 +2361,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-read-observer.ts':
     'c582b113b1fe4c69bd0037f2c995adaeea677c3f2487f8167a71e497c84de1cb',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-tree-app.contract.ts':
-    '248ff770a3ae6075462aaff0846ada337b9b96fc1da506ed788e2d71afcfb420',
+    'bc5e67dabcec6cf4aa9ef4c58fa6279cc1ecf18b7056f5bb61a02ca396eaad89',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-tree-geometry.ts':
     'bd72de1b8ba7afe8565118f111b142fdc049d65062b9efd85bbaaeed467dad18',
   '../../tests/integration/telos-s9/integrated-candidate/task-review-child-app.mjs':

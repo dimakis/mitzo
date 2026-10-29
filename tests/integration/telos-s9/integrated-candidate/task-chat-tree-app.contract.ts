@@ -1,3 +1,4 @@
+import { readChatStorage } from '../../../support/persisted-chat-storage';
 import { expect, it, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { randomUUID, createHash } from 'node:crypto';
@@ -196,12 +197,21 @@ it('retains readable real task review and the exact attempt-associated worker ch
     const peerDraft = 'Keep this unrelated draft while the worker task is reviewed.';
     const leadDraft = 'Task approval is separate from verifying the outcome.';
     const workerDraft = 'Keep the worker follow-up draft; do not rerun the completed task tools.';
+    // Confirm each durable isolation control before replacing its seed document.
+    const waitForDraft = (id: string, text: string) =>
+      browserExpect
+        .poll(() =>
+          readChatStorage(page, (storage, id) => storage.getItem('mitzo-draft-' + id), id),
+        )
+        .toBe(text);
     await page.goto(front.origin + '/chat/' + peerId);
     await h.waitForPreparedConversation(peerId);
     await composer.fill(peerDraft);
+    await waitForDraft(peerId, peerDraft);
     await page.goto(front.origin + '/chat/' + leadId);
     await h.waitForPreparedConversation(leadId);
     await composer.fill(leadDraft);
+    await waitForDraft(leadId, leadDraft);
     await page.goto(front.origin + allocation.workerPath);
     await h.waitForPreparedConversation(workerId);
     await composer.fill(
@@ -231,6 +241,7 @@ it('retains readable real task review and the exact attempt-associated worker ch
       { timeout: 10_000 },
     );
     await composer.fill(workerDraft);
+    await waitForDraft(workerId, workerDraft);
     const allocated = await h.snapshot(workerId, command.clientMsgId),
       workBefore = await api.read('recording-slice'),
       peerBefore = await api.read('quiet-job');
