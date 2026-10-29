@@ -7685,16 +7685,25 @@ it('retains native process outcome on the existing command across transport shut
   expect(resumed.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
 });
 
+function setupTerminalTransport(
+  existingStore?: CodexConversationStore,
+  beforeComplete?: CodexConversationOptions['beforeComplete'],
+) {
+  const args: Parameters<typeof setup> = [];
+  args[0] = existingStore;
+  args[2] = beforeComplete;
+  args[29] = 'terminal';
+  return setup(...args);
+}
+
 async function nativeRecoveryFixture() {
-  const old = await setup();
-  old.conversationOptions.transportClosure = 'terminal';
+  const old = await setupTerminalTransport();
   await old.c.send({ id: 'uncertain-native', prompt: 'retain completed work' });
   await old.c.send({ id: 'queued-native', prompt: 'next phase' });
   old.callbacks.onClose(
     new CodexTransportError('connection', { reason: 'child_exit', exitCode: 1, signal: null }),
   );
-  const restored = await setup(old.store);
-  restored.conversationOptions.transportClosure = 'terminal';
+  const restored = await setupTerminalTransport(old.store);
   const request = restored.rpc.request.getMockImplementation()!;
   return { old, restored, request };
 }
@@ -7865,12 +7874,10 @@ it.each(['pending_tool_result', 'pending_completion_hook'] as const)(
     const hook = new Promise<void>((_resolve, reject) => {
       failHook = reject;
     });
-    const old = await setup(
-      undefined,
+    const old = await setupTerminalTransport(
       undefined,
       phase === 'pending_completion_hook' ? () => hook : undefined,
     );
-    old.conversationOptions.transportClosure = 'terminal';
     await old.c.send({ id: 'unknown-phase', prompt: 'work' });
     await old.c.send({ id: 'queued-after-phase', prompt: 'next phase' });
     if (phase === 'pending_tool_result')
@@ -7888,8 +7895,7 @@ it.each(['pending_tool_result', 'pending_completion_hook'] as const)(
       new CodexTransportError('connection', { reason: 'child_exit', exitCode: 1, signal: null }),
     );
     if (phase === 'pending_completion_hook') failHook(Error('late cancellation'));
-    const restored = await setup(old.store);
-    restored.conversationOptions.transportClosure = 'terminal';
+    const restored = await setupTerminalTransport(old.store);
     const request = restored.rpc.request.getMockImplementation()!;
     restored.rpc.request.mockImplementation(async (method, params) =>
       method === 'thread/turns/list'
@@ -7998,8 +8004,7 @@ it('reconciles a late original hook success under fresh authority without rerunn
     finish = resolve;
   });
   const hook = vi.fn(() => gate);
-  const old = await setup(undefined, undefined, hook);
-  old.conversationOptions.transportClosure = 'terminal';
+  const old = await setupTerminalTransport(undefined, hook);
   await old.c.send({ id: 'late-hook', prompt: 'work' });
   await old.c.send({ id: 'after-late-hook', prompt: 'later' });
   old.callbacks.onNotification('turn/completed', {
@@ -8021,8 +8026,7 @@ it('reconciles a late original hook success under fresh authority without rerunn
   expect(old.store.commandLifecycle('app', old.getBinding(), 'late-hook').nextAction).toBe(
     'reconcile_completion_phase',
   );
-  const restored = await setup(old.store);
-  restored.conversationOptions.transportClosure = 'terminal';
+  const restored = await setupTerminalTransport(old.store);
   const request = restored.rpc.request.getMockImplementation()!;
   restored.rpc.request.mockImplementation(async (method, params) =>
     method === 'thread/turns/list'
@@ -8039,8 +8043,7 @@ it('reconciles a late original hook success under fresh authority without rerunn
 
 it('keeps an unknown hook phase fenced when diagnostic persistence is unavailable', async () => {
   const gate = new Promise<void>(() => {});
-  const old = await setup(undefined, undefined, () => gate);
-  old.conversationOptions.transportClosure = 'terminal';
+  const old = await setupTerminalTransport(undefined, () => gate);
   await old.c.send({ id: 'phase-without-diagnostic', prompt: 'work' });
   await old.c.send({ id: 'after-phase-without-diagnostic', prompt: 'later' });
   old.callbacks.onNotification('turn/completed', {
@@ -8051,8 +8054,7 @@ it('keeps an unknown hook phase fenced when diagnostic persistence is unavailabl
     throw Error('diagnostic unavailable');
   });
   old.callbacks.onClose(new CodexTransportError('connection'));
-  const restored = await setup(old.store);
-  restored.conversationOptions.transportClosure = 'terminal';
+  const restored = await setupTerminalTransport(old.store);
   const request = restored.rpc.request.getMockImplementation()!;
   restored.rpc.request.mockImplementation(async (method, params) =>
     method === 'thread/turns/list'
@@ -8097,15 +8099,13 @@ it.each(['close', 'stop'] as const)(
   'preserves recovery fences when %s arrives during late hook success authority revalidation',
   async (retirement) => {
     let finishHook!: () => void;
-    const original = await setup(
-      undefined,
+    const original = await setupTerminalTransport(
       undefined,
       () =>
         new Promise<void>((resolve) => {
           finishHook = resolve;
         }),
     );
-    original.conversationOptions.transportClosure = 'terminal';
     await original.c.send({ id: 'phase-race', prompt: 'work' });
     await original.c.send({ id: 'after-phase-race', prompt: 'later' });
     original.callbacks.onNotification('turn/completed', {
@@ -8123,8 +8123,7 @@ it.each(['close', 'stop'] as const)(
           ?.observedOutcome,
       ).toBe('completed'),
     );
-    const restored = await setup(original.store);
-    restored.conversationOptions.transportClosure = 'terminal';
+    const restored = await setupTerminalTransport(original.store);
     const request = restored.rpc.request.getMockImplementation()!;
     restored.rpc.request.mockImplementation(async (method, params) =>
       method === 'thread/turns/list'

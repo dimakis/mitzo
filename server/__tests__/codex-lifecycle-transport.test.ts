@@ -181,9 +181,11 @@ it('retains a typed stdin write-callback failure before a subsequent stream erro
   const init = client.initialize();
   reply({ id: sent[0].id, result: {} });
   await init;
-  vi.spyOn(child.stdin, 'write').mockImplementation((_chunk, callback) => {
-    if (typeof callback === 'function')
-      callback(Object.assign(Error('SECRET /private'), { code: 'EPIPE' }));
+  vi.spyOn(child.stdin, 'write').mockImplementation((...args: unknown[]) => {
+    const callback = args.find(
+      (value): value is (error?: Error | null) => void => typeof value === 'function',
+    );
+    callback?.(Object.assign(Error('SECRET /private'), { code: 'EPIPE' }));
     return false;
   });
   await expect(
