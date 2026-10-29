@@ -902,3 +902,54 @@ it('does not let an older opaque unknown hide actual phase custody from the line
     threadGeneration: 0,
   });
 });
+
+it('does not derive provider completion from an empty downstream witness after raw process loss', () => {
+  const f = fixture();
+  f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+  f.store.observeEmptyCompletionPhase(
+    'conversation',
+    binding,
+    f.command,
+    'thread',
+    'turn',
+    'f'.repeat(64),
+  );
+  cleanups.pop(); // The former process cannot run owner cleanup.
+  f.store.close();
+  const reopened = new CodexConversationStore(f.path);
+  cleanups.push(() => reopened.close());
+  reopened.recoverAtStartup();
+  expect(reopened.commandStatus('conversation', binding, f.command.id)).toBe('interrupted');
+  expect(reopened.commandLifecycle('conversation', binding, f.command.id).effectStatus).toBe(
+    'unknown',
+  );
+  expect(reopened.read('conversation', binding).recovery).toBe(1);
+  expect(() => reopened.acknowledgeRecovery('conversation', binding)).toThrow(/phase|effect/);
+});
+
+it('atomically refuses a conflicted accepted notification without admitting a phase or provider fact', () => {
+  const f = fixture();
+  f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+  const writer = new Database(f.path);
+  writer
+    .prepare(
+      `INSERT INTO codex_thread_acceptances(conversation_id,command_id,attempt,thread_id,turn_id,
+    generation,ownership_pending,accepted_at,terminal_conflict)
+    VALUES('conversation',?,1,'thread','turn',0,1,1,1)`,
+    )
+    .run(f.command.id);
+  writer.close();
+  expect(() =>
+    f.store.beginCompletedProviderPhase(
+      'conversation',
+      binding,
+      f.command,
+      'thread',
+      'turn',
+      'f'.repeat(64),
+    ),
+  ).toThrow(/acceptance|conflict/);
+  expect(f.store.commandStatus('conversation', binding, f.command.id)).toBe('running');
+  expect(f.store.completionPhase('conversation', binding, f.command.id, 1)).toBeUndefined();
+  expect(f.store.read('conversation', binding).lastCompletedTurnId ?? null).toBeNull();
+});

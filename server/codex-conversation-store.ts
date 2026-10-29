@@ -2371,7 +2371,7 @@ export class CodexConversationStore {
         resolved.target AS capacity_resolved_target,resolved.native_turns AS capacity_resolved_native_turns,
         recovery.data AS capacity_recovery,latest.target AS recovery_latest_target,
         latest.native_turns AS recovery_latest_native_turns,
-        latest.source_command_id AS recovery_latest_source_id,
+        latest.source_command_id AS recovery_latest_source_id,latest.recovery_id AS recovery_latest_id,
         reservation.command_id AS reserved_child_id,reservation.source_command_id AS reserved_child_source_id,
         reservation.recovery_id AS reserved_child_recovery_id,reservation.thread_id AS reserved_child_thread_id,
         cv.thread_id AS current_thread_id,cv.thread_generation AS current_generation
@@ -2412,6 +2412,7 @@ export class CodexConversationStore {
       recovery_latest_target: string | null;
       recovery_latest_native_turns: string | null;
       recovery_latest_source_id: string | null;
+      recovery_latest_id: string | null;
       reserved_child_id: string | null;
       reserved_child_source_id: string | null;
       reserved_child_recovery_id: string | null;
@@ -2465,8 +2466,12 @@ export class CodexConversationStore {
             !agrees(row.capacity_source_native_turns, source)
           )
             return false;
-          if (row.capacity_recovery) {
-            const recovery = CapacityRecoverySchema.parse(JSON.parse(row.capacity_recovery));
+          const recovery = row.capacity_recovery
+            ? CapacityRecoverySchema.parse(JSON.parse(row.capacity_recovery))
+            : undefined;
+          // Another source's newer episode cannot invalidate this source's
+          // completed lineage or exact acknowledged terminal custody.
+          if (recovery?.sourceCommandId === source.commandId) {
             const latest =
               row.recovery_latest_target &&
               CodexNativeTurnTargetSchema.parse(JSON.parse(row.recovery_latest_target));
@@ -2478,6 +2483,7 @@ export class CodexConversationStore {
               recovery.latestAttempt !== latest.attempt ||
               recovery.latestTurnId !== latest.turnId ||
               row.recovery_latest_source_id !== source.commandId ||
+              (!recovery.childCommandId && row.recovery_latest_id !== recovery.id) ||
               recovery.threadId !== target.threadId ||
               recovery.generation !== target.generation ||
               recovery.threadId !== latest.threadId ||
@@ -2620,6 +2626,75 @@ export class CodexConversationStore {
           ...this.completionPhases(row.completion_phases),
           phase,
         ]);
+        return phase;
+      })
+      .immediate();
+  }
+  /** The original exact completed notification admits its downstream phase
+   * and retains the provider fact atomically, before invoking the hook. This
+   * records no hook result and grants no recovery or queue release. */
+  beginCompletedProviderPhase(
+    id: string,
+    binding: AccountBinding,
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+    threadId: string,
+    turnId: string,
+    workspaceDigest: string,
+    policyRevision?: string,
+  ): CompletionPhaseReceipt {
+    return this.db
+      .transaction(() => {
+        const phase = this.beginCompletionPhase(
+          id,
+          binding,
+          command,
+          threadId,
+          turnId,
+          workspaceDigest,
+          policyRevision,
+        );
+        const acceptance = this.db
+          .prepare(
+            `SELECT thread_id,turn_id,generation,ownership_pending,terminal_conflict
+        FROM codex_thread_acceptances WHERE conversation_id=? AND command_id=? AND attempt=?`,
+          )
+          .get(id, command.id, command.attempt) as
+          | {
+              thread_id: string;
+              turn_id: string;
+              generation: number;
+              ownership_pending: number;
+              terminal_conflict: number;
+            }
+          | undefined;
+        if (
+          acceptance &&
+          (acceptance.thread_id !== threadId ||
+            acceptance.turn_id !== turnId ||
+            acceptance.generation !== phase.target.generation ||
+            acceptance.ownership_pending !== 0 ||
+            acceptance.terminal_conflict !== 0)
+        )
+          throw Error('Completed provider acceptance changed or conflicted');
+        const updated = this.db
+          .prepare(
+            `UPDATE codex_commands SET status='completed'
+        WHERE conversation_id=? AND id=? AND attempt=? AND status='running'`,
+          )
+          .run(id, command.id, command.attempt);
+        if (updated.changes !== 1) throw Error('Completed provider command attempt changed');
+        const checkpoint = this.db
+          .prepare(
+            `UPDATE codex_thread_generations SET last_completed_turn_id=?
+        WHERE conversation_id=? AND generation=? AND thread_id=?`,
+          )
+          .run(turnId, id, phase.target.generation, threadId);
+        if (checkpoint.changes !== 1) throw Error('Completed provider generation changed');
+        this.db
+          .prepare(
+            'UPDATE codex_conversations SET rollover_context=NULL WHERE id=? AND thread_id=?',
+          )
+          .run(id, threadId);
         return phase;
       })
       .immediate();

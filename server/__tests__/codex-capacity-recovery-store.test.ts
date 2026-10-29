@@ -315,6 +315,7 @@ it.each([
   'acceptance-conflict',
   'ownership',
   'no-episode',
+  'episode-identity',
   'unrelated',
   'null-tool',
   'pending-phase',
@@ -341,6 +342,13 @@ it.each([
       )
       .run(hazard === 'ownership' ? 1 : 0, hazard === 'acceptance-conflict' ? 1 : 0);
   if (hazard === 'no-episode') writer.prepare('DELETE FROM codex_capacity_recoveries').run();
+  if (hazard === 'episode-identity')
+    writer
+      .prepare(
+        `UPDATE codex_capacity_recoveries
+    SET data=json_set(data,'$.id','00000000-0000-4000-8000-000000000001')`,
+      )
+      .run();
   if (hazard === 'unrelated')
     writer
       .prepare(
@@ -444,3 +452,56 @@ it('projects an older actual unknown source instead of a newer qualified capacit
   expect(f.store.queueSummary('chat', binding).operation?.commandId).toBe('older-unknown');
   expect(() => f.store.claimNext('chat', binding)).toThrow(/phase|effect/);
 });
+
+it.each(['acknowledged', 'completed-child'] as const)(
+  'keeps historical %s capacity custody qualified during a distinct later episode',
+  (settlement) => {
+    const f = setup();
+    if (settlement === 'acknowledged') {
+      f.store.stopCapacityRecovery('chat', binding, f.episode.id, f.source.id);
+      f.store.acknowledgeRecovery('chat', binding);
+    } else {
+      const input = f.store.queueCapacityRetry('chat', binding, f.episode.id, f.source.id, 31_000);
+      const child = f.store.claimNext('chat', binding)!;
+      f.store.beginCapacityDispatch('chat', binding, input.id);
+      f.store.acceptCapacityTurn('chat', binding, input.id, 'thread', 'settled-child');
+      f.store.recordCapacityAck('chat', binding, child, 'thread', 'settled-child');
+      f.store.finish('chat', binding, input.id, 'completed', 'settled-child');
+      f.store.completeCapacityTurn('chat', binding, input.id, 'settled-child', 'completed');
+    }
+    // The later owner has a genuinely different native generation and source.
+    f.store.replaceThread(
+      'chat',
+      binding,
+      'thread',
+      'later-thread',
+      'tool_surface_change',
+      undefined,
+      'later-tools',
+    );
+    const sourceB = f.store.claimNext('chat', binding)!;
+    expect(sourceB.id).toBe('later');
+    f.store.recordCapacityAck('chat', binding, sourceB, 'later-thread', 'later-failure');
+    f.store.pauseForRecovery(
+      'chat',
+      binding,
+      sourceB.id,
+      'failed',
+      'resume',
+      undefined,
+      true,
+      true,
+    );
+    const episodeB = f.store.recordCapacityFailure(
+      'chat',
+      binding,
+      sourceB,
+      'later-thread',
+      'later-failure',
+      100_000,
+    );
+    const retryB = f.store.queueCapacityRetry('chat', binding, episodeB.id, sourceB.id, 131_000);
+    expect(f.store.claimNext('chat', binding)?.id).toBe(retryB.id);
+    expect(f.store.commandStatus('chat', binding, f.source.id)).toBe('failed');
+  },
+);

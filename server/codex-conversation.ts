@@ -3150,9 +3150,9 @@ export class CodexConversation {
         const active = this.active;
         const phaseBinding = this.binding!;
         const phasePolicy = active.nativeExecution;
-        let phase: ReturnType<CodexConversationStore['beginCompletionPhase']>;
+        let phase: ReturnType<CodexConversationStore['beginCompletedProviderPhase']>;
         try {
-          phase = this.opts.store.beginCompletionPhase(
+          phase = this.opts.store.beginCompletedProviderPhase(
             this.opts.conversationId,
             phaseBinding,
             active.command,

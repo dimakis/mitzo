@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { EventStore } from '../event-store.js';
 import { codexRolloverHistory, codexRolloverSources } from '../codex-rollover-context.js';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
@@ -8511,3 +8511,67 @@ it('refuses native lineage adoption when the original hook gains custody during 
   old.c.close();
   finish();
 });
+
+it.each([undefined, 'terminal'] as const)(
+  'retains the actual provider completion through raw process loss during a hook (%s)',
+  async (closure) => {
+    vi.useFakeTimers();
+    let stateAtEffect: string | undefined;
+    const hook = vi.fn(() => {
+      stateAtEffect = old.store.commandStatus('app', old.getBinding(), 'raw-hook');
+      return new Promise<void>(() => {});
+    });
+    const terminal = vi.fn();
+    const complete = vi.fn();
+    const args: Parameters<typeof setup> = [];
+    args[2] = hook;
+    args[9] = complete;
+    args[11] = terminal;
+    args[29] = closure;
+    const ownerCleanupIndex = cleanup.length;
+    const old = await setup(...args);
+    await old.c.send({ id: 'raw-hook', prompt: 'work' });
+    old.callbacks.onNotification('turn/completed', {
+      threadId: old.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    expect(stateAtEffect).toBe('completed');
+    expect(terminal).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    const binding = old.getBinding();
+    const path = (old.store as unknown as { db: Database.Database }).db.name;
+    // A dead process cannot run its conversation close/finally path.
+    cleanup.splice(ownerCleanupIndex, 1);
+    old.store.close();
+    const store = new CodexConversationStore(path);
+    store.recoverAtStartup();
+    const restored = new CodexConversation({
+      ...old.conversationOptions,
+      store,
+      storedBinding: binding,
+      beforeComplete: undefined,
+      verifyBinding: async () => binding,
+    });
+    cleanup.push(() => {
+      restored.close();
+      store.close();
+      rmSync(dirname(path), { recursive: true, force: true });
+    });
+    expect(store.commandStatus('app', binding, 'raw-hook')).toBe('completed');
+    expect(store.read('app', binding)).toMatchObject({
+      recovery: 1,
+      lastCompletedTurnId: 'turn-1',
+    });
+    expect(store.commandLifecycle('app', binding, 'raw-hook')).toMatchObject({
+      state: 'completed',
+      effectStatus: 'unknown',
+    });
+    await restored.initialize();
+    await expect(restored.send({ id: 'raw-followup', prompt: 'later' })).rejects.toThrow(
+      /phase|effect/,
+    );
+    expect(restored.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+    expect(old.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    expect(hook).toHaveBeenCalledOnce();
+  },
+);
