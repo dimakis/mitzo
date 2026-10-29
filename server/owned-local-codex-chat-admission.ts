@@ -98,6 +98,11 @@ interface Owner {
     >;
   };
 }
+interface CurrentLocalCodexObservation {
+  readonly session: NonNullable<ReturnType<EventStore['getSession']>>;
+  readonly runtimeBinding: ReturnType<EventStore['getSessionRuntimeBinding']>;
+  readonly role: ReturnType<typeof resolveTelosWorkRoleContext>;
+}
 /** A server-internal first-command capability built from the existing durable
  * uncertain receipt and actual bootstrap lease. Request JSON cannot forge a class
  * instance. The prepared provider prompt, original intent and images are frozen
@@ -205,14 +210,18 @@ export class OwnedLocalCodexChatAdmission {
       throw unavailable();
     }
   }
-  private assertReceipt(initial = false): void {
+  private assertReceipt(initial = false) {
     if (initial) this.owner.recovery?.assertCurrentSync();
-    resolveTelosWorkRoleContext(this.owner.eventStore, this.owner.sessionId, this.#binding);
-    const receipt = this.owner.eventStore.getOrdinaryLocalCommandExecutionAdmission(
+    const observation = this.owner.eventStore.observeOrdinaryLocalCommandAuthority(
+      this.owner.sessionId,
       this.owner.commandId,
     );
-    const send = this.owner.eventStore.getSendCommand(this.owner.commandId);
-    const session = this.owner.eventStore.getSession(this.owner.sessionId);
+    const role = resolveTelosWorkRoleContext(
+      { getSessionEvents: () => observation.roleEvents },
+      this.owner.sessionId,
+      this.#binding,
+    );
+    const { receipt, send, session } = observation;
     const expected = this.#expected;
     if (
       !receipt ||
@@ -241,6 +250,7 @@ export class OwnedLocalCodexChatAdmission {
       !this.sameAccount(this.#binding)
     )
       throw unavailable();
+    return { session, runtimeBinding: observation.runtimeBinding, role };
   }
   private sameAccount(binding: AccountBinding): boolean {
     const account = this.#expected.binding.account;
@@ -737,9 +747,16 @@ export class OwnedLocalCodexChatAdmission {
     this.#opened = true;
   }
   assertCurrentSync(): void {
+    this.observeCurrentSync(this.owner.eventStore, this.owner.sessionId);
+  }
+  /** The actual admission owner supplies fresh facts for its caller's immediate
+   * pure comparisons. Callers cannot supply a checked observation or retain
+   * one to authorize another effect. Mutable owner callbacks run before reading. */
+  observeCurrentSync(events: EventStore, sessionId: string): CurrentLocalCodexObservation {
     try {
-      if (this.#closed) throw unavailable();
-      if (this.#primary) return this.#primary.assertCurrentSync();
+      if (this.#closed || events !== this.owner.eventStore || sessionId !== this.owner.sessionId)
+        throw unavailable();
+      if (this.#primary) return this.#primary.observeCurrentSync(events, sessionId);
       if (this.owner.nativeStore) {
         for (const commandId of this.#continuations.keys()) {
           const status = this.owner.nativeStore.commandStatus(
@@ -751,7 +768,6 @@ export class OwnedLocalCodexChatAdmission {
             this.#continuations.delete(commandId);
         }
       }
-      this.assertReceipt();
       this.owner.lease.assertCurrentSync();
       if (
         this.#session &&
@@ -759,6 +775,7 @@ export class OwnedLocalCodexChatAdmission {
           this.#session.cwd !== this.#expected.workspace.cwd)
       )
         throw unavailable();
+      return this.assertReceipt();
     } catch {
       throw unavailable();
     }

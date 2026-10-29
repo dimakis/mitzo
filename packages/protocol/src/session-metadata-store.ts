@@ -407,6 +407,18 @@ export class SessionMetadataStore {
     return isRegisteredConversation(meta) ? meta : null;
   }
 
+  /** One fresh row supplies both pure projections. This is observation only;
+   * the caller owns its synchronous boundary and must reopen it after an await. */
+  observeSessionOwnership(sessionId: string) {
+    this.owner.assertConversationIdentity(sessionId);
+    const row = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
+    const session = row ? rowToSession(row) : null;
+    return {
+      session: isRegisteredConversation(session) ? session : null,
+      runtimeBinding: row ? runtimeBindingFromRow(row) : undefined,
+    };
+  }
+
   isSessionHidden(sessionId: string): boolean {
     const row = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
     return row?.is_hidden === 1;
