@@ -21,6 +21,7 @@ import * as taskCheckouts from '../repository-task-checkout.js';
 import { qualifiedPreparedRepositoryRecord } from './prepared-repository-candidate-fixture.js';
 import { executeTrustedGitCommit } from '../trusted-native-operation.js';
 import { contextDigest } from '../agent-context-compiler.js';
+import { PreparedRepositoryWorkspaceOwner } from '../prepared-repository-workspace-owner.js';
 import {
   freezePendingHostTaskData,
   pendingHostTaskDecisionHash,
@@ -463,8 +464,8 @@ it('reuses only immutable transition projections while rechecking the current ad
     process.stdout.write(
       JSON.stringify({ samples, elapsedMs, immutableClones, immutableParses }) + '\n',
     );
-  expect(current).toHaveBeenCalledTimes(samples);
-  expect(reservation).toHaveBeenCalledTimes(samples);
+  expect(current).not.toHaveBeenCalled();
+  expect(reservation).not.toHaveBeenCalled();
   expect(immutableClones).toBe(0);
   expect(immutableParses).toBe(0);
   clone.mockRestore();
@@ -520,6 +521,43 @@ it('reuses only immutable transition projections while rechecking the current ad
   expect(() => f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId)).toThrow();
 });
 
+it('bounds fresh prepared-owner SQL reads and refuses the next external writer mutation', async () => {
+  const f = await fixture(),
+    p = await f.pending(f.old, 'linked');
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+  const owner = new PreparedRepositoryWorkspaceOwner(f.service, p.facts, p.childId, {
+    assertCurrentSync() {},
+    async withReadAccess() {
+      throw Error('Synchronous custody observation must not perform a physical read');
+    },
+  });
+  owner.get(); // Prime pure immutable projections, never authorization.
+  const statementPrototype = Object.getPrototypeOf(f.db.prepare('SELECT 1')) as Database.Statement;
+  const gets = vi.spyOn(statementPrototype, 'get');
+  const samples = 100,
+    rounds: number[] = [],
+    counts: number[] = [];
+  for (let round = 0; round < 5; round++) {
+    gets.mockClear();
+    const started = performance.now();
+    for (let index = 0; index < samples; index++) expect(owner.get().id).toBe(p.record.id);
+    rounds.push(performance.now() - started);
+    counts.push(gets.mock.calls.length);
+  }
+  gets.mockRestore();
+  if (process.env.MITZO_CUSTODY_COST_BENCHMARK === '1')
+    process.stdout.write(
+      JSON.stringify({ workload: 'prepared-owner-get', samples, rounds, counts }) + '\n',
+    );
+  expect(counts).toEqual(Array(5).fill(2 * samples));
+  const changed = JSON.parse(f.raw(p.record.id).record) as RepositoryWorkspace;
+  changed.pendingHostTaskDecision!.evidence.input = { external: 'changed' };
+  f.db
+    .prepare('UPDATE repository_workspaces SET record=? WHERE id=?')
+    .run(JSON.stringify(changed), changed.id);
+  expect(() => owner.get()).toThrow();
+});
+
 it('reuses only a private readonly decode while every SQL read and mutable result stays fresh', async () => {
   const f = await fixture(),
     p = await f.pending();
@@ -537,9 +575,10 @@ it('reuses only a private readonly decode while every SQL read and mutable resul
         (statement as Database.Statement).source ===
         'SELECT record, conversation_id FROM repository_workspaces WHERE id=?',
     ),
-  ).toHaveLength(9);
-  // Only getForConversation returns a fresh mutable row on each assertion.
-  expect(parse.mock.calls.filter(([value]) => value === bytes)).toHaveLength(3);
+  ).toHaveLength(3);
+  // The one owner observation supplies every pure comparison; public mutable
+  // readers below still decode their own independent records.
+  expect(parse.mock.calls.filter(([value]) => value === bytes)).toHaveLength(0);
   parse.mockRestore();
   gets.mockRestore();
   const expected = {
@@ -674,8 +713,8 @@ it('validates each fresh adopted marker without rebuilding equal immutable facts
   const rebuiltFacts = stringify.mock.calls.filter(
     ([value]) => value?.version === 'prepared-repository-transition-v1',
   );
-  expect(current).toHaveBeenCalledTimes(3);
-  expect(reservation).toHaveBeenCalledTimes(3);
+  expect(current).not.toHaveBeenCalled();
+  expect(reservation).not.toHaveBeenCalled();
   expect(rebuiltFacts).toHaveLength(0);
 });
 

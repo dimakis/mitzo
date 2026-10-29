@@ -98,7 +98,7 @@ it.each(['narrow', 'denied'] as const)(
       },
     );
     const owner = new PreparedRepositoryWorkspaceOwner(
-      { getForConversation: () => record, assertPreparedRepositoryTransitionAdopted() {} } as never,
+      { observePreparedRepositoryTransitionAdopted: () => record } as never,
       facts,
       'child',
       { assertCurrentSync() {}, withReadAccess },

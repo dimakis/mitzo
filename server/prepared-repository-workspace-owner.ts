@@ -180,12 +180,11 @@ export class PreparedRepositoryWorkspaceOwner {
   readonly kind = 'repository' as const;
   readonly #current;
   readonly #physical;
-  readonly #get;
   readonly #adopted;
   constructor(
     private readonly repository: Pick<
       import('./repository-workspaces.js').RepositoryWorkspaces,
-      'getForConversation' | 'assertPreparedRepositoryTransitionAdopted'
+      'observePreparedRepositoryTransitionAdopted'
     >,
     private readonly facts: import('./prepared-repository-transition.js').PreparedRepositoryTransitionFacts,
     private readonly childCommandId: string,
@@ -193,33 +192,29 @@ export class PreparedRepositoryWorkspaceOwner {
   ) {
     this.#current = owners.assertCurrentSync;
     this.#physical = owners.withReadAccess;
-    this.#get = repository.getForConversation;
-    this.#adopted = repository.assertPreparedRepositoryTransitionAdopted;
+    this.#adopted = repository.observePreparedRepositoryTransitionAdopted;
     this.facts = freezePendingHostTaskData(structuredClone(facts));
   }
+  private references(): void {
+    if (
+      this.owners.assertCurrentSync !== this.#current ||
+      this.owners.withReadAccess !== this.#physical ||
+      this.repository.observePreparedRepositoryTransitionAdopted !== this.#adopted
+    )
+      throw unavailable();
+  }
   private current(): void {
-    if (
-      this.owners.assertCurrentSync !== this.#current ||
-      this.owners.withReadAccess !== this.#physical ||
-      this.repository.getForConversation !== this.#get ||
-      this.repository.assertPreparedRepositoryTransitionAdopted !== this.#adopted
-    )
-      throw unavailable();
+    this.references();
     sync(Reflect.apply(this.#current, this.owners, []));
-    if (
-      this.owners.assertCurrentSync !== this.#current ||
-      this.owners.withReadAccess !== this.#physical ||
-      this.repository.getForConversation !== this.#get ||
-      this.repository.assertPreparedRepositoryTransitionAdopted !== this.#adopted
-    )
-      throw unavailable();
+    this.references();
   }
   get(): import('./repository-workspaces.js').RepositoryWorkspace {
     this.current();
-    sync(
-      this.repository.assertPreparedRepositoryTransitionAdopted(this.facts, this.childCommandId),
-    );
-    const record = this.repository.getForConversation(this.facts.request.conversationId);
+    const record = Reflect.apply(this.#adopted, this.repository, [this.facts, this.childCommandId]);
+    if (record instanceof Promise) {
+      void record.catch(() => {});
+      throw unavailable();
+    }
     const next = this.facts.newWorkspace;
     if (
       !record ||
@@ -237,10 +232,13 @@ export class PreparedRepositoryWorkspaceOwner {
       !record.qualifiedLocalPreparation
     )
       throw unavailable();
-    this.current();
+    this.references();
     return record;
   }
   assertCurrentSync(cwd: string): void {
+    this.currentTask(cwd);
+  }
+  private currentTask(cwd: string) {
     const record = this.get(),
       task = record.taskIdentity!,
       source = task.localSource,
@@ -261,11 +259,11 @@ export class PreparedRepositoryWorkspaceOwner {
         throw unavailable();
     }
     this.current();
+    return record;
   }
   async validate(cwd: string, signal = new AbortController().signal): Promise<void> {
     signal.throwIfAborted();
-    this.assertCurrentSync(cwd);
-    const record = this.get();
+    const record = this.currentTask(cwd);
     const checked: unknown = await Reflect.apply(this.#physical, this.owners, [
       signal,
       async (access) => {

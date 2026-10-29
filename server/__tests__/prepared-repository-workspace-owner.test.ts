@@ -173,10 +173,10 @@ it('retains persisted adoption and current owner around fresh physical validatio
   let adopted = true,
     live = true;
   const service = {
-    assertPreparedRepositoryTransitionAdopted: vi.fn(() => {
+    observePreparedRepositoryTransitionAdopted: vi.fn(() => {
       if (!adopted) throw Error('witness unavailable');
+      return record;
     }),
-    getForConversation: vi.fn(() => record),
   };
   const ports = {
     assertCurrentSync() {
@@ -195,7 +195,7 @@ it('retains persisted adoption and current owner around fresh physical validatio
   // Synthetic owner ports qualify only this component, not native authority.
   const owner = new PreparedRepositoryWorkspaceOwner(service as never, facts, 'child', ports);
   await owner.validate(f.task);
-  expect(service.assertPreparedRepositoryTransitionAdopted).toHaveBeenCalledWith(facts, 'child');
+  expect(service.observePreparedRepositoryTransitionAdopted).toHaveBeenCalledWith(facts, 'child');
   await writeFile(join(f.task, 'task.txt'), 'New work');
   git(f.task, 'add', '.');
   git(f.task, 'commit', '-qm', 'new');
@@ -244,8 +244,7 @@ it('withholds physical success if original current owner changes or returns malf
   };
   const owner = new PreparedRepositoryWorkspaceOwner(
     {
-      getForConversation: () => record,
-      assertPreparedRepositoryTransitionAdopted: () => {},
+      observePreparedRepositoryTransitionAdopted: () => record,
     } as never,
     facts,
     'child',
