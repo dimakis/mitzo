@@ -462,3 +462,62 @@ it('does not clear downstream hook uncertainty using only a completed native tur
     nextAction: 'inspect_retained_work',
   });
 });
+
+it('refuses completion-phase success evidence whose retained target was substituted by another writer', () => {
+  const f = fixture();
+  f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+  const phase = f.store.beginCompletionPhase(
+    'conversation',
+    binding,
+    f.command,
+    'thread',
+    'turn',
+    'f'.repeat(64),
+  );
+  const writer = new Database(f.path);
+  const changed = { ...phase, target: { ...phase.target, turnId: 'other-turn' } };
+  writer
+    .prepare('UPDATE codex_commands SET completion_phases=? WHERE id=?')
+    .run(JSON.stringify([changed]), f.command.id);
+  writer.close();
+  expect(() =>
+    f.store.observeCompletionPhase('conversation', binding, phase.target, 'completed'),
+  ).toThrow(/phase|target/);
+  expect(f.store.completionPhase('conversation', binding, f.command.id, 1)?.status).not.toBe(
+    'completed',
+  );
+});
+
+it.each(['prior_unknown', 'pending_tool'] as const)(
+  'does not erase %s uncertainty when the completion hook succeeds',
+  (uncertainty) => {
+    const f = fixture();
+    f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+    if (uncertainty === 'prior_unknown') {
+      const writer = new Database(f.path);
+      writer.prepare('UPDATE codex_commands SET ambiguous=1 WHERE id=?').run(f.command.id);
+      writer.close();
+    } else
+      f.store.claimTool('conversation', binding, f.command.id, 'pending-effect', {
+        turnId: 'turn',
+        toolName: 'RequestGithubPublish',
+        requestHash: 'a'.repeat(64),
+      });
+    const phase = f.store.beginCompletionPhase(
+      'conversation',
+      binding,
+      f.command,
+      'thread',
+      'turn',
+      'f'.repeat(64),
+    );
+    f.store.finish('conversation', binding, f.command.id, 'completed', 'turn', true);
+    f.store.observeCompletionPhase('conversation', binding, phase.target, 'completed');
+    f.store.reconcileCompletionPhase('conversation', binding, phase.target, phase.workspaceDigest);
+    expect(f.store.commandLifecycle('conversation', binding, f.command.id)).toMatchObject({
+      state: 'completed',
+      effectStatus: 'unknown',
+      nextAction: 'inspect_retained_work',
+    });
+  },
+);

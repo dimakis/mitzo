@@ -189,6 +189,7 @@ const CompletionPhaseReceiptSchema = z.strictObject({
   target: CodexNativeTurnTargetSchema,
   status: z.enum(['pending', 'unknown', 'completed']),
   observedOutcome: z.enum(['unknown', 'completed']),
+  priorEffectsUnknown: z.boolean().default(true),
   workspaceDigest: z.string().regex(/^[a-f0-9]{64}$/),
   policyRevision: z
     .string()
@@ -2365,7 +2366,10 @@ export class CodexConversationStore {
         (state.threadId !== target.threadId || state.threadGeneration !== target.generation))
     )
       throw Error('Completion phase command attempt or generation changed');
-    return this.completionPhase(id, binding, target.commandId, target.attempt);
+    const phase = this.completionPhase(id, binding, target.commandId, target.attempt);
+    if (phase && !isDeepStrictEqual(phase.target, target))
+      throw Error('Completion phase target changed');
+    return phase;
   }
   /** Original hook owner records pending custody before invoking the effect. */
   beginCompletionPhase(
@@ -2390,13 +2394,21 @@ export class CodexConversationStore {
         const existing = this.assertCompletionPhaseTarget(id, binding, target, true);
         if (existing) throw Error('Completion phase was already invoked; never replay the hook');
         const row = this.db
-          .prepare('SELECT completion_phases FROM codex_commands WHERE conversation_id=? AND id=?')
-          .get(id, command.id) as { completion_phases: string | null };
+          .prepare(
+            'SELECT completion_phases,status,ambiguous FROM codex_commands WHERE conversation_id=? AND id=?',
+          )
+          .get(id, command.id) as {
+          completion_phases: string | null;
+          status: string;
+          ambiguous: number | null;
+        };
+        if (row.status !== 'running') throw Error('Completion phase command is no longer running');
         const phase = CompletionPhaseReceiptSchema.parse({
           version: 1,
           target,
           status: 'pending',
           observedOutcome: 'unknown',
+          priorEffectsUnknown: row.ambiguous === 1,
           workspaceDigest,
           ...(policyRevision ? { policyRevision } : {}),
           startedAt: Date.now(),
@@ -2454,6 +2466,8 @@ export class CodexConversationStore {
     this.db
       .transaction(() => {
         const phase = this.assertCompletionPhaseTarget(id, binding, target, true);
+        this.assertNoPendingThreadDispatch(id, binding);
+        this.assertNoPendingThreadOwnership(id, binding);
         if (
           !phase ||
           phase.observedOutcome !== 'completed' ||
@@ -2473,6 +2487,12 @@ export class CodexConversationStore {
               : { ...current, status: 'completed', reconciledAt: Date.now() },
           ),
         );
+        if (!phase.priorEffectsUnknown)
+          this.db
+            .prepare(
+              `UPDATE codex_commands SET ambiguous=CASE WHEN EXISTS (SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? AND result_content IS NULL) THEN 1 ELSE 0 END WHERE conversation_id=? AND id=? AND attempt=?`,
+            )
+            .run(id, target.commandId, id, target.commandId, target.attempt);
       })
       .immediate();
   }
@@ -2524,7 +2544,7 @@ export class CodexConversationStore {
     this.read(id, binding);
     const row = this.db
       .prepare(
-        `SELECT status,attempt,ambiguous,pre_dispatch_failure,native_turns,transport_diagnostic
+        `SELECT status,attempt,ambiguous,pre_dispatch_failure,native_turns,transport_diagnostic,completion_phases
       FROM codex_commands WHERE conversation_id=? AND id=?`,
       )
       .get(id, commandId) as
@@ -2535,10 +2555,13 @@ export class CodexConversationStore {
           pre_dispatch_failure: number;
           native_turns: string | null;
           transport_diagnostic: string | null;
+          completion_phases: string | null;
         }
       | undefined;
     if (!row) throw Error('Command lifecycle unavailable');
-    const completionPhase = this.completionPhase(id, binding, commandId, row.attempt);
+    const completionPhase = this.completionPhases(row.completion_phases).find(
+      (phase) => phase.target.attempt === row.attempt,
+    );
     const diagnosticHistory = row.transport_diagnostic
       ? CommandTransportDiagnosticHistorySchema.parse(JSON.parse(row.transport_diagnostic))
       : [];
@@ -2548,6 +2571,16 @@ export class CodexConversationStore {
     );
     const nativeTarget =
       targets.length === 1 ? this.nativeTarget(commandId, targets[0]) : undefined;
+    if (completionPhase && !isDeepStrictEqual(completionPhase.target, nativeTarget))
+      throw Error('Completion phase target changed');
+    const canReconcilePhase =
+      completionPhase?.observedOutcome === 'completed' &&
+      completionPhase.status !== 'completed' &&
+      !this.db
+        .prepare(
+          'SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? AND result_content IS NULL LIMIT 1',
+        )
+        .get(id, commandId);
     const state =
       row.status === 'queued'
         ? 'queued'
@@ -2571,8 +2604,9 @@ export class CodexConversationStore {
           : row.status === 'completed'
             ? 'completed'
             : 'not_established',
-      nextAction:
-        state === 'ambiguous_effect'
+      nextAction: canReconcilePhase
+        ? 'reconcile_completion_phase'
+        : state === 'ambiguous_effect'
           ? 'reconcile_native_outcome'
           : state === 'pre_effect_failure'
             ? 'retry_admission'

@@ -8018,6 +8018,9 @@ it('reconciles a late original hook success under fresh authority without rerunn
     }),
   );
   expect(old.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+  expect(old.store.commandLifecycle('app', old.getBinding(), 'late-hook').nextAction).toBe(
+    'reconcile_completion_phase',
+  );
   const restored = await setup(old.store);
   restored.conversationOptions.transportClosure = 'terminal';
   const request = restored.rpc.request.getMockImplementation()!;
@@ -8087,5 +8090,65 @@ it.each(['attempt', 'generation', 'account'] as const)(
     expect(
       f.store.completionPhase('app', f.getBinding(), 'phase-fence-change', 1)?.status,
     ).not.toBe('completed');
+  },
+);
+
+it.each(['close', 'stop'] as const)(
+  'preserves recovery fences when %s arrives during late hook success authority revalidation',
+  async (retirement) => {
+    let finishHook!: () => void;
+    const original = await setup(
+      undefined,
+      undefined,
+      () =>
+        new Promise<void>((resolve) => {
+          finishHook = resolve;
+        }),
+    );
+    original.conversationOptions.transportClosure = 'terminal';
+    await original.c.send({ id: 'phase-race', prompt: 'work' });
+    await original.c.send({ id: 'after-phase-race', prompt: 'later' });
+    original.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    original.callbacks.onClose(new CodexTransportError('connection'));
+    original.conversationOptions.verifyBinding = async () => {
+      throw Error('retired original owner');
+    };
+    finishHook();
+    await vi.waitFor(() =>
+      expect(
+        original.store.completionPhase('app', original.getBinding(), 'phase-race', 1)
+          ?.observedOutcome,
+      ).toBe('completed'),
+    );
+    const restored = await setup(original.store);
+    restored.conversationOptions.transportClosure = 'terminal';
+    const request = restored.rpc.request.getMockImplementation()!;
+    restored.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list'
+        ? { data: [{ id: 'turn-1', status: 'completed' }] }
+        : request(method, params),
+    );
+    let releaseAuthority!: () => void;
+    const authority = new Promise<void>((resolve) => {
+      releaseAuthority = resolve;
+    });
+    const verify = vi.fn(async () => {
+      if (verify.mock.calls.length === 3) await authority;
+      return restored.getBinding();
+    });
+    restored.conversationOptions.verifyBinding = verify;
+    const recovery = restored.c.acknowledgeRecovery();
+    await vi.waitFor(() => expect(verify).toHaveBeenCalledTimes(3));
+    if (retirement === 'close') restored.callbacks.onClose(new CodexTransportError('connection'));
+    else await restored.c.interrupt();
+    releaseAuthority();
+    await expect(recovery).rejects.toThrow(/closed|replaced|cancelled|Stopped/);
+    expect(restored.store.read('app', restored.getBinding()).recovery).toBeTruthy();
+    expect(restored.c.isPaused()).toBe(true);
+    expect(restored.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+    expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
   },
 );

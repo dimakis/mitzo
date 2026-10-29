@@ -1567,9 +1567,22 @@ export class CodexConversation {
   }
   private async continueRecovery(automaticEpoch?: number) {
     if (this.closed) throw new Error('Codex conversation unavailable');
+    const recoveryControlEpoch = this.automaticRecoveryEpoch;
     this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding!);
     if (!this.ready) await this.reconnect();
     const recoveryTransportGeneration = this.transportGeneration;
+    const assertRecoveryContinuation = () => {
+      if (this.closed || !this.ready || recoveryTransportGeneration !== this.transportGeneration)
+        throw Error('Recovery transport is closed or replaced');
+      if (recoveryControlEpoch !== this.automaticRecoveryEpoch)
+        throw Error('Recovery was cancelled by Stop');
+      if (
+        automaticEpoch !== undefined &&
+        (automaticEpoch !== this.automaticRecoveryEpoch ||
+          !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding!))
+      )
+        throw Error('Automatic recovery was cancelled');
+    };
     const recoveryState = this.opts.store.read(this.opts.conversationId, this.binding!);
     const nativeTarget =
       this.opts.transportClosure === 'terminal'
@@ -1658,6 +1671,7 @@ export class CodexConversation {
       this.opts.onProviderTerminal?.(nativeTarget.commandId, nativeTarget.turnId, nativeStatus);
       this.opts.onProviderComplete?.(nativeTarget.commandId, nativeStatus);
     }
+    assertRecoveryContinuation();
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!, nativeTarget);
     this.paused = false;
     await this.pump();
