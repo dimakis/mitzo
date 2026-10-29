@@ -3216,6 +3216,19 @@ export class CodexConversationStore {
           .get(id, commandId)
       )
         return 'not_queued';
+      const candidate = this.db
+        .prepare(
+          `SELECT ${PreDispatchCandidateEvidenceSql} FROM codex_commands c WHERE c.conversation_id=? AND c.id=?`,
+        )
+        .get(id, commandId) as PreDispatchEvidence | undefined;
+      if (
+        candidate?.status === 'queued' &&
+        candidate.pre_dispatch_failure === 1 &&
+        !this.undispatchedInput(candidate)
+      )
+        throw Error(
+          'Queued pre-dispatch recovery evidence changed; retained effects require inspection',
+        );
       const update = this.db
         .prepare(
           "UPDATE codex_commands SET status='cancelled' WHERE conversation_id=? AND id=? AND status='queued'",
@@ -3288,19 +3301,17 @@ export class CodexConversationStore {
       if (this.retryFenced(id)) return 'not_retryable';
       const row = this.db
         .prepare(
-          `SELECT id,attempt,retry_not_before,retryable,ambiguous
-          FROM codex_commands
-          WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0
-          ORDER BY sequence DESC LIMIT 1`,
+          `SELECT ${PreDispatchCandidateEvidenceSql},c.retry_not_before,c.retryable,c.ambiguous
+          FROM codex_commands c
+          WHERE c.conversation_id=? AND c.status='failed' AND c.recovery_acknowledged=0
+          ORDER BY c.sequence DESC LIMIT 1`,
         )
         .get(id) as
-        | {
-            id: string;
-            attempt: number;
+        | (PreDispatchEvidence & {
             retry_not_before: number | null;
             retryable: number | null;
             ambiguous: number | null;
-          }
+          })
         | undefined;
       if (!row) return 'not_found';
       // A durable native ACK is not a failed dispatch, including ledgers written
@@ -3309,12 +3320,16 @@ export class CodexConversationStore {
       if (row.retryable !== 1) return 'not_retryable';
       if (row.retry_not_before && now < row.retry_not_before) return 'too_early';
       if (row.ambiguous === 1 && !confirmAmbiguous) return 'confirmation_required';
-      this.db
+      const preDispatch = row.pre_dispatch_failure === 1;
+      if (preDispatch && !this.undispatchedInput(row)) return 'not_retryable';
+      // This exact retry transition consumes known never-submitted custody for
+      // its new attempt. Generic confirmation cannot qualify a conflicting marker.
+      const update = this.db
         .prepare(
-          "UPDATE codex_commands SET status='queued', recovery_acknowledged=1, retry_not_before=NULL, attempt=attempt+1 WHERE conversation_id=? AND id=? AND status='failed'",
+          "UPDATE codex_commands SET status='queued', recovery_acknowledged=1, retry_not_before=NULL, attempt=attempt+1, pre_dispatch_failure=CASE WHEN ? THEN 0 ELSE pre_dispatch_failure END, ambiguous=CASE WHEN ? THEN 0 ELSE ambiguous END WHERE conversation_id=? AND id=? AND status='failed' AND attempt=?",
         )
-        .run(id, row.id);
-      return 'queued';
+        .run(preDispatch ? 1 : 0, preDispatch ? 1 : 0, id, row.id, row.attempt);
+      return update.changes === 1 ? 'queued' : 'not_retryable';
     })();
   }
   private nativeExecutions(raw: string | null): CodexNativeExecutionReceipt[] {

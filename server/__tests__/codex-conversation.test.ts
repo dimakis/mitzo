@@ -7443,6 +7443,50 @@ it.each(['prepareSystemPrompt', 'prepareTurn'] as const)(
   },
 );
 
+it.each(['prepareSystemPrompt', 'prepareTurn'] as const)(
+  'completes a repaired %s failure through confirmed generic retry and its completion hook',
+  async (callback) => {
+    const hook = vi.fn(async () => {});
+    const f = await setup(undefined, undefined, hook);
+    f.conversationOptions[callback] = async () => {
+      throw Error('Repair retry preparation');
+    };
+    await expect(
+      f.c.send({ id: 'retry-preparation', prompt: 'Retained retry input' }),
+    ).rejects.toThrow('Repair retry preparation');
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    f.conversationOptions[callback] = async () => undefined;
+    await expect(f.c.retryLatestFailed()).resolves.toBe('confirmation_required');
+    await expect(f.c.retryLatestFailed(true)).resolves.toBe('queued');
+    const db = (f.store as unknown as { db: Database.Database }).db;
+    expect(
+      db
+        .prepare(
+          "SELECT attempt,pre_dispatch_failure,ambiguous FROM codex_commands WHERE id='retry-preparation'",
+        )
+        .get(),
+    ).toEqual({ attempt: 2, pre_dispatch_failure: 0, ambiguous: 0 });
+    expect(f.c.queue()).toEqual([
+      expect.objectContaining({ id: 'retry-preparation', status: 'running', attempt: 2 }),
+    ]);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() =>
+      expect(f.store.commandLifecycle('app', f.getBinding(), 'retry-preparation')).toMatchObject({
+        state: 'completed',
+        effectStatus: 'completed',
+        attempt: 2,
+      }),
+    );
+    expect(hook).toHaveBeenCalledOnce();
+    await f.c.send({ id: 'after-confirmed-retry', prompt: 'Later explicit work' });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+  },
+);
+
 it.each(['preparation-error', 'closed-during-preparation'] as const)(
   'records a positive undispatched failure witness for %s only',
   async (mode) => {

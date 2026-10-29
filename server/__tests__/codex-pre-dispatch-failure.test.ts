@@ -315,6 +315,17 @@ it.each([
       }),
     );
   writer.close();
+  if (!['marker-absent', 'interrupted', 'completed'].includes(kind)) {
+    const malformed = [
+      'phase',
+      'malformed-history',
+      'malformed-native-turns',
+      'oversized-history',
+    ].includes(kind);
+    if (malformed)
+      expect(() => f.store.retryLatestFailed('chat', binding, Date.now(), true)).toThrow();
+    else expect(f.store.retryLatestFailed('chat', binding, Date.now(), true)).toBe('not_retryable');
+  }
   expect(() => f.store.acknowledgeRecovery('chat', binding)).toThrow();
   if (!['phase', 'malformed-history', 'malformed-native-turns', 'oversized-history'].includes(kind))
     expect(f.store.commandLifecycle('chat', binding, 'command').state).not.toBe(
@@ -488,7 +499,26 @@ it.each(['tool', 'ack', 'prepared', 'phase', 'ownership', 'input', 'attempt'] as
         }),
       );
     if (kind === 'attempt') writer.prepare('UPDATE codex_commands SET attempt=2').run();
+    expect(() => f.store.cancelQueued('chat', binding, 'command')).toThrow();
+    expect(
+      writer
+        .prepare("SELECT status,pre_dispatch_failure FROM codex_commands WHERE id='command'")
+        .get(),
+    ).toEqual({ status: 'queued', pre_dispatch_failure: 1 });
+    writer.prepare('UPDATE codex_conversations SET recovery=0').run();
+    f.store.close();
+    f.store = new CodexConversationStore(f.path);
+    f.store.recoverAtStartup();
+    expect(f.store.read('chat', binding).recovery).toBe(1);
     expect(() => f.store.acknowledgeRecovery('chat', binding)).toThrow();
+    if (kind === 'phase') expect(() => f.store.queueSummary('chat', binding)).toThrow();
+    else
+      expect(f.store.queueSummary('chat', binding).operation).toMatchObject({
+        commandId: 'command',
+        state: 'queued',
+        effectStatus: 'unknown',
+        nextAction: 'inspect_retained_work',
+      });
     if (kind === 'tool') {
       expect(f.store.commandLifecycle('chat', binding, 'command')).toMatchObject({
         state: 'queued',
@@ -504,6 +534,11 @@ it.each(['tool', 'ack', 'prepared', 'phase', 'ownership', 'input', 'attempt'] as
     }
     // A stale recovery projection must not hide queued receipt custody.
     writer.prepare('UPDATE codex_conversations SET recovery=0').run();
+    expect(() => f.store.claimNext('chat', binding)).toThrow();
+    f.store.enqueue('chat', binding, {
+      id: 'later-explicit',
+      prompt: 'New user input after refused cancel',
+    });
     expect(() => f.store.claimNext('chat', binding)).toThrow();
     expect(
       writer
@@ -584,3 +619,16 @@ it.each(['sourceCommandId', 'latestCommandId', 'childCommandId', 'malformed'] as
     f.store.close();
   },
 );
+
+it('allows cancellation of a clean proved queued input and never replays the cancelled identity', () => {
+  const f = fixture();
+  f.store.pauseForRecovery('chat', binding, 'command', 'failed', 'resume', undefined, true, true);
+  expect(f.store.recordPreDispatchFailure('chat', binding, f.command)).toBe(true);
+  f.store.requeueUndispatchedCommand('chat', binding, 'command', () => {});
+  expect(f.store.cancelQueued('chat', binding, 'command')).toBe('cancelled');
+  expect(f.store.read('chat', binding).recovery).toBe(0);
+  expect(() => f.store.assertUndispatchedCommand('chat', binding, 'command')).toThrow();
+  f.store.enqueue('chat', binding, { id: 'new-after-cancel', prompt: 'New user input' });
+  expect(f.store.claimNext('chat', binding)?.id).toBe('new-after-cancel');
+  f.store.close();
+});
