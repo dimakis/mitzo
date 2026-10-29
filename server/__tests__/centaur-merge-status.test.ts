@@ -118,7 +118,7 @@ it('resolves fork review signals through canonical PR metadata', async () => {
 it('isolates the status identity and serializes every trigger', () => {
   const gate = readFileSync('.github/workflows/centaur-gate.yml', 'utf8');
   expect(gate).not.toContain('  pull_request_review:');
-  expect(gate).not.toContain('  workflow_run:');
+  expect(gate).toContain('  workflow_run:');
   expect(gate).toContain('environment: centaur-status-writer');
   expect(gate).toContain('actions/create-github-app-token@v2');
   expect(gate).toContain('github-token: ${{ steps.status-token.outputs.token }}');
@@ -216,3 +216,37 @@ it('stacked non-default-base triggers cannot hold the trusted writer environment
   expect(gate).toContain('environment: centaur-status-writer');
   expect(gate).toContain('cancel-in-progress: false');
 });
+
+it('bridges submitted, edited and dismissed reviews without privileged PR execution', () => {
+  const gate = readFileSync('.github/workflows/centaur-gate.yml', 'utf8');
+  const bridge = readFileSync('.github/workflows/centaur-review-event.yml', 'utf8');
+  expect(bridge).toContain('name: Centaur review event');
+  expect(bridge).toContain('pull_request_review:');
+  expect(bridge).toContain('types: [submitted, edited, dismissed]');
+  expect(bridge).toContain('permissions: {}');
+  expect(bridge.replace(/^#.*$/gm, '')).not.toMatch(/secrets|checkout|uses:|environment:/);
+  expect(gate).toContain('workflows: [Centaur review event]');
+  expect(gate).toContain('types: [completed]');
+  expect(gate.replace(/^\s*#.*$/gm, '')).not.toMatch(/checkout|download-artifact/);
+});
+
+it('admits only review-event workflow completions to the privileged bridge', () => {
+  const gate = readFileSync('.github/workflows/centaur-gate.yml', 'utf8');
+  const condition = gate.match(/centaur:\n {4}if: >-\n([\s\S]+?)\n {4}runs-on:/)?.[1].trim();
+  const allowed = (event: Record<string, unknown>) =>
+    new Script(condition!).runInNewContext({ github: { event_name: 'workflow_run', event } });
+  expect(allowed({ workflow_run: { event: 'pull_request_review' } })).toBe(true);
+  expect(allowed({ workflow_run: { event: 'push' } })).toBe(false);
+  expect(allowed({ workflow_run: { event: 'workflow_dispatch' } })).toBe(false);
+});
+
+it.each(['COMMENTED', 'DISMISSED'])(
+  'recomputes %s reviews from the API despite forged bridge payload',
+  async (state) => {
+    const statuses = await execute([{ ...review, state }], head, head, '', {
+      workflow_run: { pull_requests: [], head_sha: 'b'.repeat(40), conclusion: 'success' },
+    });
+    expect(statuses.at(-1)?.state).toBe(state === 'DISMISSED' ? 'failure' : 'success');
+    expect(statuses.at(-1)?.sha).toBe(head);
+  },
+);

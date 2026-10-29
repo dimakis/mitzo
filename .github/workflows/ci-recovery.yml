@@ -3,7 +3,7 @@ name: CI infrastructure recovery
 on:
   workflow_run:
     workflows: [CI]
-    types: [completed]
+    types: [requested, completed]
 
 permissions:
   contents: read
@@ -16,7 +16,9 @@ concurrency:
 
 jobs:
   recover:
-    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    if: >-
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      (github.event.action == 'requested' || github.event.workflow_run.conclusion == 'failure')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -29,6 +31,11 @@ jobs:
       - uses: actions/github-script@v9
         with:
           script: |
-            const { recoverCiRun } = await import('${{ github.workspace }}/scripts/ci-recovery.mjs');
-            const recovered = await recoverCiRun({ github, context, core });
-            if (!recovered) core.info('No eligible current-head infrastructure retry; retain the existing failure.');
+            const { recoverCiRun, cleanupSupersededCiRuns } = await import('${{ github.workspace }}/scripts/ci-recovery.mjs');
+            if (context.payload.action === 'requested') {
+              const cancelled = await cleanupSupersededCiRuns({ github, context, core });
+              core.info(`Superseded CI cancellation requests: ${JSON.stringify(cancelled)}`);
+            } else {
+              const recovered = await recoverCiRun({ github, context, core });
+              if (!recovered) core.info('No eligible current-head infrastructure retry; retain the existing failure.');
+            }

@@ -110,9 +110,9 @@ describe('browser failure evidence', () => {
     },
   );
 
-  it('runs suites independently and keeps every configured layout project', () => {
-    expect(workflow.jobs.browser.needs).toBe('changes');
-    expect(workflow.jobs.offline.needs).toBe('changes');
+  it('runs suites independently after compile preflight and keeps every configured layout project', () => {
+    expect(workflow.jobs.browser.needs).toEqual(['changes', 'preflight']);
+    expect(workflow.jobs.offline.needs).toEqual(['changes', 'preflight']);
     expect(workflow.jobs.offline.if).toBe(workflow.jobs.browser.if);
     expect(workflow.jobs.offline.strategy?.['fail-fast']).toBe(false);
     const projects = offline.projects!.filter((p) => !p.name!.startsWith('browser-startup-'));

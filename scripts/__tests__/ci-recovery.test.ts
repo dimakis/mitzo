@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { load } from 'js-yaml';
 import { expect, it, vi } from 'vitest';
-import { recoverCiRun } from '../ci-recovery.mjs';
+import { recoverCiRun, cleanupSupersededCiRuns } from '../ci-recovery.mjs';
 
 function fixture() {
   const run = {
@@ -187,7 +187,10 @@ it('privileged recovery loads only accepted default-branch code without persisti
     permissions: Record<string, string>;
     jobs: { recover: { steps: Array<{ uses?: string; with?: Record<string, unknown> }> } };
   };
-  expect(workflow.on.workflow_run).toEqual({ workflows: ['CI'], types: ['completed'] });
+  expect(workflow.on.workflow_run).toEqual({
+    workflows: ['CI'],
+    types: ['requested', 'completed'],
+  });
   expect(workflow.permissions).toEqual({
     contents: 'read',
     actions: 'write',
@@ -202,3 +205,188 @@ it('privileged recovery loads only accepted default-branch code without persisti
   });
   expect(JSON.stringify(workflow)).not.toContain('head_sha');
 });
+
+function cleanupFixture() {
+  const current = {
+    id: 20,
+    workflow_id: 3,
+    name: 'CI',
+    path: '.github/workflows/ci.yml',
+    event: 'pull_request',
+    status: 'queued',
+    head_sha: 'b'.repeat(40),
+    head_branch: 'topic',
+    repository: { id: 1 },
+    head_repository: { id: 1 },
+    pull_requests: [{ number: 42 }],
+  };
+  const old = {
+    ...structuredClone(current),
+    id: 19,
+    head_sha: 'a'.repeat(40),
+    status: 'in_progress',
+  };
+  const pr = {
+    state: 'open',
+    head: { sha: current.head_sha, ref: 'topic', repo: { id: 1 } },
+    base: { repo: { id: 1 } },
+  };
+  const getWorkflowRun = vi.fn(async ({ run_id }: { run_id: number }) => ({
+    data: structuredClone(run_id === current.id ? current : old),
+  }));
+  const actions = { getWorkflowRun, listWorkflowRuns: vi.fn() };
+  const pulls = { get: vi.fn(async () => ({ data: structuredClone(pr) })) };
+  const request = vi.fn(async () => ({ status: 202 }));
+  const candidates = [old];
+  const github = {
+    rest: { actions, pulls },
+    paginate: vi.fn(async () => structuredClone(candidates)),
+    request,
+  };
+  const context = {
+    repo: { owner: 'owner', repo: 'repo' },
+    payload: { repository: { id: 1, default_branch: 'main' }, workflow_run: { id: current.id } },
+  };
+  const core = { info: vi.fn(), notice: vi.fn() };
+  return {
+    current,
+    old,
+    pr,
+    candidates,
+    actions,
+    pulls,
+    github,
+    request,
+    execute: () => cleanupSupersededCiRuns({ github, context, core }),
+  };
+}
+it('force-cancels only a canonical older run for the current same-repo PR', async () => {
+  const f = cleanupFixture();
+  expect(await f.execute()).toEqual([19]);
+  expect(f.request).toHaveBeenCalledExactlyOnceWith(
+    'POST /repos/{owner}/{repo}/actions/runs/{run_id}/force-cancel',
+    { owner: 'owner', repo: 'repo', run_id: 19 },
+  );
+  expect(f.github.paginate).toHaveBeenCalledWith(f.actions.listWorkflowRuns, {
+    owner: 'owner',
+    repo: 'repo',
+    workflow_id: 3,
+    branch: 'topic',
+    event: 'pull_request',
+    per_page: 100,
+  });
+});
+it.each([
+  'main',
+  'current',
+  'newer',
+  'fork',
+  'missing-repo',
+  'other-pr',
+  'missing-pr',
+  'workflow',
+  'event',
+  'same-head',
+  'completed',
+  'different-branch',
+])('never cancels %s candidates', async (reason) => {
+  const f = cleanupFixture();
+  if (reason === 'main') f.old.event = 'push';
+  if (reason === 'current') f.old.id = 20;
+  if (reason === 'newer') f.old.id = 21;
+  if (reason === 'fork') f.old.head_repository.id = 2;
+  if (reason === 'missing-repo') f.old.repository.id = 0;
+  if (reason === 'other-pr') f.old.pull_requests = [{ number: 43 }];
+  if (reason === 'missing-pr') f.old.pull_requests = [];
+  if (reason === 'workflow') f.old.workflow_id = 4;
+  if (reason === 'event') f.old.event = 'workflow_dispatch';
+  if (reason === 'same-head') f.old.head_sha = f.current.head_sha;
+  if (reason === 'completed') f.old.status = 'completed';
+  if (reason === 'different-branch') f.old.head_branch = 'other';
+  await f.execute();
+  expect(f.request).not.toHaveBeenCalled();
+});
+it.each(['fork', 'missing-branch', 'missing-workflow', 'closed', 'head', 'branch'])(
+  'rejects unqualified current trigger %s',
+  async (reason) => {
+    const f = cleanupFixture();
+    if (reason === 'fork') f.current.head_repository.id = 2;
+    if (reason === 'missing-branch') f.current.head_branch = '';
+    if (reason === 'missing-workflow') f.current.workflow_id = 0;
+    if (reason === 'closed') f.pr.state = 'closed';
+    if (reason === 'head') f.pr.head.sha = 'c'.repeat(40);
+    if (reason === 'branch') f.pr.head.ref = 'other';
+    await f.execute();
+    expect(f.request).not.toHaveBeenCalled();
+  },
+);
+it.each(['pr', 'old-head', 'old-complete', 'old-pr'])(
+  'revalidates %s immediately before cancellation',
+  async (change) => {
+    const f = cleanupFixture();
+    f.actions.getWorkflowRun.mockImplementation(async ({ run_id }) => ({
+      data: structuredClone(
+        run_id === 20
+          ? f.current
+          : {
+              ...f.old,
+              ...(change === 'old-head'
+                ? { head_sha: f.current.head_sha }
+                : change === 'old-complete'
+                  ? { status: 'completed' }
+                  : change === 'old-pr'
+                    ? { pull_requests: [{ number: 43 }] }
+                    : {}),
+            },
+      ),
+    }));
+    if (change === 'pr')
+      f.pulls.get
+        .mockResolvedValueOnce({ data: structuredClone(f.pr) })
+        .mockResolvedValueOnce({ data: { ...f.pr, head: { ...f.pr.head, sha: 'c'.repeat(40) } } });
+    await f.execute();
+    expect(f.request).not.toHaveBeenCalled();
+  },
+);
+it('tolerates a 409 only when canonical reread proves completion', async () => {
+  const f = cleanupFixture();
+  f.request.mockRejectedValue({ status: 409 });
+  f.actions.getWorkflowRun
+    .mockResolvedValueOnce({ data: f.current })
+    .mockResolvedValueOnce({ data: f.old })
+    .mockResolvedValueOnce({ data: { ...f.old, status: 'completed' } });
+  expect(await f.execute()).toEqual([]);
+  expect(f.request).toHaveBeenCalledTimes(1);
+});
+it.each([409, 403, 500])(
+  'does not retry an uncertain or rejected cancellation %s',
+  async (status) => {
+    const f = cleanupFixture();
+    f.request.mockRejectedValue({ status });
+    await expect(f.execute()).rejects.toMatchObject({ status });
+    expect(f.request).toHaveBeenCalledTimes(1);
+  },
+);
+
+it('never cancels a default-branch run even if PR metadata names it', async () => {
+  const f = cleanupFixture();
+  f.current.head_branch = 'main';
+  f.old.head_branch = 'main';
+  f.pr.head.ref = 'main';
+  await f.execute();
+  expect(f.request).not.toHaveBeenCalled();
+});
+it('issues at most one cancellation request for each older run despite duplicate listing entries', async () => {
+  const f = cleanupFixture();
+  f.candidates.push(structuredClone(f.old));
+  expect(await f.execute()).toEqual([19]);
+  expect(f.request).toHaveBeenCalledTimes(1);
+});
+it.each(['requested', 'waiting', 'pending', 'queued', 'in_progress'])(
+  'cleans superseded active status %s',
+  async (status) => {
+    const f = cleanupFixture();
+    f.old.status = status;
+    expect(await f.execute()).toEqual([19]);
+  },
+);

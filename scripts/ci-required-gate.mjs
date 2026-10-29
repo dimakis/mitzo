@@ -3,6 +3,7 @@ import console from 'node:console';
 const needs = JSON.parse(process.env.CI_REQUIRED_NEEDS ?? '{}');
 for (const name of [
   'changes',
+  'preflight',
   'core',
   'unit-validation',
   'ordinary-journey',
@@ -27,7 +28,7 @@ if (
 const selectedPrepared = needs.changes.outputs?.prepared;
 if (
   !['true', 'false'].includes(selectedPrepared) ||
-  needs['prepared-consumers']?.result !== (selectedPrepared === 'true' ? 'success' : 'skipped')
+  needs['prepared-consumer-validation']?.result !== 'success'
 ) {
   console.error('Selected composed prepared consumer owner incomplete or selection unavailable');
   process.exit(1);

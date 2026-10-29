@@ -42,6 +42,8 @@ Require Centaur's final LGTM and `merge` recommendation for the exact current PR
 
 Combined-result CI remains mandatory. Prefer a fully wired native merge queue where supported; otherwise preserve strict up-to-date protection and integrate main at the final landing turn. Do not refresh all waiting PRs on every main update. Batch fixes, cancel superseded runs and retain the conservative affected-job selection contract. Only actual merges need coordination; coding, checks, review and preparation remain concurrent within resource limits.
 
+For an explicitly authorized merge, register the durable head/base request in [CI delivery](docs/operations/ci-delivery.md) before waiting for gates, when the dedicated landing App is provisioned. Renew it after any head or base change. Inspection, implementation and prepare-only work do not authorize a request. The GitHub controller preserves every final gate and survives interruption of the chat agent.
+
 Production activation requires reviewed, accepted sources. A publication is distinct from consumer adoption: verify the selected knowledge and actual runtime before delivering it between turns. Keep published knowledge separate from writable task roots. Repair only the selected invalid content-addressed knowledge cache under its owning sandbox's lifecycle fence; preserve task data and unrelated views.
 
 Tests that make real model calls must explicitly use a supported Luna model. State the exact model and charged account before live tests; obtain approval if Luna is unavailable or another model is required.
@@ -56,7 +58,7 @@ host check. `--list` is safe inside the sandbox. The offline `npm run test:ui`
 suite intercepts all app traffic and needs no backend or model calls; live tests
 still require a separately selected and authorized target and the Luna requirements above.
 
-The `Centaur merge gate` workflow requires a dedicated GitHub App credential isolated in the default-branch-only `centaur-status-writer` environment. Branch protection must bind `Centaur final LGTM` to this App's numeric ID alongside CI. See `docs/operations/mgmt-knowledge-publication.md` for mandatory provisioning. Pushes and review comments wake the writer; five-minute reconciliation covers review changes. Missing or stale reports stay pending, blocking or dismissed reports fail. Verify App identity, environment restrictions, a real status and branch protection before claiming enforcement.
+The `Centaur merge gate` workflow requires a dedicated GitHub App credential isolated in the default-branch-only `centaur-status-writer` environment. Branch protection must bind `Centaur final LGTM` to this App's numeric ID alongside CI. See `docs/operations/mgmt-knowledge-publication.md` for mandatory provisioning. Pushes, review comments and a credential-free review-event bridge wake the trusted writer. Scheduled reconciliation is a fallback with no timing guarantee. Missing or stale reports stay pending, blocking or dismissed reports fail. Verify App identity, environment restrictions, a real status and branch protection before claiming enforcement.
 
 For a separate Centaur publishing account, configure the GitHub repository variable `CENTAUR_REVIEWER_LOGIN`; keep it consistent with Mitzo’s `trusted_reviewer`/host `CENTAUR_REVIEWER_LOGIN`. The MGMT CLI and shepherd also honor that host variable (the CLI permits an explicit `--centaur-author`). Otherwise the repository owner is the trusted publishing account.
 

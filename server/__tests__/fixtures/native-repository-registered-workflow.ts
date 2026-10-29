@@ -332,9 +332,9 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
         };
       const privateHelperBoundaries: unknown[] = [];
       const privateHelper = sandbox.executePrivateNativeFileHelper;
-      vi.spyOn(sandbox, 'executePrivateNativeFileHelper').mockImplementation((input) =>
-        observePrivateHelperBoundary(input, privateHelper, privateHelperBoundaries),
-      );
+      const observedPrivateHelper = (input: Parameters<typeof privateHelper>[0]) =>
+        observePrivateHelperBoundary(input, privateHelper, privateHelperBoundaries);
+      vi.spyOn(sandbox, 'executePrivateNativeFileHelper').mockImplementation(observedPrivateHelper);
       const enforced = sandbox.executeSandboxedCommand;
       const observe = sandbox.executePrivateRepositoryObservation;
       const helperTransport = vi
@@ -379,6 +379,25 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
       const sourcePath =
         process.env.MITZO_NATIVE_READ_TOOLS_SOURCE_PATH ?? join(f.f.root, 'source');
       const preparationDiagnostics = createPreparationAttemptDiagnostics();
+      const privateFileHelper = observedPrivateHelper;
+      vi.spyOn(sandbox, 'executePrivateNativeFileHelper').mockImplementation((options) => {
+        let publication = false;
+        try {
+          const descriptor = Object.getOwnPropertyDescriptor(options, 'requestJson');
+          publication =
+            typeof descriptor?.value === 'string' &&
+            JSON.parse(descriptor.value).operation === 'PublishPreparedRepository';
+        } catch {
+          // Observation must leave malformed-input handling to the original helper.
+        }
+        // Preserve the exact options/callback identities and original deadline.
+        // This measures the complete helper envelope, including owner fences.
+        return publication
+          ? preparationDiagnostics.capture('private-publication-helper', () =>
+              privateFileHelper(options),
+            )
+          : privateFileHelper(options);
+      });
       const preparationService = observePreparationService(preparationDiagnostics, f.f.workspace);
       cleanups.push(preparationService.restore);
       // Representative retained history must not be replayed at every current-owner fence.

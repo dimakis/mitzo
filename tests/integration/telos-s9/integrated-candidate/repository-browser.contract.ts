@@ -25,6 +25,9 @@ import type { ConnectionRegistry } from '@mitzo/harness';
 // CT09 requires the real macOS process-isolation owner used by the artifact helper.
 // Required macOS CI runs it completely; Linux separately proves fail-closed refusal.
 const it = platformTest;
+// This file owns one complete repository fixture; CI reached native output at its old cutoff.
+// Allow hosted setup overhead while operation and assertion deadlines stay unchanged.
+vi.setConfig({ testTimeout: process.env.CI ? 240_000 : 120_000 });
 
 const services = vi.hoisted(() => ({
   workspace: undefined as unknown,
@@ -734,7 +737,7 @@ it('CT06/17/18 repository counterpart: actual advisor, lead and worker pages ret
     leadCommand.repositoryWorkspaceId,
   );
   // Acceptance starts background preparation; wait for the same actual RPC
-  // boundary as the worker below, within this case's unchanged 120s budget.
+  // boundary as the worker below, within this case's local/CI outer fixture budget.
   await nativeSessions[1].firstTurnStarted;
   expect(nativeSessions[1].rpc.request.mock.calls.filter(([m]) => m === 'turn/start')).toHaveLength(
     1,
@@ -875,7 +878,7 @@ it('CT06/17/18 repository counterpart: actual advisor, lead and worker pages ret
   const workerTurnStarts = () =>
     workerNative.rpc.request.mock.calls.filter(([method]) => method === 'turn/start').length;
   // The 202 receipt admits background startup; it does not acknowledge turn/start.
-  // Observe the actual RPC inside the existing 120s case budget, without a second
+  // Observe the actual RPC inside the local/CI outer fixture budget, without a second
   // implicit 1s deadline or another dispatch. Later checks still forbid replay.
   await workerNative.firstTurnStarted;
   expect(workerTurnStarts()).toBe(1);
@@ -1134,4 +1137,4 @@ it('CT06/17/18 repository counterpart: actual advisor, lead and worker pages ret
   expect(pageErrors).toEqual([]);
   expect(f.legacyLookup).not.toHaveBeenCalled();
   expect(getClientId).not.toHaveBeenCalled();
-}, 120_000);
+});
