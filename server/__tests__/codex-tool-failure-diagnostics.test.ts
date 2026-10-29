@@ -35,3 +35,19 @@ it('retains only explicitly typed pre-effect stage and cause', () => {
     effectStatus: 'not_started',
   });
 });
+
+it('preserves a bounded safe causal errno through wrapper errors and terminates cycles', () => {
+  const cause = Object.assign(Error('SECRET filesystem'), { code: 'EPERM' });
+  const wrapped = Error('SECRET wrapper', { cause: Error('outer', { cause }) });
+  expect(JSON.parse(codexToolFailureResult(wrapped, false).content).diagnostic.reason).toBe(
+    'filesystem_denied',
+  );
+  const cycle = Error('SECRET cyclic');
+  cycle.cause = cycle;
+  expect(JSON.parse(codexToolFailureResult(cycle, false).content).diagnostic.reason).toBe(
+    'unknown',
+  );
+  let deep: Error = cause;
+  for (let index = 0; index < 10; index++) deep = Error('SECRET depth', { cause: deep });
+  expect(JSON.parse(codexToolFailureResult(deep, false).content).diagnostic.reason).toBe('unknown');
+});

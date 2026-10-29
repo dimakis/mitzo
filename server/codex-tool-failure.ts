@@ -72,14 +72,26 @@ export function codexToolFailureResult(
   error: unknown,
   aborted: boolean,
   identity?: z.infer<typeof CodexDiagnosticIdentitySchema>,
+  stage: CodexToolFailureDiagnostic['stage'] = 'tool_execution',
 ): CodexToolResult {
+  const chain: Error[] = [];
+  const seen = new Set<Error>();
+  let cause = error;
+  for (let depth = 0; depth < 8 && cause instanceof Error && !seen.has(cause); depth++) {
+    chain.push(cause);
+    seen.add(cause);
+    cause = cause.cause;
+  }
+  const typed = chain.find((failure) => failure instanceof CodexToolFailure);
   const code: ToolFailureCode =
-    aborted || (error instanceof Error && error.name === 'AbortError')
+    aborted || chain.some((failure) => failure.name === 'AbortError')
       ? 'cancelled'
-      : error instanceof CodexToolFailure
-        ? error.code
-        : 'internal_failure';
-  const resourceCode = error instanceof Error && 'code' in error ? error.code : undefined;
+      : (typed?.code ?? 'internal_failure');
+  const resourceCode = chain
+    .map((failure) => ('code' in failure ? failure.code : undefined))
+    .find((value) =>
+      ['EACCES', 'EPERM', 'ETIMEDOUT', 'ENOSPC', 'SQLITE_FULL'].includes(value as string),
+    );
   const reason: CodexToolFailureDiagnostic['reason'] =
     code === 'cancelled'
       ? 'cancelled'
@@ -97,9 +109,7 @@ export function codexToolFailureResult(
                   ? 'invalid_input'
                   : 'unknown';
   const diagnostic = {
-    ...(error instanceof CodexToolFailure && error.diagnostic
-      ? error.diagnostic
-      : { stage: 'tool_execution', reason, effectStatus: 'unknown' }),
+    ...(typed?.diagnostic ? typed.diagnostic : { stage, reason, effectStatus: 'unknown' }),
     ...(identity ? CodexDiagnosticIdentitySchema.parse(identity) : {}),
   };
   const actions: Record<ToolFailureCode, string> = {

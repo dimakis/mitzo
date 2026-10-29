@@ -3485,21 +3485,40 @@ export class CodexConversation {
       });
     }
     Object.freeze(invocation);
+    // Correlation is captured before the executor await. A stale/unreadable
+    // owner later must neither relabel this result nor replace its original cause.
+    const diagnosticIdentity = (() => {
+      try {
+        return {
+          ...this.diagnosticRuntimeIdentity(),
+          commandId: active.command.id,
+          attempt: active.command.attempt,
+          callId: call.callId,
+          threadId: call.threadId,
+          turnId: call.turnId,
+          generation: this.opts.store.read(this.opts.conversationId, callbackBinding)
+            .threadGeneration,
+        };
+      } catch {
+        return undefined;
+      }
+    })();
     const toolStarted = performance.now();
     try {
       result = normalizeCodexToolResult(
         await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation),
       );
     } catch (error) {
-      result = codexToolFailureResult(error, toolSignal.aborted, {
-        ...this.diagnosticRuntimeIdentity(),
-        commandId: active.command.id,
-        attempt: active.command.attempt,
-        callId: call.callId,
-        threadId: call.threadId,
-        turnId: call.turnId,
-        generation: this.opts.store.read(this.opts.conversationId, this.binding!).threadGeneration,
-      });
+      result = codexToolFailureResult(
+        error,
+        toolSignal.aborted,
+        diagnosticIdentity,
+        call.tool === 'PrepareLocalRepository'
+          ? 'repository_preparation'
+          : call.tool === 'RequestGithubPublish'
+            ? 'publication'
+            : 'tool_execution',
+      );
       const diagnostic = JSON.parse(result.content) as {
         diagnosticId: string;
         error: string;

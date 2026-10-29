@@ -2508,7 +2508,7 @@ export class CodexConversationStore {
       | undefined;
     const operation = this.db
       .prepare(
-        `SELECT id FROM codex_commands WHERE conversation_id=? AND transport_diagnostic IS NOT NULL ORDER BY sequence DESC LIMIT 1`,
+        `SELECT id FROM codex_commands WHERE conversation_id=? AND recovery_acknowledged=0 AND status IN ('failed','interrupted') AND transport_diagnostic IS NOT NULL ORDER BY sequence DESC LIMIT 1`,
       )
       .get(id) as { id: string } | undefined;
     const capacity = this.capacityRecovery(id, b);

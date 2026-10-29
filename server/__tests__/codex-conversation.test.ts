@@ -7772,3 +7772,58 @@ it.each(['account', 'attempt', 'generation'] as const)(
     expect(f.store.read('app', f.getBinding()).recovery).toBeTruthy();
   },
 );
+
+it.each([
+  ['PrepareLocalRepository', 'repository_preparation'],
+  ['RequestGithubPublish', 'publication'],
+])('retains the known %s phase for a wrapped executor exception', async (tool, stage) => {
+  const f = await setup();
+  f.conversationOptions.tools = [
+    { name: tool, description: 'Offline', input_schema: { type: 'object' } },
+  ];
+  await f.c.send({ id: 'known-phase', prompt: 'offline' });
+  f.execute.mockRejectedValue(
+    Error('SECRET wrapper', { cause: Object.assign(Error('SECRET resource'), { code: 'EPERM' }) }),
+  );
+  const result = await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'phase-call',
+      tool,
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  const text = (result.contentItems as Array<{ text: string }>)[0].text;
+  expect(JSON.parse(text).diagnostic).toMatchObject({
+    stage,
+    reason: 'filesystem_denied',
+    effectStatus: 'unknown',
+  });
+  expect(text).not.toContain('SECRET');
+});
+
+it('retains original diagnostic generation when native identity changes during a failed tool await', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'original-generation', prompt: 'offline' });
+  const db = (f.store as unknown as { db: Database.Database }).db;
+  f.execute.mockImplementation(async () => {
+    db.prepare("UPDATE codex_conversations SET thread_generation=1 WHERE id='app'").run();
+    throw Object.assign(Error('SECRET'), { code: 'EPERM' });
+  });
+  const result = await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'changed-generation',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  const text = (result.contentItems as Array<{ text: string }>)[0].text;
+  expect(JSON.parse(text).diagnostic).toMatchObject({ generation: 0, reason: 'filesystem_denied' });
+});

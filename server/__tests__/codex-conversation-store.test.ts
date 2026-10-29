@@ -1495,3 +1495,27 @@ it('retains transport diagnostics per attempt and projects the current one into 
   });
   s.close();
 });
+
+it('does not advertise acknowledged historical uncertainty as the current recovery action', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'old-loss', prompt: 'retained work' });
+  const command = s.claimNext('c', binding)!;
+  s.recordTransportDiagnostic('c', binding, command, {
+    stage: 'native_transport',
+    reason: 'child_exit',
+    exitCode: 1,
+    signal: null,
+    release: 'offline',
+    nativeVersion: '0.160.0',
+    workspaceDigest: 'b'.repeat(64),
+  });
+  s.pauseForRecovery('c', binding, command.id, 'interrupted', 'resume', undefined, false, true);
+  expect(s.queueSummary('c', binding).operation?.nextAction).toBe('reconcile_native_outcome');
+  s.acknowledgeRecovery('c', binding);
+  s.enqueue('c', binding, { id: 'new-work', prompt: 'new explicit task' });
+  expect(s.queueSummary('c', binding).operation).toBeUndefined();
+  expect(s.commandLifecycle('c', binding, command.id).diagnostic).toMatchObject({ exitCode: 1 });
+  s.close();
+});
