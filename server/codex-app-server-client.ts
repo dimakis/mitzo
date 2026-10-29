@@ -934,11 +934,13 @@ export class CodexAppServerClient {
         completed = true;
         failed = Boolean(error);
         finish();
-        if (error) this.close();
+        if (error) this.close(this.processFailure('stream_error', error, 'stdin'));
       });
-    } catch {
+    } catch (error) {
       observe({ ...metadata, boundary: 'write_failed' });
-      throw new CodexTransportError('connection');
+      const failure = this.processFailure('stream_error', error, 'stdin');
+      this.close(failure);
+      throw failure;
     }
     observe({ ...metadata, boundary: 'write_queued' });
     queued = true;

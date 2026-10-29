@@ -23,6 +23,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { performance } from 'node:perf_hooks';
 import { SearchSkillsInput, searchNativeSkills } from './local-agent-efficiency.js';
 import { applicationVersion } from './application-version.js';
+import { diagnosticReleaseRevision } from './codex-diagnostic-release.js';
 import { codexToolFailureResult } from './codex-tool-failure.js';
 import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
@@ -507,8 +508,21 @@ export class CodexConversation {
   }
   private diagnosticRuntimeIdentity() {
     const traceId = trace.getSpan(context.active())?.spanContext().traceId;
+    let nativeArtifactSha256: string | undefined;
+    try {
+      nativeArtifactSha256 = this.binding
+        ? this.opts.store.readHostCustody(this.opts.conversationId, this.binding)?.executable.sha256
+        : undefined;
+    } catch {
+      /* Missing diagnostic correlation never changes the original outcome. */
+    }
     return {
       release: applicationVersion,
+      ...(diagnosticReleaseRevision ? { releaseRevision: diagnosticReleaseRevision } : {}),
+      ...(nativeArtifactSha256 ? { nativeArtifactSha256 } : {}),
+      ...(this.opts.nativeExecution
+        ? { runtimeBindingRevision: this.opts.nativeExecution.bindingRevision }
+        : {}),
       nativeVersion: SUPPORTED_CODEX_CLI_VERSION,
       workspaceDigest: createHash('sha256').update(this.opts.cwd).digest('hex'),
       ...(traceId && /^[a-f0-9]{32}$/.test(traceId) && !/^0+$/.test(traceId) ? { traceId } : {}),

@@ -208,6 +208,15 @@ const CommandTransportDiagnosticSchema = z.strictObject({
     .max(40)
     .optional(),
   release: z.string().min(1).max(200),
+  releaseRevision: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .optional(),
+  nativeArtifactSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  runtimeBindingRevision: z.string().min(1).max(200).optional(),
   nativeVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
   workspaceDigest: z.string().regex(/^[a-f0-9]{64}$/),
   traceId: z

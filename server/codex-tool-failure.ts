@@ -39,6 +39,15 @@ export const CodexDiagnosticIdentitySchema = z.strictObject({
   turnId: z.string().min(1).max(200),
   generation: z.number().int().nonnegative().safe(),
   release: z.string().min(1).max(200),
+  releaseRevision: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .optional(),
+  nativeArtifactSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  runtimeBindingRevision: z.string().min(1).max(200).optional(),
   nativeVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
   workspaceDigest: z.string().regex(/^[a-f0-9]{64}$/),
   traceId: z

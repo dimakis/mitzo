@@ -170,3 +170,30 @@ it.each([
     expect(sent.filter((frame) => frame.method === 'turn/start')).toHaveLength(1);
   },
 );
+
+it('retains a typed stdin write-callback failure before a subsequent stream error', async () => {
+  const { child, sent, reply } = setup();
+  const closed = vi.fn();
+  const client = new CodexAppServerClient(child, {
+    observeTurnStartWrite: () => {},
+    lifecycle: { onNotification: () => {}, onRequest: async () => ({}), onClose: closed },
+  });
+  const init = client.initialize();
+  reply({ id: sent[0].id, result: {} });
+  await init;
+  vi.spyOn(child.stdin, 'write').mockImplementation((_chunk, callback) => {
+    if (typeof callback === 'function')
+      callback(Object.assign(Error('SECRET /private'), { code: 'EPIPE' }));
+    return false;
+  });
+  await expect(
+    client.request('turn/start', {
+      threadId: 'thread',
+      clientUserMessageId: 'command',
+      input: [{ type: 'text', text: 'offline' }],
+    }),
+  ).rejects.toMatchObject({
+    diagnostic: { reason: 'stream_error', stream: 'stdin', causeCode: 'EPIPE' },
+  });
+  expect(closed).toHaveBeenCalledOnce();
+});
