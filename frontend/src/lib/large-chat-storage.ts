@@ -8,6 +8,7 @@ type Disk = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 'removeItem
   ready?: () => Promise<void>;
   flush?: () => Promise<void>;
   isLegacy?: (key: string) => boolean;
+  setRevision?: (key: string, value: string) => void;
   readonly pending?: boolean;
   readonly failed?: boolean;
 };
@@ -83,6 +84,19 @@ export class LargeChatStorage {
     const cached = this.cache.get(key);
     if (!cached || cached.reference !== raw) throw Error('Saved chat payload is loading');
     return cached.value;
+  }
+  /** Revision values use the ordered atomic backend, never the legacy spill path. */
+  setRevision(key: string, value: string): void {
+    if (!this.disk.setRevision) throw Error('Ordered revision storage is unavailable');
+    const expected = this.disk.getItem(key);
+    this.disk.setRevision(key, value);
+    this.revisions.set(key, (this.revisions.get(key) ?? 0) + 1);
+    this.errors.delete(key);
+    this.writes.delete(key);
+    this.removals.delete(key);
+    this.cache.delete(key);
+    this.cleanAfterCommit(expected);
+    this.changed();
   }
   setItem(key: string, value: string): void {
     if (this.getReadableValue(key) === value && !this.errors.has(key) && !this.disk.failed) return;
@@ -319,6 +333,10 @@ export const chatStorage = {
     typeof indexedDB === 'undefined'
       ? localStorage.setItem(key, value)
       : current().setItem(key, value),
+  setRevision: (key: string, value: string) =>
+    typeof indexedDB === 'undefined'
+      ? localStorage.setItem(key, value)
+      : current().setRevision(key, value),
   removeItem: (key: string) =>
     typeof indexedDB === 'undefined' ? localStorage.removeItem(key) : current().removeItem(key),
   flush: () => instance?.flush() ?? Promise.resolve(),

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.757-confirmed-draft-recovery-checks';
+  'v1.0.759-atomic-chat-revision-barriers';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -106,9 +106,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-library-builder.tsx':
     '3182f33a70edf28862c55c5dc5462ecf3618351f179cfed4f7b7cf85ddd07d82',
   '../../frontend/src/lib/__tests__/indexed-chat-disk.test.ts':
-    '8c8325ef5018cc55d60949151a248623e3bceb0eea59368ba4dedd046a8edcd4',
+    '2bb5ebe6d8b6696bfc877e91d65b4d4cdc9fc951fe98026fd777c3ba173887eb',
   '../../frontend/src/lib/indexed-chat-disk.ts':
-    '6cbcee6b5de5aa6daeb8019d9308ea515fd8d66f573cb827698f4395aef8192a',
+    '885d970b98bd2ecc109c4d8cb764cefcf41e19ca81ab0ad564e81e0ecda567f5',
   '../../tests/integration/telos-s9/integrated-candidate/joined-role-setup-ready.test.ts':
     '135c046f446cccdc941332395629b33db95e266fc5625c8b20ce45a300f8c2fb',
   '../../scripts/ci-prepared-consumers.mjs':
@@ -190,15 +190,15 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-command-json.test.ts':
     '675c6c281aebefef54c6fb8b067e14db554035f0a7ceea88f4ec4daeee9efcd7',
   '../../frontend/src/lib/large-chat-storage.ts':
-    '1b2e3f82dfaf99dbe82a296f48672fdeefd5892b6e5df9d11823793b60b304d9',
+    '2a15ca075e84e434d5eeda75a7f73436bbdbbb02003cf87a81a164667a6a4385',
   '../../frontend/src/lib/__tests__/large-chat-storage.test.ts':
     '8cfd23321d205800a059acbfcd80ce3cff180b1f8cdf3f7b686454f69c247345',
   '../../frontend/src/render-app.tsx':
     '8244b4f22a4a068e6498434aa0bc540fa6d20e124a8b8e310dbd5a1ee92628f4',
   '../../tests/fixtures/large-chat-storage.ts':
-    '64445dcca2db3fe6a0359226e544b15d9af43f429dc8bbf361699e294b4c5fe5',
+    'b79cfe7eb2612af8924ddb05170dbe0943f5467070b1c1f3381b328911e5d993',
   '../../tests/offline/large-chat-storage.spec.ts':
-    '4c4a2d5f8fb29e6939f4bc7967462121c9c6f9b250a866d2c5502e80681f9d6b',
+    '0a50a606fd7f427cf77284a8b52966733743d643752ca27248f6c7d73649dcb4',
   '../../scripts/__tests__/ci-browser-batches.test.ts':
     'dc7457039216fa6c5d9ec2e1a8df8313db042398cd72956c2b25de84fb822830',
   '../../scripts/ci-browser-batches.mjs':
@@ -256,7 +256,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/symposium-profile-read-allocation.test.ts':
     'f83bbaa69102885dfa62bf70322044e2941dca2bd743fb3afa19e7d7c31aa30e',
   '../../frontend/src/lib/composer-draft-proof.ts':
-    '54f6000ef6ed6b54d57be13ab455cdd6c1a021ddaf8d3cfdaafb2347f67de013',
+    '1eba4d3e44f1e70d4ab76f879be1df0c286b76af870cf3fa60ccb8a4ff31bc1d',
   '../../frontend/src/components/__tests__/ChatInputColdReceipt.test.tsx':
     '87b792de2fe757b508c8209f3e47d51559e9919eba326ded9d82ae4ab0018227',
   '../../packages/client/src/__tests__/local-receipt-recheck.test.ts':

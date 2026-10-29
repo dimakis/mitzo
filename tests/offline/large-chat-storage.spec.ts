@@ -221,3 +221,83 @@ test('a failed revision replacement cannot restore revoked acceptance authority 
     ),
   ).toBeNull();
 });
+
+test('a failed checkpoint fences same-text edits across cold recovery', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => 'storageFixture' in window);
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as { storageFixture: { failedRevocation(): Promise<unknown> } }
+      ).storageFixture.failedRevocation(),
+    ),
+  ).toEqual({
+    failed: true,
+    proof: null,
+    body: JSON.stringify({ text: 'Same text', updatedAt: 2 }),
+  });
+  await page.reload();
+  await page.waitForFunction(() => 'storageFixture' in window);
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as { storageFixture: { readFencedDraft(): Promise<unknown> } }
+      ).storageFixture.readFencedDraft(),
+    ),
+  ).toEqual({
+    proof: 'old-proof',
+    body: JSON.stringify({ text: 'Same text', updatedAt: 1 }),
+  });
+});
+
+test('a failed copy retains an already pending source edit across cold recovery', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.waitForFunction(() => 'storageFixture' in window);
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as { storageFixture: { pendingMigrationFailure(): Promise<unknown> } }
+      ).storageFixture.pendingMigrationFailure(),
+    ),
+  ).toEqual({
+    failed: true,
+    source: 'Latest edited draft',
+  });
+  await page.reload();
+  await page.waitForFunction(() => 'storageFixture' in window);
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as { storageFixture: { readMigration(): Promise<unknown> } }
+      ).storageFixture.readMigration(),
+    ),
+  ).toEqual({
+    source: 'Latest edited draft',
+    destination: null,
+  });
+});
+
+test('a failed atomic composer revision keeps its newer body behind the durable proof', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.waitForFunction(() => 'storageFixture' in window);
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as { storageFixture: { failedAtomicRevision(): Promise<unknown> } }
+      ).storageFixture.failedAtomicRevision(),
+    ),
+  ).toEqual({ failed: true, proof: null });
+  await page.reload();
+  await page.waitForFunction(() => 'storageFixture' in window);
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as { storageFixture: { readAtomicDraft(): Promise<unknown> } }
+      ).storageFixture.readAtomicDraft(),
+    ),
+  ).toEqual({ proof: 'old-proof', body: 'Original screenshot draft' });
+});

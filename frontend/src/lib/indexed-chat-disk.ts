@@ -7,7 +7,12 @@ export interface ChatDiskRecord {
   revision: string;
   legacy: string | null;
 }
-type PendingWrite = { record: ChatDiskRecord; legacy: string | null };
+type PendingWrite = {
+  record: ChatDiskRecord;
+  legacy: string | null;
+  checkpoint?: boolean;
+  authority?: boolean;
+};
 interface Backend {
   read(): Promise<ChatDiskRecord[]>;
   write(
@@ -25,9 +30,12 @@ const conflict = () =>
 export class IndexedChatDisk {
   private records = new Map<string, ChatDiskRecord>();
   private writes = new Map<string, PendingWrite>();
-  private revocations = new Map<string, PendingWrite>();
+  private queued = new Map<string, PendingWrite>();
+  private coalescible = new Map<string, PendingWrite>();
+  private queue: PendingWrite[] = [];
   private errors = new Map<string, unknown>();
-  private scheduled = new Set<string>();
+  private failedWrite: PendingWrite | undefined;
+  private draining = false;
   private reading: Promise<void> | undefined;
   private initialized = false;
   private keyCache: string[] | undefined;
@@ -38,7 +46,7 @@ export class IndexedChatDisk {
     private changed = () => {},
   ) {}
   get pending() {
-    return this.writes.size > 0;
+    return this.queue.length > 0;
   }
   get failed() {
     return this.errors.size > 0;
@@ -82,7 +90,7 @@ export class IndexedChatDisk {
     for (const key of new Set([...baseline.keys(), ...this.records.keys(), ...snapshot.keys()])) {
       // A refresh cannot advance the baseline of an unsaved edit or undo a
       // commit that finished while this read was in flight.
-      if (this.writes.has(key) || this.records.get(key) !== baseline.get(key)) continue;
+      if (this.queued.has(key) || this.records.get(key) !== baseline.get(key)) continue;
       const record = snapshot.get(key);
       if (record) this.records.set(key, record);
       else this.records.delete(key);
@@ -92,6 +100,14 @@ export class IndexedChatDisk {
     return !this.writes.has(key) && !this.records.has(key);
   }
   getItem(key: string): string | null {
+    const value = this.readValue(key);
+    // A failed revocation never exposes cached replacement authority.
+    return (this.failedWrite?.checkpoint || this.failedWrite?.authority) &&
+      this.failedWrite.record.key === key
+      ? null
+      : value;
+  }
+  private readValue(key: string): string | null {
     if (!this.initialized) throw Error('Saved chat storage is loading');
     const record = this.writes.get(key)?.record ?? this.records.get(key);
     if (record && this.legacy.getItem(key) !== record.legacy) throw conflict();
@@ -103,68 +119,117 @@ export class IndexedChatDisk {
   removeItem(key: string) {
     this.replace(key, null);
   }
-  private replace(key: string, value: string | null) {
-    if (this.getItem(key) === value && !this.errors.has(key)) return;
+  /** A fresh composer proof must precede its payload. Coalesce only while its
+   * proof slot is mutable; once it starts, freeze earlier body snapshots too.
+   */
+  setRevision(key: string, value: string) {
+    if (!this.coalescible.has(key)) this.coalescible.clear();
+    this.replace(key, value, true);
+  }
+  private replace(key: string, value: string | null, authority = false) {
+    const current = this.readValue(key);
+    if (this.errors.size) {
+      const failed = this.failedWrite!;
+      // With no followers, a failed non-destructive snapshot is still one
+      // typing segment. Revise its value without refreshing its CAS baseline.
+      if (
+        !this.draining &&
+        this.queue.length === 1 &&
+        failed.record.key === key &&
+        failed.record.value !== null &&
+        value !== null
+      ) {
+        failed.record = { ...failed.record, value, revision: createBrowserId() };
+        if (authority) failed.authority = true;
+        this.writes.set(key, failed);
+        this.keyCache = undefined;
+        this.schedule();
+        this.changed();
+        return;
+      }
+      const retry =
+        current === value ||
+        (failed.record.key === key &&
+          failed.record.value === value &&
+          this.queued.get(key) === failed);
+      // Explicit saves retry the original failed operation first. Do not accept
+      // new snapshots behind an unresolved barrier or grow an offline backlog.
+      this.schedule();
+      if (!retry) throw this.errors.values().next().value;
+      if (failed.record.key === key && this.queued.get(key) === failed) {
+        this.writes.set(key, failed);
+        this.keyCache = undefined;
+      }
+      this.changed();
+      return;
+    }
+    if (current === value) return;
     this.keyCache = undefined;
-    const previous = this.writes.get(key);
-    // removeItem revokes existing authority before a replacement. Keep one
-    // deletion checkpoint even when rapid edits coalesce their later values.
-    if (previous?.record.value === null && value !== null && !this.revocations.has(key))
-      this.revocations.set(key, previous);
-    this.writes.set(key, {
-      record: { key, value, revision: createBrowserId(), legacy: this.legacy.getItem(key) },
-      legacy: this.legacy.getItem(key),
-    });
-    this.errors.delete(key);
-    if (this.scheduled.has(key)) return;
-    this.scheduled.add(key);
+    const previous = this.queued.get(key);
+    if (previous?.record.value === null && value !== null) previous.checkpoint = true;
+    const legacy = this.legacy.getItem(key);
+    const record = { key, value, revision: createBrowserId(), legacy };
+    // Every deletion closes the coalescing segment for every key: a later edit
+    // cannot move a retirement ahead of its copy, or payload bytes ahead of a
+    // revision revocation. Ordinary typing within a segment still coalesces.
+    if (value === null) this.coalescible.clear();
+    const existing = value === null ? undefined : this.coalescible.get(key);
+    const write = existing ?? { record, legacy };
+    if (existing) existing.record = record;
+    else this.queue.push(write);
+    if (authority) write.authority = true;
+    if (value !== null) this.coalescible.set(key, write);
+    this.queued.set(key, write);
+    this.writes.set(key, write);
+    this.schedule();
+    this.changed();
+  }
+  private schedule() {
+    if (this.draining || !this.queue.length) return;
+    this.draining = true;
     this.tail = this.tail
       .catch(() => {})
       .then(async () => {
         try {
-          while (true) {
-            const revocation = this.revocations.get(key);
-            const write = revocation ?? this.writes.get(key);
-            if (!write) return;
-            const expected = this.records.get(key)?.revision ?? null;
-            let failed = false;
+          while (this.queue.length) {
+            const write = this.queue[0];
+            const key = write.record.key;
+            if (this.coalescible.get(key) === write) this.coalescible.delete(key);
             try {
-              // Copy and acceptance callers enqueue source retirement after the
-              // replacement. A failed preceding write must retain that source.
-              if (
-                write.record.value === null &&
-                [...this.errors.keys()].some((other) => other !== key)
-              )
-                throw Error('Chat source retained because an earlier save failed');
               await this.backend.write(
                 write.record,
-                expected,
+                this.records.get(key)?.revision ?? null,
                 () => this.legacy.getItem(key) === write.legacy,
               );
               this.records.set(key, write.record);
-              if (revocation) this.revocations.delete(key);
-              else if (this.writes.get(key) === write) this.writes.delete(key);
+              this.queue.shift();
+              if (this.queued.get(key) === write) this.queued.delete(key);
+              if (this.writes.get(key) === write) this.writes.delete(key);
               this.errors.delete(key);
+              if (this.failedWrite === write) this.failedWrite = undefined;
             } catch (error) {
-              if (revocation) this.revocations.delete(key);
-              if (this.writes.get(key) === write) {
-                this.errors.set(key, error);
-                if (write.record.value === null) {
-                  this.writes.delete(key);
-                  this.keyCache = undefined;
-                }
-                failed = true;
-              }
+              // Keep the failed operation at the head. Followers remain pending,
+              // with no independent errors that could deadlock its ordered retry.
+              this.failedWrite = write;
+              this.errors.set(key, error);
+              // No queued retirement committed after this failure. Restore its
+              // durable editor view, keeping the ordered operation for retry.
+              for (const pending of this.queue)
+                if (
+                  pending.record.value === null &&
+                  this.writes.get(pending.record.key) === pending
+                )
+                  this.writes.delete(pending.record.key);
+              return;
             } finally {
+              this.keyCache = undefined;
               this.changed();
             }
-            if (failed && this.writes.get(key) === write) return;
           }
         } finally {
-          this.scheduled.delete(key);
+          this.draining = false;
         }
       });
-    this.changed();
   }
   async flush() {
     let tail;

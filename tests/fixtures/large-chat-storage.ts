@@ -1,3 +1,7 @@
+import {
+  replaceComposerDraftRevision,
+  composerDraftRevisionKey,
+} from '../../frontend/src/lib/composer-draft-proof';
 import { migrateLegacyChatDraft } from '../../frontend/src/lib/chat-drafts';
 import { chatStorage, initializeChatStorage } from '../../frontend/src/lib/large-chat-storage';
 import { createIndexedChatDisk } from '../../frontend/src/lib/indexed-chat-disk';
@@ -66,6 +70,106 @@ Object.assign(window, {
       } finally {
         IDBObjectStore.prototype.put = original;
       }
+    },
+    async failedRevocation() {
+      await ready;
+      chatStorage.setItem('fenced-revision', 'old-proof');
+      chatStorage.setItem('fenced-draft', JSON.stringify({ text: 'Same text', updatedAt: 1 }));
+      await chatStorage.flush();
+      const original = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function (value, key) {
+        if (value?.key === 'fenced-revision') throw Error('Both revision writes unavailable');
+        return original.call(this, value, key);
+      };
+      let failed = false;
+      try {
+        chatStorage.removeItem('fenced-revision');
+        chatStorage.setItem('fenced-revision', 'new-proof');
+        chatStorage.setItem('fenced-draft', JSON.stringify({ text: 'Same text', updatedAt: 2 }));
+        try {
+          await chatStorage.flush();
+        } catch {
+          failed = true;
+        }
+        return {
+          failed,
+          proof: chatStorage.getItem('fenced-revision'),
+          body: chatStorage.getItem('fenced-draft'),
+        };
+      } finally {
+        IDBObjectStore.prototype.put = original;
+      }
+    },
+    async failedAtomicRevision() {
+      await ready;
+      const proofKey = composerDraftRevisionKey('atomic-draft');
+      chatStorage.setRevision(proofKey, 'old-proof');
+      chatStorage.setItem('atomic-draft', 'Original screenshot draft');
+      await chatStorage.flush();
+      const original = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function (value, key) {
+        if (value?.key === proofKey) throw Error('Atomic revision unavailable');
+        return original.call(this, value, key);
+      };
+      let failed = false;
+      try {
+        if (!replaceComposerDraftRevision('atomic-draft', 'new-proof'))
+          throw Error('Expected an asynchronous admission');
+        chatStorage.setItem('atomic-draft', 'New screenshot draft');
+        try {
+          await chatStorage.flush();
+        } catch {
+          failed = true;
+        }
+        return { failed, proof: chatStorage.getItem(proofKey) };
+      } finally {
+        IDBObjectStore.prototype.put = original;
+      }
+    },
+    async readAtomicDraft() {
+      await ready;
+      return {
+        proof: chatStorage.getItem(composerDraftRevisionKey('atomic-draft')),
+        body: chatStorage.getItem('atomic-draft'),
+      };
+    },
+    async readFencedDraft() {
+      await ready;
+      return {
+        proof: chatStorage.getItem('fenced-revision'),
+        body: chatStorage.getItem('fenced-draft'),
+      };
+    },
+    async pendingMigrationFailure() {
+      await ready;
+      chatStorage.setItem('migration-source', 'Original');
+      await chatStorage.flush();
+      const original = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function (value, key) {
+        if (value?.key === 'migration-destination') throw Error('Copy unavailable');
+        return original.call(this, value, key);
+      };
+      let failed = false;
+      try {
+        chatStorage.setItem('migration-source', 'Latest edited draft');
+        chatStorage.setItem('migration-destination', chatStorage.getItem('migration-source')!);
+        chatStorage.removeItem('migration-source');
+        try {
+          await chatStorage.flush();
+        } catch {
+          failed = true;
+        }
+        return { failed, source: chatStorage.getItem('migration-source') };
+      } finally {
+        IDBObjectStore.prototype.put = original;
+      }
+    },
+    async readMigration() {
+      await ready;
+      return {
+        source: chatStorage.getItem('migration-source'),
+        destination: chatStorage.getItem('migration-destination'),
+      };
     },
     async readRevokedRevision() {
       await ready;
