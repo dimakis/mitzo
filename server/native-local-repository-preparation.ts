@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { isAbsolute, resolve } from 'node:path';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
+import { withCodexToolCleanup } from './codex-tool-failure.js';
 import { normalizeCodexToolResult } from './codex-tool-result.js';
 import {
   PendingHostTaskReceiptSchema,
@@ -87,7 +88,7 @@ export async function executeNativeLocalRepositoryPreparation(
           throw unavailable();
         strict(Reflect.apply(sync, context, []));
       };
-      try {
+      return withCodexToolCleanup(async () => {
         current();
         const input = inputSchema.parse(rawInput);
         const binding = context.session.accountBinding;
@@ -142,7 +143,7 @@ export async function executeNativeLocalRepositoryPreparation(
             const reader = await captureNativeLocalRepositoryReader(context, {
               deadline: Math.min(envelope.deadline, Date.now() + 30000),
             });
-            try {
+            await withCodexToolCleanup(async () => {
               await assertPreparedRepositoryTaskTopology(
                 new LocalRepositoryReadAccess(reader),
                 existing.taskIdentity,
@@ -150,9 +151,7 @@ export async function executeNativeLocalRepositoryPreparation(
               );
               await context.assertCurrent();
               current();
-            } finally {
-              await reader.dispose();
-            }
+            }, [() => reader.dispose()]);
             current();
             return {
               preparationId: existing.id,
@@ -226,16 +225,16 @@ export async function executeNativeLocalRepositoryPreparation(
           directory: receipt.directory,
           state: 'materialized' as const,
         };
-      } finally {
-        // Joining cleanup is part of the callback: never outward-return success
-        // while a disposer is pending, failed, or the total/original lifetime expired.
-        try {
-          for (const source of sources) await source.dispose?.();
-        } finally {
-          strict(await Reflect.apply(dispose, context, []));
-        }
-        envelope.assertCurrentSync();
-      }
+      }, [
+        // Sources are acquired inside action; enumerate them only during cleanup.
+        () =>
+          withCodexToolCleanup(
+            async () => {},
+            sources.map((source) => () => source.dispose?.()),
+          ),
+        async () => strict(await Reflect.apply(dispose, context, [])),
+        () => envelope.assertCurrentSync(),
+      ]);
     },
   );
   return normalizeCodexToolResult({

@@ -11,7 +11,7 @@ export type ToolFailureCode =
   | 'invalid_input'
   | 'internal_failure';
 
-export const CodexToolFailureDiagnosticSchema = z.strictObject({
+const FailureDetailSchema = z.strictObject({
   stage: z.enum([
     'tool_execution',
     'repository_preparation',
@@ -31,7 +31,48 @@ export const CodexToolFailureDiagnosticSchema = z.strictObject({
   ]),
   effectStatus: z.enum(['not_started', 'unknown', 'completed']),
 });
+export const CodexToolFailureDiagnosticSchema = FailureDetailSchema.extend({
+  primary: FailureDetailSchema.optional(),
+  cleanup: z.array(FailureDetailSchema).max(8).optional(),
+  cleanupTruncated: z.literal(true).optional(),
+});
 export type CodexToolFailureDiagnostic = z.infer<typeof CodexToolFailureDiagnosticSchema>;
+type FailureDetail = z.infer<typeof FailureDetailSchema>;
+
+class ToolCleanupFailure extends AggregateError {
+  constructor(
+    readonly primary: { error: unknown } | undefined,
+    readonly cleanupFailures: readonly unknown[],
+  ) {
+    super(cleanupFailures, 'Tool cleanup failed', primary ? { cause: primary.error } : {});
+  }
+}
+
+/** Join every resource cleanup and final fence, even after another fails. */
+export async function withCodexToolCleanup<T>(
+  action: () => Promise<T>,
+  cleanups: readonly (() => unknown | Promise<unknown>)[],
+): Promise<T> {
+  let value!: T;
+  let primary: { error: unknown } | undefined;
+  try {
+    value = await action();
+  } catch (error) {
+    primary = { error };
+  }
+  const failures: unknown[] = [];
+  for (const cleanup of cleanups) {
+    try {
+      await cleanup();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length) throw new ToolCleanupFailure(primary, Object.freeze(failures));
+  if (primary) throw primary.error;
+  return value;
+}
+
 export const CodexDiagnosticIdentitySchema = z.strictObject({
   commandId: z.string().min(1).max(200),
   attempt: z.number().int().positive().safe(),
@@ -69,12 +110,11 @@ export class CodexToolFailure extends Error {
   }
 }
 
-export function codexToolFailureResult(
+function failureProjection(
   error: unknown,
-  aborted: boolean,
-  identity?: z.infer<typeof CodexDiagnosticIdentitySchema>,
-  stage: CodexToolFailureDiagnostic['stage'] = 'tool_execution',
-): CodexToolResult {
+  stage: FailureDetail['stage'],
+  depth = 0,
+): { code: ToolFailureCode; diagnostic: CodexToolFailureDiagnostic } {
   const chain: Error[] = [];
   const seen = new Set<Error>();
   let cause = error;
@@ -83,17 +123,73 @@ export function codexToolFailureResult(
     seen.add(cause);
     cause = cause.cause;
   }
+  const cleanup = chain.find((failure) => failure instanceof ToolCleanupFailure);
+  if (cleanup && depth < 8) {
+    const original = cleanup.primary
+      ? failureProjection(cleanup.primary.error, stage, depth + 1)
+      : undefined;
+    const failures = cleanup.cleanupFailures.map((failure) =>
+      failureProjection(failure, stage, depth + 1),
+    );
+    const projections = [...(original ? [original] : []), ...failures];
+    const refusal =
+      projections.find((item) => item.code === 'cancelled') ??
+      projections.find((item) => item.code === 'stale_owner') ??
+      projections.find((item) => item.code === 'permission_denied');
+    const selected = refusal ?? original ?? failures[0];
+    const details = [
+      ...(original?.diagnostic.cleanup ?? []),
+      ...failures.flatMap((item) =>
+        item.diagnostic.cleanup
+          ? [
+              ...(item.diagnostic.primary
+                ? [{ ...item.diagnostic.primary, effectStatus: 'unknown' as const }]
+                : []),
+              ...item.diagnostic.cleanup,
+            ]
+          : [
+              FailureDetailSchema.parse({
+                stage: item.diagnostic.stage,
+                reason: item.diagnostic.reason,
+                effectStatus: 'unknown',
+              }),
+            ],
+      ),
+    ];
+    return {
+      code: selected.code,
+      diagnostic: {
+        stage: selected.diagnostic.stage,
+        reason: selected.diagnostic.reason,
+        effectStatus: 'unknown',
+        ...(original
+          ? {
+              primary:
+                original.diagnostic.primary ??
+                FailureDetailSchema.parse({
+                  stage: original.diagnostic.stage,
+                  reason: original.diagnostic.reason,
+                  effectStatus: original.diagnostic.effectStatus,
+                }),
+            }
+          : {}),
+        cleanup: details.slice(0, 8),
+        ...(details.length > 8 || projections.some((item) => item.diagnostic.cleanupTruncated)
+          ? { cleanupTruncated: true as const }
+          : {}),
+      },
+    };
+  }
   const typed = chain.find((failure) => failure instanceof CodexToolFailure);
   const boundary = chain.find((failure) => failure instanceof PendingHostTaskError);
-  const code: ToolFailureCode =
-    aborted || chain.some((failure) => failure.name === 'AbortError')
-      ? 'cancelled'
-      : (typed?.code ??
-        (boundary?.code === 'pending_host_task_ownership_changed'
-          ? 'stale_owner'
-          : boundary?.code === 'pending_host_task_invalid_input'
-            ? 'invalid_input'
-            : 'internal_failure'));
+  const code: ToolFailureCode = chain.some((failure) => failure.name === 'AbortError')
+    ? 'cancelled'
+    : (typed?.code ??
+      (boundary?.code === 'pending_host_task_ownership_changed'
+        ? 'stale_owner'
+        : boundary?.code === 'pending_host_task_invalid_input'
+          ? 'invalid_input'
+          : 'internal_failure'));
   const resourceCode = chain
     .map((failure) => ('code' in failure ? failure.code : undefined))
     .find((value) =>
@@ -115,11 +211,29 @@ export function codexToolFailureResult(
                 : code === 'invalid_input'
                   ? 'invalid_input'
                   : 'unknown';
+  const diagnostic = typed?.diagnostic ?? {
+    stage: boundary ? ('repository_preparation' as const) : stage,
+    reason,
+    effectStatus: 'unknown' as const,
+  };
+  return {
+    code,
+    diagnostic: code === 'cancelled' ? { ...diagnostic, reason: 'cancelled' } : diagnostic,
+  };
+}
+
+export function codexToolFailureResult(
+  error: unknown,
+  aborted: boolean,
+  identity?: z.infer<typeof CodexDiagnosticIdentitySchema>,
+  stage: CodexToolFailureDiagnostic['stage'] = 'tool_execution',
+): CodexToolResult {
+  const projected = failureProjection(error, stage);
+  const code = aborted ? 'cancelled' : projected.code;
   const checkedIdentity = CodexDiagnosticIdentitySchema.safeParse(identity);
   const diagnostic = {
-    ...(typed?.diagnostic
-      ? typed.diagnostic
-      : { stage: boundary ? 'repository_preparation' : stage, reason, effectStatus: 'unknown' }),
+    ...projected.diagnostic,
+    ...(aborted ? { reason: 'cancelled' as const } : {}),
     ...(checkedIdentity.success ? checkedIdentity.data : {}),
   };
   const actions: Record<ToolFailureCode, string> = {

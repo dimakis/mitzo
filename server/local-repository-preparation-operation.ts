@@ -1,4 +1,4 @@
-import { CodexToolFailure } from './codex-tool-failure.js';
+import { CodexToolFailure, withCodexToolCleanup } from './codex-tool-failure.js';
 import { captureLocalRepositoryPreparationObjectData } from './local-repository-preparation-object-data.js';
 import { captureLocalRepositoryPreparationAuthorization } from './local-repository-preparation-authorization.js';
 
@@ -106,7 +106,7 @@ export async function executeLocalRepositoryPreparation(
   );
   let creation: ReturnType<typeof captureLocalRepositoryPreparationObjectData> | undefined;
   let objects: Awaited<ReturnType<typeof captureLocalRepositoryPreparationObjectData>> | undefined;
-  try {
+  return withCodexToolCleanup(async () => {
     await held.owner.assertCurrent();
     current();
     creation = captureLocalRepositoryPreparationObjectData(
@@ -124,16 +124,15 @@ export async function executeLocalRepositoryPreparation(
     await held.approve();
     current();
     return await held.materialize(objects);
-  } finally {
-    try {
+  }, [
+    async () => {
       if (creation) {
         const [result] = await Promise.allSettled([creation]);
         if (result.status === 'fulfilled') objects ??= result.value;
       }
       if (objects) await objects.dispose();
-    } finally {
-      await originalFull();
-      current();
-    }
-  }
+    },
+    originalFull,
+    current,
+  ]);
 }
