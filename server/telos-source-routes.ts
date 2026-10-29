@@ -17,6 +17,7 @@ import type { NativeTelosWorkerMaterialOwners } from './native-telos-worker-mate
 import { TelosSourceApproval, TelosSourceSaveUncertainError } from './telos-source-approval.js';
 import { TelosSourceApprovalStore } from './telos-source-approval-store.js';
 import { z } from 'zod';
+import { createLogger } from './logger.js';
 import { isAuthSessionCurrent, type AuthSession } from './auth.js';
 import type { Request } from 'express';
 import {
@@ -25,6 +26,58 @@ import {
   TelosSourceMaterialCursorSchema,
   TelosSourcePermissionApproveRequestSchema,
 } from '@mitzo/protocol';
+
+const log = createLogger('telos-source');
+const failureCodes = new Map([
+  ['SQLITE_BUSY', 'sqlite_busy'],
+  ['SQLITE_BUSY_SNAPSHOT', 'sqlite_busy'],
+  ['SQLITE_LOCKED', 'sqlite_busy'],
+  ['SQLITE_ERROR', 'sqlite_unavailable'],
+  ['SQLITE_CANTOPEN', 'sqlite_unavailable'],
+  ['SQLITE_CORRUPT', 'sqlite_unavailable'],
+  ['SQLITE_NOTADB', 'sqlite_unavailable'],
+  ['SQLITE_FULL', 'resource_exhausted'],
+  ['EACCES', 'filesystem_denied'],
+  ['EPERM', 'filesystem_denied'],
+  ['ENOSPC', 'resource_exhausted'],
+  ['EMFILE', 'resource_exhausted'],
+  ['ENFILE', 'resource_exhausted'],
+  ['MITZO_OWNER_BUSY', 'owner_unavailable'],
+  ['MITZO_OWNER_UNSUPPORTED', 'owner_unavailable'],
+]);
+/** Classification is descriptive only. Never serialize the exception, SQL,
+ * schema issue values, paths or arbitrary upstream names/codes. Data descriptors
+ * avoid executing diagnostic getters; malformed correlation stays unknown. */
+function sourceFailure(error: unknown): Record<string, string> {
+  let errorKind = 'unknown';
+  try {
+    const seen = new Set<Error>();
+    for (let cause = error; cause instanceof Error && seen.size < 4 && !seen.has(cause);) {
+      seen.add(cause);
+      errorKind = cause instanceof TypeError ? 'type' : 'error';
+      const code: unknown = Object.getOwnPropertyDescriptor(cause, 'code')?.value;
+      const reason = typeof code === 'string' ? failureCodes.get(code) : undefined;
+      if (typeof code === 'string' && reason)
+        return {
+          reason,
+          errorKind: code.startsWith('SQLITE_') ? 'sqlite' : 'error',
+          errorCode: code,
+        };
+      if (cause instanceof z.ZodError) return { reason: 'invalid_schema', errorKind: 'validation' };
+      if (cause instanceof SyntaxError) return { reason: 'invalid_json', errorKind: 'syntax' };
+      if (
+        cause instanceof TypeError &&
+        Object.getOwnPropertyDescriptor(cause, 'message')?.value ===
+          'The database connection is not open'
+      )
+        return { reason: 'database_closed', errorKind: 'type' };
+      cause = Object.getOwnPropertyDescriptor(cause, 'cause')?.value;
+    }
+  } catch {
+    // Diagnostics cannot replace the original source outcome.
+  }
+  return { reason: 'unexpected', errorKind };
+}
 
 /** Host-authenticated source selection/adoption only. No HTTP source bytes,
  * caller actors, model settings, allocator receipts or internal-token fallback.
@@ -85,13 +138,22 @@ export function createTelosSourceRouter(options: {
               );
           }
         : undefined;
+    let phase:
+      | 'authorize'
+      | 'open_work'
+      | 'open_artifacts'
+      | 'open_approvals'
+      | 'action'
+      | 'response_authorize' = 'authorize';
     try {
       assertAuthorized?.();
+      phase = 'open_work';
       const path = options.dbPath();
       work = new TelosWorkStore(path, {
         ordinaryConversation: options.ordinaryConversation,
         sourceConversation: options.sourceConversation,
       });
+      phase = 'open_artifacts';
       artifacts = new TelosArtifactStore(path);
       const capture = new TelosSourceCapture({
         events: options.events,
@@ -103,6 +165,7 @@ export function createTelosSourceRouter(options: {
         authorizeArtifact: (who, itemId) =>
           who.kind === 'operator' && who.id === actor.id && artifacts!.userUploadAllowed(itemId),
       });
+      phase = 'open_approvals';
       approvalStore = new TelosSourceApprovalStore(path);
       const approval = new TelosSourceApproval({
         events: options.events,
@@ -117,12 +180,21 @@ export function createTelosSourceRouter(options: {
           return options.createOutcome(input, assertCurrentSync);
         },
       });
+      phase = 'action';
       const result = await action(capture, approval);
+      phase = 'response_authorize';
       assertAuthorized?.();
       res.json(result);
     } catch (error) {
       const known = error instanceof TelosWorkError;
       const uncertain = error instanceof TelosSourceSaveUncertainError;
+      if (!known && !uncertain) {
+        try {
+          log.warn('Reviewed source operation failed', { phase, ...sourceFailure(error) });
+        } catch {
+          // A log sink failure must preserve the original response and cause.
+        }
+      }
       res
         .status(
           known

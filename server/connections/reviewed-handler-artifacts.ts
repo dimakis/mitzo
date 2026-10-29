@@ -893,7 +893,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-outcome-owner.ts': '7e11bca759dcda14dbc766fd7a02d1a05165a7333d8b78368555145854740161',
   '../../packages/protocol/src/telos-outcome.ts':
     '2e02bc7096e531552c3eeec437f4e777d5b9a14089c3d6a9eb00b5d7942bf758',
-  '../telos-source-routes.ts': '35eba943d0615976db44365e69302a25426f2f37595e53ed0b72a9d9228012cb',
+  '../telos-source-routes.ts': '1e80ff18491b1df6d8e5403d9fedb4403fde313eb277d202ce9ec1d147fcd019',
   '../../packages/protocol/src/telos-source.ts':
     '3318bda91c57865f73e5577281b8afc93c6746b551038927bbff95d7247db550',
   '../telos-artifact-store.ts': '5e6ca28329fb2d4dd83f19a5092f6e42e59ee25c068147c80d129a37f5d892eb',
@@ -2904,4 +2904,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6aa601ad177c91b371cd2d756d4f13c5f94b5665951a791dfb7f8d16afb3bd7b',
   '../__tests__/local-repository-preparation-cleanup-diagnostics.test.ts':
     '2755dd6e347dedae0518602f7b07f8d321b54ecc3f7b49cd438caf619fdf0197',
+  '../__tests__/telos-source-route-diagnostics.test.ts':
+    'c86ae1b37bcfaaee96a8e5e5059915ced33d87cc2b52a1c88b4707586d5e82a2',
 });
