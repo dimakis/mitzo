@@ -15,6 +15,7 @@ import {
 import { JIRA_API_ENDPOINT } from './connections-gateway.js';
 import { applicationVersion } from './application-version.js';
 import { spawn, spawnSync } from 'node:child_process';
+import { constants as osConstants } from 'node:os';
 import { observeLocalCodexSyncPhase } from './local-codex-observation.js';
 import { z } from 'zod';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
@@ -178,7 +179,17 @@ export class CodexTransportError extends Error {
     readonly category: 'timeout' | 'connection' | 'protocol' | 'environment_pending',
     readonly diagnostic?: {
       reason:
-        'frame_too_large' | 'invalid_json' | 'invalid_envelope' | 'notification_handler_failed';
+        | 'frame_too_large'
+        | 'invalid_json'
+        | 'invalid_envelope'
+        | 'notification_handler_failed'
+        | 'child_exit'
+        | 'process_error'
+        | 'stream_error';
+      exitCode?: number | null;
+      signal?: NodeJS.Signals | null;
+      stream?: 'stdin' | 'stdout' | 'stderr';
+      causeCode?: string;
       pendingRequestMethod?: string;
       frameBytes?: number;
       limitBytes?: number;
@@ -486,10 +497,10 @@ export class CodexAppServerClient {
     });
     // Provider diagnostics may contain private paths or credential material.
     child.stderr.resume();
-    child.on('error', () => {
-      if (current()) this.close();
+    child.on('error', (error: unknown) => {
+      if (current()) this.close(this.processFailure('process_error', error));
     });
-    child.on('exit', (code: number | null) => {
+    child.on('exit', (code: number | null, signal: NodeJS.Signals | null = null) => {
       if (!current() || this.closed) return;
       if (!this.ready && code === 78 && this.environmentLaunch) {
         this.waitingForEnvironment = true;
@@ -516,16 +527,32 @@ export class CodexAppServerClient {
         }, 10_000);
         return;
       }
-      this.close();
+      this.close(
+        new CodexTransportError('connection', {
+          reason: 'child_exit',
+          exitCode: Number.isSafeInteger(code) ? code : null,
+          signal: signal && Object.hasOwn(osConstants.signals, signal) ? signal : null,
+        }),
+      );
     });
-    child.stdin.on('error', () => {
-      if (current()) this.close();
-    });
-    child.stdout.on('error', () => {
-      if (current()) this.close();
-    });
-    child.stderr.on('error', () => {
-      if (current()) this.close();
+    for (const stream of ['stdin', 'stdout', 'stderr'] as const)
+      child[stream].on('error', (error: unknown) => {
+        if (current()) this.close(this.processFailure('stream_error', error, stream));
+      });
+  }
+
+  private processFailure(
+    reason: 'process_error' | 'stream_error',
+    error: unknown,
+    stream?: 'stdin' | 'stdout' | 'stderr',
+  ): CodexTransportError {
+    const code = error instanceof Error && 'code' in error ? error.code : undefined;
+    return new CodexTransportError('connection', {
+      reason,
+      ...(stream ? { stream } : {}),
+      ...(typeof code === 'string' && Object.hasOwn(osConstants.errno, code)
+        ? { causeCode: code }
+        : {}),
     });
   }
 
