@@ -1547,10 +1547,26 @@ export class CodexConversation {
     this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding!);
     if (!this.ready) await this.reconnect();
     const recoveryTransportGeneration = this.transportGeneration;
-    const recoveryThreadId =
+    const recoveryState = this.opts.store.read(this.opts.conversationId, this.binding!);
+    const nativeTarget =
       this.opts.transportClosure === 'terminal'
-        ? this.opts.store.recoveryProbeThreadId(this.opts.conversationId, this.binding!)
-        : this.threadId;
+        ? this.opts.store.nativeRecoveryTarget(this.opts.conversationId, this.binding!)
+        : undefined;
+    const assertRecoveryAuthority = async () => {
+      const verified = await this.verifyCurrentBinding(this.binding);
+      if (!isDeepStrictEqual(verified, this.binding))
+        throw Error('Native recovery account binding changed');
+      if (this.closed || !this.ready || recoveryTransportGeneration !== this.transportGeneration)
+        throw Error('Recovery transport is closed or replaced');
+      if (nativeTarget && this.opts.nativeExecution) {
+        this.assertNativeExecutionOwner();
+        this.opts.assertNativeExecutionCurrent!(this.opts.nativeExecution, nativeTarget.commandId);
+      }
+    };
+    if (this.opts.transportClosure === 'terminal') await assertRecoveryAuthority();
+    let nativeStatus: 'completed' | 'failed' | 'interrupted' | undefined;
+    const recoveryThreadId =
+      this.opts.transportClosure === 'terminal' ? nativeTarget?.threadId : this.threadId;
     if (
       (automaticEpoch !== undefined || this.opts.transportClosure === 'terminal') &&
       recoveryThreadId
@@ -1570,6 +1586,14 @@ export class CodexConversation {
         page.data.some((turn) => !['completed', 'failed', 'interrupted'].includes(turn.status))
       )
         throw new Error('Provider turn is still active; saved work remains queued');
+      if (nativeTarget) {
+        if (page.data.length !== 1 || page.data[0].id !== nativeTarget.turnId)
+          throw Error(
+            'Native recovery turn does not match the retained command; inspect native outcome',
+          );
+        nativeStatus = z.enum(['completed', 'failed', 'interrupted']).parse(page.data[0].status);
+        await assertRecoveryAuthority();
+      }
     }
     // A provider turn may continue after turn/start returns. Recovery progress
     // is only for workspace startup and transport reattachment, not generation.
@@ -1587,6 +1611,15 @@ export class CodexConversation {
         !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding!))
     )
       throw new Error('Automatic recovery was cancelled');
+    if (nativeTarget && nativeStatus)
+      this.opts.store.reconcileNativeRecovery(
+        this.opts.conversationId,
+        this.binding!,
+        nativeTarget,
+        nativeStatus,
+        recoveryState.threadId,
+        recoveryState.threadGeneration,
+      );
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!);
     this.paused = false;
     await this.pump();

@@ -2193,6 +2193,88 @@ export class CodexConversationStore {
     return undefined;
   }
 
+  /** Exact native target for the existing recovery owner. Missing acceptance
+   * cannot be upgraded into a known pre-effect failure or safe replay. */
+  nativeRecoveryTarget(id: string, binding: AccountBinding): CodexNativeTurnTarget | undefined {
+    const state = this.read(id, binding);
+    this.assertNoPendingThreadDispatch(id, binding);
+    this.assertNoPendingThreadOwnership(id, binding);
+    const rows = this.db
+      .prepare(
+        `SELECT id,status,attempt,native_turns,pre_dispatch_failure
+      FROM codex_commands WHERE conversation_id=? AND status NOT IN ('queued','cancelled') ORDER BY sequence DESC`,
+      )
+      .all(id) as Array<{
+      id: string;
+      status: string;
+      attempt: number;
+      native_turns: string | null;
+      pre_dispatch_failure: number;
+    }>;
+    for (const row of rows) {
+      if (row.status === 'failed' && row.attempt === 1 && row.pre_dispatch_failure === 1) continue;
+      const targets = this.nativeTurns(row.native_turns).filter(
+        (turn) => turn.attempt === row.attempt,
+      );
+      if (targets.length !== 1)
+        throw Error('Native recovery acceptance is unknown; inspect retained work');
+      const target = this.nativeTarget(row.id, targets[0]);
+      const lineage = this.db
+        .prepare(
+          'SELECT thread_id FROM codex_thread_generations WHERE conversation_id=? AND generation=?',
+        )
+        .get(id, target.generation) as { thread_id: string } | undefined;
+      if (lineage?.thread_id !== target.threadId || target.generation > state.threadGeneration)
+        throw Error('Native recovery generation changed');
+      return target;
+    }
+    return undefined;
+  }
+
+  /** Native metadata is evidence only for this exact attempt and observed
+   * lineage. Commit its terminal outcome without replaying its input or tools. */
+  reconcileNativeRecovery(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+    status: 'completed' | 'failed' | 'interrupted',
+    expectedThreadId: string | null,
+    expectedGeneration: number,
+  ) {
+    this.db
+      .transaction(() => {
+        const state = this.read(id, binding);
+        if (
+          state.threadId !== expectedThreadId ||
+          state.threadGeneration !== expectedGeneration ||
+          !isDeepStrictEqual(this.nativeRecoveryTarget(id, binding), target)
+        )
+          throw Error('Native recovery command attempt or generation changed');
+        const row = this.db
+          .prepare(
+            'SELECT status FROM codex_commands WHERE conversation_id=? AND id=? AND attempt=?',
+          )
+          .get(id, target.commandId, target.attempt) as { status: string } | undefined;
+        // A retained completion can never regress because a later phase failed.
+        if (row?.status === 'completed' && status !== 'completed')
+          throw Error('Native recovery terminal outcome conflicts with completed work');
+        this.db
+          .prepare(
+            `UPDATE codex_commands SET status=?,ambiguous=0,retryable=0
+        WHERE conversation_id=? AND id=? AND attempt=? AND status IN ('interrupted','failed')`,
+          )
+          .run(status, id, target.commandId, target.attempt);
+        if (status === 'completed')
+          this.db
+            .prepare(
+              `UPDATE codex_thread_generations SET last_completed_turn_id=?
+        WHERE conversation_id=? AND generation=? AND thread_id=?`,
+            )
+            .run(target.turnId, id, target.generation, target.threadId);
+      })
+      .immediate();
+  }
+
   /** Outcome evidence lives with its existing exact command attempt. Observers
    * cannot replace the first recorded native cause or rewrite command input. */
   recordTransportDiagnostic(

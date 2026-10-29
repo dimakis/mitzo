@@ -7684,3 +7684,88 @@ it('retains native process outcome on the existing command across transport shut
   expect(resumed.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
   expect(resumed.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
 });
+
+async function nativeRecoveryFixture() {
+  const old = await setup();
+  old.conversationOptions.transportClosure = 'terminal';
+  await old.c.send({ id: 'uncertain-native', prompt: 'retain completed work' });
+  await old.c.send({ id: 'queued-native', prompt: 'next phase' });
+  old.callbacks.onClose(
+    new CodexTransportError('connection', { reason: 'child_exit', exitCode: 1, signal: null }),
+  );
+  const restored = await setup(old.store);
+  restored.conversationOptions.transportClosure = 'terminal';
+  const request = restored.rpc.request.getMockImplementation()!;
+  return { old, restored, request };
+}
+
+it.each(['wrong_turn', 'unknown', 'active'] as const)(
+  'fences exact native recovery when outcome is %s',
+  async (outcome) => {
+    const { restored: f, request } = await nativeRecoveryFixture();
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list'
+        ? {
+            data:
+              outcome === 'unknown'
+                ? []
+                : [
+                    {
+                      id: outcome === 'wrong_turn' ? 'unrelated' : 'turn-1',
+                      status: outcome === 'active' ? 'inProgress' : 'completed',
+                    },
+                  ],
+          }
+        : request(method, params),
+    );
+    await expect(f.c.acknowledgeRecovery()).rejects.toThrow(/native|Provider/);
+    expect(f.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(f.store.read('app', f.getBinding()).recovery).toBeTruthy();
+  },
+);
+
+it('reconciles completed exact native outcome and resumes only queued phase after restart', async () => {
+  const { restored: f, request } = await nativeRecoveryFixture();
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list'
+      ? { data: [{ id: 'turn-1', status: 'completed' }] }
+      : request(method, params),
+  );
+  await f.c.acknowledgeRecovery();
+  expect(f.c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'uncertain-native', status: 'completed' },
+    { id: 'queued-native', status: 'running' },
+  ]);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.store.commandLifecycle('app', f.getBinding(), 'uncertain-native').state).toBe(
+    'completed',
+  );
+});
+
+it.each(['account', 'attempt', 'generation'] as const)(
+  'revalidates native recovery %s after metadata await before releasing saved work',
+  async (changed) => {
+    const { restored: f, request } = await nativeRecoveryFixture();
+    let revoked = false;
+    f.conversationOptions.verifyBinding = async () => {
+      if (revoked) throw Error('account revoked');
+      return f.getBinding();
+    };
+    const db = (f.store as unknown as { db: Database.Database }).db;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method !== 'thread/turns/list') return request(method, params);
+      if (changed === 'account') revoked = true;
+      if (changed === 'attempt')
+        db.prepare("UPDATE codex_commands SET attempt=attempt+1 WHERE id='uncertain-native'").run();
+      if (changed === 'generation')
+        db.prepare(
+          "UPDATE codex_conversations SET thread_generation=thread_generation+1 WHERE id='app'",
+        ).run();
+      return { data: [{ id: 'turn-1', status: 'completed' }] };
+    });
+    await expect(f.c.acknowledgeRecovery()).rejects.toThrow();
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(f.store.read('app', f.getBinding()).recovery).toBeTruthy();
+  },
+);
