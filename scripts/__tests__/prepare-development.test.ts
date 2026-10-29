@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepareDevelopment } from '../prepare-development.mjs';
@@ -9,7 +9,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 async function fixture() {
-  const cwd = await mkdtemp(join(tmpdir(), 'mitzo-development-'));
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-development-')));
   roots.push(cwd);
   await writeFile(
     join(cwd, 'package.json'),
@@ -121,4 +121,73 @@ it('validates installed tools and reads minimum versions from the project engine
   );
   await expect(prepareDevelopment({ ...f, install: true })).rejects.toThrow(/>=25.*>=12.0.0/);
   expect(f.run.mock.calls.some(([, args]) => args[0] === 'ci')).toBe(false);
+});
+
+it('owns all lifecycle write paths inside the selected task and retains its download cache', async () => {
+  const f = await fixture();
+  for (const key of ['HOME', 'TMPDIR', 'TMP', 'TEMP', 'XDG_CACHE_HOME', 'npm_config_cache'])
+    vi.stubEnv(key, '/unwritable-host-fixture');
+  for (const key of ['SSH_AUTH_SOCK', 'NPM_TOKEN', 'AWS_ACCESS_KEY_ID', 'VERCEL_TOKEN'])
+    vi.stubEnv(key, 'credential-sentinel');
+  try {
+    const result = await prepareDevelopment({ ...f, install: true });
+    const call = f.run.mock.calls.find(([, args]) => args[0] === 'ci')!;
+    for (const key of [
+      'HOME',
+      'TMPDIR',
+      'TMP',
+      'TEMP',
+      'XDG_CACHE_HOME',
+      'XDG_CONFIG_HOME',
+      'XDG_DATA_HOME',
+      'npm_config_cache',
+      'npm_config_devdir',
+      'npm_package_config_node_gyp_devdir',
+      'npm_config_prefix',
+    ]) {
+      expect(call[2].env[key], key).toMatch(new RegExp(`^${f.cwd}/\\.mitzo-devtools/`));
+      await expect(access(call[2].env[key])).resolves.toBeUndefined();
+    }
+    for (const key of ['SSH_AUTH_SOCK', 'NPM_TOKEN', 'AWS_ACCESS_KEY_ID', 'VERCEL_TOKEN'])
+      expect(call[2].env[key]).toBeUndefined();
+    expect(result.environment.tmp).toBe(call[2].env.TMPDIR);
+    await expect(access(call[2].env.npm_config_cache)).resolves.toBeUndefined();
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+it('refuses a setup directory redirected outside the task', async () => {
+  const f = await fixture();
+  const outside = await fixture();
+  await symlink(outside.cwd, join(f.cwd, '.mitzo-devtools'));
+  await expect(prepareDevelopment({ ...f, install: true })).rejects.toMatchObject({
+    phase: 'environment',
+    reason: 'workspace_escape',
+    effectStatus: 'not_started',
+  });
+  expect(f.run).not.toHaveBeenCalled();
+});
+
+it.each([
+  ['EPERM: mkdir /host/cache token=secret', 'filesystem_denied'],
+  ['npm error code EACCES', 'filesystem_denied'],
+  ['npm error code ENOSPC', 'insufficient_space'],
+  ['npm error code EAI_AGAIN token=secret', 'network_unavailable'],
+  ['gyp ERR! find Python token=secret', 'native_toolchain'],
+  [
+    'npm ci can only install when package.json and package-lock.json are in sync',
+    'lockfile_mismatch',
+  ],
+  ['unknown token=secret', 'command_failed'],
+])('retains safe dependency failure classification for %s', async (stderr, reason) => {
+  const f = await fixture();
+  f.run.mockImplementation(async (command, args) => {
+    if (args[0] === 'ci') throw Object.assign(Error('command failed: token=secret'), { stderr });
+    return { stdout: command.endsWith('npm') ? '11.18.0' : 'v24.22.0', stderr: '' };
+  });
+  const error = await prepareDevelopment({ ...f, install: true }).catch((error) => error);
+  expect(error).toMatchObject({ phase: 'dependencies', reason, effectStatus: 'may_have_changed' });
+  expect(JSON.stringify(error)).not.toContain('secret');
+  expect(error.message).not.toContain('secret');
 });
