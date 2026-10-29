@@ -1,3 +1,4 @@
+import { CodexToolFailure } from './codex-tool-failure.js';
 import { captureLocalRepositoryPreparationObjectData } from './local-repository-preparation-object-data.js';
 import { captureLocalRepositoryPreparationAuthorization } from './local-repository-preparation-authorization.js';
 
@@ -8,6 +9,18 @@ export interface LocalRepositoryPreparationEnvelope {
   stageDeadline(): number;
 }
 const totalPrepareMs = 300000;
+class PreparationDeadlineError extends CodexToolFailure {
+  constructor() {
+    super('internal_failure', {
+      stage: 'repository_preparation',
+      reason: 'deadline',
+      effectStatus: 'unknown',
+    });
+    // Fixed compatibility copy; the structured diagnostic owns classification.
+    this.message = 'Preparation deadline exceeded';
+  }
+}
+
 /** PRIVATE pending-callback bound. Native captures its genuine context INSIDE
  * action with this signal; the context retains its stricter original composite.
  * Expiry aborts work, but never returns before the actual action/cleanup joins. */
@@ -20,14 +33,11 @@ export async function withLocalRepositoryPreparationEnvelope<T>(
   const controller = new AbortController();
   const abort = () => controller.abort(originalSignal.reason);
   originalSignal.addEventListener('abort', abort, { once: true });
-  const timer = setTimeout(
-    () => controller.abort(Error('Preparation deadline exceeded')),
-    totalPrepareMs,
-  );
+  const timer = setTimeout(() => controller.abort(new PreparationDeadlineError()), totalPrepareMs);
   const current = Object.freeze(() => {
     originalSignal.throwIfAborted();
     controller.signal.throwIfAborted();
-    if (Date.now() >= deadline) throw Error('Preparation deadline exceeded');
+    if (Date.now() >= deadline) throw new PreparationDeadlineError();
   });
   const envelope = Object.freeze({
     signal: controller.signal,
