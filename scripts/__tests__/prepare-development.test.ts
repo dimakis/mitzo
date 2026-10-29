@@ -1,9 +1,13 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   access,
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rm,
   symlink,
@@ -327,4 +331,86 @@ it('refuses stale readiness without explicit installation authority', async () =
     effectStatus: 'not_started',
   });
   expect(f.run.mock.calls.some(([, args]) => ['ci', 'install'].includes(args[0]))).toBe(false);
+});
+
+it('runs a real offline lifecycle child with task-owned writes and an unwritable host home/cache', async () => {
+  const f = await fixture();
+  const host = await fixture();
+  await chmod(host.cwd, 0o555);
+  for (const key of ['HOME', 'TMPDIR', 'TMP', 'TEMP', 'XDG_CACHE_HOME', 'npm_config_cache'])
+    vi.stubEnv(key, host.cwd);
+  for (const key of [
+    'OPENAI_API_KEY',
+    'ANTHROPIC_API_KEY',
+    'SSH_AUTH_SOCK',
+    'NPM_TOKEN',
+    'VERCEL_TOKEN',
+  ])
+    vi.stubEnv(key, 'must-not-reach-lifecycle');
+  const original = f.run.getMockImplementation()!;
+  let childWrites: string[] = [];
+  f.run.mockImplementation(async (command, args, options) => {
+    if (args[0] === 'ci') {
+      const { stdout } = await promisify(execFile)(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `
+        import assert from 'node:assert/strict';
+        import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+        import { homedir, tmpdir } from 'node:os';
+        import { join, relative, isAbsolute } from 'node:path';
+        const paths = [homedir(), tmpdir(), process.env.npm_config_cache,
+          process.env.npm_package_config_node_gyp_devdir, process.env.npm_config_prefix,
+          process.env.XDG_CACHE_HOME, process.env.XDG_CONFIG_HOME, process.env.XDG_DATA_HOME];
+        for (const path of paths) {
+          const scope = relative(process.cwd(), path);
+          assert.ok(!scope.startsWith('..') && !isAbsolute(scope));
+        }
+        for (const key of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'SSH_AUTH_SOCK', 'NPM_TOKEN', 'VERCEL_TOKEN'])
+          assert.equal(process.env[key], undefined, key);
+        assert.equal(process.env.npm_package_config_node_gyp_devdir, process.env.npm_config_devdir);
+        for (const path of paths) {
+          await mkdir(path, { recursive: true });
+          await writeFile(join(path, 'offline-lifecycle-write'), 'owned');
+        }
+        await mkdtemp(join(tmpdir(), 'native-build-'));
+        console.log(JSON.stringify(paths));
+      `,
+        ],
+        { cwd: f.cwd, env: options.env },
+      );
+      childWrites = JSON.parse(stdout);
+    }
+    return original(command, args, options);
+  });
+  try {
+    expect(await prepareDevelopment({ ...f, install: true })).toMatchObject({ ready: true });
+    expect(childWrites).toHaveLength(8);
+    for (const path of childWrites)
+      expect(await readFile(join(path, 'offline-lifecycle-write'), 'utf8')).toBe('owned');
+    expect(await readdir(host.cwd)).toEqual(['package-lock.json', 'package.json']);
+  } finally {
+    await chmod(host.cwd, 0o755);
+    vi.unstubAllEnvs();
+  }
+});
+
+it('returns safe structured CLI diagnostics for a real pre-effect failure', async () => {
+  const f = await fixture();
+  await rm(join(f.cwd, 'package-lock.json'));
+  const error = await promisify(execFile)(
+    process.execPath,
+    [join(import.meta.dirname, '..', 'prepare-development.mjs')],
+    { cwd: f.cwd },
+  ).catch((error) => error);
+  expect(error.code).toBe(1);
+  expect(JSON.parse(error.stderr)).toMatchObject({
+    ready: false,
+    phase: 'manifest',
+    reason: 'missing_tool_or_file',
+    effectStatus: 'not_started',
+  });
+  expect(error.stderr).not.toContain(f.cwd);
 });
