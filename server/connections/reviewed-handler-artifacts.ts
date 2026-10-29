@@ -179,7 +179,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/prepared-repository-browser.ts':
     'aafba388d9f3a5df3475bd28415433c3088196868c44df520831c11e197e9bb7',
   '../__tests__/fixtures/prepared-repository-delivery-flow.ts':
-    'f74dfffad954ed527ff850310e6907cbff84b470630a4bbda7271b480dab84ef',
+    '90bc4310ca5b2d4c10f0bbc69747982f2d405ad7fbbe0359b0a1656fd7448a73',
   '../__tests__/github-publication-review-gate.test.ts':
     'a3420102e73761a717f1d1dd10d0386905db03957eb75d46d8e08eeeb7df238b',
   '../__tests__/github-publishing-tool.test.ts':
@@ -189,9 +189,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-publication-review.test.ts':
     '2d032cb591b2a757c9aa923e807033fa754605a35b9d086f035e57836f09ea55',
   '../__tests__/prepared-repository-delivery-flow.test.ts':
-    '1ef1870694a7cac1472adf43fa4a20813765b9f7d9416edf25a2fbeed1c7f03f',
+    'f259503bb6fa7ae581791f269c11d7ec573e3f3781a4ded4fc1f183c812b3d0a',
   '../__tests__/prepared-repository-publication-flow.test.ts':
-    '8b813fc56e6d55a0de7f39a27c89b5110118190355fcb9cce1ebf8bf6e30ab82',
+    'f74b91a3d00e208e586e18c814b2272d7ae3ee41980d1deaf233b7a8c7cb4653',
   '../github-publication-review-failure.ts':
     '32772ac35e4b846e589fd26fe6cdf2ecaa1ab0e58488cbd6e6662fb089bd52b0',
   '../ordinary-publication-review-context.ts':
@@ -1588,7 +1588,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-openshell-codex-route.ts':
     'b80e15ca0edd13075100e302a25ed8580f9212e304029bf25bee5cfa594a1c34',
   '../owned-openshell-codex-chat-admission.ts':
-    '51c8fa10fc1f3737d5fff876e44ec2b903a0a88afbbbb39736635ac9e6064ac6',
+    'b5676ba12d7f2dce1cb557fcd5af167cfa3c82045fb0175a9e98a2a42621882a',
   '../session-registry.ts': 'd91b89354926d0ec7355e73fcae4f41066008d63097ca00077f37022fc554ccf',
   '../approved-url-fetch.ts': '523bbd692e74a9c16b7fd851b6b4b1cdc6be5581e083c04f9549662e11548ee3',
   '../owned-codex-queue-control.ts':
@@ -2684,7 +2684,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/openshell-secret-vault.test.ts':
     '6430ea04caef479332891e7ecd2865418eac59bae975c5d5ab42cbf2f47bcc48',
   '../__tests__/ordinary-openshell-codex-owned-runtime.test.ts':
-    '976a0ceff0ea40079be7a389581f9564bd4b03f575e9ab27af1b9569f8c604c6',
+    'f5c24f14d05c2e4dfa4ed49fa7943245215e5c9fe0bc28ee9b3cd92fe3cc4fed',
   '../__tests__/secret-relay-artifacts.test.ts':
     '5d5cc05b95e5db78e25418520c16a13b7b68d137d002ea88d2cb468ddf2246e7',
   '../__tests__/secret-relay-browser-driver.test.ts':
@@ -2759,7 +2759,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '424dff5941daafdc29252739d8a7c183d412f0d73de8fa62bf9ca8cd886d7caa',
   '../__tests__/chat.test.ts': 'f26a7670f0089dc35068e9ff2df8cb809aa1458db46caa3bb95c8ef1799bb873',
   '../__tests__/fixtures/owned-local-codex-runtime.ts':
-    '3a1122c731aa888ddbf7a56ebff345981fd89963a16788694997b100853b23f4',
+    '3a611b28b2d1a6fe5a75e7964b4e151b62dc174e35c10aa861f54726d8f2af8d',
   '../__tests__/local-repository-base.test.ts':
     'ac2e27968c177a049a975aa7dc3364c0d6a9e0f8569b63dd507d989fb1bf1108',
   '../__tests__/local-repository-host-git.test.ts':
@@ -2866,7 +2866,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/prepared-repository-native-public.ts':
     '4ec766ceacfb7a0c2b61c79294b38e2a6e05704621e89baa7eeba0cc9ac16982',
   '../__tests__/prepared-repository-native-cold-resume.test.ts':
-    '092463535f0234ba3211c14cfdc28b017a590a0cccad1d1898cf27cb3d927471',
+    '3acbfad8d5e7f56bbfeaa1d75419c61a570b87deadea4b2aacc7b9cbcb97e7ef',
   '../__tests__/prepared-repository-native-owner-guards.test.ts':
     '67cab013db98d0ae62657aa5262cf5bf345a29a2dca94997ca6223a58fcad42c',
   '../__tests__/prepared-repository-native-public-completed.test.ts':
@@ -2889,7 +2889,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-tool-failure-diagnostics.test.ts':
     '0dbcc461862a158250390e69c67de5420c68614c4915cdbfc4421ed9f86cd561',
   '../__tests__/completion-concurrency.test.ts':
-    '53cfd8736c80f6d951a98beeef352900629c6919d30a5dc96e60562bb52af2b3',
+    '5e64e32088cdf8117cb48e232f64dca3a33906b88ef4d21316e92e6733b2d1b4',
   '../__tests__/conversation-transcript.test.ts':
     'e2ded8289d3a7b890fe865cc7e084c52f27f2f42e6ec425fc77c1743f54315b5',
   '../__tests__/local-repository-preparation-continuation.test.ts':

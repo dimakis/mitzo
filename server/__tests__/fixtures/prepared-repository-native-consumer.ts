@@ -28,6 +28,15 @@ vi.mock('../../local-repository-native-read.js', () => ({
   captureNativeLocalRepositoryReader: physical.reader,
 }));
 vi.mock('../../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
+vi.mock('../../openai-account-key-authority.js', () => ({
+  openAIAccountKeyAuthority: () => ({
+    assertReady: async () => {},
+    resolveKey: async (accountId: string) => {
+      if (accountId !== 'work') throw Error('Offline API account mismatch');
+      return 'synthetic-api-key';
+    },
+  }),
+}));
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: () => {
     throw Error('Offline fixture forbids SDK/model calls');
@@ -92,10 +101,12 @@ async function fixture(
   operatorLifetimeMs?: number,
   images?: Array<{ data: string; mediaType: string }>,
   publicationFlow = false,
+  api = false,
 ) {
   let operatorToken: string | undefined;
   const f = await ownedRuntimeFixture(chatRoute ? publicAuthCleanups : cleanups, {
     localRepository: true,
+    api,
     chatRoute,
     ...(chatRoute && publicEventPath ? { eventStorePath: publicEventPath } : {}),
     operatorLifetimeMs,
