@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.760-integrated-atomic-chat-storage';
+  'v1.0.761-await-fixture-health-navigation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../tests/support/__tests__/service-health-navigation.test.ts':
+    '11d9c3ed7e7b918b3725255d7de679661bc8e5b6da65fb8c72de2159425f1f35',
+  '../../tests/support/service-health-navigation.ts':
+    'fbed5d30b3ab4eb805340e0ca40d6fcc551571b9259c48e062009c94d8191c00',
   '../../tests/offline/discard-chat-draft.spec.ts':
     'a69c71e29df16828ebc783d0701cd1a2efaf6894d1ea1c468fb0b2cc5843ea6e',
   '../../tests/fixtures/discard-chat-draft.tsx':
@@ -1951,7 +1955,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/multi-runtime-picker.spec.ts':
     'e93cc43d0923dbfc905dfcdbf587f63f1125313ff0b85cfa9499e0b5a5c58ee8',
   '../../tests/offline/repository-preparation-recovery.spec.ts':
-    '04781303e049c6448cfae15ac67bc2d1005d6dfd9999db63c6dda90c3fc79267',
+    '2354f2471f0be98b67e34c7847708e90f51e5b52bad1a66958b188f713f89e50',
   '../__tests__/ordinary-repository-preparation-api.test.ts':
     'e9db1e025ddd3505ec60c0a9034481cd16b9c54e1d1991f70968a3645a1aad5c',
   '../command-timing-trace.ts': 'f4c8ddbcae082c29fd718f09dd4b846b5aacc25574f43d681e31a508bae76560',

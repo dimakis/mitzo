@@ -1,4 +1,5 @@
 import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
+import { navigateWithServiceHealth } from '../support/service-health-navigation';
 import { readChatStorage } from '../support/persisted-chat-storage';
 import {
   settingsHome,
@@ -460,7 +461,7 @@ for (const workspaceChoice of ['select', 'default'] as const) {
         );
       });
       for (const accountId of ['personal', 'api', 'vertex', 'gemini']) {
-        await page.goto(`/chat?offlineAccount=${accountId}`);
+        await navigateWithServiceHealth(page, () => page.goto(`/chat?offlineAccount=${accountId}`));
         await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
         expect(errors).toEqual([]);
         await settingsHome(page);
