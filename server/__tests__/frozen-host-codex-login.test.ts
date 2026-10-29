@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FrozenHostCodexLogin } from '../frozen-host-codex-login.js';
+import { privateCodexPathSnapshot } from '../codex-private-path.js';
 
 const roots: string[] = [];
 const auth = JSON.stringify({
@@ -208,4 +209,14 @@ it('reopens the original retained home from custody evidence and rejects substit
   expect(() => FrozenHostCodexLogin.reopen(f.profile, snapshot)).toThrow(
     'Host Codex login unavailable',
   );
+});
+
+it('reopens one retained chat without changing another chat’s private-root snapshot', () => {
+  const f = fixture();
+  const login = FrozenHostCodexLogin.capture(f.profile, { privateRoot: f.privateRoot });
+  const before = privateCodexPathSnapshot();
+  const reopened = FrozenHostCodexLogin.reopen(f.profile, login.custodySnapshot());
+  const after = privateCodexPathSnapshot();
+  expect(after.roots).toEqual(before.roots);
+  expect(after.isPrivate(join(reopened.privateHome, 'auth.json'))).toBe(true);
 });

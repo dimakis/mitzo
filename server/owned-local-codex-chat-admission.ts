@@ -797,8 +797,14 @@ export class OwnedLocalCodexChatAdmission {
     }
   }
   completedPreparedRepositorySourceTarget(): Readonly<CodexNativeTurnTarget> | undefined {
+    this.assertCurrentSync();
+    const target = this.owner.nativeStore?.completedPreparedRepositorySourceTarget(
+      this.owner.sessionId,
+      this.#binding,
+    );
+    if (!target) return;
     this.assertPreparedRepositoryBoundaryCurrentSync();
-    return this.owner.nativeStore?.completedNativeTurnTarget(this.owner.sessionId, this.#binding);
+    return target;
   }
   async adoptPreparedRepositoryAtBoundary(
     scope: PreparedRepositoryBarrierReadScope,

@@ -545,6 +545,9 @@ export class CodexConversationStore {
       ] as const)
         if (!toolColumns.some((column) => column.name === name))
           this.db.exec(`ALTER TABLE codex_tools ADD COLUMN ${name} ${type}`);
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS codex_tools_command_identity ON codex_tools(conversation_id,command_id,turn_id,tool_name)',
+      );
       const conversationColumns = this.db
         .prepare('PRAGMA table_info(codex_conversations)')
         .all() as Array<{ name: string }>;
@@ -2812,6 +2815,37 @@ export class CodexConversationStore {
       return;
     this.assertNoPendingThreadDispatch(id, binding);
     return Object.freeze(target);
+  }
+  /** Only successful preparation output can request a workspace handoff.
+   * Failed attempts retain their diagnostic/allocation records but do not turn
+   * an otherwise completed provider turn into an adoption attempt. Unknown
+   * outcomes still require reconciliation; this selector grants no authority.
+   */
+  completedPreparedRepositorySourceTarget(
+    id: string,
+    binding: AccountBinding,
+  ): CodexNativeTurnTarget | undefined {
+    const target = this.completedNativeTurnTarget(id, binding);
+    if (!target) return;
+    const matches = [id, target.commandId, target.turnId];
+    if (
+      this.db
+        .prepare(
+          `SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? AND turn_id=?
+           AND tool_name='PrepareLocalRepository'
+           AND (result_content IS NULL OR result_is_error IS NULL OR result_is_error NOT IN (0,1)) LIMIT 1`,
+        )
+        .get(...matches)
+    )
+      throw Error('Completed preparation result requires reconciliation');
+    return this.db
+      .prepare(
+        `SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? AND turn_id=?
+         AND tool_name='PrepareLocalRepository' AND result_content IS NOT NULL AND result_is_error=0 LIMIT 1`,
+      )
+      .get(...matches)
+      ? target
+      : undefined;
   }
   completedPreparedRepositoryResultSha256(
     id: string,
