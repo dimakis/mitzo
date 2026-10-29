@@ -483,12 +483,17 @@ it('keeps Python native-build bytecode in the task cache without invalidating ve
     return result;
   });
   const first = await prepareDevelopment({ ...f, install: true });
+  const pythonCache = f.run.mock.calls.find(([, args]) => args[0] === 'ci')![2].env
+    .PYTHONPYCACHEPREFIX;
+  expect(pythonCache).toContain(f.cwd);
+  await expect(access(pythonCache)).rejects.toMatchObject({ code: 'ENOENT' });
   f.run.mockClear();
   await expect(prepareDevelopment({ ...f, install: false })).resolves.toMatchObject({
     ready: true,
     installationIdentity: first.installationIdentity,
   });
   expect(await readdir(pythonModule)).not.toContain('__pycache__');
+  expect(f.run.mock.calls[0][2].env.PYTHONPYCACHEPREFIX).not.toBe(pythonCache);
   expect(f.run.mock.calls.some(([, args]) => args[0] === 'install' || args[0] === 'ci')).toBe(
     false,
   );

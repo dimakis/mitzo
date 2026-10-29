@@ -22,6 +22,18 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/codex-recovery-read-budget.test.ts':
+    'd0d1923a1e843f8d99c04947f58991a81a57651d9a792c18b2bc6793202279af',
+  '../__tests__/ordinary-openshell-completion-flow.test.ts':
+    '71df486b4f4db6a91436c5ed76d9cb8a705b679a9e6a2d13cf5a25f2e364e138',
+  '../__tests__/fixtures/openshell-publication-effects.ts':
+    '952715b16c6008cd562c4465421af348a6ba4f06299087fb4698c8da8fdeebd9',
+  '../__tests__/fixtures/owned-openshell-runtime.ts':
+    '8571b4384192c3df4093118728eddd5ef0c5d0e0d784a4fefc17d47c0890ecae',
+  '../../scripts/__tests__/qualify-development-offline.test.ts':
+    '17e32710c49b20021db361c13f0062b270c78f2500a37e819f47fbe5ac601f49',
+  '../../scripts/qualify-development-offline.mjs':
+    '6adc25351fb807c50092ee080c1dd3417114a35b752cdd1d3891f013ce361fc6',
   '../../tests/support/__tests__/persisted-chat-storage.test.ts':
     'f57fe593916993335995224a47a8eed92e45548a3bf16745c54920c66e60d2d9',
   '../../tests/support/__tests__/service-health-navigation.test.ts':
@@ -191,7 +203,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-delivery-flow.test.ts':
     'f259503bb6fa7ae581791f269c11d7ec573e3f3781a4ded4fc1f183c812b3d0a',
   '../__tests__/prepared-repository-publication-flow.test.ts':
-    'f74b91a3d00e208e586e18c814b2272d7ae3ee41980d1deaf233b7a8c7cb4653',
+    '3a47a1e15fbef113d10f9dc74d0c42f34c797dc403dfefc07fcc073d90c8f4ea',
   '../github-publication-review-failure.ts':
     '32772ac35e4b846e589fd26fe6cdf2ecaa1ab0e58488cbd6e6662fb089bd52b0',
   '../ordinary-publication-review-context.ts':

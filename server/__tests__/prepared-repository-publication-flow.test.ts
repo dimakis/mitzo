@@ -502,5 +502,30 @@ it.each([false, true])(
         .filter((command) => command.id === followup),
     ).toHaveLength(1);
     expect(await readFile(sourceDirty, 'utf8')).toBe('Preserve the user unfinished source work');
+    // Reopen this same already-published lineage after its later prompt. A
+    // complete provider turn and publication receipt cannot mint another PR.
+    const priorCommands = flow.f.native.commands(flow.sessionId, flow.binding);
+    const priorCustody = flow.f.native.readHostCustody(flow.sessionId, flow.binding);
+    const live = flow.chat.registry.findBySessionId(flow.sessionId)!;
+    flow.chat.registry.abort(live.clientId);
+    await vi.waitFor(() => expect(flow.chat.registry.findBySessionId(flow.sessionId)).toBeFalsy());
+    const coldPrompt = `${flow.sessionId}-cold-after-publication`;
+    expect(
+      flow.store.getState().sendLocalFirstCommand({
+        ...flow.originalBody,
+        sessionId: flow.sessionId,
+        repositoryWorkspaceId: flow.adopted.id,
+        clientMsgId: coldPrompt,
+        payload: { text: 'Inspect the same published work after cold restart.' },
+      }),
+    ).toBe(true);
+    await flow.complete(coldPrompt);
+    expect(
+      flow.f.native.commands(flow.sessionId, flow.binding).slice(0, priorCommands.length),
+    ).toEqual(priorCommands);
+    expect(flow.f.native.readHostCustody(flow.sessionId, flow.binding)).toEqual(priorCustody);
+    expect(git(target, 'rev-parse', 'HEAD')).toBe(publishedHead);
+    expect(order.filter((event) => event === 'create')).toHaveLength(1);
+    expect(reviewConfigurations).toHaveLength(2);
   },
 );
