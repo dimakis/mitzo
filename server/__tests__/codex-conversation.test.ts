@@ -7962,3 +7962,130 @@ it('retains accepted provider completion and unknown hook effects when diagnosti
     { state: 'completed', effectStatus: 'unknown' },
   );
 });
+
+it('records a pending completion-phase receipt before invoking the original hook effect', async () => {
+  let phaseSeen: unknown;
+  const f = await setup(undefined, undefined, async () => {
+    phaseSeen = f.store.completionPhase('app', f.getBinding(), 'phase-before-effect', 1);
+  });
+  await f.c.send({ id: 'phase-before-effect', prompt: 'work' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() =>
+    expect(phaseSeen).toMatchObject({
+      status: 'pending',
+      target: {
+        commandId: 'phase-before-effect',
+        attempt: 1,
+        threadId: 'provider-thread',
+        turnId: 'turn-1',
+        generation: 0,
+      },
+    }),
+  );
+  await vi.waitFor(() =>
+    expect(f.store.completionPhase('app', f.getBinding(), 'phase-before-effect', 1)?.status).toBe(
+      'completed',
+    ),
+  );
+});
+
+it('reconciles a late original hook success under fresh authority without rerunning the hook or releasing work automatically', async () => {
+  let finish!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const hook = vi.fn(() => gate);
+  const old = await setup(undefined, undefined, hook);
+  old.conversationOptions.transportClosure = 'terminal';
+  await old.c.send({ id: 'late-hook', prompt: 'work' });
+  await old.c.send({ id: 'after-late-hook', prompt: 'later' });
+  old.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  old.callbacks.onClose(new CodexTransportError('connection'));
+  old.conversationOptions.verifyBinding = async () => {
+    throw Error('original authority retired');
+  };
+  finish();
+  await vi.waitFor(() =>
+    expect(old.store.completionPhase('app', old.getBinding(), 'late-hook', 1)).toMatchObject({
+      status: 'unknown',
+      observedOutcome: 'completed',
+    }),
+  );
+  expect(old.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+  const restored = await setup(old.store);
+  restored.conversationOptions.transportClosure = 'terminal';
+  const request = restored.rpc.request.getMockImplementation()!;
+  restored.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list'
+      ? { data: [{ id: 'turn-1', status: 'completed' }] }
+      : request(method, params),
+  );
+  await restored.c.acknowledgeRecovery();
+  expect(restored.store.completionPhase('app', restored.getBinding(), 'late-hook', 1)?.status).toBe(
+    'completed',
+  );
+  expect(restored.c.queue().map(({ status }) => status)).toEqual(['completed', 'running']);
+  expect(hook).toHaveBeenCalledOnce();
+});
+
+it('keeps an unknown hook phase fenced when diagnostic persistence is unavailable', async () => {
+  const gate = new Promise<void>(() => {});
+  const old = await setup(undefined, undefined, () => gate);
+  old.conversationOptions.transportClosure = 'terminal';
+  await old.c.send({ id: 'phase-without-diagnostic', prompt: 'work' });
+  await old.c.send({ id: 'after-phase-without-diagnostic', prompt: 'later' });
+  old.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  vi.spyOn(old.store, 'recordTransportDiagnostic').mockImplementation(() => {
+    throw Error('diagnostic unavailable');
+  });
+  old.callbacks.onClose(new CodexTransportError('connection'));
+  const restored = await setup(old.store);
+  restored.conversationOptions.transportClosure = 'terminal';
+  const request = restored.rpc.request.getMockImplementation()!;
+  restored.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list'
+      ? { data: [{ id: 'turn-1', status: 'completed' }] }
+      : request(method, params),
+  );
+  await expect(restored.c.acknowledgeRecovery()).rejects.toThrow(/phase|effect/);
+  expect(restored.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+});
+
+it.each(['attempt', 'generation', 'account'] as const)(
+  'does not settle an original hook phase through changed %s authority',
+  async (changed) => {
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const f = await setup(undefined, undefined, () => gate);
+    await f.c.send({ id: 'phase-fence-change', prompt: 'work' });
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    const db = (f.store as unknown as { db: Database.Database }).db;
+    if (changed === 'attempt')
+      db.prepare("UPDATE codex_commands SET attempt=2 WHERE id='phase-fence-change'").run();
+    if (changed === 'generation')
+      db.prepare("UPDATE codex_conversations SET thread_generation=1 WHERE id='app'").run();
+    if (changed === 'account')
+      f.conversationOptions.verifyBinding = async () => {
+        throw Error('revoked');
+      };
+    finish();
+    await vi.waitFor(() => expect(f.c.isPaused()).toBe(true));
+    expect(
+      f.store.completionPhase('app', f.getBinding(), 'phase-fence-change', 1)?.status,
+    ).not.toBe('completed');
+  },
+);

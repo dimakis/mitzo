@@ -184,6 +184,25 @@ export const CodexNativeTurnTargetSchema = z.strictObject({
   generation: z.number().int().nonnegative().safe(),
 });
 export type CodexNativeTurnTarget = z.infer<typeof CodexNativeTurnTargetSchema>;
+const CompletionPhaseReceiptSchema = z.strictObject({
+  version: z.literal(1),
+  target: CodexNativeTurnTargetSchema,
+  status: z.enum(['pending', 'unknown', 'completed']),
+  observedOutcome: z.enum(['unknown', 'completed']),
+  workspaceDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  policyRevision: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  startedAt: z.number().int().nonnegative().safe(),
+  observedAt: z.number().int().nonnegative().safe().optional(),
+  reconciledAt: z.number().int().nonnegative().safe().optional(),
+});
+const CompletionPhaseHistorySchema = z
+  .array(CompletionPhaseReceiptSchema)
+  .max(100)
+  .refine((rows) => new Set(rows.map((row) => row.target.attempt)).size === rows.length);
+export type CompletionPhaseReceipt = z.infer<typeof CompletionPhaseReceiptSchema>;
 const CommandTransportDiagnosticSchema = z.strictObject({
   stage: z.enum(['native_transport', 'workspace_transition']),
   reason: z.enum([
@@ -696,6 +715,8 @@ export class CodexConversationStore {
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN native_execution_history TEXT');
       if (!columns.some((column) => column.name === 'transport_diagnostic'))
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN transport_diagnostic TEXT');
+      if (!columns.some((column) => column.name === 'completion_phases'))
+        this.db.exec('ALTER TABLE codex_commands ADD COLUMN completion_phases TEXT');
       const pendingColumns = this.db
         .prepare('PRAGMA table_info(codex_pending_thread_dispatches)')
         .all() as Array<{ name: string }>;
@@ -2294,6 +2315,168 @@ export class CodexConversationStore {
       .immediate();
   }
 
+  private completionPhases(raw: string | null): CompletionPhaseReceipt[] {
+    if (raw === null) return [];
+    if (Buffer.byteLength(raw) > 65536) throw Error('Completion phase receipt bound exceeded');
+    return CompletionPhaseHistorySchema.parse(JSON.parse(raw));
+  }
+  completionPhase(
+    id: string,
+    binding: AccountBinding,
+    commandId: string,
+    attempt: number,
+  ): CompletionPhaseReceipt | undefined {
+    this.read(id, binding);
+    const row = this.db
+      .prepare('SELECT completion_phases FROM codex_commands WHERE conversation_id=? AND id=?')
+      .get(id, commandId) as { completion_phases: string | null } | undefined;
+    return row
+      ? this.completionPhases(row.completion_phases).find(
+          (phase) => phase.target.attempt === attempt,
+        )
+      : undefined;
+  }
+  private saveCompletionPhases(id: string, commandId: string, phases: CompletionPhaseReceipt[]) {
+    const value = JSON.stringify(CompletionPhaseHistorySchema.parse(phases));
+    if (Buffer.byteLength(value) > 65536) throw Error('Completion phase receipt bound exceeded');
+    this.db
+      .prepare('UPDATE codex_commands SET completion_phases=? WHERE conversation_id=? AND id=?')
+      .run(value, id, commandId);
+  }
+  private assertCompletionPhaseTarget(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+    requireCurrentLineage = false,
+  ) {
+    const state = this.read(id, binding);
+    const row = this.db
+      .prepare('SELECT attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?')
+      .get(id, target.commandId) as { attempt: number; native_turns: string | null } | undefined;
+    const turns = row
+      ? this.nativeTurns(row.native_turns).filter((turn) => turn.attempt === target.attempt)
+      : [];
+    if (
+      !row ||
+      row.attempt !== target.attempt ||
+      turns.length !== 1 ||
+      !isDeepStrictEqual(this.nativeTarget(target.commandId, turns[0]), target) ||
+      (requireCurrentLineage &&
+        (state.threadId !== target.threadId || state.threadGeneration !== target.generation))
+    )
+      throw Error('Completion phase command attempt or generation changed');
+    return this.completionPhase(id, binding, target.commandId, target.attempt);
+  }
+  /** Original hook owner records pending custody before invoking the effect. */
+  beginCompletionPhase(
+    id: string,
+    binding: AccountBinding,
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+    threadId: string,
+    turnId: string,
+    workspaceDigest: string,
+    policyRevision?: string,
+  ): CompletionPhaseReceipt {
+    return this.db
+      .transaction(() => {
+        const state = this.read(id, binding);
+        const target = CodexNativeTurnTargetSchema.parse({
+          commandId: command.id,
+          attempt: command.attempt,
+          threadId,
+          turnId,
+          generation: state.threadGeneration,
+        });
+        const existing = this.assertCompletionPhaseTarget(id, binding, target, true);
+        if (existing) throw Error('Completion phase was already invoked; never replay the hook');
+        const row = this.db
+          .prepare('SELECT completion_phases FROM codex_commands WHERE conversation_id=? AND id=?')
+          .get(id, command.id) as { completion_phases: string | null };
+        const phase = CompletionPhaseReceiptSchema.parse({
+          version: 1,
+          target,
+          status: 'pending',
+          observedOutcome: 'unknown',
+          workspaceDigest,
+          ...(policyRevision ? { policyRevision } : {}),
+          startedAt: Date.now(),
+        });
+        this.saveCompletionPhases(id, command.id, [
+          ...this.completionPhases(row.completion_phases),
+          phase,
+        ]);
+        return phase;
+      })
+      .immediate();
+  }
+  /** Only the original invocation promise supplies effect evidence. This is
+   * historical observation, not authority to release queued work. */
+  observeCompletionPhase(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+    outcome: 'completed' | 'unknown',
+  ) {
+    this.db
+      .transaction(() => {
+        const phase = this.assertCompletionPhaseTarget(id, binding, target);
+        if (!phase) throw Error('Completion phase receipt unavailable');
+        const row = this.db
+          .prepare('SELECT completion_phases FROM codex_commands WHERE conversation_id=? AND id=?')
+          .get(id, target.commandId) as { completion_phases: string | null };
+        const phases = this.completionPhases(row.completion_phases);
+        this.saveCompletionPhases(
+          id,
+          target.commandId,
+          phases.map((current) =>
+            current.target.attempt !== target.attempt
+              ? current
+              : {
+                  ...current,
+                  status: current.status === 'completed' ? 'completed' : 'unknown',
+                  observedOutcome: current.observedOutcome === 'completed' ? 'completed' : outcome,
+                  observedAt: Date.now(),
+                },
+          ),
+        );
+      })
+      .immediate();
+  }
+  /** A fresh account/workspace authority boundary supplies this reconciliation.
+   * It consumes original success evidence and never invokes a hook or tool. */
+  reconcileCompletionPhase(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+    workspaceDigest: string,
+    policyRevision?: string,
+  ) {
+    this.db
+      .transaction(() => {
+        const phase = this.assertCompletionPhaseTarget(id, binding, target, true);
+        if (
+          !phase ||
+          phase.observedOutcome !== 'completed' ||
+          phase.workspaceDigest !== workspaceDigest ||
+          phase.policyRevision !== policyRevision
+        )
+          throw Error('Completion phase success or workspace authority remains unknown');
+        const row = this.db
+          .prepare('SELECT completion_phases FROM codex_commands WHERE conversation_id=? AND id=?')
+          .get(id, target.commandId) as { completion_phases: string | null };
+        this.saveCompletionPhases(
+          id,
+          target.commandId,
+          this.completionPhases(row.completion_phases).map((current) =>
+            current.target.attempt !== target.attempt
+              ? current
+              : { ...current, status: 'completed', reconciledAt: Date.now() },
+          ),
+        );
+      })
+      .immediate();
+  }
+
   /** Outcome evidence lives with its existing exact command attempt. Observers
    * cannot replace the first recorded native cause or rewrite command input. */
   recordTransportDiagnostic(
@@ -2355,6 +2538,7 @@ export class CodexConversationStore {
         }
       | undefined;
     if (!row) throw Error('Command lifecycle unavailable');
+    const completionPhase = this.completionPhase(id, binding, commandId, row.attempt);
     const diagnosticHistory = row.transport_diagnostic
       ? CommandTransportDiagnosticHistorySchema.parse(JSON.parse(row.transport_diagnostic))
       : [];
@@ -2380,8 +2564,9 @@ export class CodexConversationStore {
       commandId,
       attempt: row.attempt,
       state,
+      ...(completionPhase ? { completionPhase } : {}),
       effectStatus:
-        row.ambiguous === 1
+        (completionPhase && completionPhase.status !== 'completed') || row.ambiguous === 1
           ? 'unknown'
           : row.status === 'completed'
             ? 'completed'
@@ -2522,7 +2707,7 @@ export class CodexConversationStore {
       | undefined;
     const operation = this.db
       .prepare(
-        `SELECT id FROM codex_commands WHERE conversation_id=? AND recovery_acknowledged=0 AND status IN ('failed','interrupted','completed') AND transport_diagnostic IS NOT NULL ORDER BY sequence DESC LIMIT 1`,
+        `SELECT id FROM codex_commands WHERE conversation_id=? AND recovery_acknowledged=0 AND status IN ('failed','interrupted','completed') AND (transport_diagnostic IS NOT NULL OR completion_phases IS NOT NULL) ORDER BY sequence DESC LIMIT 1`,
       )
       .get(id) as { id: string } | undefined;
     const capacity = this.capacityRecovery(id, b);
@@ -4685,12 +4870,8 @@ export class CodexConversationStore {
             'SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? AND result_content IS NULL LIMIT 1',
           )
           .get(id, nativeTarget.commandId);
-        const operation = this.commandLifecycle(id, b, nativeTarget.commandId);
-        const pendingPhase = operation.diagnosticHistory?.some(
-          (entry) =>
-            entry.attempt === nativeTarget.attempt &&
-            entry.diagnostic.stage === 'workspace_transition',
-        );
+        const phase = this.completionPhase(id, b, nativeTarget.commandId, nativeTarget.attempt);
+        const pendingPhase = phase && phase.status !== 'completed';
         if (pendingTool || pendingPhase)
           throw Error(
             'Downstream phase effects require their existing owner reconciliation; saved work remains queued',
@@ -4703,7 +4884,7 @@ export class CodexConversationStore {
         this.db.prepare('DELETE FROM codex_capacity_recoveries WHERE conversation_id=?').run(id);
       this.db
         .prepare(
-          "UPDATE codex_commands SET recovery_acknowledged=1 WHERE conversation_id=? AND (status IN ('interrupted','failed') OR (status='completed' AND transport_diagnostic IS NOT NULL))",
+          "UPDATE codex_commands SET recovery_acknowledged=1 WHERE conversation_id=? AND (status IN ('interrupted','failed') OR (status='completed' AND (transport_diagnostic IS NOT NULL OR completion_phases IS NOT NULL)))",
         )
         .run(id);
       this.db

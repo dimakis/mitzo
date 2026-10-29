@@ -430,6 +430,7 @@ type ActiveCommand = {
   completions: Map<string, { first: ObjectValue; conflict?: ObjectValue }>;
   replySources: Map<string, string>;
   completionHook?: 'pending' | 'done';
+  completionPhaseTarget?: CodexNativeTurnTarget;
   providerCompletionRetained?: boolean;
   completionOperation?: Promise<void>;
   interruptRequested?: boolean;
@@ -1634,6 +1635,18 @@ export class CodexConversation {
     )
       throw new Error('Automatic recovery was cancelled');
     if (nativeTarget && nativeStatus) {
+      const phase = this.opts.store.completionPhase(
+        this.opts.conversationId,
+        this.binding!,
+        nativeTarget.commandId,
+        nativeTarget.attempt,
+      );
+      if (phase && phase.status !== 'completed' && phase.observedOutcome === 'completed')
+        await this.reconcileKnownCompletionPhase(
+          nativeTarget,
+          this.binding!,
+          this.opts.nativeExecution,
+        );
       this.opts.store.reconcileNativeRecovery(
         this.opts.conversationId,
         this.binding!,
@@ -2798,6 +2811,30 @@ export class CodexConversation {
       }
     }
   }
+  private async reconcileKnownCompletionPhase(
+    target: CodexNativeTurnTarget,
+    binding: AccountBinding,
+    policy?: CodexNativeExecutionPolicy,
+  ) {
+    const verified = await this.verifyCurrentBinding(binding);
+    if (!isDeepStrictEqual(verified, binding))
+      throw Error('Completion phase account binding changed');
+    if (policy) {
+      this.assertNativeExecutionOwner();
+      const checked: unknown = this.opts.assertNativeExecutionCurrent!(policy, target.commandId);
+      if (checked !== undefined) {
+        void Promise.resolve(checked).catch(() => {});
+        throw Error('Completion phase workspace authority must be synchronous');
+      }
+    }
+    this.opts.store.reconcileCompletionPhase(
+      this.opts.conversationId,
+      binding,
+      target,
+      createHash('sha256').update(this.opts.cwd).digest('hex'),
+      policy?.policyRevision,
+    );
+  }
   /** The provider outcome and downstream completion phase are separate. The
    * existing retirement owner retains only an accepted exact unconflicted ACK. */
   private retainConfirmedProviderCompletion(active?: ActiveCommand): boolean {
@@ -3026,19 +3063,75 @@ export class CodexConversation {
       ) {
         if (this.active.completionHook === 'pending') return;
         const active = this.active;
+        const phaseBinding = this.binding!;
+        const phasePolicy = active.nativeExecution;
+        let phase: ReturnType<CodexConversationStore['beginCompletionPhase']>;
+        try {
+          phase = this.opts.store.beginCompletionPhase(
+            this.opts.conversationId,
+            phaseBinding,
+            active.command,
+            this.threadId!,
+            active.turnId!,
+            createHash('sha256').update(this.opts.cwd).digest('hex'),
+            phasePolicy?.policyRevision,
+          );
+        } catch {
+          this.opts.onError?.(
+            new Error('Completion phase admission failed; the hook was not replayed.'),
+          );
+          this.close();
+          return;
+        }
+        active.completionPhaseTarget = phase.target;
         active.completionHook = 'pending';
         const hookAbort = new AbortController();
         let timer: ReturnType<typeof setTimeout> | undefined;
+        const observeUnknown = () => {
+          try {
+            this.opts.store.observeCompletionPhase(
+              this.opts.conversationId,
+              phaseBinding,
+              phase.target,
+              'unknown',
+            );
+          } catch {
+            /* Keep the original pending receipt fenced when custody is unavailable. */
+          }
+        };
         const timeout = new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
             hookAbort.abort();
+            observeUnknown();
             reject(new Error('Project completion hook timed out'));
           }, this.opts.completionHookTimeoutMs ?? 30_000);
         });
-        active.completionOperation = Promise.race([
-          this.opts.beforeComplete(AbortSignal.any([active.abort.signal, hookAbort.signal])),
-          timeout,
-        ])
+        let originalEffect: Promise<void>;
+        try {
+          originalEffect = Promise.resolve(
+            this.opts.beforeComplete(AbortSignal.any([active.abort.signal, hookAbort.signal])),
+          );
+        } catch (error) {
+          originalEffect = Promise.reject(error);
+        }
+        // Keep the original owner's settlement observer after timeout/retirement.
+        // It records evidence only; no late continuation can pump queued work.
+        const settled = originalEffect.then(
+          async () => {
+            this.opts.store.observeCompletionPhase(
+              this.opts.conversationId,
+              phaseBinding,
+              phase.target,
+              'completed',
+            );
+            await this.reconcileKnownCompletionPhase(phase.target, phaseBinding, phasePolicy);
+          },
+          (error: unknown) => {
+            observeUnknown();
+            throw error;
+          },
+        );
+        active.completionOperation = Promise.race([settled, timeout])
           .finally(() => {
             if (timer) clearTimeout(timer);
           })
@@ -3048,11 +3141,12 @@ export class CodexConversation {
             this.notification(method, params);
           })
           .catch(() => {
+            observeUnknown();
             if (this.active !== active || this.closed) return;
             try {
               this.opts.store.recordTransportDiagnostic(
                 this.opts.conversationId,
-                this.binding!,
+                phaseBinding,
                 active.command,
                 {
                   stage: 'workspace_transition',
