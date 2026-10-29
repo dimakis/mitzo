@@ -1,3 +1,4 @@
+import { expectPersistedChatDraft } from '../../../support/persisted-chat-storage';
 import { actToReviewedRoleSetup, actToRoleSetupDraft } from './joined-role-setup-ready';
 import { observeTaskChatReads } from './task-chat-read-observer';
 import { expect, it, vi } from 'vitest';
@@ -228,6 +229,7 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
   await firstSend(first.id, 'First lead reviews only the original plan.');
   const leadDraft = 'Keep the first lead unsent draft.';
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill(leadDraft);
+  await expectPersistedChatDraft(page, first.id, leadDraft);
   await page.getByRole('button', { name: 'Chats for this item: 2', exact: true }).click();
   await browserExpect(page.getByRole('heading', { name: 'Chats · 2', exact: true })).toBeVisible();
   const additional = await configure('Start chat', 'independent-reviewer', 'New chat');
@@ -239,6 +241,7 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
   await firstSend(additional.id, 'Independent reviewer keeps a separate discussion.');
   const extraDraft = 'Keep the reviewer unsent draft.';
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill(extraDraft);
+  await expectPersistedChatDraft(page, additional.id, extraDraft);
   await page.getByRole('button', { name: 'Chats for this item: 3', exact: true }).click();
   await browserExpect(page.getByRole('heading', { name: 'Chats · 3', exact: true })).toBeVisible();
   await openRetainedChat(first.id, () =>

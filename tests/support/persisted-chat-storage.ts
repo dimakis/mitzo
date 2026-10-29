@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 /** Inspect durable bytes through the new record layout and retained legacy layout.
  * Existing browser assertions stay about exact saved drafts/commands, independent
@@ -95,4 +95,47 @@ export async function writeChatStorage(page: Page, key: string, value: string) {
     },
     { key, value },
   );
+}
+
+/** Resolve only the exact session owner, preserving the app's plain-draft
+ * priority and its two-sided rich-draft binding fence. Never search by text.
+ */
+export function persistedChatDraftText(
+  storage: Pick<Storage, 'getItem'>,
+  id: string,
+): string | null {
+  const plain = storage.getItem('mitzo-draft-' + id);
+  if (plain !== null) return plain;
+  try {
+    const binding = (raw: string | null) => {
+      const value = JSON.parse(raw ?? 'null');
+      return value?.version === 1 &&
+        typeof value.sessionId === 'string' &&
+        value.sessionId.length > 0 &&
+        typeof value.draftId === 'string' &&
+        value.draftId.length > 0 &&
+        Object.keys(value).length === 3
+        ? (value as { version: 1; sessionId: string; draftId: string })
+        : null;
+    };
+    const target = binding(storage.getItem('mitzo-chat-draft-session:' + encodeURIComponent(id)));
+    if (!target || target.sessionId !== id) return null;
+    const source = binding(
+      storage.getItem('mitzo-chat-draft-assignment:' + encodeURIComponent(target.draftId)),
+    );
+    if (!source || source.sessionId !== id || source.draftId !== target.draftId) return null;
+    const draft = JSON.parse(storage.getItem('mitzo-chat-draft:' + target.draftId) ?? 'null');
+    return draft?.version === 1 && draft.id === target.draftId && typeof draft.text === 'string'
+      ? draft.text
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fixture setup only: confirm an unsent isolation control before its document
+ * is destroyed. Actual send, crash and recovery assertions keep their own timing.
+ */
+export async function expectPersistedChatDraft(page: Page, id: string, text: string) {
+  await expect.poll(() => readChatStorage(page, persistedChatDraftText, id)).toBe(text);
 }

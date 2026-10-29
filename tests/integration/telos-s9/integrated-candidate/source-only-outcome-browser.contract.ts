@@ -1,3 +1,4 @@
+import { expectPersistedChatDraft } from '../../../support/persisted-chat-storage';
 import { expect, it } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { join } from 'node:path';
@@ -168,6 +169,7 @@ it('opens a preexisting source-only unassigned studio directly and from actual H
       h.retainedSourceBaseline.originalText,
     );
     await composer.fill(sourceDraft);
+    await expectPersistedChatDraft(page, 'planning', sourceDraft);
     await record('actual-original-exchange-and-unsent-draft', {
       actualRoute: page.url(),
       originalText: h.retainedSourceBaseline.originalText,

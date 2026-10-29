@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.762-inspect-cold-worker-outbox';
+  'v1.0.764-bound-fixture-draft-owners';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../tests/support/__tests__/persisted-chat-storage.test.ts':
+    'f57fe593916993335995224a47a8eed92e45548a3bf16745c54920c66e60d2d9',
   '../../tests/support/__tests__/service-health-navigation.test.ts':
     '11d9c3ed7e7b918b3725255d7de679661bc8e5b6da65fb8c72de2159425f1f35',
   '../../tests/support/service-health-navigation.ts':
@@ -84,7 +86,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/support/chat-storage-bootstrap.ts':
     'e17a6d2b2a05a7be8029d3f929c212c6a69c7e6fdcf8ddd928d9529d5c9be41d',
   '../../tests/support/persisted-chat-storage.ts':
-    '479ef6b1385f88e1c73fffd87ddceb0bfa073f76270b4861c64ea2e610904f60',
+    'a0d19a04b0ce54d0c79271793658cde1f7cc0cff4a396c607939aeb374345630',
   '../../tests/offline/telos-source-navigation.spec.ts':
     '82b3a9e6a4c298be4d609c0282c2c507a7a6e4009dd19087a27145440959c912',
   '../../tests/offline/telos-source-approval.spec.ts':
@@ -2313,7 +2315,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/closed-supplemental-selection.json':
     '9c31914b2f4de2d76ac0b2cce569fe80e8e7bc2e01fc14826edc3a00e00a0e12',
   '../../tests/integration/telos-s9/integrated-candidate/coordinator-controls-browser.contract.ts':
-    'ff0180e90bef6d8791919f8690a03bb0c040e0de6eeef3fd11899ac7d64cbe40',
+    'd3c7f2679e147c8fa7df09d3591a40f1eae7279e2eb76eaee9a6d5675e94fd33',
   '../../tests/integration/telos-s9/integrated-candidate/coordinator-controls.acceptance-plan.json':
     'df5a9e25d3c067c56bf7cd511ff074dbb5146889099413f0d82a808c3fc79543',
   '../../tests/integration/telos-s9/integrated-candidate/coordinator-refresh-browser.contract.ts':
@@ -2351,11 +2353,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/ordinary-parity-browser.contract.ts':
     '6959fc2e79dab9f58c68b5f8d61f9bb2270ae2def5055f05d44eb4f50839525b',
   '../../tests/integration/telos-s9/integrated-candidate/origin-material-versions-browser.contract.ts':
-    '60e6c57928c7b1bf687c671f2d3eb33cd3b003f668f065acc369aac3d1140816',
+    'e178feeee778af64aaf1905f23a2169811cfc3f47349bcf8acfa3c7e190b1a53',
   '../../tests/integration/telos-s9/integrated-candidate/peer-messaging.required-contract.ts':
     'b7f8b3cbccd5269b21e8a3d089d039809bfdc8a76dd72d299b63e256a0da0fae',
   '../../tests/integration/telos-s9/integrated-candidate/process-restart-browser.contract.ts':
-    'fcef5f923fa2c96c786bf4faf89f0d40e600227fb38a1cad0f5142b8051183c6',
+    'cc2d10adb17a0b693cb8a609b4e898e62310bc5999af8f288f982085d2d55497',
   '../../tests/integration/telos-s9/integrated-candidate/process-restart-fixture.ts':
     '9ad7d8272497c383d4a9a07d003f342461ea84b2bd20e44bcf81d6cee47e791a',
   '../../tests/integration/telos-s9/integrated-candidate/repository-browser.contract.ts':
@@ -2371,13 +2373,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/run-ux-composition.mjs':
     '6aad5d14bf17409ccba6d37c7ba2bf1954eb183dd7295f95eee51c5bfc3e389b',
   '../../tests/integration/telos-s9/integrated-candidate/s8-chooser-browser.contract.ts':
-    'e4ab370da0abd7b3aaa576be815e66b47cdeacc05090616f771586f54eb6db91',
+    '0869834f607938d781d9f6431747115218abb4f2370f6559d050c10ff2a4464c',
   '../../tests/integration/telos-s9/integrated-candidate/source-only-outcome-browser.contract.ts':
-    '36b235a0fcf5e151f6b80a25c7153dabbb787abdf98954f3aa7756689d565e48',
+    '5d994f5fa86fd67c122abd7ce0614ea673192acfa5af3f3753bfc683d79df09e',
   '../../tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts':
     '09c6f749f26b6917123394302c7943be280051fa0def05cb63062e4d6402e1ae',
   '../../tests/integration/telos-s9/integrated-candidate/stop-isolation-browser.contract.ts':
-    '0fe482c48388c6e1f7d90ff8f90bc307167afb47c85ca62211e8b22c23d66f7a',
+    '93a53127ac898e840e8d9c40fd5c2d8af4ac80abf0fcafe72b4bc8bd45d78ba6',
   '../../tests/integration/telos-s9/integrated-candidate/supplemental-shards.mjs':
     '8c8d58ddbf0c2049b8b54ec64bfb1198afdfe57744cc913f7ff2c2876a7999b0',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-read-observer.test.ts':
@@ -2453,13 +2455,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/vitest.worker-replacement.config.ts':
     '9a0bfa6127e96158b786620dfd46af068916de278b76385fba7a064defb0a9e3',
   '../../tests/integration/telos-s9/integrated-candidate/voice-image-browser.contract.ts':
-    'ca5f9a67e760c27a762a304ca9e13289a8b7c9b2cab55ed7b2da0563df6d8d10',
+    '723d541cca87d0a70a9dd910614a493d4c31d8cee39d6d0973b2a333547d9551',
   '../../tests/integration/telos-s9/integrated-candidate/worker-process-restart-browser.contract.ts':
-    '92cbaad6c1877a15a0e0f8409683f3590444263a010709ef38682e5a60097eef',
+    'dbbefcc4214fb7bf027f7fe823aae75165f2c5c647406309df84a3d952c2e7e6',
   '../../tests/integration/telos-s9/integrated-candidate/worker-process-restart-fixture.ts':
     '4cc9777e953115958667384dba406c40d69e3130b3ca0d91dcd6cc53331660d3',
   '../../tests/integration/telos-s9/integrated-candidate/worker-replacement-browser.contract.ts':
-    'bc72f46c127ad6648b6c2ef0defe738f3827ad4f2df6e530ae3bbddf02df222c',
+    '7c4e1cf62f5ca2e1887a8a73ded0be0e3fa542b9198d11e35f8832d8ab308c6b',
   '../../tests/integration/telos-s9/integrated-candidate/worker-replacement-child-app.mjs':
     '71d73a676ef881af3da5d6c6a2e5465b01bb63a0fd166a76d5e04039792a2c08',
   '../../tests/integration/telos-s9/integrated-candidate/worker-replacement-process-fixture.ts':

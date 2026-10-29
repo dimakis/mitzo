@@ -1,4 +1,4 @@
-import { readChatStorage } from '../../../support/persisted-chat-storage';
+import { readChatStorage, expectPersistedChatDraft } from '../../../support/persisted-chat-storage';
 import { navigateToChatMetadata } from './task-chat-read-observer';
 import type {
   TelosOrdinaryWorkDelegationInput,
@@ -91,6 +91,7 @@ it('recovers the original delegated worker, bound execution task, attempt and ad
     await page.goto(front.origin + '/chat/' + peerId);
     await h.waitForPreparedConversation(peerId);
     await composer.fill(peerDraft);
+    await expectPersistedChatDraft(page, peerId, peerDraft);
     const peerBefore = await api.read('quiet-job');
     await api.execute({
       operation: 'classify',
@@ -103,6 +104,7 @@ it('recovers the original delegated worker, bound execution task, attempt and ad
     const leadDraft = 'Keep the lead planning draft; delegate only this reviewed child.';
     await h.waitForPreparedConversation(leadId);
     await composer.fill(leadDraft);
+    await expectPersistedChatDraft(page, leadId, leadDraft);
     const workerReview = await api.reviewRoleContext({
       itemId: 'recording-slice',
       role: 'worker',

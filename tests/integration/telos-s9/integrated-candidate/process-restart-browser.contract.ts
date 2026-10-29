@@ -1,4 +1,4 @@
-import { readChatStorage } from '../../../support/persisted-chat-storage';
+import { readChatStorage, expectPersistedChatDraft } from '../../../support/persisted-chat-storage';
 import { observeTaskChatReads, navigateToChatMetadata } from './task-chat-read-observer';
 import type { OrdinaryWorkspaceFirstCommand } from '@mitzo/protocol';
 import { expect, it, vi } from 'vitest';
@@ -88,6 +88,7 @@ it('preserves an actual admitted command and honest lost-result state through ab
     await page.goto(front.origin + '/chat/' + peerId);
     await h.waitForPreparedConversation(peerId);
     await composer.fill(peerDraft);
+    await expectPersistedChatDraft(page, peerId, peerDraft);
     const peerBefore = await api.read('quiet-job');
     const createdTaskResponse = await h.http('/api/tasks', {
       method: 'POST',
