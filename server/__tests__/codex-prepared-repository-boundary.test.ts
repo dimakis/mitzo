@@ -334,7 +334,7 @@ it('changes only current native workspace after the operation boundary and keeps
   }
 });
 
-it('verifies adopted-primary recovery custody without replaying its interrupted command', () => {
+it('verifies adopted-primary custody while an uncorroborated interrupted command remains fenced', () => {
   const f = fixture();
   f.store.pauseForRecovery(
     'conversation',
@@ -352,7 +352,7 @@ it('verifies adopted-primary recovery custody without replaying its interrupted 
   ).not.toThrow();
   expect(f.store.commands('conversation', binding)).toEqual(before);
   expect(f.store.read('conversation', binding).recovery).toBe(1);
-  f.store.acknowledgeRecovery('conversation', binding);
+  expect(() => f.store.acknowledgeRecovery('conversation', binding)).toThrow(/phase|effect/);
   expect(() =>
     f.store.assertPreparedRepositoryRecovery('conversation', binding, 'original'),
   ).not.toThrow();

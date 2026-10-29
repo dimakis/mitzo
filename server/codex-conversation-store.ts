@@ -1890,6 +1890,8 @@ export class CodexConversationStore {
       const current = this.read(id, b);
       if (!threadId || threadId === expectedThreadId || current.threadId !== expectedThreadId)
         throw new Error('Codex provider thread generation changed');
+      if (this.unsettledCommandEffects(id)?.phase)
+        throw Error('Completion phase custody must settle before replacing its native lineage');
       const generation = current.threadGeneration + 1;
       const now = Date.now();
       this.db
@@ -2325,32 +2327,99 @@ export class CodexConversationStore {
    * of the queue, transport mode and cached conversation recovery projection. */
   private unsettledCommandEffects(
     id: string,
-  ): Readonly<{ phase?: CompletionPhaseReceipt }> | undefined {
+  ): Readonly<{ commandId: string; phase?: CompletionPhaseReceipt }> | undefined {
     // One fresh SQL observation streams history through the canonical parser.
     // CPU is linear in retained history; memory holds one bounded phase history.
     // NULL tool receipts are read once, not once per historical command.
     const rows = this.db
       .prepare(
         `
-      WITH pending_tools AS MATERIALIZED (
-        SELECT command_id FROM codex_tools WHERE conversation_id=? AND result_content IS NULL
+      WITH scope AS (SELECT ? AS id), pending_tools AS MATERIALIZED (
+        SELECT command_id FROM codex_tools WHERE conversation_id=(SELECT id FROM scope)
+          AND result_content IS NULL
+      ), capacity_terminals AS MATERIALIZED (
+        SELECT p.command_id,p.source_command_id,p.recovery_id,p.ordinal,p.terminal,
+          json_object('commandId',c.id,'attempt',c.attempt,'threadId',a.thread_id,
+            'turnId',a.turn_id,'generation',a.generation) AS target,
+          a.thread_id,a.turn_id,a.generation,c.native_turns
+        FROM codex_capacity_continuations p
+        JOIN codex_commands c ON c.conversation_id=p.conversation_id AND c.id=p.command_id
+        JOIN codex_capacity_native_acks a ON a.conversation_id=c.conversation_id
+          AND a.command_id=c.id AND a.attempt=c.attempt
+        JOIN codex_thread_generations g ON g.conversation_id=c.conversation_id
+          AND g.generation=a.generation AND g.thread_id=a.thread_id
+        LEFT JOIN codex_thread_acceptances accepted ON accepted.conversation_id=c.conversation_id
+          AND accepted.command_id=c.id AND accepted.attempt=c.attempt
+        WHERE p.conversation_id=(SELECT id FROM scope) AND p.dispatched=1 AND p.ordinal>=0
+          AND p.thread_id=a.thread_id AND p.turn_id=a.turn_id
+          AND ((p.terminal='capacity' AND c.status='failed') OR
+            (p.terminal='completed' AND c.status='completed' AND coalesce(c.ambiguous,0)<>1))
+          AND (accepted.command_id IS NULL OR (accepted.thread_id=a.thread_id
+            AND accepted.turn_id=a.turn_id AND accepted.generation=a.generation
+            AND accepted.ownership_pending=0 AND accepted.terminal_conflict=0))
+      ), resolved_lineages AS MATERIALIZED (
+        SELECT *,row_number() OVER (PARTITION BY source_command_id,thread_id,generation
+          ORDER BY command_id) AS ordinal_choice FROM capacity_terminals
+        WHERE ordinal>0 AND command_id NOT IN (SELECT command_id FROM pending_tools)
+          AND command_id IN (SELECT id FROM codex_commands WHERE conversation_id=(SELECT id FROM scope)
+            AND status='completed')
       )
-      SELECT c.id,c.status,c.native_turns,c.completion_phases,c.ambiguous,
-        c.id IN (SELECT command_id FROM pending_tools) AS pending_tool
-      FROM codex_commands c WHERE c.conversation_id=?
+      SELECT c.id,c.status,c.attempt,c.native_turns,c.completion_phases,c.ambiguous,c.recovery_acknowledged,
+        c.id IN (SELECT command_id FROM pending_tools) AS pending_tool,
+        proof.target AS capacity_target,proof.source_command_id AS capacity_source_id,
+        root.target AS capacity_source_target,root.native_turns AS capacity_source_native_turns,
+        resolved.target AS capacity_resolved_target,resolved.native_turns AS capacity_resolved_native_turns,
+        recovery.data AS capacity_recovery,latest.target AS recovery_latest_target,
+        latest.native_turns AS recovery_latest_native_turns,
+        latest.source_command_id AS recovery_latest_source_id,
+        reservation.command_id AS reserved_child_id,reservation.source_command_id AS reserved_child_source_id,
+        reservation.recovery_id AS reserved_child_recovery_id,reservation.thread_id AS reserved_child_thread_id,
+        cv.thread_id AS current_thread_id,cv.thread_generation AS current_generation
+      FROM codex_commands c JOIN codex_conversations cv ON cv.id=c.conversation_id
+      LEFT JOIN capacity_terminals proof ON proof.command_id=c.id AND c.status='failed'
+      LEFT JOIN capacity_terminals root ON root.command_id=proof.source_command_id
+        AND root.source_command_id=root.command_id AND root.ordinal=0 AND root.terminal='capacity'
+        AND root.thread_id=proof.thread_id AND root.generation=proof.generation
+      LEFT JOIN resolved_lineages resolved ON resolved.source_command_id=root.command_id
+        AND resolved.thread_id=root.thread_id AND resolved.generation=root.generation
+        AND resolved.ordinal_choice=1
+      LEFT JOIN codex_capacity_recoveries recovery ON recovery.conversation_id=c.conversation_id
+      LEFT JOIN capacity_terminals latest ON latest.command_id=json_extract(recovery.data,'$.latestCommandId') AND latest.terminal='capacity'
+      LEFT JOIN codex_capacity_continuations reservation ON reservation.conversation_id=c.conversation_id
+        AND reservation.command_id=json_extract(recovery.data,'$.childCommandId') AND reservation.ordinal>0
+      WHERE c.conversation_id=(SELECT id FROM scope)
         AND (c.completion_phases IS NOT NULL OR c.id IN (SELECT command_id FROM pending_tools)
-          OR (c.status='completed' AND c.ambiguous=1))
+          OR (c.status IN ('failed','interrupted','completed') AND c.ambiguous=1))
       ORDER BY c.sequence
     `,
       )
-      .iterate(id, id) as Iterable<{
+      .iterate(id) as Iterable<{
       id: string;
       status: string;
+      attempt: number;
       native_turns: string | null;
       completion_phases: string | null;
       ambiguous: number | null;
       pending_tool: number;
+      recovery_acknowledged: number;
+      capacity_target: string | null;
+      capacity_source_id: string | null;
+      capacity_source_target: string | null;
+      capacity_source_native_turns: string | null;
+      capacity_resolved_target: string | null;
+      capacity_resolved_native_turns: string | null;
+      capacity_recovery: string | null;
+      recovery_latest_target: string | null;
+      recovery_latest_native_turns: string | null;
+      recovery_latest_source_id: string | null;
+      reserved_child_id: string | null;
+      reserved_child_source_id: string | null;
+      reserved_child_recovery_id: string | null;
+      reserved_child_thread_id: string | null;
+      current_thread_id: string | null;
+      current_generation: number;
     }>;
+    let firstUnsettled: Readonly<{ commandId: string }> | undefined;
     for (const row of rows) {
       const targets = this.nativeTurns(row.native_turns);
       for (const phase of this.completionPhases(row.completion_phases)) {
@@ -2367,11 +2436,73 @@ export class CodexConversationStore {
           row.ambiguous === 1 ||
           row.pending_tool
         )
-          return { phase };
+          return { commandId: row.id, phase };
       }
-      if (row.pending_tool || (row.status === 'completed' && row.ambiguous === 1)) return {};
+      if (row.pending_tool) {
+        firstUnsettled ??= { commandId: row.id };
+        continue;
+      }
+      if (['failed', 'interrupted', 'completed'].includes(row.status) && row.ambiguous === 1) {
+        const settledCapacity = (() => {
+          // Only the existing exact capacity terminal owner can qualify its failed
+          // source. A generic acknowledgement, diagnostic or native status cannot.
+          if (row.status !== 'failed' || !row.capacity_target || !row.capacity_source_target)
+            return false;
+          const target = CodexNativeTurnTargetSchema.parse(JSON.parse(row.capacity_target));
+          const source = CodexNativeTurnTargetSchema.parse(JSON.parse(row.capacity_source_target));
+          const agrees = (raw: string | null, expected: CodexNativeTurnTarget) => {
+            if (raw === null) return true; // Capacity ACK predates the separate native-turn ledger.
+            const accepted = this.nativeTurns(raw).filter(
+              (turn) => turn.attempt === expected.attempt,
+            );
+            return (
+              accepted.length === 1 &&
+              isDeepStrictEqual(this.nativeTarget(expected.commandId, accepted[0]), expected)
+            );
+          };
+          if (
+            !agrees(row.native_turns, target) ||
+            !agrees(row.capacity_source_native_turns, source)
+          )
+            return false;
+          if (row.capacity_recovery) {
+            const recovery = CapacityRecoverySchema.parse(JSON.parse(row.capacity_recovery));
+            const latest =
+              row.recovery_latest_target &&
+              CodexNativeTurnTargetSchema.parse(JSON.parse(row.recovery_latest_target));
+            if (
+              !latest ||
+              !agrees(row.recovery_latest_native_turns, latest) ||
+              recovery.sourceCommandId !== source.commandId ||
+              recovery.latestCommandId !== latest.commandId ||
+              recovery.latestAttempt !== latest.attempt ||
+              recovery.latestTurnId !== latest.turnId ||
+              row.recovery_latest_source_id !== source.commandId ||
+              recovery.threadId !== target.threadId ||
+              recovery.generation !== target.generation ||
+              recovery.threadId !== latest.threadId ||
+              recovery.generation !== latest.generation ||
+              row.current_thread_id !== recovery.threadId ||
+              row.current_generation !== recovery.generation ||
+              (recovery.childCommandId &&
+                (recovery.childCommandId !== row.reserved_child_id ||
+                  row.reserved_child_source_id !== source.commandId ||
+                  row.reserved_child_recovery_id !== recovery.id ||
+                  row.reserved_child_thread_id !== recovery.threadId))
+            )
+              return false;
+          } else if (row.capacity_resolved_target) {
+            const resolved = CodexNativeTurnTargetSchema.parse(
+              JSON.parse(row.capacity_resolved_target),
+            );
+            if (!agrees(row.capacity_resolved_native_turns, resolved)) return false;
+          } else if (row.recovery_acknowledged !== 1) return false;
+          return true;
+        })();
+        if (!settledCapacity) firstUnsettled ??= { commandId: row.id };
+      }
     }
-    return undefined;
+    return firstUnsettled;
   }
   /** Retirement can add a fence when historical evidence is unreadable. It
    * must still retain the authoritative provider outcome. Release paths use
@@ -2869,12 +3000,18 @@ export class CodexConversationStore {
       | undefined;
     const operation = this.db
       .prepare(
-        `SELECT id FROM codex_commands c WHERE conversation_id=? AND status IN ('failed','interrupted','completed') AND ((recovery_acknowledged=0 AND (transport_diagnostic IS NOT NULL OR completion_phases IS NOT NULL)) OR EXISTS (SELECT 1 FROM codex_tools t WHERE t.conversation_id=c.conversation_id AND t.command_id=c.id AND t.result_content IS NULL)) ORDER BY sequence DESC LIMIT 1`,
+        `SELECT id,EXISTS (SELECT 1 FROM codex_capacity_continuations cp WHERE cp.conversation_id=c.conversation_id AND cp.command_id=c.id AND cp.terminal='capacity') AS capacity_candidate FROM codex_commands c WHERE conversation_id=? AND status IN ('failed','interrupted','completed') AND (ambiguous=1 OR (recovery_acknowledged=0 AND (transport_diagnostic IS NOT NULL OR completion_phases IS NOT NULL)) OR EXISTS (SELECT 1 FROM codex_tools t WHERE t.conversation_id=c.conversation_id AND t.command_id=c.id AND t.result_content IS NULL)) ORDER BY sequence DESC LIMIT 1`,
       )
-      .get(id) as { id: string } | undefined;
+      .get(id) as { id: string; capacity_candidate: number } | undefined;
+    // Only a possible capacity exception needs the full retained-effects audit.
+    // Reuse the actual custody observation; do not expose a stale failed source
+    // or hide older unknown work behind a newer qualified capacity receipt.
+    const operationId = operation?.capacity_candidate
+      ? this.unsettledCommandEffects(id)?.commandId
+      : operation?.id;
     const capacity = this.capacityRecovery(id, b);
     return {
-      ...(operation ? { operation: this.commandLifecycle(id, b, operation.id) } : {}),
+      ...(operationId ? { operation: this.commandLifecycle(id, b, operationId) } : {}),
       ...(capacity
         ? {
             capacityRecovery: {
@@ -5031,7 +5168,7 @@ export class CodexConversationStore {
         .run(...(ownerKind === undefined ? [] : [ownerKind]));
       const phaseOwners = this.db
         .prepare(
-          `SELECT id AS conversation_id FROM codex_conversations WHERE id IN (SELECT conversation_id FROM codex_commands WHERE completion_phases IS NOT NULL OR (status='completed' AND ambiguous=1) UNION SELECT conversation_id FROM codex_tools WHERE result_content IS NULL)` +
+          `SELECT id AS conversation_id FROM codex_conversations WHERE id IN (SELECT conversation_id FROM codex_commands WHERE completion_phases IS NOT NULL OR (status IN ('failed','interrupted','completed') AND ambiguous=1) UNION SELECT conversation_id FROM codex_tools WHERE result_content IS NULL)` +
             (ownerKind === undefined ? '' : ' AND owner_kind=?'),
         )
         .all(...(ownerKind === undefined ? [] : [ownerKind])) as Array<{ conversation_id: string }>;
@@ -5090,8 +5227,10 @@ export class CodexConversationStore {
       const capacity = this.capacityRecovery(id, b);
       if (capacity && capacity.status !== 'stopped')
         throw new Error('Capacity recovery must be stopped before continuing queued work');
-      if (capacity)
+      if (capacity) {
+        this.assertCapacityIdentity(id, b, capacity);
         this.db.prepare('DELETE FROM codex_capacity_recoveries WHERE conversation_id=?').run(id);
+      }
       this.db
         .prepare(
           "UPDATE codex_commands SET recovery_acknowledged=1 WHERE conversation_id=? AND (status IN ('interrupted','failed') OR (status='completed' AND (transport_diagnostic IS NOT NULL OR completion_phases IS NOT NULL)))",

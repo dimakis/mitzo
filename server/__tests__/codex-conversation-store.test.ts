@@ -454,7 +454,8 @@ it('records tool claims before execution and never repeats an uncertain effect',
   expect(s.claimTool('c', binding, 'one', 'call-1')).toBe(true);
   expect(s.claimTool('c', binding, 'one', 'call-1')).toBe(false);
   s.recoverAtStartup();
-  s.acknowledgeRecovery('c', binding);
+  expect(() => s.acknowledgeRecovery('c', binding)).toThrow(/phase|effect/);
+  expect(s.read('c', binding).recovery).toBe(1);
   expect(s.claimTool('c', binding, 'one', 'call-1')).toBe(false);
   expect(() => s.claimTool('c', binding, 'one', 'call-2')).toThrow('running');
   s.close();
@@ -1496,7 +1497,7 @@ it('retains transport diagnostics per attempt and projects the current one into 
   s.close();
 });
 
-it('does not advertise acknowledged historical uncertainty as the current recovery action', () => {
+it('retains historical uncertainty as the recovery action despite an acknowledged projection', () => {
   const { path } = setup();
   const s = new CodexConversationStore(path);
   s.create('c', binding, '/workspace');
@@ -1513,9 +1514,13 @@ it('does not advertise acknowledged historical uncertainty as the current recove
   });
   s.pauseForRecovery('c', binding, command.id, 'interrupted', 'resume', undefined, false, true);
   expect(s.queueSummary('c', binding).operation?.nextAction).toBe('reconcile_native_outcome');
-  s.acknowledgeRecovery('c', binding);
+  expect(() => s.acknowledgeRecovery('c', binding)).toThrow(/phase|effect/);
+  const writer = new Database(path);
+  writer.prepare('UPDATE codex_commands SET recovery_acknowledged=1').run();
+  writer.close();
   s.enqueue('c', binding, { id: 'new-work', prompt: 'new explicit task' });
-  expect(s.queueSummary('c', binding).operation).toBeUndefined();
+  expect(s.queueSummary('c', binding).operation?.commandId).toBe('old-loss');
+  expect(() => s.claimNext('c', binding)).toThrow(/phase|effect/);
   expect(s.commandLifecycle('c', binding, command.id).diagnostic).toMatchObject({ exitCode: 1 });
   s.close();
 });

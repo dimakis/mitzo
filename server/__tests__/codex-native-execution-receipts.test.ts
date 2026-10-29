@@ -827,3 +827,78 @@ it('retains explicit completed-effect uncertainty when its phase receipt is unav
   f.store.enqueue('conversation', binding, { id: 'fresh-after-explicit-unknown', prompt: 'later' });
   expect(() => f.store.claimNext('conversation', binding)).toThrow(/phase|effect/);
 });
+
+it.each(['interrupted', 'failed'] as const)(
+  'fences legacy %s ambiguity without a phase or tool receipt across acknowledgement and restart',
+  (status) => {
+    const f = fixture();
+    f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+    f.store.pauseForRecovery(
+      'conversation',
+      binding,
+      f.command.id,
+      status,
+      'resume',
+      undefined,
+      false,
+      true,
+    );
+    expect(() => f.store.acknowledgeRecovery('conversation', binding)).toThrow(/phase|effect/);
+    const writer = new Database(f.path);
+    writer.prepare('UPDATE codex_conversations SET recovery=0').run();
+    writer.prepare('UPDATE codex_commands SET recovery_acknowledged=1').run();
+    writer.close();
+    f.store.recoverAtStartup();
+    expect(f.store.read('conversation', binding).recovery).toBe(1);
+    f.store.enqueue('conversation', binding, { id: 'legacy-followup', prompt: 'later' });
+    expect(() => f.store.claimNext('conversation', binding)).toThrow(/phase|effect/);
+    f.store.cancelQueued('conversation', binding, 'legacy-followup');
+    expect(f.store.read('conversation', binding).recovery).toBe(1);
+  },
+);
+
+it('projects completed ambiguity without diagnostic, hook or tool bytes as retained inspection work', () => {
+  const f = fixture();
+  f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+  f.store.finish('conversation', binding, f.command.id, 'completed', 'turn', true);
+  const writer = new Database(f.path);
+  writer.prepare('UPDATE codex_commands SET recovery_acknowledged=1').run();
+  writer.close();
+  expect(f.store.queueSummary('conversation', binding)).toMatchObject({
+    operation: {
+      commandId: f.command.id,
+      state: 'completed',
+      effectStatus: 'unknown',
+      nextAction: 'inspect_retained_work',
+    },
+  });
+});
+
+it('does not let an older opaque unknown hide actual phase custody from the lineage writer', () => {
+  const f = fixture();
+  f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+  f.store.beginCompletionPhase(
+    'conversation',
+    binding,
+    f.command,
+    'thread',
+    'turn',
+    'f'.repeat(64),
+  );
+  const writer = new Database(f.path);
+  writer.prepare('UPDATE codex_commands SET sequence=5 WHERE id=?').run(f.command.id);
+  writer
+    .prepare(
+      `INSERT INTO codex_commands(sequence,conversation_id,id,input,status,ambiguous)
+    VALUES(1,'conversation','older-opaque',?,'interrupted',1)`,
+    )
+    .run(JSON.stringify({ id: 'older-opaque', prompt: 'old' }));
+  writer.close();
+  expect(() =>
+    f.store.replaceThread('conversation', binding, 'thread', 'new-thread', 'tool_surface_change'),
+  ).toThrow(/phase|custody/);
+  expect(f.store.read('conversation', binding)).toMatchObject({
+    threadId: 'thread',
+    threadGeneration: 0,
+  });
+});

@@ -1950,6 +1950,34 @@ export class CodexConversation {
     return createHash('sha256').update(JSON.stringify(this.dynamicToolsOption())).digest('hex');
   }
 
+  /** Preserve the original phase target until its exact owner has settled.
+   * A new tool surface or attempt home must not retire that recovery lineage. */
+  private async settleCompletionBeforeReplacement() {
+    const binding = this.binding!;
+    const generation = this.transportGeneration;
+    const target = this.opts.store.completionPhaseRecoveryTarget(this.opts.conversationId, binding);
+    if (!target) return;
+    const phase = this.opts.store.completionPhase(
+      this.opts.conversationId,
+      binding,
+      target.commandId,
+      target.attempt,
+    );
+    if (
+      phase?.observedOutcome !== 'completed' ||
+      this.opts.store.commandStatus(this.opts.conversationId, binding, target.commandId) !==
+        'completed'
+    )
+      throw Error('Completion phase effects remain unknown; preserve the original native lineage');
+    await this.reconcileKnownCompletionPhase(target, binding, this.opts.nativeExecution);
+    if (
+      this.closed ||
+      generation !== this.transportGeneration ||
+      this.opts.store.completionPhaseRecoveryTarget(this.opts.conversationId, binding)
+    )
+      throw Error('Completion phase custody changed before native lineage replacement');
+  }
+
   private async replaceAttemptHome(
     client: Rpc,
     state: ReturnType<CodexConversationStore['read']>,
@@ -1957,6 +1985,7 @@ export class CodexConversation {
     toolSurfaceRevision: string,
   ) {
     if (this.closed) throw new Error('Attempt continuity initialization closed');
+    await this.settleCompletionBeforeReplacement();
     if (!state.threadId) throw new Error('Attempt continuity predecessor is unavailable');
     this.savedSourceContext();
     const entries = this.opts.loadConversationHistory?.();
@@ -2016,6 +2045,7 @@ export class CodexConversation {
     threadOptions: ReturnType<CodexConversation['threadOptions']>,
     toolSurfaceRevision: string,
   ) {
+    await this.settleCompletionBeforeReplacement();
     if (!state.threadId) throw new Error('Codex provider thread is unavailable');
     const rolloverContext = this.conversationRolloverContext();
     const result = z
@@ -2110,6 +2140,7 @@ export class CodexConversation {
     state: ReturnType<CodexConversationStore['read']>,
     threadOptions: ReturnType<CodexConversation['threadOptions']>,
   ) {
+    await this.settleCompletionBeforeReplacement();
     if (!state.threadId) throw new Error('Codex provider thread is unavailable');
     const lastCompletedTurnId = await this.latestCompletedProviderTurn(
       client,
