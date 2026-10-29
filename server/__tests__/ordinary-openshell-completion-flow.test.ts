@@ -149,6 +149,7 @@ it.each([false, true])(
     f.owners.workspace = workspaces;
     f.owners.workspaceId = prepared.id;
     f.owners.taskRoot = taskRoot;
+    if (!('repositoryWorkspaceId' in f.meta)) throw Error('Repository workspace is required');
     f.meta.repositoryWorkspaceId = prepared.id;
     vi.spyOn(
       await import('../repository-workspace-runtime.js'),
@@ -284,7 +285,7 @@ it.each([false, true])(
     cleanups.push(() => lifecycle.store.close());
     let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
     cleanups.push(() => query?.close());
-    const dispatch: typeof f.owners.dispatch = async (input) => {
+    const dispatch = vi.fn(async (input: Parameters<typeof f.owners.dispatch>[0]) => {
       if (query) {
         await getCodexRuntime(session)!.send({
           id: input.commandId,
@@ -319,7 +320,7 @@ it.each([false, true])(
           streamErrors.push(error);
         }),
       );
-    };
+    });
     f.dispatch.mockImplementation(dispatch);
     await f.driver.admit(f.meta, f.command('first'));
     const original = native.readArtifactRuntime('session', f.account);

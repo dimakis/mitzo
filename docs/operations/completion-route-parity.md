@@ -156,9 +156,34 @@ original Node 22/npm 11.11 tools did not satisfy the project contract and were n
 silently accepted as Node 24/npm 11.18.
 
 The Mac remained at pressure level 2 with 48 GiB physical RAM and stable/decreasing
-swap allocation during focused checks. Commands used a 1 GiB Node heap and one local
-test worker. Full all-source compilation, builds, browser/native qualification and
-combined-result CI remain required; offline runtime tests do not replace them.
+swap allocation during focused checks. Initial commands used a 1 GiB Node heap and
+one local test worker. The user then authorized heavier local validation: a fresh
+check showed about 12 GiB inactive and 7 GiB file-backed pages (overlapping
+categories), stable swap and no new swap-outs. A command-local 4 GiB heap completed
+the all-source server typecheck, server build/artifact checks, frontend typecheck
+and production bundle build. The prepared-consumer inventory now requires the
+actual five delivery and two publication cases; independent Vitest discovery
+matches every exact name. Combined-result CI and remaining platform qualification
+remain required; local offline tests do not replace their gates.
+
+The broader local run passed 1,794 tests across 83 files in 85.94 seconds. Its two
+opt-in skips were the component benchmark (separate repeated performance evidence
+is above) and the physical Claude contract. The latter then passed separately in
+its cached, unique, networkless container, checking controller/Landlock isolation
+and the pinned Claude version without inference. The native API-start opt-in also
+passed using checksum-verified Codex 0.160.0 and its matching code-mode helper;
+synthetic credentials and interception stop before native `turn/start`. All 38
+offline queue/approval/device-continuity browser checks passed in 33.7 seconds
+across mobile WebKit, mobile Chromium and desktop Chromium; representative mobile
+queue and approval captures were inspected. Full lint passed with zero errors
+(22 warnings) and the repository format check passed.
+
+The complete unsharded prepared-consumer owner then passed all seven cases through
+its actual reporter/exit validator: five delivery cases took 185.11 seconds and
+both publication/cold-recovery cases took 332.88 seconds. Fresh-process wall times
+were 187.96 and 335.51 seconds respectively. Both accounts retained the original
+published lineage after the later prompt and cold reopen. The evidence JSON keeps
+the exact case results and log hashes; these offline passes do not release sessions.
 
 No staging, production mutation/deployment, real provider calls, session resume or
 queue release occurred. Runtime adoption and live account/engine/placement behavior

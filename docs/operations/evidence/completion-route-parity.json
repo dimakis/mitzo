@@ -447,5 +447,142 @@
       "integrity": "sha512-T67M4L5wNm0cZ7EBLErcEkY1SmzEW/WJ+SADBzsFUY1UdAPfFHXFQtZ6SEXiK0+vzXysCvAsepbMaBTwnrAD+w==",
       "filename": "npm-11.18.0.tgz"
     }
-  ]
+  ],
+  "localValidation": {
+    "heapMiB": 4096,
+    "workerCountPerTestProcess": 1,
+    "authorization": "User requested heavier local validation after initial focused checks",
+    "memory": {
+      "physicalGiB": 48,
+      "pressure": 2,
+      "swapMiBBefore": 9725.69,
+      "swapMiBAfter": 9629.69,
+      "swapoutsBefore": 13193265,
+      "swapoutsAfter": 13193265
+    },
+    "checks": {
+      "allSourceServerTypecheck": "passed",
+      "serverBuildAndSourceArtifacts": "passed",
+      "frontendTypecheckAndProductionBundle": "passed",
+      "expandedRegressions": {
+        "passed": 1794,
+        "skipped": 2,
+        "filesPassed": 83,
+        "durationSeconds": 85.94,
+        "skippedScopes": [
+          "opt-in component benchmark",
+          "physical Claude contract; subsequently passed separately"
+        ]
+      },
+      "offlineBrowsers": {
+        "passed": 38,
+        "durationSeconds": 33.7,
+        "projects": ["mobile-webkit", "mobile-chromium", "desktop-chromium"],
+        "representativeCapturesInspected": true
+      },
+      "physicalClaudeContract": "passed; unique container, no network, no mounts, no inference",
+      "nativeApiStartup": "passed; verified0.160.0+helper, synthetic key, turn/start intercepted",
+      "preparedInventory": "Vitest discovery matches5delivery+2publication exact names",
+      "lint": {
+        "errors": 0,
+        "warnings": 22
+      },
+      "format": "passed",
+      "preparedConsumers": [
+        {
+          "name": "delivery",
+          "file": "server/__tests__/prepared-repository-delivery-flow.test.ts",
+          "cases": 5,
+          "status": "passed",
+          "processDurationMs": 187955,
+          "exit": {
+            "code": 0,
+            "signal": null,
+            "interruptedBy": null,
+            "timestamp": "2026-10-29T18:43:11.164Z"
+          },
+          "assertions": [
+            {
+              "fullName": "recovers exact delivery with API account=false after adoption, later prompts and lost responses",
+              "status": "passed",
+              "durationMs": 54160.839250000005
+            },
+            {
+              "fullName": "recovers exact delivery with API account=true after adoption, later prompts and lost responses",
+              "status": "passed",
+              "durationMs": 55925.985583
+            },
+            {
+              "fullName": "admits a deliberately retried never-admitted stale-workspace prompt through canonical adoption after capability deployment=false without rewriting its frozen browser body",
+              "status": "passed",
+              "durationMs": 22024.47275
+            },
+            {
+              "fullName": "admits a deliberately retried never-admitted stale-workspace prompt through canonical adoption after capability deployment=true without rewriting its frozen browser body",
+              "status": "passed",
+              "durationMs": 24677.989208999992
+            },
+            {
+              "fullName": "recovers an exact already bridged command only while its earlier attempt never crossed the native dispatch boundary",
+              "status": "passed",
+              "durationMs": 28293.95199999999
+            }
+          ],
+          "reportSha256": "1134d5d6515862720727bfd1c633de68ab0514be3de80cfc6cd9d4de2058dd51",
+          "exitSha256": "e87e58b5485002d952e5665cea0e301d74535e9ebc1dc6f8aecfded9193fb4c6"
+        },
+        {
+          "name": "publication",
+          "file": "server/__tests__/prepared-repository-publication-flow.test.ts",
+          "cases": 2,
+          "status": "passed",
+          "processDurationMs": 335508,
+          "exit": {
+            "code": 0,
+            "signal": null,
+            "interruptedBy": null,
+            "timestamp": "2026-10-29T18:48:46.680Z"
+          },
+          "assertions": [
+            {
+              "fullName": "commits, reviews, approves and publishes with API account=false, then accepts another prompt",
+              "status": "passed",
+              "durationMs": 168144.119083
+            },
+            {
+              "fullName": "commits, reviews, approves and publishes with API account=true, then accepts another prompt",
+              "status": "passed",
+              "durationMs": 164706.009125
+            }
+          ],
+          "reportSha256": "d6cd3f4570cb3b514f20f8f1ebc68cd246245ed11b5fd67621f8083a40929f79",
+          "exitSha256": "4719e2d10131be705b5590332ad1bb20776a728d19f80714e4f66b575660ecea"
+        }
+      ]
+    },
+    "logSha256": {
+      "local-server-typecheck.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "local-build-all.txt": "3d9912243afd7b2582a34539ef0b21bcdc60a7d4b4cd879d62cc48ca4ce21d0a",
+      "local-expanded-regressions.json": "e7fd3b304ff1697aa0bdebec146ec9801a1f54ef08c93fd62c1ec1ae076a99cf",
+      "local-browser-continuity.txt": "448fdc60a256a7d56cbb686948b4a5669a360a2d732cb2d0f20169d9576d3bba",
+      "local-claude-physical.txt": "48319a6913f06aeb554c33f6d44beb936fe079798f4b990936427f4e0c6c4f3f",
+      "local-offline-native-start.txt": "ec2193e396d5898035da11daadba5f90ee0b81b0c3bd2a17d18628810058cec8",
+      "local-lint.txt": "1cab5ec4678b7314a84c691e3619e699797e93c539b2dddd3f0e42da0a2386c7",
+      "local-format.txt": "5303ea44b65cefccaaa4597c747e0fb27ff9ba2157c37149e3b060e418c1b6c4",
+      "prepared-inventory-discovered.json": "720ad6019c652cbd65c4555a3feb55c32d153fa070d19788ae528b193352d0cb",
+      "prepared-inventory-green.txt": "992e89c05c521a218ee36e13eb79d06e4991ec0fce716c6e5fac8bf2e7126d1c",
+      "local-prepared-consumers.txt": "83689f1dd8fea1152a691c56f53048324cc6765c36f905b1f4c79e4ab63278c9"
+    },
+    "nativeArtifactQualification": {
+      "release": "rust-v0.160.0",
+      "source": "https://github.com/openai/codex/releases/tag/rust-v0.160.0",
+      "archives": {
+        "codex-aarch64-apple-darwin.tar.gz": "07c3c7ca376a8f791115342f53138dda37e97cfa29b8125d0652d93784894b5d",
+        "codex-code-mode-host-aarch64-apple-darwin.tar.gz": "dc70fbc76e9dcae5ae3d5424808c8e7c2df5e0db4ac827ddd4fbe339015aad75"
+      },
+      "binarySha256": "112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b",
+      "helperSha256": "679eedaea70529aa1cffc9bc0a0788c186412663544fa76c09d63b57f383a65a",
+      "inferenceCalls": 0
+    }
+  }
 }

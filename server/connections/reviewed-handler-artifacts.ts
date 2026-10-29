@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.766-completion-route-parity';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.767-completion-route-parity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-recovery-read-budget.test.ts':
     'd0d1923a1e843f8d99c04947f58991a81a57651d9a792c18b2bc6793202279af',
   '../__tests__/ordinary-openshell-completion-flow.test.ts':
-    '71df486b4f4db6a91436c5ed76d9cb8a705b679a9e6a2d13cf5a25f2e364e138',
+    '640195a3c1d28539eb95828c072d5dbc8fcaeafb0b486f5f71ea316b0cd83d66',
   '../__tests__/fixtures/openshell-publication-effects.ts':
     '952715b16c6008cd562c4465421af348a6ba4f06299087fb4698c8da8fdeebd9',
   '../__tests__/fixtures/owned-openshell-runtime.ts':
@@ -63,7 +63,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/pr-landing-reconcile.yml':
     'c4f43fcbd69bc4bbd657f2d89982b307c158bc7363d118f436eb2083a6daf91a',
   '../../scripts/ci-prepared-consumer-gate.mjs':
-    '9fe8ee3723c18bbf7315c006fea728441f421dbb41eb5c20607f8d6859e6aead',
+    '2e073dd2a187060424fcb3d4fd1e79c1c91723bfbecf668a3bf2fe252175a0ef',
   '../../scripts/pr-landing.mjs':
     'b9b053bd41da755db77d8505869f3f15ccdd4e556be5bfed9a355e379b992769',
   '../../scripts/__tests__/ci-compile-preflight.test.ts':
@@ -149,9 +149,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/joined-role-setup-ready.test.ts':
     '135c046f446cccdc941332395629b33db95e266fc5625c8b20ce45a300f8c2fb',
   '../../scripts/ci-prepared-consumers.mjs':
-    '6d186ab76eb13ac61a1b60a1b0abbe8187f01976180ff00f2092ad2bb5708583',
+    '6520027b129fa9038010983fcb47a3c31a0e03c00354ae868850b4794de4a6de',
   '../../scripts/__tests__/ci-prepared-consumers.test.ts':
-    'c317d609def84023fbc43e51d4e6b6b6806f4bb8d4302bd74cbcca51b06bf516',
+    '5c9b5a005cb4aaa00e1f0aaaad1dd0991579ea40f6e42f50ed8ff30612847b7f',
   '../../scripts/__tests__/ci-native-repository-workflows.test.ts':
     '01ddf5c74d6eb75940b193e2f72ac50f6c9c6d75f25f6b664a38b420b9a83f72',
   '../../scripts/ci-native-repository-workflows.mjs':
@@ -2839,7 +2839,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    'bf2726c75b351b0caf62930516dded82009805df46b6f7a23cf46c0fbfa76599',
+    'a4282e1f9ccd3715745739319bd7a7d7d32a982911b467e4fc33bd364c8d5c13',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',

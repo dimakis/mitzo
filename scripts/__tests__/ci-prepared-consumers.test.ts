@@ -33,7 +33,7 @@ function report(c: (typeof preparedConsumerCases)[number]) {
     ],
   };
 }
-it('runs exactly delivery4 + publication1 serially in fresh one-worker commands with actual reports', async () => {
+it('runs exactly delivery5 + publication2 serially in fresh one-worker commands with actual reports', async () => {
   const root = fixture();
   let calls = 0;
   const summary = await runPreparedConsumers({
@@ -58,7 +58,7 @@ it('runs exactly delivery4 + publication1 serially in fresh one-worker commands 
     },
   });
   expect(calls).toBe(2);
-  expect(summary.map((r: { cases: number }) => r.cases)).toEqual([4, 1]);
+  expect(summary.map((r: { cases: number }) => r.cases)).toEqual([5, 2]);
 });
 it.each([
   'skip',
