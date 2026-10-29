@@ -2817,17 +2817,22 @@ export class CodexConversation {
       terminal.data.turn.id !== active.turnId
     )
       return false;
-    if (active.completionHook === 'pending')
-      this.opts.store.recordTransportDiagnostic(
-        this.opts.conversationId,
-        this.binding,
-        active.command,
-        {
-          stage: 'workspace_transition',
-          reason: 'completion_hook_pending',
-          ...this.diagnosticRuntimeIdentity(),
-        },
-      );
+    if (active.completionHook === 'pending') {
+      try {
+        this.opts.store.recordTransportDiagnostic(
+          this.opts.conversationId,
+          this.binding,
+          active.command,
+          {
+            stage: 'workspace_transition',
+            reason: 'completion_hook_pending',
+            ...this.diagnosticRuntimeIdentity(),
+          },
+        );
+      } catch {
+        /* Optional diagnostics cannot erase the exact provider completion. */
+      }
+    }
     this.opts.store.finish(
       this.opts.conversationId,
       this.binding,

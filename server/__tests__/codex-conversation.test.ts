@@ -7937,3 +7937,28 @@ it('omits oversized optional diagnostic correlation without replacing the origin
     })?.content,
   ).toBe(text);
 });
+
+it('retains accepted provider completion and unknown hook effects when diagnostic persistence throws', async () => {
+  let reject!: (error: Error) => void;
+  const hook = new Promise<void>((_resolve, fail) => {
+    reject = fail;
+  });
+  const f = await setup(undefined, undefined, () => hook);
+  await f.c.send({ id: 'diagnostic-storage-fault', prompt: 'offline' });
+  await f.c.send({ id: 'queued-storage-fault', prompt: 'later' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  vi.spyOn(f.store, 'recordTransportDiagnostic').mockImplementation(() => {
+    throw Error('diagnostic unavailable');
+  });
+  f.callbacks.onClose(
+    new CodexTransportError('connection', { reason: 'child_exit', exitCode: 1, signal: null }),
+  );
+  reject(Error('late abort'));
+  expect(f.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+  expect(f.store.commandLifecycle('app', f.getBinding(), 'diagnostic-storage-fault')).toMatchObject(
+    { state: 'completed', effectStatus: 'unknown' },
+  );
+});
