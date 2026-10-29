@@ -7708,6 +7708,118 @@ async function nativeRecoveryFixture() {
   return { old, restored, request };
 }
 
+async function remoteRecoveryFixture(pendingTool = false) {
+  const args: Parameters<typeof setup> = [];
+  args[28] = () => true; // Owned remote admission, never automatic recovery.
+  const old = await setup(...args);
+  Object.assign(old.conversationOptions, { recoveryReconciliation: 'exact-turn' });
+  await old.c.send({ id: 'remote-operation', prompt: 'retain remote work' });
+  await old.c.send({ id: 'remote-next', prompt: 'explicit later work' });
+  if (pendingTool)
+    old.store.claimTool('app', old.getBinding(), 'remote-operation', 'unknown-write', {
+      commandId: 'remote-operation',
+      attempt: 1,
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      generation: 0,
+      toolName: 'Write',
+      requestHash: 'a'.repeat(64),
+    });
+  old.callbacks.onClose(
+    new CodexTransportError('connection', { reason: 'child_exit', exitCode: 0, signal: null }),
+  );
+  // The local CLI's successful exit says nothing about remote agent completion.
+  expect(old.store.commandLifecycle('app', old.getBinding(), 'remote-operation').state).toBe(
+    'ambiguous_effect',
+  );
+  old.c.close();
+  args[0] = old.store;
+  const restored = await setup(...args);
+  Object.assign(restored.conversationOptions, { recoveryReconciliation: 'exact-turn' });
+  const request = restored.rpc.request.getMockImplementation()!;
+  return { old, restored, request };
+}
+
+it.each(['wrong_turn', 'unknown', 'active', 'lost_acceptance', 'pending_tool'] as const)(
+  'keeps remote recovery fenced for %s without replay or a Local execution policy',
+  async (outcome) => {
+    const { restored: f, request } = await remoteRecoveryFixture(outcome === 'pending_tool');
+    const db = (f.store as unknown as { db: Database.Database }).db;
+    if (outcome === 'lost_acceptance')
+      db.prepare("UPDATE codex_commands SET native_turns=NULL WHERE id='remote-operation'").run();
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list'
+        ? {
+            data:
+              outcome === 'unknown'
+                ? []
+                : [
+                    {
+                      id: outcome === 'wrong_turn' ? 'foreign' : 'turn-1',
+                      status: outcome === 'active' ? 'inProgress' : 'completed',
+                    },
+                  ],
+          }
+        : request(method, params),
+    );
+    await expect(f.c.acknowledgeRecovery()).rejects.toThrow();
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(f.store.read('app', f.getBinding()).recovery).toBeTruthy();
+    expect(f.c.queue().find(({ id }) => id === 'remote-next')?.status).toBe('queued');
+    expect(f.conversationOptions.nativeExecution).toBeUndefined();
+  },
+);
+
+it('reconciles a lost remote completion ACK once and dispatches only the original FIFO successor', async () => {
+  const { restored: f, request } = await remoteRecoveryFixture();
+  const authority = vi.fn(async () => f.getBinding());
+  f.conversationOptions.verifyBinding = authority;
+  const terminal = vi.fn();
+  f.conversationOptions.onProviderTerminal = terminal;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list'
+      ? { data: [{ id: 'turn-1', status: 'completed' }] }
+      : request(method, params),
+  );
+  await f.c.acknowledgeRecovery();
+  expect(authority.mock.calls.length).toBeGreaterThanOrEqual(2);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'remote-operation', status: 'completed' },
+    { id: 'remote-next', status: 'running' },
+  ]);
+  expect(terminal).toHaveBeenCalledExactlyOnceWith('remote-operation', 'turn-1', 'completed');
+});
+
+it.each(['authority', 'attempt', 'generation', 'stop', 'transport'] as const)(
+  'rechecks remote recovery after metadata await when %s changes',
+  async (change) => {
+    const { restored: f, request } = await remoteRecoveryFixture();
+    let current = true;
+    f.conversationOptions.verifyBinding = async () => {
+      if (!current) throw Error('Remote custody/account/permission revoked');
+      return f.getBinding();
+    };
+    const db = (f.store as unknown as { db: Database.Database }).db;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method !== 'thread/turns/list') return request(method, params);
+      if (change === 'authority') current = false;
+      if (change === 'attempt')
+        db.prepare("UPDATE codex_commands SET attempt=attempt+1 WHERE id='remote-operation'").run();
+      if (change === 'generation')
+        db.prepare(
+          "UPDATE codex_conversations SET thread_generation=thread_generation+1 WHERE id='app'",
+        ).run();
+      if (change === 'stop') await f.c.interrupt();
+      if (change === 'transport') f.callbacks.onClose(new Error('remote transport retired'));
+      return { data: [{ id: 'turn-1', status: 'completed' }] };
+    });
+    await expect(f.c.acknowledgeRecovery()).rejects.toThrow();
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(f.store.read('app', f.getBinding()).recovery).toBeTruthy();
+  },
+);
+
 it.each(['wrong_turn', 'unknown', 'active'] as const)(
   'fences exact native recovery when outcome is %s',
   async (outcome) => {

@@ -2365,6 +2365,7 @@ async function openCodexChatBound(
     enableCapacityRecovery: !options.ownedLocal && !options.ownedOpenShell,
     ...(ownedHost && !options.adviserScope ? { skillContextTokens: 1500 } : {}),
     transportClosure: options.ownedLocal ? 'terminal' : undefined,
+    recoveryReconciliation: options.ownedOpenShell ? 'exact-turn' : undefined,
     approvedSearchOnCurrentTransport: !!options.ownedLocal && !options.adviserScope,
     webSearchBackend: openShell ? 'openshell' : 'host',
     webSearchDeploymentRevision: options.ownedLocal
@@ -2822,7 +2823,10 @@ async function openCodexChatBound(
             ? openShellCodexRuntimeConfig(configuredRuntime!, options.mcpServers)
             : { web_search: 'disabled' },
           turnSandboxPolicy: { type: 'externalSandbox', networkAccess: 'restricted' },
-          verifyBinding: async () => options.binding,
+          verifyBinding: async () => {
+            await options.ownedOpenShell?.assertCurrent();
+            return options.binding;
+          },
         }
       : {}),
     emit: (event) => events.push(event),
