@@ -11,8 +11,10 @@ import {
   mkdir,
   realpath,
   rename,
+  readdir,
+  stat,
 } from 'node:fs/promises';
-import { join, resolve, relative, isAbsolute } from 'node:path';
+import { join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import process from 'node:process';
@@ -113,13 +115,58 @@ async function toolchainArtifacts(root, bin) {
     for (const path of [join(bin, 'node'), join(bin, 'npm'), join(root, 'package-lock.json')]) {
       const actual = await realpath(path);
       const scope = relative(root, actual);
-      if (scope === '..' || scope.startsWith('../') || isAbsolute(scope)) return null;
-      hash.update(scope);
-      for await (const chunk of createReadStream(actual)) hash.update(chunk);
+      if (scope === '..' || scope.startsWith(`..${sep}`) || isAbsolute(scope)) return null;
+      const info = await stat(actual);
+      if (!info.isFile() || info.size > 256 * 1024 * 1024) return null;
+      const content = createHash('sha256');
+      let size = 0;
+      for await (const chunk of createReadStream(actual)) {
+        if ((size += chunk.length) > 256 * 1024 * 1024) return null;
+        content.update(chunk);
+      }
+      hash.update(JSON.stringify([scope, info.mode & 0o7777, size, content.digest('hex')]));
     }
+    // npm's entrypoint loads its implementation and bundled dependencies later.
+    // A valid CLI shim cannot establish that those artifacts are still intact.
+    let entries = 0,
+      bytes = 0;
+    const tree = async (path, label, ancestors = new Set()) => {
+      if (++entries > 50000) return false;
+      const actual = await realpath(path);
+      const scope = relative(root, actual);
+      if (scope === '..' || scope.startsWith(`..${sep}`) || isAbsolute(scope)) return false;
+      const info = await stat(actual);
+      if (!info.isDirectory() && !info.isFile()) return false;
+      hash.update(
+        JSON.stringify([
+          label,
+          scope,
+          info.isDirectory() ? 'directory' : 'file',
+          info.mode & 0o7777,
+        ]),
+      );
+      if (info.isDirectory()) {
+        if (ancestors.has(actual)) return false;
+        const nested = new Set([...ancestors, actual]);
+        for (const name of (await readdir(actual)).sort())
+          if (!(await tree(join(actual, name), `${label}/${name}`, nested))) return false;
+        return true;
+      }
+      if (bytes + info.size > 256 * 1024 * 1024) return false;
+      const content = createHash('sha256');
+      let size = 0;
+      for await (const chunk of createReadStream(actual)) {
+        if ((bytes += chunk.length) > 256 * 1024 * 1024) return false;
+        size += chunk.length;
+        content.update(chunk);
+      }
+      hash.update(JSON.stringify([size, content.digest('hex')]));
+      return true;
+    };
+    if (!(await tree(join(root, 'node_modules', 'npm'), 'npm-runtime'))) return null;
     return hash.digest('hex');
   } catch (error) {
-    if (error.code === 'ENOENT') return null;
+    if (['ENOENT', 'ENOTDIR', 'ELOOP'].includes(error.code)) return null;
     throw error;
   }
 }

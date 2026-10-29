@@ -50,6 +50,11 @@ async function fixture() {
         await mkdir(bin, { recursive: true });
         for (const name of ['node', 'npm']) await writeFile(join(bin, name), 'fixture-' + name);
         await writeFile(join(tools, 'package-lock.json'), '{}');
+        await mkdir(join(tools, 'node_modules', 'npm', 'lib', 'commands'), { recursive: true });
+        await writeFile(
+          join(tools, 'node_modules', 'npm', 'lib', 'commands', 'ls.js'),
+          'verified-npm-command',
+        );
       }
       if (args[0] === 'ci') {
         await mkdir(join(cwd, 'node_modules'), { recursive: true });
@@ -440,4 +445,51 @@ it('retains the verified toolchain outcome when the first project installation f
   });
   expect(f.run.mock.calls.some(([, args]) => args[0] === 'install')).toBe(false);
   expect(f.run.mock.calls.filter(([, args]) => args[0] === 'ci')).toHaveLength(1);
+});
+
+it('reacquires npm when an implementation module changes without changing its entrypoint or binary', async () => {
+  const f = await fixture();
+  const first = await prepareDevelopment({ ...f, install: true });
+  await rm(join(first.toolchainPath!, '..', 'npm', 'lib', 'commands', 'ls.js'));
+  f.run.mockClear();
+  expect(await prepareDevelopment({ ...f, install: true })).toMatchObject({ ready: true });
+  expect(f.run.mock.calls.filter(([, args]) => args[0] === 'install')).toHaveLength(1);
+  await expect(
+    readFile(join(first.toolchainPath!, '..', 'npm', 'lib', 'commands', 'ls.js'), 'utf8'),
+  ).resolves.toBe('verified-npm-command');
+});
+
+it('invalidates an otherwise unchanged toolchain when executable permissions change', async () => {
+  const f = await fixture();
+  const first = await prepareDevelopment({ ...f, install: true });
+  await chmod(join(first.toolchainPath!, 'node'), 0o600);
+  f.run.mockClear();
+  await prepareDevelopment({ ...f, install: true });
+  expect(f.run.mock.calls.filter(([, args]) => args[0] === 'install')).toHaveLength(1);
+});
+
+it('frames runtime artifacts so moving a removed module descriptor into another file invalidates reuse', async () => {
+  const f = await fixture();
+  const original = f.run.getMockImplementation()!;
+  let npmRoot = '';
+  f.run.mockImplementation(async (command, args, options) => {
+    const value = await original(command, args, options);
+    if (args[0] === 'install') {
+      npmRoot = join(args[args.indexOf('--prefix') + 1], 'node_modules', 'npm');
+      await writeFile(join(npmRoot, 'lib', 'a.js'), 'a');
+      await writeFile(join(npmRoot, 'lib', 'b.js'), 'b');
+    }
+    return value;
+  });
+  await prepareDevelopment({ ...f, install: true });
+  const removedDescriptor = JSON.stringify([
+    'npm-runtime/lib/b.js',
+    'node_modules/npm/lib/b.js',
+    'file',
+  ]);
+  await writeFile(join(npmRoot, 'lib', 'a.js'), 'a' + removedDescriptor + 'b');
+  await rm(join(npmRoot, 'lib', 'b.js'));
+  f.run.mockClear();
+  await prepareDevelopment({ ...f, install: true });
+  expect(f.run.mock.calls.filter(([, args]) => args[0] === 'install')).toHaveLength(1);
 });
