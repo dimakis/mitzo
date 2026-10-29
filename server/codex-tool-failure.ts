@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { PendingHostTaskError } from './pending-host-task.js';
 import type { CodexToolResult } from './codex-tool-result.js';
 
 export type ToolFailureCode =
@@ -83,10 +84,16 @@ export function codexToolFailureResult(
     cause = cause.cause;
   }
   const typed = chain.find((failure) => failure instanceof CodexToolFailure);
+  const boundary = chain.find((failure) => failure instanceof PendingHostTaskError);
   const code: ToolFailureCode =
     aborted || chain.some((failure) => failure.name === 'AbortError')
       ? 'cancelled'
-      : (typed?.code ?? 'internal_failure');
+      : (typed?.code ??
+        (boundary?.code === 'pending_host_task_ownership_changed'
+          ? 'stale_owner'
+          : boundary?.code === 'pending_host_task_invalid_input'
+            ? 'invalid_input'
+            : 'internal_failure'));
   const resourceCode = chain
     .map((failure) => ('code' in failure ? failure.code : undefined))
     .find((value) =>
@@ -109,7 +116,9 @@ export function codexToolFailureResult(
                   ? 'invalid_input'
                   : 'unknown';
   const diagnostic = {
-    ...(typed?.diagnostic ? typed.diagnostic : { stage, reason, effectStatus: 'unknown' }),
+    ...(typed?.diagnostic
+      ? typed.diagnostic
+      : { stage: boundary ? 'repository_preparation' : stage, reason, effectStatus: 'unknown' }),
     ...(identity ? CodexDiagnosticIdentitySchema.parse(identity) : {}),
   };
   const actions: Record<ToolFailureCode, string> = {

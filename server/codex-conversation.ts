@@ -1645,7 +1645,7 @@ export class CodexConversation {
       this.opts.onProviderTerminal?.(nativeTarget.commandId, nativeTarget.turnId, nativeStatus);
       this.opts.onProviderComplete?.(nativeTarget.commandId, nativeStatus);
     }
-    this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!);
+    this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!, nativeTarget);
     this.paused = false;
     await this.pump();
   }
@@ -2817,6 +2817,17 @@ export class CodexConversation {
       terminal.data.turn.id !== active.turnId
     )
       return false;
+    if (active.completionHook === 'pending')
+      this.opts.store.recordTransportDiagnostic(
+        this.opts.conversationId,
+        this.binding,
+        active.command,
+        {
+          stage: 'workspace_transition',
+          reason: 'completion_hook_pending',
+          ...this.diagnosticRuntimeIdentity(),
+        },
+      );
     this.opts.store.finish(
       this.opts.conversationId,
       this.binding,

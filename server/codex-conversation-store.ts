@@ -194,6 +194,7 @@ const CommandTransportDiagnosticSchema = z.strictObject({
     'connection',
     'protocol',
     'completion_hook_failed',
+    'completion_hook_pending',
   ]),
   exitCode: z.number().int().safe().nullable().optional(),
   signal: z
@@ -2315,7 +2316,13 @@ export class CodexConversationStore {
         const history = row.transport_diagnostic
           ? CommandTransportDiagnosticHistorySchema.parse(JSON.parse(row.transport_diagnostic))
           : [];
-        if (history.some((entry) => entry.attempt === command.attempt)) return;
+        if (
+          history.some(
+            (entry) =>
+              entry.attempt === command.attempt && entry.diagnostic.stage === checked.stage,
+          )
+        )
+          return;
         const next = CommandTransportDiagnosticHistorySchema.parse([
           ...history,
           { attempt: command.attempt, diagnostic: checked },
@@ -4666,10 +4673,29 @@ export class CodexConversationStore {
     this.read(id, b);
     this.db.prepare('UPDATE codex_conversations SET automatic_recovery=0 WHERE id=?').run(id);
   }
-  acknowledgeRecovery(id: string, b: AccountBinding) {
+  acknowledgeRecovery(id: string, b: AccountBinding, nativeTarget?: CodexNativeTurnTarget) {
     this.db.transaction(() => {
       this.assertNoPendingThreadDispatch(id, b);
       this.assertNoPendingThreadOwnership(id, b);
+      if (nativeTarget) {
+        if (!isDeepStrictEqual(this.nativeRecoveryTarget(id, b), nativeTarget))
+          throw Error('Native recovery phase identity changed');
+        const pendingTool = this.db
+          .prepare(
+            'SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? AND result_content IS NULL LIMIT 1',
+          )
+          .get(id, nativeTarget.commandId);
+        const operation = this.commandLifecycle(id, b, nativeTarget.commandId);
+        const pendingPhase = operation.diagnosticHistory?.some(
+          (entry) =>
+            entry.attempt === nativeTarget.attempt &&
+            entry.diagnostic.stage === 'workspace_transition',
+        );
+        if (pendingTool || pendingPhase)
+          throw Error(
+            'Downstream phase effects require their existing owner reconciliation; saved work remains queued',
+          );
+      }
       const capacity = this.capacityRecovery(id, b);
       if (capacity && capacity.status !== 'stopped')
         throw new Error('Capacity recovery must be stopped before continuing queued work');

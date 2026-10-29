@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { PendingHostTaskError } from '../pending-host-task.js';
 import { CodexToolFailure, codexToolFailureResult } from '../codex-tool-failure.js';
 
 it.each([
@@ -50,4 +51,12 @@ it('preserves a bounded safe causal errno through wrapper errors and terminates 
   let deep: Error = cause;
   for (let index = 0; index < 10; index++) deep = Error('SECRET depth', { cause: deep });
   expect(JSON.parse(codexToolFailureResult(deep, false).content).diagnostic.reason).toBe('unknown');
+});
+
+it.each([
+  ['pending_host_task_ownership_changed', 'custody_changed'],
+  ['pending_host_task_invalid_input', 'invalid_input'],
+] as const)('retains known preparation boundary code %s through wrappers', (code, reason) => {
+  const error = Error('SECRET wrapper', { cause: new PendingHostTaskError(code) });
+  expect(JSON.parse(codexToolFailureResult(error, false).content).diagnostic.reason).toBe(reason);
 });

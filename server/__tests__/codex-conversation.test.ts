@@ -7857,3 +7857,55 @@ it.each(['hook_failure', 'transport_closed'] as const)(
     expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
   },
 );
+
+it.each(['pending_tool_result', 'pending_completion_hook'] as const)(
+  'keeps queued work fenced after exact native completion with %s',
+  async (phase) => {
+    let failHook!: (error: Error) => void;
+    const hook = new Promise<void>((_resolve, reject) => {
+      failHook = reject;
+    });
+    const old = await setup(
+      undefined,
+      undefined,
+      phase === 'pending_completion_hook' ? () => hook : undefined,
+    );
+    old.conversationOptions.transportClosure = 'terminal';
+    await old.c.send({ id: 'unknown-phase', prompt: 'work' });
+    await old.c.send({ id: 'queued-after-phase', prompt: 'next phase' });
+    if (phase === 'pending_tool_result')
+      old.store.claimTool('app', old.getBinding(), 'unknown-phase', 'lost-effect-ack', {
+        turnId: 'turn-1',
+        toolName: 'RequestGithubPublish',
+        requestHash: 'e'.repeat(64),
+      });
+    else
+      old.callbacks.onNotification('turn/completed', {
+        threadId: 'provider-thread',
+        turn: { id: 'turn-1', status: 'completed' },
+      });
+    old.callbacks.onClose(
+      new CodexTransportError('connection', { reason: 'child_exit', exitCode: 1, signal: null }),
+    );
+    if (phase === 'pending_completion_hook') failHook(Error('late cancellation'));
+    const restored = await setup(old.store);
+    restored.conversationOptions.transportClosure = 'terminal';
+    const request = restored.rpc.request.getMockImplementation()!;
+    restored.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list'
+        ? { data: [{ id: 'turn-1', status: 'completed' }] }
+        : request(method, params),
+    );
+    await expect(restored.c.acknowledgeRecovery()).rejects.toThrow(/phase|effect/);
+    expect(restored.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+    expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(restored.store.read('app', restored.getBinding()).recovery).toBeTruthy();
+    expect(
+      restored.store.commandLifecycle('app', restored.getBinding(), 'unknown-phase'),
+    ).toMatchObject({
+      state: 'completed',
+      effectStatus: 'unknown',
+      nextAction: 'inspect_retained_work',
+    });
+  },
+);
