@@ -305,6 +305,7 @@ for (const theme of ['dark', 'light']) {
   }, info) => {
     const files = (await output).outputFiles!;
     let completed = false;
+    let reconcile = false;
     await page.route('**/*', (route) => {
       const path = new URL(route.request().url()).pathname;
       if (path.endsWith('/meta'))
@@ -321,7 +322,11 @@ for (const theme of ['dark', 'light']) {
                 attempt: 2,
                 state: completed ? 'completed' : 'ambiguous_effect',
                 effectStatus: 'unknown',
-                nextAction: completed ? 'inspect_retained_work' : 'reconcile_native_outcome',
+                nextAction: completed
+                  ? reconcile
+                    ? 'reconcile_completion_phase'
+                    : 'inspect_retained_work'
+                  : 'reconcile_native_outcome',
               },
             },
           },
@@ -368,5 +373,12 @@ for (const theme of ['dark', 'light']) {
     await expect(page.getByRole('button', { name: 'Reconnect and continue' })).toHaveCount(0);
     await expect(page.getByText('Retained next command')).toBeVisible();
     await page.screenshot({ path: info.outputPath(`completed-unknown-${theme}.png`) });
+    reconcile = true;
+    await page.getByRole('button', { name: 'Emit queue metadata change', exact: true }).click();
+    await expect(page.getByRole('status')).toContainText(
+      'The response completed. Reconnect to check its follow-up.',
+    );
+    await expect(page.getByRole('button', { name: 'Reconnect and continue' })).toBeVisible();
+    await page.screenshot({ path: info.outputPath(`completed-observed-${theme}.png`) });
   });
 }

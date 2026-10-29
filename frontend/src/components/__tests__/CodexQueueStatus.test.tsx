@@ -1138,3 +1138,30 @@ it('keeps completed responses distinct from an unfinished follow-up with unknown
     vi.mocked(apiFetch).mock.calls.every(([path]) => !String(path).includes('/continue')),
   ).toBe(true);
 });
+
+it('offers explicit reconciliation when the original completion owner observed success', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({
+      ...idleQueue,
+      paused: true,
+      canContinue: true,
+      queued: 1,
+      operation: {
+        commandId: 'completed-response',
+        attempt: 1,
+        state: 'completed',
+        effectStatus: 'unknown',
+        nextAction: 'reconcile_completion_phase',
+      },
+    }),
+  );
+  render(<CodexQueueStatus sessionId="observed-completion" />);
+  await act(async () => {});
+  expect(screen.getByRole('status').textContent).toContain(
+    'The response completed. Reconnect to check its follow-up.',
+  );
+  expect(screen.getByRole('button', { name: 'Reconnect and continue' })).toBeTruthy();
+  expect(
+    vi.mocked(apiFetch).mock.calls.every(([path]) => !String(path).includes('/continue')),
+  ).toBe(true);
+});

@@ -2351,3 +2351,8 @@ A completed response with unfinished effects keeps its completion state and show
 row. The derived effect state can neither mark the response failed nor dispatch a
 retry. The same intercepted fixture verifies this transition with retained queue
 content on all three browser projects.
+When the original follow-up owner has observed success, the same row offers the
+existing explicit reconnect action to verify that receipt under current authority.
+It still sends nothing until the user activates the control. Truly unknown effects
+keep continuation and retry controls withheld; a completed response is never
+relabelled as failed. The fixture covers all three states and retained queued work.

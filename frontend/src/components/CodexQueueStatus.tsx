@@ -44,6 +44,7 @@ const Queue = z.object({
       effectStatus: z.enum(['unknown', 'completed', 'not_established']).optional(),
       nextAction: z.enum([
         'reconcile_native_outcome',
+        'reconcile_completion_phase',
         'retry_admission',
         'wait_for_admission',
         'wait_for_native_outcome',
@@ -334,16 +335,22 @@ export function CodexQueueStatus({
   );
   if (!queue) return delivery;
   const needsPhaseInspection =
-    queue.operation?.state === 'completed' && queue.operation.effectStatus === 'unknown';
-  const operationStatus = needsPhaseInspection
-    ? 'The response completed. Check unfinished work before continuing.'
-    : queue.operation?.state === 'ambiguous_effect'
-      ? 'Check the interrupted turn before continuing. Saved work is preserved.'
-      : queue.operation?.state === 'pre_effect_failure'
-        ? 'Execution did not start. Check admission before continuing.'
-        : queue.operation?.state === 'terminal_failure'
-          ? 'Inspect saved work before retrying this turn.'
-          : undefined;
+    queue.operation?.state === 'completed' &&
+    queue.operation.effectStatus === 'unknown' &&
+    queue.operation.nextAction !== 'reconcile_completion_phase';
+  const operationStatus =
+    queue.operation?.state === 'completed' &&
+    queue.operation.nextAction === 'reconcile_completion_phase'
+      ? 'The response completed. Reconnect to check its follow-up.'
+      : needsPhaseInspection
+        ? 'The response completed. Check unfinished work before continuing.'
+        : queue.operation?.state === 'ambiguous_effect'
+          ? 'Check the interrupted turn before continuing. Saved work is preserved.'
+          : queue.operation?.state === 'pre_effect_failure'
+            ? 'Execution did not start. Check admission before continuing.'
+            : queue.operation?.state === 'terminal_failure'
+              ? 'Inspect saved work before retrying this turn.'
+              : undefined;
   const actionable =
     !!operationStatus ||
     !!queue.recovering ||
