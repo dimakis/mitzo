@@ -41,6 +41,7 @@ const Queue = z.object({
         'pre_effect_failure',
         'terminal_failure',
       ]),
+      effectStatus: z.enum(['unknown', 'completed', 'not_established']).optional(),
       nextAction: z.enum([
         'reconcile_native_outcome',
         'retry_admission',
@@ -332,8 +333,11 @@ export function CodexQueueStatus({
     <ChatStatusMessage status={deliveryStatus} error={deliveryError} busy={deliveryBusy} />
   );
   if (!queue) return delivery;
-  const operationStatus =
-    queue.operation?.state === 'ambiguous_effect'
+  const needsPhaseInspection =
+    queue.operation?.state === 'completed' && queue.operation.effectStatus === 'unknown';
+  const operationStatus = needsPhaseInspection
+    ? 'The response completed. Check unfinished work before continuing.'
+    : queue.operation?.state === 'ambiguous_effect'
       ? 'Check the interrupted turn before continuing. Saved work is preserved.'
       : queue.operation?.state === 'pre_effect_failure'
         ? 'Execution did not start. Check admission before continuing.'
@@ -665,6 +669,7 @@ export function CodexQueueStatus({
             </>
           )}
           {!capacity &&
+            !needsPhaseInspection &&
             (queue.canContinue === true || (queue.paused && queue.connected && queue.queued > 0)) &&
             !queue.recovering && (
               <button
@@ -677,6 +682,7 @@ export function CodexQueueStatus({
               </button>
             )}
           {!capacity &&
+            !needsPhaseInspection &&
             queue.canContinue !== true &&
             queue.failed > 0 &&
             queue.retryable !== false &&

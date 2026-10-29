@@ -1110,3 +1110,31 @@ it('ignores malformed optional operation diagnostics without hiding the legacy q
   expect(screen.getByText('1 message queued')).toBeTruthy();
   expect(screen.queryByText('not displayable')).toBeNull();
 });
+
+it('keeps completed responses distinct from an unfinished follow-up with unknown effects', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({
+      ...idleQueue,
+      paused: true,
+      canContinue: true,
+      queued: 1,
+      operation: {
+        commandId: 'completed-response',
+        attempt: 1,
+        state: 'completed',
+        effectStatus: 'unknown',
+        nextAction: 'inspect_retained_work',
+      },
+    }),
+  );
+  render(<CodexQueueStatus sessionId="completed-response-unknown-effects" />);
+  await act(async () => {});
+  expect(screen.getByRole('status').textContent).toContain(
+    'The response completed. Check unfinished work before continuing.',
+  );
+  expect(screen.queryByText('Previous turn failed. Retry when available.')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull();
+  expect(
+    vi.mocked(apiFetch).mock.calls.every(([path]) => !String(path).includes('/continue')),
+  ).toBe(true);
+});

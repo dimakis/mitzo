@@ -2346,3 +2346,8 @@ resume or new execution action. The intercepted queue-status fixture covers 320p
 mobile WebKit/Chromium and desktop Chromium in dark Mint/System and light
 Teal/Georgia, retained queued content and wrapping; unit tests verify no recovery
 request occurs merely from displaying this state.
+A completed response with unfinished effects keeps its completion state and shows
+**The response completed. Check unfinished work before continuing.** in that same
+row. The derived effect state can neither mark the response failed nor dispatch a
+retry. The same intercepted fixture verifies this transition with retained queue
+content on all three browser projects.
