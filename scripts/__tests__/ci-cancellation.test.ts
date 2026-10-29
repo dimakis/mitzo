@@ -4,8 +4,9 @@ import { load } from 'js-yaml';
 import { expect, it } from 'vitest';
 
 type Step = { name?: string; id?: string; if?: string };
-const { jobs } = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
+const { jobs, concurrency } = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
   jobs: Record<string, { if?: string; steps: Step[] }>;
+  concurrency: { group: string; 'cancel-in-progress': string };
 };
 
 function enabled(condition: string | undefined, state: string) {
@@ -67,4 +68,33 @@ it('unit frontend prerequisites and complete unit validation release superseded 
   expect(enabled(build?.if, 'failure')).toBe(true);
   expect(enabled(build?.if, 'cancelled')).toBe(false);
   expect(enabled(jobs['unit-validation'].if, 'cancelled')).toBe(true);
+});
+
+function concurrencyFor(eventName: string, sha: string, number?: number) {
+  const github = { event_name: eventName, sha, event: { pull_request: number ? { number } : {} } };
+  const evaluate = (expression: string) =>
+    new Script(expression).runInNewContext({
+      github,
+      format: (template: string, ...values: unknown[]) =>
+        template.replace(/\{(\d+)\}/g, (_, index) => String(values[Number(index)])),
+    });
+  return {
+    group: concurrency.group.replace(/\$\{\{(.*?)\}\}/g, (_, expression) =>
+      String(evaluate(expression)),
+    ),
+    cancel: evaluate(concurrency['cancel-in-progress'].replace(/^\$\{\{\s*|\s*\}\}$/g, '')),
+  };
+}
+it('admits a new candidate without waiting for an older PR run to finish shutting down', () => {
+  const older = concurrencyFor('pull_request', 'old-merge-sha', 1154);
+  const current = concurrencyFor('pull_request', 'new-merge-sha', 1154);
+  expect(current.group).not.toBe(older.group);
+  expect(current.group).toContain('1154');
+  expect(current.group).toContain('new-merge-sha');
+  expect(current.cancel).toBe(true);
+  expect(concurrencyFor('pull_request', 'new-merge-sha', 1154)).toEqual(current);
+  expect(concurrencyFor('pull_request', 'new-merge-sha', 1155).group).not.toBe(current.group);
+});
+it('preserves main candidate concurrency identity and does not cancel its validation', () => {
+  expect(concurrencyFor('push', 'main-sha')).toEqual({ group: 'ci-main-sha', cancel: false });
 });

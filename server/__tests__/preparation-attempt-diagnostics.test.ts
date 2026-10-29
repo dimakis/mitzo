@@ -10,48 +10,53 @@ import { z } from 'zod';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
-it.each(['operation', 'service', 'receipt-schema', 'row-cas', 'cleanup', 'context-outward'])(
-  'persists the original %s error before the generic response assertion',
-  async (stage) => {
-    const diagnostic = createPreparationAttemptDiagnostics();
-    const original = new Error(`private fixture failure /private/synthetic/${stage}`);
-    const record: unknown[] = [];
-    const check = vi.fn(async () => false);
-    let thrown: unknown;
-    try {
-      await runRecordedPreparationAttempt(
-        diagnostic,
-        () =>
-          diagnostic.capture(stage, async () => {
-            throw original;
-          }),
-        async () => {
-          await diagnostic.check('source-preserved', check);
-          await diagnostic.check('primary-preserved', async () => {
-            throw Error('secondary');
-          });
-        },
-        async (snapshot) => {
-          record.push(snapshot);
-        },
-      );
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toBe(original);
-    expect(record).toHaveLength(1);
-    const snapshot = diagnostic.snapshot();
-    expect(snapshot.stages[stage].errors[0].messageSha256).toBe(hash(original.message));
-    expect(snapshot.stages.operation.errors[0].messageSha256).toBe(hash(original.message));
-    expect(snapshot.checks['source-preserved'].status).toBe('failed');
-    expect(snapshot.checks['primary-preserved'].status).toBe('error');
-    expect(check).toHaveBeenCalledOnce();
-    expect(JSON.stringify(record)).not.toContain('/private/synthetic');
-    // The provider's generic result and its first assertion cannot erase record.
-    expect(() => expect({ success: false }.success).toBe(true)).toThrow();
-    expect(record).toHaveLength(1);
-  },
-);
+it.each([
+  'operation',
+  'service',
+  'receipt-schema',
+  'row-cas',
+  'cleanup',
+  'context-outward',
+  'private-publication-helper',
+])('persists the original %s error before the generic response assertion', async (stage) => {
+  const diagnostic = createPreparationAttemptDiagnostics();
+  const original = new Error(`private fixture failure /private/synthetic/${stage}`);
+  const record: unknown[] = [];
+  const check = vi.fn(async () => false);
+  let thrown: unknown;
+  try {
+    await runRecordedPreparationAttempt(
+      diagnostic,
+      () =>
+        diagnostic.capture(stage, async () => {
+          throw original;
+        }),
+      async () => {
+        await diagnostic.check('source-preserved', check);
+        await diagnostic.check('primary-preserved', async () => {
+          throw Error('secondary');
+        });
+      },
+      async (snapshot) => {
+        record.push(snapshot);
+      },
+    );
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toBe(original);
+  expect(record).toHaveLength(1);
+  const snapshot = diagnostic.snapshot();
+  expect(snapshot.stages[stage].errors[0].messageSha256).toBe(hash(original.message));
+  expect(snapshot.stages.operation.errors[0].messageSha256).toBe(hash(original.message));
+  expect(snapshot.checks['source-preserved'].status).toBe('failed');
+  expect(snapshot.checks['primary-preserved'].status).toBe('error');
+  expect(check).toHaveBeenCalledOnce();
+  expect(JSON.stringify(record)).not.toContain('/private/synthetic');
+  // The provider's generic result and its first assertion cannot erase record.
+  expect(() => expect({ success: false }.success).toBe(true)).toThrow();
+  expect(record).toHaveLength(1);
+});
 
 it('records every source/custody/linkage failure before a strict check failure', async () => {
   const diagnostic = createPreparationAttemptDiagnostics();

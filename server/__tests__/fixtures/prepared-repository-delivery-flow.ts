@@ -128,6 +128,7 @@ export async function preparedRepositoryDeliveryFlow(
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
   const submissions = new Map<string, Promise<HttpResponse>>();
+  const receiptObservations = new Map<string, Promise<HttpResponse>>();
   const post = (path: string, body: unknown) => {
     const pending = requestHttp(server)
       .post(path)
@@ -140,6 +141,8 @@ export async function preparedRepositoryDeliveryFlow(
       body && typeof body === 'object' && 'clientMsgId' in body ? body.clientMsgId : undefined;
     if (!path.endsWith('/receipt') && typeof commandId === 'string')
       submissions.set(commandId, pending);
+    if (path.endsWith('/receipt') && typeof commandId === 'string')
+      receiptObservations.set(commandId, pending);
     return pending;
   };
   const waitForDispatch = async (commandId: string) => {
@@ -147,6 +150,21 @@ export async function preparedRepositoryDeliveryFlow(
     // successful receipt releases the separate native acceptance observation.
     await vi.waitFor(() => expect(submissions.has(commandId)).toBe(true), { timeout: 5000 });
     const response = await submissions.get(commandId)!;
+    expect(response.status, JSON.stringify(response.body)).toBe(202);
+    expect(LocalCodexFirstCommandReceiptSchema.parse(response.body)).toMatchObject({
+      sessionId,
+      clientMsgId: commandId,
+      state: 'consumed',
+    });
+    return response;
+  };
+  const waitForReceipt = async (commandId: string) => {
+    // Native completion does not settle a lost browser response. Observe the
+    // actual recovery HTTP request before checking the composer's DOM update.
+    await vi.waitFor(() => expect(receiptObservations.has(commandId)).toBe(true), {
+      timeout: 5000,
+    });
+    const response = await receiptObservations.get(commandId)!;
     expect(response.status, JSON.stringify(response.body)).toBe(202);
     expect(LocalCodexFirstCommandReceiptSchema.parse(response.body)).toMatchObject({
       sessionId,
@@ -226,6 +244,7 @@ export async function preparedRepositoryDeliveryFlow(
     requests,
     post,
     waitForDispatch,
+    waitForReceipt,
     launch,
     chat,
     saved: () => JSON.parse(storage.getItem('queue') ?? '[]'),

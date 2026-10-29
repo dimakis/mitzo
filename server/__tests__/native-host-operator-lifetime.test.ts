@@ -44,6 +44,8 @@ it.runIf(process.platform === 'darwin').each([false, true])(
     expect((await f.a.call({ query: 'after-revocation' })).response.success).toBe(false);
     expect(execute).toHaveBeenCalledOnce();
   },
+  // Cold signed-login setup exceeded five seconds on CI; helper/authority bounds stay unchanged.
+  process.env.CI ? 15_000 : 5_000,
 );
 
 it.runIf(process.platform === 'darwin')(

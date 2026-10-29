@@ -1,0 +1,50 @@
+name: PR landing request
+run-name: 'land-pr:${{ inputs.pr_number }}:${{ inputs.mode }}'
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Authorize this exact candidate, or revoke earlier authorization
+        type: choice
+        options: [authorize, revoke]
+        required: true
+      pr_number:
+        description: Pull request number
+        required: true
+      expected_head:
+        description: Full current PR head SHA (authorize only)
+      expected_base:
+        description: Full current default branch SHA (authorize only)
+      confirmation:
+        description: Type MERGE to authorize merging after every required gate passes
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  request:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/github-script@v9
+        id: receipt
+        with:
+          script: |
+            const {buildRequest} = await import(require('node:url').pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/pr-landing.mjs`).href);
+            const receipt = await buildRequest(github, context.repo, context.payload.inputs, context.actor);
+            require('node:fs').writeFileSync('landing-receipt.json', JSON.stringify(receipt));
+            core.setOutput('name', receipt.name);
+            await core.summary.addRaw(`Recorded ${receipt.mode} request for PR #${receipt.number}.`).write();
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.receipt.outputs.name }}
+          path: landing-receipt.json
+          retention-days: 7
+          if-no-files-found: error
+          overwrite: false

@@ -6,9 +6,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
-# Keep main validation intact; newer PR commits supersede older runs.
+# Isolate PR candidates from slow older-run shutdown; same-candidate reruns supersede.
+# Accepted default-branch recovery cleans up provably older PR heads.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
+  group: ci-${{ github.event.pull_request.number && format('{0}-{1}', github.event.pull_request.number, github.sha) || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -53,9 +54,40 @@ jobs:
               core.info(`${job}: ${run ? 'run' : 'no dependent changes'}`);
             }
 
+  # Fail before admitting the expensive matrices; keep independent diagnostics.
+  preflight:
+    name: Compile and source preflight
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --global npm@11.18.0
+      - run: npm install --no-audit
+      - name: Compile server and verify reviewed runtime artifacts
+        id: preflight-build-server
+        if: ${{ !cancelled() }}
+        run: npm run build:server
+      - name: Check every server source including test mocks
+        id: preflight-typecheck-server
+        if: ${{ !cancelled() }}
+        run: npx tsc --noEmit
+      - name: Check frontend sources
+        id: preflight-typecheck-frontend
+        if: ${{ !cancelled() }}
+        run: cd frontend && npx tsc -b
+      - name: Check registered source pins independently of compiled output
+        id: preflight-source-pins
+        if: ${{ !cancelled() }}
+        run: npm run check:source-artifacts
+
   browser:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
+    needs: [changes, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
     name: Browser interaction tests
     runs-on: ubuntu-24.04
     # Pin the supported browser host; retain room for cold setup and diagnostics.
@@ -94,8 +126,8 @@ jobs:
           if-no-files-found: warn
 
   offline:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
+    needs: [changes, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
     name: Offline layouts (${{ matrix.project }} ${{ matrix.shard }}/${{ matrix.shards }})
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -266,8 +298,8 @@ jobs:
         run: node scripts/ci-browser-gate.mjs
 
   native:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}
+    needs: [changes, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}
     name: Native Swift tests and builds
     runs-on: macos-26
     # Cold boot, first launch and WebKit readiness have separate bounded waits.
@@ -332,6 +364,8 @@ jobs:
           if-no-files-found: warn
 
   ordinary-journey:
+    needs: preflight
+    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     name: Telos canonical ordinary journey (macOS)
     runs-on: macos-26
     # Native workflows and signed authority checks; joined cases have their own matrix.
@@ -477,6 +511,8 @@ jobs:
           if-no-files-found: error
 
   ordinary-joined:
+    needs: preflight
+    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     name: Telos joined acceptance (macOS ${{ matrix.shard }}/3)
     runs-on: macos-26
     timeout-minutes: 20
@@ -560,6 +596,8 @@ jobs:
         run: node scripts/ci-joined-gate.mjs joined-results
 
   ordinary-supplemental:
+    needs: preflight
+    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     name: Telos supplemental owner journeys (macOS ${{ matrix.shard }}/2)
     runs-on: macos-26
     timeout-minutes: 20
@@ -618,7 +656,8 @@ jobs:
 
   core:
     name: Core checks
-    if: ${{ !cancelled() }}
+    needs: preflight
+    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -773,9 +812,13 @@ jobs:
           fi
 
   prepared-consumers:
-    name: Composed prepared repository consumers (macOS)
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.prepared == 'true') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [delivery, publication]
+    name: Composed prepared repository consumers (macOS ${{ matrix.group }})
+    needs: [changes, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.prepared == 'true') }}
     runs-on: macos-26
     # Measured composed journeys plus setup; individual 15-minute cases stay intact.
     # Hosted contention still fails closed at this finite lane boundary.
@@ -796,17 +839,45 @@ jobs:
       - run: npm install --no-audit
       - run: npx tsc -b packages/protocol packages/harness packages/client
       - name: Run all five offline delivery and publication cases in isolated processes
-        run: node scripts/ci-prepared-consumers.mjs
+        run: node scripts/ci-prepared-consumers.mjs ${{ matrix.group }}
       - name: Retain exact consumer reports, exits and resource evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: prepared-consumers-${{ github.run_id }}-${{ github.run_attempt }}
+          name: prepared-consumers-${{ matrix.group }}-${{ github.run_id }}
+          overwrite: true
           path: test-results/prepared-consumers/
           retention-days: 7
           if-no-files-found: error
 
+  prepared-consumer-validation:
+    name: Complete prepared consumer coverage
+    needs: [changes, prepared-consumers]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Collect both prepared consumer groups from this workflow run
+        if: ${{ needs.prepared-consumers.result == 'success' }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: prepared-consumers-*-${{ github.run_id }}
+          path: prepared-consumer-results
+          merge-multiple: true
+      - name: Require every selected prepared consumer case
+        if: always()
+        env:
+          CI_PREPARED_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-prepared-consumer-gate.mjs prepared-consumer-results
+
   unit:
+    needs: preflight
+    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     name: Unit tests (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     env:
@@ -884,6 +955,7 @@ jobs:
     needs:
       [
         changes,
+        preflight,
         core,
         ordinary-journey,
         joined-validation,
@@ -891,7 +963,7 @@ jobs:
         browser-validation,
         native,
         unit-validation,
-        prepared-consumers,
+        prepared-consumer-validation,
       ]
     if: always()
     runs-on: ubuntu-latest
