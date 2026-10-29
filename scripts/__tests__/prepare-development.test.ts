@@ -97,9 +97,10 @@ it('prepares a workspace-local Node 24 and npm 11.18 toolchain before installing
 });
 it('reports dependency installation failure without exposing npm stderr or credentials', async () => {
   const f = await fixture();
-  f.run.mockImplementation(async (_command, args) => {
+  const original = f.run.getMockImplementation()!;
+  f.run.mockImplementation(async (command, args, options) => {
     if (args[0] === 'ci') throw Error('token=secret');
-    return { stdout: output(_command, args), stderr: '' };
+    return original(command, args, options);
   });
   await expect(prepareDevelopment({ ...f, install: true })).rejects.toThrow(
     'Dependency installation failed',
@@ -212,9 +213,10 @@ it.each([
   ['unknown token=secret', 'command_failed'],
 ])('retains safe dependency failure classification for %s', async (stderr, reason) => {
   const f = await fixture();
-  f.run.mockImplementation(async (command, args) => {
+  const original = f.run.getMockImplementation()!;
+  f.run.mockImplementation(async (command, args, options) => {
     if (args[0] === 'ci') throw Object.assign(Error('command failed: token=secret'), { stderr });
-    return { stdout: output(command, args), stderr: '' };
+    return original(command, args, options);
   });
   const error = await prepareDevelopment({ ...f, install: true }).catch((error) => error);
   expect(error).toMatchObject({ phase: 'dependencies', reason, effectStatus: 'may_have_changed' });
@@ -413,4 +415,29 @@ it('returns safe structured CLI diagnostics for a real pre-effect failure', asyn
     effectStatus: 'not_started',
   });
   expect(error.stderr).not.toContain(f.cwd);
+});
+
+it('retains the verified toolchain outcome when the first project installation fails', async () => {
+  const f = await fixture();
+  const original = f.run.getMockImplementation()!;
+  let fail = true;
+  f.run.mockImplementation(async (command, args, options) => {
+    if (args[0] === 'ci' && fail) throw Object.assign(Error('denied'), { code: 'EPERM' });
+    return original(command, args, options);
+  });
+  await expect(prepareDevelopment({ ...f, install: true })).rejects.toMatchObject({
+    phase: 'dependencies',
+    reason: 'filesystem_denied',
+  });
+  await expect(access(join(f.cwd, '.mitzo-devtools', 'readiness.json'))).rejects.toMatchObject({
+    code: 'ENOENT',
+  });
+  fail = false;
+  f.run.mockClear();
+  expect(await prepareDevelopment({ ...f, install: true })).toMatchObject({
+    ready: true,
+    reused: false,
+  });
+  expect(f.run.mock.calls.some(([, args]) => args[0] === 'install')).toBe(false);
+  expect(f.run.mock.calls.filter(([, args]) => args[0] === 'ci')).toHaveLength(1);
 });

@@ -328,6 +328,26 @@ export async function prepareDevelopment({
         'The selected Node runtime platform, architecture or ABI is incompatible.',
         effectStatus,
       );
+    if (install) {
+      phase = 'receipt';
+      const artifacts = verifiedToolchain
+        ? previousArtifacts
+        : await toolchainArtifacts(toolchain, bin);
+      if (artifacts === null)
+        throw new DevelopmentSetupError(
+          phase,
+          'missing_artifacts',
+          'Toolchain installation completed without its required workspace artifacts.',
+          effectStatus,
+        );
+      // Toolchain completion survives a later project-install failure. Project
+      // readiness is recorded separately only after its actual native probes.
+      await saveReceipt(
+        toolchainReceiptPath,
+        { toolchainKey, artifacts, node: nodeVersion, npm: npmVersion, abi: runtime.abi },
+        temporary,
+      );
+    }
     const installationIdentity = digest(
       JSON.stringify({
         schema: 1,
@@ -418,26 +438,14 @@ export async function prepareDevelopment({
     }
     if (install) {
       phase = 'receipt';
-      const installedArtifacts = await toolchainArtifacts(toolchain, bin);
       const installedDependencies = await dependencyArtifacts(cwd);
-      if (installedArtifacts === null || installedDependencies === null)
+      if (installedDependencies === null)
         throw new DevelopmentSetupError(
           phase,
           'missing_artifacts',
           'Installation completed without the required workspace artifacts.',
           effectStatus,
         );
-      await saveReceipt(
-        toolchainReceiptPath,
-        {
-          toolchainKey,
-          artifacts: installedArtifacts,
-          node: nodeVersion,
-          npm: npmVersion,
-          abi: runtime.abi,
-        },
-        temporary,
-      );
       await saveReceipt(
         receiptPath,
         { installationIdentity, artifacts: installedDependencies },
