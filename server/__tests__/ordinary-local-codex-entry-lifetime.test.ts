@@ -22,6 +22,13 @@ vi.mock('../connections-router.js', async (original) => ({
   ...(await original<object>()),
   requireSameOriginJson: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
+// This suite uses a seven-byte Mach-O placeholder and a mocked native launch
+// to exercise transport lifetime. Canonical native workflows and the separate
+// unqualified-artifact negative test qualify the actual Mac artifact/kernel.
+vi.mock('../codex-native-artifact-qualification.js', async (original) => ({
+  ...(await original<object>()),
+  assertQualifiedNativeMacExecutionArtifact: vi.fn(),
+}));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: () => {
