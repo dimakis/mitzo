@@ -519,7 +519,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-barrier-read.test.ts':
     'ec51b1508ffd3bb482d849d71697060cbcb43281a0f906757829cd2fee6ce9d4',
   '../__tests__/codex-prepared-repository-boundary.test.ts':
-    '9f4e2a9c12fd59bc2b85e58a2767f32851379599a6c4fb7076cf39887dbef137',
+    '2c227ee03746814f55ef05f9986ad2b20a2bc100a7c3687a54f66f323271764b',
   '../../packages/harness/__tests__/permission-decision-observation.test.ts':
     '95652995cce184b5a89d022b1e9787e3fa2576af162cf8cab44ca09fc12a84d4',
   '../codex-tool-result.ts': 'a0693aa5a7e0979f7d1c92f7ba138ecafe90c95cf80d18a0be81e92c2d5350f4',
@@ -530,7 +530,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     '01f51d463bb4f6860b0c69cb1e5c07c8dddeeea129d6932d5c50b25dbe7165b8',
   '../__tests__/codex-conversation.test.ts':
-    'bfc9603b3ec06cbe7c462daae48bde40603e4a8d1fee19d4a747c366fef211f2',
+    '8641ca7751aef6582370af489114a14c86a6f4fe65e102ad057be5b7b0a6ce1a',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -538,7 +538,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-native-execution-policy.test.ts':
     '02ee31699319568ff124d5702e87312eb71b0a85cc86c8b94bff293e678d55a4',
   '../__tests__/codex-native-execution-receipts.test.ts':
-    '3d6388328959f791d4ccd0f61333909d16a60331ace7308826744d4e7a3539c4',
+    'bcb813b18fad66064c7c5f7b93232c400f7b72db7a2e460fb4dc3cfe2fc93bd3',
   '../__tests__/codex-native-permission-protocol.test.ts':
     '8e2395429506a4208ff1f59c1ee4bba3e6905ae3a5364961d9aa30aa2b7d1cae',
   '../__tests__/codex-runtime-policy.test.ts':
@@ -1328,9 +1328,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '4b42b83e95cd9a450994de29cd400e00c76a8bd5e14bb361f377d59aa8c7b0f6',
+  '../codex-conversation.ts': '0a40635cf74b63470788013ecf3fb8bcf74192b02a5db1d908a0cb7702bd116a',
   '../codex-conversation-store.ts':
-    'e8e8384275e01487ceb955073b333a15e5ddd75a6dcf9257099b288b28768f08',
+    '085298ac93149da966786c7b3ef9d30956488523369bd6c4ceb55417b6164d88',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':

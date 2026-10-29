@@ -7734,6 +7734,109 @@ it.each(['wrong_turn', 'unknown', 'active'] as const)(
   },
 );
 
+it.each(['transport', 'direct'] as const)(
+  'retains original no-hook downstream evidence before terminal %s retirement observers',
+  async (retirement) => {
+    const f = await setupTerminalTransport();
+    await f.c.send({ id: 'empty-downstream', prompt: 'work' });
+    const observe = vi.fn(() => {
+      expect(f.store.completionPhase('app', f.getBinding(), 'empty-downstream', 1)).toMatchObject({
+        status: 'unknown',
+        observedOutcome: 'completed',
+        priorEffectsUnknown: false,
+        target: { commandId: 'empty-downstream', turnId: 'turn-1', generation: 0 },
+      });
+    });
+    f.conversationOptions.onTransportClosed = observe;
+    if (retirement === 'transport') {
+      f.callbacks.onClose(new CodexTransportError('connection'));
+      expect(observe).toHaveBeenCalledOnce();
+    } else {
+      f.c.close();
+      observe();
+    }
+    expect(f.store.commandStatus('app', f.getBinding(), 'empty-downstream')).toBe('interrupted');
+    expect(f.store.commandLifecycle('app', f.getBinding(), 'empty-downstream').nextAction).toBe(
+      'reconcile_native_outcome',
+    );
+  },
+);
+
+it.each(['plain', 'hook', 'tool', 'ambiguous'] as const)(
+  'does not mint no-hook success evidence from %s retirement',
+  async (uncertainty) => {
+    const f =
+      uncertainty === 'plain'
+        ? await setup()
+        : await setupTerminalTransport(
+            undefined,
+            uncertainty === 'hook' ? async () => {} : undefined,
+          );
+    await f.c.send({ id: 'no-empty-proof', prompt: 'work' });
+    if (uncertainty === 'tool')
+      f.store.claimTool('app', f.getBinding(), 'no-empty-proof', 'pending-effect', {
+        turnId: 'turn-1',
+        toolName: 'RequestGithubPublish',
+        requestHash: 'c'.repeat(64),
+      });
+    if (uncertainty === 'ambiguous')
+      (f.store as unknown as { db: Database.Database }).db
+        .prepare("UPDATE codex_commands SET ambiguous=1 WHERE id='no-empty-proof'")
+        .run();
+    f.callbacks.onClose(new CodexTransportError('connection'));
+    expect(f.store.completionPhase('app', f.getBinding(), 'no-empty-proof', 1)).toBeUndefined();
+  },
+);
+
+it('keeps retirement witness persistence failure inspection-only without replacing transport cleanup', async () => {
+  const f = await setupTerminalTransport();
+  await f.c.send({ id: 'missing-empty-evidence', prompt: 'work' });
+  await f.c.send({ id: 'after-missing-empty-evidence', prompt: 'later' });
+  vi.spyOn(f.store, 'observeEmptyCompletionPhase').mockImplementation(() => {
+    throw Error('receipt unavailable');
+  });
+  expect(() =>
+    f.callbacks.onClose(
+      new CodexTransportError('connection', {
+        reason: 'child_exit',
+        exitCode: 7,
+        signal: null,
+      }),
+    ),
+  ).not.toThrow();
+  expect(
+    f.store.completionPhase('app', f.getBinding(), 'missing-empty-evidence', 1),
+  ).toBeUndefined();
+  expect(
+    f.store.commandLifecycle('app', f.getBinding(), 'missing-empty-evidence').diagnostic,
+  ).toMatchObject({ reason: 'child_exit', exitCode: 7 });
+  const restored = await setupTerminalTransport(f.store);
+  const request = restored.rpc.request.getMockImplementation()!;
+  restored.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list'
+      ? { data: [{ id: 'turn-1', status: 'completed' }] }
+      : request(method, params),
+  );
+  await expect(restored.c.acknowledgeRecovery()).rejects.toThrow(/phase|effect/);
+  expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+});
+
+it.each(['plain', 'failed', 'interrupted'] as const)(
+  'keeps original empty downstream evidence fenced after %s recovery',
+  async (outcome) => {
+    const { old, restored: terminal, request } = await nativeRecoveryFixture();
+    const f = outcome === 'plain' ? await setup(old.store) : terminal;
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list'
+        ? { data: [{ id: 'turn-1', status: outcome === 'plain' ? 'completed' : outcome }] }
+        : request(method, params),
+    );
+    await expect(f.c.acknowledgeRecovery()).rejects.toThrow(/phase|effect|outcome/);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+  },
+);
+
 it('reconciles completed exact native outcome and resumes only queued phase after restart', async () => {
   const { restored: f, request } = await nativeRecoveryFixture();
   const terminal = vi.fn();
@@ -8230,3 +8333,37 @@ it.each(['explicit', 'automatic'] as const)(
     expect(hook).toHaveBeenCalledOnce();
   },
 );
+
+it('retains no-Stop pending tool effects after sole provider completion and plain cold recovery', async () => {
+  const old = await setup();
+  await old.c.send({ id: 'sole-tool', prompt: 'work' });
+  old.store.claimTool('app', old.getBinding(), 'sole-tool', 'lost-result', {
+    turnId: 'turn-1',
+    toolName: 'RequestGithubPublish',
+    requestHash: 'a'.repeat(64),
+  });
+  old.callbacks.onNotification('turn/completed', {
+    threadId: old.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  expect(old.store.read('app', old.getBinding()).recovery).toBe(1);
+  old.c.close();
+  old.store.recoverAtStartup();
+  const restored = await setup(old.store);
+  const allocation = vi.fn();
+  const admission = vi.fn(() => {
+    allocation();
+  });
+  restored.conversationOptions.beforeRuntimeAdmission = {
+    kind: 'prepared-repository-primary',
+    admit: admission,
+  };
+  expect(restored.c.isPaused()).toBe(true);
+  await expect(restored.c.send({ id: 'after-sole-tool', prompt: 'new intent' })).rejects.toThrow(
+    /phase|effect/,
+  );
+  expect(restored.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+  expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  expect(admission).not.toHaveBeenCalled();
+  expect(allocation).not.toHaveBeenCalled();
+});

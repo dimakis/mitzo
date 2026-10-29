@@ -484,9 +484,9 @@ it.each([false, true])(
 it('keeps an unfinished preparation fenced after provider completion', () => {
   const f = fixture({ result: false });
   f.store.finish('conversation', binding, f.command.id, 'completed', 'turn');
-  expect(() => f.store.completedPreparedRepositorySourceTarget('conversation', binding)).toThrow(
-    'preparation result',
-  );
+  expect(f.store.completedPreparedRepositorySourceTarget('conversation', binding)).toBeUndefined();
+  expect(f.store.read('conversation', binding).recovery).toBe(1);
+  expect(() => f.store.acknowledgeRecovery('conversation', binding)).toThrow(/phase|effect/);
 });
 it('does not reuse an earlier preparation result for a later ordinary completed turn', () => {
   const f = fixture();

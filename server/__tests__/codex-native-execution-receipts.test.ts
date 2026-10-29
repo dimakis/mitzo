@@ -681,9 +681,149 @@ it('uses one receipt-fence SQL observation after a thousand settled completion p
   const db = (f.store as unknown as { db: Database.Database }).db;
   const observation = vi.spyOn(db, 'prepare');
   try {
+    const started = performance.now();
     expect(f.store.claimNext('conversation', binding)?.id).toBe('next');
+    console.info('Completion receipt history observation', {
+      settledHistories: 1001,
+      elapsedMs: performance.now() - started,
+    });
     expect(observation.mock.calls.filter(([sql]) => sql.includes('codex_tools'))).toHaveLength(1);
   } finally {
     observation.mockRestore();
   }
+});
+
+it.each([
+  'json-null',
+  'missing-target',
+  'invalid-prior',
+  'duplicate-attempt',
+  'oversize',
+  'substituted-target',
+] as const)(
+  'refuses settled-looking malformed completion receipt %s before dispatch or acknowledgement',
+  (malformation) => {
+    const f = fixture();
+    f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+    const phase = f.store.beginCompletionPhase(
+      'conversation',
+      binding,
+      f.command,
+      'thread',
+      'turn',
+      'f'.repeat(64),
+    );
+    f.store.observeCompletionPhase('conversation', binding, phase.target, 'completed');
+    f.store.reconcileCompletionPhase('conversation', binding, phase.target, phase.workspaceDigest);
+    f.store.finish('conversation', binding, f.command.id, 'completed', 'turn');
+    const writer = new Database(f.path);
+    const row = writer
+      .prepare('SELECT completion_phases FROM codex_commands WHERE id=?')
+      .get(f.command.id) as { completion_phases: string };
+    const settled = JSON.parse(row.completion_phases)[0];
+    const malformed =
+      malformation === 'json-null'
+        ? 'null'
+        : malformation === 'missing-target'
+          ? JSON.stringify([
+              { status: 'completed', observedOutcome: 'completed', priorEffectsUnknown: false },
+            ])
+          : malformation === 'invalid-prior'
+            ? JSON.stringify([{ ...settled, priorEffectsUnknown: 2 }])
+            : malformation === 'duplicate-attempt'
+              ? JSON.stringify([settled, settled])
+              : malformation === 'oversize'
+                ? ' '.repeat(65536) + 'null'
+                : JSON.stringify([
+                    { ...settled, target: { ...settled.target, turnId: 'substituted' } },
+                  ]);
+    writer.prepare('UPDATE codex_commands SET completion_phases=?').run(malformed);
+    writer.close();
+    f.store.enqueue('conversation', binding, { id: 'after-malformed', prompt: 'new intent' });
+    expect(() => f.store.claimNext('conversation', binding)).toThrow();
+    expect(() => f.store.acknowledgeRecovery('conversation', binding)).toThrow();
+    expect(f.store.commandStatus('conversation', binding, f.command.id)).toBe('completed');
+  },
+);
+
+it('fences a sole completed provider turn with a NULL tool result without a completion hook receipt', () => {
+  const f = fixture();
+  f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+  f.store.claimTool('conversation', binding, f.command.id, 'lost-result', {
+    turnId: 'turn',
+    toolName: 'RequestGithubPublish',
+    requestHash: 'a'.repeat(64),
+  });
+  f.store.finish('conversation', binding, f.command.id, 'completed', 'turn');
+  expect(f.store.read('conversation', binding).recovery).toBe(1);
+  expect(f.store.queueSummary('conversation', binding)).toMatchObject({
+    operation: {
+      commandId: f.command.id,
+      state: 'completed',
+      effectStatus: 'unknown',
+      nextAction: 'inspect_retained_work',
+    },
+  });
+  const writer = new Database(f.path);
+  writer.prepare('UPDATE codex_conversations SET recovery=0').run();
+  writer.close();
+  f.store.recoverAtStartup();
+  expect(f.store.read('conversation', binding).recovery).toBe(1);
+  f.store.enqueue('conversation', binding, { id: 'after-lost-result', prompt: 'later' });
+  expect(() => f.store.claimNext('conversation', binding)).toThrow(/phase|effect/);
+  expect(() => f.store.acknowledgeRecovery('conversation', binding)).toThrow(/phase|effect/);
+  f.store.cancelQueued('conversation', binding, 'after-lost-result');
+  expect(f.store.read('conversation', binding).recovery).toBe(1);
+  expect(f.store.commandStatus('conversation', binding, f.command.id)).toBe('completed');
+});
+
+it('retains a later authoritative provider completion when historical phase bytes are malformed', () => {
+  const f = fixture();
+  f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+  const phase = f.store.beginCompletionPhase(
+    'conversation',
+    binding,
+    f.command,
+    'thread',
+    'turn',
+    'f'.repeat(64),
+  );
+  f.store.observeCompletionPhase('conversation', binding, phase.target, 'completed');
+  f.store.reconcileCompletionPhase('conversation', binding, phase.target, phase.workspaceDigest);
+  f.store.finish('conversation', binding, f.command.id, 'completed', 'turn');
+  f.store.enqueue('conversation', binding, { id: 'later-provider', prompt: 'later' });
+  const later = f.store.claimNext('conversation', binding)!;
+  f.store.recordNativeTurnAck('conversation', binding, later, 'thread', 'later-turn');
+  const writer = new Database(f.path);
+  writer.prepare("UPDATE codex_commands SET completion_phases='null' WHERE id=?").run(f.command.id);
+  writer.close();
+  expect(() =>
+    f.store.finish('conversation', binding, later.id, 'completed', 'later-turn'),
+  ).not.toThrow();
+  expect(f.store.commandStatus('conversation', binding, later.id)).toBe('completed');
+  expect(f.store.read('conversation', binding).recovery).toBe(1);
+  expect(() => f.store.acknowledgeRecovery('conversation', binding)).toThrow();
+});
+
+it('retains explicit completed-effect uncertainty when its phase receipt is unavailable', () => {
+  const f = fixture();
+  f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+  f.store.finish('conversation', binding, f.command.id, 'completed', 'turn', true);
+  expect(f.store.read('conversation', binding).recovery).toBe(1);
+  expect(() => f.store.acknowledgeRecovery('conversation', binding)).toThrow(/phase|effect/);
+  const target = f.store.nativeRecoveryTarget('conversation', binding)!;
+  f.store.reconcileNativeRecovery('conversation', binding, target, 'completed', 'thread', 0);
+  expect(() => f.store.acknowledgeRecovery('conversation', binding, target)).toThrow(
+    /phase|effect/,
+  );
+  f.store.enqueue('conversation', binding, { id: 'later-explicit-unknown', prompt: 'later' });
+  f.store.cancelQueued('conversation', binding, 'later-explicit-unknown');
+  expect(f.store.read('conversation', binding).recovery).toBe(1);
+  const writer = new Database(f.path);
+  writer.prepare('UPDATE codex_conversations SET recovery=0').run();
+  writer.close();
+  f.store.recoverAtStartup();
+  expect(f.store.read('conversation', binding).recovery).toBe(1);
+  f.store.enqueue('conversation', binding, { id: 'fresh-after-explicit-unknown', prompt: 'later' });
+  expect(() => f.store.claimNext('conversation', binding)).toThrow(/phase|effect/);
 });

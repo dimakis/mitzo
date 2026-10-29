@@ -2323,62 +2323,72 @@ export class CodexConversationStore {
   }
   /** Retained effect custody fences every dispatch/recovery owner, independently
    * of the queue, transport mode and cached conversation recovery projection. */
-  private unsettledCompletionPhase(id: string): CompletionPhaseReceipt | undefined {
-    // Select from actual receipt bytes in one fresh SQL observation. Settled
-    // history stays in SQLite; no per-turn history hydration or per-row queries.
-    const row = this.db
+  private unsettledCommandEffects(
+    id: string,
+  ): Readonly<{ phase?: CompletionPhaseReceipt }> | undefined {
+    // One fresh SQL observation streams history through the canonical parser.
+    // CPU is linear in retained history; memory holds one bounded phase history.
+    // NULL tool receipts are read once, not once per historical command.
+    const rows = this.db
       .prepare(
         `
       WITH pending_tools AS MATERIALIZED (
         SELECT command_id FROM codex_tools WHERE conversation_id=? AND result_content IS NULL
       )
-      SELECT c.id,c.native_turns,c.completion_phases,c.ambiguous,
+      SELECT c.id,c.status,c.native_turns,c.completion_phases,c.ambiguous,
         c.id IN (SELECT command_id FROM pending_tools) AS pending_tool
-      FROM codex_commands c WHERE c.conversation_id=? AND c.completion_phases IS NOT NULL
-        AND (length(CAST(c.completion_phases AS BLOB))>65536 OR
-          EXISTS (SELECT 1 FROM json_each(c.completion_phases) phase
-            WHERE coalesce(json_extract(phase.value,'$.status'),'')<>'completed'
-              OR coalesce(json_extract(phase.value,'$.observedOutcome'),'')<>'completed'
-              OR (coalesce(json_extract(phase.value,'$.priorEffectsUnknown'),1)=1 AND c.ambiguous=1))
-          OR c.id IN (SELECT command_id FROM pending_tools))
-      ORDER BY c.sequence LIMIT 1
+      FROM codex_commands c WHERE c.conversation_id=?
+        AND (c.completion_phases IS NOT NULL OR c.id IN (SELECT command_id FROM pending_tools)
+          OR (c.status='completed' AND c.ambiguous=1))
+      ORDER BY c.sequence
     `,
       )
-      .get(id, id) as
-      | {
-          id: string;
-          native_turns: string | null;
-          completion_phases: string;
-          ambiguous: number | null;
-          pending_tool: number;
-        }
-      | undefined;
-    if (!row) return undefined;
-    const targets = this.nativeTurns(row.native_turns);
-    for (const phase of this.completionPhases(row.completion_phases)) {
-      const accepted = targets.filter((turn) => turn.attempt === phase.target.attempt);
-      if (
-        phase.target.commandId !== row.id ||
-        accepted.length !== 1 ||
-        !isDeepStrictEqual(this.nativeTarget(row.id, accepted[0]), phase.target)
-      )
-        throw Error('Completion phase target changed');
-      if (
-        phase.status !== 'completed' ||
-        phase.observedOutcome !== 'completed' ||
-        (phase.priorEffectsUnknown && row.ambiguous === 1) ||
-        row.pending_tool
-      )
-        return phase;
+      .iterate(id, id) as Iterable<{
+      id: string;
+      status: string;
+      native_turns: string | null;
+      completion_phases: string | null;
+      ambiguous: number | null;
+      pending_tool: number;
+    }>;
+    for (const row of rows) {
+      const targets = this.nativeTurns(row.native_turns);
+      for (const phase of this.completionPhases(row.completion_phases)) {
+        const accepted = targets.filter((turn) => turn.attempt === phase.target.attempt);
+        if (
+          phase.target.commandId !== row.id ||
+          accepted.length !== 1 ||
+          !isDeepStrictEqual(this.nativeTarget(row.id, accepted[0]), phase.target)
+        )
+          throw Error('Completion phase target changed');
+        if (
+          phase.status !== 'completed' ||
+          phase.observedOutcome !== 'completed' ||
+          row.ambiguous === 1 ||
+          row.pending_tool
+        )
+          return { phase };
+      }
+      if (row.pending_tool || (row.status === 'completed' && row.ambiguous === 1)) return {};
     }
-    throw Error('Completion phase evidence changed');
+    return undefined;
+  }
+  /** Retirement can add a fence when historical evidence is unreadable. It
+   * must still retain the authoritative provider outcome. Release paths use
+   * the strict observation above and never convert invalid data into success. */
+  private needsRetirementEffectsFence(id: string): boolean {
+    try {
+      return !!this.unsettledCommandEffects(id);
+    } catch {
+      return true;
+    }
   }
   completionPhaseRecoveryTarget(
     id: string,
     binding: AccountBinding,
   ): CodexNativeTurnTarget | undefined {
     this.read(id, binding);
-    const phase = this.unsettledCompletionPhase(id);
+    const phase = this.unsettledCommandEffects(id)?.phase;
     if (!phase) return undefined;
     this.assertCompletionPhaseTarget(id, binding, phase.target, true);
     return phase.target;
@@ -2483,6 +2493,56 @@ export class CodexConversationStore {
       })
       .immediate();
   }
+  /** Original terminal owner observed no configured completion effect. This
+   * is historical phase evidence only, never a native-outcome/release grant. */
+  observeEmptyCompletionPhase(
+    id: string,
+    binding: AccountBinding,
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+    threadId: string,
+    turnId: string,
+    workspaceDigest: string,
+    policyRevision?: string,
+  ) {
+    this.db
+      .transaction(() => {
+        this.read(id, binding);
+        const row = this.db
+          .prepare(
+            `SELECT status,ambiguous,completion_phases,
+        EXISTS (SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=?
+          AND result_content IS NULL) AS pending_tool
+        FROM codex_commands WHERE conversation_id=? AND id=? AND attempt=?`,
+          )
+          .get(id, command.id, id, command.id, command.attempt) as
+          | {
+              status: string;
+              ambiguous: number | null;
+              completion_phases: string | null;
+              pending_tool: number;
+            }
+          | undefined;
+        if (
+          !row ||
+          row.status !== 'running' ||
+          row.ambiguous === 1 ||
+          row.pending_tool ||
+          this.completionPhases(row.completion_phases).length !== 0
+        )
+          return;
+        const phase = this.beginCompletionPhase(
+          id,
+          binding,
+          command,
+          threadId,
+          turnId,
+          workspaceDigest,
+          policyRevision,
+        );
+        this.observeCompletionPhase(id, binding, phase.target, 'completed');
+      })
+      .immediate();
+  }
   /** Only the original invocation promise supplies effect evidence. This is
    * historical observation, not authority to release queued work. */
   observeCompletionPhase(
@@ -2538,8 +2598,12 @@ export class CodexConversationStore {
         )
           throw Error('Completion phase success or workspace authority remains unknown');
         const row = this.db
-          .prepare('SELECT completion_phases FROM codex_commands WHERE conversation_id=? AND id=?')
-          .get(id, target.commandId) as { completion_phases: string | null };
+          .prepare(
+            'SELECT completion_phases,status FROM codex_commands WHERE conversation_id=? AND id=?',
+          )
+          .get(id, target.commandId) as { completion_phases: string | null; status: string };
+        if (!['running', 'completed'].includes(row.status))
+          throw Error('Completion phase requires the exact completed native outcome');
         this.saveCompletionPhases(
           id,
           target.commandId,
@@ -2636,6 +2700,7 @@ export class CodexConversationStore {
     if (completionPhase && !isDeepStrictEqual(completionPhase.target, nativeTarget))
       throw Error('Completion phase target changed');
     const canReconcilePhase =
+      ['running', 'completed'].includes(row.status) &&
       completionPhase?.observedOutcome === 'completed' &&
       !(completionPhase.priorEffectsUnknown && row.ambiguous === 1) &&
       completionPhase.status !== 'completed' &&
@@ -2804,7 +2869,7 @@ export class CodexConversationStore {
       | undefined;
     const operation = this.db
       .prepare(
-        `SELECT id FROM codex_commands WHERE conversation_id=? AND recovery_acknowledged=0 AND status IN ('failed','interrupted','completed') AND (transport_diagnostic IS NOT NULL OR completion_phases IS NOT NULL) ORDER BY sequence DESC LIMIT 1`,
+        `SELECT id FROM codex_commands c WHERE conversation_id=? AND status IN ('failed','interrupted','completed') AND ((recovery_acknowledged=0 AND (transport_diagnostic IS NOT NULL OR completion_phases IS NOT NULL)) OR EXISTS (SELECT 1 FROM codex_tools t WHERE t.conversation_id=c.conversation_id AND t.command_id=c.id AND t.result_content IS NULL)) ORDER BY sequence DESC LIMIT 1`,
       )
       .get(id) as { id: string } | undefined;
     const capacity = this.capacityRecovery(id, b);
@@ -2889,7 +2954,7 @@ export class CodexConversationStore {
           "SELECT 1 FROM codex_commands WHERE conversation_id=? AND (status IN ('queued','running') OR (status IN ('interrupted','failed') AND recovery_acknowledged=0)) LIMIT 1",
         )
         .get(id);
-      if (!unresolved && !this.unsettledCompletionPhase(id))
+      if (!unresolved && !this.unsettledCommandEffects(id))
         this.db.prepare('UPDATE codex_conversations SET recovery=0 WHERE id=?').run(id);
       return 'cancelled';
     })();
@@ -3905,7 +3970,7 @@ export class CodexConversationStore {
   claimNext(id: string, b: AccountBinding): CodexCommand | undefined {
     return this.db.transaction(() => {
       const state = this.read(id, b);
-      if (this.unsettledCompletionPhase(id))
+      if (this.unsettledCommandEffects(id))
         throw Error('Completion phase effects require their existing owner reconciliation');
       if (state.recovery) throw new Error('Codex recovery requires explicit acknowledgement');
       if (
@@ -3997,7 +4062,7 @@ export class CodexConversationStore {
       if (
         updated.changes === 1 &&
         status === 'completed' &&
-        (effectsUnknown || this.unsettledCompletionPhase(id))
+        (effectsUnknown || this.needsRetirementEffectsFence(id))
       )
         this.db
           .prepare('UPDATE codex_conversations SET recovery=1,automatic_recovery=0 WHERE id=?')
@@ -4028,7 +4093,7 @@ export class CodexConversationStore {
             "UPDATE codex_commands SET status=?, recovery_acknowledged=0, retry_not_before=?, retryable=?, ambiguous=? WHERE conversation_id=? AND id=? AND status='running'",
           )
           .run(status, retryNotBefore ?? null, retryable ? 1 : 0, ambiguous ? 1 : 0, id, commandId);
-      const phase = this.unsettledCompletionPhase(id);
+      const phase = this.needsRetirementEffectsFence(id);
       if (pending || phase)
         this.db
           .prepare(
@@ -4298,7 +4363,7 @@ export class CodexConversationStore {
       if (
         ![expectedCwd, nextCwd].includes(state.cwd) ||
         this.commands(id, binding).some((command) => command.status === 'running') ||
-        this.unsettledCompletionPhase(id) ||
+        this.unsettledCommandEffects(id) ||
         this.db
           .prepare(
             "SELECT 1 FROM codex_commands WHERE conversation_id=? AND status IN ('interrupted','failed') AND recovery_acknowledged=0",
@@ -4966,14 +5031,12 @@ export class CodexConversationStore {
         .run(...(ownerKind === undefined ? [] : [ownerKind]));
       const phaseOwners = this.db
         .prepare(
-          'SELECT DISTINCT conversation_id FROM codex_commands WHERE completion_phases IS NOT NULL' +
-            (ownerKind === undefined
-              ? ''
-              : ' AND conversation_id IN (SELECT id FROM codex_conversations WHERE owner_kind=?)'),
+          `SELECT id AS conversation_id FROM codex_conversations WHERE id IN (SELECT conversation_id FROM codex_commands WHERE completion_phases IS NOT NULL OR (status='completed' AND ambiguous=1) UNION SELECT conversation_id FROM codex_tools WHERE result_content IS NULL)` +
+            (ownerKind === undefined ? '' : ' AND owner_kind=?'),
         )
         .all(...(ownerKind === undefined ? [] : [ownerKind])) as Array<{ conversation_id: string }>;
       for (const row of phaseOwners)
-        if (this.unsettledCompletionPhase(row.conversation_id))
+        if (this.needsRetirementEffectsFence(row.conversation_id))
           this.db
             .prepare('UPDATE codex_conversations SET recovery=1,automatic_recovery=0 WHERE id=?')
             .run(row.conversation_id);
@@ -4996,7 +5059,7 @@ export class CodexConversationStore {
       this.read(id, b);
       this.assertNoPendingThreadDispatch(id, b);
       this.assertNoPendingThreadOwnership(id, b);
-      if (this.unsettledCompletionPhase(id))
+      if (this.unsettledCommandEffects(id))
         throw Error(
           'Completion phase effects require their existing owner reconciliation; saved work remains queued',
         );

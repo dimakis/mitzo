@@ -588,6 +588,7 @@ export class CodexConversation {
       }
     }
     if (this.opts.transportClosure === 'terminal') {
+      this.retainEmptyCompletionPhase();
       try {
         this.opts.onTransportClosed?.({ activeTurn: !!this.active, reason: 'closed', ...failure });
       } finally {
@@ -1651,21 +1652,6 @@ export class CodexConversation {
         !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding!))
     )
       throw new Error('Automatic recovery was cancelled');
-    if (completionTarget) {
-      const phase = this.opts.store.completionPhase(
-        this.opts.conversationId,
-        this.binding!,
-        completionTarget.commandId,
-        completionTarget.attempt,
-      );
-      if (phase && phase.status !== 'completed' && phase.observedOutcome === 'completed')
-        await this.reconcileKnownCompletionPhase(
-          completionTarget,
-          this.binding!,
-          this.opts.nativeExecution,
-        );
-      assertRecoveryContinuation();
-    }
     if (nativeTarget && nativeStatus) {
       this.opts.store.reconcileNativeRecovery(
         this.opts.conversationId,
@@ -1677,6 +1663,21 @@ export class CodexConversation {
       );
       this.opts.onProviderTerminal?.(nativeTarget.commandId, nativeTarget.turnId, nativeStatus);
       this.opts.onProviderComplete?.(nativeTarget.commandId, nativeStatus);
+    }
+    if (completionTarget) {
+      const phase = this.opts.store.completionPhase(
+        this.opts.conversationId,
+        this.binding!,
+        completionTarget.commandId,
+        completionTarget.attempt,
+      );
+      if (phase && phase.observedOutcome === 'completed')
+        await this.reconcileKnownCompletionPhase(
+          completionTarget,
+          this.binding!,
+          this.opts.nativeExecution,
+        );
+      assertRecoveryContinuation();
     }
     assertRecoveryContinuation();
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!, nativeTarget);
@@ -2856,6 +2857,38 @@ export class CodexConversation {
       policy?.policyRevision,
     );
   }
+  /** Only the original live terminal owner knows that no completion callback
+   * existed. Reconstructed/plain owners never manufacture this evidence. */
+  private retainEmptyCompletionPhase(active = this.active) {
+    if (
+      this.opts.transportClosure !== 'terminal' ||
+      this.opts.beforeComplete ||
+      !active ||
+      this.active !== active ||
+      !this.binding ||
+      !this.threadId ||
+      !active.accepted ||
+      !active.turnId ||
+      active.ownershipPending ||
+      active.completionHook !== undefined ||
+      active.interruptRequested ||
+      active.abort.signal.aborted
+    )
+      return;
+    try {
+      this.opts.store.observeEmptyCompletionPhase(
+        this.opts.conversationId,
+        this.binding,
+        active.command,
+        this.threadId,
+        active.turnId,
+        createHash('sha256').update(this.opts.cwd).digest('hex'),
+        active.nativeExecution?.policyRevision,
+      );
+    } catch {
+      // Missing evidence preserves uncertainty; it cannot replace primary cleanup.
+    }
+  }
   /** The provider outcome and downstream completion phase are separate. The
    * existing retirement owner retains only an accepted exact unconflicted ACK. */
   private retainConfirmedProviderCompletion(active?: ActiveCommand): boolean {
@@ -3949,6 +3982,7 @@ export class CodexConversation {
     finishCommandTimingSpan(this.active?.preparationSpan, 'closed');
     if (this.active) this.active.preparationSpan = undefined;
     if (this.closed) return;
+    this.retainEmptyCompletionPhase();
     this.closed = true;
     this.borrowedSearch?.transportClosed(new Error('Search connection closed'));
     this.paused = true;
