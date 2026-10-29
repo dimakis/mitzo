@@ -333,7 +333,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-local-repository-preparation-registration-dispatch.test.ts':
     '57bba7f1830ccc7ede481ca86c532eb3e1b14dff42a4d1d824f372aae988aa9d',
   '../native-local-repository-preparation.ts':
-    '2e91cf0f076c8f9d4b6c90b7c4de0fa3e1b278c08934f83ad7c1fd2b4db89ae9',
+    '65bbbe69f1f4275de973e829e188fa4eedd68b33c9271fbd545bf9b466a138b3',
   '../__tests__/native-local-repository-preparation.test.ts':
     'df0fc8240d29fa138e61aa5e3f3338d08996edc5df8c9a455f6596b85bc2a889',
   '../__tests__/native-local-repository-preparation-custody.test.ts':
@@ -367,7 +367,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-read-policy.test.ts':
     '0a6a6ff20d55e51c63acf145f57d34245133f59c18354f07036fdde13e1d9147',
   '../local-repository-preparation-operation.ts':
-    '8d2b7ce2d9c5d15dd98cb1be9fba3a9a49b1e442e402f414a13ed55f30311cd2',
+    '4a2452bb384e0ad9e8806bc31d07e65904d8a2f9b7218751f064311e96e61ab1',
   '../local-repository-preparation-object-data.ts':
     'd48b86907ba38b123e426cc6553d4adc02dabbccc050005965c2374a5aa0cb57',
   '../__tests__/local-repository-preparation-envelope.test.ts':
@@ -2120,7 +2120,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../wait-for-change.ts': '82cfc955560c5494b9453bfc82e1a14004fc8349f2a5731583791323a03f17a0',
   '../local-agent-efficiency.ts':
     '3ac22a7a94b22eaebc1336866e6dd9ab00319306829cd06f21c8bdf757ce98f0',
-  '../codex-tool-failure.ts': 'e3a20c1278283305b20adb62113206e65dfc1fd0050662997ee8eba2eea34b8a',
+  '../codex-tool-failure.ts': '744942759b40dff13a67f4a9656380cde641efd706527baa574583a80fef59cd',
   '../tool-output-projection.ts':
     'cf73a8155b7912eed21960b4a7d4199eb7fd8e2a0ae68421873f673246ed83b1',
   '../__tests__/integration-tool-discovery.test.ts':
@@ -2902,4 +2902,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../message-stream-state.ts': '0a2c176c2aba044406bc9d2230f29632afa0f8948ed5b030c3c06e3a755b616a',
   '../native-repository-topology.ts':
     '6aa601ad177c91b371cd2d756d4f13c5f94b5665951a791dfb7f8d16afb3bd7b',
+  '../__tests__/local-repository-preparation-cleanup-diagnostics.test.ts':
+    '2755dd6e347dedae0518602f7b07f8d321b54ecc3f7b49cd438caf619fdf0197',
 });
