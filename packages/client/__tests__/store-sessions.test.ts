@@ -149,6 +149,98 @@ describe('delivery status on navigation', () => {
   });
 });
 
+describe('approval delivery during transcript loading', () => {
+  it.each([undefined, 4, 12])(
+    'preserves the latest approval state across a late transcript (event sequence %s)',
+    async (seq) => {
+      const ws = new MockWebSocket();
+      let finish!: (response: Response) => void;
+      const transport = mockTransport();
+      vi.mocked(transport.fetch).mockImplementation(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const options = makeOptions(transport);
+      options.wsConfig.createWebSocket = () => ws;
+      const store = createMitzoStore(options);
+      ws.onopen?.({});
+      const receive = (event: Record<string, unknown>) =>
+        ws.onmessage?.({ data: JSON.stringify(event) });
+      receive({ type: 'welcome', protocolVersion: 2, connectionId: 'fixture' });
+      const opening = store.getState().switchSession('chat');
+      receive({
+        type: 'permission_request',
+        sessionId: 'chat',
+        permId: 'first',
+        toolName: 'Bash',
+        toolInput: 'first command',
+        seq,
+      });
+      receive({
+        type: 'permission_request',
+        sessionId: 'chat',
+        permId: 'second',
+        toolName: 'Bash',
+        toolInput: 'second command',
+      });
+      store.getState().dispatchMessages({ type: 'PERMISSION_RESPONDING', permId: 'first' });
+      const latest = store.getState().messages;
+      expect(latest.permission?.permId).toBe('first');
+      expect(latest.permissionQueue?.map((p) => p.permId)).toEqual(['second']);
+      finish(new Response(JSON.stringify({ messages: [], cursor: 10 })));
+      await opening;
+      expect(store.getState().messages.permission).toEqual(latest.permission);
+      expect(store.getState().messages.permissionQueue).toEqual(latest.permissionQueue);
+      expect(transport.fetch).toHaveBeenCalledOnce();
+      expect(ws.sent.map((body) => JSON.parse(body).type)).not.toContain('send');
+      expect(ws.sent.map((body) => JSON.parse(body).type)).not.toContain('permission_response');
+    },
+  );
+
+  it('does not resurrect a resolved approval or copy it into another chat on a late read', async () => {
+    const ws = new MockWebSocket();
+    const reads: Array<(response: Response) => void> = [];
+    const transport = mockTransport();
+    vi.mocked(transport.fetch).mockImplementation(
+      () => new Promise<Response>((resolve) => reads.push(resolve)),
+    );
+    const options = makeOptions(transport);
+    options.wsConfig.createWebSocket = () => ws;
+    const store = createMitzoStore(options);
+    ws.onopen?.({});
+    const receive = (event: Record<string, unknown>) =>
+      ws.onmessage?.({ data: JSON.stringify(event) });
+    receive({ type: 'welcome', protocolVersion: 2, connectionId: 'fixture' });
+    const opening = store.getState().switchSession('chat');
+    receive({
+      type: 'permission_request',
+      sessionId: 'chat',
+      permId: 'resolved',
+      toolName: 'Bash',
+      toolInput: 'command',
+      seq: 12,
+    });
+    receive({ type: 'permission_resolved', sessionId: 'chat', permId: 'resolved' });
+    reads[0](new Response(JSON.stringify({ messages: [], cursor: 10 })));
+    await opening;
+    expect(store.getState().messages.permission).toBeNull();
+    const other = store.getState().switchSession('other');
+    receive({
+      type: 'permission_request',
+      sessionId: 'chat',
+      permId: 'foreign',
+      toolName: 'Bash',
+      toolInput: 'command',
+    });
+    reads[1](new Response(JSON.stringify({ messages: [], cursor: 0 })));
+    await other;
+    expect(store.getState().messages.permission).toBeNull();
+    expect(transport.fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('conversation history selection', () => {
   function deferredHistory() {
     const transport = mockTransport();

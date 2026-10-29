@@ -1272,7 +1272,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             });
           restored = liveActions.reduce(messagesReducer, restored);
           if (restored.resyncRequired) throw new Error('Unsafe session-open transcript');
-          set((s) => ({ messages: { ...restored, running: s.messages.running } }));
+          // Transcript cursors describe message history, not pending approvals.
+          // Keep the latest live requests/decisions, including unsequenced replay
+          // and resolutions that arrived while this history read was pending.
+          set((s) => ({
+            messages: {
+              ...restored,
+              running: s.messages.running,
+              permission: s.messages.permission,
+              permissionQueue: s.messages.permissionQueue,
+            },
+          }));
           connection.commitTranscriptCursor(id, cursor);
           // REST and switch are independent requests. Rebase server retries
           // on the transcript we installed, including any events stored
