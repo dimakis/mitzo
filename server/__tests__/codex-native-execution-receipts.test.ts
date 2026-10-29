@@ -521,3 +521,55 @@ it.each(['prior_unknown', 'pending_tool'] as const)(
     });
   },
 );
+
+it('does not advertise hook-only reconciliation when prior effect uncertainty remains', () => {
+  const f = fixture();
+  f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+  const writer = new Database(f.path);
+  writer.prepare('UPDATE codex_commands SET ambiguous=1 WHERE id=?').run(f.command.id);
+  writer.close();
+  const phase = f.store.beginCompletionPhase(
+    'conversation',
+    binding,
+    f.command,
+    'thread',
+    'turn',
+    'f'.repeat(64),
+  );
+  f.store.finish('conversation', binding, f.command.id, 'completed', 'turn', true);
+  f.store.observeCompletionPhase('conversation', binding, phase.target, 'completed');
+  expect(f.store.commandLifecycle('conversation', binding, f.command.id)).toMatchObject({
+    state: 'completed',
+    effectStatus: 'unknown',
+    nextAction: 'inspect_retained_work',
+  });
+});
+
+it('refuses strict native acknowledgement when a known hook still has prior unknown effects', () => {
+  const f = fixture();
+  f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+  const writer = new Database(f.path);
+  writer.prepare('UPDATE codex_commands SET ambiguous=1 WHERE id=?').run(f.command.id);
+  writer.close();
+  const phase = f.store.beginCompletionPhase(
+    'conversation',
+    binding,
+    f.command,
+    'thread',
+    'turn',
+    'f'.repeat(64),
+  );
+  f.store.finish('conversation', binding, f.command.id, 'completed', 'turn', true);
+  f.store.observeCompletionPhase('conversation', binding, phase.target, 'completed');
+  f.store.reconcileCompletionPhase('conversation', binding, phase.target, phase.workspaceDigest);
+  f.store.enqueue('conversation', binding, { id: 'after-prior-unknown', prompt: 'later' });
+  f.store.pauseForRecovery('conversation', binding);
+  expect(() => f.store.acknowledgeRecovery('conversation', binding, phase.target)).toThrow(
+    /phase|effect/,
+  );
+  expect(f.store.read('conversation', binding).recovery).toBeTruthy();
+  expect(f.store.commands('conversation', binding)).toMatchObject([
+    { status: 'completed' },
+    { status: 'queued' },
+  ]);
+});

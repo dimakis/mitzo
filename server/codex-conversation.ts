@@ -1660,6 +1660,7 @@ export class CodexConversation {
           this.binding!,
           this.opts.nativeExecution,
         );
+      assertRecoveryContinuation();
       this.opts.store.reconcileNativeRecovery(
         this.opts.conversationId,
         this.binding!,

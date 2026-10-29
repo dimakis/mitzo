@@ -2575,6 +2575,7 @@ export class CodexConversationStore {
       throw Error('Completion phase target changed');
     const canReconcilePhase =
       completionPhase?.observedOutcome === 'completed' &&
+      !(completionPhase.priorEffectsUnknown && row.ambiguous === 1) &&
       completionPhase.status !== 'completed' &&
       !this.db
         .prepare(
@@ -4905,7 +4906,16 @@ export class CodexConversationStore {
           )
           .get(id, nativeTarget.commandId);
         const phase = this.completionPhase(id, b, nativeTarget.commandId, nativeTarget.attempt);
-        const pendingPhase = phase && phase.status !== 'completed';
+        const priorEffects = phase?.priorEffectsUnknown
+          ? (this.db
+              .prepare(
+                'SELECT ambiguous FROM codex_commands WHERE conversation_id=? AND id=? AND attempt=?',
+              )
+              .get(id, nativeTarget.commandId, nativeTarget.attempt) as
+              { ambiguous: number | null } | undefined)
+          : undefined;
+        const pendingPhase =
+          phase && (phase.status !== 'completed' || priorEffects?.ambiguous === 1);
         if (pendingTool || pendingPhase)
           throw Error(
             'Downstream phase effects require their existing owner reconciliation; saved work remains queued',
