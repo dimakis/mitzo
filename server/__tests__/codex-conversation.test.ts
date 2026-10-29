@@ -7717,11 +7717,7 @@ async function remoteRecoveryFixture(pendingTool = false) {
   await old.c.send({ id: 'remote-next', prompt: 'explicit later work' });
   if (pendingTool)
     old.store.claimTool('app', old.getBinding(), 'remote-operation', 'unknown-write', {
-      commandId: 'remote-operation',
-      attempt: 1,
-      threadId: 'provider-thread',
       turnId: 'turn-1',
-      generation: 0,
       toolName: 'Write',
       requestHash: 'a'.repeat(64),
     });

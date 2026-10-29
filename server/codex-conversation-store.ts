@@ -2207,9 +2207,11 @@ export class CodexConversationStore {
     this.assertNoPendingThreadOwnership(id, binding);
     const rows = this.db
       .prepare(
-        'SELECT status,attempt,native_turns,pre_dispatch_failure FROM codex_commands WHERE conversation_id=? ORDER BY sequence DESC',
+        `SELECT status,attempt,native_turns,pre_dispatch_failure FROM codex_commands
+        WHERE conversation_id=? AND (status NOT IN ('queued','cancelled') OR native_turns IS NOT NULL)
+        ORDER BY sequence DESC`,
       )
-      .all(id) as Array<{
+      .iterate(id) as Iterable<{
       status: string;
       attempt: number;
       native_turns: string | null;
@@ -2245,7 +2247,7 @@ export class CodexConversationStore {
         `SELECT id,status,attempt,native_turns,pre_dispatch_failure
       FROM codex_commands WHERE conversation_id=? AND status NOT IN ('queued','cancelled') ORDER BY sequence DESC`,
       )
-      .all(id) as Array<{
+      .iterate(id) as Iterable<{
       id: string;
       status: string;
       attempt: number;

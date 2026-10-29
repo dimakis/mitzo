@@ -179,7 +179,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/prepared-repository-browser.ts':
     'aafba388d9f3a5df3475bd28415433c3088196868c44df520831c11e197e9bb7',
   '../__tests__/fixtures/prepared-repository-delivery-flow.ts':
-    '785ec3d46aff65dc174df9d95791559cbcd07bc9963538119433efb41a0f2029',
+    'f74dfffad954ed527ff850310e6907cbff84b470630a4bbda7271b480dab84ef',
   '../__tests__/github-publication-review-gate.test.ts':
     'a3420102e73761a717f1d1dd10d0386905db03957eb75d46d8e08eeeb7df238b',
   '../__tests__/github-publishing-tool.test.ts':
@@ -189,9 +189,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-publication-review.test.ts':
     '2d032cb591b2a757c9aa923e807033fa754605a35b9d086f035e57836f09ea55',
   '../__tests__/prepared-repository-delivery-flow.test.ts':
-    'a84cc0136345a3f13511b8bf59d59861c022af0667211b6e3ca7e22f767fa61d',
+    '1ef1870694a7cac1472adf43fa4a20813765b9f7d9416edf25a2fbeed1c7f03f',
   '../__tests__/prepared-repository-publication-flow.test.ts':
-    '8c32644151228c01e611ded319c9d5e0e0b9a3c084503df939081a76ce69dc97',
+    '8b813fc56e6d55a0de7f39a27c89b5110118190355fcb9cce1ebf8bf6e30ab82',
   '../github-publication-review-failure.ts':
     '32772ac35e4b846e589fd26fe6cdf2ecaa1ab0e58488cbd6e6662fb089bd52b0',
   '../ordinary-publication-review-context.ts':
@@ -530,7 +530,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     'aa5a2c812addf837dd2471983ddfda90105fd43948564c04b4a18b3b19ff559f',
   '../__tests__/codex-conversation.test.ts':
-    '29e437bc304b389975dce81ccaa8a7108c1fa038f5cd134f1aec19de2a310f03',
+    'bf67af553b96c43d6736e26c4c474475ab542432d489b8e16a1342d1f451af91',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -1330,7 +1330,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
   '../codex-conversation.ts': '0e6b1a2af9824b8dc372781c5f5bd3842510c68ee8a47bcd080af14d7836b04b',
   '../codex-conversation-store.ts':
-    'd6769deb78e5f3d7c4c6dd804ed78b41b1849fd1edb446f25189c57d05786d43',
+    '5866a4b6f7bd2e6ed564ec0541534cd042c1f6baac5a90bdee8115a87a51fc23',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':
@@ -2759,7 +2759,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '424dff5941daafdc29252739d8a7c183d412f0d73de8fa62bf9ca8cd886d7caa',
   '../__tests__/chat.test.ts': 'f26a7670f0089dc35068e9ff2df8cb809aa1458db46caa3bb95c8ef1799bb873',
   '../__tests__/fixtures/owned-local-codex-runtime.ts':
-    '468017dd746e8b6fc1d79df6ba164e6ac209fffb1d70ef539714db99e3523752',
+    '3a1122c731aa888ddbf7a56ebff345981fd89963a16788694997b100853b23f4',
   '../__tests__/local-repository-base.test.ts':
     'ac2e27968c177a049a975aa7dc3364c0d6a9e0f8569b63dd507d989fb1bf1108',
   '../__tests__/local-repository-host-git.test.ts':
@@ -2862,11 +2862,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ci-validation-artifacts.test.ts':
     'ef42279fa86ab33bc5de702ddb215196ae718122c3b5c533705a6e0912c47480',
   '../__tests__/fixtures/prepared-repository-native-consumer.ts':
-    '6879262ceadc86f666ca8ccaf463608a9e81a5736a2b6c22f47cbd31a6512de2',
+    '99ee4410665d8d5c8541e63c6c31ea2cde4942c13e0e73b11333261c4a446cd6',
   '../__tests__/fixtures/prepared-repository-native-public.ts':
     '4ec766ceacfb7a0c2b61c79294b38e2a6e05704621e89baa7eeba0cc9ac16982',
   '../__tests__/prepared-repository-native-cold-resume.test.ts':
-    '84fd791e57fc2854aa1e429b32752310070fa935464779d00d6750118c55408d',
+    '092463535f0234ba3211c14cfdc28b017a590a0cccad1d1898cf27cb3d927471',
   '../__tests__/prepared-repository-native-owner-guards.test.ts':
     '67cab013db98d0ae62657aa5262cf5bf345a29a2dca94997ca6223a58fcad42c',
   '../__tests__/prepared-repository-native-public-completed.test.ts':
