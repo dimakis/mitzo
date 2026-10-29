@@ -1,3 +1,5 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
+import { readChatStorage } from '../support/persisted-chat-storage';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
@@ -9,6 +11,7 @@ import { deployedSecurityHeaders } from '../support/response-security';
 const pdfRoot = dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
 const output = build({
   entryPoints: [resolve('tests/fixtures/pdf-import.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   format: 'esm',
   write: false,
@@ -116,7 +119,7 @@ for (const theme of ['dark', 'light']) {
     await expect(page.getByRole('alert')).toBeVisible();
     await expect(input).toHaveValue('');
     await expect
-      .poll(() => page.evaluate(() => localStorage.getItem('mitzo-draft-new')))
+      .poll(() => readChatStorage(page, (storage) => storage.getItem('mitzo-draft-new')))
       .toBe('Summarize the attached report');
     await expect(page.getByAltText('report.pdf — page 1 of 2')).toBeVisible();
     await expect(page.getByAltText('report.pdf — page 2 of 2')).toBeVisible();

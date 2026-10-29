@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { navigateWithServiceHealth } from '../support/service-health-navigation';
 import { waitForNewFixtureReads } from '../support/fixture-reads';
 import { expect, test } from '@playwright/test';
@@ -14,6 +15,7 @@ import type { createTelosSourceApprovalData } from '../fixtures/telos-source-app
 test.use({ baseURL: 'https://mitzo-ui.test' });
 const compiled = build({
   entryPoints: [resolve('tests/fixtures/telos-source-approval.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/telos-source-approval.js',

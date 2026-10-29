@@ -1,3 +1,4 @@
+import { readChatStorage, writeChatStorage } from '../support/persisted-chat-storage';
 import { enableBriefingRuntime } from '../support/briefing-owned-runtime';
 import { waitForNewFixtureReads } from '../support/fixture-reads';
 import { settingRow, chooseSetting, openChatSetting } from '../support/chat-settings';
@@ -602,10 +603,10 @@ test('drafts: save status describes confirmed device storage and disappears when
     await expect(page.locator('.chat-draft-save-status')).toHaveText('Draft saved on this device');
     await expect
       .poll(() =>
-        page.evaluate(() =>
-          Object.keys(localStorage)
+        readChatStorage(page, (storage) =>
+          Object.keys(storage)
             .filter((key) => key.startsWith('mitzo-chat-draft:'))
-            .some((key) => JSON.parse(localStorage.getItem(key)!).text === 'Just a test.'),
+            .some((key) => JSON.parse(storage.getItem(key)!).text === 'Just a test.'),
         ),
       )
       .toBe(true);
@@ -678,8 +679,8 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
   await chooseSetting(page, 'Thinking level', 'low');
   await expect
     .poll(async () =>
-      page.evaluate(() =>
-        JSON.parse(localStorage.getItem('mitzo-chat-draft:briefing-draft') || '{}'),
+      readChatStorage(page, (storage) =>
+        JSON.parse(storage.getItem('mitzo-chat-draft:briefing-draft') || '{}'),
       ),
     )
     .toMatchObject({
@@ -723,10 +724,11 @@ test('drafts: unsent new input saves separately and legacy input migrates withou
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue('');
   await input.fill('A separate new message');
+  await expect(page.locator('.chat-draft-save-status')).toHaveText('Draft saved on this device');
   await page.goto('/sessions/drafts');
   await expect(page.getByRole('link', { name: /Existing legacy briefing draft/ })).toBeVisible();
   await expect(page.getByRole('link', { name: /A separate new message/ })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem('mitzo-draft-new'))).toBeNull();
+  expect(await readChatStorage(page, (storage) => storage.getItem('mitzo-draft-new'))).toBeNull();
   await page.getByRole('link', { name: /New chat/ }).click();
   await expect(input).toHaveValue('');
   expect(fixture.mutations).toEqual([]);
@@ -762,20 +764,16 @@ test('drafts: discard is labelled, cancellable with focus restored, and missing 
   ]) {
     const draft = savedDraft('unavailable-reference');
     draft.settings.selection = selection;
-    await page.evaluate(
-      (draft) =>
-        localStorage.setItem('mitzo-chat-draft:unavailable-reference', JSON.stringify(draft)),
-      draft,
-    );
+    await writeChatStorage(page, 'mitzo-chat-draft:unavailable-reference', JSON.stringify(draft));
     await page.goto('/chat?draft=unavailable-reference');
     await agentSettings(page);
     await expect(page.getByRole('alert')).toContainText('Selected account or model is unavailable');
     await expect(page.getByRole('button', { name: 'Start session', exact: true })).toBeDisabled();
     expect(
-      await page.evaluate(
-        () =>
-          JSON.parse(localStorage.getItem('mitzo-chat-draft:unavailable-reference')!).settings
-            .selection,
+      await readChatStorage(
+        page,
+        (storage) =>
+          JSON.parse(storage.getItem('mitzo-chat-draft:unavailable-reference')!).settings.selection,
       ),
     ).toEqual(selection);
   }
@@ -972,8 +970,8 @@ test('drafts: clearing text removes stale draft and prompt URLs while leaving th
   await input.fill('Refill the same editable draft');
   await expect
     .poll(() =>
-      page.evaluate(() =>
-        JSON.parse(localStorage.getItem('mitzo-chat-draft:cleared-draft') || '{}'),
+      readChatStorage(page, (storage) =>
+        JSON.parse(storage.getItem('mitzo-chat-draft:cleared-draft') || '{}'),
       ),
     )
     .toMatchObject({
@@ -983,7 +981,9 @@ test('drafts: clearing text removes stale draft and prompt URLs while leaving th
   await input.fill('');
   await expect.poll(() => new URL(page.url()).searchParams.get('draft')).toBeNull();
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('mitzo-chat-draft:cleared-draft')))
+    .poll(() =>
+      readChatStorage(page, (storage) => storage.getItem('mitzo-chat-draft:cleared-draft')),
+    )
     .toBeNull();
   await page.reload();
   await expect(input).toHaveValue('');
@@ -992,11 +992,12 @@ test('drafts: clearing text removes stale draft and prompt URLs while leaving th
   await expect(input).toHaveValue('A new editable message after reload');
   await expect
     .poll(() =>
-      page.evaluate(
-        () =>
-          Object.keys(localStorage)
+      readChatStorage(
+        page,
+        (storage) =>
+          Object.keys(storage)
             .filter((key) => key.startsWith('mitzo-chat-draft:'))
-            .map((key) => JSON.parse(localStorage.getItem(key)!))
+            .map((key) => JSON.parse(storage.getItem(key)!))
             .filter((draft) => draft.text === 'A new editable message after reload').length,
       ),
     )
@@ -1063,9 +1064,10 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
   await expect
     .poll(() =>
-      page.evaluate(
-        () =>
-          JSON.parse(localStorage.getItem('mitzo-chat-draft:preparation-only') || '{}').settings
+      readChatStorage(
+        page,
+        (storage) =>
+          JSON.parse(storage.getItem('mitzo-chat-draft:preparation-only') || '{}').settings
             ?.repositoryWorkspaceId,
       ),
     )
@@ -1078,8 +1080,8 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
   await expect
     .poll(() =>
-      page.evaluate(() =>
-        JSON.parse(localStorage.getItem('mitzo-chat-draft:preparation-only') || '{}'),
+      readChatStorage(page, (storage) =>
+        JSON.parse(storage.getItem('mitzo-chat-draft:preparation-only') || '{}'),
       ),
     )
     .toMatchObject({
@@ -1093,7 +1095,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.getByRole('link', { name: /Untitled draft/ })).toBeVisible();
   expect(
-    await page.evaluate(() => localStorage.getItem('mitzo-chat-draft:preparation-only')),
+    await readChatStorage(page, (storage) => storage.getItem('mitzo-chat-draft:preparation-only')),
   ).not.toBeNull();
   await page.screenshot({
     path: testInfo.outputPath('repository-draft-cleanup-retry.png'),
@@ -1118,7 +1120,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
   await expect(page.getByText('No drafts yet', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'New chat', exact: true })).toBeFocused();
   expect(
-    await page.evaluate(() => localStorage.getItem('mitzo-chat-draft:preparation-only')),
+    await readChatStorage(page, (storage) => storage.getItem('mitzo-chat-draft:preparation-only')),
   ).toBeNull();
   expect(deletes).toEqual([
     `/api/repository-workspaces/${preparationId}`,
@@ -1289,8 +1291,9 @@ test('drafts: deferred voice replies stay with their owner while same-draft dict
   await releaseVoice(page, 0, 'Late words from draft A');
   await expect(input).toHaveValue('Independent draft B');
   expect(
-    await page.evaluate(
-      () => JSON.parse(localStorage.getItem('mitzo-chat-draft:voice-first')!).text,
+    await readChatStorage(
+      page,
+      (storage) => JSON.parse(storage.getItem('mitzo-chat-draft:voice-first')!).text,
     ),
   ).toBe(first.text);
   await page.getByRole('button', { name: 'Record voice message', exact: true }).click();
@@ -1316,8 +1319,9 @@ test('drafts: deferred voice replies stay with their owner while same-draft dict
   await expect(input).toHaveValue(first.text);
   await expect(controls).toBeFocused();
   expect(
-    await page.evaluate(
-      (id) => JSON.parse(localStorage.getItem(`mitzo-chat-draft:${id}`)!).text,
+    await readChatStorage(
+      page,
+      (storage, id) => JSON.parse(storage.getItem(`mitzo-chat-draft:${id}`)!).text,
       secondId,
     ),
   ).toBe('Independent draft B with newer typing Current dictated words');
@@ -1419,8 +1423,9 @@ for (const theme of ['dark', 'light']) {
     await page.getByRole('link', { name: /Explore this saved morning briefing/ }).click();
     await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toBeVisible();
     expect(
-      await page.evaluate(
-        () => JSON.parse(localStorage.getItem('mitzo-chat-draft:unsent-launch')!).settings.launch,
+      await readChatStorage(
+        page,
+        (storage) => JSON.parse(storage.getItem('mitzo-chat-draft:unsent-launch')!).settings.launch,
       ),
     ).toEqual(launch);
     await page.screenshot({
@@ -1460,9 +1465,10 @@ test('launch drafts: generic preparation retains its chosen model and thinking t
   await chooseSetting(page, 'Thinking level', 'high');
   await expect
     .poll(() =>
-      page.evaluate(
-        () =>
-          JSON.parse(localStorage.getItem('mitzo-chat-draft:meeting-launch')!).settings.selection,
+      readChatStorage(
+        page,
+        (storage) =>
+          JSON.parse(storage.getItem('mitzo-chat-draft:meeting-launch')!).settings.selection,
       ),
     )
     .toEqual({ accountId: account.id, model: 'luna-alternate', reasoningEffort: 'high' });
@@ -1530,7 +1536,9 @@ test('launch drafts: generic command survives tab replacement and keeps its orig
   expect(commands[1]).toMatchObject({ sessionId: null, telosTaskId: 'task-fixture' });
   release?.();
   await expect
-    .poll(() => fresh.evaluate(() => localStorage.getItem('mitzo-chat-draft:generic-delivery')))
+    .poll(() =>
+      readChatStorage(fresh, (storage) => storage.getItem('mitzo-chat-draft:generic-delivery')),
+    )
     .toBeNull();
   expect(commands).toHaveLength(2);
   expect(fixture.errors).toEqual([]);

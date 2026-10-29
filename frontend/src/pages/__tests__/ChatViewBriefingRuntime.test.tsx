@@ -11,9 +11,11 @@ import {
   getChatDraft,
   saveChatDraft,
   chatDraftStorageKey,
+  chatDraftTextKey,
 } from '../../lib/chat-drafts';
 import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
 import { apiFetch } from '../../lib/api-fetch';
+import { chatStorage } from '../../lib/large-chat-storage';
 import { launchDraftDelivery, reviewedBriefingLaunch } from '../../lib/launch-draft-delivery';
 import {
   buildLocalFirstCommand,
@@ -66,8 +68,17 @@ vi.mock('../../components/RepositoryChatPicker', () => ({
   ),
 }));
 vi.mock('../../components/SymposiumConversation', () => ({
-  SymposiumConversation: ({ ordinaryComposer }: { ordinaryComposer: React.ReactNode }) => (
-    <>{ordinaryComposer}</>
+  SymposiumConversation: ({
+    ordinaryComposer,
+    pendingFeedback,
+  }: {
+    ordinaryComposer: React.ReactNode;
+    pendingFeedback?: React.ReactNode;
+  }) => (
+    <>
+      {pendingFeedback}
+      {ordinaryComposer}
+    </>
   ),
 }));
 vi.mock('../../components/DesktopShell', () => ({
@@ -390,16 +401,19 @@ for (const Page of [ChatView, DesktopChatView]) {
         false,
       ),
     );
-    view.owned.mockImplementation((request, opts) =>
-      launchDraftDelivery.prepare(
+    let savedAtDispatch: string | null | undefined;
+    view.owned.mockImplementation((request, opts) => {
+      savedAtDispatch = chatStorage.getItem(chatDraftTextKey(draft.id));
+      return launchDraftDelivery.prepare(
         (opts as { draftId: string }).draftId,
         request as Record<string, unknown>,
-      ),
-    );
+      );
+    });
     const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
     fireEvent.change(input, { target: { value: 'Keep my independent unsent follow-up' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
     await waitFor(() => expect(view.owned).toHaveBeenCalledTimes(1));
+    expect(savedAtDispatch).toBe('Keep my independent unsent follow-up');
     expect(input).toHaveProperty('value', 'Keep my independent unsent follow-up');
     view.unmount();
     mount(Page, `/chat?draft=${draft.id}`);
@@ -415,5 +429,37 @@ for (const Page of [ChatView, DesktopChatView]) {
     );
     expect(getChatDraft(draft.id)?.settings.launch?.prompt).toBe(draft.text);
     expect(view.send).not.toHaveBeenCalled();
+  });
+}
+
+for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} refuses a header launch when its independent follow-up cannot be saved`, async () => {
+    const { draft, inventory } = briefingFixture();
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      Response.json(String(url).includes('/capabilities') ? inventory : []),
+    );
+    const view = mount(Page, `/chat?draft=${draft.id}`);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Send launch prompt' })).toHaveProperty(
+        'disabled',
+        false,
+      ),
+    );
+    const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+    fireEvent.change(input, { target: { value: 'Do not lose this follow-up' } });
+    const set = chatStorage.setItem;
+    const blocked = vi.spyOn(chatStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === chatDraftTextKey(draft.id)) throw Error('Storage unavailable');
+      set(key, value);
+    });
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
+      expect(view.owned).not.toHaveBeenCalled();
+      expect(view.send).not.toHaveBeenCalled();
+      expect(screen.getByRole('alert').textContent).toContain('Could not preserve this draft');
+      expect(input).toHaveProperty('value', 'Do not lose this follow-up');
+    } finally {
+      blocked.mockRestore();
+    }
   });
 }

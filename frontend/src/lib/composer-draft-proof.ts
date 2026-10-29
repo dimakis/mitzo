@@ -51,15 +51,16 @@ export function allowComposerDraftPersistence(key: string): boolean {
 export function replaceComposerDraftRevision(key: string, value: string): boolean {
   memoryRevisions.set(key, composerDraftMemoryRevision(key) + 1);
   pendingRevocations.add(key);
-  const revoked = allowComposerDraftPersistence(key);
   try {
-    chatStorage.setItem(composerDraftRevisionKey(key), value);
+    // Atomic replacement revokes old authority without a deletion on every
+    // keystroke. The ordered backend fences payload writes behind this proof.
+    chatStorage.setRevision(composerDraftRevisionKey(key), value);
     pendingRevocations.delete(key);
     return true;
   } catch {
-    // A successful removal already invalidated the old proof. Otherwise every
-    // text/rich-draft write remains fenced until a later retry can revoke it.
-    if (!revoked) pendingRevocations.add(key);
+    // Synchronous legacy failures still revoke explicitly. If neither write
+    // nor removal works, newer draft persistence remains fenced in memory.
+    allowComposerDraftPersistence(key);
     return false;
   }
 }

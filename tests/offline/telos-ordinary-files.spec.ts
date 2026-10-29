@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { test, expect, type Locator } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -7,6 +8,7 @@ import { sha256Hex } from '../../frontend/src/lib/browser-crypto';
 test.use({ baseURL: 'https://mitzo-ui.test' });
 const compiled = build({
   entryPoints: [resolve('tests/fixtures/telos-ordinary-chat.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/telos-ordinary-files.js',

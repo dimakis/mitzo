@@ -1,3 +1,5 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
+import { readChatStorage, writeChatStorage } from '../support/persisted-chat-storage';
 import { expect, test } from '@playwright/test';
 import { settingsHome, openChatSetting } from '../support/chat-settings';
 import { offlineRoleReview } from '../support/telos-role-presentation';
@@ -24,6 +26,7 @@ test.use({ baseURL: 'https://mitzo-ui.test' });
 test.setTimeout(60_000);
 const compiled = build({
   entryPoints: [resolve('tests/fixtures/telos-source-navigation.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/telos-role.js',
@@ -571,30 +574,28 @@ for (const journey of ['lead', 'refine', 'child', 'leaf', 'coordinator'] as cons
         .click();
       await expect(page.getByRole('button', { name: actionLabel })).toBeDisabled();
       expect(calls).toHaveLength(0);
-      await page.addInitScript(
-        ({ inventory, preparationId }) => {
-          const id = new URL(location.href).searchParams.get('draft');
-          if (!id) return;
-          const key = `mitzo-chat-draft:${id}`;
-          const draft = JSON.parse(localStorage.getItem(key)!);
-          draft.settings.selection = {
-            accountId: 'personal',
-            model: 'luna-fixture',
-            reasoningEffort: 'low',
-          };
-          draft.settings.runtimeSelection = {
-            version: 1,
-            account: draft.settings.selection,
-            accountReference: inventory.accounts[0].account,
-            agentProfile: { profileId: 'agent', revision: 1 },
-            execution: { location: 'local', targetId: 'mac' },
-            capabilityRevision: inventory.capabilityRevision,
-          };
-          draft.settings.repositoryWorkspaceId = preparationId;
-          localStorage.setItem(key, JSON.stringify(draft));
-        },
-        { inventory, preparationId },
+      const id = new URL(page.url()).searchParams.get('draft')!;
+      const key = `mitzo-chat-draft:${id}`;
+      const draft = await readChatStorage(
+        page,
+        (storage, key) => JSON.parse(storage.getItem(key)!),
+        key,
       );
+      draft.settings.selection = {
+        accountId: 'personal',
+        model: 'luna-fixture',
+        reasoningEffort: 'low',
+      };
+      draft.settings.runtimeSelection = {
+        version: 1,
+        account: draft.settings.selection,
+        accountReference: inventory.accounts[0].account,
+        agentProfile: { profileId: 'agent', revision: 1 },
+        execution: { location: 'local', targetId: 'mac' },
+        capabilityRevision: inventory.capabilityRevision,
+      };
+      draft.settings.repositoryWorkspaceId = preparationId;
+      await writeChatStorage(page, key, JSON.stringify(draft));
       await reloadAfterHealth();
       const assign = page.getByRole('button', { name: actionLabel });
       await expect(assign).toBeEnabled();

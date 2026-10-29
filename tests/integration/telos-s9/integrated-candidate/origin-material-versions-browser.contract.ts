@@ -1,3 +1,4 @@
+import { expectPersistedChatDraft } from '../../../support/persisted-chat-storage';
 import { expect, it } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { createHash, randomUUID } from 'node:crypto';
@@ -163,6 +164,7 @@ it('opens the exact original exchange and its item backlink while pinned materia
     expect(sourceResponse?.status()).toBe(200);
     const composer = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
     await composer.fill('Keep this original planning draft.');
+    await expectPersistedChatDraft(page, 'planning', 'Keep this original planning draft.');
     await capture('exact-original-exchange-anchor');
     await page.getByRole('button', { name: 'View item: Home studio', exact: true }).click();
     await browserExpect(

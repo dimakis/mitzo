@@ -1,3 +1,4 @@
+import { expectPersistedChatDraft } from '../../../support/persisted-chat-storage';
 import { expect, it, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
@@ -134,6 +135,7 @@ it('Actual App Stop cancels only the selected unrelated outcome while retaining 
     await browserExpect(
       page.getByRole('button', { name: 'Interrupt and send now', exact: true }),
     ).toHaveCount(0);
+    await expectPersistedChatDraft(page, ids[index], drafts[index]);
   }
   const readQueues = () =>
     page.evaluate((entries) => entries.map((entry) => localStorage.getItem(entry.key)), queues);

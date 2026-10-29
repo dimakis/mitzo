@@ -334,6 +334,13 @@ export function useDraft(
       // Rotate even for a same-valued edit; content equality cannot prove that
       // a reloaded composer is still the revision submitted by an older command.
       rotateRevision(next);
+      // IndexedDB cannot begin an unload-time save reliably. Offer plain text
+      // during the edit; its adapter coalesces queued snapshots without copying
+      // attachment-rich draft bodies on every keystroke.
+      const owner = storageRef.current;
+      if (chatStorage.asynchronous && !chatDraftIdFromKey(owner.key)) {
+        if (saveDraft(owner.key, next, owner.scoped)) dirty.current = false;
+      }
       setTextRaw(next);
     },
     [rotateRevision],

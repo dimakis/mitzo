@@ -1,3 +1,4 @@
+import { expectPersistedChatDraft } from '../../../support/persisted-chat-storage';
 import { observeTaskChatReads } from './task-chat-read-observer';
 import type { Socket } from 'node:net';
 import { expect, it, vi } from 'vitest';
@@ -337,6 +338,7 @@ it('uses healthy real service/proxy paths for synthetic voice and delivers saved
       media,
       access,
     });
+    await expectPersistedChatDraft(page, id, draft);
   }
   for (const [index, id] of ids.entries()) {
     const reloadReads = observeTaskChatReads(page);

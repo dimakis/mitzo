@@ -1,3 +1,4 @@
+import { expectPersistedChatDraft } from '../../../support/persisted-chat-storage';
 import { expect, it, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
@@ -316,6 +317,7 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
     });
     await page.goto(front.origin + '/chat/' + coordinatorId);
     await composer.fill('Keep coordinator decision draft.');
+    await expectPersistedChatDraft(page, coordinatorId, 'Keep coordinator decision draft.');
     await browserExpect(
       coordinatorRegion.getByRole('button', { name: 'Feature 0', exact: true }),
     ).toBeEnabled();
@@ -362,6 +364,7 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
     });
     const jobNative = await start(job.workerConversationId, 'unrelated Job');
     await composer.fill('Keep unrelated Job draft.');
+    await expectPersistedChatDraft(page, job.workerConversationId, 'Keep unrelated Job draft.');
     for (const [index, feature] of features.slice(1).entries()) {
       for (const recipient of [
         { itemId: feature.itemId, sessionId: feature.leadId, revision: 1 },

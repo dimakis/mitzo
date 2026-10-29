@@ -1,9 +1,17 @@
 import { createBrowserId } from './browser-crypto';
+import { createIndexedChatDisk } from './indexed-chat-disk';
 
 const PREFIX = 'mitzo-large-chat:v1:';
 const THRESHOLD = 256 * 1024;
 export const CHAT_STORAGE_CHANGED = 'mitzo-chat-storage-changed';
-type Disk = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 'removeItem'>;
+type Disk = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 'removeItem'> & {
+  ready?: () => Promise<void>;
+  flush?: () => Promise<void>;
+  isLegacy?: (key: string) => boolean;
+  setRevision?: (key: string, value: string) => void;
+  readonly pending?: boolean;
+  readonly failed?: boolean;
+};
 interface PayloadStore {
   get(id: string): Promise<string | null>;
   put(id: string, value: string): Promise<void>;
@@ -24,6 +32,7 @@ export class LargeChatStorage {
     private disk: Disk,
     private payloads: PayloadStore,
     private changed = () => {},
+    private threshold = THRESHOLD,
   ) {}
   get length() {
     return this.keys().length;
@@ -32,10 +41,10 @@ export class LargeChatStorage {
     return this.keys()[index] ?? null;
   }
   get pending() {
-    return this.writes.size > 0 || this.removals.size > 0;
+    return this.writes.size > 0 || this.removals.size > 0 || !!this.disk.pending;
   }
   get failed() {
-    return this.errors.size > 0;
+    return this.errors.size > 0 || !!this.disk.failed;
   }
   keys() {
     return [
@@ -48,10 +57,16 @@ export class LargeChatStorage {
     ].filter((key) => !this.removals.has(key));
   }
   async ready(): Promise<void> {
+    await this.disk.ready?.();
     const results = await Promise.allSettled(
       this.keys().map(async (key) => {
         const reference = this.disk.getItem(key);
-        if (!reference?.startsWith(PREFIX) || this.writes.has(key)) return;
+        if (
+          !reference?.startsWith(PREFIX) ||
+          this.disk.isLegacy?.(key) === false ||
+          this.writes.has(key)
+        )
+          return;
         const value = await this.payloads.get(reference.slice(PREFIX.length));
         if (this.disk.getItem(key) !== reference || this.writes.has(key)) return;
         if (value === null) throw Error('Saved chat payload is unavailable');
@@ -65,16 +80,32 @@ export class LargeChatStorage {
     const write = this.writes.get(key);
     if (write) return write.value;
     const raw = this.disk.getItem(key);
-    if (!raw?.startsWith(PREFIX)) return raw;
+    if (!raw?.startsWith(PREFIX) || this.disk.isLegacy?.(key) === false) return raw;
     const cached = this.cache.get(key);
     if (!cached || cached.reference !== raw) throw Error('Saved chat payload is loading');
     return cached.value;
   }
+  /** Revision values use the ordered atomic backend, never the legacy spill path. */
+  setRevision(key: string, value: string): void {
+    if (!this.disk.setRevision) throw Error('Ordered revision storage is unavailable');
+    const expected = this.disk.getItem(key);
+    this.disk.setRevision(key, value);
+    this.revisions.set(key, (this.revisions.get(key) ?? 0) + 1);
+    this.errors.delete(key);
+    this.writes.delete(key);
+    this.removals.delete(key);
+    this.cache.delete(key);
+    this.cleanAfterCommit(expected);
+    this.changed();
+  }
   setItem(key: string, value: string): void {
-    if (this.getReadableValue(key) === value && !this.errors.has(key)) return;
+    if (this.getReadableValue(key) === value && !this.errors.has(key) && !this.disk.failed) return;
     const revision = (this.revisions.get(key) ?? 0) + 1;
     const expected = this.disk.getItem(key);
-    if (value.length <= THRESHOLD && !value.startsWith(PREFIX)) {
+    if (
+      value.length <= this.threshold &&
+      (this.threshold === Infinity || !value.startsWith(PREFIX))
+    ) {
       // A failed synchronous replacement must not invalidate an earlier save.
       try {
         this.disk.setItem(key, value);
@@ -83,7 +114,7 @@ export class LargeChatStorage {
         this.writes.delete(key);
         this.removals.delete(key);
         this.cache.delete(key);
-        this.clean(expected);
+        this.cleanAfterCommit(expected);
         return;
       } catch (error) {
         if (!(error instanceof DOMException) || error.name !== 'QuotaExceededError') throw error;
@@ -133,10 +164,11 @@ export class LargeChatStorage {
             );
           const reference = PREFIX + id;
           this.disk.setItem(key, reference);
+          await this.disk.flush?.();
           this.cache.set(key, { reference, value });
           this.writes.delete(key);
           this.errors.delete(key);
-          this.clean(expected);
+          this.cleanAfterCommit(expected);
         } catch (error) {
           if (id) this.clean(PREFIX + id);
           if (this.revisions.get(key) === revision) {
@@ -167,7 +199,7 @@ export class LargeChatStorage {
       this.removals.delete(key);
       this.errors.delete(key);
       this.cache.delete(key);
-      this.clean(expected);
+      this.cleanAfterCommit(expected);
       this.changed();
       return;
     }
@@ -190,7 +222,7 @@ export class LargeChatStorage {
             );
           this.disk.removeItem(key);
           this.cache.delete(key);
-          this.clean(expected);
+          this.cleanAfterCommit(expected);
         } catch (error) {
           this.errors.set(key, error);
         } finally {
@@ -205,6 +237,7 @@ export class LargeChatStorage {
       current = this.tail;
       await current;
     } while (current !== this.tail);
+    await this.disk.flush?.();
     if (this.errors.size) throw this.errors.values().next().value;
     if (this.pending) throw Error('Chat storage has unfinished writes');
   }
@@ -214,6 +247,11 @@ export class LargeChatStorage {
     } catch {
       return undefined;
     }
+  }
+  private cleanAfterCommit(reference: string | null) {
+    // IndexedDB shadows legacy keys without removing their retained originals.
+    // Keep the original payload too; only the legacy adapter owns its cleanup.
+    if (!this.disk.flush) this.clean(reference);
   }
   private clean(reference: string | null) {
     if (reference?.startsWith(PREFIX))
@@ -250,10 +288,20 @@ async function operation<T>(
       reject(transaction.error ?? Error('Chat storage write failed'));
   });
 }
+let disk: ReturnType<typeof createIndexedChatDisk> | undefined;
+let channel: BroadcastChannel | undefined;
+function indexedDisk() {
+  return (disk ??= createIndexedChatDisk(
+    localStorage,
+    openDatabase,
+    () => channel?.postMessage('changed'),
+    () => window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED)),
+  ));
+}
 let instance: LargeChatStorage | undefined;
 function current() {
   return (instance ??= new LargeChatStorage(
-    localStorage,
+    indexedDisk(),
     {
       get: async (id) => (await operation('readonly', (store) => store.get(id))) ?? null,
       put: async (id, value) => {
@@ -264,10 +312,16 @@ function current() {
       },
     },
     () => window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED)),
+    // The logical disk is IndexedDB: commit each full record atomically. Only
+    // legacy Web Storage pointers need the payload reader above.
+    Infinity,
   ));
 }
 // Environments without IndexedDB retain the established small Web Storage behavior.
 export const chatStorage = {
+  get asynchronous() {
+    return typeof indexedDB !== 'undefined';
+  },
   get length() {
     return typeof indexedDB === 'undefined' ? localStorage.length : current().length;
   },
@@ -279,6 +333,10 @@ export const chatStorage = {
     typeof indexedDB === 'undefined'
       ? localStorage.setItem(key, value)
       : current().setItem(key, value),
+  setRevision: (key: string, value: string) =>
+    typeof indexedDB === 'undefined'
+      ? localStorage.setItem(key, value)
+      : current().setRevision(key, value),
   removeItem: (key: string) =>
     typeof indexedDB === 'undefined' ? localStorage.removeItem(key) : current().removeItem(key),
   flush: () => instance?.flush() ?? Promise.resolve(),
@@ -296,11 +354,18 @@ export function chatStorageKeys(): string[] {
 }
 export async function initializeChatStorage(): Promise<void> {
   if (typeof indexedDB === 'undefined') return;
+  if (!channel && typeof BroadcastChannel !== 'undefined') {
+    channel = new BroadcastChannel('mitzo-chat-storage');
+    channel.onmessage = () => {
+      void refreshChatStorage();
+    };
+  }
   await current().ready();
 }
 if (typeof window !== 'undefined')
   window.addEventListener('storage', (event) => {
-    if (event.storageArea !== localStorage || !event.newValue?.startsWith(PREFIX)) return;
+    if (event.storageArea !== localStorage) return;
+    disk?.invalidateLegacy();
     void initializeChatStorage()
       .then(() => {
         window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));
@@ -309,3 +374,22 @@ if (typeof window !== 'undefined')
       })
       .catch(() => window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED)));
   });
+
+async function refreshChatStorage() {
+  try {
+    await initializeChatStorage();
+    window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));
+    window.dispatchEvent(new Event('storage'));
+    window.dispatchEvent(new Event('mitzo-chat-drafts-changed'));
+  } catch {
+    window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));
+  }
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('focus', () => {
+    if (instance) void refreshChatStorage();
+  });
+  window.addEventListener('pageshow', () => {
+    if (instance) void refreshChatStorage();
+  });
+}

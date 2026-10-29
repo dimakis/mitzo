@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -6,6 +7,7 @@ import { resolve } from 'node:path';
 // Full ResponsiveChatView adoption and current S5b integration remain separate gates.
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/telos-chat-selection.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/mitzo-s8-chat-selection.js',

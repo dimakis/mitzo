@@ -1,3 +1,4 @@
+import { readChatStorage } from '../support/persisted-chat-storage';
 import {
   enableBriefingRuntime,
   reviewBriefingRuntime,
@@ -2263,6 +2264,10 @@ async function exerciseBriefingReloadRecovery(
         registered = true;
         return route.fulfill({ json: { ...binding, createdAt: '2026-10-10T07:00:00Z' } });
       }
+      // Confirmation lookup may finish after the click resolves. Keep that
+      // navigation boundary asynchronous before inspecting the draft owner.
+      if (url.searchParams.has('date'))
+        await new Promise<void>((resolve) => setTimeout(resolve, 250));
       return route.fulfill({
         json: registered ? [{ ...binding, createdAt: '2026-10-10T07:00:00Z' }] : [],
       });
@@ -2333,12 +2338,24 @@ async function exerciseBriefingReloadRecovery(
     ).toBe(true);
   const picker = page.getByRole('dialog');
   await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  await expect(page).toHaveURL(/\/chat\?.*draft=/);
   const launchDraftId = new URL(page.url()).searchParams.get('draft')!;
   if (!retainedGeneric) await reviewBriefingRuntime(page);
   await page
     .getByRole('textbox', { name: 'Message Mitzo', exact: true })
     .fill('Keep my unsent follow-up');
   if (retainedGeneric) {
+    // This fixture deliberately bypasses the UI launch barrier. Confirm the
+    // independent follow-up's durable bytes before materializing old work.
+    await expect
+      .poll(() =>
+        readChatStorage(
+          page,
+          (storage, id) => storage.getItem('mitzo-chat-draft-text:' + id),
+          launchDraftId,
+        ),
+      )
+      .toBe('Keep my unsent follow-up');
     // Materialize the pre-migration generic queue through its actual owner.
     // The current page never translates this retained receipt into owned work.
     await page.evaluate(() => {
@@ -2410,14 +2427,18 @@ async function exerciseBriefingReloadRecovery(
   await expect.poll(() => registrations.length).toBe(1);
   await expect
     .poll(() =>
-      page.evaluate((id) => localStorage.getItem(`mitzo-chat-draft:${id}`), launchDraftId),
+      readChatStorage(
+        page,
+        (storage, id) => storage.getItem(`mitzo-chat-draft:${id}`),
+        launchDraftId,
+      ),
     )
     .toBeNull();
   expect(
-    await page.evaluate(() =>
-      Object.keys(localStorage)
+    await readChatStorage(page, (storage) =>
+      Object.keys(storage)
         .filter((key) => key.startsWith('mitzo-chat-draft:'))
-        .map((key) => JSON.parse(localStorage.getItem(key)!))
+        .map((key) => JSON.parse(storage.getItem(key)!))
         .some((draft) => draft.text === 'Keep my unsent follow-up' && !draft.settings.launch),
     ),
   ).toBe(true);
@@ -4247,7 +4268,7 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
   await expect(draft).toHaveValue('');
   await expect(page.getByText('Exact refused ordinary input', { exact: true })).toBeVisible();
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('mitzo-draft-idle-owned-child')))
+    .poll(() => readChatStorage(page, (storage) => storage.getItem('mitzo-draft-idle-owned-child')))
     .toBe('Exact refused ordinary input');
   await draft.fill('Newer untouched ordinary draft');
   emit({

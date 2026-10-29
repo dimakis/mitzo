@@ -1,3 +1,4 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { expect, test } from '@playwright/test';
 import { openChatSetting, settingRow, settingsHome } from '../support/chat-settings';
 import { build } from 'esbuild';
@@ -7,6 +8,7 @@ import { telosSourceBrowserData } from '../fixtures/telos-source-data';
 test.use({ baseURL: 'https://mitzo-ui.test' });
 const compiled = build({
   entryPoints: [resolve('tests/fixtures/telos-source-navigation.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   write: false,
   outfile: '/tmp/telos-source.js',

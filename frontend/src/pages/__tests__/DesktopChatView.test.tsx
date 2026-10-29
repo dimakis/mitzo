@@ -1,3 +1,4 @@
+import { useImperativeHandle } from 'react';
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
@@ -120,6 +121,7 @@ vi.mock('../../components/ChatInput', () => ({
     collaboration,
     settings,
     sendLabel,
+    draftControl,
   }: {
     externalContextBlocks?: string[];
     sendDisabledReason?: string;
@@ -129,6 +131,7 @@ vi.mock('../../components/ChatInput', () => ({
     collaboration?: React.ReactNode;
     settings?: React.ReactNode;
     sendLabel?: string;
+    draftControl?: { current: import('../../components/ChatInput').ChatInputDraftControl | null };
     onSend: (
       text: string,
       images?: never[],
@@ -136,32 +139,39 @@ vi.mock('../../components/ChatInput', () => ({
       receipt?: (status: 'accepted' | 'failed' | 'uncertain') => void,
       assigned?: (id: string) => void,
     ) => boolean;
-  }) => (
-    <div data-testid="chat-input">
-      <span>{sendDisabledReason}</span>
-      {settings}
-      {collaboration}
-      <span data-testid="send-label">{sendLabel}</span>
-      <span data-testid="composer-running">{String(running)}</span>
-      <span data-testid="composer-generation">{composerGeneration}</span>
-      <button onClick={onStop}>Test Stop</button>
-      <button
-        disabled={!!sendDisabledReason}
-        onClick={() =>
-          onSend(
-            'hello',
-            undefined,
-            undefined,
-            () => {},
-            () => {},
-          )
-        }
-      >
-        Test send
-      </button>
-      external: {externalContextBlocks ? externalContextBlocks.length : 'none'}
-    </div>
-  ),
+  }) => {
+    useImperativeHandle(draftControl, () => ({
+      storageKey: undefined,
+      clear: () => {},
+      flush: () => true,
+    }));
+    return (
+      <div data-testid="chat-input">
+        <span>{sendDisabledReason}</span>
+        {settings}
+        {collaboration}
+        <span data-testid="send-label">{sendLabel}</span>
+        <span data-testid="composer-running">{String(running)}</span>
+        <span data-testid="composer-generation">{composerGeneration}</span>
+        <button onClick={onStop}>Test Stop</button>
+        <button
+          disabled={!!sendDisabledReason}
+          onClick={() =>
+            onSend(
+              'hello',
+              undefined,
+              undefined,
+              () => {},
+              () => {},
+            )
+          }
+        >
+          Test send
+        </button>
+        external: {externalContextBlocks ? externalContextBlocks.length : 'none'}
+      </div>
+    );
+  },
 }));
 
 vi.mock('../../components/StatusBar', () => ({

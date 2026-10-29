@@ -1,3 +1,4 @@
+import { readChatStorage } from '../../../support/persisted-chat-storage';
 import { navigateToChatMetadata } from './task-chat-read-observer';
 import { expect, it, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
@@ -158,12 +159,22 @@ it('retains actual native task-tool evidence and pending review across App proce
     const peerDraft = 'Keep this unrelated draft while the worker task is reviewed.';
     const leadDraft = 'Task approval is separate from verifying the outcome.';
     const workerDraft = 'Keep the worker follow-up draft; do not rerun the completed task tools.';
+    // These are durable isolation controls for the later server-process crash.
+    // Establish their committed bytes before destroying each seed document.
+    const waitForDraft = (id: string, text: string) =>
+      browserExpect
+        .poll(() =>
+          readChatStorage(page, (storage, id) => storage.getItem('mitzo-draft-' + id), id),
+        )
+        .toBe(text);
     await page.goto(front.origin + '/chat/' + peerId);
     await h.waitForPreparedConversation(peerId);
     await composer.fill(peerDraft);
+    await waitForDraft(peerId, peerDraft);
     await page.goto(front.origin + '/chat/' + leadId);
     await h.waitForPreparedConversation(leadId);
     await composer.fill(leadDraft);
+    await waitForDraft(leadId, leadDraft);
     await page.goto(front.origin + allocation.workerPath);
     await h.waitForPreparedConversation(workerId);
     await composer.fill(
@@ -193,6 +204,7 @@ it('retains actual native task-tool evidence and pending review across App proce
       { timeout: 10_000 },
     );
     await composer.fill(workerDraft);
+    await waitForDraft(workerId, workerDraft);
     const allocated = await h.snapshot(workerId, command.clientMsgId),
       workBefore = await api.read('recording-slice'),
       peerBefore = await api.read('quiet-job');

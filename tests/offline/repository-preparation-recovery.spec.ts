@@ -1,3 +1,6 @@
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
+import { navigateWithServiceHealth } from '../support/service-health-navigation';
+import { readChatStorage } from '../support/persisted-chat-storage';
 import {
   settingsHome,
   settingRow,
@@ -18,6 +21,7 @@ import { build } from 'esbuild';
 import { resolve } from 'node:path';
 const output = build({
   entryPoints: [resolve('tests/fixtures/repository-preparation-recovery.tsx')],
+  plugins: [chatStorageBootstrap()],
   bundle: true,
   external: ['/*.svg', '/*.png'],
   format: 'esm',
@@ -457,7 +461,7 @@ for (const workspaceChoice of ['select', 'default'] as const) {
         );
       });
       for (const accountId of ['personal', 'api', 'vertex', 'gemini']) {
-        await page.goto(`/chat?offlineAccount=${accountId}`);
+        await navigateWithServiceHealth(page, () => page.goto(`/chat?offlineAccount=${accountId}`));
         await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
         expect(errors).toEqual([]);
         await settingsHome(page);
@@ -564,11 +568,12 @@ for (const workspaceChoice of ['select', 'default'] as const) {
       ).toEqual(['codex', 'codex', 'claude-sdk', 'gemini']);
       if (workspaceChoice === 'default') {
         const original = commands.at(-1)!;
-        const retained = await page.evaluate(
-          (id) =>
-            Object.keys(localStorage)
+        const retained = await readChatStorage(
+          page,
+          (storage, id) =>
+            Object.keys(storage)
               .filter((key) => key.startsWith('mitzo-local-first-command-outbox:'))
-              .map((key) => JSON.parse(localStorage.getItem(key)!))
+              .map((key) => JSON.parse(storage.getItem(key)!))
               .find((entry) => entry.body.clientMsgId === id),
           original.clientMsgId,
         );
@@ -631,11 +636,12 @@ for (const workspaceChoice of ['select', 'default'] as const) {
           1,
         );
         expect(
-          await page.evaluate(
-            (id) =>
-              Object.keys(localStorage)
+          await readChatStorage(
+            page,
+            (storage, id) =>
+              Object.keys(storage)
                 .filter((key) => key.startsWith('mitzo-local-first-command-outbox:'))
-                .map((key) => JSON.parse(localStorage.getItem(key)!))
+                .map((key) => JSON.parse(storage.getItem(key)!))
                 .find((entry) => entry.body.clientMsgId === id),
             original.clientMsgId,
           ),

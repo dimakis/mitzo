@@ -1,3 +1,4 @@
+import { readChatStorage } from '../support/persisted-chat-storage';
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -260,7 +261,9 @@ for (const [theme, accent, font] of [
       model: account.model,
     });
     await expect
-      .poll(() => page.evaluate((id) => localStorage.getItem('mitzo-chat-draft:' + id), draft.id))
+      .poll(() =>
+        readChatStorage(page, (storage, id) => storage.getItem('mitzo-chat-draft:' + id), draft.id),
+      )
       .toBeNull();
     await page.screenshot({
       path: testInfo.outputPath(`briefing-assigned-${theme}.png`),
