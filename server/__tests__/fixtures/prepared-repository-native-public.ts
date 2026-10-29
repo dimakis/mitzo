@@ -171,6 +171,13 @@ export const runPublicColdAdmission = async (
   void nativeTurnStarted.catch(() => {});
   let acknowledge: (() => void) | undefined;
   let replacementGeneration = 1;
+  const providerTerminalTurns = new Map([
+    ['thread', { id: 'pre-public-turn', status: 'interrupted' }],
+  ]);
+  const recoveryProbes: Array<{
+    threadId: unknown;
+    turn: { id: string; status: string } | undefined;
+  }> = [];
   f.rpc.request.mockImplementation(async (method, params?: Record<string, unknown>) => {
     if (method === 'thread/resume')
       return { thread: { id: params?.threadId }, model: 'fixture-model', modelProvider: 'openai' };
@@ -180,8 +187,11 @@ export const runPublicColdAdmission = async (
         model: 'fixture-model',
         modelProvider: 'openai',
       };
-    if (method === 'thread/turns/list')
-      return { data: [{ id: 'pre-public-turn', status: 'interrupted' }], nextCursor: null };
+    if (method === 'thread/turns/list') {
+      const turn = providerTerminalTurns.get(String(params?.threadId));
+      recoveryProbes.push({ threadId: params?.threadId, turn: turn && { ...turn } });
+      return { data: turn ? [{ ...turn }] : [], nextCursor: null };
+    }
     if (method === 'turn/start') {
       if (toolRollover && params?.clientUserMessageId === firstCommandId) {
         // Native events may precede the JSON-RPC response. They must cross the
@@ -436,6 +446,9 @@ export const runPublicColdAdmission = async (
       expect(f.native.commandStatus(sessionId, binding, firstCommandId)).toBe('running');
     }
     if (queuedPrimary) {
+      // The provider history must advance with the accepted child. Returning
+      // the retired parent's terminal identity correctly blocks exact recovery.
+      providerTerminalTurns.set(activeThread, { id: firstTurnId, status: 'interrupted' });
       lifecycle.onNotification('turn/completed', {
         threadId: activeThread,
         turn: { id: firstTurnId, status: 'interrupted' },
@@ -454,6 +467,11 @@ export const runPublicColdAdmission = async (
         phase: 'accepted',
         threadId: activeThread,
         generation: 1,
+      });
+      expect(f.native.nativeRecoveryTarget(sessionId, binding)).toMatchObject({
+        commandId: firstCommandId,
+        threadId: activeThread,
+        turnId: firstTurnId,
       });
       const explicit = {
         ...structuredClone(request),
@@ -476,6 +494,10 @@ export const runPublicColdAdmission = async (
       ]);
       acknowledge!();
       await expect(continuation).resolves.toEqual({ dispatched: true, sessionId });
+      expect(recoveryProbes.at(-1)).toEqual({
+        threadId: activeThread,
+        turn: { id: interruptedExecution!.turnId, status: 'interrupted' },
+      });
       await vi.waitFor(
         () =>
           expect(

@@ -15,7 +15,7 @@ function completeReport(): Report {
   return {
     success: true,
     testResults: [
-      ['native-host-operator-lifetime', 7],
+      ['native-host-operator-lifetime', 9],
       ['native-local-repository-preparation-registration-dispatch', 4],
       ['native-local-repository-read-tools', 14],
       ['native-reader-path-authorization', 13],
@@ -52,11 +52,14 @@ it('accepts complete signed Mac coverage with only the retained opt-in Inspect d
   expect(() => qualify(report)).not.toThrow();
 });
 
-it('refuses the earlier five-case report that omits both cold-resume regressions', () => {
-  const report = completeReport();
-  report.testResults[0].assertionResults.splice(5);
-  expect(() => qualify(report)).toThrow();
-});
+it.each([5, 7])(
+  'refuses an earlier %i-case report that omits required lifetime regressions',
+  (count) => {
+    const report = completeReport();
+    report.testResults[0].assertionResults.splice(count);
+    expect(() => qualify(report)).toThrow();
+  },
+);
 
 it.each([
   [

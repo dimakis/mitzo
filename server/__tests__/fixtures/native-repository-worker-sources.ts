@@ -7,6 +7,7 @@ export const nativeRepositoryFixtureWorkerSources = [
   'native-preparation-observation.ts',
   'native-preparation-publication.ts',
   'native-repository-observation.ts',
+  'native-repository-topology.ts',
   'native-tree-publication.ts',
   'private-repository-checkout.ts',
   'local-repository-base.ts',
