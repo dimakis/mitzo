@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import {
   mkdtempSync,
   realpathSync,
@@ -22,6 +23,11 @@ import { qualifiedPreparedRepositoryRecord } from './prepared-repository-candida
 import { executeTrustedGitCommit } from '../trusted-native-operation.js';
 import { contextDigest } from '../agent-context-compiler.js';
 import { PreparedRepositoryWorkspaceOwner } from '../prepared-repository-workspace-owner.js';
+import { captureLocalRepositoryReader } from '../local-repository-native-reader.js';
+import { repositoryObservationProgram } from '../native-repository-observation.js';
+import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
+import type { NativeBaseReadScope } from '../codex-conversation.js';
+import * as nativeTransport from '../sandboxed-command.js';
 import {
   freezePendingHostTaskData,
   pendingHostTaskDecisionHash,
@@ -557,6 +563,66 @@ it('bounds fresh prepared-owner SQL reads and refuses the next external writer m
     .run(JSON.stringify(changed), changed.id);
   expect(() => owner.get()).toThrow();
 });
+
+it.runIf(process.platform === 'darwin')(
+  'refuses an external SQLite writer across the real prepared owner and native topology effect',
+  async () => {
+    const f = await fixture(),
+      p = await f.pending(f.old, 'linked');
+    f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+    const current = () => f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId);
+    const helper = vi
+      .spyOn(nativeTransport, 'executePrivateRepositoryObservation')
+      .mockImplementation(async (options) => {
+        await options.beforeSpawnAsync?.();
+        options.beforeSpawn?.();
+        const pending = promisify(execFile)(
+          '/usr/bin/python3',
+          ['-I', '-c', repositoryObservationProgram],
+          {
+            env: { PATH: '/usr/bin:/bin' },
+            signal: options.signal,
+            maxBuffer: options.maxOutputBytes,
+          },
+        );
+        pending.child.stdin?.end(options.requestJson);
+        const stdout = (await pending).stdout;
+        const changed = JSON.parse(f.raw(p.record.id).record) as RepositoryWorkspace;
+        changed.pendingHostTaskDecision!.evidence.input = {
+          externalWriter: 'changed during physical effect',
+        };
+        // f.db is an independent connection to the actual workspace ledger.
+        f.db
+          .prepare('UPDATE repository_workspaces SET record=? WHERE id=?')
+          .run(JSON.stringify(changed), changed.id);
+        return { content: '', stdout, stderr: '', isError: false };
+      });
+    const owner = new PreparedRepositoryWorkspaceOwner(f.service, p.facts, p.childId, {
+      assertCurrentSync: current,
+      async withReadAccess(signal, action) {
+        const scope = Object.freeze({
+          readableRoots: Object.freeze(['/']),
+          workspaceRoots: Object.freeze([p.facts.newWorkspace.directory]),
+          deniedRoots: Object.freeze([]),
+        }) as unknown as NativeBaseReadScope;
+        const reader = await captureLocalRepositoryReader(
+          scope,
+          signal,
+          current,
+          async () => current(),
+          { deadline: Date.now() + 30000 },
+        );
+        try {
+          await action(new LocalRepositoryReadAccess(reader));
+        } finally {
+          await reader.dispose();
+        }
+      },
+    });
+    await expect(owner.validate(p.facts.newWorkspace.directory)).rejects.toThrow();
+    expect(helper).toHaveBeenCalledTimes(1);
+  },
+);
 
 it('reuses only a private readonly decode while every SQL read and mutable result stays fresh', async () => {
   const f = await fixture(),

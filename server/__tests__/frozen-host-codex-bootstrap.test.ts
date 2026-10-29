@@ -12,6 +12,16 @@ import {
 import { FrozenHostCodexLogin } from '../frozen-host-codex-login.js';
 import { FrozenHostCodexExecutable } from '../frozen-host-codex-executable.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
+import { capturePreparedRepositoryReader } from '../local-repository-native-read.js';
+import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
+import { assertPreparedRepositoryTaskTopology } from '../prepared-repository-workspace-owner.js';
+import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
+import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
+import { withPreparedRepositoryBarrierReadScope } from '../prepared-repository-barrier-read.js';
+import { repositoryObservationProgram } from '../native-repository-observation.js';
+import * as topologyTransport from '../sandboxed-command.js';
 const roots: string[] = [];
 const deployment = vi.hoisted(() => ({ controller: false }));
 const apiKeys = vi.hoisted(() => ({
@@ -29,6 +39,171 @@ afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true
 afterEach(() => {
   deployment.controller = false;
 });
+
+it.runIf(process.platform === 'darwin').each(['current', 'account', 'credential'] as const)(
+  'composes one topology phase with the real bootstrap credential owner (%s)',
+  async (change) => {
+    const f = fixture(),
+      task = join(f.root, 'topology-task');
+    mkdirSync(task);
+    const env = {
+      PATH: '/usr/bin:/bin',
+      HOME: '/nonexistent',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_CONFIG_SYSTEM: '/dev/null',
+      GIT_CONFIG_NOSYSTEM: '1',
+    };
+    const git = (...args: string[]) =>
+      execFileSync(
+        '/usr/bin/git',
+        ['-C', task, '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args],
+        { env },
+      );
+    git('init', '--template=', '-q', '-b', 'mitzo/fixture');
+    git(
+      '-c',
+      'user.name=Offline',
+      '-c',
+      'user.email=offline@example.invalid',
+      'commit',
+      '--allow-empty',
+      '-qm',
+      'offline',
+    );
+    git('read-tree', 'HEAD');
+    const original = await snapshotRepositoryTaskCheckout(task, 'mitzo/fixture');
+    const identity = {
+      ...original,
+      localSource: {
+        repositoryId: 'offline',
+        path: task,
+        root: original.root,
+        commonDirectory: join(task, '.git'),
+        commonRoot: original.git,
+      },
+    };
+    f.expected.workspace.cwd = task;
+    const rpc = f.rpc.request.getMockImplementation()!;
+    let changed = false;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (changed && change === 'account' && method === 'account/read')
+        return {
+          account: { type: 'chatgpt', email: 'revoked@example.invalid', planType: 'plus' },
+        } as never;
+      return rpc(method, params);
+    });
+    const helper = vi
+      .spyOn(topologyTransport, 'executePrivateRepositoryObservation')
+      .mockImplementation(async (options) => {
+        await options.beforeSpawnAsync?.();
+        options.beforeSpawn?.();
+        const pending = promisify(execFile)(
+          '/usr/bin/python3',
+          ['-I', '-c', repositoryObservationProgram],
+          {
+            env: { PATH: '/usr/bin:/bin' },
+            signal: options.signal,
+            maxBuffer: options.maxOutputBytes,
+          },
+        );
+        pending.child.stdin?.end(options.requestJson);
+        const stdout = (await pending).stdout;
+        changed = true;
+        if (change === 'credential')
+          writeFileSync(
+            join(f.configuration[0].credentialRef, 'auth.json'),
+            'revoked fixture credential',
+          );
+        return { content: '', stdout, stderr: '', isError: false };
+      });
+    try {
+      await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+        const physical = () =>
+          lease.withQualifiedWorkspaceReadOwner!(f.options.signal, async (owner) => {
+            const policy = codexNativeExecutionPolicy({
+              bindingRevision: 'fixture',
+              mode: 'agent',
+              cwd: task,
+              readableRoots: ['/'],
+              writableRoots: [task],
+              deniedRoots: [f.privateRoot, f.configuration[0].credentialRef],
+              writeProtectedRoots: [],
+            });
+            await withPreparedRepositoryBarrierReadScope(
+              policy,
+              'command',
+              {
+                signal: owner.signal,
+                selectedPolicy: () => policy,
+                assertCurrentSync: () => owner.assertCurrentSync(),
+                revalidate: () => owner.revalidate(),
+              },
+              async (scope) => {
+                const reader = await capturePreparedRepositoryReader(scope, {
+                  deadline: Date.now() + 30000,
+                });
+                try {
+                  await assertPreparedRepositoryTaskTopology(
+                    new LocalRepositoryReadAccess(reader),
+                    identity,
+                    join(task, '.git'),
+                  );
+                } finally {
+                  try {
+                    await reader.dispose();
+                  } finally {
+                    await scope.revalidate();
+                  }
+                }
+              },
+            );
+          });
+        if (change === 'current') {
+          const samples = process.env.MITZO_CUSTODY_COST_BENCHMARK === '1' ? 5 : 1;
+          const rounds: number[] = [],
+            accountReads: number[] = [];
+          for (let sample = 0; sample < samples; sample++) {
+            const before = f.rpc.request.mock.calls.filter(
+              ([method]) => method === 'account/read',
+            ).length;
+            const started = performance.now();
+            await physical();
+            rounds.push(performance.now() - started);
+            accountReads.push(
+              f.rpc.request.mock.calls.filter(([method]) => method === 'account/read').length -
+                before,
+            );
+          }
+          if (process.env.MITZO_CUSTODY_COST_BENCHMARK === '1')
+            process.stdout.write(
+              JSON.stringify({
+                workload: 'bootstrap-barrier-topology',
+                samples,
+                rounds,
+                accountReads,
+                helperSpawns: helper.mock.calls.length,
+              }) + '\n',
+            );
+          expect(accountReads).toEqual(Array(samples).fill(6));
+          expect(helper).toHaveBeenCalledTimes(samples);
+        } else {
+          await expect(physical()).rejects.toThrow();
+          expect(f.rpc.close).toHaveBeenCalled();
+          expect(helper).toHaveBeenCalledTimes(1);
+        }
+      });
+    } catch (error) {
+      throw new Error(
+        `Topology composition failed after RPC methods ${f.rpc.request.mock.calls.map(([method]) => method).join(',')}`,
+        { cause: error },
+      );
+    } finally {
+      helper.mockRestore();
+      f.authority.currentLease()?.close();
+      f.store.close();
+    }
+  },
+);
 function fixture() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'host-bootstrap-')));
   roots.push(root);

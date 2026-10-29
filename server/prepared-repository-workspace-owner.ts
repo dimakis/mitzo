@@ -1,6 +1,6 @@
 import { lstatSync, realpathSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
-import { basename, dirname, isAbsolute, join, relative } from 'node:path';
+import { basename, isAbsolute, join, relative } from 'node:path';
 import type { RepositoryTaskCheckout } from './repository-task-checkout.js';
 import type { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import { inspectLocalRepositoryGitMetadata } from './local-repository-git-inspection.js';
@@ -24,6 +24,10 @@ export async function assertPreparedRepositoryTaskTopology(
   const task = structuredClone(input),
     source = task.localSource,
     linked = task.linkedGit;
+  if (access.canAssertPreparedTaskTopology) {
+    await access.assertPreparedTaskTopology(task, sourceGitDirectory);
+    return;
+  }
   if (source && !linked) {
     const git = join(task.directory, '.git');
     if (
@@ -32,12 +36,6 @@ export async function assertPreparedRepositoryTaskTopology(
       !isAbsolute(task.directory)
     )
       throw unavailable();
-    if (access.canCaptureRepositoryObservation)
-      await access.captureRepositoryObservation({
-        mode: 'task-topology',
-        sourcePath: task.directory,
-        readableRoots: [task.directory],
-      });
     for (const [path, expected] of [
       [task.directory, task.root],
       [git, task.git],
@@ -95,16 +93,6 @@ export async function assertPreparedRepositoryTaskTopology(
     linked.directory !== join(source.commonDirectory, 'worktrees', basename(task.directory))
   )
     throw unavailable();
-  const taskName = /^repo-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/.exec(
-    basename(task.directory),
-  );
-  if (access.canCaptureRepositoryObservation && taskName)
-    await access.captureRepositoryObservation({
-      mode: 'topology',
-      sourcePath: source.path,
-      taskRoot: dirname(task.directory),
-      workspaceId: taskName[1],
-    });
   const roots = [
     [task.directory, task.root],
     [source.path, source.root],
