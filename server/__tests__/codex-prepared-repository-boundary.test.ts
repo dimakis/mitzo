@@ -510,3 +510,39 @@ it('does not reuse an earlier preparation result for a later ordinary completed 
   });
   expect(f.store.completedPreparedRepositorySourceTarget('conversation', binding)).toBeUndefined();
 });
+
+it('retains exact completed phase custody for cold owner creation without granting dispatch or projection', () => {
+  const f = fixture();
+  const phase = f.store.beginCompletionPhase(
+    'conversation',
+    binding,
+    f.command,
+    'thread',
+    'turn',
+    'f'.repeat(64),
+  );
+  f.store.finish('conversation', binding, f.command.id, 'completed', 'turn', true);
+  expect(() =>
+    f.store.assertPreparedRepositoryRecovery('conversation', binding, 'original'),
+  ).not.toThrow();
+  expect(() =>
+    f.store.reconcilePreparedRepositoryWorkspaceProjection(
+      'conversation',
+      binding,
+      source,
+      '/original',
+      '/prepared',
+    ),
+  ).toThrow(/unsettled/);
+  expect(f.store.read('conversation', binding)).toMatchObject({ cwd: '/original', recovery: 1 });
+  f.store.observeCompletionPhase('conversation', binding, phase.target, 'completed');
+  expect(() => f.store.acknowledgeRecovery('conversation', binding)).toThrow(/phase|effect/);
+  f.store.reconcileCompletionPhase('conversation', binding, phase.target, phase.workspaceDigest);
+  // Original late success establishes effect evidence, never automatic release.
+  expect(f.store.read('conversation', binding).recovery).toBe(1);
+  expect(() =>
+    f.store.assertPreparedRepositoryRecovery('conversation', binding, 'original'),
+  ).not.toThrow();
+  expect(() => f.store.acknowledgeRecovery('conversation', binding)).not.toThrow();
+  expect(f.store.commandStatus('conversation', binding, 'original')).toBe('completed');
+});

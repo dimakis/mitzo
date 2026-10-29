@@ -7998,48 +7998,56 @@ it('records a pending completion-phase receipt before invoking the original hook
   );
 });
 
-it('reconciles a late original hook success under fresh authority without rerunning the hook or releasing work automatically', async () => {
-  let finish!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    finish = resolve;
-  });
-  const hook = vi.fn(() => gate);
-  const old = await setupTerminalTransport(undefined, hook);
-  await old.c.send({ id: 'late-hook', prompt: 'work' });
-  await old.c.send({ id: 'after-late-hook', prompt: 'later' });
-  old.callbacks.onNotification('turn/completed', {
-    threadId: 'provider-thread',
-    turn: { id: 'turn-1', status: 'completed' },
-  });
-  old.callbacks.onClose(new CodexTransportError('connection'));
-  old.conversationOptions.verifyBinding = async () => {
-    throw Error('original authority retired');
-  };
-  finish();
-  await vi.waitFor(() =>
-    expect(old.store.completionPhase('app', old.getBinding(), 'late-hook', 1)).toMatchObject({
-      status: 'unknown',
-      observedOutcome: 'completed',
-    }),
-  );
-  expect(old.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
-  expect(old.store.commandLifecycle('app', old.getBinding(), 'late-hook').nextAction).toBe(
-    'reconcile_completion_phase',
-  );
-  const restored = await setupTerminalTransport(old.store);
-  const request = restored.rpc.request.getMockImplementation()!;
-  restored.rpc.request.mockImplementation(async (method, params) =>
-    method === 'thread/turns/list'
-      ? { data: [{ id: 'turn-1', status: 'completed' }] }
-      : request(method, params),
-  );
-  await restored.c.acknowledgeRecovery();
-  expect(restored.store.completionPhase('app', restored.getBinding(), 'late-hook', 1)?.status).toBe(
-    'completed',
-  );
-  expect(restored.c.queue().map(({ status }) => status)).toEqual(['completed', 'running']);
-  expect(hook).toHaveBeenCalledOnce();
-});
+it.each([undefined, 'terminal'] as const)(
+  'reconciles a late original hook success under fresh authority without replay or automatic queue release (%s)',
+  async (closure) => {
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const hook = vi.fn(() => gate);
+    const args: Parameters<typeof setup> = [];
+    args[2] = hook;
+    args[29] = closure;
+    const old = await setup(...args);
+    await old.c.send({ id: 'late-hook', prompt: 'work' });
+    await old.c.send({ id: 'after-late-hook', prompt: 'later' });
+    old.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    old.callbacks.onClose(new CodexTransportError('connection'));
+    old.conversationOptions.verifyBinding = async () => {
+      throw Error('original authority retired');
+    };
+    finish();
+    await vi.waitFor(() =>
+      expect(old.store.completionPhase('app', old.getBinding(), 'late-hook', 1)).toMatchObject({
+        status: 'unknown',
+        observedOutcome: 'completed',
+      }),
+    );
+    expect(old.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+    expect(old.store.commandLifecycle('app', old.getBinding(), 'late-hook').nextAction).toBe(
+      'reconcile_completion_phase',
+    );
+    args[0] = old.store;
+    args[2] = undefined;
+    const restored = await setup(...args);
+    const request = restored.rpc.request.getMockImplementation()!;
+    restored.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list'
+        ? { data: [{ id: 'turn-1', status: 'completed' }] }
+        : request(method, params),
+    );
+    await restored.c.acknowledgeRecovery();
+    expect(
+      restored.store.completionPhase('app', restored.getBinding(), 'late-hook', 1)?.status,
+    ).toBe('completed');
+    expect(restored.c.queue().map(({ status }) => status)).toEqual(['completed', 'running']);
+    expect(hook).toHaveBeenCalledOnce();
+  },
+);
 
 it('keeps an unknown hook phase fenced when diagnostic persistence is unavailable', async () => {
   const gate = new Promise<void>(() => {});
@@ -8149,5 +8157,76 @@ it.each(['close', 'stop'] as const)(
     expect(restored.c.isPaused()).toBe(true);
     expect(restored.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
     expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  },
+);
+
+it.each(['failed', 'timeout'] as const)(
+  'retains a sole completed command with %s hook effects across cold reopen and a new send',
+  async (outcome) => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-phase-cold-'));
+    const path = join(root, 'private.db');
+    let store = new CodexConversationStore(path);
+    const hook = vi.fn(async () => {
+      if (outcome === 'failed') throw Error('unknown original hook effects');
+      await new Promise<void>(() => {});
+    });
+    const old = await setup(store, undefined, hook, 10);
+    let restored: Awaited<ReturnType<typeof setup>> | undefined;
+    try {
+      await old.c.send({ id: 'sole-hook', prompt: 'work' });
+      old.callbacks.onNotification('turn/completed', {
+        threadId: old.getProviderThread(),
+        turn: { id: 'turn-1', status: 'completed' },
+      });
+      await vi.waitFor(() => expect(old.onClosed).toHaveBeenCalledOnce());
+      expect(store.read('app', old.getBinding()).recovery).toBe(1);
+      expect(old.c.queue()).toMatchObject([{ id: 'sole-hook', status: 'completed' }]);
+      store.close();
+      store = new CodexConversationStore(path);
+      store.recoverAtStartup();
+      restored = await setup(store);
+      expect(restored.c.isPaused()).toBe(true);
+      await expect(
+        restored.c.send({ id: 'after-cold-hook', prompt: 'new intent' }),
+      ).rejects.toThrow(/phase|effect/);
+      expect(restored.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+      expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+      expect(hook).toHaveBeenCalledOnce();
+    } finally {
+      old.c.close();
+      restored?.c.close();
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it.each(['explicit', 'automatic'] as const)(
+  'fences plain transport %s recovery while the original completion hook remains pending',
+  async (mode) => {
+    const hook = vi.fn(() => new Promise<void>(() => {}));
+    const f = await setup(undefined, undefined, hook);
+    await f.c.send({ id: 'plain-hook', prompt: 'work' });
+    await f.c.send({ id: 'after-plain-hook', prompt: 'later' });
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    const request = f.rpc.request.getMockImplementation()!;
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list'
+        ? { data: [{ id: 'turn-1', status: 'completed' }] }
+        : request(method, params),
+    );
+    if (mode === 'automatic') vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    f.callbacks.onClose(new CodexTransportError('connection'));
+    if (mode === 'explicit')
+      await expect(f.c.acknowledgeRecovery()).rejects.toThrow(/phase|effect/);
+    else await vi.advanceTimersByTimeAsync(1000);
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    expect(f.c.isPaused()).toBe(true);
+    expect(f.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    expect(hook).toHaveBeenCalledOnce();
   },
 );

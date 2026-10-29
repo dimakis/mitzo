@@ -2321,6 +2321,68 @@ export class CodexConversationStore {
     if (Buffer.byteLength(raw) > 65536) throw Error('Completion phase receipt bound exceeded');
     return CompletionPhaseHistorySchema.parse(JSON.parse(raw));
   }
+  /** Retained effect custody fences every dispatch/recovery owner, independently
+   * of the queue, transport mode and cached conversation recovery projection. */
+  private unsettledCompletionPhase(id: string): CompletionPhaseReceipt | undefined {
+    // Select from actual receipt bytes in one fresh SQL observation. Settled
+    // history stays in SQLite; no per-turn history hydration or per-row queries.
+    const row = this.db
+      .prepare(
+        `
+      WITH pending_tools AS MATERIALIZED (
+        SELECT command_id FROM codex_tools WHERE conversation_id=? AND result_content IS NULL
+      )
+      SELECT c.id,c.native_turns,c.completion_phases,c.ambiguous,
+        c.id IN (SELECT command_id FROM pending_tools) AS pending_tool
+      FROM codex_commands c WHERE c.conversation_id=? AND c.completion_phases IS NOT NULL
+        AND (length(CAST(c.completion_phases AS BLOB))>65536 OR
+          EXISTS (SELECT 1 FROM json_each(c.completion_phases) phase
+            WHERE coalesce(json_extract(phase.value,'$.status'),'')<>'completed'
+              OR coalesce(json_extract(phase.value,'$.observedOutcome'),'')<>'completed'
+              OR (coalesce(json_extract(phase.value,'$.priorEffectsUnknown'),1)=1 AND c.ambiguous=1))
+          OR c.id IN (SELECT command_id FROM pending_tools))
+      ORDER BY c.sequence LIMIT 1
+    `,
+      )
+      .get(id, id) as
+      | {
+          id: string;
+          native_turns: string | null;
+          completion_phases: string;
+          ambiguous: number | null;
+          pending_tool: number;
+        }
+      | undefined;
+    if (!row) return undefined;
+    const targets = this.nativeTurns(row.native_turns);
+    for (const phase of this.completionPhases(row.completion_phases)) {
+      const accepted = targets.filter((turn) => turn.attempt === phase.target.attempt);
+      if (
+        phase.target.commandId !== row.id ||
+        accepted.length !== 1 ||
+        !isDeepStrictEqual(this.nativeTarget(row.id, accepted[0]), phase.target)
+      )
+        throw Error('Completion phase target changed');
+      if (
+        phase.status !== 'completed' ||
+        phase.observedOutcome !== 'completed' ||
+        (phase.priorEffectsUnknown && row.ambiguous === 1) ||
+        row.pending_tool
+      )
+        return phase;
+    }
+    throw Error('Completion phase evidence changed');
+  }
+  completionPhaseRecoveryTarget(
+    id: string,
+    binding: AccountBinding,
+  ): CodexNativeTurnTarget | undefined {
+    this.read(id, binding);
+    const phase = this.unsettledCompletionPhase(id);
+    if (!phase) return undefined;
+    this.assertCompletionPhaseTarget(id, binding, phase.target, true);
+    return phase.target;
+  }
   completionPhase(
     id: string,
     binding: AccountBinding,
@@ -2827,7 +2889,7 @@ export class CodexConversationStore {
           "SELECT 1 FROM codex_commands WHERE conversation_id=? AND (status IN ('queued','running') OR (status IN ('interrupted','failed') AND recovery_acknowledged=0)) LIMIT 1",
         )
         .get(id);
-      if (!unresolved)
+      if (!unresolved && !this.unsettledCompletionPhase(id))
         this.db.prepare('UPDATE codex_conversations SET recovery=0 WHERE id=?').run(id);
       return 'cancelled';
     })();
@@ -3842,8 +3904,10 @@ export class CodexConversationStore {
   }
   claimNext(id: string, b: AccountBinding): CodexCommand | undefined {
     return this.db.transaction(() => {
-      if (this.read(id, b).recovery)
-        throw new Error('Codex recovery requires explicit acknowledgement');
+      const state = this.read(id, b);
+      if (this.unsettledCompletionPhase(id))
+        throw Error('Completion phase effects require their existing owner reconciliation');
+      if (state.recovery) throw new Error('Codex recovery requires explicit acknowledgement');
       if (
         this.db
           .prepare(
@@ -3930,6 +3994,14 @@ export class CodexConversationStore {
             'UPDATE codex_conversations SET rollover_context=NULL WHERE id=? AND thread_id=?',
           )
           .run(id, current.threadId);
+      if (
+        updated.changes === 1 &&
+        status === 'completed' &&
+        (effectsUnknown || this.unsettledCompletionPhase(id))
+      )
+        this.db
+          .prepare('UPDATE codex_conversations SET recovery=1,automatic_recovery=0 WHERE id=?')
+          .run(id);
     })();
   }
   pauseForRecovery(
@@ -3956,7 +4028,8 @@ export class CodexConversationStore {
             "UPDATE codex_commands SET status=?, recovery_acknowledged=0, retry_not_before=?, retryable=?, ambiguous=? WHERE conversation_id=? AND id=? AND status='running'",
           )
           .run(status, retryNotBefore ?? null, retryable ? 1 : 0, ambiguous ? 1 : 0, id, commandId);
-      if (pending)
+      const phase = this.unsettledCompletionPhase(id);
+      if (pending || phase)
         this.db
           .prepare(
             `UPDATE codex_conversations SET recovery=1, automatic_recovery=?,
@@ -3966,7 +4039,7 @@ export class CodexConversationStore {
               END
             WHERE id=?`,
           )
-          .run(automaticRecovery ? 1 : 0, recoveryStrategy, id);
+          .run(automaticRecovery && !phase ? 1 : 0, recoveryStrategy, id);
     })();
   }
   claimTool(
@@ -4225,6 +4298,7 @@ export class CodexConversationStore {
       if (
         ![expectedCwd, nextCwd].includes(state.cwd) ||
         this.commands(id, binding).some((command) => command.status === 'running') ||
+        this.unsettledCompletionPhase(id) ||
         this.db
           .prepare(
             "SELECT 1 FROM codex_commands WHERE conversation_id=? AND status IN ('interrupted','failed') AND recovery_acknowledged=0",
@@ -4466,8 +4540,19 @@ export class CodexConversationStore {
             "SELECT id FROM codex_commands WHERE conversation_id=? AND status IN ('failed','interrupted') AND recovery_acknowledged=0",
           )
           .all(id) as Array<{ id: string }>;
-        if (!unresolved.length && !revision)
-          throw Error('Prepared repository recovery has no retained turn');
+        if (!unresolved.length && !revision) {
+          const phaseTarget = this.completionPhaseRecoveryTarget(id, binding);
+          const completedPhase = this.completionPhase(id, binding, primary.id, primary.attempt);
+          // A late original success may have settled its phase while retaining
+          // recovery for explicit release. It still supplies exact cold custody.
+          if (
+            !phaseTarget &&
+            completedPhase?.status === 'completed' &&
+            completedPhase.observedOutcome === 'completed'
+          )
+            this.assertCompletionPhaseTarget(id, binding, completedPhase.target, true);
+          else if (!phaseTarget) throw Error('Prepared repository recovery has no retained turn');
+        }
         for (const row of unresolved) {
           const command = commands.find((candidate) => candidate.id === row.id);
           if (!command) throw Error('Prepared repository recovery command unavailable');
@@ -4879,6 +4964,19 @@ export class CodexConversationStore {
               : ' AND conversation_id IN (SELECT id FROM codex_conversations WHERE owner_kind=?)'),
         )
         .run(...(ownerKind === undefined ? [] : [ownerKind]));
+      const phaseOwners = this.db
+        .prepare(
+          'SELECT DISTINCT conversation_id FROM codex_commands WHERE completion_phases IS NOT NULL' +
+            (ownerKind === undefined
+              ? ''
+              : ' AND conversation_id IN (SELECT id FROM codex_conversations WHERE owner_kind=?)'),
+        )
+        .all(...(ownerKind === undefined ? [] : [ownerKind])) as Array<{ conversation_id: string }>;
+      for (const row of phaseOwners)
+        if (this.unsettledCompletionPhase(row.conversation_id))
+          this.db
+            .prepare('UPDATE codex_conversations SET recovery=1,automatic_recovery=0 WHERE id=?')
+            .run(row.conversation_id);
     })();
   }
   automaticRecoveryPending(id: string, b: AccountBinding): boolean {
@@ -4895,8 +4993,13 @@ export class CodexConversationStore {
   }
   acknowledgeRecovery(id: string, b: AccountBinding, nativeTarget?: CodexNativeTurnTarget) {
     this.db.transaction(() => {
+      this.read(id, b);
       this.assertNoPendingThreadDispatch(id, b);
       this.assertNoPendingThreadOwnership(id, b);
+      if (this.unsettledCompletionPhase(id))
+        throw Error(
+          'Completion phase effects require their existing owner reconciliation; saved work remains queued',
+        );
       if (nativeTarget) {
         if (!isDeepStrictEqual(this.nativeRecoveryTarget(id, b), nativeTarget))
           throw Error('Native recovery phase identity changed');

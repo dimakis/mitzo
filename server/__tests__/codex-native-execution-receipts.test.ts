@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 
@@ -572,4 +572,118 @@ it('refuses strict native acknowledgement when a known hook still has prior unkn
     { status: 'completed' },
     { status: 'queued' },
   ]);
+});
+
+it('keeps receipt-owned completion uncertainty fenced independently of recovery flags and cancellation', () => {
+  const f = fixture();
+  f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+  f.store.beginCompletionPhase(
+    'conversation',
+    binding,
+    f.command,
+    'thread',
+    'turn',
+    'f'.repeat(64),
+  );
+  f.store.finish('conversation', binding, f.command.id, 'completed', 'turn', true);
+  f.store.enqueue('conversation', binding, { id: 'later', prompt: 'later' });
+  f.store.pauseForRecovery('conversation', binding);
+  f.store.cancelQueued('conversation', binding, 'later');
+  expect(f.store.read('conversation', binding).recovery).toBe(1);
+  const writer = new Database(f.path);
+  writer.prepare('UPDATE codex_conversations SET recovery=0').run();
+  writer.prepare('UPDATE codex_commands SET recovery_acknowledged=1').run();
+  f.store.recoverAtStartup();
+  expect(f.store.read('conversation', binding).recovery).toBe(1);
+  writer.prepare('UPDATE codex_conversations SET recovery=0').run();
+  writer.close();
+  f.store.enqueue('conversation', binding, { id: 'newer', prompt: 'newer' });
+  expect(() => f.store.claimNext('conversation', binding)).toThrow(/phase|effect/);
+  expect(() => f.store.acknowledgeRecovery('conversation', binding)).toThrow(/phase|effect/);
+  f.store.recoverAtStartup();
+  expect(f.store.read('conversation', binding).recovery).toBe(1);
+});
+
+it.each(['newer-command', 'retired-attempt', 'acknowledged', 'changed-generation'] as const)(
+  'cannot hide retained unknown completion effects through %s',
+  (change) => {
+    const f = fixture();
+    f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+    const phase = f.store.beginCompletionPhase(
+      'conversation',
+      binding,
+      f.command,
+      'thread',
+      'turn',
+      'f'.repeat(64),
+    );
+    f.store.finish('conversation', binding, f.command.id, 'completed', 'turn', true);
+    const writer = new Database(f.path);
+    if (change === 'newer-command')
+      writer
+        .prepare(
+          "INSERT INTO codex_commands(conversation_id,id,input,status) VALUES('conversation','newer-history',?, 'completed')",
+        )
+        .run(JSON.stringify({ id: 'newer-history', prompt: 'retained old bypass' }));
+    if (change === 'retired-attempt') writer.prepare('UPDATE codex_commands SET attempt=2').run();
+    if (change === 'acknowledged')
+      writer.prepare('UPDATE codex_commands SET recovery_acknowledged=1').run();
+    if (change === 'changed-generation')
+      writer.prepare('UPDATE codex_conversations SET thread_generation=1').run();
+    writer.prepare('UPDATE codex_conversations SET recovery=0').run();
+    writer.close();
+    f.store.enqueue('conversation', binding, { id: 'new-intent', prompt: 'new intent' });
+    expect(() => f.store.claimNext('conversation', binding)).toThrow(/phase|effect/);
+    expect(() => f.store.acknowledgeRecovery('conversation', binding)).toThrow(/phase|effect/);
+    expect(f.store.completionPhase('conversation', binding, f.command.id, 1)?.target).toEqual(
+      phase.target,
+    );
+    f.store.recoverAtStartup();
+    expect(f.store.read('conversation', binding).recovery).toBe(1);
+  },
+);
+
+it('uses one receipt-fence SQL observation after a thousand settled completion phases', () => {
+  const f = fixture();
+  f.store.recordNativeTurnAck('conversation', binding, f.command, 'thread', 'turn');
+  const phase = f.store.beginCompletionPhase(
+    'conversation',
+    binding,
+    f.command,
+    'thread',
+    'turn',
+    'f'.repeat(64),
+  );
+  f.store.observeCompletionPhase('conversation', binding, phase.target, 'completed');
+  f.store.reconcileCompletionPhase('conversation', binding, phase.target, phase.workspaceDigest);
+  f.store.finish('conversation', binding, f.command.id, 'completed', 'turn');
+  const writer = new Database(f.path);
+  const row = writer
+    .prepare('SELECT native_turns,completion_phases FROM codex_commands WHERE id=?')
+    .get(f.command.id) as { native_turns: string; completion_phases: string };
+  const template = JSON.parse(row.completion_phases)[0];
+  const insert = writer.prepare(
+    "INSERT INTO codex_commands(conversation_id,id,input,status,native_turns,completion_phases) VALUES('conversation',?,?,'completed',?,?)",
+  );
+  writer.transaction(() => {
+    for (let index = 0; index < 1000; index++) {
+      const id = 'settled-' + index;
+      insert.run(
+        id,
+        JSON.stringify({ id, prompt: 'settled hook history' }),
+        row.native_turns,
+        JSON.stringify([{ ...template, target: { ...template.target, commandId: id } }]),
+      );
+    }
+  })();
+  writer.close();
+  f.store.enqueue('conversation', binding, { id: 'next', prompt: 'next' });
+  const db = (f.store as unknown as { db: Database.Database }).db;
+  const observation = vi.spyOn(db, 'prepare');
+  try {
+    expect(f.store.claimNext('conversation', binding)?.id).toBe('next');
+    expect(observation.mock.calls.filter(([sql]) => sql.includes('codex_tools'))).toHaveLength(1);
+  } finally {
+    observation.mockRestore();
+  }
 });

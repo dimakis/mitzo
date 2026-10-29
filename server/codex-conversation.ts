@@ -1584,6 +1584,10 @@ export class CodexConversation {
         throw Error('Automatic recovery was cancelled');
     };
     const recoveryState = this.opts.store.read(this.opts.conversationId, this.binding!);
+    const completionTarget = this.opts.store.completionPhaseRecoveryTarget(
+      this.opts.conversationId,
+      this.binding!,
+    );
     const nativeTarget =
       this.opts.transportClosure === 'terminal'
         ? this.opts.store.nativeRecoveryTarget(this.opts.conversationId, this.binding!)
@@ -1599,7 +1603,7 @@ export class CodexConversation {
         this.opts.assertNativeExecutionCurrent!(this.opts.nativeExecution, nativeTarget.commandId);
       }
     };
-    if (this.opts.transportClosure === 'terminal') await assertRecoveryAuthority();
+    await assertRecoveryAuthority();
     let nativeStatus: 'completed' | 'failed' | 'interrupted' | undefined;
     const recoveryThreadId =
       this.opts.transportClosure === 'terminal' ? nativeTarget?.threadId : this.threadId;
@@ -1647,20 +1651,22 @@ export class CodexConversation {
         !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding!))
     )
       throw new Error('Automatic recovery was cancelled');
-    if (nativeTarget && nativeStatus) {
+    if (completionTarget) {
       const phase = this.opts.store.completionPhase(
         this.opts.conversationId,
         this.binding!,
-        nativeTarget.commandId,
-        nativeTarget.attempt,
+        completionTarget.commandId,
+        completionTarget.attempt,
       );
       if (phase && phase.status !== 'completed' && phase.observedOutcome === 'completed')
         await this.reconcileKnownCompletionPhase(
-          nativeTarget,
+          completionTarget,
           this.binding!,
           this.opts.nativeExecution,
         );
       assertRecoveryContinuation();
+    }
+    if (nativeTarget && nativeStatus) {
       this.opts.store.reconcileNativeRecovery(
         this.opts.conversationId,
         this.binding!,
