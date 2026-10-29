@@ -301,11 +301,11 @@ it('recovers the original delegated worker, bound execution task, attempt and ad
     expect(cold.native.conversation.recovery).toBe(1);
     await page.reload();
     await browserExpect(composer).toHaveValue(laterDraft);
-    await vi.waitFor(async () =>
-      expect(
-        (await outbox()).find((entry) => entry.body?.clientMsgId === original.clientMsgId),
-      ).toMatchObject({ uncertain: true, body: original }),
-    );
+    // These exact bytes committed before the crash. Check the first cold disk
+    // snapshot; a browser read is not an eventual update with a 1s UI deadline.
+    expect(
+      (await outbox()).find((entry) => entry.body?.clientMsgId === original.clientMsgId),
+    ).toMatchObject({ uncertain: true, body: original });
     expect(requests).toHaveLength(1);
     expect((await h.effects()).filter((e) => e.kind === 'native.launch')).toHaveLength(1);
     expect((await h.effects()).filter((e) => e.kind === 'turn/start')).toHaveLength(1);

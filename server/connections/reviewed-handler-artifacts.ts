@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.761-await-fixture-health-navigation';
+  'v1.0.762-inspect-cold-worker-outbox';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2455,7 +2455,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/voice-image-browser.contract.ts':
     'ca5f9a67e760c27a762a304ca9e13289a8b7c9b2cab55ed7b2da0563df6d8d10',
   '../../tests/integration/telos-s9/integrated-candidate/worker-process-restart-browser.contract.ts':
-    '9406ba591adbc070684bb235cd234db6b608c7cb00deb2e6765285592cf42def',
+    '92cbaad6c1877a15a0e0f8409683f3590444263a010709ef38682e5a60097eef',
   '../../tests/integration/telos-s9/integrated-candidate/worker-process-restart-fixture.ts':
     '4cc9777e953115958667384dba406c40d69e3130b3ca0d91dcd6cc53331660d3',
   '../../tests/integration/telos-s9/integrated-candidate/worker-replacement-browser.contract.ts':
