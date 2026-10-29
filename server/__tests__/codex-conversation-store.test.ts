@@ -1454,3 +1454,44 @@ it('retains numerous screenshots and long messages through queue claim and cold 
     store.close();
   }
 });
+
+it('retains transport diagnostics per attempt and projects the current one into existing queue metadata', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'failure', prompt: 'work' });
+  const command = s.claimNext('c', binding)!;
+  const common = {
+    stage: 'native_transport' as const,
+    reason: 'child_exit' as const,
+    signal: null,
+    release: 'offline-release',
+    nativeVersion: '0.160.0',
+    workspaceDigest: 'a'.repeat(64),
+  };
+  s.recordTransportDiagnostic('c', binding, command, { ...common, exitCode: 1 });
+  s.pauseForRecovery('c', binding, command.id, 'failed', 'resume', undefined, true, false);
+  expect(s.queueSummary('c', binding).operation).toMatchObject({
+    commandId: 'failure',
+    diagnostic: { exitCode: 1 },
+  });
+  const db = new Database(path);
+  db.prepare("UPDATE codex_commands SET attempt=2 WHERE id='failure'").run();
+  db.close();
+  expect(s.commandLifecycle('c', binding, command.id).diagnostic).toBeUndefined();
+  s.recordTransportDiagnostic(
+    'c',
+    binding,
+    { id: command.id, attempt: 2 },
+    { ...common, exitCode: 2 },
+  );
+  expect(s.commandLifecycle('c', binding, command.id)).toMatchObject({
+    attempt: 2,
+    diagnostic: { exitCode: 2 },
+    diagnosticHistory: [
+      { attempt: 1, diagnostic: { exitCode: 1 } },
+      { attempt: 2, diagnostic: { exitCode: 2 } },
+    ],
+  });
+  s.close();
+});

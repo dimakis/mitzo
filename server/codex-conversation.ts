@@ -1611,7 +1611,7 @@ export class CodexConversation {
         !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding!))
     )
       throw new Error('Automatic recovery was cancelled');
-    if (nativeTarget && nativeStatus)
+    if (nativeTarget && nativeStatus) {
       this.opts.store.reconcileNativeRecovery(
         this.opts.conversationId,
         this.binding!,
@@ -1620,6 +1620,9 @@ export class CodexConversation {
         recoveryState.threadId,
         recoveryState.threadGeneration,
       );
+      this.opts.onProviderTerminal?.(nativeTarget.commandId, nativeTarget.turnId, nativeStatus);
+      this.opts.onProviderComplete?.(nativeTarget.commandId, nativeStatus);
+    }
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!);
     this.paused = false;
     await this.pump();

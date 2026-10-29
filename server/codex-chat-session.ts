@@ -580,6 +580,7 @@ type CodexQueueStatus = Pick<
       | 'retryable'
       | 'requiresRetryConfirmation'
       | 'capacityRecovery'
+      | 'operation'
     >
   > & {
     paused: boolean;
@@ -602,6 +603,7 @@ export function readCodexQueue(
       store().readOpenShellCustody(conversationId, binding)
     );
     return {
+      ...(summary.operation ? { operation: summary.operation } : {}),
       model: summary.model,
       reasoningEffort: summary.reasoningEffort,
       paused: live?.isPaused() ?? true,

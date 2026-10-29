@@ -215,6 +215,14 @@ const CommandTransportDiagnosticSchema = z.strictObject({
     .regex(/^[a-f0-9]{32}$/)
     .optional(),
 });
+const CommandTransportDiagnosticHistorySchema = z
+  .array(
+    z.strictObject({
+      attempt: z.number().int().positive().safe(),
+      diagnostic: CommandTransportDiagnosticSchema,
+    }),
+  )
+  .max(100);
 export type CommandTransportDiagnostic = z.infer<typeof CommandTransportDiagnosticSchema>;
 const CompletedPreparedRepositorySourceSchema = CodexNativeTurnTargetSchema.extend({
   callId: z.string().min(1).max(200),
@@ -2283,15 +2291,32 @@ export class CodexConversationStore {
     command: Pick<CodexCommand, 'id' | 'attempt'>,
     diagnostic: CommandTransportDiagnostic,
   ) {
-    const value = JSON.stringify(CommandTransportDiagnosticSchema.parse(diagnostic));
-    this.read(id, binding);
-    const updated = this.db
-      .prepare(
-        `UPDATE codex_commands SET transport_diagnostic=COALESCE(transport_diagnostic,?)
-      WHERE conversation_id=? AND id=? AND attempt=?`,
-      )
-      .run(value, id, command.id, command.attempt);
-    if (updated.changes !== 1) throw Error('Transport diagnostic command attempt changed');
+    const checked = CommandTransportDiagnosticSchema.parse(diagnostic);
+    this.db
+      .transaction(() => {
+        this.read(id, binding);
+        const row = this.db
+          .prepare(
+            'SELECT transport_diagnostic FROM codex_commands WHERE conversation_id=? AND id=? AND attempt=?',
+          )
+          .get(id, command.id, command.attempt) as
+          { transport_diagnostic: string | null } | undefined;
+        if (!row) throw Error('Transport diagnostic command attempt changed');
+        const history = row.transport_diagnostic
+          ? CommandTransportDiagnosticHistorySchema.parse(JSON.parse(row.transport_diagnostic))
+          : [];
+        if (history.some((entry) => entry.attempt === command.attempt)) return;
+        const next = CommandTransportDiagnosticHistorySchema.parse([
+          ...history,
+          { attempt: command.attempt, diagnostic: checked },
+        ]);
+        this.db
+          .prepare(
+            'UPDATE codex_commands SET transport_diagnostic=? WHERE conversation_id=? AND id=? AND attempt=?',
+          )
+          .run(JSON.stringify(next), id, command.id, command.attempt);
+      })
+      .immediate();
   }
 
   /** Read-only projection over command/acceptance receipts; no new lifecycle owner. */
@@ -2313,6 +2338,10 @@ export class CodexConversationStore {
         }
       | undefined;
     if (!row) throw Error('Command lifecycle unavailable');
+    const diagnosticHistory = row.transport_diagnostic
+      ? CommandTransportDiagnosticHistorySchema.parse(JSON.parse(row.transport_diagnostic))
+      : [];
+    const diagnostic = diagnosticHistory.find((entry) => entry.attempt === row.attempt)?.diagnostic;
     const targets = this.nativeTurns(row.native_turns).filter(
       (turn) => turn.attempt === row.attempt,
     );
@@ -2345,13 +2374,8 @@ export class CodexConversationStore {
                 ? 'wait_for_native_outcome'
                 : 'inspect_retained_work',
       ...(nativeTarget ? { nativeTarget } : {}),
-      ...(row.transport_diagnostic
-        ? {
-            diagnostic: CommandTransportDiagnosticSchema.parse(
-              JSON.parse(row.transport_diagnostic),
-            ),
-          }
-        : {}),
+      ...(diagnostic ? { diagnostic } : {}),
+      ...(diagnosticHistory.length ? { diagnosticHistory } : {}),
     };
   }
 
@@ -2473,8 +2497,14 @@ export class CodexConversationStore {
           ambiguous: number | null;
         }
       | undefined;
+    const operation = this.db
+      .prepare(
+        `SELECT id FROM codex_commands WHERE conversation_id=? AND transport_diagnostic IS NOT NULL ORDER BY sequence DESC LIMIT 1`,
+      )
+      .get(id) as { id: string } | undefined;
     const capacity = this.capacityRecovery(id, b);
     return {
+      ...(operation ? { operation: this.commandLifecycle(id, b, operation.id) } : {}),
       ...(capacity
         ? {
             capacityRecovery: {

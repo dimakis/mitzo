@@ -7727,6 +7727,8 @@ it.each(['wrong_turn', 'unknown', 'active'] as const)(
 
 it('reconciles completed exact native outcome and resumes only queued phase after restart', async () => {
   const { restored: f, request } = await nativeRecoveryFixture();
+  const terminal = vi.fn();
+  f.conversationOptions.onProviderTerminal = terminal;
   f.rpc.request.mockImplementation(async (method, params) =>
     method === 'thread/turns/list'
       ? { data: [{ id: 'turn-1', status: 'completed' }] }
@@ -7741,6 +7743,7 @@ it('reconciles completed exact native outcome and resumes only queued phase afte
   expect(f.store.commandLifecycle('app', f.getBinding(), 'uncertain-native').state).toBe(
     'completed',
   );
+  expect(terminal).toHaveBeenCalledExactlyOnceWith('uncertain-native', 'turn-1', 'completed');
 });
 
 it.each(['account', 'attempt', 'generation'] as const)(
