@@ -23,7 +23,9 @@ it('continues the exact adopted task/HEAD after edits, commit and reopening with
     'Retain completed work',
   );
   const external = new Database(join(f.root, 'repositories', 'workspaces.db'));
-  cleanups.push(() => external.close());
+  cleanups.push(() => {
+    external.close();
+  });
   const before = external.prepare('SELECT * FROM repository_workspaces ORDER BY id').all();
   const lookup = {
     id: localRepositoryPreparationId({

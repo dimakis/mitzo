@@ -140,14 +140,17 @@ export async function executeNativeLocalRepositoryPreparation(
             existing.taskIdentity &&
             existing.qualifiedLocalPreparation
           ) {
+            const taskIdentity = existing.taskIdentity;
+            const sourceGitDirectory =
+              existing.qualifiedLocalPreparation.allocationFacts.source.gitDirectory;
             const reader = await captureNativeLocalRepositoryReader(context, {
               deadline: Math.min(envelope.deadline, Date.now() + 30000),
             });
             await withCodexToolCleanup(async () => {
               await assertPreparedRepositoryTaskTopology(
                 new LocalRepositoryReadAccess(reader),
-                existing.taskIdentity,
-                existing.qualifiedLocalPreparation.allocationFacts.source.gitDirectory,
+                taskIdentity,
+                sourceGitDirectory,
               );
               await context.assertCurrent();
               current();
