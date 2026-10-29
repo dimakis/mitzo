@@ -2336,3 +2336,13 @@ isolated fixtures exercise dark Mint/System and light Teal/Georgia without a
 backend, credentials or models. Actual IndexedDB tests also verify recovery after
 a failed large legacy-draft migration; no source is deleted before its replacement
 commits. Production-bundle acceptance remains a CI check under local memory pressure.
+
+Retained native transport uncertainty uses the existing `CodexQueueStatus` quiet
+status row and explicit reconnect action. Its text comes from the current durable
+command's derived outcome: ambiguous effects require checking the interrupted turn;
+completed commands do not retain an uncertainty warning. Queue previews, drafts,
+focus and reconnect controls retain their existing owners. There is no automatic
+resume or new execution action. The intercepted queue-status fixture covers 320px
+mobile WebKit/Chromium and desktop Chromium in dark Mint/System and light
+Teal/Georgia, retained queued content and wrapping; unit tests verify no recovery
+request occurs merely from displaying this state.

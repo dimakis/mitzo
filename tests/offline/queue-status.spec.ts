@@ -298,3 +298,65 @@ for (const theme of ['dark', 'light']) {
     ]);
   });
 }
+
+for (const theme of ['dark', 'light']) {
+  test(`retained native uncertainty has an explicit action and keeps queued work (${theme})`, async ({
+    page,
+  }, info) => {
+    const files = (await output).outputFiles!;
+    await page.route('**/*', (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path.endsWith('/meta'))
+        return route.fulfill({
+          json: {
+            codexQueue: {
+              paused: true,
+              connected: true,
+              canContinue: true,
+              queued: 1,
+              interrupted: 1,
+              operation: {
+                commandId: 'interrupted',
+                attempt: 2,
+                state: 'ambiguous_effect',
+                nextAction: 'reconcile_native_outcome',
+              },
+            },
+          },
+        });
+      if (path.endsWith('/codex-queue'))
+        return route.fulfill({
+          json: { queued: [{ id: 'queued', preview: 'Retained next command' }], cancelledIds: [] },
+        });
+      if (path.startsWith('/api/')) return route.fulfill({ json: [] });
+      const asset = files.find((file) =>
+        path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
+      );
+      if (asset)
+        return route.fulfill({
+          contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+          body: asset.text,
+        });
+      if (path !== '/') return route.abort();
+      return route.fulfill({
+        contentType: 'text/html',
+        body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'light' ? 'teal' : 'mint'}" data-font="${theme === 'light' ? 'georgia' : 'system'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
+      });
+    });
+    await page.setViewportSize({
+      width: info.project.name.startsWith('mobile') ? 320 : 1280,
+      height: 844,
+    });
+    await page.goto('/');
+    await expect(page.getByRole('status')).toContainText(
+      'Check the interrupted turn before continuing. Saved work is preserved.',
+    );
+    await expect(page.getByRole('button', { name: 'Reconnect and continue' })).toBeVisible();
+    await page.getByRole('button', { name: 'Review queue' }).click();
+    await expect(page.getByText('Retained next command')).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+    await page.screenshot({ path: info.outputPath(`native-outcome-${theme}.png`) });
+  });
+}
