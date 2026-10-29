@@ -1,5 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { access, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepareDevelopment } from '../prepare-development.mjs';
@@ -8,8 +17,16 @@ const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
-const runtime = () => JSON.stringify({ platform: process.platform, arch: process.arch, abi: '137' });
-const output = (command: string, args: readonly string[]) => args[0] === '-p' ? runtime() : args[0] === '--version' ? (command.endsWith('npm') ? '11.18.0' : 'v24.22.0') : '';
+const runtime = () =>
+  JSON.stringify({ platform: process.platform, arch: process.arch, abi: '137' });
+const output = (command: string, args: readonly string[]) =>
+  args[0] === '-p'
+    ? runtime()
+    : args[0] === '--version'
+      ? command.endsWith('npm')
+        ? '11.18.0'
+        : 'v24.22.0'
+      : '';
 async function fixture() {
   const cwd = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-development-')));
   roots.push(cwd);
@@ -29,6 +46,10 @@ async function fixture() {
         await mkdir(bin, { recursive: true });
         for (const name of ['node', 'npm']) await writeFile(join(bin, name), 'fixture-' + name);
         await writeFile(join(tools, 'package-lock.json'), '{}');
+      }
+      if (args[0] === 'ci') {
+        await mkdir(join(cwd, 'node_modules'), { recursive: true });
+        await writeFile(join(cwd, 'node_modules', '.package-lock.json'), 'fixture-dependency-tree');
       }
       return { stdout: output(command, args), stderr: '' };
     },
@@ -81,8 +102,10 @@ it('reports dependency installation failure without exposing npm stderr or crede
   );
   await expect(prepareDevelopment({ ...f, install: true })).rejects.not.toThrow('secret');
 });
-it('checks existing dependencies without installing unless explicitly requested', async () => {
+it('checks a verified installation without installing unless explicitly requested', async () => {
   const f = await fixture();
+  await prepareDevelopment({ ...f, install: true });
+  f.run.mockClear();
   await prepareDevelopment(f);
   expect(f.run.mock.calls.some(([, args]) => args[0] === 'ci')).toBe(false);
   expect(f.run.mock.calls.some(([, args]) => args[0] === 'ls')).toBe(true);
@@ -203,8 +226,12 @@ it('reuses only verified unchanged workspace artifacts on a second explicit inst
   expect(second).toMatchObject({ installationIdentity: first.installationIdentity, reused: true });
   expect(f.run.mock.calls.some(([, args]) => ['ci', 'install'].includes(args[0]))).toBe(false);
   expect(f.run.mock.calls.some(([, args]) => args[0] === 'ls')).toBe(true);
-  expect(f.run.mock.calls.some(([, args]) => args.some((arg) => arg.includes('better-sqlite3')))).toBe(true);
-  expect(JSON.parse(await readFile(join(f.cwd, '.mitzo-devtools', 'readiness.json'), 'utf8'))).toMatchObject({ installationIdentity: first.installationIdentity });
+  expect(
+    f.run.mock.calls.some(([, args]) => args.some((arg) => arg.includes('better-sqlite3'))),
+  ).toBe(true);
+  expect(
+    JSON.parse(await readFile(join(f.cwd, '.mitzo-devtools', 'readiness.json'), 'utf8')),
+  ).toMatchObject({ installationIdentity: first.installationIdentity });
 });
 
 it('invalidates dependencies and scopes caches on lock, manifest and ABI changes while retaining toolchain downloads', async () => {
@@ -219,13 +246,21 @@ it('invalidates dependencies and scopes caches on lock, manifest and ABI changes
   expect(f.run.mock.calls.filter(([, args]) => args[0] === 'ci')).toHaveLength(1);
   expect(f.run.mock.calls.some(([, args]) => args[0] === 'install')).toBe(false);
   const original = f.run.getMockImplementation()!;
-  f.run.mockImplementation(async (command, args, options) => args[0] === '-p'
-    ? { stdout: JSON.stringify({ platform: process.platform, arch: process.arch, abi: '138' }), stderr: '' }
-    : original(command, args, options));
+  f.run.mockImplementation(async (command, args, options) =>
+    args[0] === '-p'
+      ? {
+          stdout: JSON.stringify({ platform: process.platform, arch: process.arch, abi: '138' }),
+          stderr: '',
+        }
+      : original(command, args, options),
+  );
   const third = await prepareDevelopment({ ...f, install: true });
   expect(third.installationIdentity).not.toBe(second.installationIdentity);
   expect(third.environment.nodeGyp).not.toBe(second.environment.nodeGyp);
-  await writeFile(join(f.cwd, 'package.json'), JSON.stringify({ engines: { node: '>=24', npm: '>=11.18.0' }, version: '2' }));
+  await writeFile(
+    join(f.cwd, 'package.json'),
+    JSON.stringify({ engines: { node: '>=24', npm: '>=11.18.0' }, version: '2' }),
+  );
   const fourth = await prepareDevelopment({ ...f, install: true });
   expect(fourth.installationIdentity).not.toBe(third.installationIdentity);
 });
@@ -238,10 +273,14 @@ it('reinstalls when unchanged identity no longer passes actual native verificati
   let broken = true;
   f.run.mockImplementation(async (command, args, options) => {
     if (args[0] === 'ci') broken = false;
-    if (args.some((arg) => arg.includes('better-sqlite3')) && broken) throw Error('invalid native module');
+    if (args.some((arg) => arg.includes('better-sqlite3')) && broken)
+      throw Error('invalid native module');
     return original(command, args, options);
   });
-  expect(await prepareDevelopment({ ...f, install: true })).toMatchObject({ ready: true, reused: false });
+  expect(await prepareDevelopment({ ...f, install: true })).toMatchObject({
+    ready: true,
+    reused: false,
+  });
   expect(f.run.mock.calls.filter(([, args]) => args[0] === 'ci')).toHaveLength(1);
 });
 
@@ -264,10 +303,28 @@ it('does not reuse a failed installation or erase the previous download cache', 
     if (args[0] === 'ci' && fail) throw Object.assign(Error('denied'), { code: 'EPERM' });
     return original(command, args, options);
   });
-  await expect(prepareDevelopment({ ...f, install: true })).rejects.toMatchObject({ reason: 'filesystem_denied' });
+  await expect(prepareDevelopment({ ...f, install: true })).rejects.toMatchObject({
+    reason: 'filesystem_denied',
+  });
   await expect(access(first.environment.cache)).resolves.toBeUndefined();
   fail = false;
   f.run.mockClear();
-  expect(await prepareDevelopment({ ...f, install: true })).toMatchObject({ ready: true, reused: false });
+  expect(await prepareDevelopment({ ...f, install: true })).toMatchObject({
+    ready: true,
+    reused: false,
+  });
   expect(f.run.mock.calls.filter(([, args]) => args[0] === 'ci')).toHaveLength(1);
+});
+
+it('refuses stale readiness without explicit installation authority', async () => {
+  const f = await fixture();
+  await prepareDevelopment({ ...f, install: true });
+  await writeFile(join(f.cwd, 'package-lock.json'), '{"changed":true}');
+  f.run.mockClear();
+  await expect(prepareDevelopment(f)).rejects.toMatchObject({
+    phase: 'verification',
+    reason: 'setup_required',
+    effectStatus: 'not_started',
+  });
+  expect(f.run.mock.calls.some(([, args]) => ['ci', 'install'].includes(args[0]))).toBe(false);
 });
