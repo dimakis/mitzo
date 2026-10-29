@@ -500,6 +500,38 @@ type LiveThreadEvent = {
   turn?: string;
   before?: unknown;
 };
+// These existing ledgers contradict a live owner's never-submitted witness.
+// Command-owned evidence includes historical attempts and capacity source use.
+const PreDispatchConflictSql = `EXISTS (
+  SELECT 1 FROM codex_thread_acceptances WHERE conversation_id=c.conversation_id AND command_id=c.id
+  UNION ALL SELECT 1 FROM codex_capacity_native_acks WHERE conversation_id=c.conversation_id AND command_id=c.id
+  UNION ALL SELECT 1 FROM codex_capacity_continuations WHERE conversation_id=c.conversation_id AND (command_id=c.id OR source_command_id=c.id)
+  UNION ALL SELECT 1 FROM codex_tools WHERE conversation_id=c.conversation_id AND command_id=c.id
+  UNION ALL SELECT 1 FROM codex_pending_thread_dispatches WHERE conversation_id=c.conversation_id AND command_id=c.id
+)`;
+const PreDispatchCapacitySql = `(SELECT data FROM codex_capacity_recoveries WHERE conversation_id=c.conversation_id)`;
+const PreDispatchCandidateSql = `(c.pre_dispatch_failure=1 AND (c.status='queued' OR (c.status='failed' AND c.attempt=1)))`;
+const PreDispatchEvidenceSql = `c.id,c.status,c.attempt,c.native_turns,c.native_execution_history,
+  c.pre_dispatch_failure,c.completion_phases,${PreDispatchConflictSql} AS dispatch_conflict,
+  ${PreDispatchCapacitySql} AS capacity_recovery`;
+const PreDispatchCandidateEvidenceSql = `c.id,c.status,c.attempt,c.native_turns,c.pre_dispatch_failure,
+  CASE WHEN ${PreDispatchCandidateSql} THEN c.native_execution_history END AS native_execution_history,
+  CASE WHEN ${PreDispatchCandidateSql} THEN c.completion_phases END AS completion_phases,
+  CASE WHEN ${PreDispatchCandidateSql} THEN c.input END AS input,
+  CASE WHEN ${PreDispatchCandidateSql} THEN ${PreDispatchConflictSql} ELSE 1 END AS dispatch_conflict,
+  CASE WHEN ${PreDispatchCandidateSql} THEN ${PreDispatchCapacitySql} END AS capacity_recovery`;
+type PreDispatchEvidence = {
+  id: string;
+  status: string;
+  attempt: number;
+  pre_dispatch_failure: number;
+  native_turns: string | null;
+  native_execution_history: string | null;
+  completion_phases: string | null;
+  input: string | null;
+  dispatch_conflict: number;
+  capacity_recovery: string | null;
+};
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
   private readonly db: Database.Database;
@@ -2092,35 +2124,42 @@ export class CodexConversationStore {
       throw Error('Native recovery has unsettled work');
     const row = this.db
       .prepare(
-        'SELECT input,status,attempt,native_turns,native_execution_history,pre_dispatch_failure FROM codex_commands WHERE conversation_id=? AND id=?',
+        `SELECT ${PreDispatchEvidenceSql},c.input FROM codex_commands c WHERE c.conversation_id=? AND c.id=?`,
       )
-      .get(id, commandId) as
-      | {
-          input: string;
-          status: CodexCommand['status'];
-          attempt: number;
-          native_turns: string | null;
-          native_execution_history: string | null;
-          pre_dispatch_failure: number;
-        }
-      | undefined;
+      .get(id, commandId) as PreDispatchEvidence | undefined;
     if (!row) return undefined;
+    const command = this.undispatchedInput(row);
+    if (!command) throw Error('Native command may already have executed');
+    return { ...command, status: row.status as CodexCommand['status'], attempt: row.attempt };
+  }
+
+  /** Shared read-time proof; never manufacture authority from absent history or
+   * erase retained ambiguity. Only the live owner's marker qualifies a failure. */
+  private undispatchedInput(row: PreDispatchEvidence): CodexCommandInput | undefined {
     if (
       !['queued', 'failed'].includes(row.status) ||
       (row.status === 'failed' && row.pre_dispatch_failure !== 1) ||
-      row.attempt !== 1 ||
-      this.nativeTurns(row.native_turns).length ||
-      this.readNativeExecutionHistory(id, binding, commandId).length
+      row.attempt !== 1
     )
-      throw Error('Native command may already have executed');
-    const command: CodexCommand = {
-      ...CommandInput.parse(JSON.parse(row.input)),
-      status: row.status,
-      attempt: row.attempt,
-    };
-    if (command.id !== commandId) throw Error('Native command identity changed');
-    if (command.allowedTools || command.environmentContinuation)
-      throw Error('Native continuation cannot be replayed');
+      return undefined;
+    const turns = this.nativeTurns(row.native_turns);
+    const executions = this.nativeExecutions(row.native_execution_history);
+    const phases = this.completionPhases(row.completion_phases);
+    const capacity =
+      row.capacity_recovery === null
+        ? undefined
+        : CapacityRecoverySchema.parse(JSON.parse(row.capacity_recovery));
+    if (
+      capacity &&
+      [capacity.sourceCommandId, capacity.latestCommandId, capacity.childCommandId].includes(row.id)
+    )
+      return undefined;
+    if (row.dispatch_conflict || turns.length || executions.length || phases.length)
+      return undefined;
+    if (row.input === null) return undefined;
+    const command = CommandInput.parse(JSON.parse(row.input));
+    if (command.id !== row.id || command.allowedTools || command.environmentContinuation)
+      return undefined;
     return command;
   }
 
@@ -2191,12 +2230,16 @@ export class CodexConversationStore {
         const command = this.assertUndispatchedCommand(id, binding, commandId);
         if (command?.status !== 'failed') return;
         recordRecovery();
-        this.assertUndispatchedCommand(id, binding, commandId);
-        this.db
+        const settled = this.assertUndispatchedCommand(id, binding, commandId);
+        if (settled?.status !== 'failed') throw Error('Pre-dispatch recovery receipt changed');
+        // Consume known never-submitted custody for its first execution only.
+        // New-message acknowledgement leaves the historical failed row untouched.
+        const updated = this.db
           .prepare(
-            "UPDATE codex_commands SET status='queued' WHERE conversation_id=? AND id=? AND status='failed' AND attempt=1",
+            "UPDATE codex_commands SET status='queued',ambiguous=0 WHERE conversation_id=? AND id=? AND status='failed' AND attempt=1 AND pre_dispatch_failure=1",
           )
           .run(id, commandId);
+        if (updated.changes !== 1) throw Error('Pre-dispatch recovery receipt changed');
       })
       .immediate();
   }
@@ -2209,14 +2252,9 @@ export class CodexConversationStore {
     this.assertNoPendingThreadOwnership(id, binding);
     const rows = this.db
       .prepare(
-        'SELECT status,attempt,native_turns,pre_dispatch_failure FROM codex_commands WHERE conversation_id=? ORDER BY sequence DESC',
+        `SELECT ${PreDispatchCandidateEvidenceSql} FROM codex_commands c WHERE c.conversation_id=? ORDER BY c.sequence DESC`,
       )
-      .all(id) as Array<{
-      status: string;
-      attempt: number;
-      native_turns: string | null;
-      pre_dispatch_failure: number;
-    }>;
+      .iterate(id) as Iterable<PreDispatchEvidence>;
     for (const row of rows) {
       const turns = this.nativeTurns(row.native_turns);
       if (turns.length) {
@@ -2230,7 +2268,7 @@ export class CodexConversationStore {
           throw Error('Recovery thread lineage changed');
         return target.threadId;
       }
-      if (row.status === 'failed' && row.attempt === 1 && row.pre_dispatch_failure === 1) continue;
+      if (row.status === 'failed' && this.undispatchedInput(row)) continue;
       if (row.status !== 'queued' && row.status !== 'cancelled') return state.threadId ?? undefined;
     }
     return undefined;
@@ -2244,18 +2282,12 @@ export class CodexConversationStore {
     this.assertNoPendingThreadOwnership(id, binding);
     const rows = this.db
       .prepare(
-        `SELECT id,status,attempt,native_turns,pre_dispatch_failure
-      FROM codex_commands WHERE conversation_id=? AND status NOT IN ('queued','cancelled') ORDER BY sequence DESC`,
+        `SELECT ${PreDispatchCandidateEvidenceSql}
+      FROM codex_commands c WHERE c.conversation_id=? AND c.status NOT IN ('queued','cancelled') ORDER BY c.sequence DESC`,
       )
-      .all(id) as Array<{
-      id: string;
-      status: string;
-      attempt: number;
-      native_turns: string | null;
-      pre_dispatch_failure: number;
-    }>;
+      .iterate(id) as Iterable<PreDispatchEvidence>;
     for (const row of rows) {
-      if (row.status === 'failed' && row.attempt === 1 && row.pre_dispatch_failure === 1) continue;
+      if (row.status === 'failed' && this.undispatchedInput(row)) continue;
       const targets = this.nativeTurns(row.native_turns).filter(
         (turn) => turn.attempt === row.attempt,
       );
@@ -2365,6 +2397,10 @@ export class CodexConversationStore {
             AND status='completed')
       )
       SELECT c.id,c.status,c.attempt,c.native_turns,c.completion_phases,c.ambiguous,c.recovery_acknowledged,
+        c.pre_dispatch_failure,
+        CASE WHEN ${PreDispatchCandidateSql} THEN c.native_execution_history END AS native_execution_history,
+        CASE WHEN ${PreDispatchCandidateSql} THEN c.input END AS input,
+        CASE WHEN ${PreDispatchCandidateSql} THEN ${PreDispatchConflictSql} ELSE 1 END AS dispatch_conflict,
         c.id IN (SELECT command_id FROM pending_tools) AS pending_tool,
         proof.target AS capacity_target,proof.source_command_id AS capacity_source_id,
         root.target AS capacity_source_target,root.native_turns AS capacity_source_native_turns,
@@ -2389,7 +2425,8 @@ export class CodexConversationStore {
         AND reservation.command_id=json_extract(recovery.data,'$.childCommandId') AND reservation.ordinal>0
       WHERE c.conversation_id=(SELECT id FROM scope)
         AND (c.completion_phases IS NOT NULL OR c.id IN (SELECT command_id FROM pending_tools)
-          OR (c.status IN ('failed','interrupted','completed') AND c.ambiguous=1))
+          OR (c.status IN ('failed','interrupted','completed') AND c.ambiguous=1)
+          OR (c.status='queued' AND c.pre_dispatch_failure=1))
       ORDER BY c.sequence
     `,
       )
@@ -2402,6 +2439,10 @@ export class CodexConversationStore {
       ambiguous: number | null;
       pending_tool: number;
       recovery_acknowledged: number;
+      pre_dispatch_failure: number;
+      native_execution_history: string | null;
+      input: string | null;
+      dispatch_conflict: number;
       capacity_target: string | null;
       capacity_source_id: string | null;
       capacity_source_target: string | null;
@@ -2443,7 +2484,12 @@ export class CodexConversationStore {
         firstUnsettled ??= { commandId: row.id };
         continue;
       }
+      if (row.status === 'queued' && row.pre_dispatch_failure === 1) {
+        if (!this.undispatchedInput(row)) firstUnsettled ??= { commandId: row.id };
+        continue;
+      }
       if (['failed', 'interrupted', 'completed'].includes(row.status) && row.ambiguous === 1) {
+        if (row.status === 'failed' && this.undispatchedInput(row)) continue;
         const settledCapacity = (() => {
           // Only the existing exact capacity terminal owner can qualify its failed
           // source. A generic acknowledgement, diagnostic or native status cannot.
@@ -2876,22 +2922,28 @@ export class CodexConversationStore {
     this.read(id, binding);
     const row = this.db
       .prepare(
-        `SELECT status,attempt,ambiguous,pre_dispatch_failure,native_turns,transport_diagnostic,completion_phases
-      FROM codex_commands WHERE conversation_id=? AND id=?`,
+        `SELECT ${PreDispatchCandidateEvidenceSql},c.completion_phases AS retained_completion_phases,c.ambiguous,c.transport_diagnostic
+      FROM codex_commands c WHERE c.conversation_id=? AND c.id=?`,
       )
       .get(id, commandId) as
       | {
+          id: string;
           status: CodexCommand['status'];
           attempt: number;
           ambiguous: number | null;
           pre_dispatch_failure: number;
+          native_execution_history: string | null;
+          dispatch_conflict: number;
+          capacity_recovery: string | null;
+          input: string | null;
           native_turns: string | null;
           transport_diagnostic: string | null;
           completion_phases: string | null;
+          retained_completion_phases: string | null;
         }
       | undefined;
     if (!row) throw Error('Command lifecycle unavailable');
-    const completionPhase = this.completionPhases(row.completion_phases).find(
+    const completionPhase = this.completionPhases(row.retained_completion_phases).find(
       (phase) => phase.target.attempt === row.attempt,
     );
     const diagnosticHistory = row.transport_diagnostic
@@ -2915,6 +2967,12 @@ export class CodexConversationStore {
           'SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? AND result_content IS NULL LIMIT 1',
         )
         .get(id, commandId);
+    const undispatched =
+      (row.status === 'failed' || (row.status === 'queued' && row.pre_dispatch_failure === 1)) &&
+      !!this.undispatchedInput(row);
+    const preEffectFailure = row.status === 'failed' && undispatched;
+    const queuedEffectsUnknown =
+      row.status === 'queued' && row.pre_dispatch_failure === 1 && !undispatched;
     const state =
       row.status === 'queued'
         ? 'queued'
@@ -2922,10 +2980,10 @@ export class CodexConversationStore {
           ? 'executing'
           : row.status === 'completed'
             ? 'completed'
-            : row.ambiguous === 1
-              ? 'ambiguous_effect'
-              : row.pre_dispatch_failure === 1
-                ? 'pre_effect_failure'
+            : preEffectFailure
+              ? 'pre_effect_failure'
+              : row.ambiguous === 1
+                ? 'ambiguous_effect'
                 : 'terminal_failure';
     return {
       commandId,
@@ -2933,22 +2991,26 @@ export class CodexConversationStore {
       state,
       ...(completionPhase ? { completionPhase } : {}),
       effectStatus:
-        (completionPhase && completionPhase.status !== 'completed') || row.ambiguous === 1
+        queuedEffectsUnknown ||
+        (completionPhase && completionPhase.status !== 'completed') ||
+        (row.ambiguous === 1 && !preEffectFailure)
           ? 'unknown'
           : row.status === 'completed'
             ? 'completed'
             : 'not_established',
-      nextAction: canReconcilePhase
-        ? 'reconcile_completion_phase'
-        : state === 'ambiguous_effect'
-          ? 'reconcile_native_outcome'
-          : state === 'pre_effect_failure'
-            ? 'retry_admission'
-            : state === 'queued'
-              ? 'wait_for_admission'
-              : state === 'executing'
-                ? 'wait_for_native_outcome'
-                : 'inspect_retained_work',
+      nextAction: queuedEffectsUnknown
+        ? 'inspect_retained_work'
+        : canReconcilePhase
+          ? 'reconcile_completion_phase'
+          : state === 'ambiguous_effect'
+            ? 'reconcile_native_outcome'
+            : state === 'pre_effect_failure'
+              ? 'retry_admission'
+              : state === 'queued'
+                ? 'wait_for_admission'
+                : state === 'executing'
+                  ? 'wait_for_native_outcome'
+                  : 'inspect_retained_work',
       ...(nativeTarget ? { nativeTarget } : {}),
       ...(diagnostic ? { diagnostic } : {}),
       ...(diagnosticHistory.length ? { diagnosticHistory } : {}),
@@ -3075,15 +3137,25 @@ export class CodexConversationStore {
       | undefined;
     const operation = this.db
       .prepare(
-        `SELECT id,EXISTS (SELECT 1 FROM codex_capacity_continuations cp WHERE cp.conversation_id=c.conversation_id AND cp.command_id=c.id AND cp.terminal='capacity') AS capacity_candidate FROM codex_commands c WHERE conversation_id=? AND status IN ('failed','interrupted','completed') AND (ambiguous=1 OR (recovery_acknowledged=0 AND (transport_diagnostic IS NOT NULL OR completion_phases IS NOT NULL)) OR EXISTS (SELECT 1 FROM codex_tools t WHERE t.conversation_id=c.conversation_id AND t.command_id=c.id AND t.result_content IS NULL)) ORDER BY sequence DESC LIMIT 1`,
+        `SELECT id,${PreDispatchCandidateSql} AS pre_dispatch_candidate,
+          EXISTS (SELECT 1 FROM codex_capacity_continuations cp WHERE cp.conversation_id=c.conversation_id AND cp.command_id=c.id AND cp.terminal='capacity') AS capacity_candidate
+        FROM codex_commands c WHERE conversation_id=? AND (
+          (status IN ('failed','interrupted','completed') AND (ambiguous=1 OR
+            (recovery_acknowledged=0 AND (transport_diagnostic IS NOT NULL OR completion_phases IS NOT NULL)) OR
+            EXISTS (SELECT 1 FROM codex_tools t WHERE t.conversation_id=c.conversation_id AND t.command_id=c.id AND t.result_content IS NULL)))
+          OR (status='queued' AND pre_dispatch_failure=1)) ORDER BY sequence DESC LIMIT 1`,
       )
-      .get(id) as { id: string; capacity_candidate: number } | undefined;
-    // Only a possible capacity exception needs the full retained-effects audit.
-    // Reuse the actual custody observation; do not expose a stale failed source
-    // or hide older unknown work behind a newer qualified capacity receipt.
+      .get(id) as
+      { id: string; capacity_candidate: number; pre_dispatch_candidate: number } | undefined;
+    // Possible positive receipt exceptions need the same retained-effects audit.
+    // A newer qualified receipt must not hide older unknown effect custody.
+    const heldOperation =
+      operation?.capacity_candidate || operation?.pre_dispatch_candidate
+        ? this.unsettledCommandEffects(id)?.commandId
+        : undefined;
     const operationId = operation?.capacity_candidate
-      ? this.unsettledCommandEffects(id)?.commandId
-      : operation?.id;
+      ? heldOperation
+      : (heldOperation ?? operation?.id);
     const capacity = this.capacityRecovery(id, b);
     return {
       ...(operationId ? { operation: this.commandLifecycle(id, b, operationId) } : {}),

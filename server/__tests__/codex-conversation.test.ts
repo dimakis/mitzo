@@ -7383,6 +7383,66 @@ it('invokes the genuine native base-scope owner despite a poisoned original call
   expect(poisoned).not.toHaveBeenCalled();
 });
 
+it.each(['prepareSystemPrompt', 'prepareTurn'] as const)(
+  'resumes new explicit work after repairing a proved %s pre-dispatch failure',
+  async (callback) => {
+    const f = await setup();
+    f.conversationOptions[callback] = async () => {
+      throw Error('Offline preparation needs repair');
+    };
+    await expect(
+      f.c.send({ id: 'preparation-failed', prompt: 'Original retained work' }),
+    ).rejects.toThrow('Offline preparation needs repair');
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(
+      f.store.assertUndispatchedCommand('app', f.getBinding(), 'preparation-failed'),
+    ).toMatchObject({ status: 'failed', attempt: 1 });
+    f.conversationOptions[callback] = async () => undefined;
+    await f.c.send({ id: 'after-repair', prompt: 'New explicit work' });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    expect(f.c.queue()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'preparation-failed', status: 'failed', attempt: 1 }),
+        expect.objectContaining({ id: 'after-repair', status: 'running', attempt: 1 }),
+      ]),
+    );
+  },
+);
+
+it.each(['prepareSystemPrompt', 'prepareTurn'] as const)(
+  'completes the repaired original %s input and its completion hook after qualified requeue',
+  async (callback) => {
+    const hook = vi.fn(async () => {});
+    const f = await setup(undefined, undefined, hook);
+    f.conversationOptions[callback] = async () => {
+      throw Error('Repair needed');
+    };
+    await expect(
+      f.c.send({ id: 'repaired-original', prompt: 'Retained original' }),
+    ).rejects.toThrow('Repair needed');
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    f.conversationOptions[callback] = async () => undefined;
+    const recordRecovery = vi.fn();
+    f.store.requeueUndispatchedCommand('app', f.getBinding(), 'repaired-original', recordRecovery);
+    await f.c.acknowledgeRecovery();
+    expect(recordRecovery).toHaveBeenCalledOnce();
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() =>
+      expect(f.store.commandLifecycle('app', f.getBinding(), 'repaired-original')).toMatchObject({
+        state: 'completed',
+        effectStatus: 'completed',
+      }),
+    );
+    expect(hook).toHaveBeenCalledOnce();
+    await f.c.send({ id: 'later-new-work', prompt: 'Later explicit work' });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+  },
+);
+
 it.each(['preparation-error', 'closed-during-preparation'] as const)(
   'records a positive undispatched failure witness for %s only',
   async (mode) => {
