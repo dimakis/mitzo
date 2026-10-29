@@ -468,6 +468,8 @@ export const runPublicColdAdmission = async (
         threadId: activeThread,
         generation: 1,
       });
+      if (interruptedExecution?.phase !== 'accepted')
+        throw new Error('Expected the interrupted native execution to have been accepted');
       expect(f.native.nativeRecoveryTarget(sessionId, binding)).toMatchObject({
         commandId: firstCommandId,
         threadId: activeThread,

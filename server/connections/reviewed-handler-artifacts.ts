@@ -2864,7 +2864,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/prepared-repository-native-consumer.ts':
     '6879262ceadc86f666ca8ccaf463608a9e81a5736a2b6c22f47cbd31a6512de2',
   '../__tests__/fixtures/prepared-repository-native-public.ts':
-    'bd9a9123f4822bcaab4c7dd0034a1b9e202290c2976b84e9bc42349bf555e84b',
+    '482ff36b1cbcef54be8e72558f22682716c05c08212c6ce20e40b52969659e5c',
   '../__tests__/prepared-repository-native-cold-resume.test.ts':
     '84fd791e57fc2854aa1e429b32752310070fa935464779d00d6750118c55408d',
   '../__tests__/prepared-repository-native-owner-guards.test.ts':
