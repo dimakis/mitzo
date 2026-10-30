@@ -26,7 +26,7 @@ export function useCompactionHistory(
     truncated: boolean;
     error?: string;
   } | null>(null);
-  const latest = view?.sessionId === sessionId ? view.records.at(-1) : undefined;
+  const latest = view && view.sessionId === sessionId ? view.records.at(-1) : undefined;
   const awaitingUsage =
     latest?.phase === 'completed' &&
     latest.startedAt != null &&

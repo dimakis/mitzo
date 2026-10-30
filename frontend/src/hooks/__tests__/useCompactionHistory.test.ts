@@ -143,3 +143,9 @@ it('does not refresh usage indefinitely when the bounded history has no before o
   rerender({ context: 80 });
   expect(readApiJson).toHaveBeenCalledTimes(1);
 });
+
+it.each([null, undefined])('keeps a new chat without a session ID empty (%s)', (id) => {
+  const { result } = renderHook(() => useCompactionHistory(id, ''));
+  expect(result.current.records).toEqual([]);
+  expect(readApiJson).not.toHaveBeenCalled();
+});
