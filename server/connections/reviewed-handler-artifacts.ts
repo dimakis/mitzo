@@ -22,7 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../__tests__/chat-startup-metadata.test.ts': 'b4987352fc6ad18a7517950a2e632e5b4b200db86c80dad31acdec9ae395065b',
+  '../__tests__/chat-startup-metadata.test.ts':
+    'b4987352fc6ad18a7517950a2e632e5b4b200db86c80dad31acdec9ae395065b',
   '../__tests__/sdk-child-environment.test.ts':
     '5590d6466e30ff3dc70487424ef5c591c04a887c6391db84ece2a0496b4cfdb6',
   '../__tests__/owned-openshell-codex-chat-consumer.test.ts':
