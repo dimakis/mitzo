@@ -67,6 +67,8 @@ import {
 import { initializeTelosWorkSchema } from './telos-work-schema.js';
 import { TelosMainPublicationRecords } from './telos-main-publication-records.js';
 import type { MainPublicationPins } from './telos-main-publication-contract.js';
+import { projectTelosCollection } from './telos-collection.js';
+import { TelosWorkLifecycleListSchema } from '@mitzo/protocol';
 import { projectTelosWorkRecord } from './telos-work-record.js';
 import {
   TelosListItemsInputSchema,
@@ -1100,6 +1102,24 @@ export class TelosWorkStore {
     return this.db.transaction(() => {
       this.authorizeRead(itemId, actor);
       return this.projectRecord(itemId);
+    })();
+  }
+  /** Canonical collection: one authority check, connection and committed snapshot.
+   * Never reconstruct an ID from a mutable title or require a source row. */
+  readCollection(rawView: unknown, actor: TelosWorkActor) {
+    this.operator(actor);
+    const view = TelosWorkLifecycleListSchema.parse(rawView);
+    return this.db.transaction(() => {
+      const items = this.db
+        .prepare('SELECT * FROM items ORDER BY rowid LIMIT 5001')
+        .all() as Item[];
+      if (items.length > 5000) conflict('Telos collection exceeds bounded selection');
+      return projectTelosCollection(
+        this.db,
+        items,
+        this.lifecycleVisibilityForCanonicalList(items.map((row) => row.id)),
+        view,
+      );
     })();
   }
   readBacklogGuarded<T>(read: () => T, assertion: () => void): T {
