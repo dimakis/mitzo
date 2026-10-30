@@ -3658,7 +3658,9 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     try {
       const profiles = loadAccountProfiles();
       const refresh = req.query.refresh === '1';
-      await profiles.refresh(refresh, { discoverApi: refresh });
+      // Restore the selected conversation from retained metadata. Optional
+      // model discovery (including unrelated accounts) belongs to explicit refresh.
+      if (refresh) await profiles.refresh(true, { discoverApi: true });
       const profile = profiles
         .catalog()
         .find((account) => account.id === meta.accountBinding!.accountId);
