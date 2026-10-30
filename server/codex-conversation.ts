@@ -1,5 +1,10 @@
 import type { AdviserTaskScope } from './adviser-task-scope.js';
-import { TurnCallbacks } from './turn-callbacks.js';
+import {
+  TurnCallbacks,
+  callbackOutcome,
+  retainCallbackOutcome,
+  retainedCallbackOutcome,
+} from './turn-callbacks.js';
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
 import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
 import {
@@ -34,6 +39,7 @@ import {
   CodexHostToolRequestError,
   CodexRequestError,
   CodexServerRequestResolvedError,
+  CodexTurnCompletedError,
   CodexTransportError,
   SUPPORTED_CODEX_CLI_VERSION,
   type CodexLifecycleTransport,
@@ -421,6 +427,8 @@ type ActiveCommand = {
   callbacks?: TurnCallbacks;
   callbackSettlement?: Promise<void>;
   callbacksSettled?: boolean;
+  callbackEffectsUnknown?: boolean;
+  settledToolCallbacks?: Set<string>;
   command: CodexCommand;
   /** Set before invoking turn/start, including synchronous close/rejection. */
   providerSubmitted: boolean;
@@ -556,8 +564,19 @@ export class CodexConversation {
         const active = this.active;
         if (!active || p.threadId !== this.threadId || p.turnId !== active.turnId)
           return this.request(m, p, s, requestContext);
-        return (active.callbacks ??= new TurnCallbacks()).track(() =>
-          this.request(m, p, s, requestContext),
+        return (active.callbacks ??= new TurnCallbacks()).track(
+          () => this.request(m, p, s, requestContext),
+          (error) =>
+            s.aborted &&
+            error === s.reason &&
+            ((error instanceof CodexTurnCompletedError &&
+              error.threadId === p.threadId &&
+              error.turnId === p.turnId) ||
+              error instanceof CodexServerRequestResolvedError) &&
+            error.requestId === requestContext?.requestId &&
+            (m !== 'item/tool/call' ||
+              (typeof p.callId === 'string' &&
+                active.settledToolCallbacks?.has(p.callId) === true)),
         );
       },
       onClose: (error) => this.transportClosed(generation, error),
@@ -2973,7 +2992,7 @@ export class CodexConversation {
       active.command.id,
       'completed',
       active.turnId,
-      active.completionHook === 'pending',
+      active.completionHook === 'pending' || active.callbackEffectsUnknown === true,
     );
     active.providerCompletionRetained = true;
     this.terminalTurns.set(JSON.stringify([this.threadId, active.turnId]), {
@@ -3156,7 +3175,7 @@ export class CodexConversation {
       if (turn.data.status === 'completed' && !this.active.callbacksSettled) {
         const active = this.active;
         (active.callbacks ??= new TurnCallbacks()).seal();
-        if (active.callbacks?.size) {
+        if (active.callbacks?.needsSettlement) {
           if (active.callbackSettlement) return;
           active.callbackSettlement = active.callbacks
             .settle(active.abort.signal, this.opts.callbackSettlementTimeoutMs)
@@ -3327,6 +3346,7 @@ export class CodexConversation {
           this.active.command.id,
           status,
           turn.data.id,
+          this.active.callbackEffectsUnknown === true,
         );
       else
         this.opts.store.pauseForRecovery(
@@ -3470,7 +3490,10 @@ export class CodexConversation {
           !resolvedCleanup &&
           signal.aborted &&
           error === signal.reason &&
-          signal.reason instanceof CodexServerRequestResolvedError &&
+          (signal.reason instanceof CodexServerRequestResolvedError ||
+            (signal.reason instanceof CodexTurnCompletedError &&
+              signal.reason.threadId === threadId &&
+              signal.reason.turnId === turnId)) &&
           requestId !== undefined &&
           signal.reason.requestId === requestId
         ) {
@@ -3541,6 +3564,7 @@ export class CodexConversation {
           !turnId ||
           this.threadId !== threadId ||
           active.turnId !== turnId ||
+          active.completions.has(turnId) ||
           params.threadId !== threadId ||
           params.turnId !== turnId ||
           !requestContext ||
@@ -3825,6 +3849,10 @@ export class CodexConversation {
         error: string;
         diagnostic: Record<string, unknown>;
       };
+      retainCallbackOutcome(
+        result,
+        diagnostic.diagnostic.effectStatus === 'not_started' ? 'settled' : 'unknown',
+      );
       log.warn('Dynamic tool failed', {
         diagnosticId: diagnostic.diagnosticId,
         toolFailureCode: diagnostic.error,
@@ -3837,6 +3865,10 @@ export class CodexConversation {
       // subsequent durable-result write failure while the native turn stays live.
       callbackOpen = false;
     }
+    if (toolSignal.aborted && !retainedCallbackOutcome(result))
+      retainCallbackOutcome(result, 'unknown');
+    if (active.completions.has(call.turnId) && callbackOutcome(result) === 'unknown')
+      active.callbackEffectsUnknown = true;
     if (this.opts.ownerKind === 'symposium') {
       try {
         this.opts.store.recordToolResult(
@@ -3926,6 +3958,8 @@ export class CodexConversation {
         result,
       );
     }
+    if (retainedCallbackOutcome(result) === 'settled')
+      (active.settledToolCallbacks ??= new Set()).add(call.callId);
     this.mapper!.toolResult(publicId, result.content, result.isError, result.contentItems);
     try {
       this.opts.onToolObservation?.({
@@ -3938,10 +3972,13 @@ export class CodexConversation {
     } catch {
       /* Observability cannot change an executed result. */
     }
-    return {
-      success: !result.isError,
-      contentItems: codexToolResultContentItems(result),
-    };
+    return retainCallbackOutcome(
+      {
+        success: !result.isError,
+        contentItems: codexToolResultContentItems(result),
+      },
+      callbackOutcome(result),
+    );
   }
   /** Accepted, durably correlated live turn only; no pending/startup target. */
   captureInterruptTarget(): CodexInterruptTarget | undefined {

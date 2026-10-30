@@ -2,7 +2,8 @@ import {
   TASK_WORKER_ALLOCATION_EVENT,
   resolveTaskWorkerAllocationContext,
 } from './task-worker-authority.js';
-import type { TurnCallbackRunner } from './turn-callbacks.js';
+import { assertTurnCallbackEffects, type TurnCallbackRunner } from './turn-callbacks.js';
+import { createContinuousSdkQuery } from './continuous-sdk-callbacks.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
@@ -2731,6 +2732,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
         registry,
         () => {
+          assertTurnCallbackEffects();
           options.ordinarySdkAuthority?.assertCurrentSync(abortController.signal);
           return hostGithubPublishingSource(
             session,
@@ -2740,9 +2742,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           );
         },
         session,
-        options.ordinarySdkAuthority
-          ? () => options.ordinarySdkAuthority!.assertCurrent(abortController.signal)
-          : undefined,
+        async () => {
+          assertTurnCallbackEffects();
+          await options.ordinarySdkAuthority?.assertCurrent(abortController.signal);
+          assertTurnCallbackEffects();
+        },
         {
           explicitSelection: () => {
             // Ordinary SDK provider publication is disabled; an explicit operator
@@ -2772,12 +2776,15 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       });
       const createSdkWebAccess = (state?: {
         retired: boolean;
+        completing: boolean;
         runCallback: TurnCallbackRunner;
       }) => {
         const assertWebCurrent = async () => {
-          if (state?.retired) throw Error('Completed SDK query retired');
+          assertTurnCallbackEffects();
+          if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
           await options.ordinarySdkAuthority?.assertCurrent(abortController.signal);
-          if (state?.retired) throw Error('Completed SDK query retired');
+          assertTurnCallbackEffects();
+          if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
         };
         return createWebAccessSdkServer(
           createWebAccessTool(
@@ -2793,14 +2800,15 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                   ? {
                       assertCurrent: assertWebCurrent,
                       assertCurrentSync: (signal) => {
-                        if (state?.retired) throw Error('Completed SDK query retired');
+                        if (state?.retired || state?.completing)
+                          throw Error('Completed SDK query retired');
                         options.ordinarySdkAuthority!.assertCurrentSync(signal);
                       },
                       writeRoots: options.ordinarySdkAuthority.writeRoots(),
                     }
                   : {}),
               }),
-            options.ordinarySdkAuthority ? assertWebCurrent : undefined,
+            assertWebCurrent,
           ),
           abortController.signal,
           options.ordinarySdkAuthority ? undefined : githubPublishing,
@@ -2908,13 +2916,13 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 profilesOnly: true,
                 runCallback: state.runCallback,
                 assertCurrentSync: (signal) => {
-                  if (state.retired) throw Error('Completed SDK query retired');
+                  if (state.retired || state.completing) throw Error('Completed SDK query retired');
                   options.ordinarySdkAuthority!.assertCurrentSync(signal);
                 },
                 assertCurrent: async (signal) => {
-                  if (state.retired) throw Error('Completed SDK query retired');
+                  if (state.retired || state.completing) throw Error('Completed SDK query retired');
                   await options.ordinarySdkAuthority!.assertCurrent(signal);
-                  if (state.retired) throw Error('Completed SDK query retired');
+                  if (state.retired || state.completing) throw Error('Completed SDK query retired');
                 },
               },
             ),
@@ -2962,13 +2970,38 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         );
         await liveOrdinarySdkOwner.enqueue(initialMessageId);
       } else {
-        const authorizedSdkInput = async function* () {
-          for await (const message of inputQueue) {
-            await authorizeSdkContext(abortController.signal);
-            yield message;
-          }
-        };
-        q = adaptSdkQuery(query({ prompt: authorizedSdkInput(), options: sdkOptions }));
+        q = createContinuousSdkQuery({
+          input: inputQueue,
+          controller: abortController,
+          lifetime: sdkHookLifetime,
+          authorize: authorizeSdkContext,
+          create: (request) => query(request),
+          adapt: adaptSdkQuery,
+          options: (state) => ({
+            ...sdkOptions,
+            mcpServers: {
+              ...sdkOptions.mcpServers,
+              'mitzo-web-access': createSdkWebAccess(state),
+              'mitzo-connections': createCredentialSdkServer(
+                () => session.sessionId ?? options.resume ?? newSdkSessionId,
+                session,
+                registry,
+                {
+                  runCallback: state.runCallback,
+                  assertCurrentSync: (signal) => {
+                    signal.throwIfAborted();
+                    assertTurnCallbackEffects();
+                  },
+                  assertCurrent: async (signal) => {
+                    assertTurnCallbackEffects();
+                    await authorizeSdkContext(signal);
+                    assertTurnCallbackEffects();
+                  },
+                },
+              ),
+            },
+          }),
+        });
       }
     }
 

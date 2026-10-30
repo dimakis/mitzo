@@ -6,6 +6,22 @@ import { EventStore } from '../event-store.js';
 import { reportRetainedRuntimeFailure } from '../retained-runtime-failure.js';
 import { SessionRuntimeError } from '../session-runtime-error.js';
 import { replayError, recordAcceptedReplaySession } from '../public-replay-error.js';
+it('uses one reference and one durable report for the same unclassified failure', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-fallback-error-'));
+  const store = new EventStore(join(dir, 'events.db'));
+  try {
+    store.upsertSession({ sessionId: 'session', cwd: dir });
+    const error = Error('private upstream contents');
+    reportRetainedRuntimeFailure({ store, sessionId: 'session', error });
+    reportRetainedRuntimeFailure({ store, sessionId: 'session', error });
+    expect(
+      store.getSessionEvents('session').filter((event) => event.type === 'error'),
+    ).toHaveLength(1);
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 it.each(['codex', 'claude-sdk', 'gemini', 'responses'])(
   'retains a sanitized %s failure for current viewers and history without failing saved input',

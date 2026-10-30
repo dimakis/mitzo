@@ -2566,6 +2566,14 @@ export class CodexConversationStore {
       return true;
     }
   }
+  /** Negative readiness observation only; never reconciles effects or releases a queue. */
+  continuationBlocker(id: string, binding: AccountBinding) {
+    this.read(id, binding);
+    const pending = this.unsettledCommandEffects(id);
+    return pending
+      ? { commandId: pending.commandId, kind: pending.phase ? 'completion_phase' : 'tool_effects' }
+      : undefined;
+  }
   completionPhaseRecoveryTarget(
     id: string,
     binding: AccountBinding,

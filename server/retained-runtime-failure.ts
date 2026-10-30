@@ -4,6 +4,7 @@ import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-
 import { createLogger } from './logger.js';
 
 const log = createLogger('retained-runtime-failure');
+const unclassified = new WeakMap<Error, SessionRuntimeError>();
 /** One durable, sanitized report for the original command. Reporting never
  * marks its send failed, retires its receipt, releases a queue, or calls a provider. */
 export function reportRetainedRuntimeFailure(input: {
@@ -16,8 +17,12 @@ export function reportRetainedRuntimeFailure(input: {
   describe?: (error: Error) => string;
 }): void {
   const retained = findSessionRuntimeError(input.error);
-  const failure =
-    retained ?? new SessionRuntimeError('runtime_unavailable', { cause: input.error });
+  let failure =
+    retained ?? (input.error instanceof Error ? unclassified.get(input.error) : undefined);
+  if (!failure) {
+    failure = new SessionRuntimeError('runtime_unavailable', { cause: input.error });
+    if (input.error instanceof Error) unclassified.set(input.error, failure);
+  }
   const message = retained
     ? retained.publicMessage()
     : input.describe && input.error instanceof Error

@@ -43,6 +43,44 @@ const binding = {
   profileRevision: 'chatgpt:test@example.com:test',
 };
 
+it('retains unknown late tool effects independently of its durable error result', async () => {
+  const f = await setup();
+  f.conversationOptions.transportClosure = 'terminal';
+  await f.c.send({ id: 'original', prompt: 'work' });
+  await f.c.send({ id: 'saved', prompt: 'later' });
+  let finish!: () => void;
+  f.execute.mockImplementationOnce(async (_name, _input, _signal, invocation) => {
+    await new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    invocation.assertCurrentSync!();
+    return { content: 'must not grant another effect', isError: false };
+  });
+  const pending = f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'unknown',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  await vi.waitFor(() => expect(finish).toBeDefined());
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  finish();
+  await pending;
+  await vi.waitFor(() => expect(f.onClosed).toHaveBeenCalledOnce());
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+  expect(f.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+  expect(f.store.commandLifecycle('app', f.getBinding(), 'original').effectStatus).toBe('unknown');
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+});
+
 it.each(['terminal', 'exact-turn', 'shared'] as const)(
   'settles the original host callback before completing a %s turn or releasing its FIFO',
   async (route) => {
@@ -82,7 +120,9 @@ it.each(['terminal', 'exact-turn', 'shared'] as const)(
       expect(f.c.queue().map(({ status }) => status)).toEqual(['completed', 'running']),
     );
     expect(f.store.read('app', f.getBinding()).recovery).toBe(0);
-    expect(f.c.queue()[0].ambiguous).not.toBe(true);
+    expect(f.store.commandLifecycle('app', f.getBinding(), 'completed-once').effectStatus).toBe(
+      'completed',
+    );
     expect(f.execute).toHaveBeenCalledOnce();
     expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
     expect(f.onClosed).not.toHaveBeenCalled();
@@ -147,7 +187,8 @@ it.each(['question', 'approval'] as const)(
       ),
     ).rejects.toThrow('already finished');
     finish();
-    await pending;
+    if (kind === 'approval') await expect(pending).rejects.toThrow('approval identity');
+    else await pending;
     await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
     expect(f.execute).not.toHaveBeenCalled();
     expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
@@ -8155,7 +8196,9 @@ it.each(['wrong_turn', 'unknown', 'active'] as const)(
           }
         : request(method, params),
     );
-    await expect(f.c.acknowledgeRecovery()).rejects.toThrow(/native|Provider/);
+    await expect(f.c.acknowledgeRecovery()).rejects.toMatchObject({
+      code: outcome === 'wrong_turn' ? 'provider_identity' : 'provider_active',
+    });
     expect(f.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
     expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
     expect(f.store.read('app', f.getBinding()).recovery).toBeTruthy();

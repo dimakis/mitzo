@@ -69,7 +69,7 @@ export function createCredentialSdkServer(
   session: ManagedSession,
   registry: SessionRegistry,
   boundary?: {
-    profilesOnly: true;
+    profilesOnly?: boolean;
     assertCurrent(signal: AbortSignal): Promise<void>;
     assertCurrentSync(signal: AbortSignal): void;
     runCallback?: TurnCallbackRunner;

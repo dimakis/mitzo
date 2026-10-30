@@ -26,6 +26,80 @@ export class SdkHookLifetime {
     return this.#signals.get(signal)?.retired === true;
   }
 }
+export interface SdkCallbackState {
+  retired: boolean;
+  completing: boolean;
+  callbacks: TurnCallbacks;
+  runCallback: TurnCallbackRunner;
+}
+export function createSdkCallbackState(): SdkCallbackState {
+  const callbacks = new TurnCallbacks();
+  return {
+    retired: false,
+    completing: false,
+    callbacks,
+    runCallback: (work) => callbacks.track(work),
+  };
+}
+/** The same effect/settlement boundary for owned and continuous SDK histories. */
+export function sdkCallbackOptions(
+  options: Options,
+  lifetime: SdkHookLifetime,
+  current: () => SdkCallbackState,
+): Pick<Options, 'hooks' | 'canUseTool'> {
+  const hooks = Object.fromEntries(
+    Object.entries(options.hooks ?? {}).map(([event, matchers]) => [
+      event,
+      matchers?.map((matcher) => ({
+        ...matcher,
+        hooks: matcher.hooks.map(
+          (hook) =>
+            (async (data, id, opts) => {
+              const state = current();
+              const signal = AbortSignal.any([opts.signal]);
+              lifetime.bind(signal, state);
+              const refusal = () => ({
+                continue: false,
+                stopReason: 'This completed SDK query has been retired.',
+              });
+              if (state.retired) return refusal();
+              return state.runCallback(async () => {
+                try {
+                  const result = await hook(data, id, { ...opts, signal });
+                  return state.retired || state.completing ? refusal() : result;
+                } catch (error) {
+                  if (state.retired) return refusal();
+                  throw error;
+                }
+              });
+            }) satisfies HookCallback,
+        ),
+      })),
+    ]),
+  );
+  const canUseTool: NonNullable<Options['canUseTool']> = async (name, data, opts) => {
+    const state = current();
+    const signal = AbortSignal.any([opts.signal]);
+    lifetime.bind(signal, state);
+    const refusal = () => ({
+      behavior: 'deny' as const,
+      message: 'This completed SDK query has been retired.',
+    });
+    if (state.retired) return refusal();
+    if (!options.canUseTool)
+      return { behavior: 'deny', message: 'Original SDK permission owner unavailable' };
+    return state.runCallback(async () => {
+      try {
+        const result = await options.canUseTool(name, data, { ...opts, signal });
+        return state.retired || state.completing ? refusal() : result;
+      } catch (error) {
+        if (state.retired) return refusal();
+        throw error;
+      }
+    });
+  };
+  return { hooks, canUseTool };
+}
 /** Reuses the existing ManagedSession/query-loop by joining native query
  * instances. Every successor resumes the same SDK history after a terminal result. */
 export function createOrdinaryLocalVertexSdkQuery<
@@ -44,14 +118,15 @@ export function createOrdinaryLocalVertexSdkQuery<
     selection: OrdinaryLocalCommandAdmission['selection'],
   ): Pick<Options, 'model' | 'thinking' | 'effort'>;
   inputChanged(queue: AsyncQueue<SDKUserMessage>): void;
-  mcpServers?(state: { retired: boolean; runCallback: TurnCallbackRunner }): Options['mcpServers'];
+  mcpServers?(state: {
+    retired: boolean;
+    completing: boolean;
+    runCallback: TurnCallbackRunner;
+  }): Options['mcpServers'];
 }) {
   let input = owners.input;
   const runs = new AsyncQueue<Query>();
-  type State = {
-    retired: boolean;
-    callbacks: TurnCallbacks;
-    runCallback: TurnCallbackRunner;
+  type State = SdkCallbackState & {
     processClose?: ReturnType<typeof observeOrdinarySdkProcessClose>;
   };
   const states = new WeakMap<Query, State>();
@@ -62,61 +137,8 @@ export function createOrdinaryLocalVertexSdkQuery<
     }
   };
   const create = (selection?: OrdinaryLocalCommandAdmission['selection']) => {
-    const callbacks = new TurnCallbacks();
-    const state: State = {
-      retired: false,
-      callbacks,
-      runCallback: (work) => callbacks.track(work),
-    };
-    const hooks = Object.fromEntries(
-      Object.entries(owners.options.hooks ?? {}).map(([event, matchers]) => [
-        event,
-        matchers?.map((matcher) => ({
-          ...matcher,
-          hooks: matcher.hooks.map(
-            (hook) =>
-              (async (data, id, opts) => {
-                const signal = AbortSignal.any([opts.signal]);
-                owners.lifetime.bind(signal, state);
-                const refusal = () => ({
-                  continue: false,
-                  stopReason: 'This completed SDK query has been retired.',
-                });
-                if (state.retired) return refusal();
-                return state.runCallback(async () => {
-                  try {
-                    const result = await hook(data, id, { ...opts, signal });
-                    return state.retired ? refusal() : result;
-                  } catch (error) {
-                    if (state.retired) return refusal();
-                    throw error;
-                  }
-                });
-              }) satisfies HookCallback,
-          ),
-        })),
-      ]),
-    );
-    const canUseTool: NonNullable<Options['canUseTool']> = async (name, data, opts) => {
-      const signal = AbortSignal.any([opts.signal]);
-      owners.lifetime.bind(signal, state);
-      const refusal = () => ({
-        behavior: 'deny' as const,
-        message: 'This completed SDK query has been retired.',
-      });
-      if (state.retired) return refusal();
-      if (!owners.options.canUseTool)
-        return { behavior: 'deny', message: 'Original SDK permission owner unavailable' };
-      return state.runCallback(async () => {
-        try {
-          const result = await owners.options.canUseTool(name, data, { ...opts, signal });
-          return state.retired ? refusal() : result;
-        } catch (error) {
-          if (state.retired) return refusal();
-          throw error;
-        }
-      });
-    };
+    const state: State = createSdkCallbackState();
+    const { hooks, canUseTool } = sdkCallbackOptions(owners.options, owners.lifetime, () => state);
     const cliGuidance =
       '\nThis is the selected local Mac Claude SDK route. Native Bash, Read, Glob and Grep use the existing session permissions. For service tasks, inspect workspace instructions and available local CLI tools before concluding access is unavailable. For Google Workspace, check command -v gws and gws --help with Bash; a missing Sheets MCP tool does not establish that the local CLI is unavailable. CLI presence does not establish authentication: try only the authorized service read and report its actual result. Do not run gws auth login or search for credentials to repair access.\n';
     const systemPrompt = owners.options.systemPrompt;
@@ -173,9 +195,13 @@ export function createOrdinaryLocalVertexSdkQuery<
             throw Error('Original SDK thread identity changed');
           if (event.type === 'result') {
             const state = states.get(run)!;
+            state.completing = true;
             state.callbacks.seal();
-            if (state.callbacks.size) await state.callbacks.settle(owners.controller.signal);
+            if (state.callbacks.needsSettlement)
+              await state.callbacks.settle(owners.controller.signal);
             await owners.authorize(owners.controller.signal);
+            if (state.retired || owners.controller.signal.aborted)
+              throw new Error('Completed SDK query retired during callback settlement');
             terminal = true;
           }
           yield event;

@@ -35,7 +35,10 @@ it.each(['hook', 'permission', 'tool'] as const)(
       options: {
         sessionId: 'original',
         hooks: { PreToolUse: [{ hooks: [pending] }] },
-        canUseTool: pending as never,
+        canUseTool: (async () => {
+          await pending();
+          return { behavior: 'allow', updatedInput: {} };
+        }) as never,
       },
       input: new AsyncQueue(),
       lifetime: new SdkHookLifetime(),
@@ -74,12 +77,71 @@ it.each(['hook', 'permission', 'tool'] as const)(
     await new Promise((resolve) => setImmediate(resolve));
     expect(delivered).toBe(false);
     finish();
-    await callback;
+    const callbackResult = await callback;
+    if (kind === 'permission') expect(callbackResult).toMatchObject({ behavior: 'deny' });
     expect((await result).value).toMatchObject({ type: 'result' });
     await expect(tool(pending)).rejects.toThrow('already finished');
     controller.abort();
   },
 );
+it.each(['hook', 'tool'] as const)(
+  'does not expose successful SDK completion after an unknown %s outcome',
+  async (kind) => {
+    const events = new AsyncQueue<Record<string, unknown>>();
+    let captured!: Options;
+    vi.mocked(query).mockImplementation((request) => {
+      captured = request.options!;
+      return {
+        close: vi.fn(),
+        [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+      } as never;
+    });
+    let finish!: () => void;
+    const work = async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      if (kind === 'hook') throw Error('private unknown effect');
+      return { isError: true, content: 'unknown effect' };
+    };
+    let tool!: <T>(operation: () => Promise<T>) => Promise<T>;
+    const controller = new AbortController();
+    const owner = createOrdinaryLocalVertexSdkQuery({
+      options: { sessionId: 'original', hooks: { PostToolUse: [{ hooks: [work as never] }] } },
+      input: new AsyncQueue(),
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      controller,
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (q) => q as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+      mcpServers: (state) => {
+        tool = state.runCallback;
+        return {};
+      },
+    });
+    const callback =
+      kind === 'tool'
+        ? tool(work)
+        : captured.hooks!.PostToolUse![0].hooks[0]({} as never, 'tool', {
+            signal: controller.signal,
+          });
+    const observed = Promise.resolve(callback).catch(() => {});
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    events.push({ type: 'result', session_id: 'original' });
+    const result = owner.query[Symbol.asyncIterator]().next();
+    const blocked = expect(result).rejects.toMatchObject({ code: 'callbacks_failed' });
+    await new Promise((resolve) => setImmediate(resolve));
+    finish();
+    await observed;
+    await blocked;
+    controller.abort();
+  },
+);
+
 it('retires old native hooks and permissions without executing or aborting the successor owner', async () => {
   const requests: Array<{ options: Options }> = [];
   vi.mocked(query).mockImplementation((request) => {

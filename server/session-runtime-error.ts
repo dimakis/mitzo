@@ -16,6 +16,9 @@ const messages = {
   provider_identity:
     'The provider outcome does not match the retained command and turn. The original work and saved messages are retained for inspection.',
 } as const;
+export function sessionRuntimeMessage(code: keyof typeof messages): string {
+  return messages[code];
+}
 
 /** Reviewed, account-independent diagnostics. Raw upstream exceptions stay in cause. */
 export class SessionRuntimeError extends Error {
@@ -35,13 +38,14 @@ export class SessionRuntimeError extends Error {
   }
 }
 
-/** Wrappers retain the most specific reviewed cause; upstream lookalikes grant nothing. */
+/** Generic wrappers retain an actionable reviewed cause; upstream lookalikes grant nothing. */
 export function findSessionRuntimeError(error: unknown): SessionRuntimeError | undefined {
   const seen = new Set<Error>();
   let found: SessionRuntimeError | undefined;
   for (let depth = 0; depth < 16 && error instanceof Error && !seen.has(error); depth++) {
     seen.add(error);
-    if (error instanceof SessionRuntimeError) found = error;
+    if (error instanceof SessionRuntimeError && (!found || found.code === 'runtime_unavailable'))
+      found = error;
     error = error.cause;
   }
   return found;
