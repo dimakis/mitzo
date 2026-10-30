@@ -1,20 +1,21 @@
-import type { Express, Request, RequestHandler } from 'express';
+import type { Express, RequestHandler } from 'express';
+import type { RouteParameters } from 'express-serve-static-core';
 import { performance } from 'node:perf_hooks';
 import { context, trace, SpanKind, SpanStatusCode } from '@opentelemetry/api';
 import { contextFromTraceparent } from './trace-context.js';
 import { tracer } from './tracing.js';
 
-const routerMounts = new WeakMap<Request, string>();
+const routerMounts = new WeakMap<object, string>();
 
 /** Supply only the declared mount template, never a request-derived path.
  * Install the original middleware in order, restoring the outer label if the
  * router declines the request. Nested route templates remain separate evidence. */
-export function mountObservedRouter(
+export function mountObservedRouter<Mount extends string>(
   app: Pick<Express, 'use'>,
-  mount: string,
-  ...handlers: RequestHandler[]
+  mount: Mount,
+  ...handlers: RequestHandler<RouteParameters<Mount>>[]
 ): void {
-  const previous = new WeakMap<Request, string | undefined>();
+  const previous = new WeakMap<object, string | undefined>();
   app.use(
     mount,
     (req, _res, next) => {

@@ -1742,7 +1742,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../git-version.ts': '405110af784b38f664fa6165bc83da008aae9de92410395d22a031c6c6b4d220',
   '../logger-transport.ts': '835c336a641ceef7d2a5d368cd435aec33660c4b64f256055bea5dde671153d8',
   '../logger.ts': '7716ffb5d69ddf4307d7c7b45aa4fcde937f1ddb2c5af71f27f9706c54caf6c2',
-  '../request-performance.ts': '7ad3773852b6a11906b107b9312725af0482c818d3bd81b127d904e9e03648f0',
+  '../request-performance.ts': '1471c42f5ced30faf6e7390f07041bffedcfc103262844e0ecb16a3523572e8d',
   '../runtime-performance.ts': '617d0732c9bde4619be7ae36a2513e275c0a897bd354acf9459b8bd3e61c0810',
   '../telos-source-materials.ts':
     'c9ba03795ba968fe4726ce09ccd366bc6f9c7966277986c2a28580780c922111',
