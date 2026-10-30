@@ -75,14 +75,14 @@ export class TelosItemStore {
       .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='telos_item_updates'")
       .get();
   }
-  private snapshot(itemId: string) {
+  private snapshot(itemId: string, updatesExist = this.hasUpdates()) {
     const row = this.db.prepare('SELECT * FROM items WHERE id=?').get(itemId) as
       ItemRow | undefined;
     if (!row) throw new Error('Telos item not found');
     const children = this.db
       .prepare('SELECT * FROM items WHERE parent_id=? ORDER BY id')
       .all(itemId) as ItemRow[];
-    const updates = this.hasUpdates()
+    const updates = updatesExist
       ? (this.db
           .prepare(
             'SELECT session_id,request_id,note,old_status,new_status,created_at FROM telos_item_updates WHERE item_id=? ORDER BY seq DESC LIMIT 20',
@@ -115,6 +115,41 @@ export class TelosItemStore {
         createdAt: entry.created_at,
       })),
     };
+  }
+
+  /** One writer and receipt path for creation, brief edits and progress updates.
+   * Reuse schema observations only within this transaction, never across calls. */
+  private writeWithReceipt<T extends TelosItemUpdateReceipt>(
+    sessionId: string,
+    requestId: string,
+    fingerprint: unknown,
+    assertion: (() => void) | undefined,
+    apply: (inputHash: string, updatesExist: boolean) => T,
+  ): T {
+    return this.db
+      .transaction(() => {
+        assertCurrent(assertion);
+        const inputHash = createHash('sha256').update(JSON.stringify(fingerprint)).digest('hex');
+        const updatesExist = this.hasUpdates();
+        if (updatesExist) {
+          const previous = this.db
+            .prepare(
+              'SELECT input_hash,receipt FROM telos_item_updates WHERE session_id=? AND request_id=?',
+            )
+            .get(sessionId, requestId) as { input_hash: string; receipt: string } | undefined;
+          if (previous) {
+            if (previous.input_hash !== inputHash)
+              throw Error('Update request identity reused with different input');
+            return JSON.parse(previous.receipt) as T;
+          }
+        }
+        const receipt = apply(inputHash, updatesExist);
+        this.db
+          .prepare('UPDATE telos_item_updates SET receipt=? WHERE session_id=? AND request_id=?')
+          .run(JSON.stringify(receipt), sessionId, requestId);
+        return receipt;
+      })
+      .immediate();
   }
 
   /** One consistent read; inspection never creates progress tables or changes items. */
@@ -150,25 +185,13 @@ export class TelosItemStore {
       throw Error('Synchronous Telos child authority and session required');
     if (this.db.inTransaction) throw Error('Original Telos item writer required');
     const input = TelosCreateChildInputSchema.parse(raw);
-    return this.db
-      .transaction(() => {
-        assertCurrent(assertion);
-        const inputHash = createHash('sha256')
-          .update(JSON.stringify({ operation: 'create-child', input }))
-          .digest('hex');
-        if (this.hasUpdates()) {
-          const previous = this.db
-            .prepare(
-              'SELECT input_hash,receipt FROM telos_item_updates WHERE session_id=? AND request_id=?',
-            )
-            .get(sessionId, input.requestId) as { input_hash: string; receipt: string } | undefined;
-          if (previous) {
-            if (previous.input_hash !== inputHash)
-              throw Error('Update request identity reused with different input');
-            return JSON.parse(previous.receipt) as TelosChildCreationReceipt;
-          }
-        }
-        const parent = this.snapshot(input.parentId);
+    return this.writeWithReceipt(
+      sessionId,
+      input.requestId,
+      { operation: 'create-child', input },
+      assertion,
+      (inputHash, updatesExist) => {
+        const parent = this.snapshot(input.parentId, updatesExist);
         if (parent.revision !== input.expectedParentRevision)
           throw Error('Telos item changed; read the parent again before creating a child');
         if (parent.status === 'completed')
@@ -213,18 +236,14 @@ export class TelosItemStore {
           VALUES(?,?,?,?,?,'active','active',?,'{}')`,
           )
           .run(itemId, sessionId, input.requestId, inputHash, input.note, now);
-        const item = this.snapshot(itemId);
-        const receipt = {
+        const item = this.snapshot(itemId, true);
+        return {
           item,
           update: item.updates[0],
-          parentRevision: this.snapshot(input.parentId).revision,
+          parentRevision: this.snapshot(input.parentId, true).revision,
         };
-        this.db
-          .prepare('UPDATE telos_item_updates SET receipt=? WHERE session_id=? AND request_id=?')
-          .run(JSON.stringify(receipt), sessionId, input.requestId);
-        return receipt;
-      })
-      .immediate();
+      },
+    );
   }
 
   private ensureUpdates() {
@@ -268,25 +287,13 @@ export class TelosItemStore {
     edit?: TelosEditItemInput,
   ) {
     if (!sessionId || !input.note.trim()) throw new Error('Session and evidence note required');
-    return this.db
-      .transaction(() => {
-        assertCurrent(assertion);
-        const inputHash = createHash('sha256')
-          .update(JSON.stringify(edit ? { operation: 'edit', input } : input))
-          .digest('hex');
-        if (this.hasUpdates()) {
-          const previous = this.db
-            .prepare(
-              'SELECT input_hash,receipt FROM telos_item_updates WHERE session_id=? AND request_id=?',
-            )
-            .get(sessionId, input.requestId) as { input_hash: string; receipt: string } | undefined;
-          if (previous) {
-            if (previous.input_hash !== inputHash)
-              throw new Error('Update request identity reused with different input');
-            return JSON.parse(previous.receipt) as TelosItemUpdateReceipt;
-          }
-        }
-        const before = this.snapshot(input.itemId);
+    return this.writeWithReceipt(
+      sessionId,
+      input.requestId,
+      edit ? { operation: 'edit', input } : input,
+      assertion,
+      (inputHash, updatesExist) => {
+        const before = this.snapshot(input.itemId, updatesExist);
         if (before.revision !== input.expectedRevision)
           throw new Error('Telos item changed; read it again before updating');
         if (input.status === 'completed') {
@@ -348,14 +355,10 @@ export class TelosItemStore {
             now,
             '{}',
           );
-        const item = this.snapshot(input.itemId);
-        const receipt = { item, update: item.updates[0] };
-        this.db
-          .prepare('UPDATE telos_item_updates SET receipt=? WHERE session_id=? AND request_id=?')
-          .run(JSON.stringify(receipt), sessionId, input.requestId);
-        return receipt;
-      })
-      .immediate();
+        const item = this.snapshot(input.itemId, true);
+        return { item, update: item.updates[0] };
+      },
+    );
   }
 }
 export type TelosItemUpdateReceipt = {

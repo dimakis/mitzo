@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
+import Database from 'better-sqlite3';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 import { TelosItemStore } from '../telos-item-store.js';
 import { executeTelosBacklogOperation } from '../telos-backlog-tools.js';
@@ -122,6 +123,7 @@ it.each(['fresh', 'upgraded'] as const)(
     expect(work.assignments).toEqual([]);
     expect(work.attempts).toEqual([]);
     expect(work.sources).toEqual([]);
+    expect(f.approve).toHaveBeenCalledOnce();
     expect(f.approve).toHaveBeenCalledWith('TelosCreateChild', input, expect.any(AbortSignal));
   },
 );
@@ -141,18 +143,63 @@ it('recovers the immutable creation receipt after restart and later parent edits
   expect(f.items.read('studio').children).toHaveLength(1);
 });
 
-it('requires a fresh parent revision for each new child, including concurrent decomposition', async () => {
+it('chains children using returned parent revisions and rejects stale concurrent decomposition', async () => {
   const f = fixture();
   const input = f.input();
-  expect((await f.run(input)).isError).toBe(false);
+  const first = await f.run(input);
+  expect(first.isError).toBe(false);
   const stale = await f.run({ ...input, requestId: 'next' });
   expect(stale.isError).toBe(true);
   expect(stale.content).toMatch(/changed/);
-  expect((await f.run({ ...f.input(), requestId: 'next', summary: 'Measure room' })).isError).toBe(
-    false,
-  );
+  expect(
+    (
+      await f.run({
+        ...input,
+        requestId: 'next',
+        summary: 'Measure room',
+        expectedParentRevision: JSON.parse(first.content).parentRevision,
+      })
+    ).isError,
+  ).toBe(false);
   expect(f.items.read('studio').children).toHaveLength(2);
 });
+
+it.each(['create', 'edit'] as const)(
+  'checks update-table availability once per %s transaction',
+  (operation) => {
+    const f = fixture();
+    const input = f.input();
+    const prepare = vi.spyOn(Database.prototype, 'prepare');
+    try {
+      if (operation === 'create') {
+        f.items.createChildGuarded(
+          input,
+          'planning',
+          () => {},
+          () => {},
+        );
+      } else {
+        f.items.editGuarded(
+          {
+            itemId: input.parentId,
+            expectedRevision: input.expectedParentRevision,
+            requestId: input.requestId,
+            summary: 'Updated studio',
+            note: input.note,
+          },
+          'planning',
+          () => {},
+        );
+      }
+      const schemaReads = prepare.mock.calls.filter(
+        ([sql]) => sql.includes('sqlite_master') && sql.includes('telos_item_updates'),
+      );
+      expect(schemaReads).toHaveLength(1);
+    } finally {
+      prepare.mockRestore();
+    }
+  },
+);
 
 it.each(['missing', 'completed', 'archived', 'trashed', 'ancestor-archived'])(
   'refuses a new child under a %s parent',

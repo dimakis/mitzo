@@ -37,7 +37,9 @@ export const TelosRecordsResultSchema = z.strictObject({
 });
 export const TelosCreateChildInputSchema = z.strictObject({
   parentId: id.describe('Existing parent inspected with TelosManageItem read'),
-  expectedParentRevision: revision.describe('The parent item.revision from that fresh read'),
+  expectedParentRevision: revision.describe(
+    'Parent item.revision from inspection, or parentRevision from the previous successful child creation',
+  ),
   requestId: id.describe('Unique creation request; retry only with this exact input and ID'),
   summary: z.string().trim().min(1).max(240),
   intent: z.string().trim().min(1).max(8000),

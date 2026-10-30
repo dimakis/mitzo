@@ -31,7 +31,9 @@ the pending mutation rather than transferring its authority.
   The canonical item owner saves the child, initial status history, originating
   session link and immutable receipt in one transaction. The receipt contains
   `item` (including the new ID and parent ID), `update` and `parentRevision`.
-  Reread the parent before creating another child. Retry uncertain delivery with
+  For the next child under the same parent, reuse the returned `parentRevision`
+  instead of rereading unchanged context; reread after a revision conflict.
+  Retry uncertain delivery with
   the **original** input and request ID; changing the revision on a retry changes
   its identity. Existing receipts remain recoverable after later edits or archive.
   New children require an existing, unfinished parent in an active lifecycle

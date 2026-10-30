@@ -31,7 +31,7 @@ tool-exposure checks. The initial native fixture encountered a denied host priva
 directory; selecting a synthetic task-local `MITZO_CODEX_PRIVATE_DIR` fixed the
 fixture environment without accessing host credentials or weakening the sandbox.
 
-The final focused checks used one Vitest worker and a 1 GiB Node heap, with the
+The initial implementation checks used one Vitest worker and a 1 GiB Node heap, with the
 repository's task-local setup (Node 24.22.2, npm 11.18.0):
 
 - **83 passed** across `telos-create-child`, `telos-backlog-tools`, `telos-backlog`,
@@ -51,3 +51,21 @@ and preservation of existing item progress operations.
 
 Broad builds and the full suite remain for CI. No browser UI change, model call,
 staging operation, production deployment or live Telos mutation was performed.
+
+## Efficiency follow-up
+
+After implementation commit `1b95758`, the creation, edit and progress paths share
+one transaction/receipt implementation. Backlog mutations share their exact-input
+approval procedure. Authorization and lifecycle checks retain their existing
+ordering; only the update-table observation is reused within a single transaction.
+
+Two new query-budget regressions failed first: creation checked update-table
+availability four times, and editing checked three times. Both now check once.
+The child-chain test also uses the returned `parentRevision` for the next child,
+without an intervening parent read, while a stale concurrent request still fails.
+Tool guidance documents this use of the receipt and rereading after conflicts.
+
+Follow-up validation: **85 tests passed** across the same six focused suites,
+plus **11 session tests passed** (96 total). Focused TypeScript, lint, formatting
+and diff checks passed. No dependency setup, remote reads or publication attempts
+were repeated; the earlier host publication failure remains unresolved.
