@@ -12,6 +12,7 @@ import {
   type WorkspaceRetirementOwner,
 } from './workspace-preservation.js';
 import type { WorkspaceLifecycleClaim } from './workspace-lifecycle.js';
+import { CodexToolFailure } from './codex-tool-failure.js';
 import type { LocalRepositoryPreparationObjectData } from './local-repository-preparation-object-data.js';
 import { retainPreparationPackedRefs } from './local-repository-preparation-packed-refs.js';
 import { capturePreparedRepositoryTransition } from './prepared-repository-transition-capture.js';
@@ -92,7 +93,7 @@ import {
   createReadStream,
   constants,
 } from 'node:fs';
-import { mkdir, realpath, rm, readdir, lstat, open } from 'node:fs/promises';
+import { mkdir, realpath, rm, readdir, lstat, open, statfs } from 'node:fs/promises';
 import { join, resolve, isAbsolute } from 'node:path';
 import { z } from 'zod';
 import { AccountBindingSchema } from '@mitzo/protocol';
@@ -2309,21 +2310,37 @@ export class RepositoryWorkspaces {
         current();
         return publicRepositoryWorkspace(record);
       }
-      if (facts.layout === 'standalone') {
+      const assertCapacity = () => {
+        if (facts.layout !== 'standalone') return;
         const live = this.db
           .prepare(
             `SELECT COUNT(*) AS count FROM repository_workspaces
           WHERE json_extract(record,'$.qualifiedLocalPreparation.allocationFacts.layout')='standalone'
             AND json_extract(record,'$.binding.accountId')=?
             AND json_extract(record,'$.state')!='discarded'
+            AND NOT (json_extract(record,'$.state')='claimed'
+              AND COALESCE(json_type(record,'$.preparedRepositoryTransitionAdoption'),'')='object')
             AND NOT (COALESCE(json_extract(record,'$.retirement.receipt.state'),'')='retired'
               AND COALESCE(json_extract(record,'$.retirement.disposition'),'')!='restored')`,
           )
           .get(request.binding.accountId) as { count: number };
         if (live.count >= 8)
-          throw Error(
-            'Local repository preparation limit reached; resume or retire an existing task',
-          );
+          throw new CodexToolFailure('resource_exhausted', {
+            stage: 'repository_preparation',
+            reason: 'preparation_capacity',
+            effectStatus: 'not_started',
+          });
+      };
+      assertCapacity();
+      if (facts.layout === 'standalone') {
+        const capacity = await statfs(request.taskRoot);
+        current();
+        if (capacity.bavail * capacity.bsize < 2 * 1024 ** 3 + 256 * 1024 ** 2)
+          throw new CodexToolFailure('resource_exhausted', {
+            stage: 'repository_preparation',
+            reason: 'storage_full',
+            effectStatus: 'not_started',
+          });
       }
       const selection: OrdinaryRepositoryRuntimeSelection = {
         runOn: 'local',
@@ -2361,11 +2378,20 @@ export class RepositoryWorkspaces {
         qualifiedLocalPreparation,
       };
       current();
+      // Retained adopted tasks own their own lifetime. Bound unfinished
+      // preparations, and reserve the slot atomically across service processes.
       this.db
-        .prepare(
-          'INSERT INTO repository_workspaces(id,record,conversation_id) VALUES(?,?,NULL) ON CONFLICT(id) DO NOTHING',
-        )
-        .run(request.id, JSON.stringify(record));
+        .transaction(() => {
+          current();
+          if (!this.db.prepare('SELECT id FROM repository_workspaces WHERE id=?').get(request.id))
+            assertCapacity();
+          this.db
+            .prepare(
+              'INSERT INTO repository_workspaces(id,record,conversation_id) VALUES(?,?,NULL) ON CONFLICT(id) DO NOTHING',
+            )
+            .run(request.id, JSON.stringify(record));
+        })
+        .immediate();
       const actual = this.getHostRecord(request.id);
       if (!isDeepStrictEqual(actual, record))
         throw new PendingHostTaskError('pending_host_task_ownership_changed');
