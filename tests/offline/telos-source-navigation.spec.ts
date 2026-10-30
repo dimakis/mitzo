@@ -100,6 +100,10 @@ for (const { theme, sourceStatus } of sourceCases)
       }
       if (path === '/api/telos/items/studio/artifacts')
         return route.fulfill({ json: { artifacts: data.outputs, limit: 100 } });
+      if (path === '/api/telos/work/collection')
+        return route.fulfill({
+          json: { records: [data.record], profiles: ['personal'], failures: [] },
+        });
       if (path === '/api/todos')
         return route.fulfill({
           json: {

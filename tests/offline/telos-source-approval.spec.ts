@@ -240,6 +240,8 @@ for (const theme of ['dark', 'light'] as const)
               json: host.work.forConversation(request.postDataJSON(), host.actor),
             });
           expect(request.method()).toBe('GET');
+          if (path === '/api/telos/work/collection')
+            return route.fulfill({ json: host.work.readCollection('active', host.actor) });
           if (path === '/api/todos') return route.fulfill({ json: host.todos() });
           const source = path.match(/^\/api\/telos\/work\/items\/([^/]+)\/sources\/([^/]+)$/);
           if (source)

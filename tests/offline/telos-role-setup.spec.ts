@@ -359,6 +359,27 @@ for (const journey of ['lead', 'refine', 'child', 'leaf', 'coordinator'] as cons
           return route.fulfill({ json: { artifacts: [], limit: 100 } });
         if (path === '/api/telos/items/studio/artifacts')
           return route.fulfill({ json: { artifacts: [], limit: 100 } });
+        if (path === '/api/telos/work/collection')
+          return route.fulfill({
+            json: {
+              records: [
+                record,
+                ...(savedWork && journey === 'child'
+                  ? [
+                      {
+                        ...record,
+                        itemId: 'advisor-child',
+                        parentId: 'studio',
+                        kind: 'work_item',
+                        summary: 'Reviewed studio slice',
+                      },
+                    ]
+                  : []),
+              ],
+              profiles: ['personal'],
+              failures: [],
+            },
+          });
         if (path === '/api/todos')
           return route.fulfill({
             json: {

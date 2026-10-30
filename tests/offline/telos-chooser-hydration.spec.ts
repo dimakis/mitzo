@@ -57,25 +57,12 @@ for (const theme of ['dark', 'light'])
         attemptId: null,
       })),
     };
-    const legacy = {
-      ...root,
-      id: 'studio',
-      urgency: 0.5,
-      ageDays: 0,
-      children: [],
-      childCount: 0,
-      completedChildCount: 0,
-      goalId: null,
-    };
     let releaseCollection!: () => void,
-      releaseParent!: () => void,
       primaryReads = 0,
-      parentReads = 0;
+      parentReads = 0,
+      collectionReads = 0;
     const collectionGate = new Promise<void>((resolve) => {
       releaseCollection = resolve;
-    });
-    const parentGate = new Promise<void>((resolve) => {
-      releaseParent = resolve;
     });
     const errors: string[] = [],
       writes: string[] = [];
@@ -101,9 +88,12 @@ for (const theme of ['dark', 'light'])
         writes.push(path);
         return route.fulfill({ status: 405, json: { error: 'No writes' } });
       }
-      if (path === '/api/todos') {
+      if (path === '/api/telos/work/collection') {
+        collectionReads++;
         await collectionGate;
-        return route.fulfill({ json: { profiles: ['manual'], items: [legacy] } });
+        return route.fulfill({
+          json: { profiles: ['manual'], records: [root, parent], failures: [] },
+        });
       }
       if (path === '/api/telos/work/items/studio/record') {
         primaryReads++;
@@ -111,7 +101,6 @@ for (const theme of ['dark', 'light'])
       }
       if (path === '/api/telos/work/items/parent/record') {
         parentReads++;
-        await parentGate;
         return route.fulfill({ json: parent });
       }
       if (path === '/api/telos/work/items/studio') return route.fulfill({ json: work });
@@ -169,14 +158,13 @@ for (const theme of ['dark', 'light'])
       }));
     expect(await identity()).toEqual({ connected: true, focused: true, open: true, current: true });
     releaseCollection();
-    await expect.poll(() => parentReads).toBeGreaterThan(0);
-    expect(await identity()).toEqual({ connected: true, focused: true, open: true, current: true });
-    releaseParent();
     await expect(
       page.getByRole('button', { name: 'Recording programme', exact: true }),
     ).toBeVisible();
     expect(await identity()).toEqual({ connected: true, focused: true, open: true, current: true });
     expect(primaryReads).toBe(1);
+    expect(collectionReads).toBe(1);
+    expect(parentReads).toBe(0);
     await page.keyboard.press('Enter');
     await expect(summary.locator('..')).not.toHaveAttribute('open', '');
     await expect(summary).toBeFocused();

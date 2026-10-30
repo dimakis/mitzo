@@ -275,6 +275,22 @@ for (const { software, regression } of [
           writes.push(path);
           return route.fulfill({ status: 405, json: { error: 'No implicit writes allowed' } });
         }
+        if (path === '/api/telos/work/collection') {
+          readCounts.todos++;
+          const selectedIds = collectionChildren.map((item) => item.id);
+          return route.fulfill({
+            json: {
+              records: [
+                record,
+                ...[child, reconnectChild, resumeChild].filter((item) =>
+                  selectedIds.includes(item.itemId),
+                ),
+              ],
+              profiles: ['manual'],
+              failures: [],
+            },
+          });
+        }
         if (path === '/api/todos') {
           readCounts.todos++;
           return route.fulfill({
@@ -665,12 +681,13 @@ for (const { software, regression } of [
       await expect(settingRow(reviewerSettings, 'Model')).toContainText('Luna review fixture');
       await page.getByRole('button', { name: /^Workspace controls/ }).click();
       await page.getByRole('button', { name: 'Chats for this item: 2' }).click();
-      const restoredWorkerReads = ['/api/telos/work/controls', '/api/todos'].map((path) =>
-        page.waitForResponse(
-          (response) =>
-            new URL(response.url()).pathname === path &&
-            response.request().headers()['referer']?.includes('/chat/worker') === true,
-        ),
+      const restoredWorkerReads = ['/api/telos/work/controls', '/api/telos/work/collection'].map(
+        (path) =>
+          page.waitForResponse(
+            (response) =>
+              new URL(response.url()).pathname === path &&
+              response.request().headers()['referer']?.includes('/chat/worker') === true,
+          ),
       );
       await page.getByRole('button', { name: /^Open Assigned worker(?:\b|:)/ }).click();
       await expect(input).toHaveValue('Worker independent draft');
