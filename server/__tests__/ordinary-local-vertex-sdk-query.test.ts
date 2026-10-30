@@ -31,7 +31,7 @@ it.each(['hook', 'permission', 'tool'] as const)(
     };
     let tool!: <T>(operation: () => Promise<T>) => Promise<T>;
     const controller = new AbortController();
-    const owner = createOrdinaryLocalVertexSdkQuery({
+    const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
       options: {
         sessionId: 'original',
         hooks: { PreToolUse: [{ hooks: [pending] }] },
@@ -106,7 +106,7 @@ it.each(['hook', 'tool'] as const)(
     };
     let tool!: <T>(operation: () => Promise<T>) => Promise<T>;
     const controller = new AbortController();
-    const owner = createOrdinaryLocalVertexSdkQuery({
+    const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
       options: { sessionId: 'original', hooks: { PostToolUse: [{ hooks: [work as never] }] } },
       input: new AsyncQueue(),
       lifetime: new SdkHookLifetime(),
@@ -152,7 +152,7 @@ it('retires old native hooks and permissions without executing or aborting the s
     lifetime = new SdkHookLifetime();
   const effect = vi.fn(async () => ({ continue: true })),
     permission = vi.fn(async () => ({ behavior: 'allow', updatedInput: {} }));
-  const owner = createOrdinaryLocalVertexSdkQuery({
+  const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
     options: {
       sessionId: 'original',
       extraArgs: { 'offline-existing-flag': null },
@@ -233,7 +233,7 @@ it('refuses old native approval completions after retirement even when the SDK r
     await approved;
     return { behavior: 'allow', updatedInput: {} };
   });
-  const owner = createOrdinaryLocalVertexSdkQuery({
+  const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
     options: {
       sessionId: 'original',
       hooks: { PreToolUse: [{ hooks: [hook] }] },
@@ -286,7 +286,7 @@ it('does not replace a native query until its exact spawned process closes and f
     processes.push(process);
     return process as never;
   });
-  const owner = createOrdinaryLocalVertexSdkQuery({
+  const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
     options: { sessionId: 'original', spawnClaudeCodeProcess: spawn },
     input: new AsyncQueue(),
     lifetime: new SdkHookLifetime(),
@@ -324,7 +324,7 @@ it('preserves segmented SDK system prompts when appending local CLI guidance', (
     return { close: vi.fn(), async *[Symbol.asyncIterator]() {} } as never;
   });
   const controller = new AbortController();
-  createOrdinaryLocalVertexSdkQuery({
+  createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
     options: {
       sessionId: 'original',
       systemPrompt: ['Original profile.', 'Original instructions.'],

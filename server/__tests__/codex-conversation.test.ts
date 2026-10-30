@@ -45,7 +45,7 @@ const binding = {
 
 it('retains unknown late tool effects independently of its durable error result', async () => {
   const f = await setup();
-  f.conversationOptions.transportClosure = 'terminal';
+  Object.assign(f.conversationOptions, { transportClosure: 'terminal' });
   await f.c.send({ id: 'original', prompt: 'work' });
   await f.c.send({ id: 'saved', prompt: 'later' });
   let finish!: () => void;
@@ -85,8 +85,10 @@ it.each(['terminal', 'exact-turn', 'shared'] as const)(
   'settles the original host callback before completing a %s turn or releasing its FIFO',
   async (route) => {
     const f = await setup();
-    if (route === 'terminal') f.conversationOptions.transportClosure = 'terminal';
-    if (route === 'exact-turn') f.conversationOptions.recoveryReconciliation = 'exact-turn';
+    if (route === 'terminal')
+      Object.assign(f.conversationOptions, { transportClosure: 'terminal' });
+    if (route === 'exact-turn')
+      Object.assign(f.conversationOptions, { recoveryReconciliation: 'exact-turn' });
     await f.c.send({ id: 'completed-once', prompt: 'Original work' });
     await f.c.send({ id: 'queued-once', prompt: 'Next work' });
     let finish!: () => void;
@@ -199,7 +201,7 @@ it.each(['timeout', 'stop', 'close', 'conflict'] as const)(
   'retains original pending effects on callback settlement %s without replay',
   async (reason) => {
     const f = await setup();
-    f.conversationOptions.transportClosure = 'terminal';
+    Object.assign(f.conversationOptions, { transportClosure: 'terminal' });
     f.conversationOptions.callbackSettlementTimeoutMs = 5;
     await f.c.send({ id: 'original', prompt: 'work' });
     await f.c.send({ id: 'saved', prompt: 'later' });
@@ -1192,7 +1194,7 @@ async function setup(
       answers: { q1: { answers: ['Work'] } },
     }),
   );
-  const execute = vi.fn(
+  const execute = vi.fn<CodexConversationOptions['executeTool']>(
     async (_name: string, _input: Record<string, unknown>, _signal: AbortSignal) => ({
       content: 'ok',
       isError: false,

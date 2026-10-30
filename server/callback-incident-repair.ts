@@ -93,6 +93,7 @@ export function createCallbackIncidentRepairRouter(deps: {
             deps.events.hasUncertainOrdinaryCommand(incident.sessionId) ||
             meta.repositoryWorkspaceId !== incident.workspaceId ||
             meta.ordinaryWorkspaceId ||
+            runtime?.version !== 2 ||
             runtime?.harness.implementation !== 'codex' ||
             runtime.execution.location !== 'local' ||
             runtime.execution.targetId !== 'host-mac-codex' ||

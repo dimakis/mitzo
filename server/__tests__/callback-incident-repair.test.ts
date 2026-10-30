@@ -1,4 +1,5 @@
 import express from 'express';
+import type { SessionRegistry } from '@mitzo/harness';
 import request from 'supertest';
 import { expect, it, vi } from 'vitest';
 import { reserveRepositoryStartup } from '../ordinary-repository-startup.js';
@@ -36,6 +37,7 @@ function fixture() {
     cwd: '/offline',
   };
   const runtime = {
+    version: 2,
     harness: { implementation: 'codex' },
     execution: {
       location: 'local',
@@ -60,7 +62,7 @@ function fixture() {
     callbackIncidentToolReceipts: vi.fn(() => mock.receipts),
     applyCallbackIncident: vi.fn(() => ({ status: 'reconciled' })),
   };
-  const registry = { findBySessionId: vi.fn(() => undefined) };
+  const registry = { findBySessionId: vi.fn<SessionRegistry['findBySessionId']>(() => null) };
   const authorize = vi.fn((_id, auth) => {
     if (!auth) throw Error('login required');
   });
@@ -82,7 +84,12 @@ function fixture() {
       authorize,
     }),
   );
-  const post = (action: string, body: object = {}, auth = true, id = incident.sessionId) => {
+  const post = (
+    action: string,
+    body: object = {},
+    auth = true,
+    id: string = incident.sessionId,
+  ) => {
     const call = request(app)
       .post(`/api/sessions/${id}/codex-callback-repair/${action}`)
       .send(body);
@@ -141,6 +148,7 @@ it.each(['native', 'source', 'live owner', 'worker', 'route', 'new startup'])(
     if (change === 'worker') f.events.getLatestEvent.mockReturnValue({} as never);
     if (change === 'route')
       f.events.getSessionRuntimeBinding.mockReturnValue({
+        version: 2,
         harness: { implementation: 'codex' },
         execution: { location: 'local', targetId: 'other', targetRevision: 'other' },
       });

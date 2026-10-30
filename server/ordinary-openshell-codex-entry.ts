@@ -345,7 +345,7 @@ export async function startOwnedOpenShellCodexCommand(
       reportRetainedRuntimeFailure({
         store: eventStore,
         sessionId,
-        commandId: command.clientMsgId,
+        commandId: initial.command.clientMsgId,
         session,
         transport,
         error,

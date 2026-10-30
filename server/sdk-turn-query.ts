@@ -205,7 +205,10 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
           const apply = async () => {
             if (!idle) {
               const adapted = owners.adapt(current.native);
-              await Reflect.get(adapted, property).call(adapted, value);
+              const control: unknown = Reflect.get(adapted, property, adapted);
+              if (typeof control !== 'function')
+                throw new SessionRuntimeError('runtime_unavailable');
+              await control.call(adapted, value);
             }
             if (property === 'setModel') settings.model = value as string | undefined;
             else if (property === 'setPermissionMode')

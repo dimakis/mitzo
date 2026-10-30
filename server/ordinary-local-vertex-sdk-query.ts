@@ -86,11 +86,11 @@ export function sdkCallbackOptions(
       message: 'This completed SDK query has been retired.',
     });
     if (state.retired) return refusal();
-    if (!options.canUseTool)
-      return { behavior: 'deny', message: 'Original SDK permission owner unavailable' };
+    const decide = options.canUseTool;
+    if (!decide) return { behavior: 'deny', message: 'Original SDK permission owner unavailable' };
     return state.runCallback(async () => {
       try {
-        const result = await options.canUseTool(name, data, { ...opts, signal });
+        const result = await decide(name, data, { ...opts, signal });
         return state.retired || state.completing ? refusal() : result;
       } catch (error) {
         if (state.retired) return refusal();

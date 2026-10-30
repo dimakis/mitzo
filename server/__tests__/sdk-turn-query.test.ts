@@ -44,7 +44,7 @@ function fixture() {
       .catch(() => {});
     return { close, interrupt, [Symbol.asyncIterator]: () => events[Symbol.asyncIterator]() };
   });
-  const q = createSdkTurnQuery({
+  const q = createSdkTurnQuery<AsyncIterable<Record<string, unknown>>>({
     input: inputs,
     controller,
     lifetime: new SdkHookLifetime(),
