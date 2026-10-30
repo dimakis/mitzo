@@ -3610,7 +3610,7 @@ export class CodexConversation {
     const callbackBinding = this.binding!;
     // Keep existing label-only JSON/strict store contracts unchanged. Spreading
     // or cloning labels deliberately cannot carry this private callback fence.
-    const assertOriginalCallCurrent = () => {
+    const observeOriginalCallCurrent = () => {
       toolSignal.throwIfAborted();
       if (
         !callbackOpen ||
@@ -3639,6 +3639,11 @@ export class CodexConversation {
         pending.threadId !== call.threadId
       )
         throw new Error('Original native tool claim is no longer current');
+      return pending;
+    };
+    // Observations stay private to this synchronous fence; exposed assertions return void.
+    const assertOriginalCallCurrent = () => {
+      observeOriginalCallCurrent();
     };
     const invocation: Parameters<CodexConversationOptions['executeTool']>[3] = {
       turnId: call.turnId,
@@ -3668,14 +3673,7 @@ export class CodexConversation {
     });
     const nativePolicy = active.nativeExecution;
     if (nativePolicy) {
-      assertOriginalCallCurrent();
-      const pending = this.opts.store.pendingNativeHostTool(
-        this.opts.conversationId,
-        callbackBinding,
-        call.callId,
-        toolIdentity,
-      );
-      if (!pending) throw Error('Original native base read claim unavailable');
+      const pending = observeOriginalCallCurrent();
       const originalPending = Object.freeze({ ...pending });
       const assertNativePolicyCurrent = this.opts.assertNativeExecutionCurrent;
       const nativeTarget = Object.freeze({
@@ -3686,7 +3684,7 @@ export class CodexConversation {
         generation: pending.generation,
       });
       const assertBaseReadCurrent = Object.freeze(() => {
-        assertOriginalCallCurrent();
+        const current = observeOriginalCallCurrent();
         if (active.nativeExecution !== nativePolicy)
           throw Error('Original native base read policy changed');
         if (
@@ -3698,12 +3696,6 @@ export class CodexConversation {
           ].every(Object.isFrozen)
         )
           throw Error('Native base read policy must be frozen');
-        const current = this.opts.store.pendingNativeHostTool(
-          this.opts.conversationId,
-          callbackBinding,
-          call.callId,
-          toolIdentity,
-        );
         if (!isDeepStrictEqual(current, originalPending))
           throw Error('Original native base read claim changed');
         if (

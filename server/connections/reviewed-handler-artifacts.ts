@@ -548,7 +548,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     '541e427b36a2f179d07c3c70d0586ad791f6fda6fb49cc643f21f9ce9e14e840',
   '../__tests__/codex-conversation.test.ts':
-    '645bbb4243be35dcdeae1ca82cfcda7a7987bfec27baadde324020e314579f3f',
+    'fa486defd7ad9cb0c5ac88ae7f812330b3912960c76dfacc685e59517eafee26',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -1346,7 +1346,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '2ecd325ce5aaba32a01b783bfce0508cff07a7579b988b650dfef8177bca06da',
+  '../codex-conversation.ts': 'd8925f2820cd540f26eb60ca97efcbeea51786429e8683c33ff3c03c46b6a87b',
   '../codex-conversation-store.ts':
     'c0fb56bd139cc608c3c90aa6c1f6f66b69cb2578c4f48aa11787c74fb929141e',
   '../symposium-custodian-ipc.ts':

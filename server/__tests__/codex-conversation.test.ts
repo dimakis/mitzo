@@ -8807,3 +8807,56 @@ it.each([undefined, 'terminal'] as const)(
     expect(hook).toHaveBeenCalledOnce();
   },
 );
+
+it('observes each native base-read claim once per fence and refreshes after the policy callback', async () => {
+  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+  const policy = codexNativeExecutionPolicy({
+    bindingRevision: 'selected-owner',
+    mode: 'agent',
+    cwd: '/workspace',
+    readableRoots: ['/workspace'],
+    writableRoots: ['/workspace'],
+    deniedRoots: ['/private/auth'],
+  });
+  f.conversationOptions.nativeExecution = policy;
+  let revoke: (() => void) | undefined;
+  f.conversationOptions.assertNativeExecutionCurrent = () => {
+    revoke?.();
+  };
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+  await f.c.send({ id: 'read-command', prompt: 'Read' });
+  const call = {
+    threadId: f.getProviderThread(),
+    turnId: 'turn-1',
+    callId: 'base-read',
+    tool: 'Read',
+    arguments: { file_path: '/workspace/note' },
+  };
+  const pending = vi.spyOn(f.store, 'pendingNativeHostTool');
+  f.conversationOptions.executeTool = async (_name, _args, _signal, invocation) => {
+    // Setup captures one freshly validated claim, without another transaction.
+    expect.soft(pending).toHaveBeenCalledTimes(1);
+    pending.mockClear();
+    const scope = invocation.captureNativeBaseReadScope!();
+    expect.soft(pending).toHaveBeenCalledTimes(1);
+    expect(invocation.assertCurrentSync!()).toBeUndefined();
+    pending.mockClear();
+    scope.assertCurrentSync();
+    expect.soft(pending).toHaveBeenCalledTimes(1);
+    const observed = pending.mock.results.at(-1)!.value;
+    // A mutable policy callback can revoke the claim. The next fence must read again.
+    let revoked = false;
+    pending.mockImplementation(() => (revoked ? undefined : observed));
+    revoke = () => {
+      revoked = true;
+    };
+    scope.assertCurrentSync();
+    expect(() => scope.assertCurrentSync()).toThrow('claim is no longer current');
+    revoked = false;
+    revoke = undefined;
+    return { content: 'read', isError: false };
+  };
+  await expect(
+    f.callbacks.onRequest('item/tool/call', call, new AbortController().signal),
+  ).resolves.toMatchObject({ success: true });
+});
