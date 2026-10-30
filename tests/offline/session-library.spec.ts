@@ -1,9 +1,20 @@
+import { createTelosWorkFixtures } from '../../frontend/src/test-utils/telos-work-fixtures';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { waitForNewFixtureReads } from '../support/fixture-reads';
-const sessionListReads = ['/api/todos', '/api/sessions', '/api/config', '/api/version'];
+const linkedWork = {
+  ...createTelosWorkFixtures().homeStudio.items[0],
+  itemId: 'work-one',
+  summary: 'Linked quarterly review',
+};
+const sessionListReads = [
+  '/api/telos/work/collection',
+  '/api/sessions',
+  '/api/config',
+  '/api/version',
+];
 const sessions = Array.from({ length: 12 }, (_, index) => ({
   id: `session-${index}`,
   summary:
@@ -148,10 +159,7 @@ for (const theme of ['dark', 'light'])
             { kind: 'session', id: 'older-pin', title: 'Older pinned conversation' },
           ],
         },
-        '/api/todos': {
-          profiles: [],
-          items: [{ id: 'work-one', summary: 'Linked quarterly review', children: [] }],
-        },
+        '/api/telos/work/collection': { profiles: [], records: [linkedWork], failures: [] },
         '/api/service-health': { services: [] },
         '/api/home/quote': null,
       };
@@ -421,10 +429,7 @@ test('session library: returning waits for newly started reads before a hard rel
       '/api/sessions': { sessions, hasMore: false },
       '/api/config': { quickActions: [] },
       '/api/version': { updateAvailable: false },
-      '/api/todos': {
-        profiles: [],
-        items: [{ id: 'work-one', summary: 'Linked quarterly review', children: [] }],
-      },
+      '/api/telos/work/collection': { profiles: [], records: [linkedWork], failures: [] },
       '/api/briefings/latest': null,
       '/api/home/quote': null,
       '/api/service-health': { services: [] },

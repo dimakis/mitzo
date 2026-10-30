@@ -16,7 +16,7 @@ they existed beneath the intended parent. No database migration is needed.
   ancestry query, and groups sources, links and kinds once for selected identities.
   Completed children remain beneath active parents; completed roots stay out of
   the active view. Invalid records produce explicit per-item failures.
-- The client shares one collection owner across the workspace, home pins and chat
+- The client shares one collection owner across the workspace, Today, home pins and chat
   links. Accepted collection records seed tree presentation; they do not trigger
   an additional per-row record-hydration pass. Focused exact-record reads retain
   their own refresh/error handling.

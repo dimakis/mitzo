@@ -122,7 +122,7 @@ export function TodoDetailView() {
   };
   const record =
     primary.records.find((value) => value.itemId === id) ??
-    (primary.loading ? collectionRecords?.find((value) => value.itemId === id) : undefined);
+    (primary.initializing ? collectionRecords?.find((value) => value.itemId === id) : undefined);
   const recoveryPending = !!id && !record && !item && hasTelosLifecycleRecovery(id);
 
   useEffect(() => {
@@ -203,7 +203,9 @@ export function TodoDetailView() {
       </div>
     );
 
-  if (primary.loading)
+  // A failed primary read already established the fallback. Keep that accepted
+  // view mounted during retries rather than replacing its controls and drafts.
+  if (primary.initializing)
     return (
       <div className="todo-detail-page telos-canonical-page">
         <div className="todo-detail-scroll">
@@ -428,7 +430,7 @@ export function TodoDetailView() {
 
       <div className="todo-detail-scroll">
         <TelosItemLifecycle
-          key={item.id}
+          key={'lifecycle:' + item.id}
           itemId={item.id}
           title={item.summary}
           kind={null}
@@ -470,7 +472,11 @@ export function TodoDetailView() {
           )}
         </div>
 
-        <TelosItemRoleEntries key={item.id} itemId={item.id} onOrdinaryRoles={onOrdinaryRoles} />
+        <TelosItemRoleEntries
+          key={'roles:' + item.id}
+          itemId={item.id}
+          onOrdinaryRoles={onOrdinaryRoles}
+        />
 
         {item.intent && (
           <section className="todo-detail-contract todo-detail-outcome">

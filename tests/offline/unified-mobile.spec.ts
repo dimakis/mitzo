@@ -1,3 +1,4 @@
+import { createTelosWorkFixtures } from '../../frontend/src/test-utils/telos-work-fixtures';
 import { readChatStorage } from '../support/persisted-chat-storage';
 import {
   enableBriefingRuntime,
@@ -21,6 +22,7 @@ import {
   symposiumStatus,
 } from '../../frontend/src/preview/symposium-fixtures';
 
+const canonicalOutcomeTemplate = createTelosWorkFixtures().homeStudio.items[0];
 const outcomes = Array.from({ length: 12 }, (_, index) => ({
   id: `outcome-${index}`,
   summary:
@@ -108,6 +110,25 @@ const fixtures: Record<string, unknown> = {
   '/api/skills': [],
   '/api/version': { updateAvailable: false },
   '/api/todos': { profiles: ['manual', 'personal', 'work'], items: outcomes },
+  '/api/telos/work/collection': {
+    profiles: ['manual', 'personal', 'work'],
+    failures: [],
+    records: outcomes.map((item) => ({
+      ...canonicalOutcomeTemplate,
+      itemId: item.id,
+      summary: item.summary,
+      intent: item.intent,
+      profile: item.profile,
+      starred: item.starred,
+      parentId: null,
+      legacyFields: {
+        item: {
+          urgency: item.urgency,
+          first_seen: new Date(Date.now() - item.ageDays * 86400000).toISOString(),
+        },
+      },
+    })),
+  },
   '/api/tasks': [],
   '/api/inbox': proposals,
   '/api/briefings/latest': {
@@ -807,6 +828,15 @@ test.beforeEach(async ({ page }) => {
             content: '<h1>HTML artifact</h1>',
           },
         });
+      // This fixture's Work layout cases exercise the retained legacy fallback;
+      // native Work discovery/PDF/identity coverage lives in telos-first-use.
+      if (
+        url.pathname === '/api/telos/work/collection' &&
+        new URL(route.request().headers().referer ?? 'https://fixture.invalid').pathname.startsWith(
+          '/todos',
+        )
+      )
+        return route.fulfill({ status: 503, json: { error: 'Legacy Work fixture' } });
       return route.fulfill({ json: url.pathname in fixtures ? fixtures[url.pathname] : {} });
     }
     const file =
@@ -1393,8 +1423,8 @@ test('desktop Work starts an unsent planning draft from the canonical collection
   isMobile,
 }, testInfo) => {
   test.skip(isMobile, 'Desktop Work collection');
-  await page.route('**/api/todos', (route) =>
-    route.fulfill({ json: { profiles: ['telos'], items: [] } }),
+  await page.route('**/api/telos/work/collection', (route) =>
+    route.fulfill({ json: { profiles: ['telos'], records: [], failures: [] } }),
   );
   const sends: string[] = [];
   page.on('request', (request) => {
@@ -1551,10 +1581,10 @@ for (const appearance of [
   }, testInfo) => {
     await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
     let available = false;
-    await page.route('**/api/todos*', (route) =>
+    await page.route('**/api/telos/work/collection*', (route) =>
       route.fulfill({
         status: available ? 200 : 503,
-        json: available ? fixtures['/api/todos'] : { error: 'Unavailable' },
+        json: available ? fixtures['/api/telos/work/collection'] : { error: 'Unavailable' },
       }),
     );
     await page.goto('/focus');

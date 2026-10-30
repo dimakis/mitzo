@@ -1,3 +1,4 @@
+import { useState } from 'react';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -43,6 +44,7 @@ function mount(items: TodoItem[] = [legacy(0), legacy(1)], discoveryError?: stri
     items,
     loading: false,
     refreshing: false,
+    refreshKey: 0,
     error: null,
     ack: vi.fn(async () => {}),
     snooze: vi.fn(async () => {}),
@@ -54,9 +56,16 @@ function mount(items: TodoItem[] = [legacy(0), legacy(1)], discoveryError?: stri
     profiles: ['work'],
     refresh: vi.fn(),
   };
-  vi.mocked(useTodoData).mockImplementation((profile) =>
-    discoveryError && profile === undefined ? { ...base, items: [], error: discoveryError } : base,
-  );
+  vi.mocked(useTodoData).mockImplementation(function useFixtureData(profile) {
+    const [refreshKey, setRefreshKey] = useState(0);
+    return {
+      ...(discoveryError && profile === undefined
+        ? { ...base, items: [], error: discoveryError }
+        : base),
+      refreshKey,
+      refresh: () => setRefreshKey((key) => key + 1),
+    };
+  });
   return render(
     <MemoryRouter
       initialEntries={

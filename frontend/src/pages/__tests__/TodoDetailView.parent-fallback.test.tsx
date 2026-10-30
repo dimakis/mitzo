@@ -166,7 +166,7 @@ for (const childCanonical of [false, true])
     expect((screen.getByRole('combobox', { name: 'Priority' }) as HTMLSelectElement).value).toBe(
       '8',
     );
-    expect(apiFetch).toHaveBeenCalledWith('/api/todos');
+    expect(apiFetch).toHaveBeenCalledWith('/api/telos/work/collection');
     expect(apiFetch).toHaveBeenCalledWith(
       `/api/telos/work/items/${parent.id}/record`,
       expect.anything(),

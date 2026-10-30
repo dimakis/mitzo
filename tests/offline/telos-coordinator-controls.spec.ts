@@ -207,6 +207,8 @@ for (const scope of ['new_worker_dispatch', 'publication', 'safe_point'] as cons
         unexpected.push(path);
         return route.fulfill({ status: 405, json: { error: 'No implicit write' } });
       }
+      if (path === '/api/telos/work/collection')
+        return route.fulfill({ json: { records, profiles: ['manual'], failures: [] } });
       if (path === '/api/todos')
         return route.fulfill({
           json: { profiles: ['manual'], items: [legacy('coordinator'), legacy('job')] },

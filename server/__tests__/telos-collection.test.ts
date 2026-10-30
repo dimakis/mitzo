@@ -39,7 +39,7 @@ it('lists all ten newly created children by their persisted identity, across pro
     }
     f.db.prepare('UPDATE items SET summary=? WHERE id=?').run('Renamed associate', ids[0]);
     const before = f.db.prepare('SELECT * FROM items ORDER BY id').all();
-    const read = TelosWorkStore.openForRecordRead(f.dbPath, {});
+    const read = TelosWorkStore.openForRecordRead(f.dbPath, { ordinaryConversation: () => false });
     try {
       const collection = read.readCollection('active', f.actor);
       expect(collection.failures).toEqual([]);

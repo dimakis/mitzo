@@ -4,8 +4,12 @@ import { renderHook, waitFor } from '@testing-library/react';
 
 // ─── Mocks ─────────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockEventBusOn: any = vi.fn(() => vi.fn());
+const mockEventBusOn = vi.hoisted(() =>
+  vi.fn((...args: unknown[]) => {
+    void args;
+    return vi.fn();
+  }),
+);
 
 vi.mock('../../lib/event-bus-singleton', () => ({
   eventBus: {
@@ -13,9 +17,16 @@ vi.mock('../../lib/event-bus-singleton', () => ({
   },
 }));
 
-vi.mock('../../lib/api-fetch', () => ({
+vi.mock('../../lib/api-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/api-fetch')>()),
   apiFetch: vi.fn(),
 }));
+// Classification cases retain their legacy DTO fixtures while exercising the
+// shared owner; the canonical integration/call budget has a separate regression.
+vi.mock('../useTodoData', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../useTodoData')>();
+  return { ...actual, useTodoData: () => actual.useTodoData() };
+});
 
 const mockTasks = { tree: [], loopStatus: { state: 'idle' } };
 const mockLoadTasks = vi.fn();
@@ -61,6 +72,7 @@ function makeTodo(overrides: Partial<TodoItem> = {}): TodoItem {
 }
 
 beforeEach(() => {
+  window.dispatchEvent(new Event('mitzo:auth-lost'));
   mockEventBusOn.mockClear();
   mockLoadTasks.mockClear();
   mockApiFetch.mockReset();

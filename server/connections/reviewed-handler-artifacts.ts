@@ -62,11 +62,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/telos-descendants.ts':
     'bc5f76c66fb620520ac67b5b2eb3cbe70e34b352f9f00b95d7127af1aa3549d9',
   '../../frontend/src/pages/__tests__/TelosWorkspace.canonical-collection.test.tsx':
-    'c1081b0061718991bd796dd06faf21949628583f07c27afcec5f7f6e4559304e',
+    'b6af18da9f84f7e0ee946a2e6884d20e1d2352fabe244552bdbe3dfc5e93d96c',
   '../../frontend/src/pages/__tests__/TodoView.test.tsx':
     '5200a57b447b294573b965aad4a972e042d353cbc15b62dfa6fb4ee53e528ace',
   '../__tests__/telos-collection.test.ts':
-    '59bd31a037881ea1153b40e25babab9957b3bae7b9e2838f8d2d1bc5dc758d92',
+    '515b4f5e1708b321d9198f0034c6f43b8f9a1f1685945a156d8741ff65e1e230',
   '../telos-collection.ts': '27f60ef7ad156623b9357bc2ac74c11df79030e1dab1703829de8f51576d4748',
   '../../tests/fixtures/telos-priority.tsx':
     '43bbbf84aeac8206f7fb7331e79bc7f29809f59e3eccfc62956d08ad0c7892e7',
@@ -176,7 +176,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/telos-ordinary-chat.spec.ts':
     '25240cff6fc36927eb7d145fd7b7457ef63109faae1cd8dbd5c303640898ffca',
   '../../tests/offline/telos-coordinator-controls.spec.ts':
-    'f0d759f8a493f966f1d10795e45ad9d394248f95e91ab5f137b3a0fb45175f3f',
+    'e08343ea3afdc4f7108895c9f2569682c59c14a1969f5f037a19dfc37b0ddf54',
   '../../tests/offline/telos-chooser-hydration.spec.ts':
     '96c19b79da556cb4265757da1bcfed162e48bf350b72e8e994429f74c5256caa',
   '../../tests/offline/telos-chat-selection.spec.ts':
@@ -948,7 +948,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/todo.ts':
     '2ed6946b5aecee51a11ef6105296ecaf0f84bb5f066fa9696db6d9a4db7d7d79',
   '../../frontend/src/pages/TodoDetailView.tsx':
-    '68803031b69584c0eb8c0acfe0b735601d214fd6f1794824de84c33383e309dd',
+    'c5a1ebb35fd3cc283dd8f006d5f6e814012ac541283794aee3465fa31fb403e0',
   '../../frontend/src/hooks/TelosSourceNavigation.tsx':
     'dac7bb547165c32a1c14f023a34ed371de281c9fab1c9ab41a93f522f6d60598',
   '../../frontend/src/components/WorkOutputs.tsx':
@@ -1742,7 +1742,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TodoCard.tsx':
     'b325fd32ed13963c3b2f2b15c9b11e234ccaa561b512b09c6223598323e8cfc5',
   '../../frontend/src/hooks/useAttentionFeed.ts':
-    '8f10be65de76cf721b6533c336428e3144c324cec9129a6b437b054b07cd1a22',
+    '3d3a90f8afc97918e09f46da831b21444d70f712879a15c5a7e5691530bf2f73',
   '../../frontend/src/hooks/useCalendarData.ts':
     '0755998ba06d85a187eb248a9a9e34e925790c10c69b3905f6f7eb2e52e7f79a',
   '../../frontend/src/hooks/useOutputContributors.ts':
@@ -2687,7 +2687,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/pdf-import.spec.ts':
     'fca0f68e8d457f57b897df557de98147bc72a376340ff48ac88f9721aa17abe1',
   '../../tests/offline/unified-mobile.spec.ts':
-    '8ef0f0591f60d728c3258d314b51e12aee07c59763696c7990520ce57d1442c5',
+    '2a0dade330f4156d59ecc5f08e4f700db1047cafefeadd48396e5525b5018edb',
   '../openshell-operator-transport.ts':
     '35d10b780021b5e29ec24c3834864978ddf4a17dbe807c07aa7327a7511a6939',
   '../openshell-secret-protocol.ts':
@@ -2989,4 +2989,20 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '17e32710c49b20021db361c13f0062b270c78f2500a37e819f47fbe5ac601f49',
   '../../scripts/qualify-development-offline.mjs':
     '6adc25351fb807c50092ee080c1dd3417114a35b752cdd1d3891f013ce361fc6',
+  '../../frontend/src/hooks/__tests__/useAttentionFeed.test.ts':
+    'dd1174a16ededa397dee748fe85d243c2d95437fa27cc0231b31987a6beab6fd',
+  '../../frontend/src/pages/__tests__/TodoDetailView.hydration.test.tsx':
+    '768c6c34e4f076850396f587f23a5d88bedd0f9b7252fda163b1c60ee6cd3fcf',
+  '../../frontend/src/pages/__tests__/TodoDetailView.parent-fallback.test.tsx':
+    '35f1809986c0914adf9ceaa33e67f6251938aabbe33153d7cfc70e62a53b47dd',
+  '../../frontend/src/pages/__tests__/TodoDetailView.test.tsx':
+    '6d3b4a844331bfa8414ca4bd4bddf1faafa07ce75649de25793f6294d251a826',
+  '../../frontend/src/pages/__tests__/TodoView.readiness.test.tsx':
+    '55cb83ab0a26f8f3a4b3ce3f048debd1691df170d0db97d55b043db0db3f700b',
+  '../../frontend/src/pages/__tests__/TodoWorkspace.test.tsx':
+    '6da5dfa21630d242bb7d070c6487772106a81b31eccfb015f5ea999025d89427',
+  '../../tests/offline/session-library.spec.ts':
+    'b413e56f3c1d67c0aba182cafbada0b69c25e97f715711c89263b0026f41e78c',
+  '../../frontend/src/hooks/__tests__/useAttentionFeed.canonical.test.tsx':
+    'cac18f7dcd86924d644f88afcaaf886f0a01e39ca090d9dd9c882b4e70e9c6af',
 });

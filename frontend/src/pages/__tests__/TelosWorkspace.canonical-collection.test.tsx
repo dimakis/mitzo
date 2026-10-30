@@ -214,3 +214,36 @@ it('refreshes the visible legacy fallback during a native outage and refreshes n
   await waitFor(() => expect(nativeReads).toBe(before + 1));
   expect(reads).toBe(legacyBeforeSave);
 });
+
+it('keeps an established fallback mounted while its focused record retry is pending', async () => {
+  markAuthLost();
+  const record = createTelosWorkFixtures().homeStudio.items[0];
+  let retry = false,
+    finish!: (value: Response) => void;
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input);
+    if (url === '/api/telos/work/collection')
+      return Response.json({ records: [record], profiles: ['work'], failures: [] });
+    if (url.endsWith('/record'))
+      return retry
+        ? new Promise<Response>((resolve) => {
+            finish = resolve;
+          })
+        : Response.json({}, { status: 503 });
+    return Response.json({}, { status: 503 });
+  });
+  render(
+    <MemoryRouter initialEntries={['/todos/' + record.itemId]}>
+      <Routes>
+        <Route path="/todos/:id" element={<TodoWorkspace />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  await screen.findByText('Outcome workspace unavailable. Showing original Telos fields.');
+  const priority = screen.getByRole('combobox', { name: 'Priority' });
+  retry = true;
+  await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+  expect(priority.isConnected).toBe(true);
+  await act(async () => finish(Response.json(record)));
+  expect(await screen.findByRole('heading', { name: record.summary })).toBeTruthy();
+});
