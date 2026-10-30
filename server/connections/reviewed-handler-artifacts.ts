@@ -1997,7 +1997,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/repository-preparation-recovery.spec.ts':
     '2354f2471f0be98b67e34c7847708e90f51e5b52bad1a66958b188f713f89e50',
   '../__tests__/ordinary-repository-preparation-api.test.ts':
-    'e9db1e025ddd3505ec60c0a9034481cd16b9c54e1d1991f70968a3645a1aad5c',
+    'be392a0df72a2018169440df07e18fa8ef4c9f8963ba080061d05235108e0110',
   '../command-timing-trace.ts': 'f4c8ddbcae082c29fd718f09dd4b846b5aacc25574f43d681e31a508bae76560',
   '../__tests__/command-timing-trace.test.ts':
     '65f51c783408f255dce89aa221ff33b0f45f51eb8c906f858cb61fc99f1f0a80',

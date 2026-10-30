@@ -359,8 +359,10 @@ it('requalifies an upgraded OpenShell preparation only through the exact retaine
     physicalIdentitySha256: openShellPhysicalCustodyFingerprint(artifact as never),
   };
   const { eventStore } = await import('../chat.js');
-  vi.spyOn(eventStore, 'getSession').mockReturnValue({ accountBinding: binding } as never);
-  vi.spyOn(eventStore, 'getSessionRuntimeBinding').mockReturnValue(proof.runtimeBinding);
+  eventStore.createSessionWithRuntimeBinding(
+    { sessionId, accountBinding: binding, cwd: config.workdir, repositoryWorkspaceId: workspaceId },
+    proof.runtimeBinding,
+  );
   const native = await import('../codex-chat-session.js');
   vi.spyOn(native, 'getCodexConversationStore').mockReturnValue({
     readOpenShellCustody: () => custody,
