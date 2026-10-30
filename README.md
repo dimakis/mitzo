@@ -219,3 +219,7 @@ Large drafts and outgoing commands use IndexedDB rather than filling the browser
 quota. Commands wait for durable storage before HTTP delivery; failed writes retain the draft and do
 not submit it. Existing drafts and exact receipt recovery remain supported. Browser/device storage
 capacity still applies, and unavailable storage is reported rather than silently weakening recovery.
+
+Ordinary native Mac and OpenShell Codex chats can create Telos child items under
+an existing parent using `TelosCreateChild`, with exact approval and retry-safe
+receipts. See [Telos backlog tools](docs/features/telos-backlog-tools.md).

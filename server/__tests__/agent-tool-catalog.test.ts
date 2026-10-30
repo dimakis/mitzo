@@ -2,12 +2,13 @@ import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { agentToolCatalog } from '../agent-tool-catalog.js';
 
-it.each(['TelosListItems', 'TelosSearchItems', 'TelosManageItem'])(
+it.each(['TelosListItems', 'TelosSearchItems', 'TelosManageItem', 'TelosCreateChild'])(
   'makes %s selectable for ordinary native backlog triage without requiring a lead role',
   (name) => {
     expect(agentToolCatalog().find((entry) => entry.name === name)).toMatchObject({
       routes: ['codex-owned-local'],
-      behavior: name === 'TelosManageItem' ? 'mixed' : 'read',
+      behavior:
+        name === 'TelosManageItem' ? 'mixed' : name === 'TelosCreateChild' ? 'write' : 'read',
       requirement: expect.stringContaining('operator'),
     });
     const session = {};
