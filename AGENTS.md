@@ -9,6 +9,17 @@ code easier to maintain: prefer focused shared modules, remove duplicated work
 and needless calls, and consolidate repeated fixtures. Preserve authorization,
 revocation and cancellation boundaries when reducing redundant checks.
 
+## Test cost — every agent
+
+Follow the **Test cost and coverage** policy in `CLAUDE.md` before adding or
+changing tests. It applies to Codex, Claude, other coding agents, delegated
+subagents, automated fixers and reviewers; include it in delegated task briefs.
+Choose the cheapest adequate layer, reuse existing tests and fixtures, and
+justify each new expensive journey with distinct coverage and observed cost.
+PRs with test changes must complete the template's test-cost section using
+existing evidence, explicitly noting unavailable measurements. Preserve required
+coverage, operation deadlines and authority/ownership/cancellation boundaries.
+
 ## Symposium source selection
 
 Start Symposium work with [the current source guide](docs/features/symposium.md)
