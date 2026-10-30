@@ -11,6 +11,7 @@ export function QueuedDraftTray({
   busy,
   running,
   blocked,
+  recoveryBlocked = blocked,
   textOnlySteer,
   onPause,
   onSend,
@@ -23,6 +24,7 @@ export function QueuedDraftTray({
   busy: boolean;
   running: boolean;
   blocked: boolean;
+  recoveryBlocked?: boolean;
   textOnlySteer: boolean;
   onPause(): void;
   onSend(index: number): void;
@@ -110,7 +112,7 @@ export function QueuedDraftTray({
                   <small>
                     {message.requiresRetry
                       ? message.dispatchPending
-                        ? 'Check the existing dispatch notice'
+                        ? 'Delivery unconfirmed. Check or retry the same message.'
                         : 'Review before sending again'
                       : index === 0
                         ? paused
@@ -123,23 +125,34 @@ export function QueuedDraftTray({
                   <button
                     className="queued-draft-icon"
                     type="button"
-                    aria-label={`${running ? 'Steer with' : 'Send'} queued prompt ${index + 1}`}
+                    aria-label={
+                      message.dispatchPending
+                        ? `Check delivery of queued prompt ${index + 1}`
+                        : `${running ? 'Steer with' : 'Send'} queued prompt ${index + 1}`
+                    }
                     title={
-                      running && textOnlySteer && message.images.length
-                        ? 'Steering accepts text only. Wait to send these attachments.'
-                        : running
-                          ? 'Send this correction to the current turn'
-                          : 'Send this prompt now'
+                      message.dispatchPending
+                        ? 'Check delivery using this message’s saved identity.'
+                        : running && textOnlySteer && message.images.length
+                          ? 'Steering accepts text only. Wait to send these attachments.'
+                          : running
+                            ? 'Send this correction to the current turn'
+                            : 'Send this prompt now'
                     }
                     disabled={
-                      blocked ||
+                      (message.dispatchPending ? recoveryBlocked : blocked) ||
                       busy ||
-                      !!message.dispatchPending ||
-                      (running && textOnlySteer && message.images.length > 0)
+                      (!message.dispatchPending &&
+                        running &&
+                        textOnlySteer &&
+                        message.images.length > 0)
                     }
                     onClick={() => onSend(index)}
                   >
-                    <UiIcon name={running ? 'interrupt' : 'send'} size={16} />
+                    <UiIcon
+                      name={message.dispatchPending ? 'retry' : running ? 'interrupt' : 'send'}
+                      size={16}
+                    />
                   </button>
                   <button
                     className="queued-draft-icon"

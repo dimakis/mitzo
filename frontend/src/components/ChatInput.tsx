@@ -69,6 +69,7 @@ export interface ChatInputDraftControl {
 }
 
 interface Props {
+  steeringTargetCommandId?: string;
   replyTarget?: MessageReplyContext;
   onClearReply?: () => void;
   responders?: ComposerResponderSelection;
@@ -96,6 +97,7 @@ interface Props {
     onDelivery?: SendMessageOptions['onDelivery'],
     replyTo?: MessageReplyContext,
     queuedCommandId?: string,
+    retainedSteeringTarget?: string,
   ) => void;
   running: boolean;
   initialText?: string;
@@ -139,6 +141,7 @@ interface Props {
 const EMPTY_MESSAGES: FinishedMessage[] = [];
 
 export function ChatInput({
+  steeringTargetCommandId,
   replyTarget,
   onClearReply,
   responders,
@@ -246,6 +249,7 @@ export function ChatInput({
     queue: queuedMessages,
     enqueuePersisted,
     ensureDispatchIds,
+    acknowledgeSubmission,
     prepareSubmission,
     releaseSubmission,
     update: updateQueued,
@@ -255,6 +259,22 @@ export function ChatInput({
     remove: removeQueued,
   } = useQueuedMessages(sessionId, 32, assignment);
   useEffect(() => ensureDispatchIds(), [sessionId, queuedMessages, ensureDispatchIds]);
+  useEffect(() => {
+    for (const row of queuedMessages) {
+      if (!row.dispatchPending || !row.queueEntryId) continue;
+      const message = messages.find(
+        (message) => message.role === 'user' && message.messageId === row.queueEntryId,
+      );
+      if (!message?.commandState) continue;
+      if (
+        row.dispatchKind === 'steer'
+          ? message.commandState === 'steered'
+          : ['queued', 'running', 'completed', 'ended', 'cancelled'].includes(message.commandState)
+      )
+        acknowledgeSubmission(row.queueEntryId);
+    }
+  }, [queuedMessages, messages, acknowledgeSubmission]);
+
   useEffect(() => {
     if (
       assignment &&
@@ -637,7 +657,7 @@ export function ChatInput({
   }, [displayedText, autoResize]);
 
   const sendOrdinary = useCallback(
-    async (payload: QueuedMessage, queued = false): Promise<boolean> => {
+    async (payload: QueuedMessage, queued = false, recovering = false): Promise<boolean> => {
       if (queued && (boundedFirstCommand || sendDisabledReason)) return false;
       const submitted = latestDraft.current;
       const submittedSavedDraft = savedChatDraft ? getChatDraft(savedChatDraft.id) : null;
@@ -654,12 +674,14 @@ export function ChatInput({
         });
       // Keep dequeued input under the existing explicit-retry fence until a
       // definitive receipt. A missing receipt must never resume automatic drain.
-      const retained = queued ? await prepareSubmission(payload) : undefined;
+      const retained = queued
+        ? await prepareSubmission({ ...payload, dispatchKind: 'send' })
+        : undefined;
       if (
         queued &&
         (!retained || !mounted.current || latestDraft.current.scope !== submitted.scope)
       ) {
-        if (retained) releaseSubmission(retained, payload);
+        if (retained && !recovering) releaseSubmission(retained, payload);
         if (sendPending.current === pending) sendPending.current = null;
         if (mounted.current && latestDraft.current.scope === submitted.scope) {
           setQueuePaused(true);
@@ -684,7 +706,12 @@ export function ChatInput({
         if (queued) {
           if (status === 'accepted' && retained) removeSubmitted(retained);
           else if (retained) {
-            releaseSubmission(retained, payload);
+            if (!recovering) releaseSubmission(retained, payload);
+            else if (mounted.current && latestDraft.current.scope === submitted.scope)
+              setQueueError({
+                scope: submitted.scope,
+                text: 'Delivery is still unconfirmed. Check the existing dispatch notice or retry this same message.',
+              });
             if (mounted.current && latestDraft.current.scope === submitted.scope)
               setQueuePaused(true);
           }
@@ -1173,17 +1200,11 @@ export function ChatInput({
     )
       return;
     const q = queuedMessages[index];
-    if (
-      !q ||
-      q.dispatchPending ||
-      sendPending.current ||
-      interruptPending.current ||
-      sendDisabledReason
-    )
-      return;
-    if (!running) {
-      removeQueued(index);
-      sendOrdinary(q, true);
+    if (!q || sendPending.current || interruptPending.current || sendDisabledReason) return;
+    const recovering = !!q.dispatchPending;
+    if ((recovering && q.dispatchKind === 'send') || (!recovering && !running)) {
+      if (!recovering) removeQueued(index);
+      void sendOrdinary(q, true, recovering);
       return;
     }
     if (
@@ -1193,11 +1214,16 @@ export function ChatInput({
       return;
     const pending = {};
     interruptPending.current = pending;
-    removeQueued(index);
+    if (!recovering) removeQueued(index);
     const submitted = latestDraft.current;
-    const retained = await prepareSubmission(q);
+    const target = recovering ? q.steeringTargetCommandId : steeringTargetCommandId;
+    const retained = await prepareSubmission({
+      ...q,
+      dispatchKind: interruptLabel === 'Steer current turn' ? 'steer' : 'interrupt',
+      ...(target ? { steeringTargetCommandId: target } : {}),
+    });
     if (!retained || !mounted.current || latestDraft.current.scope !== submitted.scope) {
-      if (retained) releaseSubmission(retained, q);
+      if (retained && !recovering) releaseSubmission(retained, q);
       if (interruptPending.current === pending) interruptPending.current = null;
       if (mounted.current && latestDraft.current.scope === submitted.scope) {
         setQueuePaused(true);
@@ -1233,6 +1259,7 @@ export function ChatInput({
       },
       q.replyTo,
       q.queueEntryId ?? retained.queueEntryId,
+      target,
     );
   }
 
@@ -1396,6 +1423,13 @@ export function ChatInput({
           importing ||
           (running && !!interruptDisabledReason) ||
           (running && !onInterrupt)
+        }
+        recoveryBlocked={
+          !!sendDisabledReason ||
+          boundedFirstCommand ||
+          importing ||
+          !!sendPending.current ||
+          !!interruptPending.current
         }
         textOnlySteer={interruptLabel === 'Steer current turn'}
         onPause={() => {

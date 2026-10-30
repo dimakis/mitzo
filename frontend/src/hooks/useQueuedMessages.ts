@@ -14,6 +14,8 @@ export interface QueuedMessage {
   /** Submitted or refused input must never resume automatic queue drain. */
   requiresRetry?: boolean;
   dispatchPending?: boolean;
+  dispatchKind?: 'send' | 'interrupt' | 'steer';
+  steeringTargetCommandId?: string;
   text: string;
   replyTo?: MessageReplyContext;
   /** Only the new durable draft flow retains attachment bytes. */
@@ -29,6 +31,8 @@ interface StoredMessage {
   queueEntryId?: string;
   requiresRetry?: boolean;
   dispatchPending?: boolean;
+  dispatchKind?: 'send' | 'interrupt' | 'steer';
+  steeringTargetCommandId?: string;
   text: string;
   contextBlocks: string[];
 }
@@ -44,6 +48,8 @@ function toStored(msgs: QueuedMessage[]): StoredMessage[] {
       contextBlocks,
       requiresRetry,
       dispatchPending,
+      dispatchKind,
+      steeringTargetCommandId,
       queueEntryId,
       replyTo,
       images,
@@ -57,6 +63,8 @@ function toStored(msgs: QueuedMessage[]): StoredMessage[] {
         : {}),
       ...(requiresRetry ? { requiresRetry: true } : {}),
       ...(dispatchPending ? { dispatchPending: true } : {}),
+      ...(dispatchKind ? { dispatchKind } : {}),
+      ...(steeringTargetCommandId ? { steeringTargetCommandId } : {}),
       ...(queueEntryId ? { queueEntryId } : {}),
     }),
   );
@@ -64,7 +72,17 @@ function toStored(msgs: QueuedMessage[]): StoredMessage[] {
 
 function fromStored(msgs: StoredMessage[]): QueuedMessage[] {
   return msgs.map(
-    ({ text, contextBlocks, requiresRetry, dispatchPending, queueEntryId, replyTo, images }) => ({
+    ({
+      text,
+      contextBlocks,
+      requiresRetry,
+      dispatchPending,
+      dispatchKind,
+      steeringTargetCommandId,
+      queueEntryId,
+      replyTo,
+      images,
+    }) => ({
       text,
       contextBlocks,
       ...(replyTo ? { replyTo } : {}),
@@ -75,6 +93,8 @@ function fromStored(msgs: StoredMessage[]): QueuedMessage[] {
       })),
       ...(requiresRetry ? { requiresRetry: true } : {}),
       ...(dispatchPending ? { dispatchPending: true } : {}),
+      ...(dispatchKind ? { dispatchKind } : {}),
+      ...(steeringTargetCommandId ? { steeringTargetCommandId } : {}),
       ...(typeof queueEntryId === 'string' ? { queueEntryId } : {}),
     }),
   );
@@ -182,6 +202,7 @@ export function useQueuedMessages(
   enqueue: (msg: QueuedMessage) => boolean;
   enqueuePersisted: (msg: QueuedMessage) => Promise<boolean>;
   ensureDispatchIds: () => void;
+  acknowledgeSubmission: (messageId: string) => void;
   prepareSubmission: (msg: QueuedMessage) => Promise<QueuedMessage | undefined>;
   releaseSubmission: (retained: QueuedMessage, original: QueuedMessage) => void;
   update: (index: number, msg: QueuedMessage, position: number) => boolean;
@@ -470,31 +491,43 @@ export function useQueuedMessages(
     queueRef.current = saved.queue;
     setQueueRaw(saved.queue);
   }, [persist]);
-  const releaseSubmission = useCallback((retained: QueuedMessage, original: QueuedMessage) => {
-    const id = retained.queueEntryId;
-    if (!id || !submittedOwners.current.has(id)) return;
-    const owner = submittedOwners.current.get(id),
-      active = mounted.current && sessionRef.current === owner;
-    const nextOriginal = {
-      ...original,
-      requiresRetry: true,
-      dispatchPending: false,
-      queueEntryId: createBrowserId(),
-    };
-    let entries: QueuedMessage[];
-    try {
-      entries = readQueue(owner);
-    } catch {
-      entries = active ? queueRef.current : [];
-    }
-    const next = entries.map((entry) => (entry.queueEntryId === id ? nextOriginal : entry));
-    submittedOwners.current.delete(id);
-    saveQueue(owner, next);
-    if (active) {
-      queueRef.current = mergeLiveImages(next, [...queueRef.current, nextOriginal]);
-      setQueueRaw(queueRef.current);
-    }
-  }, []);
+  const releaseSubmission = useCallback(
+    (retained: QueuedMessage, original: QueuedMessage) => {
+      const id = retained.queueEntryId;
+      if (!id || !submittedOwners.current.has(id)) return;
+      const owner = submittedOwners.current.get(id),
+        active = mounted.current && sessionRef.current === owner;
+      const live = queueRef.current;
+      let observed: QueuedMessage[];
+      try {
+        observed = readQueue(owner);
+      } catch {
+        observed = active ? live : [];
+      }
+      const reconciled = active
+        ? persistence.current.dirty
+          ? reconcileQueue(observed, live, persistence.current.baseline)
+          : mergeLiveImages(observed, live)
+        : observed;
+      const matches = (entry: QueuedMessage) =>
+        entry.queueEntryId === id &&
+        JSON.stringify(toStored([entry])) === JSON.stringify(toStored([retained]));
+      const replacement = {
+        ...original,
+        requiresRetry: true,
+        dispatchPending: false,
+        queueEntryId: createBrowserId(),
+      };
+      const next = reconciled.map((entry) => (matches(entry) ? replacement : entry));
+      const saved = persist(owner, next);
+      if (saved.written) submittedOwners.current.delete(id);
+      if (active) {
+        queueRef.current = saved.queue;
+        setQueueRaw(saved.queue);
+      }
+    },
+    [persist],
+  );
   const prepareSubmission = useCallback(
     async (msg: QueuedMessage) => {
       const owner = sessionRef.current;
@@ -512,7 +545,7 @@ export function useQueuedMessages(
           throw Error('claim changed');
         return retained;
       } catch {
-        releaseSubmission(retained, msg);
+        if (!msg.dispatchPending) releaseSubmission(retained, msg);
         return undefined;
       }
     },
@@ -574,6 +607,17 @@ export function useQueuedMessages(
     [persist],
   );
 
+  const acknowledgeSubmission = useCallback(
+    (messageId: string) => {
+      const row = queueRef.current.find(
+        (entry) => entry.queueEntryId === messageId && entry.dispatchPending,
+      );
+      if (!row) return;
+      submittedOwners.current.set(messageId, sessionRef.current);
+      removeSubmitted(row);
+    },
+    [removeSubmitted],
+  );
   const remove = useCallback((index: number) => {
     const id = queueRef.current[index]?.queueEntryId;
     if (id) submittedOwners.current.delete(id);
@@ -595,6 +639,7 @@ export function useQueuedMessages(
     enqueue,
     enqueuePersisted,
     ensureDispatchIds,
+    acknowledgeSubmission,
     prepareSubmission,
     releaseSubmission,
     update,

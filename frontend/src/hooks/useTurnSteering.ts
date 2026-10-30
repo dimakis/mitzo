@@ -148,8 +148,15 @@ export function useTurnSteering(
     retry: selected.pending
       ? () => void execute(selected, selected.pending!, selected.delivery)
       : undefined,
-    submit: (text: string, delivery?: Delivery, replyToMessageId?: string, requestId?: string) => {
-      if (!enabled || !sessionId || !targetCommandId || selected.busy || selected.blocked) {
+    submit: (
+      text: string,
+      delivery?: Delivery,
+      replyToMessageId?: string,
+      requestId?: string,
+      retainedTargetCommandId?: string,
+    ) => {
+      const target = retainedTargetCommandId ?? targetCommandId;
+      if (!enabled || !sessionId || !target || selected.busy || selected.blocked) {
         delivery?.('failed');
         return;
       }
@@ -157,7 +164,9 @@ export function useTurnSteering(
         if (
           selected.pending.text !== text ||
           selected.pending.replyToMessageId !== replyToMessageId ||
-          (requestId !== undefined && selected.pending.requestId !== requestId)
+          (requestId !== undefined && selected.pending.requestId !== requestId) ||
+          (retainedTargetCommandId !== undefined &&
+            selected.pending.targetCommandId !== retainedTargetCommandId)
         ) {
           delivery?.('failed');
           setFeedback({
@@ -171,7 +180,7 @@ export function useTurnSteering(
       }
       const input = {
         requestId: requestId ?? createBrowserId(),
-        targetCommandId,
+        targetCommandId: target,
         text,
         ...(replyToMessageId ? { replyToMessageId } : {}),
       };

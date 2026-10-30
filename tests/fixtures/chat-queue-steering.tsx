@@ -75,6 +75,9 @@ function Fixture() {
         <ChatInput
           replyTarget={reply}
           onClearReply={() => setReply(undefined)}
+          messages={messages.messages}
+          current={messages.current}
+          steeringTargetCommandId={target}
           sessionId="queue-fixture"
           guardedConversation
           running={messages.running}
@@ -106,9 +109,15 @@ function Fixture() {
             receipt?.('accepted');
             return true;
           }}
-          onInterrupt={(text, _images, _context, receipt, replyTo, queuedCommandId) =>
-            steering.submit(text, receipt, replyTo?.messageId, queuedCommandId)
-          }
+          onInterrupt={(
+            text,
+            _images,
+            _context,
+            receipt,
+            replyTo,
+            queuedCommandId,
+            retainedTarget,
+          ) => steering.submit(text, receipt, replyTo?.messageId, queuedCommandId, retainedTarget)}
           onStop={() => {
             void fetch('/fixture/stop', { method: 'POST' });
           }}

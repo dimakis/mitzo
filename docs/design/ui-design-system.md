@@ -2372,7 +2372,11 @@ the edited composer; a late save cannot clear a newer draft or another chat.
 Each queued draft keeps one stable command identity across views. Its dispatch
 retry fence commits before any send or correction; the existing backend admission
 guard coalesces duplicate views under that identity. Definite refusals stay editable
-behind explicit review, while uncertain delivery stays fenced. The brief
+behind explicit review, while uncertain delivery stays fenced. Cold fenced rows
+expose an explicit delivery check using the same command identity; native corrections
+retain their original target command and cannot steer a successor. Authoritative
+request progress clears a recovered fence without a new dispatch. Releasing a
+definite refusal preserves dirty local work and fresh peer edits. The brief
 queue/correction hint sits between the tray and text input.
 
 Phone swipe-right, touch-hold, desktop right-click and keyboard context menu offer

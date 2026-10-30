@@ -1506,3 +1506,69 @@ it('keeps the saved source queue when navigation happens before its storage flus
     'Saved before navigation',
   ]);
 });
+it('keeps dirty live work when a failed submission releases its exact fence', async () => {
+  const hook = renderHook(() => useQueuedMessages('release-dirty', 32));
+  await act(async () => {
+    await hook.result.current.enqueuePersisted(msg('Saved Q'));
+  });
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw Error('quota');
+  });
+  act(() => hook.result.current.enqueue(msg('Unsaved R')));
+  vi.spyOn(chatStorage, 'flush').mockRejectedValueOnce(Error('quota'));
+  await act(async () => {
+    expect(
+      await hook.result.current.prepareSubmission(hook.result.current.queue[0]),
+    ).toBeUndefined();
+  });
+  expect(hook.result.current.queue.map((row) => row.text)).toEqual(
+    expect.arrayContaining(['Saved Q', 'Unsaved R']),
+  );
+});
+it('does not overwrite a peer edit when exact dispatch-fence verification fails', async () => {
+  const hook = renderHook(() => useQueuedMessages('release-peer', 32));
+  await act(async () => {
+    await hook.result.current.enqueuePersisted(msg('Original Q'));
+  });
+  let finish!: () => void;
+  vi.spyOn(chatStorage, 'flush').mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  let pending!: ReturnType<typeof hook.result.current.prepareSubmission>;
+  act(() => {
+    pending = hook.result.current.prepareSubmission(hook.result.current.queue[0]);
+  });
+  const saved = JSON.parse(localStorage.getItem('mitzo-queue-release-peer')!);
+  saved[0].text = 'Fresh peer edit';
+  delete saved[0].dispatchPending;
+  localStorage.setItem('mitzo-queue-release-peer', JSON.stringify(saved));
+  await act(async () => {
+    finish();
+    expect(await pending).toBeUndefined();
+  });
+  expect(hook.result.current.queue.map((row) => row.text)).toEqual(['Fresh peer edit']);
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-release-peer')!)[0].text).toBe(
+    'Fresh peer edit',
+  );
+});
+it('does not release an uncertain original identity if explicit recovery cannot persist its fence', async () => {
+  const hook = renderHook(() => useQueuedMessages('cold-quota', 32));
+  await act(async () => {
+    await hook.result.current.enqueuePersisted(msg('Saved'));
+  });
+  let retained!: QueuedMessage;
+  await act(async () => {
+    retained = (await hook.result.current.prepareSubmission(hook.result.current.queue[0]))!;
+  });
+  vi.spyOn(chatStorage, 'flush').mockRejectedValueOnce(Error('quota'));
+  await act(async () => {
+    expect(await hook.result.current.prepareSubmission(retained)).toBeUndefined();
+  });
+  expect(hook.result.current.queue[0]).toMatchObject({
+    queueEntryId: retained.queueEntryId,
+    dispatchPending: true,
+  });
+});

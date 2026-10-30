@@ -127,6 +127,7 @@ for (const theme of ['dark', 'light'])
         );
       });
     expect(alignment).toBeLessThan(2);
+    await expect(page.locator('.message-actions-menu')).toHaveCount(0);
     await page.screenshot({ path: info.outputPath(`chat-queue-${theme}.png`), fullPage: true });
     await page.getByRole('button', { name: 'Steer current turn', exact: true }).click();
     await expect.poll(() => steered.length).toBe(1);

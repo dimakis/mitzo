@@ -135,3 +135,25 @@ it('retains the exact reply on correction retry and rejects a changed reference 
   await act(async () => hook.result.current.retry!());
   expect(JSON.parse(vi.mocked(apiFetch).mock.calls[1][1]!.body as string)).toEqual(first);
 });
+it('checks an explicitly retained correction against its captured target after the active turn changes', async () => {
+  vi.mocked(apiFetch).mockImplementationOnce(async (_url, options) => {
+    const body = JSON.parse(options!.body as string);
+    return Response.json({ requestId: body.requestId, status: 'stale_target' }, { status: 409 });
+  });
+  const delivery = vi.fn();
+  const hook = renderHook(() => useTurnSteering('cold-chat', 'successor-turn', true));
+  await act(async () =>
+    hook.result.current.submit(
+      'Original correction',
+      delivery,
+      undefined,
+      'correction-id',
+      'original-turn',
+    ),
+  );
+  expect(JSON.parse(vi.mocked(apiFetch).mock.calls[0][1]!.body as string)).toMatchObject({
+    requestId: 'correction-id',
+    targetCommandId: 'original-turn',
+  });
+  expect(delivery).toHaveBeenCalledWith('failed');
+});

@@ -363,3 +363,144 @@ it('does not drain another prompt merely because admission is accepted before th
   expect(send).toHaveBeenCalledOnce();
   expect(screen.getByRole('region', { name: 'Up next' })).toHaveTextContent('Second');
 });
+it('cold-opens a fenced ordinary prompt without replay and explicitly recovers the same identity', async () => {
+  localStorage.setItem(
+    'mitzo-queue-cold-send',
+    JSON.stringify([
+      {
+        text: 'Original saved prompt',
+        contextBlocks: [],
+        queueEntryId: 'original-id',
+        requiresRetry: true,
+        dispatchPending: true,
+        dispatchKind: 'send',
+      },
+    ]),
+  );
+  const send = vi.fn((...args: unknown[]) => {
+    (args[3] as (status: string) => void)('accepted');
+    return true;
+  });
+  render(
+    <ChatInput
+      sessionId="cold-send"
+      guardedConversation
+      running={false}
+      onSend={send}
+      onStop={vi.fn()}
+    />,
+  );
+  expect(send).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Check delivery of queued prompt 1' }));
+  await waitFor(() => expect(send).toHaveBeenCalledOnce());
+  expect(send.mock.calls[0][7]).toBe('original-id');
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Up next' })).toBeNull());
+});
+it('cold-opens a fenced correction and recovers its original target instead of the successor turn', async () => {
+  localStorage.setItem(
+    'mitzo-queue-cold-steer',
+    JSON.stringify([
+      {
+        text: 'Original correction',
+        contextBlocks: [],
+        queueEntryId: 'correction-id',
+        requiresRetry: true,
+        dispatchPending: true,
+        dispatchKind: 'steer',
+        steeringTargetCommandId: 'original-turn',
+      },
+    ]),
+  );
+  const steer = vi.fn((...args: unknown[]) => {
+    (args[3] as (status: string) => void)('accepted');
+  });
+  render(
+    <ChatInput
+      sessionId="cold-steer"
+      guardedConversation
+      running
+      steeringTargetCommandId="successor-turn"
+      onSend={vi.fn(() => true)}
+      onInterrupt={steer}
+      interruptLabel="Steer current turn"
+      onStop={vi.fn()}
+    />,
+  );
+  expect(steer).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Check delivery of queued prompt 1' }));
+  await waitFor(() => expect(steer).toHaveBeenCalledOnce());
+  expect(steer.mock.calls[0][5]).toBe('correction-id');
+  expect(steer.mock.calls[0][6]).toBe('original-turn');
+});
+it('keeps an unconfirmed recovered ordinary dispatch fenced under the same identity on refusal', async () => {
+  localStorage.setItem(
+    'mitzo-queue-cold-refused',
+    JSON.stringify([
+      {
+        text: 'Original saved prompt',
+        contextBlocks: [],
+        queueEntryId: 'original-id',
+        requiresRetry: true,
+        dispatchPending: true,
+        dispatchKind: 'send',
+      },
+    ]),
+  );
+  const send = vi.fn((...args: unknown[]) => {
+    (args[3] as (status: string) => void)('failed');
+    return true;
+  });
+  render(
+    <ChatInput
+      sessionId="cold-refused"
+      guardedConversation
+      running={false}
+      onSend={send}
+      onStop={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check delivery of queued prompt 1' }));
+  await waitFor(() => expect(send).toHaveBeenCalledOnce());
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-cold-refused')!)[0]).toMatchObject({
+    queueEntryId: 'original-id',
+    dispatchPending: true,
+  });
+  expect(
+    screen.getByRole('button', { name: 'Edit, reorder or remove queued prompt 1' }),
+  ).toBeDisabled();
+});
+it('clears a cold ordinary fence from authoritative request progress without another dispatch', async () => {
+  localStorage.setItem(
+    'mitzo-queue-cold-proven',
+    JSON.stringify([
+      {
+        text: 'Already accepted',
+        contextBlocks: [],
+        queueEntryId: 'accepted-id',
+        requiresRetry: true,
+        dispatchPending: true,
+        dispatchKind: 'send',
+      },
+    ]),
+  );
+  const send = vi.fn(() => true);
+  render(
+    <ChatInput
+      sessionId="cold-proven"
+      guardedConversation
+      running={false}
+      onSend={send}
+      onStop={vi.fn()}
+      messages={[
+        {
+          messageId: 'accepted-id',
+          role: 'user',
+          blocks: [{ blockId: 'text', blockType: 'text', content: 'Already accepted' }],
+          commandState: 'completed',
+        },
+      ]}
+    />,
+  );
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Up next' })).toBeNull());
+  expect(send).not.toHaveBeenCalled();
+});

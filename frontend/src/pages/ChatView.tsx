@@ -1031,6 +1031,7 @@ export function ChatView() {
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
     replyTo?: MessageReplyContext,
     queuedCommandId?: string,
+    retainedSteeringTarget?: string,
   ): void {
     if (controlsBlocked || explicitNew) {
       onDelivery?.('failed');
@@ -1042,7 +1043,13 @@ export function ChatView() {
         return;
       }
       voice.stopSpeaking();
-      turnSteering.submit(text, onDelivery, replyTo?.messageId, queuedCommandId);
+      turnSteering.submit(
+        text,
+        onDelivery,
+        replyTo?.messageId,
+        queuedCommandId,
+        retainedSteeringTarget,
+      );
       return;
     }
     if (repositoryHandoff.present) {
@@ -1886,6 +1893,7 @@ export function ChatView() {
                 />
               )}
               <ChatInput
+                steeringTargetCommandId={steerTarget}
                 replyTarget={
                   replySelection?.session === activeSessionId ? replySelection?.message : undefined
                 }
