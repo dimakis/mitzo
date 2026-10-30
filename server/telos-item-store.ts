@@ -4,7 +4,12 @@ import {
 } from '@mitzo/protocol/telos-sqlite-owners';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
-import { TelosEditItemInputSchema, type TelosEditItemInput } from '@mitzo/protocol';
+import {
+  TelosEditItemInputSchema,
+  type TelosEditItemInput,
+  TelosCreateChildInputSchema,
+  type TelosCreateChildInput,
+} from '@mitzo/protocol';
 
 export interface TelosItemUpdateInput {
   itemId: string;
@@ -132,6 +137,105 @@ export class TelosItemStore {
   update(input: TelosItemUpdateInput, sessionId: string) {
     return this.mutate(input, sessionId);
   }
+  /** Child, history and immutable receipt share the canonical owner's writer.
+   * The host supplies current invocation and parent lifecycle checks; this does
+   * not capture source materials, assign a role or start execution. */
+  createChildGuarded(
+    raw: TelosCreateChildInput,
+    sessionId: string,
+    assertion: () => void,
+    beforeApply: () => void,
+  ): TelosChildCreationReceipt {
+    if (typeof assertion !== 'function' || typeof beforeApply !== 'function' || !sessionId.trim())
+      throw Error('Synchronous Telos child authority and session required');
+    if (this.db.inTransaction) throw Error('Original Telos item writer required');
+    const input = TelosCreateChildInputSchema.parse(raw);
+    return this.db
+      .transaction(() => {
+        assertCurrent(assertion);
+        const inputHash = createHash('sha256')
+          .update(JSON.stringify({ operation: 'create-child', input }))
+          .digest('hex');
+        if (this.hasUpdates()) {
+          const previous = this.db
+            .prepare(
+              'SELECT input_hash,receipt FROM telos_item_updates WHERE session_id=? AND request_id=?',
+            )
+            .get(sessionId, input.requestId) as { input_hash: string; receipt: string } | undefined;
+          if (previous) {
+            if (previous.input_hash !== inputHash)
+              throw Error('Update request identity reused with different input');
+            return JSON.parse(previous.receipt) as TelosChildCreationReceipt;
+          }
+        }
+        const parent = this.snapshot(input.parentId);
+        if (parent.revision !== input.expectedParentRevision)
+          throw Error('Telos item changed; read the parent again before creating a child');
+        if (parent.status === 'completed')
+          throw Error('Telos item is completed; reopen the parent before adding work');
+        assertCurrent(assertion);
+        // Eligibility checks apply to new effects, not recovery of committed receipts.
+        assertCurrent(beforeApply);
+        const itemId = createHash('sha256')
+          .update(JSON.stringify(['telos-child', sessionId, input.requestId]))
+          .digest('hex')
+          .slice(0, 16);
+        const now = new Date().toISOString();
+        this.ensureUpdates();
+        this.db
+          .prepare(
+            `INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,
+          context_hints,first_seen,last_seen,created_at,updated_at) VALUES(?,?,?,?,?,?,'manual','active',?,?,?,?,?)`,
+          )
+          .run(
+            itemId,
+            input.parentId,
+            input.summary,
+            input.intent,
+            input.rationale,
+            JSON.stringify(input.acceptanceCriteria),
+            JSON.stringify({ session_ids: [sessionId] }),
+            now,
+            now,
+            now,
+            now,
+          );
+        this.db
+          .prepare(
+            "INSERT INTO history(item_id,old_status,new_status,changed_at) VALUES(?,NULL,'active',?)",
+          )
+          .run(itemId, now);
+        this.db.prepare('UPDATE items SET updated_at=? WHERE id=?').run(now, input.parentId);
+        this.db
+          .prepare(
+            `INSERT INTO telos_item_updates
+          (item_id,session_id,request_id,input_hash,note,old_status,new_status,created_at,receipt)
+          VALUES(?,?,?,?,?,'active','active',?,'{}')`,
+          )
+          .run(itemId, sessionId, input.requestId, inputHash, input.note, now);
+        const item = this.snapshot(itemId);
+        const receipt = {
+          item,
+          update: item.updates[0],
+          parentRevision: this.snapshot(input.parentId).revision,
+        };
+        this.db
+          .prepare('UPDATE telos_item_updates SET receipt=? WHERE session_id=? AND request_id=?')
+          .run(JSON.stringify(receipt), sessionId, input.requestId);
+        return receipt;
+      })
+      .immediate();
+  }
+
+  private ensureUpdates() {
+    this.db.exec(`CREATE TABLE IF NOT EXISTS telos_item_updates (
+      seq INTEGER PRIMARY KEY, item_id TEXT NOT NULL REFERENCES items(id),
+      session_id TEXT NOT NULL, request_id TEXT NOT NULL, input_hash TEXT NOT NULL,
+      note TEXT NOT NULL, old_status TEXT NOT NULL, new_status TEXT NOT NULL,
+      created_at TEXT NOT NULL, receipt TEXT NOT NULL,
+      UNIQUE(session_id,request_id));
+      CREATE INDEX IF NOT EXISTS telos_item_updates_item ON telos_item_updates(item_id,seq);`);
+  }
   editGuarded(
     raw: TelosEditItemInput,
     sessionId: string,
@@ -200,13 +304,7 @@ export class TelosItemStore {
         assertCurrent(assertion);
         // Fresh-effect eligibility must not hide a known committed receipt.
         assertCurrent(beforeApply);
-        this.db.exec(`CREATE TABLE IF NOT EXISTS telos_item_updates (
-        seq INTEGER PRIMARY KEY, item_id TEXT NOT NULL REFERENCES items(id),
-        session_id TEXT NOT NULL, request_id TEXT NOT NULL, input_hash TEXT NOT NULL,
-        note TEXT NOT NULL, old_status TEXT NOT NULL, new_status TEXT NOT NULL,
-        created_at TEXT NOT NULL, receipt TEXT NOT NULL,
-        UNIQUE(session_id,request_id));
-        CREATE INDEX IF NOT EXISTS telos_item_updates_item ON telos_item_updates(item_id,seq);`);
+        this.ensureUpdates();
         const status = input.status ?? before.status;
         const now = new Date().toISOString();
         if (edit)
@@ -264,3 +362,4 @@ export type TelosItemUpdateReceipt = {
   item: ReturnType<TelosItemStore['read']>;
   update: ReturnType<TelosItemStore['read']>['updates'][number];
 };
+export type TelosChildCreationReceipt = TelosItemUpdateReceipt & { parentRevision: string };

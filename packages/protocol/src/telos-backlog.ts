@@ -35,6 +35,16 @@ export const TelosRecordsResultSchema = z.strictObject({
     .array(z.strictObject({ itemId: id, code: z.string(), status: z.number().int() }))
     .max(100),
 });
+export const TelosCreateChildInputSchema = z.strictObject({
+  parentId: id.describe('Existing parent inspected with TelosManageItem read'),
+  expectedParentRevision: revision.describe('The parent item.revision from that fresh read'),
+  requestId: id.describe('Unique creation request; retry only with this exact input and ID'),
+  summary: z.string().trim().min(1).max(240),
+  intent: z.string().trim().min(1).max(8000),
+  rationale: z.string().trim().min(1).max(8000),
+  acceptanceCriteria: z.array(z.string().trim().min(1).max(2000)).min(1).max(30),
+  note: z.string().trim().min(1).max(4000),
+});
 export const TelosEditItemInputSchema = z
   .strictObject({
     itemId: id,
@@ -68,3 +78,4 @@ export const TelosManageItemInputSchema = z.discriminatedUnion('operation', [
 export type TelosListItemsInput = z.input<typeof TelosListItemsInputSchema>;
 export type TelosRecordsResult = z.infer<typeof TelosRecordsResultSchema>;
 export type TelosEditItemInput = z.infer<typeof TelosEditItemInputSchema>;
+export type TelosCreateChildInput = z.infer<typeof TelosCreateChildInputSchema>;

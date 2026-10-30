@@ -23,6 +23,21 @@ the pending mutation rather than transferring its authority.
   children and canonical lifecycle. Oversized reads return JSON fragments with
   `nextOffset` and `snapshotHash`; concatenate `contentFragment` only while the
   hash remains unchanged. Restart inspection if the snapshot changes.
+- `TelosCreateChild` creates one child of an existing item. First inspect the
+  parent with `TelosManageItem read`; send its `item.revision` as
+  `expectedParentRevision`, together with `parentId`, a unique `requestId`,
+  `summary`, `intent`, `rationale`, `acceptanceCriteria` and an audit `note`.
+  The exact request is approved through the existing backlog permission flow.
+  The canonical item owner saves the child, initial status history, originating
+  session link and immutable receipt in one transaction. The receipt contains
+  `item` (including the new ID and parent ID), `update` and `parentRevision`.
+  Reread the parent before creating another child. Retry uncertain delivery with
+  the **original** input and request ID; changing the revision on a retry changes
+  its identity. Existing receipts remain recoverable after later edits or archive.
+  New children require an existing, unfinished parent in an active lifecycle
+  subtree. Creation uses the manual profile and canonical priority defaults;
+  it does not change the parent's status, capture conversation materials, assign
+  roles or start work. Reviewed source capture remains a separate operation.
 - `operation: edit` changes the supplied `summary`, `intent`, `rationale` or
   `acceptanceCriteria`, using `item.revision`, a unique `requestId` and an audit
   note. Summary is the title. Omitted fields remain unchanged. Completion/status
