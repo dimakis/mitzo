@@ -15,6 +15,7 @@ function fixture() {
     events: AsyncQueue<Record<string, unknown>>;
     child: EventEmitter;
     close: ReturnType<typeof vi.fn>;
+    interrupt: ReturnType<typeof vi.fn>;
     work: <T>(f: () => Promise<T>) => Promise<T>;
   }> = [];
   let finish!: () => void;
@@ -35,11 +36,12 @@ function fixture() {
     const close = vi.fn(() => {
       events.close();
     });
-    runs.push({ options: request.options, events, child, close, work });
+    const interrupt = vi.fn(async () => {});
+    runs.push({ options: request.options, events, child, close, work, interrupt });
     void request.prompt[Symbol.asyncIterator]()
       .next()
       .catch(() => {});
-    return { close, [Symbol.asyncIterator]: () => events[Symbol.asyncIterator]() };
+    return { close, interrupt, [Symbol.asyncIterator]: () => events[Symbol.asyncIterator]() };
   });
   const q = createSdkTurnQuery({
     input: inputs,
@@ -91,6 +93,7 @@ it('resumes the original history only after callbacks, result delivery and actua
   f.finish();
   expect(await callback).toMatchObject({ behavior: 'deny' });
   expect((await terminal).value).toMatchObject({ type: 'result' });
+  await (f.q as unknown as { interrupt(): Promise<void> }).interrupt();
   await (f.q as unknown as { setPermissionMode(mode: string): Promise<void> }).setPermissionMode(
     'ask',
   );
@@ -199,4 +202,47 @@ it('closes once on abort during settlement without starting queued input', async
   await rejected;
   expect(f.create).toHaveBeenCalledOnce();
   expect(f.runs[0].close).toHaveBeenCalledOnce();
+});
+it('interrupts an idle owner without touching its closed native query, then accepts only the new input', async () => {
+  const f = fixture();
+  f.message('first');
+  f.runs[0].events.push({ type: 'result', session_id: 'retained' });
+  const output = f.q[Symbol.asyncIterator]();
+  await output.next();
+  const waiting = output.next();
+  await vi.waitFor(() => expect(f.runs[0].close).toHaveBeenCalledOnce());
+  f.runs[0].child.emit('close');
+  await (f.q as unknown as { interrupt(): Promise<void> }).interrupt();
+  expect(f.runs[0].interrupt).not.toHaveBeenCalled();
+  f.message('second');
+  await vi.waitFor(() => expect(f.create).toHaveBeenCalledTimes(2));
+  f.controller.abort();
+  await waiting;
+});
+it('settles an original active interrupt RPC before retiring its transport', async () => {
+  const f = fixture();
+  f.message('first');
+  let finish!: () => void;
+  f.runs[0].interrupt.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const interrupt = (f.q as unknown as { interrupt(): Promise<void> }).interrupt();
+  f.runs[0].events.push({ type: 'result', session_id: 'retained' });
+  const output = f.q[Symbol.asyncIterator]();
+  let delivered = false;
+  const terminal = output.next().then((value) => {
+    delivered = true;
+    return value;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(delivered).toBe(false);
+  expect(f.runs[0].close).not.toHaveBeenCalled();
+  finish();
+  await interrupt;
+  await terminal;
+  f.controller.abort();
+  await output.return?.();
 });

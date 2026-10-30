@@ -166,6 +166,15 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
     get(_target, property) {
       if (property === Symbol.asyncIterator) return events;
       if (property === 'close') return close;
+      if (property === 'interrupt')
+        return async () => {
+          signal.throwIfAborted();
+          if (closed) throw new SessionRuntimeError('turn_completed');
+          if (!idle) {
+            const run = current;
+            await run.state.runCallback(() => run.native.interrupt());
+          }
+        };
       if (['setModel', 'setPermissionMode', 'setMaxThinkingTokens'].includes(String(property)))
         return async (value: unknown) => {
           signal.throwIfAborted();
