@@ -1523,7 +1523,7 @@ it.each([
 );
 
 it('refuses unsupported published tools through actual owned profile resolution before native startup', async () => {
-  const f = await fixture({ tools: [{ id: 'mitzo:GetConnectionGuide', version: 1 }] });
+  const f = await fixture({ tools: [{ id: 'mitzo:PrepareSecretRelay', version: 1 }] });
   await expect(f.create().admit(f.request)).rejects.toThrow();
   expect(f.dispatch).not.toHaveBeenCalled();
   expect(f.launch).not.toHaveBeenCalled();

@@ -337,7 +337,26 @@ it('preserves legitimate edits and commits in the same retained checkout and Git
   await expect(f.owner.assertCurrent(f.expected)).resolves.toBeUndefined();
 });
 
-it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
+it.each([
+  { tools: [] },
+  { tools: [{ id: 'mitzo:Read', version: 1 }] },
+  {
+    tools: [
+      'ListConnections',
+      'GetConnectionGuide',
+      'RequestConnectionAccess',
+      'ConnectionRequest',
+      'ConnectionWebSocket',
+      'HomeAssistantDashboard',
+      'PrepareConnectionSetup',
+      'GetConnectionSetup',
+      'ReadKnowledge',
+      'SaveKnowledgeDraft',
+      'RequestWebAccess',
+      'GoogleWorkspaceRead',
+    ].map((name) => ({ id: `mitzo:${name}`, version: 1 })),
+  },
+])(
   'admits a published selected-tool snapshot through the existing owned runtime authority: %j',
   async ({ tools }) => {
     const f = fixture(tools);
@@ -348,11 +367,14 @@ it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
   },
 );
 
-it('refuses a host connection helper that lacks an owned Local Codex executor before workspace effects', async () => {
-  const f = fixture([{ id: 'mitzo:GetConnectionGuide', version: 1 }]);
-  await expect(f.owner.assertCurrent(f.expected)).rejects.toThrow('selection unavailable');
-  expect(f.workspace.reserveHostTask).not.toHaveBeenCalled();
-});
+it.each(['PrepareSecretRelay', 'ApplySecretRelay'])(
+  'refuses unqualified %s before workspace effects',
+  async (name) => {
+    const f = fixture([{ id: `mitzo:${name}`, version: 1 }]);
+    await expect(f.owner.assertCurrent(f.expected)).rejects.toThrow('selection unavailable');
+    expect(f.workspace.reserveHostTask).not.toHaveBeenCalled();
+  },
+);
 
 it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
   'admits a published selected-tool snapshot on the enrolled API owner: %j',
