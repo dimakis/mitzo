@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE } from '@mitzo/protocol';
 
 const messages = {
+  knowledge_unavailable: KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE,
   input_not_dispatched:
     'This message was not sent to the provider because its original runtime could not be prepared. Completed work will not be rerun.',
   repair_refused:

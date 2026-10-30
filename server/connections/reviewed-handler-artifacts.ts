@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.790-telos-chat-retention-integration';
+  'v1.0.794-compatible-knowledge-admission';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -598,7 +598,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     'be08f4bf4223ebd63bdc931187c39fa571d915ad2bb710ef2f9773a72b63b85d',
   '../__tests__/codex-chat-session.test.ts':
-    'c442b9cde7a00ae1b8071b4433e590d38f37d792bff49705d7ef190efb1dc30d',
+    '7e7c2ffed6bf1c8c8e29ef82bcaa1ffbeecd12e16dde02fad838acbf933ab0d0',
   '../__tests__/codex-conversation.test.ts':
     'cb099478bf78325d033f35e13ce0e996537b5362053e714646f2a5b65056a9fc',
   '../__tests__/codex-native-approvals.test.ts':
@@ -801,7 +801,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../knowledge-store-config.ts':
     '329b896ece883b389a84cdfef858283fae8c428c24af8b8f76c2a03910218415',
   '../knowledge-publication-bridge.ts':
-    'baad390594b8d6b8ee09f38f5af95a96b1cc498b73ea0b77bd4b3af0629051ea',
+    'f3677da7200d165e88a62d3ff0b6697cbb0a6ee8c9359f558a4a5e0d2bcc9ac1',
   '../../frontend/src/components/AdviserSubscriptions.tsx':
     '568a46de4fc1202e3304220ddb576092882c9a308e5e2080471e89e0bc246466',
   '../chatgpt-plan-adviser.ts': 'b229afb3cb4b9517c58d23d826d7a0445b8c5f5c70fd6115f460793a60a33534',
@@ -1239,9 +1239,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
-    'b6be24ab4086461c4c76ed7cb4feb4449f17e36a142293539282fb2f8449aa2a',
+    'a62242e59c0c2b966626cecf421a16547d425ca76ef9c476e8d4575f242071a8',
   '../../packages/protocol/src/local-codex-first-command.ts':
-    'a9b3584c637360b8834db1d5a3599e1b82a24ac4a66d1908a09ed1d2a70312ad',
+    '667267417c9942e1977852d49339cf350a9985e1f7e00f5591647490f70360ee',
   '../ordinary-local-codex-entry.ts':
     '69afce54df2061156bc5303419ecff7fac6a1ffb59675261bf0134be871b2082',
   '../ordinary-local-codex-metadata.ts':
@@ -1300,7 +1300,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '0f7f07c617285c102503d1b98e8a8c331fea2a2879cd1f25a965e27f77b5b5fa',
   '../../packages/client/src/store.ts':
-    '3f8ac06ed62a5c7a8bd6f8a331d806fed8648f70c61799d5f8de341c8aacb38c',
+    'ceffe2c2b80c8a141b4cff6fe920d22f95cd9a86b1675f315e8c28c2b4169a48',
   '../../packages/harness/src/permission-handler.ts':
     'ded77a1bb6dc8c81ec80ee8a0cafb2691cc90a6b088b12c3559b06a0c7b4b05a',
   '../../packages/harness/src/permissions.ts':
@@ -2024,7 +2024,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/multi-runtime-picker.spec.ts':
     'e93cc43d0923dbfc905dfcdbf587f63f1125313ff0b85cfa9499e0b5a5c58ee8',
   '../../tests/offline/repository-preparation-recovery.spec.ts':
-    '2354f2471f0be98b67e34c7847708e90f51e5b52bad1a66958b188f713f89e50',
+    '0ba15af8dbfc076f0eb5d57ecb6012f089018e6918394b83aec8fe5c0c978d7f',
   '../__tests__/ordinary-repository-preparation-api.test.ts':
     'e9db1e025ddd3505ec60c0a9034481cd16b9c54e1d1991f70968a3645a1aad5c',
   '../command-timing-trace.ts': 'f4c8ddbcae082c29fd718f09dd4b846b5aacc25574f43d681e31a508bae76560',
@@ -3040,7 +3040,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../retained-runtime-failure.ts':
     '1e92388b7e29ccfc709f3856f714dd369c2094a13331dd77342214e9bf3745a5',
   '../sdk-turn-query.ts': 'a60ef94c0fa220d442186b40aa92b5417062f55ed5ea79ec188b4e8baa46a506',
-  '../session-runtime-error.ts': '1477ec81fec0cf4109e4ca5f5a145c91f58df55ada97070a7a3265ee7f0f30d2',
+  '../session-runtime-error.ts': '673f33ed6e21c5415e228700d4f577b8bb8a0abd551d00fd078970d6385df86c',
   '../turn-callbacks.ts': 'ca33287acb8321549f6dfb940573da86bdf6a3b72ff0dc5943b1e311fe7b8599',
   '../web-access-sdk.ts': 'da22f3e4d52c19b9167739c1e0c37b2aad3aa5cbd6ae45c6ccb2ee3077b13e17',
   '../__tests__/sdk-query-usage.test.ts':

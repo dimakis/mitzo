@@ -11,6 +11,7 @@ import {
   SourceSnapshotsSchema,
   LocalCodexFirstCommandReceiptSchema,
   OrdinaryCodexRetainedCommandObservationSchema,
+  type KnowledgeRuntimeFailure,
 } from '@mitzo/protocol';
 /** Ordered, acknowledged HTTP delivery. SSE state never gates prompt submission. */
 interface Entry {
@@ -405,10 +406,16 @@ export class SendOutbox {
     }
   }
 
-  private notifyLocal(entry: Entry, state: string, acknowledged = false) {
+  private notifyLocal(
+    entry: Entry,
+    state: string,
+    acknowledged = false,
+    runtimeFailure?: KnowledgeRuntimeFailure,
+  ) {
     this.config.notify({
       type: '_local_command_state',
       state,
+      ...(runtimeFailure ? { runtimeFailure } : {}),
       ...(acknowledged ? { acknowledged: true } : {}),
       request: structuredClone(entry.body),
       ...(entry.composerDraft ? { composerDraft: structuredClone(entry.composerDraft) } : {}),
@@ -631,7 +638,12 @@ export class SendOutbox {
         };
         if (!this.persist()) throw Error('Local observation could not be retained');
         if (this.config.storage?.flush) await this.config.storage.flush();
-        this.notifyLocal(entry, 'retained');
+        this.notifyLocal(
+          entry,
+          'retained',
+          false,
+          'runtimeFailure' in observation.data ? observation.data.runtimeFailure : undefined,
+        );
       } else this.notifyLocal(entry, 'uncertain');
     } catch {
       if (generation === this.generation && this.entries.includes(entry))

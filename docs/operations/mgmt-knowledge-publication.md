@@ -26,6 +26,54 @@ A dynamic bundle is compatible only when its supported schema, runtime base/depe
 
 Missing compatibility fields, invalid marker environments, stale locks, projection mismatch, unsupported schema/compiler/recipe or malformed payloads block promotion with a specific reason and the action required to release a compatible runtime. No host dependency re-resolution, silent image rebuild, compiler substitution or fallback runtime is permitted.
 
+## Dependency rollout incident and release qualification
+
+On 30 October 2026, accepted MGMT source `0af5cff8` advanced its filelock
+requirement from the frozen 4.0.9 lock to 4.2.4. ContexGin published the accepted
+source, but the installed adapter correctly refused conversion for the older
+runtime. A retained previous publication did not keep new enrolled chats
+available: their admission requires reconciliation of the exact current source.
+The startup conversion error was hidden behind generic uncertain delivery.
+
+The replacement lock selects the image built from accepted Mitzo `5fad397b` and
+MGMT `0af5cff8`. Its image digest, installed compiler/recipe fingerprints, actual
+Linux target markers and frozen dependency projection were measured from the
+candidate. CLI version and generated app-server contract were verified in an
+offline disposable container; the generated contract matches the existing one.
+No provider/model calls, existing sandbox mutation or production activation are
+part of release preparation. The image is local; another host must build/import
+and verify the exact image before selecting this release.
+
+The repair separates accepted knowledge and runtime dependency versions. Dynamic
+bundles contain only allowlisted Markdown, rebuilt indexes and newly authored
+portable Git. The pinned builder verifies dependency and Jira inputs from the
+selected runtime base against the image contract, independently of the latest
+source's application dependencies. Every source/hash/mode/policy and immutable
+runtime compiler/recipe/image check remains. The static task-seed lane is separate.
+
+The MGMT adapter no longer executes the changing snapshot's indexer. The pinned
+builder already rebuilds and verifies the complete indexes from archived Markdown;
+source working-tree indexes are not copied or required. This removes duplicate
+work and prevents host-side source code from introducing another dependency lane.
+The paired fixture changes application requirements and knowledge, makes the
+source indexer refuse execution and removes working-tree indexes, then proves
+fresh publication and consumer admission with the same runtime image/contract.
+Tampered runtime pins and published content remain rejected.
+
+A blocked conversion carries a reviewed diagnosis through the first-command
+HTTP observation, outbox and store. The client renders only a recognized code
+and UUID, retaining its command and uncertainty; it never copies raw adapter
+output, clears a draft, resends, or selects an older knowledge bundle. Cancellation
+retains its original owner outcome. The existing recovery browser journey covers
+the diagnostic at narrow phone and desktop sizes without another app journey.
+
+Activation remains a separate operation after the source and runtime lock are
+accepted. Qualify the adapter/builder, stack, seed and target declaration together
+before changing enrollment; do not merely restart the server with its old pins.
+Verify fresh-command admission and between-turn adoption using the separately
+authorized target and the user's live-test model/account policy. Preserve the
+original blocked command and historical runtime records during any recovery.
+
 ## Portable source boundary
 
 For K1 select a versioned portable path allowlist:

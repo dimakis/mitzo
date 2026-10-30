@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
+import { SessionRuntimeError } from './session-runtime-error.js';
 
 const sha = z.string().regex(/^[a-f0-9]{64}$/);
 const revision = z.string().regex(/^[a-f0-9]{40}$/);
@@ -167,7 +168,15 @@ export class KnowledgePublicationBridge {
     const selection = Selection.parse(JSON.parse(raw).current);
     const manifest = await this.verify(selection, signal);
     signal.throwIfAborted();
-    const bundle = await this.adapt(selection, signal);
+    let bundle: Omit<KnowledgeBundleSelection, 'baselineSha256'>;
+    try {
+      bundle = await this.adapt(selection, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      // Retain the cause privately; wrappers can preserve a reviewed diagnosis
+      // without copying adapter output or granting permission to resend.
+      throw new SessionRuntimeError('knowledge_unavailable', { cause: error });
+    }
     if (bundle.sourceCommit !== selection.revision)
       throw new Error('Bundle revision differs from publication');
     if (!isAbsolute(bundle.seed)) throw new Error('Bundle seed must be absolute');
