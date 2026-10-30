@@ -1,3 +1,4 @@
+import { googleWorkspaceReadTarget } from './google-workspace-read.js';
 import { z } from 'zod';
 import type { CommandRunner } from './connections-gateway.js';
 
@@ -211,6 +212,7 @@ export class GoogleWorkspaceManagement {
       exportCredentials: (signal: AbortSignal) => Promise<string>;
       request: (url: string, init: RequestInit) => Promise<unknown>;
       workspace?: string;
+      readRequest?: (url: string, init: RequestInit) => Promise<string>;
     },
   ) {}
   private command(args: string[], signal: AbortSignal, env: Record<string, string> = {}) {
@@ -337,7 +339,7 @@ export class GoogleWorkspaceManagement {
           },
         ),
       );
-      return { credentials, email: identity.user.emailAddress };
+      return { credentials, email: identity.user.emailAddress, accessToken: token.access_token };
     } catch (error) {
       if (error instanceof Error && error.message === 'Google scope mismatch') throw error;
       // Raw OAuth/gws errors can contain credentials; do not retain their cause.
@@ -346,6 +348,43 @@ export class GoogleWorkspaceManagement {
         'Google sign-in on the Mitzo computer needs attention. Reconnect its gws account and retry.',
       );
     }
+  }
+  /** Account and token remain in controller custody. Approval receives only email and request. */
+  async prepareRead(input: unknown, signal: AbortSignal) {
+    const { url } = googleWorkspaceReadTarget(input);
+    signal.throwIfAborted();
+    if (!this.options.readRequest) throw Error('Google reads are not configured');
+    const before = await this.verifyProvider(signal);
+    const grant = await this.hostGrant(signal);
+    signal.throwIfAborted();
+    const assertProvider = async () => {
+      const current = await this.verifyProvider(signal);
+      if (
+        before.id !== current.id ||
+        before.workspace !== current.workspace ||
+        before.resource_version !== current.resource_version
+      )
+        throw Error('Google connection changed. Review the account and retry.');
+    };
+    return {
+      email: grant.email,
+      read: async (assertCurrent: () => void | Promise<void>) => {
+        signal.throwIfAborted();
+        await assertProvider();
+        await assertCurrent();
+        signal.throwIfAborted();
+        const content = await this.options.readRequest!(url, {
+          method: 'GET',
+          signal,
+          redirect: 'error',
+          headers: { Authorization: `Bearer ${grant.accessToken}` },
+        });
+        await assertProvider();
+        await assertCurrent();
+        signal.throwIfAborted();
+        return content;
+      },
+    };
   }
   async preview(signal: AbortSignal) {
     await this.verifyProvider(signal);

@@ -2,6 +2,13 @@
 
 Read `CLAUDE.md` for repository commands, architecture, test discipline, and workflow. Preserve other sessions' branches, task files, provider history, and sandbox ownership.
 
+## Boy Scout rule — every session
+
+Follow [the always-on Boy Scout rule](.cursor/rules/boy-scout.mdc). Leave touched
+code easier to maintain: prefer focused shared modules, remove duplicated work
+and needless calls, and consolidate repeated fixtures. Preserve authorization,
+revocation and cancellation boundaries when reducing redundant checks.
+
 ## Symposium source selection
 
 Start Symposium work with [the current source guide](docs/features/symposium.md)

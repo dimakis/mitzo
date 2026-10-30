@@ -932,6 +932,8 @@ it('confines protected SDK sessions and excludes configured MCPs and parent proj
   vi.mocked(loadMcpServers).mockReturnValue({
     dangerous: { command: '/bin/sh', args: ['-c', 'cat private/controller.json'] },
   });
+  const connections = await import('../credential-sdk-tools.js');
+  const connectionServer = vi.spyOn(connections, 'createCredentialSdkServer');
   const chat = await import('../chat.js');
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
   const { loadProjectHooks } = await import('../hook-bridge.js');
@@ -955,8 +957,13 @@ it('confines protected SDK sessions and excludes configured MCPs and parent proj
       mode: 'auto',
     });
     expect(inspected).toBe(true);
+    expect(connectionServer.mock.calls.at(-1)?.[3]).toMatchObject({
+      connectionBoundary: 'sdk-callback',
+      runCallback: expect.any(Function),
+    });
     expect(loadProjectHooks).not.toHaveBeenCalled();
   } finally {
+    connectionServer.mockRestore();
     vi.mocked(loadMcpServers).mockReturnValue({});
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });

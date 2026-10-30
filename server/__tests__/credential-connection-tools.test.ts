@@ -446,21 +446,23 @@ it('shows enabled WebSocket path and mutation risk without exposing its authenti
   expect(prompt.description).not.toMatch(/authentication|access_token|auth_ok|credentialField/);
 });
 
-it('refuses guarded dashboard helpers before approvals or remote frame effects', async () => {
-  const f = setup(
-    () => true,
-    async () => {},
-  );
+it('forwards final owned authority into the guarded dashboard adapter after approval', async () => {
+  const guard = vi.fn(async () => {});
+  const f = setup(() => true, guard);
+  const signal = new AbortController().signal;
   const result = await f.tools.execute(
     'HomeAssistantDashboard',
     { connectionId: 'ha', operation: 'read' },
-    new AbortController().signal,
+    signal,
   );
-  expect(result).toMatchObject({
-    isError: true,
-    content: expect.stringContaining('final authority'),
-  });
-  expect(f.approve).not.toHaveBeenCalled();
-  expect(f.service.grant).not.toHaveBeenCalled();
-  expect(f.service.dashboardRequest).not.toHaveBeenCalled();
+  expect(result).toMatchObject({ isError: false });
+  expect(f.approve).toHaveBeenCalled();
+  expect(f.service.dashboardRequest).toHaveBeenCalledWith(
+    'session-a',
+    'ha',
+    expect.objectContaining({ operation: 'read' }),
+    signal,
+    expect.any(Function),
+    guard,
+  );
 });

@@ -91,7 +91,7 @@ it('keeps legacy behavior but blocks explicit selections on unsupported routes a
   ).not.toThrow();
   expect(() =>
     assertAgentToolRoute(
-      { tools: [{ id: 'mitzo:GetConnectionGuide', version: 1 }] } as never,
+      { tools: [{ id: 'mitzo:PrepareSecretRelay', version: 1 }] } as never,
       'codex-owned-local',
     ),
   ).toThrow(/unavailable/i);
@@ -227,3 +227,26 @@ it.each(['DiscoverLocalRepository', 'InspectLocalRepository'])(
     expect(agentToolAllowed(session, 'PrepareLocalRepository')).toBe(false);
   },
 );
+
+it.each([
+  'ListConnections',
+  'GetConnectionGuide',
+  'RequestConnectionAccess',
+  'ConnectionRequest',
+  'ConnectionWebSocket',
+  'HomeAssistantDashboard',
+  'PrepareConnectionSetup',
+  'GetConnectionSetup',
+  'ReadKnowledge',
+  'SaveKnowledgeDraft',
+  'RequestWebAccess',
+])('admits selected native service tool %s without granting unselected tools', (name) => {
+  const definition = { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never;
+  expect(() => assertAgentToolRoute(definition, 'codex-owned-local')).not.toThrow();
+  const selected = {};
+  bindAgentToolSelection(selected, definition, 'codex-owned-local');
+  expect(agentToolAllowed(selected, name)).toBe(true);
+  const excluded = {};
+  bindAgentToolSelection(excluded, { tools: [] } as never, 'codex-owned-local');
+  expect(agentToolAllowed(excluded, name)).toBe(false);
+});

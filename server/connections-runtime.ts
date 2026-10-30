@@ -1,3 +1,4 @@
+import { readGoogleWorkspaceResponse } from './google-workspace-read.js';
 import {
   inspectHostGithubRepository,
   exportHostGithubBundle,
@@ -611,7 +612,7 @@ export function createConnectionsRuntime(options: {
             run: runGateway,
             workspace: options.workspace,
             exportCredentials: async (signal) => {
-              // This admin-only controller operation never mounts host credentials
+              // This controller-only operation never mounts host credentials
               // in a sandbox or forwards them to a model/browser.
               try {
                 const pending = exec(
@@ -632,6 +633,13 @@ export function createConnectionsRuntime(options: {
               } catch {
                 throw new Error('Local Google sign-in is unavailable');
               }
+            },
+            readRequest: async (url, init) => {
+              const signal = init.signal ?? AbortSignal.timeout(20_000);
+              return readGoogleWorkspaceResponse(
+                await fetch(url, { ...init, signal, redirect: 'error' }),
+                signal,
+              );
             },
             request: async (url, init) => {
               const response = await fetch(url, { ...init, redirect: 'error' });
