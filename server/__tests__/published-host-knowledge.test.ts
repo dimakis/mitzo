@@ -65,14 +65,14 @@ it('pins an active turn and refreshes the next one without refetching on tool re
   expect(
     (await prepareHostKnowledge(session, true, new AbortController().signal))?.sourceCommit,
   ).toBe(first.sourceCommit);
-  expect((await readHostKnowledge(session, 'memory/Observations/lesson.md'))?.content).toBe(
-    'First accepted memory',
-  );
+  expect(await readHostKnowledge(session, 'memory/Observations/lesson.md')).toMatchObject({
+    content: 'First accepted memory',
+  });
   expect(reconcile).toHaveBeenCalledOnce();
   await prepareHostKnowledge(session, true, new AbortController().signal);
-  expect((await readHostKnowledge(session, 'memory/Observations/lesson.md'))?.content).toBe(
-    'Second accepted memory',
-  );
+  expect(await readHostKnowledge(session, 'memory/Observations/lesson.md')).toMatchObject({
+    content: 'Second accepted memory',
+  });
   expect(reconcile).toHaveBeenCalledTimes(2);
   writeFileSync(join(second.seed, 'memory/Observations/lesson.md'), 'corrupt');
   await expect(readHostKnowledge(session, 'memory/Observations/lesson.md')).rejects.toThrow();

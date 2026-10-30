@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.790-shared-memory-capture';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.791-shared-memory-capture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,16 +22,18 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/protocol/src/memory-candidate-store.ts':
+    'b30ce998b3e015effb5c5614fb63154d12f79f0186c6d437a8738c17baa487fd',
   '../__tests__/fixtures/host-knowledge-publication.ts':
     '617295faca66ede3f260af9fce22ce8af33e650ac523c1ead1818e8bdcde979b',
   '../__tests__/published-host-knowledge.test.ts':
-    '3bc433a415f4edb97e551bf93fb256fb25e336729ebbe13578594208f0d437f9',
+    '89d3d9f1953b25f12d5e87c7ba6a9d29fad6b6d671155c6775322a7dac36815d',
   '../published-host-knowledge.ts':
     '67520f2bca33163f17bc7d3db209d365d48aa3ffc6e7802ef3440d5e9f44a5a9',
   '../session-memory-instructions.ts':
     'fb0fdb93b00a25e10f89e510fd83d5c923b19a59540c123615a376cd145c190c',
   '../../packages/protocol/src/memory-candidates.ts':
-    '1130c46967415b0526acf55df362c2f1cc941c6cf84b783a44be507c2a223764',
+    '308304481c20b86e2b97fe2090a6a1bc20daef0b6f0b78f835d1396aae39c15c',
   '../__tests__/sdk-query-usage.test.ts':
     'a0a6f4c0f0627dbf38e03894d7be75915ac95176b7701b0ab71fa50c21fb69d8',
   '../sdk-query-usage.ts': '1ad2216cc6bb6ec92ecd05a508f6abbe9af0ee86a52fceafaca2d91347d55af2',
@@ -1559,7 +1561,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '9d270987bc47a9a468fdbd6d595d6a90b7297f080ce4c34103b0e7af11303ddf',
   '../../packages/protocol/src/event-store.ts':
-    '7a07693b6747a3a36b3007cfd4dce7804da29a7448e68885a8c844f83ba41698',
+    'e8bf1173674f666a8625124ef6f8233cbef3e26ee74fd48ab961c65d789d6c9d',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':

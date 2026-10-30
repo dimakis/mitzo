@@ -133,7 +133,7 @@ import {
 } from './symposium-artifact-reader.js';
 import { databaseBackupWatermark, backupOwnedDatabase } from './database-backup.js';
 import Database from 'better-sqlite3';
-import { recordMemoryCandidate } from './memory-candidates.js';
+import { recordMemoryCandidate } from './memory-candidate-store.js';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   SymposiumArtifactSealSelectionSchema,
