@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,6 +41,39 @@ function fixture() {
 }
 
 describe('native execution receipts in the existing command owner', () => {
+  it('preserves historical receipts without falsely attesting new temporary-directory access', () => {
+    const f = fixture();
+    const scratch = codexNativeExecutionPolicy({
+      bindingRevision: policy.bindingRevision,
+      cwd: policy.cwd,
+      mode: 'agent',
+      readableRoots: ['/'],
+      writableRoots: policy.workspaceRoots,
+      deniedRoots: policy.deniedRoots,
+      writeProtectedRoots: policy.writeProtectedRoots,
+    });
+    const legacy = { ...scratch };
+    delete legacy.temporaryAccess;
+    const digest = (value: unknown) =>
+      createHash('sha256').update(JSON.stringify(value)).digest('hex');
+    legacy.profileRevision = digest([
+      legacy.bindingRevision,
+      legacy.readableRoots,
+      legacy.deniedRoots,
+      legacy.writeProtectedRoots,
+    ]);
+    legacy.policyRevision = digest([
+      legacy.profileRevision,
+      legacy.cwd,
+      legacy.workspaceRoots,
+      legacy.permissions,
+    ]);
+    f.store.prepareNativeExecution('conversation', binding, f.command, 'thread', legacy);
+    const restored = f.store.readNativeExecution('conversation', binding, f.command)!.policy;
+    expect(restored).toEqual(legacy);
+    expect(restored).not.toHaveProperty('temporaryAccess');
+    expect(legacy.profileRevision).not.toBe(scratch.profileRevision);
+  });
   it('retains the exact base policy before dispatch and preserves unknown native acceptance', () => {
     const f = fixture();
     const submitted = { ...structuredClone(policy) };
