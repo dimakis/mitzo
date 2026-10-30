@@ -143,12 +143,14 @@ it('observes deletion during optional catalog refresh before returning reuse eli
       profileRevision: 'fixture',
     },
   });
+  catalog.refresh.mockClear();
   catalog.refresh.mockImplementationOnce(async () => {
     store.hideSession('during-refresh');
   });
-  const response = await request(app).get('/api/sessions/during-refresh/meta');
+  const response = await request(app).get('/api/sessions/during-refresh/meta?refresh=1');
   expect(response.status).toBe(200);
   expect(response.body.isHidden).toBe(true);
+  expect(catalog.refresh).toHaveBeenCalledWith(true, { discoverApi: true });
 });
 
 it('retains the last admitted model and thinking when optional account refresh fails on reopen', async () => {

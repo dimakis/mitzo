@@ -86,6 +86,80 @@ describe('SseConnection', () => {
     vi.useRealTimers();
   });
 
+  it('orders suspend and foreground replay revisions across overlapping HTTP requests', async () => {
+    const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('addEventListener', vi.fn());
+    vi.stubGlobal('removeEventListener', vi.fn());
+    let finishSuspend!: (response: Response) => void;
+    const fetch = vi.fn((url: string, _init?: RequestInit) =>
+      url.endsWith('/suspend')
+        ? new Promise<Response>((resolve) => {
+            finishSuspend = resolve;
+          })
+        : Promise.resolve({ ok: true } as Response),
+    );
+    const conn = new SseConnection(createConfig({ fetch }));
+    try {
+      conn.trackSeq('ordered-session', 12);
+      conn.connect();
+      const es = lastES();
+      es._emit('welcome', { connectionId: 'ordered-conn' });
+      await vi.advanceTimersByTimeAsync(0);
+      Object.assign(doc, { visibilityState: 'hidden' });
+      doc.dispatchEvent(new Event('visibilitychange'));
+      const suspension = JSON.parse(
+        String(fetch.mock.calls.find(([url]) => url.endsWith('/suspend'))![1]!.body),
+      );
+      Object.assign(doc, { visibilityState: 'visible' });
+      doc.dispatchEvent(new Event('visibilitychange'));
+      const probe = fetch.mock.calls.find(([url]) => url.endsWith('/probe'))!;
+      es._emit('message', { type: '_probe', nonce: JSON.parse(String(probe[1]!.body)).nonce });
+      await vi.advanceTimersByTimeAsync(0);
+      const replay = JSON.parse(
+        String(fetch.mock.calls.filter(([url]) => url.endsWith('/reconnect')).at(-1)![1]!.body),
+      );
+      expect(suspension.lifecycleRevision).toBeGreaterThan(0);
+      expect(replay.lifecycleRevision).toBeGreaterThan(suspension.lifecycleRevision);
+      finishSuspend({ ok: true } as Response);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(conn.isConnected()).toBe(true);
+      expect(MockEventSource.instances).toHaveLength(1);
+    } finally {
+      conn.disconnect();
+      vi.unstubAllGlobals();
+    }
+  });
+  it('carries its original connection across forced replacements, including an unacknowledged replay', async () => {
+    const fetch = vi.fn((url: string, _init?: RequestInit) =>
+      url.endsWith('/reconnect')
+        ? new Promise<Response>(() => {})
+        : Promise.resolve({ ok: true } as Response),
+    );
+    const beacon = vi.fn();
+    vi.stubGlobal('navigator', { sendBeacon: beacon });
+    const conn = new SseConnection(createConfig({ fetch, suspendUrl: '/suspend' }));
+    try {
+      conn.connect();
+      lastES()._emit('welcome', { connectionId: 'origin-stream' });
+      conn.trackSeq('session', 12);
+      conn.checkAndReconnect(true);
+      lastES()._emit('welcome', { connectionId: 'unacknowledged-stream' });
+      conn.sendSuspend();
+      expect(beacon).toHaveBeenCalledOnce();
+      const hint = JSON.parse(await (beacon.mock.calls[0][1] as Blob).text());
+      expect(hint.replacesConnectionId).toBe('origin-stream');
+      conn.checkAndReconnect(true);
+      lastES()._emit('welcome', { connectionId: 'successor-stream' });
+      const replays = fetch.mock.calls.filter(([url]) => url.endsWith('/reconnect'));
+      expect(replays).toHaveLength(2);
+      for (const replay of replays)
+        expect(JSON.parse(String(replay[1]!.body)).replacesConnectionId).toBe('origin-stream');
+    } finally {
+      conn.disconnect();
+      vi.unstubAllGlobals();
+    }
+  });
   it.each(['welcome', 'probe'] as const)(
     'wakes an exact saved send on verified %s before replay is ready',
     async (source) => {
@@ -1842,6 +1916,8 @@ describe('SseConnection', () => {
           type: 'reconnect',
           supportsAppliedCursor: true,
           sessions: [{ sessionId: 'sess-1', lastSeq: 10 }],
+          lifecycleRevision: 1,
+          replacesConnectionId: 'conn-abc',
         }),
       }),
     );
