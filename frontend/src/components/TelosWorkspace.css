@@ -199,7 +199,7 @@
 }
 .telos-dashboard {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 20rem);
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-6);
   padding: var(--page-gutter);
 }
@@ -234,8 +234,8 @@
   font: inherit;
 }
 .telos-brief {
-  border-left: 1px solid var(--color-border);
-  padding-left: var(--space-5);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
 }
 .telos-brief h2 {
   font-size: var(--text-sm);
@@ -469,4 +469,21 @@
 .telos-lifecycle-recovery dd {
   margin: 0 0 var(--space-2);
   overflow-wrap: anywhere;
+}
+
+/* Work and documents own the reading width; supporting context is opt-in. */
+.telos-brief > details > summary,
+.readable-brief > details > summary {
+  min-height: var(--control-height);
+  display: list-item;
+  align-content: center;
+  cursor: pointer;
+  color: var(--color-muted);
+}
+.readable-brief {
+  max-width: 75ch;
+  overflow-wrap: anywhere;
+}
+.readable-brief pre {
+  overflow: auto;
 }

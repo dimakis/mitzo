@@ -2356,3 +2356,13 @@ existing explicit reconnect action to verify that receipt under current authorit
 It still sends nothing until the user activates the control. Truly unknown effects
 keep continuation and retry controls withheld; a completed response is never
 relabelled as failed. The fixture covers all three states and retained queued work.
+
+## Telos brief readability
+
+The 30 October first-use review requested readable work details rather than the
+same handoff repeated in two columns. `ReadableBrief` uses the existing sanitized
+Markdown policy and a bounded text excerpt; Full brief reveals the complete saved
+text without model summarization. Details & context retains rationale, acceptance
+criteria, dates and original evidence in a native collapsed disclosure. Work and
+Materials use the available reading width. Shared typography, semantic colors,
+spacing and the native disclosure motion/focus behavior remain authoritative.

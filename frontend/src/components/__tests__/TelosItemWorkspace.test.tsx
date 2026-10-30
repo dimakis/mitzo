@@ -272,3 +272,25 @@ it('keeps a long unclassified item title complete and groups empty intent separa
   expect(within(intent!).getByText('Not recorded')).toBeTruthy();
   expect(within(materials!).getByText('Retained output revisions')).toBeTruthy();
 });
+
+it('keeps long instructions in one readable overview and collapses supporting metadata', () => {
+  const record = {
+    ...records[1],
+    intent: 'Manager review. ' + 'Detailed source reference. '.repeat(100),
+  };
+  render(
+    <MemoryRouter>
+      <TelosItemWorkspace
+        refreshKey={0}
+        record={record}
+        records={[record]}
+        onOpen={vi.fn()}
+        onBack={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  const original = screen.getByLabelText('Original brief');
+  expect(within(original).queryByText(record.intent)).toBeNull();
+  expect(screen.getByText('Full brief').closest('details')?.open).toBe(false);
+  expect(screen.getByText('Details & context').closest('details')?.open).toBe(false);
+});
