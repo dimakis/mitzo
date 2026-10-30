@@ -38,6 +38,9 @@ import { login, authenticateToken, setAuthRevocationStore } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import * as workspaces from '../repository-workspace-runtime.js';
 import * as library from '../agent-library-runtime.js';
+import { setConnectionsRuntime } from '../connections-runtime.js';
+import { googleWorkspaceChatFixture } from './fixtures/google-workspace-chat.js';
+import { resolvePending } from '../permissions.js';
 const cleanups: Array<() => void | Promise<void>> = [];
 afterAll(async () => {
   for (const close of cleanups.splice(0).reverse()) await close();
@@ -47,13 +50,21 @@ afterAll(async () => {
   vi.restoreAllMocks();
 });
 
-it('enables native tools and fixed scoped permissions on the actual admitted Mac route', async () => {
+it('reads Google documents through an admitted Local Mac chat while credentials stay denied', async () => {
   const f = await ownedRuntimeFixture(cleanups, {
     chatRoute: true,
-    tools: ['Bash', 'Read', 'Write', 'Edit', 'AgentCommunication'].map((name) => ({
-      id: `mitzo:${name}`,
-      version: 1,
-    })),
+    tools: ['Bash', 'Read', 'Write', 'Edit', 'AgentCommunication', 'GoogleWorkspaceRead'].map(
+      (name) => ({
+        id: `mitzo:${name}`,
+        version: 1,
+      }),
+    ),
+  });
+  const google = await googleWorkspaceChatFixture(f.root);
+  setConnectionsRuntime(google.runtime);
+  cleanups.push(() => {
+    setConnectionsRuntime(null);
+    google.runtime.store.close();
   });
   // The runtime/transport are synthetic; qualify this fixture's Mac host identity
   // after loading the actual host dependencies, including SQLite.
@@ -84,7 +95,13 @@ it('enables native tools and fixed scoped permissions on the actual admitted Mac
     }
     return first(method);
   });
-  const launch = vi.spyOn(CodexAppServerClient, 'launchIsolated').mockReturnValue(f.rpc as never);
+  let callbacks: NonNullable<Parameters<typeof CodexAppServerClient.launchIsolated>[2]>;
+  const launch = vi
+    .spyOn(CodexAppServerClient, 'launchIsolated')
+    .mockImplementation((_home, _env, lifecycle) => {
+      callbacks = lifecycle!;
+      return f.rpc as never;
+    });
   const clientId = `${f.dependencies.operatorConnectionId}:${f.reservation.conversationId}`;
   cleanups.push(async () => {
     chat.registry.abort(clientId);
@@ -147,4 +164,96 @@ it('enables native tools and fixed scoped permissions on the actual admitted Mac
   });
   expect(providerCalls).toBe(1);
   expect(launch).toHaveBeenCalledOnce();
-}, 20000);
+  const call = (tool: string, arguments_: Record<string, unknown>, callId: string) =>
+    callbacks!.onRequest(
+      'item/tool/call',
+      {
+        threadId: 'real-host-thread',
+        turnId: 'real-host-turn',
+        callId,
+        tool,
+        arguments: arguments_,
+      },
+      new AbortController().signal,
+    );
+  expect(names).toContain('GoogleWorkspaceRead');
+  const listing = await call(
+    'ListIntegrationTools',
+    { query: 'Google', limit: 20 },
+    'google-discovery',
+  );
+  expect(JSON.stringify(listing)).toContain('GoogleWorkspaceRead');
+  const read = call(
+    'GoogleWorkspaceRead',
+    { operation: 'drive.export', fileId: 'fixture-document', mimeType: 'text/plain' },
+    'google-read',
+  );
+  await vi.waitFor(
+    () =>
+      expect(transport.send.mock.calls.some(([event]) => event.type === 'permission_request')).toBe(
+        true,
+      ),
+    { timeout: 10000 },
+  );
+  const approval = transport.send.mock.calls
+    .map(([event]) => event)
+    .find((event) => event.type === 'permission_request')!;
+  expect(approval.description).toContain('fixture@example.test');
+  expect(google.contentReads()).toHaveLength(0);
+  expect(resolvePending(approval.permId, 'once', undefined, f.reservation.conversationId)).toBe(
+    true,
+  );
+  const googleResult = await read;
+  expect(googleResult).toMatchObject({ success: true });
+  expect(JSON.stringify(googleResult)).toContain('Google document content from the approved read');
+  expect(google.contentReads()).toHaveLength(1);
+  expect(JSON.stringify(googleResult)).not.toContain('SECRET');
+  const approvals = () =>
+    transport.send.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.type === 'permission_request');
+  const nextApproval = async (before: number) => {
+    await vi.waitFor(() => expect(approvals().length).toBeGreaterThan(before), { timeout: 10000 });
+    return approvals().at(-1)!;
+  };
+  const readInput = {
+    operation: 'drive.export',
+    fileId: 'fixture-document',
+    mimeType: 'text/plain',
+  };
+  const deniedRead = call('GoogleWorkspaceRead', readInput, 'denied-google-read');
+  const deniedApproval = await nextApproval(approvals().length);
+  resolvePending(deniedApproval.permId, 'deny', undefined, f.reservation.conversationId);
+  expect(await deniedRead).toMatchObject({ success: false });
+  expect(google.contentReads()).toHaveLength(1);
+  google.content.text = 'Approved long Google document. '.repeat(1000);
+  const longRead = call('GoogleWorkspaceRead', readInput, 'long-google-read');
+  const longApproval = await nextApproval(approvals().length);
+  resolvePending(longApproval.permId, 'once', undefined, f.reservation.conversationId);
+  const longResult = await longRead;
+  expect(longResult).toMatchObject({ success: true });
+  const preview = JSON.parse((longResult.contentItems as Array<{ text: string }>)[0]!.text);
+  expect(preview).toMatchObject({
+    format: 'tool-output-preview',
+    complete: false,
+    outputId: expect.any(String),
+  });
+  expect(names).toContain('ReadToolOutput');
+  const retained = await call(
+    'ReadToolOutput',
+    { outputId: preview.outputId, offset: 0, limit: 1000 },
+    'retained-google-read',
+  );
+  expect(retained).toMatchObject({ success: true });
+  expect(JSON.stringify(retained)).toContain('Approved long Google document.');
+  const retiredRead = call('GoogleWorkspaceRead', readInput, 'retired-google-read');
+  const retiredApproval = await nextApproval(approvals().length);
+  setConnectionsRuntime(null);
+  resolvePending(retiredApproval.permId, 'once', undefined, f.reservation.conversationId);
+  expect(await retiredRead).toMatchObject({ success: false });
+  expect(google.contentReads()).toHaveLength(2);
+  expect(JSON.stringify(transport.send.mock.calls)).not.toContain('SECRET');
+  const profiles = JSON.stringify(thread.config);
+  expect(profiles).toContain('.config/gws');
+  expect(profiles).toContain('deny');
+}, 40000);

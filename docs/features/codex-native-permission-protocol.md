@@ -213,3 +213,58 @@ The pinned no-model macOS qualifier exercises a heredoc large enough to require 
 temporary file: the old profile refuses it, the scratch profile succeeds, and
 credential reads and unrelated writes remain denied. This is standalone sandbox
 qualification, not a live provider or browser acceptance result.
+
+## Controller service tools on Local Mac
+
+Owned Local Mac chats can select Keychain connection discovery, access requests,
+HTTPS requests, secure setup/status, generic WebSocket commands and Home Assistant
+dashboard operations. They can also read accepted Knowledge and save Library
+drafts. `RequestWebAccess` now advertises the native route already implemented by
+its executor. Agent profile selection remains a ceiling; service access still
+requires its existing connection consent, endpoint/method permissions and current
+interactive operator. Shell access to credentials is unchanged.
+
+Native service calls carry the original private tool-callback fence into the
+controller adapters. HTTPS checks current authority again after DNS and before
+returning data. Framed transports check it before connecting, after DNS, before
+each authentication/application frame and before delivering results; asynchronous
+checks serialize received events. Dashboard writes retain baseline hash checks,
+read-back verification, uncertain-write reporting and no automatic replay. The
+existing framed-helper opt-in for other owned runtime routes is unchanged. Secret
+relay adapters retain their separate qualification contract.
+
+Peer close stops further sends but drains already-received native response
+handlers before declaring an unconfirmed exchange. Delivery still requires current
+authority; cancellation, errors and the original exchange deadline remain binding.
+Messages arriving after close cannot supply a late acknowledgement.
+
+The native facade composes the shared connection and Knowledge adapters directly,
+without constructing unrelated repository, profile or task tools per call.
+Concurrent connection-access requests share only an in-flight consent promise
+within the same conversation and service instance. Completed requests are removed;
+grants and native-call authority are always checked against current state. A
+cancelled initiating request fails the shared consent rather than keeping its
+authority alive for another caller.
+
+Trusted controller composition selects the connection boundary explicitly.
+Legacy SDK callback tracking retains its existing framed and secure-setup tools,
+with callback authority checked before effects and delivery. Owned-runtime frame
+qualification and private setup-continuation requirements remain separate;
+adding a callback lifetime fence cannot silently change those capabilities.
+
+Knowledge reads use the enrolled accepted revision, independently of dirty task
+files. Draft saves recheck current native authority immediately before the
+idempotent store write and require exact request approval. They save a draft;
+review, acceptance, publication and adoption retain their existing gates. Ask
+permits service/dashboard/accepted-Knowledge reads and rejects writes; web access
+retains its existing mode policy.
+
+`owned-local-codex-service-tools.test.ts` and its Ask counterpart exercise actual
+chat admission and native tool requests, connection consent, credential redaction,
+HTTPS reads, dashboard read/save/verify, generic WebSocket use, accepted Knowledge,
+idempotent draft receipts and approved webpage fetches. They also cover grant
+revocation between frames, service replacement during approval, cancellation while
+waiting for the vault, and mode/skill ceilings. Only external vault/socket/web
+peers and model transport are synthetic; no live account or model calls occur.
+Both modes use one admitted-chat fixture. The Agent case also asserts that
+simultaneous access requests issue one approval and one grant.
