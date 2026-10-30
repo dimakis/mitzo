@@ -1,5 +1,5 @@
-import { compactionLabel } from '../lib/compaction-presentation';
-import { useState } from 'react';
+import { compactionDuration, compactionLabel } from '../lib/compaction-presentation';
+import { useEffect, useState } from 'react';
 import type { ContextCompaction } from '@mitzo/protocol';
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
@@ -11,21 +11,107 @@ export function CompactionDetails({
   record: ContextCompaction;
   onJump?(): void;
 }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (record.phase !== 'compacting' || record.startedAt == null) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [record.phase, record.startedAt]);
+  const before = record.usageBefore;
+  const after = record.usageAfter;
+  const model = before?.model ?? after?.model;
+  const ceiling = before?.contextCeiling ?? after?.contextCeiling;
+  const time = (at: number) => (
+    <time dateTime={new Date(at).toISOString()}>{new Date(at).toLocaleTimeString()}</time>
+  );
   return (
     <div className="compaction-details">
-      <p role="status">
-        {compactionLabel(record)} · {new Date(record.observedAt).toLocaleTimeString()}
-      </p>
+      <p role="status">{compactionLabel(record)}</p>
+      {record.phase === 'compacting' && (
+        <p>
+          Waiting for the runtime to report completion. Elapsed time is not a progress estimate; a
+          long wait alone does not confirm failure.
+        </p>
+      )}
       {(record.phase === 'interrupted' || record.phase === 'unknown') && (
         <p>
           Execution ended before the runtime reported a compaction result. Completion and any
           context reduction are unconfirmed.
         </p>
       )}
-      <p>
-        {record.turnIndex !== null
-          ? `Recorded at agent request ${record.turnIndex}.`
-          : 'The runtime did not report a request number.'}
+      <dl>
+        {record.startedAt != null && (
+          <>
+            <dt>Started</dt>
+            <dd>{time(record.startedAt)}</dd>
+          </>
+        )}
+        {record.endedAt != null && (
+          <>
+            <dt>{record.phase === 'completed' ? 'Completed' : 'Ended'}</dt>
+            <dd>{time(record.endedAt)}</dd>
+          </>
+        )}
+        {record.startedAt != null && (record.endedAt != null || record.phase === 'compacting') && (
+          <>
+            <dt>{record.phase === 'compacting' ? 'Elapsed' : 'Duration'}</dt>
+            <dd>{compactionDuration((record.endedAt ?? now) - record.startedAt)}</dd>
+          </>
+        )}
+        {model && (
+          <>
+            <dt>Model</dt>
+            <dd>{model}</dd>
+          </>
+        )}
+        {record.turnIndex !== null && (
+          <>
+            <dt>Agent request</dt>
+            <dd>{record.turnIndex}</dd>
+          </>
+        )}
+        <dt>Last lifecycle update</dt>
+        <dd>{time(record.observedAt)}</dd>
+      </dl>
+      <dl aria-label="Context usage">
+        <dt>{record.beforeTokens !== null ? 'Reported before' : 'Last observed before'}</dt>
+        <dd>
+          {record.beforeTokens?.toLocaleString() ??
+            before?.tokens.toLocaleString() ??
+            'Not reported'}
+          {record.beforeTokens === null && before && <small>{time(before.observedAt)}</small>}
+        </dd>
+        <dt>
+          {record.afterTokens !== null
+            ? 'Reported after'
+            : record.phase === 'completed'
+              ? 'First observed after'
+              : 'Context after'}
+        </dt>
+        <dd>
+          {record.afterTokens?.toLocaleString() ??
+            (record.phase === 'completed'
+              ? (after?.tokens.toLocaleString() ?? 'Awaiting fresh usage')
+              : 'Not confirmed')}
+          {record.afterTokens === null && record.phase === 'completed' && after && (
+            <small>{time(after.observedAt)}</small>
+          )}
+        </dd>
+        {ceiling != null && (
+          <>
+            <dt>Context limit</dt>
+            <dd>{ceiling.toLocaleString()}</dd>
+          </>
+        )}
+      </dl>
+      {(before || after) && (
+        <p className="workspace-muted">
+          Usage readings are observations around compaction, not exact compaction sizes. They can
+          include work before or after it.
+        </p>
+      )}
+      <p className="workspace-muted">
+        Your original chat remains browsable. Cumulative usage is not reset.
       </p>
       {record.afterMessageId && onJump && (
         <button type="button" onClick={onJump}>
@@ -39,32 +125,17 @@ export function CompactionDetails({
           {record.condensedRange.lastMessageId}
         </p>
       ) : (
-        <p>
-          The runtime did not report which earlier messages were condensed. The condensed range is
-          unavailable.
+        <p className="workspace-muted">
+          The condensed range is unavailable.
+          {!record.summary && ' No readable retained summary was exposed.'}
         </p>
       )}
-      <dl>
-        <dt>Context before compaction</dt>
-        <dd>{record.beforeTokens?.toLocaleString() ?? 'Not reported'}</dd>
-        <dt>Context after compaction</dt>
-        <dd>
-          {record.afterTokens?.toLocaleString() ??
-            (record.phase === 'compacting' ? 'Waiting for completion' : 'Not reported')}
-        </dd>
-      </dl>
-      <p className="workspace-muted">
-        Compaction reduces what the model retains. Cumulative usage is not reset; your original chat
-        remains browsable.
-      </p>
-      <details>
-        <summary>Retained summary</summary>
-        {record.summary ? (
+      {record.summary && (
+        <details>
+          <summary>Retained summary</summary>
           <pre>{record.summary}</pre>
-        ) : (
-          <p>No summary was supplied by this runtime.</p>
-        )}
-      </details>
+        </details>
+      )}
       {record.retainedProviderMessageIds.length > 0 && (
         <details>
           <summary>Provider-reported retained messages</summary>
@@ -79,6 +150,7 @@ export function CompactionDetails({
     </div>
   );
 }
+
 export function CompactionMarker({
   record,
   positionKnown = true,

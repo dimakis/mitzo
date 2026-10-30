@@ -2,14 +2,39 @@ import { useEffect, useState } from 'react';
 import type { ContextCompaction } from '@mitzo/protocol';
 import { readApiJson } from '../lib/api-json-read';
 
-/** Refresh on reported lifecycle/turn changes, never on streamed words or a polling timer. */
-export function useCompactionHistory(sessionId: string | null | undefined, refreshKey: string) {
+const optionalTime = (value: unknown) =>
+  value == null || (Number.isSafeInteger(value) && (value as number) >= 0);
+const observationValid = (value: ContextCompaction['usageBefore']) =>
+  value == null ||
+  (Number.isSafeInteger(value.tokens) &&
+    value.tokens >= 0 &&
+    Number.isSafeInteger(value.observedAt) &&
+    value.observedAt >= 0 &&
+    (value.model === null || typeof value.model === 'string') &&
+    optionalTime(value.contextCeiling));
+
+/** Refresh on lifecycle changes and the first after-usage observation; never poll. */
+export function useCompactionHistory(
+  sessionId: string | null | undefined,
+  refreshKey: string,
+  latestContext?: number,
+  latestTurnIndex?: number,
+) {
   const [view, setView] = useState<{
     sessionId: string;
     records: ContextCompaction[];
     truncated: boolean;
     error?: string;
   } | null>(null);
+  const latest = view?.sessionId === sessionId ? view.records.at(-1) : undefined;
+  const awaitingUsage =
+    latest?.phase === 'completed' &&
+    latest.startedAt != null &&
+    latest.endedAt != null &&
+    latest.afterTokens === null &&
+    !latest.usageAfter &&
+    (latestTurnIndex === undefined || latestTurnIndex === latest.turnIndex);
+  const usageKey = awaitingUsage ? latestContext : undefined;
   useEffect(() => {
     if (!sessionId) return;
     const controller = new AbortController();
@@ -28,6 +53,10 @@ export function useCompactionHistory(sessionId: string | null | undefined, refre
                 record.phase,
               ) &&
               Number.isFinite(record.observedAt) &&
+              optionalTime(record.startedAt) &&
+              optionalTime(record.endedAt) &&
+              observationValid(record.usageBefore) &&
+              observationValid(record.usageAfter) &&
               (record.afterMessageId === null || typeof record.afterMessageId === 'string') &&
               [record.turnIndex, record.beforeTokens, record.afterTokens].every(
                 (value) => value === null || (Number.isSafeInteger(value) && value >= 0),
@@ -54,7 +83,7 @@ export function useCompactionHistory(sessionId: string | null | undefined, refre
           }));
       });
     return () => controller.abort();
-  }, [sessionId, refreshKey]);
+  }, [sessionId, refreshKey, usageKey]);
   return view && view.sessionId === sessionId
     ? view
     : { records: [], truncated: false, error: undefined };

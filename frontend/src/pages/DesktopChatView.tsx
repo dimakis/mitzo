@@ -1052,6 +1052,8 @@ export function DesktopChatView() {
   const compactionHistory = useCompactionHistory(
     activeSessionId,
     `${tokens.numCompactions}:${tokens.compactionPhase ?? ''}:${messages.running}`,
+    tokens.agentContext,
+    tokens.turnIndex,
   );
   const [agentLabel, setAgentLabel] = useState<string | undefined>(undefined);
   const modelSettings = chatModelSettings({

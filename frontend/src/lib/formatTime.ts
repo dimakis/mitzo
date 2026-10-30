@@ -22,3 +22,28 @@ export function formatRelativeTime(ts: number): string {
   const days = Math.floor(hrs / 24);
   return `${days}d ago`;
 }
+
+/** Compact date is always visible; the exact local timestamp is available on demand. */
+export function formatMessageDate(ts?: number): string | null {
+  if (ts === undefined || !Number.isFinite(ts)) return null;
+  return new Date(ts).toLocaleString([], {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+export function formatFullMessageDate(ts?: number): string | null {
+  if (ts === undefined || !Number.isFinite(ts)) return null;
+  return new Date(ts).toLocaleString([], {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  });
+}

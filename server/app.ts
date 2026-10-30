@@ -35,7 +35,7 @@ import { loadMcpServers } from './mcp-config.js';
 import { createWarmPoolRouter, type SandboxConversation } from './openshell-warm-pool-router.js';
 import { getOpenShellWarmPool } from './openshell-warm-pool-binding.js';
 import { sessionListMetadata, sessionModelIdentity } from './session-list-metadata.js';
-import { projectCompactions } from './compaction-history.js';
+import { readCompactionHistory } from './compaction-history.js';
 import {
   readOwnedVertexQueue,
   readOwnedVertexQueueOverview,
@@ -4156,11 +4156,7 @@ app.get('/api/sessions/:id/compactions', (req, res) => {
   res.set('Cache-Control', 'private, no-store');
   if (!eventStore.getSession(req.params.id))
     return res.status(404).json({ error: 'Conversation not registered' });
-  const events = eventStore.getEventsOfType(req.params.id, 'context_compaction', 513);
-  res.json({
-    records: projectCompactions(events.slice(0, 512).reverse()),
-    truncated: events.length > 512,
-  });
+  res.json(readCompactionHistory(eventStore, req.params.id));
 });
 
 app.delete('/api/sessions', (_req, res) => {

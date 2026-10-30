@@ -3,6 +3,17 @@ export interface ContextCompaction {
   id: string;
   seq: number;
   observedAt: number;
+  /** Missing start/terminal observations remain unknown, including truncated history. */
+  startedAt?: number | null;
+  endedAt?: number | null;
+  /** Nearby usage, not exact compaction input/output sizes. */
+  usageBefore?: {
+    tokens: number;
+    observedAt: number;
+    model: string | null;
+    contextCeiling: number | null;
+  } | null;
+  usageAfter?: ContextCompaction['usageBefore'];
   phase: 'compacting' | 'completed' | 'failed' | 'interrupted' | 'unknown';
   afterMessageId: string | null;
   turnIndex: number | null;

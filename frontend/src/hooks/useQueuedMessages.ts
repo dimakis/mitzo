@@ -1,3 +1,5 @@
+import type { MessageReplyContext } from '@mitzo/protocol';
+import { chatStorage } from '../lib/large-chat-storage';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ImageAttachment } from '../types/chat';
 import type { DraftSessionAssignment } from './useDraft';
@@ -12,12 +14,17 @@ export interface QueuedMessage {
   /** Submitted or refused input must never resume automatic queue drain. */
   requiresRetry?: boolean;
   text: string;
+  replyTo?: MessageReplyContext;
+  /** Only the new durable draft flow retains attachment bytes. */
+  retainAttachments?: boolean;
   images: ImageAttachment[];
   contextBlocks: string[];
 }
 
-/** Stored shape omits images — base64 data is too large for localStorage. */
+/** Large payloads use the existing IndexedDB-backed chat storage. */
 interface StoredMessage {
+  replyTo?: MessageReplyContext;
+  images?: Array<Omit<ImageAttachment, 'preview'>>;
   queueEntryId?: string;
   requiresRetry?: boolean;
   text: string;
@@ -29,26 +36,37 @@ function queueKey(sessionId: string | undefined): string {
 }
 
 function toStored(msgs: QueuedMessage[]): StoredMessage[] {
-  return msgs.map(({ text, contextBlocks, requiresRetry, queueEntryId }) => ({
-    text,
-    contextBlocks,
-    ...(requiresRetry ? { requiresRetry: true } : {}),
-    ...(queueEntryId ? { queueEntryId } : {}),
-  }));
+  return msgs.map(
+    ({ text, contextBlocks, requiresRetry, queueEntryId, replyTo, images, retainAttachments }) => ({
+      text,
+      contextBlocks,
+      ...(replyTo ? { replyTo } : {}),
+      ...(retainAttachments && images.length
+        ? { images: images.map(({ preview: _preview, ...image }) => image) }
+        : {}),
+      ...(requiresRetry ? { requiresRetry: true } : {}),
+      ...(queueEntryId ? { queueEntryId } : {}),
+    }),
+  );
 }
 
 function fromStored(msgs: StoredMessage[]): QueuedMessage[] {
-  return msgs.map(({ text, contextBlocks, requiresRetry, queueEntryId }) => ({
+  return msgs.map(({ text, contextBlocks, requiresRetry, queueEntryId, replyTo, images }) => ({
     text,
     contextBlocks,
-    images: [],
+    ...(replyTo ? { replyTo } : {}),
+    ...(images?.length ? { retainAttachments: true } : {}),
+    images: (images ?? []).map((image) => ({
+      ...image,
+      preview: `data:${image.mediaType};base64,${image.data}`,
+    })),
     ...(requiresRetry ? { requiresRetry: true } : {}),
     ...(typeof queueEntryId === 'string' ? { queueEntryId } : {}),
   }));
 }
 
 function readQueue(sessionId: string | undefined): QueuedMessage[] {
-  const raw = localStorage.getItem(queueKey(sessionId));
+  const raw = chatStorage.getItem(queueKey(sessionId));
   if (!raw) return [];
   const parsed: unknown = JSON.parse(raw);
   if (!Array.isArray(parsed)) throw Error('Queue storage is unavailable.');
@@ -67,7 +85,9 @@ function mergeLiveImages(stored: QueuedMessage[], live: QueuedMessage[]): Queued
   const imagesById = new Map(live.map((entry) => [entry.queueEntryId, entry.images]));
   return stored.map((entry) => ({
     ...entry,
-    images: entry.queueEntryId ? (imagesById.get(entry.queueEntryId) ?? []) : [],
+    images: entry.queueEntryId
+      ? (imagesById.get(entry.queueEntryId) ?? entry.images)
+      : entry.images,
   }));
 }
 
@@ -124,12 +144,12 @@ function saveQueue(sessionId: string | undefined, queue: QueuedMessage[]): boole
   try {
     const key = queueKey(sessionId);
     if (queue.length === 0) {
-      localStorage.removeItem(key);
-      return localStorage.getItem(key) === null;
+      chatStorage.removeItem(key);
+      return chatStorage.getItem(key) === null;
     }
     const serialized = JSON.stringify(toStored(queue));
-    localStorage.setItem(key, serialized);
-    return localStorage.getItem(key) === serialized;
+    chatStorage.setItem(key, serialized);
+    return chatStorage.getItem(key) === serialized;
   } catch {
     // Optional storage may be readable but unable to retain newer live work.
     return false;
@@ -145,6 +165,8 @@ export function useQueuedMessages(
 ): {
   queue: QueuedMessage[];
   enqueue: (msg: QueuedMessage) => boolean;
+  enqueuePersisted: (msg: QueuedMessage) => Promise<boolean>;
+  update: (index: number, msg: QueuedMessage, position: number) => boolean;
   dequeue: () => QueuedMessage | undefined;
   restoreRejected: (msg: QueuedMessage) => QueuedMessage;
   removeSubmitted: (msg: QueuedMessage) => void;
@@ -282,7 +304,7 @@ export function useQueuedMessages(
       setQueueRaw(promoted);
       if (persist(sessionId, promoted).written) {
         try {
-          localStorage.removeItem(queueKey(prev));
+          chatStorage.removeItem(queueKey(prev));
         } catch {
           /* Optional storage. */
         }
@@ -300,15 +322,15 @@ export function useQueuedMessages(
     // Use the same persistence baseline as explicit assignment, including quota failure.
     const oldKey = queueKey(prev);
     try {
-      const existing = localStorage.getItem(queueKey(sessionId));
+      const existing = chatStorage.getItem(queueKey(sessionId));
       if (existing) {
         const restored = fromStored(JSON.parse(existing));
         queueRef.current = restored;
         setQueueRaw(restored);
         persistence.current = { sessionId, baseline: restored, dirty: false };
-        localStorage.removeItem(oldKey);
+        chatStorage.removeItem(oldKey);
       } else if (persist(sessionId, queueRef.current).written) {
-        localStorage.removeItem(oldKey);
+        chatStorage.removeItem(oldKey);
       }
     } catch {
       persistence.current.dirty = true;
@@ -324,6 +346,51 @@ export function useQueuedMessages(
       return true;
     },
     [maxQueued],
+  );
+
+  const enqueuePersisted = useCallback(
+    async (msg: QueuedMessage): Promise<boolean> => {
+      if (queueRef.current.length >= maxQueued) return false;
+      const owner = sessionRef.current;
+      const next = [
+        ...queueRef.current,
+        { ...msg, retainAttachments: true, queueEntryId: createBrowserId() },
+      ];
+      const saved = persist(owner, next);
+      if (!saved.written) return false;
+      try {
+        await chatStorage.flush();
+        if (chatStorage.failed) return false;
+      } catch {
+        return false;
+      }
+      if (sessionRef.current === owner) {
+        queueRef.current = saved.queue;
+        setQueueRaw(saved.queue);
+      }
+      return true;
+    },
+    [maxQueued, persist],
+  );
+  const update = useCallback(
+    (index: number, msg: QueuedMessage, position: number): boolean => {
+      const original = queueRef.current[index];
+      if (
+        !original ||
+        original.requiresRetry ||
+        position < 0 ||
+        position >= queueRef.current.length
+      )
+        return false;
+      const next = queueRef.current.filter((_, i) => i !== index);
+      next.splice(position, 0, { ...msg, queueEntryId: original.queueEntryId });
+      const saved = persist(sessionRef.current, next);
+      if (!saved.written) return false;
+      queueRef.current = saved.queue;
+      setQueueRaw(saved.queue);
+      return true;
+    },
+    [persist],
   );
 
   const dequeue = useCallback((): QueuedMessage | undefined => {
@@ -423,5 +490,15 @@ export function useQueuedMessages(
     return item;
   }, []);
 
-  return { queue, enqueue, dequeue, restoreRejected, removeSubmitted, remove, edit };
+  return {
+    queue,
+    enqueue,
+    enqueuePersisted,
+    update,
+    dequeue,
+    restoreRejected,
+    removeSubmitted,
+    remove,
+    edit,
+  };
 }

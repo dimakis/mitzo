@@ -2388,3 +2388,25 @@ focus and horizontal overflow. No backend, provider credentials or model calls.
 Inspected captures: [phone](assets/chat-queue-steering-mobile-dark.png) and
 [desktop](assets/chat-queue-steering-desktop-light.png). Full-app builds, the complete
 offline UI suite and combined validation remain CI gates under local memory pressure.
+
+## Context compaction details
+
+The existing `CompactionMarker` and `HomeDialog` show lifecycle status, start/end
+and elapsed/duration, request number, model and context limit. Nearby usage uses
+**Last observed before** and **First observed after**, with observation times;
+explicit runtime compaction sizes keep **Reported before/after** labels. The
+readings are not described as exact compaction sizes. Waiting has no invented
+percentage or timeout failure. Missing summary content has one quiet explanation
+rather than an empty disclosure.
+
+The details reuse semantic text/muted roles, shared type/spacing scales, the
+existing dialog focus/Close behavior and native disclosures. The two-column
+metadata grid wraps long model names at 320px and supports larger text. A local
+one-second elapsed timer runs only while active details are mounted; it does not
+poll the backend or animate progress. The intercepted `compaction-dialog` fixture
+covers waiting, completion and interruption, mobile WebKit/Chromium and desktop
+Chromium, dark Mint/System and light Teal/Georgia, wrapping, 44px Close geometry,
+Escape/focus restoration and draft preservation without a backend or model calls.
+
+Inspected captures: [mobile completion](assets/compaction-mobile-dark.png) and
+[desktop completion with larger text](assets/compaction-desktop-light.png).

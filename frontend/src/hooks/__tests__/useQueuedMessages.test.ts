@@ -1430,3 +1430,51 @@ it('rereads fresh peer work after only the first acceptance cleanup read fails',
   ]);
   expect(localStorage.getItem('mitzo-queue-a')).not.toContain(image.data);
 });
+
+it('durably keeps a queued reply and its attachments through reload, editing and reordering', async () => {
+  const reply = {
+    messageId: 'source',
+    role: 'assistant' as const,
+    text: 'Original answer',
+    timestamp: 1000,
+  };
+  const first = renderHook(() => useQueuedMessages('reply-queue', 32));
+  await act(async () => {
+    expect(
+      await first.result.current.enqueuePersisted({
+        ...msg('Reply draft'),
+        replyTo: reply,
+        images: [{ data: 'AAAA', mediaType: 'image/png', preview: 'data:image/png;base64,AAAA' }],
+      }),
+    ).toBe(true);
+  });
+  await act(async () => {
+    expect(await first.result.current.enqueuePersisted(msg('Next draft'))).toBe(true);
+  });
+  first.unmount();
+  const restored = renderHook(() => useQueuedMessages('reply-queue', 32));
+  expect(restored.result.current.queue[0].replyTo).toEqual(reply);
+  expect(restored.result.current.queue[0].images[0].data).toBe('AAAA');
+  act(() =>
+    restored.result.current.update(
+      0,
+      { ...restored.result.current.queue[0], text: 'Edited reply' },
+      1,
+    ),
+  );
+  expect(restored.result.current.queue.map((entry) => entry.text)).toEqual([
+    'Next draft',
+    'Edited reply',
+  ]);
+  expect(restored.result.current.queue[1].replyTo).toEqual(reply);
+});
+it('does not clear or admit a new durable queued prompt when storage refuses its write', async () => {
+  const hook = renderHook(() => useQueuedMessages('quota-queue'));
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw Error('quota');
+  });
+  await act(async () =>
+    expect(await hook.result.current.enqueuePersisted(msg('Keep my draft'))).toBe(false),
+  );
+  expect(hook.result.current.queue).toEqual([]);
+});
