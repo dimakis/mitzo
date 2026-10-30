@@ -102,11 +102,12 @@ export interface ConnectionWebSocketInput {
   protocols?: string[];
   allowPrivateNetwork: boolean;
   check(): void;
+  assertRuntimeCurrent?: () => Promise<void>;
 }
 export interface WebSocketExchange {
   /** Authentication frames have no application effect; all other sends may mutate upstream state. */
-  send(text: string, application?: boolean): void;
-  finish(body: string): void;
+  send(text: string, application?: boolean, beforeSend?: () => void): void | Promise<void>;
+  finish(body: string): void | Promise<void>;
   fail(): void;
 }
 /** Bounded credential-custody transport shared by every service adapter. Never reconnect or replay. */
@@ -114,8 +115,8 @@ export function connectionWebSocketExchange(
   input: ConnectionWebSocketInput,
   signal: AbortSignal,
   handlers: {
-    open(channel: WebSocketExchange): void;
-    message(text: string, channel: WebSocketExchange): void;
+    open(channel: WebSocketExchange): void | Promise<void>;
+    message(text: string, channel: WebSocketExchange): void | Promise<void>;
   },
   createSocket: ConnectionSocketFactory = socketFactory,
 ): Promise<string> {
@@ -131,93 +132,134 @@ export function connectionWebSocketExchange(
     (isIP(hostname) && !isAllowedConnectionAddress(hostname, input.allowPrivateNetwork))
   )
     throw new ConnectionWebSocketError(false);
-  return new Promise((resolve, reject) => {
-    const agent = new Agent({ keepAlive: false });
-    let socket: WebSocket;
-    try {
-      socket = createSocket(input.url, {
-        agent,
-        headers: input.headers ?? {},
-        protocols: input.protocols,
-        rejectUnauthorized: true,
-        followRedirects: false,
-        perMessageDeflate: false,
-        maxPayload: MAX_WEBSOCKET_RESPONSE_BYTES,
-        handshakeTimeout: 15_000,
-        lookup: connectionDnsLookup(input.allowPrivateNetwork),
-      });
-    } catch {
-      agent.destroy();
-      reject(new ConnectionWebSocketError(false));
-      return;
-    }
-    let settled = false;
-    let applicationSent = false;
-    let receivedBytes = 0;
-    let frames = 0;
-    const finish = (body?: string) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal.removeEventListener('abort', abort);
-      socket.removeAllListeners();
-      socket.on('error', () => {});
-      socket.terminate();
-      agent.destroy();
-      if (body === undefined) reject(new ConnectionWebSocketError(applicationSent));
-      else resolve(body);
-    };
-    const abort = () => finish();
-    const timer = setTimeout(abort, 30_000);
-    signal.addEventListener('abort', abort, { once: true });
-    const check = () => {
+  const start = () =>
+    new Promise<string>((resolve, reject) => {
       signal.throwIfAborted();
       input.check();
-    };
-    const channel: WebSocketExchange = {
-      send(text, application = true) {
+      const agent = new Agent({ keepAlive: false });
+      let socket: WebSocket;
+      try {
+        socket = createSocket(input.url, {
+          agent,
+          headers: input.headers ?? {},
+          protocols: input.protocols,
+          rejectUnauthorized: true,
+          followRedirects: false,
+          perMessageDeflate: false,
+          maxPayload: MAX_WEBSOCKET_RESPONSE_BYTES,
+          handshakeTimeout: 15_000,
+          lookup: connectionDnsLookup(
+            input.allowPrivateNetwork,
+            input.assertRuntimeCurrent,
+            input.check,
+          ),
+        });
+      } catch {
+        agent.destroy();
+        reject(new ConnectionWebSocketError(false));
+        return;
+      }
+      let settled = false;
+      let applicationSent = false;
+      let receivedBytes = 0;
+      let frames = 0;
+      const finish = (body?: string) => {
         if (settled) return;
-        check();
-        if (Buffer.byteLength(text) > 256 * 1024) throw new Error('Frame too large');
-        applicationSent ||= application;
-        socket.send(text);
-      },
-      finish(body) {
-        check();
-        if (Buffer.byteLength(body) > MAX_WEBSOCKET_RESPONSE_BYTES) abort();
-        else finish(body);
-      },
-      fail: abort,
-    };
-    socket.on('error', abort);
-    socket.on('close', abort);
-    socket.on('open', () => {
-      try {
-        check();
-        handlers.open(channel);
-      } catch {
-        abort();
-      }
+        settled = true;
+        clearTimeout(timer);
+        signal.removeEventListener('abort', abort);
+        socket.removeAllListeners();
+        socket.on('error', () => {});
+        socket.terminate();
+        agent.destroy();
+        if (body === undefined) reject(new ConnectionWebSocketError(applicationSent));
+        else resolve(body);
+      };
+      const abort = () => finish();
+      const timer = setTimeout(abort, 30_000);
+      signal.addEventListener('abort', abort, { once: true });
+      const check = () => {
+        signal.throwIfAborted();
+        input.check();
+      };
+      const fenced = (work: () => void | Promise<void>): void | Promise<void> => {
+        const run = () => {
+          if (settled) return;
+          check();
+          return work();
+        };
+        return input.assertRuntimeCurrent ? input.assertRuntimeCurrent().then(run) : run();
+      };
+      const channel: WebSocketExchange = {
+        send(text, application = true, beforeSend) {
+          return fenced(() => {
+            if (Buffer.byteLength(text) > 256 * 1024) throw new Error('Frame too large');
+            beforeSend?.();
+            applicationSent ||= application;
+            socket.send(text);
+          });
+        },
+        finish(body) {
+          return fenced(() => {
+            if (Buffer.byteLength(body) > MAX_WEBSOCKET_RESPONSE_BYTES) abort();
+            else finish(body);
+          });
+        },
+        fail: abort,
+      };
+      // Native authority checks may await storage. Serialize received events so an
+      // authentication/result frame cannot overtake the send it acknowledges.
+      let pending = Promise.resolve();
+      const dispatch = (work: () => void | Promise<void>) => {
+        if (input.assertRuntimeCurrent)
+          pending = pending
+            .then(() => {
+              if (settled) return;
+              check();
+              return work();
+            })
+            .catch(abort);
+        else {
+          try {
+            void Promise.resolve(fenced(work)).catch(abort);
+          } catch {
+            abort();
+          }
+        }
+      };
+      socket.on('error', abort);
+      socket.on('close', abort);
+      socket.on('open', () => dispatch(() => handlers.open(channel)));
+      socket.on('message', (data, binary) => {
+        try {
+          check();
+          const text = data.toString();
+          receivedBytes += Buffer.byteLength(text);
+          if (
+            binary ||
+            Buffer.byteLength(text) > MAX_WEBSOCKET_RESPONSE_BYTES ||
+            receivedBytes > MAX_WEBSOCKET_RESPONSE_BYTES * 3 ||
+            ++frames > 64
+          )
+            return abort();
+          dispatch(() => handlers.message(text, channel));
+        } catch {
+          abort();
+        }
+      });
+      if (signal.aborted) abort();
     });
-    socket.on('message', (data, binary) => {
-      try {
-        check();
-        const text = data.toString();
-        receivedBytes += Buffer.byteLength(text);
-        if (
-          binary ||
-          Buffer.byteLength(text) > MAX_WEBSOCKET_RESPONSE_BYTES ||
-          receivedBytes > MAX_WEBSOCKET_RESPONSE_BYTES * 3 ||
-          ++frames > 64
-        )
-          return abort();
-        handlers.message(text, channel);
-      } catch {
-        abort();
-      }
-    });
-    if (signal.aborted) abort();
-  });
+  if (!input.assertRuntimeCurrent) return start();
+  return input.assertRuntimeCurrent().then(
+    () => {
+      signal.throwIfAborted();
+      input.check();
+      return start();
+    },
+    () => {
+      throw new ConnectionWebSocketError(false);
+    },
+  );
 }
 function matches(text: string, match: z.infer<typeof WebSocketMatchSchema>) {
   try {
@@ -255,7 +297,7 @@ export function websocketRequest(
   const authenticate = (channel: WebSocketExchange) => {
     if (auth.kind !== 'json') return;
     stage = 'auth';
-    channel.send(
+    return channel.send(
       JSON.stringify({ ...JSON.parse(auth.message), [auth.credentialField]: input.token }),
       false,
     );
@@ -269,19 +311,19 @@ export function websocketRequest(
     signal,
     {
       open(channel) {
-        if (auth.kind === 'headers') channel.send(request.message);
-        else if (!auth.challenge) authenticate(channel);
+        if (auth.kind === 'headers') return channel.send(request.message);
+        else if (!auth.challenge) return authenticate(channel);
       },
       message(text, channel) {
         if (stage === 'challenge' && auth.kind === 'json') {
           if (!matches(text, auth.challenge!)) return channel.fail();
-          authenticate(channel);
+          return authenticate(channel);
         } else if (stage === 'auth' && auth.kind === 'json') {
           if (!matches(text, auth.success)) return channel.fail();
           stage = 'response';
-          channel.send(request.message);
+          return channel.send(request.message);
         } else if (!request.responseMatch || matches(text, request.responseMatch))
-          channel.finish(text);
+          return channel.finish(text);
       },
     },
     createSocket,

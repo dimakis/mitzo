@@ -1,3 +1,4 @@
+import { sessionLocalServiceTools } from './session-local-service-tools.js';
 import { sessionGoogleWorkspaceTools } from './session-google-workspace-tools.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
 import type { CodexToolResult } from './codex-tool-result.js';
@@ -1798,10 +1799,21 @@ async function openCodexChatBound(
       })
     : undefined;
   const googleReadOutputScope = createHash('sha256').update(randomUUID()).digest('hex');
+  const localServiceTools = options.ownedLocal
+    ? sessionLocalServiceTools({
+        sessionId: options.conversationId,
+        session: options.session,
+        registry: options.registry,
+        assertCurrent: assertHostCurrent,
+        assertCurrentSync: assertHostCurrentSync,
+      })
+    : undefined;
+  const localServiceDefinitions = localServiceTools?.definitions ?? [];
   const ownedToolNames = options.ownedLocal
     ? new Set(
         [
           ...localExecutionTools,
+          ...localServiceDefinitions,
           ...(googleWorkspaceTools?.definitions ?? []),
           ...mcp.definitions,
           ...profileToolDefinitions,
@@ -1939,6 +1951,7 @@ async function openCodexChatBound(
       ? createIntegrationToolDiscovery({
           tools: filterAgentTools(options.session, mcp.definitions),
           directTools: filterAgentTools(options.session, [
+            ...localServiceDefinitions,
             ...(googleWorkspaceTools?.definitions ?? []),
             ...profileToolDefinitions,
             ...agentTaskToolDefinitions,
@@ -2103,6 +2116,7 @@ async function openCodexChatBound(
     : options.ownedLocal
       ? options.systemPrompt +
         (nativeExecution ? NATIVE_MAC_EXECUTION_INSTRUCTIONS : HOST_TOOL_INSTRUCTIONS) +
+        (localServiceTools?.instructions ?? '') +
         (googleWorkspaceTools?.definitions.length
           ? '\nUse GoogleWorkspaceRead for Google Drive, Docs, Sheets, Slides and Calendar reads. Discover its full schema with DescribeIntegrationTool. This controller tool uses the existing Google sign-in after exact approval; shell gws has no credential access.\n'
           : '') +
@@ -2228,6 +2242,7 @@ async function openCodexChatBound(
     options.ownedLocal
       ? [
           ...localExecutionTools,
+          ...localServiceDefinitions,
           ...(googleWorkspaceTools?.definitions ?? []),
           ...mcp.definitions,
           ...profileToolDefinitions,
@@ -3449,7 +3464,9 @@ async function openCodexChatBound(
       const profileResult = await localProfileTools?.execute(name, input, signal, callContext);
       if (profileResult) return profileResult;
       const keychainResult = options.ownedLocal
-        ? undefined
+        ? localServiceTools?.handles(name)
+          ? await localServiceTools.execute(name, input, signal, callContext)
+          : undefined
         : await connectionTools.execute(name, input, signal, callContext);
       if (keychainResult) return keychainResult;
       if (name === REQUEST_GITHUB_PUBLISH) return githubPublishing(input, signal, callContext);

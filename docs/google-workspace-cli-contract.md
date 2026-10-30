@@ -68,8 +68,8 @@ search/metadata and text export, Docs/Sheets/Slides reads, and Calendar event
 listing. This uses the existing controller sign-in; it does not give native
 shell commands access to `~/.config/gws`, change OAuth consent, or attach a
 provider to the chat's runtime. The existing management switch and reviewed
-provider-policy checks remain mandatory. Other connection tools retain their
-existing runtime qualification.
+provider-policy checks remain mandatory. Qualified Keychain and Knowledge tools use their own controller adapters; see
+`docs/features/codex-native-permission-protocol.md` for their native fences.
 
 Each read prepares the configured Google account identity, then requires exact
 request approval showing that account and the operation/resource. The controller

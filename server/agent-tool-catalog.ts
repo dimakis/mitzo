@@ -7,7 +7,10 @@ import { agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import { agentCommunicationDefinitions } from './agent-communication-tools.js';
 import type { AgentToolCatalogEntry } from '@mitzo/protocol';
 import { nativeToolDefinitions } from './native-tool-executor.js';
-import { credentialConnectionToolDefinitions } from './credential-connection-tools.js';
+import {
+  credentialConnectionToolDefinitions,
+  nativeConnectionToolNames,
+} from './credential-connection-tools.js';
 import { repositoryChatToolDefinitions } from './repository-chat-tools.js';
 import { profileToolDefinitions } from './session-profile-tools.js';
 import { webAccessDefinition } from './request-web-access.js';
@@ -122,14 +125,20 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
               ].includes(tool.name)
               ? ['codex-owned-local']
               : []
-            : source === 'Agent Library'
+            : source === 'Agent Library' || source === 'Knowledge'
               ? ['local-api', 'codex-owned-local']
               : source === 'GitHub publishing'
                 ? ['local-api', 'codex', 'codex-owned-local']
                 : source === 'Workspace'
                   ? ['local-api', 'codex', 'codex-owned-local']
                   : source === 'Connections' || source === 'Web'
-                    ? ['local-api', 'codex']
+                    ? [
+                        'local-api',
+                        'codex',
+                        ...(source === 'Web' || nativeConnectionToolNames.has(tool.name)
+                          ? ['codex-owned-local']
+                          : []),
+                      ]
                     : ['local-api'],
       requirement:
         tool.name === 'GoogleWorkspaceRead'

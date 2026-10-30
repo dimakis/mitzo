@@ -181,3 +181,39 @@ it('negotiates configured subprotocols and rejects duplicate or invalid names', 
   for (const protocols of [['json', 'json'], ['bad protocol']])
     expect(() => WebSocketConfigSchema.parse({ ...config, protocols })).toThrow();
 });
+
+it('waits for final native authority before connecting and before every frame', async () => {
+  const socket = new Socket();
+  let release!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let revoked = false;
+  const guard = vi.fn(async () => {
+    await barrier;
+    if (revoked) throw Error('Native owner retired');
+  });
+  const factory = vi.fn(() => socket as unknown as WebSocket);
+  const pending = websocketRequest(
+    {
+      url: new URL('wss://service.example.com/socket'),
+      token: 'private',
+      headers: { Authorization: 'Bearer private' },
+      allowPrivateNetwork: false,
+      config: { path: '/socket', authentication: { kind: 'headers' } },
+      request: { message: '{"write":true}' },
+      check: () => {},
+      assertRuntimeCurrent: guard,
+    },
+    new AbortController().signal,
+    factory,
+  );
+  const outcome = pending.catch((error) => error);
+  expect(factory).not.toHaveBeenCalled();
+  release();
+  await vi.waitFor(() => expect(factory).toHaveBeenCalledOnce());
+  revoked = true;
+  socket.emit('open');
+  expect(await outcome).toMatchObject({ mayHaveApplied: false });
+  expect(socket.send).not.toHaveBeenCalled();
+});

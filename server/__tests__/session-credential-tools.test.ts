@@ -289,3 +289,28 @@ it('refuses private setup before creating a page when a native runtime has no gu
     runtime.mockRestore();
   }
 });
+
+it('exposes framed helpers and their guide on the qualified native controller route', async () => {
+  const { session, registry } = setup();
+  const tools = sessionCredentialTools(
+    'session',
+    session,
+    registry,
+    '',
+    undefined,
+    async () => {},
+    () => {},
+    false,
+    true,
+  );
+  expect(tools.definitions.map((tool) => tool.name)).toEqual(
+    expect.arrayContaining(['ConnectionWebSocket', 'HomeAssistantDashboard']),
+  );
+  const guide = await tools.execute(
+    'GetConnectionGuide',
+    { topic: 'use' },
+    new AbortController().signal,
+  );
+  expect(guide?.content).toContain('HomeAssistantDashboard');
+  expect(guide?.content).toContain('ConnectionWebSocket');
+});
