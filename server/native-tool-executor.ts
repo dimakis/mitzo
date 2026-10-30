@@ -84,7 +84,7 @@ const descriptions = {
   GitHubRead:
     'Perform an approved authenticated GitHub API GET through Mitzo. Credentials remain in the trusted host process and are never exposed to the command sandbox.',
   GitCommit:
-    'Stage exactly the approved workspace files and create one local Git commit through Mitzo. Refuses an already-staged index and credential-like files.',
+    'Stage up to 64 approved workspace files and create one local Git commit through Mitzo. Refuses an already-staged index and credential-like files. Use native Git in the admitted task checkout for larger commits and merges.',
   Read: 'Read a UTF-8 file. Paths are relative to the session cwd unless absolute.',
   Write: 'Write a UTF-8 file in an existing directory.',
   Edit: 'Replace exactly one occurrence of old_string in a UTF-8 file.',
@@ -162,7 +162,20 @@ export function createNativeToolExecutor(
         return result('Ask mode only permits read-only native tools', true);
       if (!Object.hasOwn(schemas, block.name)) return result('Native tool is unavailable', true);
       const parsed = schemas[block.name as keyof typeof schemas].safeParse(block.input);
-      if (!parsed.success) return result('Invalid native tool input', true);
+      if (!parsed.success) {
+        if (
+          block.name === 'GitCommit' &&
+          parsed.error.issues.some(
+            (issue) =>
+              issue.code === 'too_big' && issue.path.length === 1 && issue.path[0] === 'files',
+          )
+        )
+          return result(
+            'GitCommit supports at most 64 selected files. Use native Git in the admitted task checkout for larger commits and merges.',
+            true,
+          );
+        return result('Invalid native tool input', true);
+      }
       if (block.name === 'AskUserQuestion') {
         const permission = await canUseTool(block.name, parsed.data, {
           signal,

@@ -141,6 +141,16 @@ describe('native Mac execution permission profile', () => {
     }
     expect(policy.writeProtectedRoots).toContain('/operator/runtime');
   });
+  it('grants native Git metadata writes inside runtime workspaces while Ask remains read only', () => {
+    const profiles = codexNativePermissionProfiles(codexNativeExecutionPolicy(input)).permissions;
+    expect(profiles['mitzo-native-agent'].filesystem[':workspace_roots']).toEqual({
+      '.': 'write',
+      '.git': 'write',
+    });
+    expect(profiles['mitzo-native-ask'].filesystem[':workspace_roots']).toBe('read');
+    expect(profiles['mitzo-native-agent'].filesystem['/private/provider-auth{,/**}']).toBe('deny');
+  });
+
   it('compiles real native profiles with fixed credential deny globs and dynamic workspace roots', () => {
     const policy = codexNativeExecutionPolicy(input);
     expect(policy).toMatchObject({
@@ -173,7 +183,7 @@ describe('native Mac execution permission profile', () => {
         'mitzo-native-agent': {
           filesystem: {
             '/': 'read',
-            ':workspace_roots': 'write',
+            ':workspace_roots': { '.': 'write', '.git': 'write' },
             ':tmpdir': 'write',
             ':slash_tmp': 'write',
             '/operator/runtime': 'read',

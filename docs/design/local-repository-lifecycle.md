@@ -280,6 +280,13 @@ not the acceptance criterion.
   available-disk admission.
   Cancellation joins the process group; uncertain shutdown preserves its records
   and scratch instead of deleting underneath a possible writer.
+- Capacity bounds eight unfinished standalone preparations per account. A claimed,
+  adopted task no longer consumes a preparation slot; claimed transitions without
+  adoption still count. Existing tasks and their history remain intact. Slot
+  reservation is atomic across workspace services, and local sources receive the
+  same 2 GiB plus 256 MiB free-disk admission as remote acquisition. Capacity
+  refusal is reported as `resource_exhausted` with a specific reason and no
+  checkout effect, rather than an uncertain internal failure.
 - Native allocations use independent Git administration, with no shared writable
   object store or alternates. The old linked-worktree reader remains for existing
   sessions. Retry identity is stable for a conversation/source/base; a deliberate

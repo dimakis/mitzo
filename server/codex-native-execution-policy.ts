@@ -143,7 +143,13 @@ export function codexNativePermissionProfiles(policy: CodexNativeExecutionPolicy
   const filesystem = (workspaceAccess: 'read' | 'write') =>
     Object.fromEntries([
       ...policy.readableRoots.map((root) => [root, 'read']),
-      [':workspace_roots', workspaceAccess],
+      // The native engine adds an implicit read-only .git carveout to a
+      // workspace write rule. Explicitly scope Git writes to each admitted
+      // root so normal add/commit/merge works without an unsandboxed escape.
+      [
+        ':workspace_roots',
+        workspaceAccess === 'write' ? { '.': 'write', '.git': 'write' } : 'read',
+      ],
       ...(policy.temporaryAccess === 'runtime'
         ? NATIVE_TEMPORARY_PATHS.map((root) => [root, workspaceAccess])
         : []),
