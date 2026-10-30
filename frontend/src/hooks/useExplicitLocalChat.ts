@@ -38,6 +38,8 @@ import {
   type ChatRuntimeSelection,
 } from '../lib/chat-runtime-selection';
 
+const RUNTIME_READ_TIMEOUT_MS = 15_000;
+
 /** Public display identity only; source and admission retain the repository owner. */
 const RepositoryContextSchema = z.strictObject({
   workspaceId: z.string().regex(/^\S{1,200}$/),
@@ -154,6 +156,15 @@ export function useExplicitLocalChat(
       return;
     }
     const controller = new AbortController();
+    const fail = () => {
+      setError('Execution choices are unavailable. Refresh to retry.');
+      setEnrollment('unknown');
+      setInventory(null);
+    };
+    const timeout = setTimeout(() => {
+      fail();
+      controller.abort();
+    }, RUNTIME_READ_TIMEOUT_MS);
     setError('');
     void Promise.resolve()
       .then(async () => {
@@ -212,19 +223,32 @@ export function useExplicitLocalChat(
         }
       })
       .catch(() => {
-        if (!controller.signal.aborted) {
-          setError('Execution choices are unavailable. Refresh to retry.');
-          setEnrollment('unknown');
-          setInventory(null);
-        }
-      });
-    return () => controller.abort();
+        if (!controller.signal.aborted) fail();
+      })
+      .finally(() => clearTimeout(timeout));
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
   }, [draftId, enabled, sessionId, attempt]);
   useEffect(() => {
     if (!sessionId) return;
     setMetaFailure(null);
     setMetadataLoadingForSession(sessionId);
     const controller = new AbortController();
+    const fail = () => {
+      setMetaFailure({
+        sessionId,
+        message: 'Conversation settings are unavailable. Retry to continue.',
+      });
+      setMetadataLoadingForSession(null);
+    };
+    // Cover both response headers and the body. Abort alone may never settle a
+    // suspended WebView fetch; publish the existing retry state at the deadline.
+    const timeout = setTimeout(() => {
+      fail();
+      controller.abort();
+    }, RUNTIME_READ_TIMEOUT_MS);
     void Promise.resolve()
       .then(() =>
         apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/meta`, {
@@ -336,15 +360,13 @@ export function useExplicitLocalChat(
         setMetadataLoadingForSession(null);
       })
       .catch(() => {
-        if (!controller.signal.aborted && scope.current.sessionId === sessionId) {
-          setMetaFailure({
-            sessionId,
-            message: 'Conversation settings are unavailable. Retry to continue.',
-          });
-          setMetadataLoadingForSession(null);
-        }
-      });
-    return () => controller.abort();
+        if (!controller.signal.aborted && scope.current.sessionId === sessionId) fail();
+      })
+      .finally(() => clearTimeout(timeout));
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
   }, [sessionId, attempt, workspaceRevision]);
   const currentMeta =
     meta?.sessionId === sessionId && meta.workspaceRevision === workspaceRevision ? meta : null;

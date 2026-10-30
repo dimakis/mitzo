@@ -103,6 +103,76 @@ afterAll(() => {
 });
 
 describe('POST /api/sessions/suspend', () => {
+  it('ignores a delayed beacon after a newer foreground replay on the same login lease', async () => {
+    const { claimTransportConnection, acceptTransportLifecycle } =
+      await import('../transport-auth-ownership.js');
+    claimTransportConnection('conn-owner', authSessionId);
+    expect(acceptTransportLifecycle('conn-owner', 4)).toBe(true);
+    mockSuspend.mockClear();
+    try {
+      const stale = await request(app)
+        .post('/api/sessions/suspend')
+        .set('Cookie', authCookie)
+        .send({
+          connectionId: 'conn-owner',
+          lifecycleRevision: 3,
+          sessions: [{ sessionId: 'sess-known', lastSeq: 42 }],
+        });
+      expect(stale.status).toBe(204);
+      expect(mockSuspend).not.toHaveBeenCalled();
+      const fresh = await request(app)
+        .post('/api/sessions/suspend')
+        .set('Cookie', authCookie)
+        .send({
+          connectionId: 'conn-owner',
+          lifecycleRevision: 5,
+          sessions: [{ sessionId: 'sess-known', lastSeq: 42 }],
+        });
+      expect(fresh.status).toBe(204);
+      expect(mockSuspend).toHaveBeenCalledOnce();
+    } finally {
+      claimTransportConnection('conn-owner', authSessionId);
+    }
+  });
+
+  it('ignores predecessor beacons after a same-login successor takes its lifecycle', async () => {
+    const { claimTransportConnection, acceptTransportLifecycle } =
+      await import('../transport-auth-ownership.js');
+    claimTransportConnection('conn-owner', authSessionId);
+    claimTransportConnection('beacon-successor', authSessionId);
+    acceptTransportLifecycle('conn-owner', 1);
+    mockSuspend.mockClear();
+    try {
+      const early = await request(app)
+        .post('/api/sessions/suspend')
+        .set('Cookie', authCookie)
+        .send({
+          connectionId: 'beacon-successor',
+          lifecycleRevision: 3,
+          replacesConnectionId: 'conn-owner',
+          sessions: [{ sessionId: 'sess-known', lastSeq: 42 }],
+        });
+      expect(early.status).toBe(204);
+      expect(acceptTransportLifecycle('beacon-successor', 2, 'conn-owner')).toBe(false);
+      expect(acceptTransportLifecycle('beacon-successor', 4, 'conn-owner')).toBe(true);
+
+      for (const lifecycleRevision of [1, 3]) {
+        const response = await request(app)
+          .post('/api/sessions/suspend')
+          .set('Cookie', authCookie)
+          .send({
+            connectionId: 'conn-owner',
+            lifecycleRevision,
+            sessions: [{ sessionId: 'sess-known', lastSeq: 42 }],
+          });
+        expect(response.status).toBe(204);
+        expect(mockSuspend).not.toHaveBeenCalled();
+      }
+    } finally {
+      claimTransportConnection('conn-owner', authSessionId);
+    }
+  });
+
   it('returns 204 and calls registry.suspend for valid request', async () => {
     mockSuspend.mockClear();
 
