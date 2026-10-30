@@ -30,10 +30,8 @@ it('uses the ORIGINAL authorization decoder for its public definition without ad
   const { localRepositoryPreparationDefinition } =
     await import('../local-repository-preparation-tool.js');
   const original = Reflect.get(authorization, 'inputSchema') as z.ZodType;
-  expect(localRepositoryPreparationDefinition.input_schema).toMatchObject(
-    z.toJSONSchema(original, { io: 'input' }),
-  );
-  expect(localRepositoryPreparationDefinition.input_schema).toMatchObject({
+  expect(localRepositoryPreparationDefinition.input_schema).toEqual({
+    ...z.toJSONSchema(original, { io: 'input' }),
     oneOf: [{ required: ['path'] }, { required: ['source'] }],
   });
   expect(original.safeParse({ path: '/private/tmp/source' }).success).toBe(true);
