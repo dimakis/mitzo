@@ -269,3 +269,42 @@ it.each([false, true])(
     expect(query).not.toHaveBeenCalled();
   },
 );
+
+it.each([false, true])(
+  'keeps a non-isolated startup immediately routable while its socket read waits (selected account=%s)',
+  async (selected) => {
+    let release!: () => void;
+    const held = new Promise<null>((resolve) => {
+      release = () => resolve(null);
+    });
+    metadata.readSshAuthSock.mockReturnValue(held);
+    const running = chat
+      .startChat({ send: () => {}, isOpen: () => true }, 'immediate-driver', 'First prompt', {
+        initialSessionId: sessionId,
+        clientMsgId: 'first-prompt',
+        cwd: root,
+        isolation: false,
+        ...(selected
+          ? { accountId: 'work', model: 'claude-sonnet-4-6', accountProfiles: profiles() }
+          : {}),
+      })
+      .catch((error) => error);
+    try {
+      expect.soft(chat.registry.findBySessionId(sessionId)?.clientId).toBe('immediate-driver');
+      expect
+        .soft(
+          await chat.sendToChat(
+            'immediate-driver',
+            'Follow-up',
+            undefined,
+            undefined,
+            'next-prompt',
+          ),
+        )
+        .toBe(true);
+    } finally {
+      release();
+      await running;
+    }
+  },
+);

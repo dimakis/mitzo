@@ -778,9 +778,7 @@ const IPV4_PRELOAD = join(dirname(fileURLToPath(import.meta.url)), 'ipv4-preload
 
 export { readSshAuthSock as resolveSshAuthSock } from './chat-metadata.js';
 
-export async function buildSdkChildEnvironment(
-  signal?: AbortSignal,
-): Promise<Record<string, string>> {
+function sdkChildEnvironmentBase(): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;
   env.CLAUDE_CODE_USE_VERTEX = process.env.CLAUDE_CODE_USE_VERTEX || '1';
   env.ANTHROPIC_VERTEX_PROJECT_ID = process.env.ANTHROPIC_VERTEX_PROJECT_ID || '';
@@ -798,9 +796,6 @@ export async function buildSdkChildEnvironment(
 
   prependConfiguredVenvPaths(env);
 
-  const sock = await readSshAuthSock(signal);
-  if (sock) env.SSH_AUTH_SOCK = sock;
-
   delete env.AUTH_PASSPHRASE;
   delete env.AUTH_SECRET;
   delete env.NTFY_AUTH_TOKEN;
@@ -808,6 +803,16 @@ export async function buildSdkChildEnvironment(
   delete env.GH_TOKEN;
   delete env.GITHUB_TOKEN;
   return env;
+}
+
+async function resolveSdkChildSocket(env: Record<string, string>, signal?: AbortSignal) {
+  const sock = await readSshAuthSock(signal);
+  if (sock) env.SSH_AUTH_SOCK = sock;
+  return env;
+}
+
+export function buildSdkChildEnvironment(signal?: AbortSignal): Promise<Record<string, string>> {
+  return resolveSdkChildSocket(sdkChildEnvironmentBase(), signal);
 }
 
 function restrictedChildEnv(): Record<string, string> {
@@ -916,6 +921,14 @@ function buildOnDemandCreate(wtId: string, clientId: string): OnDemandCreateFn {
   };
 }
 
+type SessionWorktreeOptions = { resume?: string; cwd?: string; isolation?: boolean };
+function requiresSessionWorktree(options: SessionWorktreeOptions): boolean {
+  return !!BASE_REPO && !options.resume && !options.cwd && isIsolationEnabled(options.isolation);
+}
+function unisolatedSessionWorktrees(cwd: string, wtId: string) {
+  return { cwd, wtId, repoWorktrees: new Map<string, { path: string; wtId: string }>() };
+}
+
 /**
  * Create worktrees for the primary repo and all configured secondary repos.
  * All worktrees share the same session-scoped wtId. Returns the primary
@@ -925,19 +938,15 @@ export async function createSessionWorktrees(
   transport: SessionTransport,
   baseCwd: string,
   wtId: string,
-  options: { resume?: string; cwd?: string; isolation?: boolean },
+  options: SessionWorktreeOptions,
 ): Promise<{
   cwd: string;
   wtId: string;
   worktreePath?: string;
   repoWorktrees: Map<string, { path: string; wtId: string }>;
 }> {
+  if (!requiresSessionWorktree(options)) return unisolatedSessionWorktrees(baseCwd, wtId);
   const repoWorktrees = new Map<string, { path: string; wtId: string }>();
-
-  // Skip worktree creation when resuming, using custom cwd, or disabled
-  if (!isIsolationEnabled(options.isolation) || options.resume || options.cwd || !BASE_REPO) {
-    return { cwd: baseCwd, wtId, repoWorktrees };
-  }
 
   // Create primary worktree only — secondary repos are created on-demand
   // by the worktree guard when an agent first writes to them (Phase 2a).
@@ -1667,7 +1676,7 @@ async function _startChatInner(
           };
         } else apiCredentialRef = profile.credentialRef;
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
-      } else accountEnv = profiles!.sdkEnv(accountBinding, await buildSdkChildEnvironment());
+      } else accountEnv = profiles!.sdkEnv(accountBinding, sdkChildEnvironmentBase());
     }
     if (options.adviserScope) {
       if (!accountBinding || accountBinding.provider !== 'anthropic-vertex')
@@ -1966,14 +1975,11 @@ async function _startChatInner(
   const wtId = generateWtId();
   let sessionWorktrees: Awaited<ReturnType<typeof createSessionWorktrees>>;
   try {
-    sessionWorktrees = openShellSelected
-      ? {
-          cwd: openShellWorkdir!,
-          wtId,
-          worktreePath: undefined,
-          repoWorktrees: new Map<string, { path: string; wtId: string }>(),
-        }
-      : await createSessionWorktrees(transport, baseCwd, wtId, options);
+    // Keep an already accepted chat routable before its first metadata await.
+    sessionWorktrees =
+      openShellSelected || !requiresSessionWorktree(options)
+        ? unisolatedSessionWorktrees(openShellSelected ? openShellWorkdir! : baseCwd, wtId)
+        : await createSessionWorktrees(transport, baseCwd, wtId, options);
   } catch (error) {
     options.onStartupAdmission?.(error);
     return;
@@ -2155,8 +2161,11 @@ async function _startChatInner(
     }
 
     // Build session env with worktree paths for the agent (all repos including primary)
-    const sessionEnv =
-      accountEnv ?? (await buildSdkChildEnvironment(session.abortController.signal));
+    const sessionEnv = accountEnv
+      ? accountBinding?.provider === 'anthropic-vertex'
+        ? await resolveSdkChildSocket(accountEnv, session.abortController.signal)
+        : accountEnv
+      : await buildSdkChildEnvironment(session.abortController.signal);
     assertStartupCurrent();
     sessionEnv.MITZO_SESSION_ID = wtId;
     sessionEnv.MITZO_AGENT_NAME = agentName;

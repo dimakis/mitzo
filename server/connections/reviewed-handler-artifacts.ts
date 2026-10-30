@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/symposium-personal-connection-router.test.ts':
     '672b6da994f8e1d233b6c39efe477d10fb4344131b06c240826ccd4cbf16cd14',
   '../__tests__/chat-startup-metadata.test.ts':
-    'b4987352fc6ad18a7517950a2e632e5b4b200db86c80dad31acdec9ae395065b',
+    'd480b4b72509810feab3e9f137f25456b81635de5226cadf30c18b83bd1e3193',
   '../__tests__/sdk-child-environment.test.ts':
     '5590d6466e30ff3dc70487424ef5c591c04a887c6391db84ece2a0496b4cfdb6',
   '../__tests__/owned-openshell-codex-chat-consumer.test.ts':
@@ -1332,7 +1332,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '3987bafd914958c391982ad8a4d14911217e44f6400a12b53bc788040778f2c8',
+  '../chat.ts': '8efdf044520bef79700edbd7af7417343adb35d69a830bf3aa9acf7b071e989a',
   '../../packages/harness/src/session-registry.ts':
     '0ae1713bc617b37f773aa50f36868b69e10b5c985b2419318c2b2168108b8b39',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
