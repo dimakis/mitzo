@@ -345,7 +345,8 @@ export async function startOwnedOpenShellCodexCommand(
       reportRetainedRuntimeFailure({
         store: eventStore,
         sessionId,
-        commandId: initial.command.clientMsgId,
+        // The query outlives its first command. Only a command-scoped native
+        // failure owner can correlate a later error with a specific saved send.
         session,
         transport,
         error,

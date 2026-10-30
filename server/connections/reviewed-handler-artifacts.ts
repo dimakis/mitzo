@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.778-turn-callback-ownership-and-audited-recovery';
+  'v1.0.779-turn-callback-ownership-and-audited-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1631,7 +1631,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-openshell-codex-entry-owner.ts':
     'afa4868dcb236c1317e1cc496f47bee719bea5c9750cb19741f5093c5ca3f4d9',
   '../ordinary-openshell-codex-entry.ts':
-    '448fae3816d5116b54b2db32c0dbc3b61096d52bfa43937a7b268fef04663071',
+    '9a0c5605e723d5c2d0fd872fb626b9f1ba1e8a8347563d16982b6038267160cc',
   '../ordinary-openshell-codex-owned-runtime.ts':
     '18f1a32ba8ce3cce3feef7189704d31b84e70bff245c090332d336600543dec1',
   '../ordinary-openshell-codex-route.ts':
