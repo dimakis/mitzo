@@ -10,6 +10,10 @@ import { ConnectionRegistry } from '@mitzo/harness';
 import { SessionSseRegistry } from '../session-sse-registry.js';
 import { NativeCommandRegistry } from '../native-commands.js';
 import { SseTransport } from '../sse-transport.js';
+import {
+  claimTransportConnection,
+  releaseTransportConnection,
+} from '../transport-auth-ownership.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<object>()),
   query: vi.fn(),
@@ -116,6 +120,7 @@ it('delivers one prompt after background/reconnect even when its HTTP acknowledg
         close: () => {
           streams.remove(id);
           connections.remove(id);
+          releaseTransportConnection(id, 'reconnect-fixture-login');
         },
       };
       const response = {
@@ -132,6 +137,8 @@ it('delivers one prompt after background/reconnect even when its HTTP acknowledg
         },
       };
       streams.add(id, response as unknown as express.Response);
+      // Match the authenticated lease established by the production SSE handshake.
+      claimTransportConnection(id, 'reconnect-fixture-login');
       connections.register(id, new SseTransport(id, streams));
       queueMicrotask(() => streams.sendTo(id, { type: 'welcome', connectionId: id }));
       return es as unknown as EventSource;
