@@ -135,6 +135,32 @@ describe('POST /api/sessions/suspend', () => {
     }
   });
 
+  it('ignores predecessor beacons after a same-login successor takes its lifecycle', async () => {
+    const { claimTransportConnection, acceptTransportLifecycle } =
+      await import('../transport-auth-ownership.js');
+    claimTransportConnection('conn-owner', authSessionId);
+    claimTransportConnection('beacon-successor', authSessionId);
+    acceptTransportLifecycle('conn-owner', 1);
+    expect(acceptTransportLifecycle('beacon-successor', 2, 'conn-owner')).toBe(true);
+    mockSuspend.mockClear();
+    try {
+      for (const lifecycleRevision of [1, 3]) {
+        const response = await request(app)
+          .post('/api/sessions/suspend')
+          .set('Cookie', authCookie)
+          .send({
+            connectionId: 'conn-owner',
+            lifecycleRevision,
+            sessions: [{ sessionId: 'sess-known', lastSeq: 42 }],
+          });
+        expect(response.status).toBe(204);
+        expect(mockSuspend).not.toHaveBeenCalled();
+      }
+    } finally {
+      claimTransportConnection('conn-owner', authSessionId);
+    }
+  });
+
   it('returns 204 and calls registry.suspend for valid request', async () => {
     mockSuspend.mockClear();
 

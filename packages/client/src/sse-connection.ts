@@ -47,6 +47,7 @@ export class SseConnection implements ChatConnection {
   private _connected = false;
   private sendScope = Date.now();
   private lifecycleRevision = 0;
+  private lifecycleOrigin: string | null = null;
   private replayRequest: {
     es: EventSource | null;
     connectionId: string;
@@ -204,6 +205,7 @@ export class SseConnection implements ChatConnection {
     }
     this._connected = false;
     this._connectionId = null;
+    this.lifecycleOrigin = null;
     this.retiringSessions.clear();
     this.unwatchedSessions.clear();
     this.appliedAckChain = Promise.resolve();
@@ -571,6 +573,7 @@ export class SseConnection implements ChatConnection {
 
       this.lastStreamActivity = Date.now();
       this._connectionId = msg.connectionId as string;
+      this.lifecycleOrigin ??= this._connectionId;
       this.unwatchedSessions.clear();
       this.retiringSessions.clear();
       this.eventAckBatchSupported = msg.eventAckBatchSize === 50;
@@ -787,6 +790,7 @@ export class SseConnection implements ChatConnection {
     this.es?.close();
     this.es = null;
     this._connectionId = null;
+    this.lifecycleOrigin = null;
     this.retiringSessions.clear();
     this.unwatchedSessions.clear();
     this._connected = false;
@@ -852,6 +856,9 @@ export class SseConnection implements ChatConnection {
                 supportsAppliedCursor: true,
                 sessions,
                 lifecycleRevision,
+                ...(this.lifecycleOrigin && this.lifecycleOrigin !== welcomeConnectionId
+                  ? { replacesConnectionId: this.lifecycleOrigin }
+                  : {}),
               }),
             });
           };

@@ -130,6 +130,29 @@ describe('SseConnection', () => {
       vi.unstubAllGlobals();
     }
   });
+  it('carries its original connection across forced replacements, including an unacknowledged replay', async () => {
+    const fetch = vi.fn((url: string, _init?: RequestInit) =>
+      url.endsWith('/reconnect')
+        ? new Promise<Response>(() => {})
+        : Promise.resolve({ ok: true } as Response),
+    );
+    const conn = new SseConnection(createConfig({ fetch }));
+    try {
+      conn.connect();
+      lastES()._emit('welcome', { connectionId: 'origin-stream' });
+      conn.trackSeq('session', 12);
+      conn.checkAndReconnect(true);
+      lastES()._emit('welcome', { connectionId: 'unacknowledged-stream' });
+      conn.checkAndReconnect(true);
+      lastES()._emit('welcome', { connectionId: 'successor-stream' });
+      const replays = fetch.mock.calls.filter(([url]) => url.endsWith('/reconnect'));
+      expect(replays).toHaveLength(2);
+      for (const replay of replays)
+        expect(JSON.parse(String(replay[1]!.body)).replacesConnectionId).toBe('origin-stream');
+    } finally {
+      conn.disconnect();
+    }
+  });
   it.each(['welcome', 'probe'] as const)(
     'wakes an exact saved send on verified %s before replay is ready',
     async (source) => {
@@ -1887,6 +1910,7 @@ describe('SseConnection', () => {
           supportsAppliedCursor: true,
           sessions: [{ sessionId: 'sess-1', lastSeq: 10 }],
           lifecycleRevision: 1,
+          replacesConnectionId: 'conn-abc',
         }),
       }),
     );

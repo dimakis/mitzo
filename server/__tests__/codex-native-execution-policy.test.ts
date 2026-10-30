@@ -30,6 +30,21 @@ describe('native Mac execution permission profile', () => {
     for (const profile of Object.values(profiles))
       expect(profile.filesystem['/private/provider-auth{,/**}']).toBe('deny');
   });
+  it.each(['ask', 'agent', 'auto'] as const)(
+    'preserves narrow read ceilings in the compiled %s profile',
+    (mode) => {
+      const policy = codexNativeExecutionPolicy({
+        ...input,
+        mode,
+        readableRoots: ['/workspace/one'],
+      });
+      expect(policy.temporaryAccess).toBeUndefined();
+      for (const profile of Object.values(codexNativePermissionProfiles(policy).permissions)) {
+        expect(profile.filesystem).not.toHaveProperty(':tmpdir');
+        expect(profile.filesystem).not.toHaveProperty(':slash_tmp');
+      }
+    },
+  );
   it('rejects generic read exceptions within a credential deny, including canonical aliases', () => {
     const temporary = mkdtempSync(join(tmpdir(), 'mitzo-policy-alias-'));
     try {

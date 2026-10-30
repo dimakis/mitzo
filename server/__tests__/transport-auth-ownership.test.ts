@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   claimTransportConnection,
   acceptTransportLifecycle,
+  transportConnectionReplaces,
   isTransportConnectionOwnedBy,
   liveTransportAuthSessionId,
   releaseTransportConnection,
@@ -65,4 +66,39 @@ it('retains compatibility for legacy connections and refuses invalid revisions',
   for (const revision of [-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])
     expect(acceptTransportLifecycle('legacy-lifecycle', revision)).toBe(false);
   expect(acceptTransportLifecycle('missing-lifecycle', 1)).toBe(false);
+});
+
+it('shares the fence only across an explicit same-login replacement and retains it after origin expiry', () => {
+  vi.useFakeTimers();
+  claimTransportConnection('lineage-origin', 'lineage-login');
+  claimTransportConnection('lineage-next', 'lineage-login');
+  claimTransportConnection('lineage-foreign', 'foreign-login');
+  expect(acceptTransportLifecycle('lineage-origin', 1)).toBe(true);
+  expect(acceptTransportLifecycle('lineage-foreign', 2, 'lineage-origin')).toBe(false);
+  expect(acceptTransportLifecycle('lineage-next', 2, 'lineage-origin')).toBe(true);
+  expect(acceptTransportLifecycle('lineage-origin', 3)).toBe(false);
+  releaseTransportConnection('lineage-origin', 'lineage-login');
+  vi.advanceTimersByTime(TRANSPORT_OWNERSHIP_GRACE_MS + 1);
+  claimTransportConnection('lineage-final', 'lineage-login');
+  expect(acceptTransportLifecycle('lineage-final', 4, 'lineage-origin')).toBe(true);
+  expect(acceptTransportLifecycle('lineage-next', 3)).toBe(false);
+});
+
+it('permits normal replay after all predecessor leases expired without granting unrelated continuity', () => {
+  vi.useFakeTimers();
+  claimTransportConnection('expired-origin', 'expiry-login');
+  expect(acceptTransportLifecycle('expired-origin', 1)).toBe(true);
+  releaseTransportConnection('expired-origin', 'expiry-login');
+  vi.advanceTimersByTime(TRANSPORT_OWNERSHIP_GRACE_MS + 1);
+  claimTransportConnection('expiry-successor', 'expiry-login');
+  expect(acceptTransportLifecycle('expiry-successor', 2, 'expired-origin')).toBe(true);
+  expect(acceptTransportLifecycle('expiry-successor', 3, 'expired-origin')).toBe(true);
+});
+
+it('keeps unrelated observers outside an explicitly established stream lineage', () => {
+  claimTransportConnection('observed-driver', 'observer-login');
+  claimTransportConnection('independent-observer', 'observer-login');
+  expect(acceptTransportLifecycle('observed-driver', 1)).toBe(true);
+  expect(acceptTransportLifecycle('independent-observer', 2)).toBe(true);
+  expect(transportConnectionReplaces('independent-observer', 'observed-driver')).toBe(false);
 });

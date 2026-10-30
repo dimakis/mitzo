@@ -183,8 +183,11 @@ These are source qualifications, not real-model tests or multimedia implementati
 
 ## Runtime scratch directories
 
-The agent profile explicitly grants `:tmpdir` and `:slash_tmp` write access for
-ordinary shell scratch files, including zsh heredocs. Ask keeps these read-only.
+Ordinary profiles with the `/` read ceiling explicitly grant `:tmpdir` and
+`:slash_tmp` write access in Agent mode for shell scratch files, including zsh
+heredocs. Ask keeps these read-only. An explicitly narrower read ceiling, including
+the task-only adviser, does not enroll runtime scratch or add those compiled
+filesystem entries.
 Workspace roots, disabled networking, runtime read protection and the final
 credential deny globs retain their existing policy. Temporary directories are
 scratch space rather than additional task workspaces.

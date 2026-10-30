@@ -5484,6 +5484,52 @@ describe('handleSessionSuspend', () => {
 // ─── handleReconnect — suspend resume ───────────────────────────────────────
 
 describe('handleReconnect suspend resume', () => {
+  it('transfers explicit same-login stream continuity before the predecessor closes', () => {
+    vi.mocked(reattachChat).mockClear();
+    const sessions = new SessionRegistry();
+    const oldTransport = mockTransport();
+    const currentTransport = mockTransport();
+    sessions.register('continuity-old:session', {
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId: 'session',
+      ownerConnectionId: 'continuity-old',
+      transport: oldTransport,
+    });
+    sessions.suspend('continuity-old:session', 0);
+    const ctx = createContext({ sessionRegistry: sessions });
+    ctx.connRegistry.register('continuity-old', oldTransport);
+    ctx.connRegistry.register('continuity-new', currentTransport);
+    claimTransportConnection('continuity-old', 'same-login');
+    claimTransportConnection('continuity-new', 'same-login');
+    try {
+      handleReconnect(
+        'continuity-new',
+        {
+          type: 'reconnect',
+          lifecycleRevision: 2,
+          replacesConnectionId: 'continuity-old',
+          sessions: [{ sessionId: 'session', lastSeq: 0 }],
+        },
+        ctx,
+      );
+      expect(sessions.get('continuity-old:session')?.ownerConnectionId).toBe('continuity-new');
+      expect(reattachChat).toHaveBeenCalledWith('continuity-old:session', currentTransport);
+      handleSessionSuspend(
+        'continuity-old',
+        {
+          type: 'session_suspend',
+          lifecycleRevision: 1,
+          sessions: [{ sessionId: 'session', lastSeq: 0 }],
+        },
+        ctx,
+      );
+      expect(sessions.isSuspended('continuity-old:session')).toBe(false);
+    } finally {
+      sessions.remove('continuity-old:session');
+    }
+  });
   it('keeps a pending approval actionable when the app resumes on a new connection', () => {
     const sessionReg = new SessionRegistry();
     const oldTransport = mockTransport();

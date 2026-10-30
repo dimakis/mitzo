@@ -549,9 +549,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-native-artifact-qualification.test.ts':
     'bf39b31337d0714faac6d73f3b96aa99e8e960f39a54e81f1429699890d7cd05',
   '../__tests__/codex-native-execution-policy.test.ts':
-    '1ff8437d94854de7f21f0aab8aa04bb2e166d7333f383b58de3c03c1873d7acb',
+    'ee6e17f869ae824b07bcd93817e3280c8f4bc67c853852dec72e6786277e009f',
   '../__tests__/codex-native-execution-receipts.test.ts':
-    '6b22ba811089aa11baa1abaad81b292a1c2bb79409973f5bdc36007c5e6af3eb',
+    '8249f712d2df214069744e6168b1834ca91863b1f2f5f2039a6c1a274e539d04',
   '../__tests__/codex-native-permission-protocol.test.ts':
     '8e2395429506a4208ff1f59c1ee4bba3e6905ae3a5364961d9aa30aa2b7d1cae',
   '../__tests__/codex-runtime-policy.test.ts':
@@ -573,7 +573,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../codex-native-artifact-qualification.ts':
     'cd4f2f9c4913c2e7002a31f8035b0b8c102831d9d380971582344ba46bf86679',
   '../codex-native-execution-policy.ts':
-    'e2e018f8a8459e5b83da55e225e6449154c560baa6848e641530f640ce0dd131',
+    '2a6d40b7f4ca0ff2903a96b48ad2c77977a27aaf83507e9850aa47bec74c0ade',
   '../codex-native-grant-fence.ts':
     '2fe5cc62858934be6606446102a151d57cda6ed92dbf24c0b3b3e1dbea99d05b',
   '../codex-native-permission-protocol.ts':
@@ -1241,7 +1241,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/connection.ts':
     'b3f62dfd60cb41585ef6ea79b68657ec1239a23e5894d800014a43ba8372f381',
   '../../packages/client/src/sse-connection.ts':
-    'faed4bb858f84952d1125faa29d41158e87df0fc3893414b5afcdb1cf8802951',
+    '601b0344332a6290664959e85d77e63b812f2d8ae459fdb9166fb99b6e5fb862',
   '../../packages/client/src/store.ts':
     'e6914aeccb9f5286d1aa6c464967afc80df2aae249b2d56ef9e75f5c360e910d',
   '../../packages/harness/src/permission-handler.ts':
@@ -1268,7 +1268,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-sealed-publication-authority.ts':
     'e71d039c70f52a061ecb2bb6779aa4693288965a814d99d75dab0c224f18c8ff',
   '../transport-auth-ownership.ts':
-    'e89e600888a46e3bb3cfc1b3f2a4edf1d1b55d3c30eb08039c636a8bf6e23156',
+    '13dfc57cdb92169726414c809b566625d9ee92c5975c62819794789779fb9922',
   '../url-access-tool.ts': '045e01d27a5c5428b9430e440916875a622ea8eb90f598c577d22a2da680a457',
   '../web-access-tool.ts': '0c5e1a8a589cc660983f814abd1994b6b877b1bd1f02b6bc8c26521f6ae1ba13',
   '../index.ts': '4663b88936cc7b6ecad6f048339c94c2736268a9f5133eb055b1ffa6eb7ed540',
@@ -1323,7 +1323,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'bd41408c8dfb9fe4a239fca2e35cf8366bc379e63c4a310d3593cf709a1920d3',
   '../symposium-production-review-composition.ts':
     '5d0e4d78e45cc6d9b3c601cc1f5587c469432bb3ec9edc0c70fb34153dedfc5e',
-  '../ws-handler-v2.ts': '0e36f3ac321b67640e57c07357b3d57b1029ced728c800dec18cd3a1e2d0c928',
+  '../ws-handler-v2.ts': 'f8da6b7d88df362022bcc9f8caea4ed89a6c024ab6f40eba152c5e9d0b9b3420',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
   '../notification-store.ts': 'f6b5ec6927c367a94511f6eaf215498ffdb7e76020f417105df81d3812de94f3',
@@ -1712,7 +1712,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/connection-registry.ts':
     'c12650cb5912de809c99070c109c43cfda8dbf9e495c4c35d164ca057d33393d',
   '../../packages/protocol/src/ws-schemas-v2.ts':
-    '0302f1cc6ea89d753264120d80654c55da3e9c1a82871ed9a90c83510b517558',
+    '5f022894a8b36c4a24ae0fcf9ca6df30156905ceabeb479740f1713282ac9ae7',
   '../auth-route-boundary.ts': '9b853baf795f6c65a7cf956311787d049c961291cf4817ad53ad9e22ec62dd4c',
   '../git-version.ts': '405110af784b38f664fa6165bc83da008aae9de92410395d22a031c6c6b4d220',
   '../logger-transport.ts': '835c336a641ceef7d2a5d368cd435aec33660c4b64f256055bea5dde671153d8',
@@ -2036,7 +2036,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/adviser-harness-runtime.test.ts':
     'c222356834e1377f55b141789fcc05c9839dd2a5d5501ca78308c739024da86f',
   '../__tests__/adviser-native-policy.test.ts':
-    'd3094cf1e1d05ec1407049e6364805da237dc8c7a21c84bf85d732f12be2fad9',
+    '09973887519fc171658e95e25177a23a10a357bac379b77b64056a8958340c29',
   '../__tests__/adviser-sdk-startup.test.ts':
     'f807a4baa61ebd591579b410ecbc9c9c1f7ba64663c1fa07b1c7f3ecaa34fcd7',
   '../__tests__/adviser-task-scope.test.ts':

@@ -102,12 +102,14 @@ export function codexNativeExecutionPolicy(input: {
     )
   )
     throw Error('Native workspace overlaps protected authority');
+  // A task-only reader/adviser must not gain host-wide scratch visibility.
+  const temporaryAccess = readableRoots.includes('/') ? ('runtime' as const) : undefined;
   const profileRevision = codexNativeProfileRevision({
     bindingRevision: input.bindingRevision,
     readableRoots,
     deniedRoots,
     writeProtectedRoots,
-    temporaryAccess: 'runtime',
+    ...(temporaryAccess ? { temporaryAccess } : {}),
   });
   const permissions = input.mode === 'ask' ? 'mitzo-native-ask' : 'mitzo-native-agent';
   return Object.freeze({
@@ -118,7 +120,7 @@ export function codexNativeExecutionPolicy(input: {
     enforcement: 'configured',
     scopeKind: 'base-profile',
     grantState: 'upstream-owned',
-    temporaryAccess: 'runtime',
+    ...(temporaryAccess ? { temporaryAccess } : {}),
     cwd,
     readableRoots,
     writableRoots: input.mode === 'ask' ? Object.freeze([]) : workspaceRoots,

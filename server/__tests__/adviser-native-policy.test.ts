@@ -122,6 +122,25 @@ it('sends disabled discovered skills and a read-only task-only profile before na
   expect(f.policy.readableRoots).toEqual([f.directory]);
   expect(f.policy.writableRoots).toEqual([]);
 });
+it('keeps host temporary directories outside the compiled task-only adviser profile', async () => {
+  const f = fixture();
+  await f.c.initialize();
+  const params = (
+    f.request.mock.calls.find(([method]) => method === 'thread/start') as unknown as [
+      string,
+      { config: Record<string, unknown> },
+    ]
+  )[1];
+  const permissionConfig = params.config.permissions as Record<
+    string,
+    { filesystem: Record<string, string> }
+  >;
+  for (const profile of Object.values(permissionConfig)) {
+    expect(profile.filesystem).not.toHaveProperty(':tmpdir');
+    expect(profile.filesystem).not.toHaveProperty(':slash_tmp');
+  }
+  expect(f.policy.temporaryAccess).toBeUndefined();
+});
 it('refuses an unavailable skill scope before any native thread is allocated', async () => {
   const f = fixture(true);
   await expect(f.c.initialize()).rejects.toThrow();

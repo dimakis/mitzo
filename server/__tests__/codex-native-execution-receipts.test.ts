@@ -43,7 +43,16 @@ function fixture() {
 describe('native execution receipts in the existing command owner', () => {
   it('preserves historical receipts without falsely attesting new temporary-directory access', () => {
     const f = fixture();
-    const legacy = { ...policy };
+    const scratch = codexNativeExecutionPolicy({
+      bindingRevision: policy.bindingRevision,
+      cwd: policy.cwd,
+      mode: 'agent',
+      readableRoots: ['/'],
+      writableRoots: policy.workspaceRoots,
+      deniedRoots: policy.deniedRoots,
+      writeProtectedRoots: policy.writeProtectedRoots,
+    });
+    const legacy = { ...scratch };
     delete legacy.temporaryAccess;
     const digest = (value: unknown) =>
       createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -63,7 +72,7 @@ describe('native execution receipts in the existing command owner', () => {
     const restored = f.store.readNativeExecution('conversation', binding, f.command)!.policy;
     expect(restored).toEqual(legacy);
     expect(restored).not.toHaveProperty('temporaryAccess');
-    expect(legacy.profileRevision).not.toBe(policy.profileRevision);
+    expect(legacy.profileRevision).not.toBe(scratch.profileRevision);
   });
   it('retains the exact base policy before dispatch and preserves unknown native acceptance', () => {
     const f = fixture();
