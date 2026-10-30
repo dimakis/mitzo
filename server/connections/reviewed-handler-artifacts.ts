@@ -2465,7 +2465,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/task-review-process-fixture.ts':
     'cdaad1e41973508c1267afb530dcf9c2441a0687e35d6f6734de33b4b2cec7ec',
   '../../tests/integration/telos-s9/integrated-candidate/tree-priority-browser.contract.ts':
-    '5504545933b8c565ac1bfb7418aa6694b0ac83b8cde9bc82415040cc56620bb4',
+    '938a4a1e6ed8f9c8ab4b36fd791c9bf42e25c5063323af8ea65e1cc0165dc679',
   '../../tests/integration/telos-s9/integrated-candidate/ux-composition-browser.contract.ts':
     'aa8a3240437d4034dbc65fddf0bcaf2faf4808a7c237b3bc06801383c2d47ab2',
   '../../tests/integration/telos-s9/integrated-candidate/vitest.advisor-child.config.ts':
