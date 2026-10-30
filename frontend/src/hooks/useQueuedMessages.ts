@@ -561,11 +561,30 @@ export function useQueuedMessages(
       // A receipt may arrive after navigation or unmount. Reread the owner's
       // storage, preserving locally unsaved work without reviving external deletions.
       const active = mounted.current && sessionRef.current === owner;
-      const live = queueRef.current.filter((entry) => entry.queueEntryId !== id);
+      const revised = new Map<string, QueuedMessage>();
+      const removeExactClaim = (entries: QueuedMessage[]) =>
+        entries.flatMap((entry) => {
+          if (entry.queueEntryId !== id) return [entry];
+          const signature = JSON.stringify(toStored([entry]));
+          if (signature === JSON.stringify(toStored([msg]))) return [];
+          // An accepted identity cannot consume text edited by another view.
+          let replacement = revised.get(signature);
+          if (!replacement) {
+            replacement = {
+              ...entry,
+              queueEntryId: createBrowserId(),
+              requiresRetry: true,
+              dispatchPending: false,
+            };
+            revised.set(signature, replacement);
+          }
+          return [replacement];
+        });
+      const live = removeExactClaim(queueRef.current);
       let fallback = live;
       try {
         const observed = readQueue(owner);
-        const stored = observed.filter((entry) => entry.queueEntryId !== id);
+        const stored = removeExactClaim(observed);
         const remaining = active
           ? persistence.current.dirty
             ? reconcileQueue(stored, live, persistence.current.baseline)

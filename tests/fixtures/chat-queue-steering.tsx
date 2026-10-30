@@ -117,7 +117,17 @@ function Fixture() {
             replyTo,
             queuedCommandId,
             retainedTarget,
-          ) => steering.submit(text, receipt, replyTo?.messageId, queuedCommandId, retainedTarget)}
+            onDefinitiveRefusal,
+          ) =>
+            steering.submit(
+              text,
+              receipt,
+              replyTo?.messageId,
+              queuedCommandId,
+              retainedTarget,
+              onDefinitiveRefusal,
+            )
+          }
           onStop={() => {
             void fetch('/fixture/stop', { method: 'POST' });
           }}

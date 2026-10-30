@@ -1032,6 +1032,7 @@ export function ChatView() {
     replyTo?: MessageReplyContext,
     queuedCommandId?: string,
     retainedSteeringTarget?: string,
+    onDefinitiveRefusal?: () => void,
   ): void {
     if (controlsBlocked || explicitNew) {
       onDelivery?.('failed');
@@ -1049,6 +1050,7 @@ export function ChatView() {
         replyTo?.messageId,
         queuedCommandId,
         retainedSteeringTarget,
+        onDefinitiveRefusal,
       );
       return;
     }

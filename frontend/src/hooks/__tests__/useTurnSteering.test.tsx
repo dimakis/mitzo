@@ -157,3 +157,32 @@ it('checks an explicitly retained correction against its captured target after t
   });
   expect(delivery).toHaveBeenCalledWith('failed');
 });
+it('retains an uncertain correction across a generic auth denial and emits refusal proof only for its matching receipt', async () => {
+  vi.mocked(apiFetch).mockRejectedValueOnce(Error('lost'));
+  const delivery = vi.fn(),
+    proof = vi.fn();
+  const hook = renderHook(() => useTurnSteering('auth-recovery', 'original-turn', true));
+  await act(async () =>
+    hook.result.current.submit(
+      'Correction',
+      delivery,
+      undefined,
+      'original-id',
+      'original-turn',
+      proof,
+    ),
+  );
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    Response.json({ error: 'Expired sign-in' }, { status: 403 }),
+  );
+  await act(async () => hook.result.current.retry!());
+  expect(proof).not.toHaveBeenCalled();
+  expect(delivery).toHaveBeenLastCalledWith('uncertain');
+  expect(localStorage.getItem('mitzo-turn-steering:auth-recovery')).toContain('original-id');
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    Response.json({ requestId: 'original-id', status: 'rejected' }, { status: 409 }),
+  );
+  await act(async () => hook.result.current.retry!());
+  expect(proof).toHaveBeenCalledOnce();
+  expect(delivery).toHaveBeenLastCalledWith('failed');
+});

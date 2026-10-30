@@ -2375,7 +2375,10 @@ guard coalesces duplicate views under that identity. Definite refusals stay edit
 behind explicit review, while uncertain delivery stays fenced. Cold fenced rows
 expose an explicit delivery check using the same command identity; native corrections
 retain their original target command and cannot steer a successor. Authoritative
-request progress clears a recovered fence without a new dispatch. Releasing a
+request progress clears a recovered fence without a new dispatch. Generic auth or
+storage denials preserve its original identity; only a matching native refusal
+releases recovered steering for editing. Legacy interrupts use a read-only
+same-chat receipt check, so recovery cannot interrupt a successor turn. Releasing a
 definite refusal preserves dirty local work and fresh peer edits. The brief
 queue/correction hint sits between the tray and text input.
 

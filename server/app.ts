@@ -1,3 +1,4 @@
+import { createQueuedMessageReceiptHandler } from './queued-message-receipt.js';
 import { assertOrdinaryContributorControlAllowed } from './ordinary-contributor-execution.js';
 import { installChatCommandJson } from './chat-command-json.js';
 import { sessionModelSettingsReason } from './session-model-settings.js';
@@ -3432,6 +3433,11 @@ app.get('/api/sessions/:id/context', (req, res) => {
   );
   res.json({ sessionId: meta.sessionId, contextUsage: contextUsage ?? null });
 });
+
+app.get(
+  '/api/sessions/:id/queued-receipts/:messageId',
+  createQueuedMessageReceiptHandler(eventStore),
+);
 
 app.get(
   '/api/sessions/:id/messages',

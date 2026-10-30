@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../queued-message-receipt.ts':
+    'f3460a5125504b6a05814284e89fd5da76da96612a10060d71a7480253807c65',
   '../../frontend/src/components/QueuedDraftTray.tsx':
     'a8721de63086cd332a3952004527493dbc920c173e41da732a746b337f11a1ca',
   '../../frontend/src/components/QueuedDraftTray.css':
@@ -36,7 +38,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6d1821e1dc1d65dfd966b6b15215743b713d4d9ce7042839bfee23e4dd74ce2f',
   '../codex-steering.ts': '730cecf46f30574cc129c30f7c9c83a372c03aa0d41eadb5ae5df91c64cd043b',
   '../../frontend/src/hooks/useTurnSteering.ts':
-    '65c622c8028fcd40fa3475acb8711bc7153b1d51e383b1a88d94564515d243f8',
+    '9360edc424a40fd603cb75af8b839ed3ca8a5de556df8adb4c8417b62ff28f88',
   '../../frontend/src/components/ChatCommandMetadata.css':
     '4bef9db5f91077e9669cc5c0ff4ade8342a040f5c97160401a94508bf415384d',
   '../__tests__/reconnect-delivery.integration.test.ts':
@@ -1152,7 +1154,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    '0650862adf5234877ec5fc9b65c8fe083819609c593e8762876a767f95ae5f14',
+    '495f86558e1fd77df1e269247718f05f997a7200750f983ce45e857a82f86994',
   '../../frontend/src/components/ComposerTools.tsx':
     'f939155993b0783c1a231a693de30c13d9594ff558cacc27a23c17a781315245',
   '../../frontend/src/components/ContextPanel.tsx':
@@ -1194,9 +1196,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     '4c114400fccd3b18189a36cf15dcc5507652956330907ea1ae6b382ddb5541c0',
   '../../frontend/src/pages/ChatView.tsx':
-    'd28cbe419e536ed2f71c850ab4289ac2d317bae4ac0c600928be1e0e3b822b37',
+    '53aed34282b46141e57f605c6327d9e139e36a69c686241a3b5a2ef4262e911f',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    '60006a37504783b5ea541019bb6c529d0a5de5624e978f4ed92a92b74354131a',
+    'ba1e038cef0e7f4f962a525496815bd3f80d0260ba3d1dff59f28488c6b6596b',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
@@ -1332,7 +1334,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6be98645eb9b4467c30f5dacb3e8eee7a9c3f08cb6fc820edc872f789ef217c8',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
-  '../app.ts': '561eb760bad5bc0349a36b92adfa483dfe426a85f6e2b4d5de5d83bd623a3145',
+  '../app.ts': 'af0db05222e9527d92ac3b4940190ce2325fca5a4da14fe09d4aa5d04d71967c',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':

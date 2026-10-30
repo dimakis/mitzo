@@ -1307,7 +1307,7 @@ it('excludes the exact accepted ID when writes succeeded but verification reads 
   const other = owner.result.current.queue[1];
   const stored = JSON.parse(get.call(localStorage, 'mitzo-queue-a')!);
   expect(stored).toHaveLength(2);
-  // An exact accepted ID must also beat fresh edits to that same stored row.
+  // The accepted identity is retired; a fresh edit survives under a new review-only identity.
   set.call(
     localStorage,
     'mitzo-queue-a',
@@ -1322,10 +1322,30 @@ it('excludes the exact accepted ID when writes succeeded but verification reads 
   );
   failVerification = false;
   act(() => owner.result.current.removeSubmitted(accepted));
-  expect(owner.result.current.queue).toEqual([other]);
-  expect(owner.result.current.queue[0].images).toBe(other.images);
+  expect(owner.result.current.queue).toHaveLength(2);
+  expect(owner.result.current.queue.some((row) => row.queueEntryId === accepted.queueEntryId)).toBe(
+    false,
+  );
+  const revised = owner.result.current.queue.find(
+    (row) => row.text === 'Fresh edit of the accepted row',
+  )!;
+  expect(revised).toMatchObject({ requiresRetry: true, contextBlocks: ['fresh accepted context'] });
+  expect(revised.queueEntryId).not.toBe(accepted.queueEntryId);
+  expect(
+    owner.result.current.queue.find((row) => row.queueEntryId === other.queueEntryId)?.images,
+  ).toBe(other.images);
+  expect(owner.result.current.queue.map((row) => row.text)).toEqual([
+    'Other A',
+    'Fresh edit of the accepted row',
+  ]);
   expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([
     { text: other.text, contextBlocks: other.contextBlocks, queueEntryId: other.queueEntryId },
+    {
+      text: revised.text,
+      contextBlocks: revised.contextBlocks,
+      queueEntryId: revised.queueEntryId,
+      requiresRetry: true,
+    },
   ]);
 });
 
@@ -1571,4 +1591,26 @@ it('does not release an uncertain original identity if explicit recovery cannot 
     queueEntryId: retained.queueEntryId,
     dispatchPending: true,
   });
+});
+it('keeps a fresh peer edit for explicit review when the original stable identity is accepted', async () => {
+  const hook = renderHook(() => useQueuedMessages('accepted-peer', 32));
+  await act(async () => {
+    await hook.result.current.enqueuePersisted(msg('Original'));
+  });
+  let claim!: QueuedMessage;
+  await act(async () => {
+    claim = (await hook.result.current.prepareSubmission(hook.result.current.queue[0]))!;
+  });
+  const saved = JSON.parse(localStorage.getItem('mitzo-queue-accepted-peer')!);
+  saved[0].text = 'Fresh peer edit';
+  delete saved[0].dispatchPending;
+  localStorage.setItem('mitzo-queue-accepted-peer', JSON.stringify(saved));
+  act(() => hook.result.current.removeSubmitted(claim));
+  expect(hook.result.current.queue).toHaveLength(1);
+  expect(hook.result.current.queue[0]).toMatchObject({
+    text: 'Fresh peer edit',
+    requiresRetry: true,
+  });
+  expect(hook.result.current.queue[0].queueEntryId).not.toBe(claim.queueEntryId);
+  expect(hook.result.current.dequeue()).toBeUndefined();
 });

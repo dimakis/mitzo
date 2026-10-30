@@ -1,3 +1,4 @@
+import { apiFetch } from '../../lib/api-fetch';
 import { chatStorage } from '../../lib/large-chat-storage';
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
@@ -8,12 +9,17 @@ import { createChatDraft } from '../../lib/chat-drafts';
 import { prepareLocalFirstCommand } from '../../lib/explicit-local-chat';
 import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
+vi.mock('../../lib/api-fetch', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  apiFetch: vi.fn(),
+}));
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
 vi.mock('../MicButton', () => ({ MicButton: () => null }));
 vi.mock('../SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.mocked(apiFetch).mockReset();
   localStorage.clear();
 });
 it('keeps one short failure with Retry while preserving the edited draft and blocking replacement sends', async () => {
@@ -504,3 +510,129 @@ it('clears a cold ordinary fence from authoritative request progress without ano
   await waitFor(() => expect(screen.queryByRole('region', { name: 'Up next' })).toBeNull());
   expect(send).not.toHaveBeenCalled();
 });
+it('keeps a cold steering identity when recovery is refused before an authoritative receipt', async () => {
+  localStorage.setItem(
+    'mitzo-queue-cold-steer-refused',
+    JSON.stringify([
+      {
+        text: 'Original correction',
+        contextBlocks: [],
+        queueEntryId: 'correction-id',
+        requiresRetry: true,
+        dispatchPending: true,
+        dispatchKind: 'steer',
+        steeringTargetCommandId: 'original-turn',
+      },
+    ]),
+  );
+  const steer = vi.fn((...args: unknown[]) => {
+    (args[3] as (status: string) => void)('failed');
+  });
+  render(
+    <ChatInput
+      sessionId="cold-steer-refused"
+      guardedConversation
+      running
+      steeringTargetCommandId="successor-turn"
+      onSend={vi.fn(() => true)}
+      onInterrupt={steer}
+      interruptLabel="Steer current turn"
+      onStop={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check delivery of queued prompt 1' }));
+  await waitFor(() => expect(steer).toHaveBeenCalledOnce());
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-cold-steer-refused')!)[0]).toMatchObject({
+    queueEntryId: 'correction-id',
+    dispatchPending: true,
+    steeringTargetCommandId: 'original-turn',
+  });
+  expect(
+    screen.getByRole('button', { name: 'Edit, reorder or remove queued prompt 1' }),
+  ).toBeDisabled();
+});
+it('releases a cold correction only after its matching native refusal is proved', async () => {
+  localStorage.setItem(
+    'mitzo-queue-cold-steer-proven',
+    JSON.stringify([
+      {
+        text: 'Original correction',
+        contextBlocks: [],
+        queueEntryId: 'correction-id',
+        requiresRetry: true,
+        dispatchPending: true,
+        dispatchKind: 'steer',
+        steeringTargetCommandId: 'original-turn',
+      },
+    ]),
+  );
+  const steer = vi.fn((...args: unknown[]) => {
+    (args[7] as () => void)();
+    (args[3] as (status: string) => void)('failed');
+  });
+  render(
+    <ChatInput
+      sessionId="cold-steer-proven"
+      guardedConversation
+      running
+      steeringTargetCommandId="successor-turn"
+      onSend={vi.fn(() => true)}
+      onInterrupt={steer}
+      interruptLabel="Steer current turn"
+      onStop={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check delivery of queued prompt 1' }));
+  await waitFor(() => expect(steer).toHaveBeenCalledOnce());
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Edit, reorder or remove queued prompt 1' }),
+    ).toBeEnabled(),
+  );
+  expect(
+    JSON.parse(localStorage.getItem('mitzo-queue-cold-steer-proven')!)[0].queueEntryId,
+  ).not.toBe('correction-id');
+});
+it.each([true, false])(
+  'checks a legacy interrupt receipt without interrupting a successor (received=%s)',
+  async (received) => {
+    localStorage.setItem(
+      'mitzo-queue-cold-legacy',
+      JSON.stringify([
+        {
+          text: 'Old interrupt',
+          contextBlocks: [],
+          queueEntryId: 'old-id',
+          requiresRetry: true,
+          dispatchPending: true,
+          dispatchKind: 'interrupt',
+        },
+      ]),
+    );
+    vi.mocked(apiFetch).mockResolvedValueOnce(Response.json({ messageId: 'old-id', received }));
+    const interrupt = vi.fn();
+    render(
+      <ChatInput
+        sessionId="cold-legacy"
+        running
+        onSend={vi.fn(() => true)}
+        onInterrupt={interrupt}
+        onStop={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Check delivery of queued prompt 1' }));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce());
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/sessions/cold-legacy/queued-receipts/old-id',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(interrupt).not.toHaveBeenCalled();
+    if (received)
+      await waitFor(() => expect(screen.queryByRole('region', { name: 'Up next' })).toBeNull());
+    else
+      expect(JSON.parse(localStorage.getItem('mitzo-queue-cold-legacy')!)[0]).toMatchObject({
+        queueEntryId: 'old-id',
+        dispatchPending: true,
+      });
+  },
+);

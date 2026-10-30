@@ -30,6 +30,7 @@ export function useTurnSteering(
     pending: Correction | null;
     blocked: boolean;
     delivery?: Delivery;
+    refusal?: () => void;
     busy: boolean;
   }>({ sessionId: null, pending: null, blocked: false, busy: false });
   if (owner.current.sessionId !== sessionId) {
@@ -54,7 +55,12 @@ export function useTurnSteering(
         : selected.pending
           ? 'Correction delivery not confirmed. Retry checks the original correction.'
           : '';
-  const execute = async (scope: typeof selected, input: Correction, delivery?: Delivery) => {
+  const execute = async (
+    scope: typeof selected,
+    input: Correction,
+    delivery?: Delivery,
+    onDefinitiveRefusal?: () => void,
+  ) => {
     if (!scope.sessionId || scope.busy) return;
     scope.busy = true;
     render((n) => n + 1);
@@ -70,6 +76,7 @@ export function useTurnSteering(
       return;
     }
     let status = 'uncertain';
+    let refusalProven = false;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -97,10 +104,11 @@ export function useTurnSteering(
       if (
         receipt.body.requestId === input.requestId &&
         ['accepted', 'rejected', 'stale_target', 'uncertain'].includes(receipt.body.status)
-      )
+      ) {
         status = receipt.body.status;
-      // Definite pre-dispatch input/auth refusals preserve the draft without replay.
-      else if ([400, 401, 403, 404].includes(receipt.status)) status = 'rejected';
+        refusalProven = ['rejected', 'stale_target'].includes(status);
+      }
+      // An auth/input denial without the matching receipt proves nothing about an earlier attempt.
     } catch {
       /* A lost response never authorizes a replacement correction. */
     } finally {
@@ -119,6 +127,8 @@ export function useTurnSteering(
       }
       scope.pending = null;
       scope.delivery = undefined;
+      scope.refusal = undefined;
+      if (refusalProven) onDefinitiveRefusal?.();
       delivery?.(status === 'accepted' ? 'accepted' : 'failed');
       if (owner.current === scope)
         setFeedback({
@@ -133,6 +143,7 @@ export function useTurnSteering(
     } else {
       scope.pending = input;
       scope.delivery = delivery;
+      scope.refusal = onDefinitiveRefusal;
       delivery?.('uncertain');
       if (owner.current === scope)
         setFeedback({
@@ -146,7 +157,7 @@ export function useTurnSteering(
     error,
     busy: selected.busy,
     retry: selected.pending
-      ? () => void execute(selected, selected.pending!, selected.delivery)
+      ? () => void execute(selected, selected.pending!, selected.delivery, selected.refusal)
       : undefined,
     submit: (
       text: string,
@@ -154,6 +165,7 @@ export function useTurnSteering(
       replyToMessageId?: string,
       requestId?: string,
       retainedTargetCommandId?: string,
+      onDefinitiveRefusal?: () => void,
     ) => {
       const target = retainedTargetCommandId ?? targetCommandId;
       if (!enabled || !sessionId || !target || selected.busy || selected.blocked) {
@@ -175,7 +187,7 @@ export function useTurnSteering(
           });
           return;
         }
-        void execute(selected, selected.pending, delivery);
+        void execute(selected, selected.pending, delivery, onDefinitiveRefusal);
         return;
       }
       const input = {
@@ -186,7 +198,8 @@ export function useTurnSteering(
       };
       selected.pending = input;
       selected.delivery = delivery;
-      void execute(selected, input, delivery);
+      selected.refusal = onDefinitiveRefusal;
+      void execute(selected, input, delivery, onDefinitiveRefusal);
     },
   };
 }

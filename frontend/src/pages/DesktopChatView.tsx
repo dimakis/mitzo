@@ -1018,6 +1018,7 @@ export function DesktopChatView() {
     replyTo?: MessageReplyContext,
     queuedCommandId?: string,
     retainedSteeringTarget?: string,
+    onDefinitiveRefusal?: () => void,
   ): void {
     if (controlsBlocked || explicitNew) {
       onDelivery?.('failed');
@@ -1035,6 +1036,7 @@ export function DesktopChatView() {
         replyTo?.messageId,
         queuedCommandId,
         retainedSteeringTarget,
+        onDefinitiveRefusal,
       );
       return;
     }

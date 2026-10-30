@@ -1,3 +1,4 @@
+import { apiFetch } from '../lib/api-fetch';
 import type { QueuedMessage } from '../hooks/useQueuedMessages';
 import { QueuedDraftTray } from './QueuedDraftTray';
 import type { MessageReplyContext } from '@mitzo/protocol';
@@ -98,6 +99,7 @@ interface Props {
     replyTo?: MessageReplyContext,
     queuedCommandId?: string,
     retainedSteeringTarget?: string,
+    onDefinitiveRefusal?: () => void,
   ) => void;
   running: boolean;
   initialText?: string;
@@ -1201,6 +1203,41 @@ export function ChatInput({
       return;
     const q = queuedMessages[index];
     if (!q || sendPending.current || interruptPending.current || sendDisabledReason) return;
+    if (q.dispatchPending && q.dispatchKind === 'interrupt') {
+      if (!sessionId || !q.queueEntryId) return;
+      const submitted = latestDraft.current,
+        controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      const operation = {};
+      queueOperation.current = operation;
+      setQueueBusy(true);
+      try {
+        const response = await apiFetch(
+          `/api/sessions/${encodeURIComponent(sessionId)}/queued-receipts/${encodeURIComponent(q.queueEntryId)}`,
+          { signal: controller.signal },
+        );
+        const receipt = await response.json();
+        if (!mounted.current || latestDraft.current.scope !== submitted.scope) return;
+        if (response.ok && receipt.messageId === q.queueEntryId && receipt.received === true)
+          acknowledgeSubmission(q.queueEntryId);
+        else
+          setQueueError({
+            scope: submitted.scope,
+            text: 'Original interrupt delivery is still unconfirmed. Your saved prompt is kept. Check the conversation and delivery notices.',
+          });
+      } catch {
+        if (mounted.current && latestDraft.current.scope === submitted.scope)
+          setQueueError({
+            scope: submitted.scope,
+            text: 'Could not check the original interrupt. Your saved prompt is kept.',
+          });
+      } finally {
+        clearTimeout(timer);
+        if (queueOperation.current === operation) queueOperation.current = null;
+        if (mounted.current) setQueueBusy(false);
+      }
+      return;
+    }
     const recovering = !!q.dispatchPending;
     if ((recovering && q.dispatchKind === 'send') || (!recovering && !running)) {
       if (!recovering) removeQueued(index);
@@ -1236,6 +1273,7 @@ export function ChatInput({
       return;
     }
     let settled = false;
+    let definitiveRefusal = false;
     onInterrupt(
       attachmentPrompt(q.text, q.images),
       q.images.length > 0 ? q.images : undefined,
@@ -1251,7 +1289,12 @@ export function ChatInput({
         if (interruptPending.current === pending) interruptPending.current = null;
         if (status === 'accepted') removeSubmitted(retained);
         else {
-          releaseSubmission(retained, q);
+          if (!recovering || definitiveRefusal) releaseSubmission(retained, q);
+          else if (mounted.current && latestDraft.current.scope === submitted.scope)
+            setQueueError({
+              scope: submitted.scope,
+              text: 'Correction delivery is still unconfirmed. Its original identity and target are kept.',
+            });
           if (mounted.current && latestDraft.current.scope === submitted.scope)
             setQueuePaused(true);
         }
@@ -1260,6 +1303,9 @@ export function ChatInput({
       q.replyTo,
       q.queueEntryId ?? retained.queueEntryId,
       target,
+      () => {
+        definitiveRefusal = true;
+      },
     );
   }
 
