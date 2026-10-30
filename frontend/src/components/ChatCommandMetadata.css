@@ -1,0 +1,35 @@
+.chat-command-meta,
+.chat-reply-link {
+  color: var(--color-muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  line-height: inherit;
+  overflow-wrap: anywhere;
+}
+.chat-command-meta {
+  padding-block: var(--space-1);
+}
+.chat-command-meta--user {
+  text-align: end;
+  padding-inline: var(--space-3);
+}
+.chat-reply-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  max-width: 100%;
+  background: transparent;
+  border: 0;
+  padding: var(--space-1) var(--space-2);
+  text-align: start;
+  cursor: pointer;
+}
+.chat-reply-link svg {
+  flex-shrink: 0;
+}
+.chat-reply-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}

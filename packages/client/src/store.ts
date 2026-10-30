@@ -507,7 +507,34 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                     );
             if (visible) {
               visibleLocalCommandId = request?.clientMsgId;
+              let messages = store.getState().messages;
+              const ownState =
+                request &&
+                (messages.commandStates?.[request.clientMsgId] ??
+                  messages.messages.find((message) => message.messageId === request.clientMsgId)
+                    ?.commandState);
+              if (
+                request &&
+                state === 'consumed' &&
+                event.acknowledged === true &&
+                (!ownState || ['sending', 'queued'].includes(ownState))
+              )
+                messages = messagesReducer(messages, {
+                  type: 'COMMAND_STATE',
+                  messageId: request.clientMsgId,
+                  commandState: 'queued',
+                });
+              const hasReply =
+                request &&
+                (Object.values(messages.replySources ?? {}).includes(request.clientMsgId) ||
+                  [...messages.messages, ...(messages.current ? [messages.current] : [])].some(
+                    (message) => message.replyToMessageId === request.clientMsgId,
+                  ));
+              const terminal =
+                ownState &&
+                ['completed', 'ended', 'interrupted', 'failed', 'cancelled'].includes(ownState);
               store.setState({
+                messages,
                 localCommand: {
                   request,
                   ...(composerDraft ? { composerDraft } : {}),
@@ -523,7 +550,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 },
                 sendStatus:
                   state === 'consumed'
-                    ? `${locationLabel} command dispatched.`
+                    ? hasReply || terminal
+                      ? null
+                      : 'Preparing response…'
                     : state === 'pending'
                       ? `Sending ${locationLabel} command…`
                       : `${locationLabel} command retained. Review before retrying.`,
@@ -982,6 +1011,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 ? messagesReducer(withoutStaleCurrent, {
                     type: 'MESSAGE_SNAPSHOT',
                     messageId: current.messageId,
+                    replyToMessageId: current.replyToMessageId,
                     startedSeq: current.startedSeq,
                     blocks: current.blocks,
                   })
@@ -1259,6 +1289,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             restored = messagesReducer(restored, {
               type: 'MESSAGE_SNAPSHOT',
               messageId: current.messageId,
+              replyToMessageId: current.replyToMessageId,
               startedSeq: current.startedSeq,
               blocks: current.blocks,
             });
@@ -2060,7 +2091,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       const currentCommand =
         store
           .getState()
-          .messages.messages.filter((message) => message.role === 'user')
+          .messages.messages.filter(
+            (message) => message.role === 'user' && !message.steersMessageId,
+          )
           .at(-1)?.messageId === msg.clientMsgId;
       if (
         msg.type === '_send_accepted' &&
@@ -2094,7 +2127,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           const user = store
             .getState()
             .messages.messages.find((message) => message.messageId === msg.clientMsgId);
-          if (!user?.commandState || user.commandState === 'queued')
+          if (!user?.commandState || ['sending', 'queued'].includes(user.commandState))
             store.setState((state) => ({
               messages: messagesReducer(state.messages, {
                 type: 'COMMAND_STATE',
@@ -2400,7 +2433,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     // Observe a known command's completion even when its view is offscreen.
     // This is UI progress only: it never accepts or retries an uncertain send.
-    if (msg.type === 'session_end' && typeof eventSessionId === 'string') {
+    if (msg.type === 'ordinary_command_completed' && typeof msg.messageId === 'string') {
+      const observation = preparationObservations.get(msg.messageId);
+      if (observation && observation.sessionId === eventSessionId) observation.ended = true;
+    } else if (
+      msg.type === 'session_end' &&
+      typeof eventSessionId === 'string' &&
+      !store.getState().messages.nativeCommands
+    ) {
       for (const observation of preparationObservations.values())
         if (observation.sessionId === eventSessionId) observation.ended = true;
     }
@@ -2502,11 +2542,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     const progressMessages = store.getState().messages;
     const latestRequest = progressMessages.messages
-      .filter((message) => message.role === 'user')
+      .filter((message) => message.role === 'user' && !message.steersMessageId)
       .at(-1)?.messageId;
     const progressForCurrentCommand =
-      !progressMessages.nativeCommands ||
-      (msg.type === 'ordinary_reply_source' && msg.replyToMessageId === latestRequest) ||
+      (!progressMessages.nativeCommands && typeof msg.replyToMessageId !== 'string') ||
+      (['ordinary_reply_source', 'message_snapshot'].includes(String(msg.type)) &&
+        msg.replyToMessageId === latestRequest) ||
       (msg.type === 'ordinary_command_completed' && msg.messageId === latestRequest) ||
       (typeof msg.messageId === 'string' &&
         progressMessages.replySources?.[msg.messageId] === latestRequest);
@@ -2521,13 +2562,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       ].includes(String(msg.type)) ||
         (msg.type === 'message_snapshot' &&
           Array.isArray(msg.blocks) &&
-          typeof msg.startedSeq === 'number' &&
-          Number.isSafeInteger(msg.startedSeq) &&
-          msg.startedSeq >
-            (store
-              .getState()
-              .messages.messages.filter((message) => message.role === 'user')
-              .at(-1)?.startedSeq ?? Infinity))) &&
+          (msg.replyToMessageId === latestRequest ||
+            (typeof msg.startedSeq === 'number' &&
+              Number.isSafeInteger(msg.startedSeq) &&
+              msg.startedSeq >
+                (store
+                  .getState()
+                  .messages.messages.filter(
+                    (message) => message.role === 'user' && !message.steersMessageId,
+                  )
+                  .at(-1)?.startedSeq ?? Infinity))))) &&
       store.getState().sendStatus === 'Preparing response…'
     )
       store.setState({ sendStatus: null });

@@ -647,3 +647,37 @@ it.each([undefined, true, false])(
     );
   },
 );
+
+it('identifies the older request answered below a queued correction and lets the user find it', () => {
+  const messages: FinishedMessage[] = [
+    {
+      messageId: 'a',
+      role: 'user',
+      commandState: 'running',
+      blocks: [{ blockId: 'a', blockType: 'text', content: 'First request' }],
+    },
+    {
+      messageId: 'b',
+      role: 'user',
+      commandState: 'queued',
+      blocks: [{ blockId: 'b', blockType: 'text', content: 'Correction' }],
+    },
+    {
+      messageId: 'answer',
+      role: 'assistant',
+      replyToMessageId: 'a',
+      blocks: [{ blockId: 'text', blockType: 'text', content: 'Earlier answer' }],
+    },
+  ];
+  render(
+    <ChatArea
+      messages={messages}
+      current={null}
+      running
+      permission={null}
+      onPermissionRespond={vi.fn()}
+    />,
+  );
+  expect(screen.getByText('Queued — waiting for the current turn')).toBeDefined();
+  expect(screen.getByRole('button', { name: 'Answering: First request' })).toBeDefined();
+});

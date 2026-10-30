@@ -3932,6 +3932,34 @@ app.use(
   '/api/sessions',
   createCodexQueueRouter({
     authorizeMutation: assertQueueOperator,
+    steer: async (id, _binding, input, authorization) => {
+      const authorize = () => {
+        assertQueueOperator(id, authorization);
+        assertOrdinaryContributorControlAllowed(eventStore, id, 'interrupt');
+        if (
+          eventStore.getSessionRuntimeBinding(id)?.harness.implementation !== 'codex' ||
+          eventStore.getSession(id)?.symposiumConfig
+        )
+          throw Error('Native ordinary turn required');
+      };
+      authorize();
+      const previous = getCodexConversationStore().steeringReceipt(id, _binding, input);
+      if (previous)
+        return { status: previous.status === 'claimed' ? 'uncertain' : previous.status };
+      const session = registry.findBySessionId(id)?.session;
+      if (!session) return { status: 'stale_target' };
+      const runtime = getCodexRuntime(session);
+      return runtime
+        ? runtime.steer(input, () => {
+            authorize();
+            if (
+              registry.findBySessionId(id)?.session !== session ||
+              getCodexRuntime(session) !== runtime
+            )
+              throw Error('Original runtime unavailable');
+          })
+        : { status: 'stale_target' };
+    },
     binding(sessionId) {
       const meta = eventStore.getSession(sessionId);
       const binding = meta?.accountBinding;
@@ -3952,21 +3980,34 @@ app.use(
             )
           ? readOwnedResponsesQueueOverview(eventStore, getNativeResponsesStore(), id, binding)
           : readCodexQueueOverview(id, binding),
-    cancel: (id, binding, commandId, authorization) =>
-      eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'claude-sdk'
-        ? cancelOwnedVertexQueuedCommand(eventStore, id, commandId, authorization)
-        : ['responses', 'gemini'].includes(
-              eventStore.getSessionRuntimeBinding(id)?.harness.implementation ?? '',
-            )
-          ? cancelOwnedResponsesQueuedCommand(
-              eventStore,
-              getNativeResponsesStore(),
-              id,
-              binding,
-              commandId,
-              authorization,
-            )
-          : cancelCodexQueuedCommand(id, binding, commandId, registry.findBySessionId(id)?.session),
+    cancel: (id, binding, commandId, authorization) => {
+      const result =
+        eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'claude-sdk'
+          ? cancelOwnedVertexQueuedCommand(eventStore, id, commandId, authorization)
+          : ['responses', 'gemini'].includes(
+                eventStore.getSessionRuntimeBinding(id)?.harness.implementation ?? '',
+              )
+            ? cancelOwnedResponsesQueuedCommand(
+                eventStore,
+                getNativeResponsesStore(),
+                id,
+                binding,
+                commandId,
+                authorization,
+              )
+            : cancelCodexQueuedCommand(
+                id,
+                binding,
+                commandId,
+                registry.findBySessionId(id)?.session,
+              );
+      if (result === 'cancelled')
+        eventStore.append(id, 'ordinary_command_state', {
+          messageId: commandId,
+          commandState: 'cancelled',
+        });
+      return result;
+    },
     retry: async (id, _binding, confirmAmbiguous) => {
       const session = registry.findBySessionId(id)?.session;
       const runtime = session ? getCodexRuntime(session) : undefined;

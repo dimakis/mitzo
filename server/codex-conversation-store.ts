@@ -1,3 +1,9 @@
+import {
+  CodexSteerInputSchema,
+  type CodexSteerInput,
+  type CodexSteerReceipt,
+  type CodexSteerStatus,
+} from './codex-steering.js';
 import { codexNativeProfileRevision } from './codex-native-execution-policy.js';
 import {
   CHAT_MAX_PREPARED_PROMPT_CHARS,
@@ -589,6 +595,10 @@ export class CodexConversationStore {
         PRIMARY KEY(conversation_id,call_id),
         FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
       CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_steering (
+      conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
+      request_id TEXT NOT NULL, input TEXT NOT NULL, target TEXT NOT NULL, status TEXT NOT NULL,
+      PRIMARY KEY(conversation_id,request_id));`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_tool_outputs (
       sequence INTEGER PRIMARY KEY AUTOINCREMENT,
       conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
@@ -3656,6 +3666,65 @@ export class CodexConversationStore {
       turnId: value.turnId,
       generation: value.generation,
     };
+  }
+  steeringReceipt(
+    id: string,
+    binding: AccountBinding,
+    raw: CodexSteerInput,
+  ): CodexSteerReceipt | undefined {
+    this.read(id, binding);
+    const input = CodexSteerInputSchema.parse(raw);
+    const row = this.db
+      .prepare('SELECT input,status FROM codex_steering WHERE conversation_id=? AND request_id=?')
+      .get(id, input.requestId) as
+      { input: string; status: CodexSteerReceipt['status'] } | undefined;
+    if (!row) return;
+    const retained = CodexSteerInputSchema.parse(JSON.parse(row.input));
+    if (!isDeepStrictEqual(input, retained))
+      throw Error('Correction identity reused with different input');
+    return { input: retained, status: row.status };
+  }
+  claimSteering(
+    id: string,
+    binding: AccountBinding,
+    input: CodexSteerInput,
+    target: CodexNativeTurnTarget,
+  ): boolean {
+    return this.db
+      .transaction(() => {
+        this.read(id, binding);
+        if (this.steeringReceipt(id, binding, input)) return false;
+        if (this.commandStatus(id, binding, input.requestId))
+          throw Error('Correction conflicts with a command');
+        if (
+          !isDeepStrictEqual(
+            this.nativeTurnTarget(id, binding, target.commandId, target.attempt),
+            target,
+          )
+        )
+          return false;
+        this.db
+          .prepare(
+            'INSERT INTO codex_steering(conversation_id,request_id,input,target,status) VALUES(?,?,?,?,?)',
+          )
+          .run(id, input.requestId, JSON.stringify(input), JSON.stringify(target), 'claimed');
+        return true;
+      })
+      .immediate();
+  }
+  settleSteering(
+    id: string,
+    binding: AccountBinding,
+    input: CodexSteerInput,
+    status: CodexSteerStatus,
+  ) {
+    const receipt = this.steeringReceipt(id, binding, input);
+    if (!receipt || receipt.status !== 'claimed') throw Error('Correction claim unavailable');
+    this.db
+      .prepare(
+        'UPDATE codex_steering SET status=? WHERE conversation_id=? AND request_id=? AND status=?',
+      )
+      .run(status, id, input.requestId, 'claimed');
   }
   nativeTurnTarget(
     id: string,

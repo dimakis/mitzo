@@ -2109,3 +2109,101 @@ it('does not clear B preparation when A emits a late reply or terminal event', (
   channel.listener({ type: 'message_start', sessionId, messageId: 'new-reply', seq: 9 });
   expect(store.getState().sendStatus).toBeNull();
 });
+
+it('labels a guarded accepted continuation as queued and ignores the older completion on receipt retry', async () => {
+  const { store, fetch } = setup();
+  channel.id = 'live';
+  channel.listener({ type: '_open' });
+  channel.listener({ type: 'session_id', sessionId: 'owned-session' });
+  channel.listener({
+    type: 'user_message',
+    sessionId: 'owned-session',
+    messageId: 'a',
+    text: 'First',
+    seq: 1,
+  });
+  channel.listener({
+    type: 'ordinary_provider_dispatch_started',
+    sessionId: 'owned-session',
+    messageId: 'a',
+    seq: 2,
+  });
+  const input = {
+    ...request,
+    sessionId: 'owned-session',
+    clientMsgId: 'b',
+    payload: { text: 'Correction next' },
+  };
+  fetch.mockImplementation(async (path) =>
+    path === '/local/continue'
+      ? Response.json(
+          {
+            ok: true,
+            clientMsgId: 'b',
+            sessionId: 'owned-session',
+            dispatched: true,
+            state: 'consumed',
+          },
+          { status: 202 },
+        )
+      : Response.json([]),
+  );
+  expect(store.getState().sendLocalFirstCommand(input)).toBe(true);
+  await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
+  expect(store.getState().messages.messages.find((m) => m.messageId === 'b')?.commandState).toBe(
+    'queued',
+  );
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'ordinary_reply_source',
+    sessionId: 'owned-session',
+    messageId: 'old',
+    replyToMessageId: 'a',
+    seq: 3,
+  });
+  channel.listener({ type: 'message_start', sessionId: 'owned-session', messageId: 'old', seq: 4 });
+  channel.listener({ type: 'session_end', sessionId: 'owned-session', seq: 5 });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'ordinary_command_completed',
+    sessionId: 'owned-session',
+    messageId: 'b',
+    status: 'completed',
+    seq: 6,
+  });
+  expect(store.getState().sendStatus).toBeNull();
+});
+
+it('uses an exact snapshot source after reconnect without treating an older A snapshot as B output', () => {
+  const { store } = setup(),
+    sessionId = 'snapshots';
+  channel.listener({ type: 'session_id', sessionId });
+  channel.listener({ type: 'user_message', sessionId, messageId: 'a', text: 'First', seq: 1 });
+  channel.listener({
+    type: 'ordinary_provider_dispatch_started',
+    sessionId,
+    messageId: 'a',
+    seq: 2,
+  });
+  channel.listener({ type: 'user_message', sessionId, messageId: 'b', text: 'Next', seq: 3 });
+  channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'b', retained: true });
+  channel.listener({
+    type: 'message_snapshot',
+    sessionId,
+    messageId: 'answer-a',
+    replyToMessageId: 'a',
+    startedSeq: 4,
+    blocks: [],
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'message_snapshot',
+    sessionId,
+    messageId: 'answer-b',
+    replyToMessageId: 'b',
+    startedSeq: 5,
+    blocks: [],
+  });
+  expect(store.getState().sendStatus).toBeNull();
+  expect(store.getState().messages.current?.replyToMessageId).toBe('b');
+});

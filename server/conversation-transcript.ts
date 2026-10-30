@@ -19,6 +19,7 @@ import {
 export interface RestoredMessage {
   replyToMessageId?: string;
   commandState?: import('@mitzo/protocol').CommandState;
+  steersMessageId?: string;
   messageId: string;
   symposiumProvenance?: SymposiumProvenance;
   role: string;
@@ -75,13 +76,22 @@ function attributeCommands(
   )
     return;
   const replies = new Map<string, string>();
+  const corrections = new Map<string, string>();
   const states = new Map<string, import('@mitzo/protocol').CommandState>();
   let active: string | undefined;
   for (const event of events) {
     if (event.seatId || event.symposiumProvenance) continue;
     const p = event.payload;
-    if (event.type === 'user_message' && typeof p.messageId === 'string')
-      states.set(p.messageId, 'queued');
+    if (event.type === 'user_message' && typeof p.messageId === 'string') {
+      states.set(p.messageId, p.commandState === 'steering' ? 'steering' : 'queued');
+      if (typeof p.steersMessageId === 'string') corrections.set(p.messageId, p.steersMessageId);
+    }
+    if (
+      event.type === 'ordinary_command_state' &&
+      typeof p.messageId === 'string' &&
+      ['steering', 'steered', 'failed', 'uncertain', 'cancelled'].includes(String(p.commandState))
+    )
+      states.set(p.messageId, p.commandState as import('@mitzo/protocol').CommandState);
     if (event.type === 'ordinary_provider_dispatch_started' && typeof p.messageId === 'string') {
       active = p.messageId;
       states.set(active, 'running');
@@ -101,14 +111,17 @@ function attributeCommands(
       states.set(p.messageId, p.status as 'completed' | 'interrupted' | 'failed');
     // Legacy terminal events are sequential within this ordinary conversation.
     if (event.type === 'session_end' && active) {
-      if (states.get(active) === 'running') states.set(active, 'completed');
+      if (states.get(active) === 'running') states.set(active, 'ended');
       active = undefined;
     }
   }
   for (const message of messages) {
     if (message.symposiumProvenance) continue;
-    if (message.role === 'user' && states.has(message.messageId))
+    if (message.role === 'user' && states.has(message.messageId)) {
       message.commandState = states.get(message.messageId);
+      if (corrections.has(message.messageId))
+        message.steersMessageId = corrections.get(message.messageId);
+    }
     if (message.role === 'assistant' && replies.has(message.messageId))
       message.replyToMessageId = replies.get(message.messageId);
   }

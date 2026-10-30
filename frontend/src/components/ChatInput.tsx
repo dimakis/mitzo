@@ -71,6 +71,8 @@ interface Props {
   textOnly?: boolean;
   settings?: ReactNode;
   sendLabel?: string;
+  interruptLabel?: string;
+  interruptDisabledReason?: string;
   onSend: (
     text: string,
     images?: ImageAttachment[],
@@ -132,6 +134,8 @@ export function ChatInput({
   textOnly = false,
   settings,
   sendLabel = 'Send message',
+  interruptLabel = 'Interrupt and send now',
+  interruptDisabledReason,
   onSend,
   onStop,
   onInterrupt,
@@ -834,11 +838,9 @@ export function ChatInput({
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (running && onInterrupt) {
-        handleInterrupt();
-      } else {
-        handleSend();
-      }
+      if (running && guardedConversation) handleQueue();
+      else if (running && onInterrupt) handleInterrupt();
+      else handleSend();
     }
   }
 
@@ -1072,6 +1074,12 @@ export function ChatInput({
     );
   }
 
+  const correctionReason =
+    interruptDisabledReason ??
+    (interruptLabel === 'Steer current turn' && (images.length || activeContextBlocks.length)
+      ? 'Steering accepts text only. Queue attachments as a new message.'
+      : undefined);
+
   function handleInterrupt() {
     if (importPending.current?.scope === composerScope) return;
     if (
@@ -1081,7 +1089,8 @@ export function ChatInput({
       sendPending.current ||
       interruptPending.current ||
       sendDisabledReason ||
-      !onInterrupt
+      !onInterrupt ||
+      correctionReason
     )
       return;
     const trimmed = text.trim();
@@ -1357,10 +1366,15 @@ export function ChatInput({
                 {canSend && onInterrupt && !boundedFirstCommand && (
                   <button
                     className="chat-input-btn chat-input-btn--interrupt"
-                    aria-label="Interrupt and send now"
-                    disabled={!!sendDisabledReason || importing}
+                    aria-label={interruptLabel}
+                    disabled={!!sendDisabledReason || !!correctionReason || importing}
                     onClick={handleInterrupt}
-                    title="Interrupt — send now, mid-thinking"
+                    title={
+                      correctionReason ??
+                      (interruptLabel === 'Steer current turn'
+                        ? 'Send a correction to the current turn; keep its settings'
+                        : 'Interrupt — send now, mid-thinking')
+                    }
                   >
                     <UiIcon name="interrupt" />
                   </button>

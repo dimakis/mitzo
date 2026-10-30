@@ -1,3 +1,4 @@
+import { useTurnSteering } from '../hooks/useTurnSteering';
 import { chatStorage } from '../lib/large-chat-storage';
 import { chatModelSettings } from '../lib/chat-model-settings';
 import { LegacyNativeContinuation } from '../components/LegacyNativeContinuation';
@@ -246,6 +247,12 @@ export function ChatView() {
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
   const localFirstCommand = explicitNew || localRuntime.preparedFirst;
+  const steerTarget = messages.messages
+    .filter((message) => message.role === 'user' && message.commandState === 'running')
+    .at(-1)?.messageId;
+  const supportsSteering = localBound && localRuntime.binding?.harness.implementation === 'codex';
+  const turnSteering = useTurnSteering(activeSessionId, steerTarget, !!supportsSteering);
+
   const defaultWorkspaceAvailable =
     localRuntime.intent.execution.location === 'local'
       ? localRuntime.inventory?.defaultLocalRepository === true
@@ -1006,8 +1013,17 @@ export function ChatView() {
     ctxBlocks?: string[],
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
   ): void {
-    if (controlsBlocked || explicitNew || localBound) {
+    if (controlsBlocked || explicitNew) {
       onDelivery?.('failed');
+      return;
+    }
+    if (localBound) {
+      if (!supportsSteering || images?.length || ctxBlocks?.length || repositoryHandoff.present) {
+        onDelivery?.('failed');
+        return;
+      }
+      voice.stopSpeaking();
+      turnSteering.submit(text, onDelivery);
       return;
     }
     if (repositoryHandoff.present) {
@@ -1781,6 +1797,20 @@ export function ChatView() {
                   onStop={handleStop}
                 />
               )}
+              <ChatStatusMessage
+                error={turnSteering.error}
+                status={turnSteering.busy ? 'Sending correction…' : undefined}
+                busy={turnSteering.busy}
+                action={
+                  turnSteering.retry
+                    ? {
+                        label: 'Retry correction',
+                        onClick: turnSteering.retry,
+                        disabled: turnSteering.busy || !connected,
+                      }
+                    : undefined
+                }
+              />
               <CodexQueueStatus
                 sessionId={controlsBlocked ? null : activeSessionId}
                 deliveryStatus={
@@ -1899,7 +1929,15 @@ export function ChatView() {
                   )
                 }
                 onStop={handleStop}
-                onInterrupt={localBound ? undefined : handleInterrupt}
+                onInterrupt={localBound && !supportsSteering ? undefined : handleInterrupt}
+                interruptLabel={supportsSteering ? 'Steer current turn' : undefined}
+                interruptDisabledReason={
+                  supportsSteering
+                    ? !steerTarget
+                      ? 'Waiting for the active turn to be confirmed.'
+                      : undefined
+                    : undefined
+                }
                 running={repositoryHandoff.present ? false : messages.running}
                 initialText={initialPrompt}
                 draftControl={repositoryDraftControl}

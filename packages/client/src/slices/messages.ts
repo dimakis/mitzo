@@ -88,6 +88,7 @@ export interface BootContextMeta {
 export interface MessagesState {
   replySources?: Record<string, string>;
   nativeCommands?: boolean;
+  commandStates?: Record<string, import('@mitzo/protocol').CommandState>;
   messages: FinishedMessage[];
   current: StreamingMessage | null;
   /** Simultaneous attributed seat turns, keyed by seat, generation, and provider message ID. */
@@ -198,7 +199,13 @@ type MessagesCoreAction =
       };
     }
   // Reattach snapshot
-  | { type: 'MESSAGE_SNAPSHOT'; messageId: string; startedSeq?: number; blocks: FinishedBlock[] }
+  | {
+      type: 'MESSAGE_SNAPSHOT';
+      messageId: string;
+      replyToMessageId?: string;
+      startedSeq?: number;
+      blocks: FinishedBlock[];
+    }
   // Session / UI lifecycle
   | { type: 'ERROR'; error: string; retainedFailureSeq?: number }
   | { type: 'CONTROL_REJECTED'; error: string; clientMsgId?: string; retainedFailureSeq?: number }
@@ -223,6 +230,7 @@ type MessagesCoreAction =
   | {
       type: 'USER_MESSAGE_RECEIVED';
       messageId: string;
+      steersMessageId?: string;
       startedSeq?: number;
       text: string;
       images?: string[];
@@ -657,6 +665,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
       return {
         ...state,
         nativeCommands: true,
+        commandStates: { ...state.commandStates, [action.messageId]: action.commandState },
         messages: state.messages.map((message) =>
           message.messageId === action.messageId && message.role === 'user'
             ? { ...message, commandState: action.commandState }
@@ -847,8 +856,10 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
         ...state,
         current: {
           messageId: action.messageId,
-          ...(state.replySources?.[action.messageId]
-            ? { replyToMessageId: state.replySources[action.messageId] }
+          ...((action.replyToMessageId ?? state.replySources?.[action.messageId])
+            ? {
+                replyToMessageId: action.replyToMessageId ?? state.replySources?.[action.messageId],
+              }
             : {}),
           ...(action.startedSeq !== undefined ? { startedSeq: action.startedSeq } : {}),
           blocks,
@@ -1005,6 +1016,20 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
       return { ...INITIAL_MESSAGES_STATE };
 
     case 'RESTORE': {
+      const restoredSources = Object.fromEntries(
+        action.messages
+          .filter((message) => !message.symposiumProvenance && message.replyToMessageId)
+          .map((message) => [message.messageId, message.replyToMessageId!]),
+      );
+      if (
+        Object.keys(restoredSources).length ||
+        action.messages.some((message) => message.commandState)
+      )
+        state = {
+          ...state,
+          nativeCommands: true,
+          replySources: { ...restoredSources, ...state.replySources },
+        };
       const valid = action.messages
         .filter((m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks))
         .map(projectUserContext);
@@ -1015,13 +1040,23 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
         const hasNewMessages = valid.some(
           (m) => !existingById.has(messageIdentity(m.messageId, m.symposiumProvenance)),
         );
+        const hasNewAttribution = valid.some((message) => {
+          const existing = existingById.get(
+            messageIdentity(message.messageId, message.symposiumProvenance),
+          );
+          return (
+            existing &&
+            (message.replyToMessageId !== existing.replyToMessageId ||
+              message.commandState !== existing.commandState)
+          );
+        });
         const hasNewSequence = valid.some(
           (m) =>
             m.startedSeq !== undefined &&
             existingById.get(messageIdentity(m.messageId, m.symposiumProvenance))?.startedSeq !==
               m.startedSeq,
         );
-        if (!hasNewMessages && !hasNewSequence && state.messages.length > 0) {
+        if (!hasNewMessages && !hasNewSequence && !hasNewAttribution && state.messages.length > 0) {
           const contexts = new Map(
             valid.map((message) => [
               messageIdentity(message.messageId, message.symposiumProvenance),
@@ -1148,7 +1183,12 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
             messageId: action.messageId,
             ...(action.startedSeq !== undefined ? { startedSeq: action.startedSeq } : {}),
             role: 'user',
-            ...(state.nativeCommands ? { commandState: 'queued' as const } : {}),
+            ...(state.nativeCommands
+              ? { commandState: state.commandStates?.[action.messageId] ?? ('queued' as const) }
+              : {}),
+            ...('steersMessageId' in action && action.steersMessageId
+              ? { steersMessageId: action.steersMessageId }
+              : {}),
             timestamp: Date.now(),
             images: action.images,
             contextBlocks: context?.injections.map((item) => item.name) ?? action.contextBlocks,
@@ -1174,7 +1214,9 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
           {
             messageId: action.clientMsgId,
             role: 'user',
-            ...(state.nativeCommands ? { commandState: 'queued' as const } : {}),
+            ...(state.nativeCommands
+              ? { commandState: state.commandStates?.[action.clientMsgId] ?? ('sending' as const) }
+              : {}),
             timestamp: Date.now(),
             blocks: [],
             images: action.images,

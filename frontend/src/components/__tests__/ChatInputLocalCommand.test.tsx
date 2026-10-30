@@ -172,3 +172,25 @@ it('submits guarded queued input immediately and preserves old local queues with
   expect(send).toHaveBeenCalledOnce();
   expect(localStorage.getItem('mitzo-queue-bound')).toBe(retained);
 });
+
+it('queues Enter during a guarded running turn and leaves steering as an explicit action', () => {
+  const onSend = vi.fn(() => true),
+    onInterrupt = vi.fn();
+  render(
+    <ChatInput
+      onSend={onSend}
+      onStop={() => {}}
+      onInterrupt={onInterrupt}
+      interruptLabel="Steer current turn"
+      guardedConversation
+      running
+      sessionId="queue-enter"
+    />,
+  );
+  const input = screen.getByRole('textbox');
+  fireEvent.change(input, { target: { value: 'Next task' } });
+  expect(screen.getByRole('button', { name: 'Steer current turn' })).toBeDefined();
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(onSend).toHaveBeenCalledOnce();
+  expect(onInterrupt).not.toHaveBeenCalled();
+});

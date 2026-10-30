@@ -1,3 +1,9 @@
+import {
+  CodexSteerInputSchema,
+  type CodexSteerInput,
+  type CodexSteerStatus,
+  type CodexSteerResult,
+} from './codex-steering.js';
 import type { AdviserTaskScope } from './adviser-task-scope.js';
 import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
 import {
@@ -282,6 +288,7 @@ export interface CodexConversationOptions {
   onQueueChange?: () => void;
   onActivity?: () => boolean | void;
   onThreadChanged?: (threadId: string) => void | Promise<void>;
+  onSteeringUpdate?: (input: CodexSteerInput, status: 'steering' | CodexSteerStatus) => void;
   onProviderDispatch?: (commandId: string) => void;
   /** Persist an exact provider turn receipt after turn/start confirms its ID. */
   onProviderAccepted?: (commandId: string, threadId: string, turnId: string) => void;
@@ -3985,6 +3992,92 @@ export class CodexConversation {
       turnId: expected.turnId,
     });
     return { status: 'claimed', receipt: claim.receipt, replayed: false };
+  }
+  /** A correction uses the accepted turn's unchanged settings. It never starts,
+   * interrupts, retries or reorders a command. A durable claim fences lost ACKs. */
+  async steer(raw: CodexSteerInput, authorize: () => void): Promise<CodexSteerResult> {
+    const input = CodexSteerInputSchema.parse(raw);
+    authorize();
+    if (!this.binding) return { status: 'stale_target' };
+    const previous = this.opts.store.steeringReceipt(this.opts.conversationId, this.binding, input);
+    if (previous) return { status: previous.status === 'claimed' ? 'uncertain' : previous.status };
+    const active = this.active;
+    const captured = this.captureInterruptTarget();
+    const target = captured && CodexNativeTurnTargetSchema.parse(captured);
+    if (
+      !active ||
+      !target ||
+      target.commandId !== input.targetCommandId ||
+      active.interruptRequested
+    )
+      return { status: 'stale_target' };
+    const client = this.client,
+      generation = this.transportGeneration;
+    await this.verifyCurrentBinding(this.binding);
+    authorize();
+    if (
+      this.closed ||
+      this.paused ||
+      this.active !== active ||
+      this.client !== client ||
+      this.transportGeneration !== generation ||
+      active.interruptRequested ||
+      active.turnId !== target.turnId
+    )
+      return { status: 'stale_target' };
+    if (active.nativeExecution)
+      this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
+    if (!this.opts.store.claimSteering(this.opts.conversationId, this.binding, input, target)) {
+      const retained = this.opts.store.steeringReceipt(
+        this.opts.conversationId,
+        this.binding,
+        input,
+      );
+      return {
+        status: retained
+          ? retained.status === 'claimed'
+            ? 'uncertain'
+            : retained.status
+          : 'stale_target',
+      };
+    }
+    this.opts.onSteeringUpdate?.(input, 'steering');
+    const span = tracer.startSpan('codex.turn.steer');
+    span.setAttribute('mitzo.command.id', target.commandId);
+    span.setAttribute('mitzo.correction.id', input.requestId);
+    let status: CodexSteerStatus = 'uncertain';
+    let attempted = false;
+    try {
+      authorize();
+      if (
+        this.closed ||
+        this.paused ||
+        this.active !== active ||
+        this.client !== client ||
+        this.transportGeneration !== generation ||
+        active.interruptRequested
+      )
+        throw Error('Original turn unavailable');
+      if (active.nativeExecution)
+        this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
+      // Exact target, no turn-level overrides; a successor can never accept it.
+      attempted = true;
+      const ack = await client.request('turn/steer', {
+        threadId: target.threadId,
+        expectedTurnId: target.turnId,
+        input: [{ type: 'text', text: input.text }],
+      });
+      if (z.object({ turnId: z.literal(target.turnId) }).safeParse(ack).success)
+        status = 'accepted';
+    } catch (error) {
+      if (!attempted || error instanceof CodexRequestError) status = 'rejected';
+    } finally {
+      this.opts.store.settleSteering(this.opts.conversationId, this.binding, input, status);
+      this.opts.onSteeringUpdate?.(input, status);
+      span.setAttribute('mitzo.steering.status', status);
+      span.end();
+    }
+    return { status };
   }
   async interrupt() {
     if (this.closed) return;

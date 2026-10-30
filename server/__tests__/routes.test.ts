@@ -858,7 +858,13 @@ describe('session routes', () => {
     const res = await request(app).get('/api/sessions/s1/events?after=3').set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual([
-      { type: 'ordinary_reply_source', sessionId: 's1', seq: 7 },
+      {
+        type: 'ordinary_reply_source',
+        sessionId: 's1',
+        seq: 7,
+        messageId: 'message',
+        replyToMessageId: 'command',
+      },
       { type: 'message_end', sessionId: 's1', seq: 9, messageId: 'message' },
     ]);
     expect(eventStore.getEventsAfter).toHaveBeenLastCalledWith('s1', 3);

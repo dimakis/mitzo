@@ -386,6 +386,27 @@ export function parseServerMessage(
           commandState: 'running',
         });
       break;
+    case 'ordinary_command_state':
+      if (
+        typeof msg.messageId === 'string' &&
+        [
+          'queued',
+          'running',
+          'completed',
+          'interrupted',
+          'failed',
+          'cancelled',
+          'steering',
+          'steered',
+          'uncertain',
+        ].includes(String(msg.commandState))
+      )
+        result.messagesActions.push({
+          type: 'COMMAND_STATE',
+          messageId: msg.messageId,
+          commandState: msg.commandState as import('@mitzo/protocol').CommandState,
+        });
+      break;
     case 'ordinary_command_completed':
       if (
         typeof msg.messageId === 'string' &&
@@ -466,6 +487,9 @@ export function parseServerMessage(
         result.messagesActions.push({
           type: 'MESSAGE_SNAPSHOT',
           messageId: msg.messageId as string,
+          ...(typeof msg.replyToMessageId === 'string'
+            ? { replyToMessageId: msg.replyToMessageId }
+            : {}),
           ...(typeof msg.startedSeq === 'number' && Number.isSafeInteger(msg.startedSeq)
             ? { startedSeq: msg.startedSeq }
             : {}),
@@ -576,6 +600,9 @@ export function parseServerMessage(
       result.messagesActions.push({
         type: 'USER_MESSAGE_RECEIVED',
         messageId: msg.messageId as string,
+        ...(typeof msg.steersMessageId === 'string'
+          ? { steersMessageId: msg.steersMessageId }
+          : {}),
         ...(typeof msg.seq === 'number' && Number.isSafeInteger(msg.seq)
           ? { startedSeq: msg.seq }
           : {}),
@@ -586,6 +613,12 @@ export function parseServerMessage(
           ? (msg.contextBlocks as string[])
           : undefined,
       });
+      if (msg.commandState === 'steering')
+        result.messagesActions.push({
+          type: 'COMMAND_STATE',
+          messageId: msg.messageId as string,
+          commandState: 'steering',
+        });
       break;
 
     case 'session_control_rejected': {

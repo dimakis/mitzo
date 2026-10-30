@@ -46,6 +46,7 @@ export interface ReconnectTranscript {
   messages: FinishedMessage[];
   current: {
     messageId: string;
+    replyToMessageId?: string;
     startedSeq?: number;
     blocks: Array<FinishedBlock & { done: boolean }>;
   } | null;

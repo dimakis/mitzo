@@ -1,3 +1,4 @@
+import './ChatCommandMetadata.css';
 import { useTelosCreatedItems } from '../hooks/useTelosCreatedItems';
 import { TelosCreatedItemCard } from './TelosCreatedItemCard';
 import { matchesTelosSourceBoundary } from '../lib/telos-source-boundary';
@@ -165,6 +166,52 @@ export function ChatArea({
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const prevMessageCount = useRef(0);
+  const requests = useMemo(
+    () =>
+      new Map(
+        messages
+          .filter((message) => message.role === 'user' && !message.symposiumProvenance)
+          .map((message) => [message.messageId, message]),
+      ),
+    [messages],
+  );
+  const commandLabels: Record<string, string> = {
+    sending: 'Sending…',
+    queued: 'Queued — waiting for the current turn',
+    running: 'Agent is answering',
+    completed: 'Response complete',
+    ended: 'Turn ended',
+    interrupted: 'Turn stopped',
+    failed: 'Not accepted',
+    cancelled: 'Cancelled',
+    steering: 'Sending correction…',
+    steered: 'Correction sent to current turn',
+    uncertain: 'Correction delivery not confirmed',
+  };
+  function replyLabel(message: FinishedMessage | StreamingMessage) {
+    if (message.symposiumProvenance || !message.replyToMessageId) return null;
+    const original = requests.get(message.replyToMessageId);
+    const text = original?.blocks.find((block) => block.blockType === 'text')?.content;
+    if (!text) return <div className="chat-command-meta">Answering an earlier message</div>;
+    const label = `Answering: ${text.length > 120 ? text.slice(0, 120) + '…' : text}`;
+    return (
+      <button
+        type="button"
+        className="chat-reply-link"
+        aria-label={label}
+        onClick={() => {
+          const target = Array.from(
+            scrollRef.current?.querySelectorAll<HTMLElement>('[data-command-request]') ?? [],
+          ).find((element) => element.dataset.commandRequest === message.replyToMessageId);
+          target?.scrollIntoView({ block: 'center' });
+          target?.focus({ preventScroll: true });
+        }}
+      >
+        <UiIcon name="back" size={16} />
+        <span>{label}</span>
+      </button>
+    );
+  }
   const source = useTelosSourceNavigation();
   const sourceAnchor = (message: FinishedMessage) => {
     if (source?.status !== 'ready' || source.conversationId !== sessionId) return false;
@@ -406,24 +453,31 @@ export function ChatArea({
               value: (
                 <>
                   {renderMessageAttribution?.(msg.messageId)}
-                  <UserBubble
-                    key={turnKey(msg.messageId, msg.symposiumProvenance)}
-                    sourceAnchor={sourceAnchor(msg)}
-                    text={textBlock?.content}
-                    images={msg.images}
-                    contextBlocks={msg.contextBlocks}
-                    contextInjections={msg.contextInjections}
-                    timestamp={msg.timestamp}
-                    readAloud={
-                      voice?.ttsAvailable
-                        ? {
-                            active: speakingBlockId === msg.messageId,
-                            onSpeak: (text) => speakBlock(msg.messageId, text),
-                            onStop: stopBlock,
-                          }
-                        : undefined
-                    }
-                  />
+                  <div data-command-request={msg.messageId} tabIndex={-1}>
+                    <UserBubble
+                      key={turnKey(msg.messageId, msg.symposiumProvenance)}
+                      sourceAnchor={sourceAnchor(msg)}
+                      text={textBlock?.content}
+                      images={msg.images}
+                      contextBlocks={msg.contextBlocks}
+                      contextInjections={msg.contextInjections}
+                      timestamp={msg.timestamp}
+                      readAloud={
+                        voice?.ttsAvailable
+                          ? {
+                              active: speakingBlockId === msg.messageId,
+                              onSpeak: (text) => speakBlock(msg.messageId, text),
+                              onStop: stopBlock,
+                            }
+                          : undefined
+                      }
+                    />
+                    {!msg.symposiumProvenance && msg.commandState && (
+                      <div className="chat-command-meta chat-command-meta--user" role="status">
+                        {commandLabels[msg.commandState]}
+                      </div>
+                    )}
+                  </div>
                   {createdItemCards(msg)}
                   {renderMessageOutcome?.(msg.messageId)}
                 </>
@@ -526,6 +580,7 @@ export function ChatArea({
             value: (
               <div className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}>
                 {index === 0 && (keepVisible || block.blockType === 'text') && attribution}
+                {block === firstVisibleText && replyLabel(msg)}
                 {content}
               </div>
             ),

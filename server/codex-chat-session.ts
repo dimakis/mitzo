@@ -2830,6 +2830,22 @@ async function openCodexChatBound(
         }
       : {}),
     emit: (event) => events.push(event),
+    onSteeringUpdate: (input, status) => {
+      if (status === 'steering')
+        options.eventStore.append(options.conversationId, 'user_message', {
+          v: 2,
+          type: 'user_message',
+          ts: Date.now(),
+          messageId: input.requestId,
+          text: input.text,
+          steersMessageId: input.targetCommandId,
+          commandState: 'steering',
+        });
+      options.eventStore.append(options.conversationId, 'ordinary_command_state', {
+        messageId: input.requestId,
+        commandState: status === 'accepted' ? 'steered' : status === 'rejected' ? 'failed' : status,
+      });
+    },
     onProviderDispatch: (messageId) => {
       options.adviserScope?.assertCommand(options.conversationId, messageId);
       options.assertWorkTurnAdmission?.();

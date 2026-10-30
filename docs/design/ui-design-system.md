@@ -2356,3 +2356,35 @@ existing explicit reconnect action to verify that receipt under current authorit
 It still sends nothing until the user activates the control. Truly unknown effects
 keep continuation and retry controls withheld; a completed response is never
 relabelled as failed. The fixture covers all three states and retained queued work.
+
+## Queued messages and corrections
+
+Ordinary chat keeps the existing icon-only composer and toolbar icons. During a
+native response, Enter queues the edited message with its frozen settings; the
+queue icon does the same. The existing lightning icon is **Steer current turn**,
+with an accessible name and tooltip, and Stop remains separate. Steering accepts
+text under the running turn's settings. Attachments remain available through Queue.
+No approved settings layout, toolbar icon, theme, or motion contract changes.
+
+`ChatArea` uses a shared, token-based metadata row under user messages for queued,
+running, terminal and correction delivery states. An assistant response exposes a
+quiet **Answering: …** control which scrolls to and focuses its exact source request.
+These public request identities are projected from retained provider mappings;
+provider thread/turn IDs remain private. History and reconnect preserve the same
+association. Unattributed legacy replies do not invent a source request.
+
+The correction owner commits its exact text, request ID and active-command ID to
+the existing chat storage before dispatch. Uncertain replies retain that identity
+for explicit **Retry correction**; a finished target keeps the draft instead of
+redirecting another turn. Viewing, reloading and metadata refresh never send a
+correction. The separate queue drawer retains its existing review/cancel controls.
+
+The intercepted `chat-queue-steering` fixture exercises the real composer, transcript,
+client parser/reducer, correction storage and HTTP delivery on 320px WebKit and
+Chromium phones and desktop Chromium. Dark Mint/System and light Teal/Georgia
+checks cover icon-only controls, retained toolbar icons, 44px targets, Enter queues,
+exact-turn steering, stale-target draft retention, Stop, reply navigation, keyboard
+focus and horizontal overflow. No backend, provider credentials or model calls.
+Inspected captures: [phone](assets/chat-queue-steering-mobile-dark.png) and
+[desktop](assets/chat-queue-steering-desktop-light.png). Full-app builds, the complete
+offline UI suite and combined validation remain CI gates under local memory pressure.

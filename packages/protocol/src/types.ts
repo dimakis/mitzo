@@ -163,9 +163,11 @@ export interface StreamingBlock {
 }
 
 export type CommandState =
+  | 'sending'
   | 'queued'
   | 'running'
   | 'completed'
+  | 'ended'
   | 'interrupted'
   | 'failed'
   | 'cancelled'
@@ -206,6 +208,7 @@ export interface FinishedBlock {
 export interface FinishedMessage {
   replyToMessageId?: string;
   commandState?: CommandState;
+  steersMessageId?: string;
   messageId: string;
   /** Durable user_message or message_start cursor, when known. */
   startedSeq?: number;

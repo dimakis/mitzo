@@ -346,7 +346,14 @@ describe('handleReconnect', () => {
       ctx,
     );
     expect(transport.sent.filter((event) => typeof event.seq === 'number')).toEqual([
-      { type: 'ordinary_reply_source', sessionId: 'sess-1', seq: 7, prevSessionSeq: 3 },
+      {
+        type: 'ordinary_reply_source',
+        sessionId: 'sess-1',
+        seq: 7,
+        prevSessionSeq: 3,
+        messageId: 'message',
+        replyToMessageId: 'command',
+      },
       { type: 'message_end', sessionId: 'sess-1', seq: 9, prevSessionSeq: 7, messageId: 'message' },
     ]);
   });

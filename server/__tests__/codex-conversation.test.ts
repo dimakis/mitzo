@@ -8807,3 +8807,89 @@ it.each([undefined, 'terminal'] as const)(
     expect(hook).toHaveBeenCalledOnce();
   },
 );
+
+it('steers only the selected active turn, preserving the FIFO and at-most-once receipt', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'a', prompt: 'First' });
+  await f.c.send({ id: 'b', prompt: 'Later' });
+  const rpc = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'turn/steer'
+      ? (f.requests.push({ method, params }), { turnId: 'turn-1' })
+      : rpc(method, params),
+  );
+  expect(f.c.captureInterruptTarget()).toMatchObject({ commandId: 'a' });
+  const input = {
+    requestId: 'correction',
+    targetCommandId: 'a',
+    text: 'The current priorities are fine.',
+  };
+  const authorize = vi.fn();
+  expect(await f.c.steer(input, authorize)).toEqual({ status: 'accepted' });
+  expect(await f.c.steer(input, authorize)).toEqual({ status: 'accepted' });
+  expect(f.requests.filter((r) => r.method === 'turn/steer')).toEqual([
+    {
+      method: 'turn/steer',
+      params: {
+        threadId: f.getProviderThread(),
+        expectedTurnId: 'turn-1',
+        input: [{ type: 'text', text: input.text }],
+      },
+    },
+  ]);
+  expect(f.c.queue().map((c) => [c.id, c.status])).toEqual([
+    ['a', 'running'],
+    ['b', 'queued'],
+  ]);
+  await expect(f.c.steer({ ...input, text: 'Different correction' }, authorize)).rejects.toThrow();
+  expect(
+    await f.c.steer({ ...input, requestId: 'stale', targetCommandId: 'b' }, authorize),
+  ).toEqual({ status: 'stale_target' });
+});
+it('never resends a correction after an uncertain provider response or changes its target', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'a', prompt: 'First' });
+  const rpc = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/steer') {
+      f.requests.push({ method, params });
+      throw new Error('Synthetic lost response');
+    }
+    return rpc(method, params);
+  });
+  const input = { requestId: 'lost', targetCommandId: 'a', text: 'Correction' };
+  expect(await f.c.steer(input, () => {})).toEqual({ status: 'uncertain' });
+  expect(await f.c.steer(input, () => {})).toEqual({ status: 'uncertain' });
+  expect(f.requests.filter((r) => r.method === 'turn/steer')).toHaveLength(1);
+});
+it('does not steer a successor when authorization changes the target during validation', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'a', prompt: 'First' });
+  const input = { requestId: 'stale', targetCommandId: 'a', text: 'Correction' };
+  const authorize = () => {
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+  };
+  expect(await f.c.steer(input, authorize)).toEqual({ status: 'stale_target' });
+  expect(f.requests.filter((r) => r.method === 'turn/steer')).toHaveLength(0);
+});
+
+it('rechecks the operator after publishing correction progress, before any steering RPC', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'a', prompt: 'First' });
+  let revoked = false;
+  f.conversationOptions.onSteeringUpdate = (_input, status) => {
+    if (status === 'steering') revoked = true;
+  };
+  expect(
+    await f.c.steer(
+      { requestId: 'revoked-correction', targetCommandId: 'a', text: 'Correction' },
+      () => {
+        if (revoked) throw Error('revoked');
+      },
+    ),
+  ).toEqual({ status: 'rejected' });
+  expect(f.requests.filter((r) => r.method === 'turn/steer')).toHaveLength(0);
+});
