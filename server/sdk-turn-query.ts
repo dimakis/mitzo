@@ -10,6 +10,7 @@ import { observeOrdinarySdkProcessClose } from './ordinary-local-vertex-sdk-proc
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
 import type { ProtectedSdkProcess } from './credential-sdk-boundary.js';
 import { SessionRuntimeError } from './session-runtime-error.js';
+import { SdkQueryUsage } from './sdk-query-usage.js';
 
 /** SDK callbacks carry no trustworthy native turn identity. Each native query
  * therefore owns immutable closures; successors resume the original history
@@ -129,6 +130,7 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
     };
   };
   let current = create();
+  const usage = new SdkQueryUsage();
   let idle = false;
   const close = () => {
     if (closed) return;
@@ -158,7 +160,7 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
           terminal = true;
           terminalFailed = event.is_error === true;
           idle = true;
-          yield event;
+          yield usage.include(event);
           break;
         }
         if (closed) break;

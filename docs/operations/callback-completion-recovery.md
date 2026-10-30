@@ -20,7 +20,11 @@ SDK control callbacks do not expose a trustworthy native turn identity. Separate
 query closures prevent a delayed old callback from acquiring a successor's
 authority. Each successor resumes the existing SDK history after the original
 process actually closes. Account, workspace, model, thinking and permission
-settings remain with their existing owners. Native Responses/Gemini retains its
+settings remain with their existing owners. Each process reports query-local
+usage; the continuous chat adapter accumulates observed token, cost, turn and
+duration counters before delivery to storage and goal reporting, including failed
+results. Model capacities remain metadata, and saved history does not imply
+unobserved charges. Native Responses/Gemini retains its
 existing serial tool execution and checkpoint owner; it does not acquire Codex
 thread/recovery APIs. Runtime failures are sanitized and retained for reconnecting
 viewers with an actionable reason and stable diagnostic reference.

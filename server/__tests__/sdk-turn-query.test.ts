@@ -7,6 +7,8 @@ import { EventEmitter } from 'node:events';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createWebAccessSdkServer } from '../web-access-sdk.js';
+import { SessionRegistry } from '@mitzo/harness';
+import { EventStore } from '../event-store.js';
 
 function fixture() {
   const inputs = new AsyncQueue<SDKUserMessage>();
@@ -80,6 +82,117 @@ function fixture() {
     finish: () => finish(),
   };
 }
+it.each([false, true])(
+  'preserves cumulative accounting through successive SDK queries (second failure: %s)',
+  async (failed) => {
+    const goals = await import('../goal-client.js');
+    const report = vi.spyOn(goals, 'reportUsage').mockResolvedValue(undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => {
+        throw Error('Offline accounting test forbids network/model calls');
+      }),
+    );
+    const { runQueryLoop } = await import('../query-loop.js');
+    const f = fixture();
+    const store = new EventStore(':memory:');
+    const registry = new SessionRegistry();
+    const sent: Record<string, unknown>[] = [];
+    registry.register('sdk-accounting', {
+      sessionId: 'retained',
+      cwd: '/offline',
+      mode: 'agent',
+      abortController: f.controller,
+      transport: {
+        isOpen: () => true,
+        send: (event: Record<string, unknown>) => {
+          sent.push(event);
+        },
+      },
+    } as never);
+    store.upsertSession({ sessionId: 'retained', cwd: '/offline', goalId: 'offline-goal' });
+    const first = {
+      type: 'result',
+      session_id: 'retained',
+      uuid: 'first-result',
+      is_error: false,
+      usage: {
+        input_tokens: 1000,
+        output_tokens: 300,
+        cache_read_input_tokens: 200,
+        cache_creation_input_tokens: 50,
+      },
+      total_cost_usd: 0.8,
+      num_turns: 4,
+      duration_ms: 9000,
+      duration_api_ms: 7000,
+    };
+    const second = {
+      type: 'result',
+      session_id: 'retained',
+      uuid: 'second-result',
+      is_error: failed,
+      subtype: failed ? 'error_max_turns' : 'success',
+      errors: failed ? ['Offline maximum reached'] : [],
+      usage: {
+        input_tokens: 100,
+        output_tokens: 20,
+        cache_read_input_tokens: 10,
+        cache_creation_input_tokens: 5,
+      },
+      total_cost_usd: 0.1,
+      num_turns: 1,
+      duration_ms: 1000,
+      duration_api_ms: 800,
+    };
+    f.message('first');
+    f.message('second');
+    f.runs[0].events.push(first);
+    const running = runQueryLoop(f.q, 'sdk-accounting', registry, f.controller, store);
+    try {
+      await vi.waitFor(() => expect(report).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(f.runs[0].close).toHaveBeenCalledOnce());
+      f.runs[0].child.emit('close');
+      await vi.waitFor(() => expect(f.runs).toHaveLength(2));
+      f.inputs.close();
+      f.runs[1].events.push(second);
+      await vi.waitFor(() => expect(report).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(f.runs[1].close).toHaveBeenCalledOnce());
+      f.runs[1].child.emit('close');
+      await running;
+      expect(store.getSession('retained')).toMatchObject({
+        inputTokens: 1100,
+        outputTokens: 320,
+        cacheReadTokens: 210,
+        cacheCreationTokens: 55,
+        numTurns: 5,
+        durationMs: 10000,
+        durationApiMs: 7800,
+      });
+      expect(store.getSession('retained')!.totalCostUsd).toBeCloseTo(0.9);
+      expect(report.mock.calls[1][1]).toMatchObject({
+        inputTokens: 100,
+        outputTokens: 20,
+        cacheReadTokens: 10,
+        cacheCreationTokens: 5,
+        turns: 1,
+        durationMs: 1000,
+        durationApiMs: 800,
+      });
+      expect(report.mock.calls[1][1].costUsd).toBeCloseTo(0.1);
+      expect(sent.filter((event) => event.type === 'session_end')).toHaveLength(2);
+      expect(f.create).toHaveBeenCalledTimes(2);
+      expect(second).toMatchObject({ total_cost_usd: 0.1, num_turns: 1 });
+    } finally {
+      f.controller.abort();
+      await running.catch(() => {});
+      registry.dispose();
+      store.close();
+      report.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  },
+);
 it('resumes the original history only after callbacks, result delivery and actual process close; late first-arriving callbacks keep the original owner', async () => {
   const f = fixture();
   f.message('first');
