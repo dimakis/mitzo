@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.770-ci-recovery-fixture-batching';
+  'v1.0.771-ci-complete-joined-static-startup';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -74,7 +74,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/centaur-merge-status.test.ts':
     '7ed6ce87f0c8f7bf8bebca3e8c6b40039ca7a3223f40f11774bac1e8c86eed7f',
   '../../tests/integration/telos-s9/integrated-candidate/joined-frontend-startup.test.ts':
-    '6b0b127f8ba6f6561c155bf4cc76376e419c713e44497c219713c57a15e67f93',
+    '700034d4ed38819932a5cf19f91f0cd39cde527b13958b7637de3e71fbf2c1c8',
   '../__tests__/private-helper-boundary-diagnostics.test.ts':
     'aa27583871aa488a3f75455ce2e82eaaddd973c80b4b242742e3ebddc4da9ff4',
   '../__tests__/fixtures/private-helper-boundary-diagnostics.ts':
@@ -2331,7 +2331,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-cli-3077.manifest.json':
     '4b3ffbd04971720a8b6648d5266b688466e47dafa8b5128e5f562c855a5bbebf',
   '../../tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts':
-    'ea1bc0926623bb73a55a4b526c0f4d94e6401e59bda1401fe028409f8149bad4',
+    '6a051df3499c524e4f667515920036c006e052ab7c1932414feadd09ec4223c7',
   '../../tests/integration/telos-s9/integrated-candidate/joined-canonical-cli.ts':
     '75770f88a7bbcbedbfea6ca5399fdb6f663b9771789eb1098a1fd763e1cd7c1f',
   '../../tests/integration/telos-s9/integrated-candidate/joined-fake-voice-effects.ts':
