@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { z } from 'zod';
 import type { SendMessageOptions } from '@mitzo/client';
-import { ChatMessageTextSchema } from '@mitzo/protocol';
+import { MessageReplyIdSchema, ChatMessageTextSchema } from '@mitzo/protocol';
 import { chatStorage } from '../lib/large-chat-storage';
 import { apiFetch } from '../lib/api-fetch';
 import { createBrowserId } from '../lib/browser-crypto';
@@ -9,6 +9,7 @@ const Request = z.strictObject({
   requestId: z.string().min(1).max(200),
   targetCommandId: z.string().min(1).max(200),
   text: ChatMessageTextSchema,
+  replyToMessageId: MessageReplyIdSchema.optional(),
 });
 type Correction = z.infer<typeof Request>;
 type Delivery = SendMessageOptions['onDelivery'];
@@ -147,13 +148,16 @@ export function useTurnSteering(
     retry: selected.pending
       ? () => void execute(selected, selected.pending!, selected.delivery)
       : undefined,
-    submit: (text: string, delivery?: Delivery) => {
+    submit: (text: string, delivery?: Delivery, replyToMessageId?: string) => {
       if (!enabled || !sessionId || !targetCommandId || selected.busy || selected.blocked) {
         delivery?.('failed');
         return;
       }
       if (selected.pending) {
-        if (selected.pending.text !== text) {
+        if (
+          selected.pending.text !== text ||
+          selected.pending.replyToMessageId !== replyToMessageId
+        ) {
           delivery?.('failed');
           setFeedback({
             owner: selected,
@@ -164,7 +168,12 @@ export function useTurnSteering(
         void execute(selected, selected.pending, delivery);
         return;
       }
-      const input = { requestId: createBrowserId(), targetCommandId, text };
+      const input = {
+        requestId: createBrowserId(),
+        targetCommandId,
+        text,
+        ...(replyToMessageId ? { replyToMessageId } : {}),
+      };
       selected.pending = input;
       selected.delivery = delivery;
       void execute(selected, input, delivery);

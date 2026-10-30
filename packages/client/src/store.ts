@@ -69,6 +69,7 @@ import { messageIdentity } from './message-identity.js';
 // ─── Store state ─────────────────────────────────────────────────────────────
 
 export interface SendMessageOptions {
+  replyToMessageId?: string;
   /** Exact local edited revision; retained by the outbox and never sent to the server. */
   composerDraft?: ComposerDraftReceipt;
   /** Local ownership metadata; never sent as provider input. */
@@ -1492,6 +1493,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (mode && !parserState.currentSessionId) msg.mode = mode;
         if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
         if (opts?.sourceSnapshots?.length) msg.sourceSnapshots = opts.sourceSnapshots;
+        if (opts?.replyToMessageId) msg.replyToMessageId = opts.replyToMessageId;
         if (opts?.images?.length) {
           msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
         }
@@ -1605,6 +1607,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
       if (opts?.sourceSnapshots?.length) msg.sourceSnapshots = opts.sourceSnapshots;
+      if (opts?.replyToMessageId) msg.replyToMessageId = opts.replyToMessageId;
 
       const reviewed = !!reviewedOutbox && msg.sessionId === null && hasReviewedSource(msg);
       const sent = reviewed

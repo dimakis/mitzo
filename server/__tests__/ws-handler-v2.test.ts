@@ -4591,6 +4591,51 @@ describe('handleInterruptV2 forwarding', () => {
     );
   });
 
+  it('forwards the exact reply identity with an active interrupt', () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    const images = [{ data: 'base64img', mediaType: 'image/png' as const }];
+    const contextBlocks = ['some context block'];
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      {
+        type: 'interrupt',
+        sessionId: 'sess-1',
+        prompt: 'new direction',
+        clientMsgId: 'i3',
+        replyToMessageId: 'source',
+        images,
+        contextBlocks,
+      },
+      ctx,
+    );
+
+    expect(interruptChat).toHaveBeenCalledWith(
+      'c1:sess-1',
+      'new direction',
+      images,
+      contextBlocks,
+      'i3',
+      undefined,
+      undefined,
+      undefined,
+      'source',
+    );
+  });
+
   it('forwards model to interruptChat when session is active', () => {
     (interruptChat as ReturnType<typeof vi.fn>).mockClear();
     (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);

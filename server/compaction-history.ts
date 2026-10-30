@@ -93,7 +93,8 @@ export function projectCompactions(events: StoredEvent[]): ContextCompaction[] {
     };
     records.set(value.id, record);
     awaitingUsage.delete(event.sessionId);
-    if (record.phase === 'completed' && !record.usageAfter)
+    // A bounded usage tail starting after completion cannot prove which reading was first.
+    if (record.phase === 'completed' && !record.usageAfter && latest.has(event.sessionId))
       awaitingUsage.set(event.sessionId, record);
   }
   return [...records.values()].sort((a, b) => a.seq - b.seq);

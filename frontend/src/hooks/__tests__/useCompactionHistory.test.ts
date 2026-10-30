@@ -68,7 +68,14 @@ it.each(['interrupted', 'unknown'])(
 );
 
 it('refreshes for fresh context only until a completed compaction has an after observation', async () => {
-  const pending = { ...record, startedAt: 500, endedAt: 1000, afterTokens: null, usageAfter: null };
+  const pending = {
+    ...record,
+    startedAt: 500,
+    endedAt: 1000,
+    afterTokens: null,
+    usageBefore: { tokens: 100, observedAt: 400, model: 'fixture-model', contextCeiling: 1000 },
+    usageAfter: null,
+  };
   const ready = {
     ...pending,
     usageAfter: { tokens: 40, observedAt: 1100, model: 'fixture-model', contextCeiling: 1000 },
@@ -100,10 +107,36 @@ it('rejects malformed optional timing and observation fields', async () => {
 });
 
 it('does not keep refreshing an older unresolved compaction during a different turn', async () => {
-  const pending = { ...record, startedAt: 500, endedAt: 1000, afterTokens: null, usageAfter: null };
+  const pending = {
+    ...record,
+    startedAt: 500,
+    endedAt: 1000,
+    afterTokens: null,
+    usageBefore: { tokens: 100, observedAt: 400, model: 'fixture-model', contextCeiling: 1000 },
+    usageAfter: null,
+  };
   vi.mocked(readApiJson).mockResolvedValue({ records: [pending], truncated: false });
   const { result, rerender } = renderHook(
     ({ context }) => useCompactionHistory('s', 'completed:1', context, 3),
+    { initialProps: { context: 100 } },
+  );
+  await waitFor(() => expect(result.current.records).toEqual([pending]));
+  rerender({ context: 80 });
+  expect(readApiJson).toHaveBeenCalledTimes(1);
+});
+
+it('does not refresh usage indefinitely when the bounded history has no before observation', async () => {
+  const pending = {
+    ...record,
+    startedAt: 500,
+    endedAt: 1000,
+    afterTokens: null,
+    usageBefore: null,
+    usageAfter: null,
+  };
+  vi.mocked(readApiJson).mockResolvedValue({ records: [pending], truncated: false });
+  const { result, rerender } = renderHook(
+    ({ context }) => useCompactionHistory('s', 'completed:1', context, 2),
     { initialProps: { context: 100 } },
   );
   await waitFor(() => expect(result.current.records).toEqual([pending]));

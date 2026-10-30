@@ -121,3 +121,17 @@ it('shows sending progress while a first correction is pending', async () => {
   expect(hook.result.current.busy).toBe(true);
   expect(hook.result.current.error).toBe('');
 });
+
+it('retains the exact reply on correction retry and rejects a changed reference with identical text', async () => {
+  vi.mocked(apiFetch).mockRejectedValue(Error('lost'));
+  const hook = renderHook(() => useTurnSteering('reply-chat', 'turn', true));
+  await act(async () => hook.result.current.submit('Correction', undefined, 'source-one'));
+  const first = JSON.parse(vi.mocked(apiFetch).mock.calls[0][1]!.body as string);
+  expect(first.replyToMessageId).toBe('source-one');
+  const delivery = vi.fn();
+  await act(async () => hook.result.current.submit('Correction', delivery, 'source-two'));
+  expect(apiFetch).toHaveBeenCalledOnce();
+  expect(delivery).toHaveBeenCalledWith('failed');
+  await act(async () => hook.result.current.retry!());
+  expect(JSON.parse(vi.mocked(apiFetch).mock.calls[1][1]!.body as string)).toEqual(first);
+});

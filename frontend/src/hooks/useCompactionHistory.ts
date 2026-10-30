@@ -32,6 +32,7 @@ export function useCompactionHistory(
     latest.startedAt != null &&
     latest.endedAt != null &&
     latest.afterTokens === null &&
+    latest.usageBefore != null &&
     !latest.usageAfter &&
     (latestTurnIndex === undefined || latestTurnIndex === latest.turnIndex);
   const usageKey = awaitingUsage ? latestContext : undefined;

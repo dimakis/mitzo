@@ -2359,35 +2359,49 @@ relabelled as failed. The fixture covers all three states and retained queued wo
 
 ## Queued messages and corrections
 
-Ordinary chat keeps the existing icon-only composer and toolbar icons. During a
-native response, Enter queues the edited message with its frozen settings; the
-queue icon does the same. The existing lightning icon is **Steer current turn**,
-with an accessible name and tooltip, and Stop remains separate. Steering accepts
-text under the running turn's settings. Attachments remain available through Queue.
-No approved settings layout, toolbar icon, theme, or motion contract changes.
+Ordinary chat preserves its existing header, model/account controls, toolbar icons
+and dispatch/error/retry notices. Queue, lightning (steer) and Stop use icon-only
+buttons with accessible names and tooltips. Expand grows the composer inline.
 
-`ChatArea` uses a shared, token-based metadata row under user messages for queued,
-running, terminal and correction delivery states. An assistant response exposes a
-quiet **Answering: …** control which scrolls to and focuses its exact source request.
-These public request identities are projected from retained provider mappings;
-provider thread/turn IDs remain private. History and reconnect preserve the same
-association. Unattributed legacy replies do not invent a source request.
+Enter or Queue during a response saves an unsent draft in **Up next**. The tray
+supports multiple prompts, editing, reordering, removal and pause/resume. It sends
+one prompt after each response; Stop pauses the tray. Reload and navigation never
+automatically dispatch saved drafts. Attachments and reply references persist in
+the existing IndexedDB-backed chat storage. Admission is durable before clearing
+the edited composer; a late save cannot clear a newer draft or another chat.
+The brief queue/correction hint sits between the tray and text input.
 
-The correction owner commits its exact text, request ID and active-command ID to
-the existing chat storage before dispatch. Uncertain replies retain that identity
-for explicit **Retry correction**; a finished target keeps the draft instead of
-redirecting another turn. Viewing, reloading and metadata refresh never send a
-correction. The separate queue drawer retains its existing review/cancel controls.
+Phone swipe-right, touch-hold, desktop right-click and keyboard context menu offer
+Reply, Copy and Read aloud on complete ordinary messages. Existing copy/voice
+controls stay in each bubble. Each message shows a date and time, with full local
+date/seconds/timezone in its menu. A selected reply appears above the input with
+Cancel; queued drafts retain that selection. Transcript quotes scroll to and focus
+the exact source. Routine request lifecycle state collapses into Activity; existing
+delivery, retry, failure and uncertain notices remain available.
 
-The intercepted `chat-queue-steering` fixture exercises the real composer, transcript,
-client parser/reducer, correction storage and HTTP delivery on 320px WebKit and
-Chromium phones and desktop Chromium. Dark Mint/System and light Teal/Georgia
-checks cover icon-only controls, retained toolbar icons, 44px targets, Enter queues,
-exact-turn steering, stale-target draft retention, Stop, reply navigation, keyboard
-focus and horizontal overflow. No backend, provider credentials or model calls.
+The server resolves the reply ID from completed visible text in the same chat and
+freezes that reference for recovery. The model continues with its native history;
+only the selected ID, role and a bounded 1,200-character head/tail excerpt are
+added to the new user prompt. It does not replay the transcript or duplicate a long
+answer. Excerpts are explicitly reference data, not new instructions or permission;
+compacted or omitted text is not claimed to be available. Private reasoning, tool
+output, contributor seats, incomplete messages and cross-chat references cannot
+be selected as reply context.
+
+Corrections retain exact text, reply ID, request ID and active-command ID before
+dispatch. Uncertain acknowledgements permit only checking the same correction;
+a changed target cannot silently replay it. The active turn keeps its settings.
+Viewing, reloading and metadata refresh never send a correction.
+
+The intercepted `chat-queue-steering` fixture exercises the actual composer,
+transcript, parser/reducer, correction storage and HTTP delivery at 320px on WebKit
+and Chromium phones and desktop Chromium, dark Mint/System and light Teal/Georgia.
+It covers durable unsent queue admission, editing/reordering, pause/Stop, reply
+selection and exact-source delivery, inline expansion, icon-only 44px controls,
+reply navigation, focus and horizontal bounds without backend/model calls.
 Inspected captures: [phone](assets/chat-queue-steering-mobile-dark.png) and
-[desktop](assets/chat-queue-steering-desktop-light.png). Full-app builds, the complete
-offline UI suite and combined validation remain CI gates under local memory pressure.
+[desktop](assets/chat-queue-steering-desktop-light.png). Full builds and the complete
+offline suite remain CI gates under local memory pressure.
 
 ## Context compaction details
 

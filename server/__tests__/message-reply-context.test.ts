@@ -89,3 +89,27 @@ it('refuses hidden seat content and treats delimiter-like message text as quoted
   expect(prompt.match(/<\/mitzo_message_reply>/g)).toHaveLength(1);
   expect(prompt).toContain('\\u003c/mitzo_message_reply>');
 });
+it('caps the provider reply anchor while retaining the full exact source for recovery and display', () => {
+  const store = fixture();
+  const text = 'Opening sentence. ' + 'middle '.repeat(12000) + ' Final sentence.';
+  store.append('chat', 'user_message', { messageId: 'long', text });
+  const reply = captureMessageReply(store, 'chat', 'new', 'long');
+  const prompt = assembleReplyText('Clarify that', reply);
+  expect(reply.text).toBe(text);
+  expect(prompt.length).toBeLessThan(2400);
+  expect(prompt).toContain('Opening sentence.');
+  expect(prompt).toContain('Final sentence.');
+  expect(prompt).toContain('truncated');
+  expect(prompt).toContain('existing conversation history');
+});
+it('accepts identical historical user echoes while refusing ambiguous or seat-scoped duplicate identities', () => {
+  const store = fixture();
+  store.append('chat', 'user_message', { messageId: 'source', text: 'Same visible message' });
+  store.append('chat', 'user_message', { messageId: 'source', text: 'Same visible message' });
+  expect(captureMessageReply(store, 'chat', 'new', 'source').text).toBe('Same visible message');
+  store.append('chat', 'user_message', { messageId: 'source', text: 'Conflicting message' });
+  expect(() => captureMessageReply(store, 'chat', 'newer', 'source')).toThrow();
+  store.append('chat', 'user_message', { messageId: 'seat', text: 'Same' });
+  store.append('chat', 'user_message', { messageId: 'seat', text: 'Same', seatId: 'hidden' });
+  expect(() => captureMessageReply(store, 'chat', 'private', 'seat')).toThrow();
+});

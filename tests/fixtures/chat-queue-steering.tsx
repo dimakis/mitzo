@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import type { MessageReplyContext } from '@mitzo/protocol';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { createMitzoStore } from '@mitzo/client';
@@ -43,6 +45,7 @@ emit({ type: 'ordinary_provider_dispatch_started', messageId: 'first' });
 emit({ type: 'session_state_changed', state: 'running' });
 let sent = 0;
 function Fixture() {
+  const [reply, setReply] = useState<MessageReplyContext>();
   const messages = useMitzoStore((s) => s.messages);
   const target = messages.messages.filter((m) => m.commandState === 'running').at(-1)?.messageId;
   const steering = useTurnSteering('queue-fixture', target, true);
@@ -53,6 +56,7 @@ function Fixture() {
         <span>Akram · current conversation</span>
       </header>
       <ChatArea
+        onReply={setReply}
         messages={messages.messages}
         current={messages.current}
         running={messages.running}
@@ -69,17 +73,29 @@ function Fixture() {
           }
         />
         <ChatInput
+          replyTarget={reply}
+          onClearReply={() => setReply(undefined)}
           sessionId="queue-fixture"
           guardedConversation
           running={messages.running}
           interruptLabel="Steer current turn"
-          onSend={(text, _images, _context, receipt) => {
-            void fetch('/fixture/queue', { method: 'POST', body: JSON.stringify({ text }) });
-            emit({ type: 'user_message', messageId: `queued-${++sent}`, text });
+          onSend={(text, _images, _context, receipt, _assignment, _draft, replyTo) => {
+            void fetch('/fixture/queue', {
+              method: 'POST',
+              body: JSON.stringify({ text, replyToMessageId: replyTo?.messageId }),
+            });
+            emit({
+              type: 'user_message',
+              messageId: `queued-${++sent}`,
+              text,
+              ...(replyTo ? { inReplyTo: replyTo } : {}),
+            });
             receipt?.('accepted');
             return true;
           }}
-          onInterrupt={(text, _images, _context, receipt) => steering.submit(text, receipt)}
+          onInterrupt={(text, _images, _context, receipt, replyTo) =>
+            steering.submit(text, receipt, replyTo?.messageId)
+          }
           onStop={() => {
             void fetch('/fixture/stop', { method: 'POST' });
           }}

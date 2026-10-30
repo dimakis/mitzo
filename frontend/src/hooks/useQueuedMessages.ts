@@ -176,6 +176,7 @@ export function useQueuedMessages(
   const [queue, setQueueRaw] = useState<QueuedMessage[]>(() => loadQueue(sessionId));
   const queueRef = useRef(queue);
   const sessionRef = useRef(sessionId);
+  const pendingAdmission = useRef(new Map<string | undefined, QueuedMessage[]>());
   const submittedOwners = useRef(new Map<string, string | undefined>());
   const suppressOwnEvent = useRef(false);
   const mounted = useRef(false);
@@ -287,7 +288,7 @@ export function useQueuedMessages(
     sessionRef.current = sessionId;
     if (prev === sessionId) return;
 
-    const previousSaved = persist(prev, queueRef.current);
+    const previousSaved = persist(prev, pendingAdmission.current.get(prev) ?? queueRef.current);
     if (previousSaved.readable) queueRef.current = previousSaved.queue;
     persistence.current = { sessionId, baseline: loadQueue(sessionId), dirty: false };
     if (assignment && assignment.fromSessionId === prev && assignment.toSessionId === sessionId) {
@@ -358,15 +359,21 @@ export function useQueuedMessages(
       ];
       const saved = persist(owner, next);
       if (!saved.written) return false;
+      pendingAdmission.current.set(owner, saved.queue);
+      let restored: QueuedMessage[];
       try {
         await chatStorage.flush();
         if (chatStorage.failed) return false;
+        restored = mergeLiveImages(readQueue(owner), saved.queue);
       } catch {
         return false;
+      } finally {
+        if (pendingAdmission.current.get(owner) === saved.queue)
+          pendingAdmission.current.delete(owner);
       }
-      if (sessionRef.current === owner) {
-        queueRef.current = saved.queue;
-        setQueueRaw(saved.queue);
+      if (mounted.current && sessionRef.current === owner) {
+        queueRef.current = restored;
+        setQueueRaw(restored);
       }
       return true;
     },

@@ -119,3 +119,8 @@ it('does not attribute fresh usage to a compaction whose turn identity is missin
   ]);
   expect(records[0].usageAfter).toBeNull();
 });
+
+it('does not call a later reading the first after-observation when bounded usage history starts after completion', () => {
+  const records = projectCompactions([start, done, usage(7, 403152, 28549)]);
+  expect(records[0].usageAfter).toBeNull();
+});

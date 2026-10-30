@@ -63,7 +63,7 @@ export function MessageActions({
   return (
     <div
       ref={owner}
-      className="message-actions-target"
+      className={`message-actions-target${message.role === 'user' ? ' message-actions-target--user' : ''}`}
       tabIndex={0}
       aria-label={`Message from ${message.role === 'user' ? 'you' : 'Mitzo'}`}
       onContextMenu={(event) => {

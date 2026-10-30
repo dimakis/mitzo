@@ -4035,30 +4035,48 @@ export class EventStore {
     const rows = this.db!.prepare(
       `SELECT * FROM events WHERE session_id=? AND type IN ('user_message','message_start','message') AND json_extract(payload,'$.messageId')=? ORDER BY seq`,
     ).all(sessionId, messageId) as EventRow[];
-    if (rows.length !== 1) return undefined;
-    const event = rowToEvent(rows[0]);
+    if (!rows.length) return undefined;
+    const events = rows.map(rowToEvent);
+    const event = events[0];
+    // Legacy SDK startup could echo an identical user event twice. It is one
+    // visible message only when every copy has the same text and public scope.
     if (
-      event.seatId ||
-      event.symposiumProvenance ||
-      event.payload.seatId ||
-      event.payload.symposiumProvenance
+      events.length > 1 &&
+      events.some(
+        (copy) =>
+          copy.type !== 'user_message' ||
+          event.type !== 'user_message' ||
+          copy.payload.text !== event.payload.text,
+      )
+    )
+      return undefined;
+    if (
+      events.some(
+        (copy) =>
+          copy.seatId ||
+          copy.symposiumProvenance ||
+          copy.payload.seatId ||
+          copy.payload.symposiumProvenance,
+      )
     )
       return undefined;
     const source =
-      event.type === 'message'
-        ? {
-            content: Array.isArray(event.payload.blocks)
-              ? event.payload.blocks
-                  .filter(
-                    (block: Record<string, unknown>) =>
-                      block.blockType === 'text' && typeof block.content === 'string',
-                  )
-                  .map((block: Record<string, unknown>) => block.content)
-                  .join('\n\n')
-              : '',
-            provenance: null,
-          }
-        : this.getSymposiumSourceMessage(sessionId, messageId, { seatId: null });
+      event.type === 'user_message'
+        ? { content: event.payload.text, provenance: null }
+        : event.type === 'message'
+          ? {
+              content: Array.isArray(event.payload.blocks)
+                ? event.payload.blocks
+                    .filter(
+                      (block: Record<string, unknown>) =>
+                        block.blockType === 'text' && typeof block.content === 'string',
+                    )
+                    .map((block: Record<string, unknown>) => block.content)
+                    .join('\n\n')
+                : '',
+              provenance: null,
+            }
+          : this.getSymposiumSourceMessage(sessionId, messageId, { seatId: null });
     if (!source || source.provenance) return undefined;
     const role =
       event.type === 'user_message'

@@ -1,3 +1,5 @@
+import { QueuedDraftTray } from './QueuedDraftTray';
+import type { MessageReplyContext } from '@mitzo/protocol';
 import { chatStorage, CHAT_STORAGE_CHANGED } from '../lib/large-chat-storage';
 import {
   CHAT_MAX_ATTACHMENT_BYTES,
@@ -66,6 +68,8 @@ export interface ChatInputDraftControl {
 }
 
 interface Props {
+  replyTarget?: MessageReplyContext;
+  onClearReply?: () => void;
   responders?: ComposerResponderSelection;
   /** A retained delivery route may support text and voice but no attachments. */
   textOnly?: boolean;
@@ -80,6 +84,7 @@ interface Props {
     onDelivery?: SendMessageOptions['onDelivery'],
     onSessionAssigned?: SendMessageOptions['onSessionAssigned'],
     composerDraft?: SendMessageOptions['composerDraft'],
+    replyTo?: MessageReplyContext,
   ) => boolean;
   onStop: () => void;
   onInterrupt?: (
@@ -87,6 +92,7 @@ interface Props {
     images?: ImageAttachment[],
     contextBlocks?: string[],
     onDelivery?: SendMessageOptions['onDelivery'],
+    replyTo?: MessageReplyContext,
   ) => void;
   running: boolean;
   initialText?: string;
@@ -130,6 +136,8 @@ interface Props {
 const EMPTY_MESSAGES: FinishedMessage[] = [];
 
 export function ChatInput({
+  replyTarget,
+  onClearReply,
   responders,
   textOnly = false,
   settings,
@@ -233,13 +241,13 @@ export function ChatInput({
   const [contextBlocks, setContextBlocks] = useState<string[]>(savedChatDraft?.contextBlocks ?? []);
   const {
     queue: queuedMessages,
-    enqueue,
+    enqueuePersisted,
+    update: updateQueued,
     dequeue,
     restoreRejected,
     removeSubmitted,
     remove: removeQueued,
-    edit: editQueued,
-  } = useQueuedMessages(sessionId, 5, assignment);
+  } = useQueuedMessages(sessionId, 32, assignment);
   useEffect(() => {
     if (
       assignment &&
@@ -480,6 +488,43 @@ export function ChatInput({
   }, []);
 
   const composerScope = latestDraft.current.scope;
+  const replyRef = useRef(replyTarget);
+  replyRef.current = replyTarget;
+  const [expanded, setExpanded] = useState(false);
+  const [queueEditorOpen, setQueueEditorOpen] = useState(false);
+  const [queueBusy, setQueueBusy] = useState(false);
+  const queueOperation = useRef<object | null>(null);
+  const [queueError, setQueueError] = useState<{ scope: number; text: string } | null>(null);
+  const pauseKey = `mitzo-queue-paused:${sessionId ?? 'new'}`;
+  const [pauseState, setPauseState] = useState(() => {
+    try {
+      return { key: pauseKey, paused: chatStorage.getItem(pauseKey) === 'true' };
+    } catch {
+      return { key: pauseKey, paused: true };
+    }
+  });
+  let queuePaused = pauseState.paused;
+  if (pauseState.key !== pauseKey) {
+    try {
+      queuePaused = chatStorage.getItem(pauseKey) === 'true';
+    } catch {
+      queuePaused = true;
+    }
+    setPauseState({ key: pauseKey, paused: queuePaused });
+  }
+  function setQueuePaused(paused: boolean) {
+    setPauseState({ key: pauseKey, paused });
+    try {
+      chatStorage.setItem(pauseKey, String(paused));
+    } catch {
+      setPauseState({ key: pauseKey, paused: true });
+      setQueueError({
+        scope: composerScope,
+        text: 'Could not save the queue setting. Your queue is paused.',
+      });
+    }
+  }
+
   const pendingAssignment =
     pendingText !== null &&
     pendingText.composerGeneration === composerGeneration &&
@@ -536,8 +581,9 @@ export function ChatInput({
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
-  }, []);
+    el.style.height =
+      Math.min(Math.max(el.scrollHeight, expanded ? 240 : 0), expanded ? 480 : 160) + 'px';
+  }, [expanded]);
 
   useEffect(() => {
     // Returning routes may mount after a user has focused a file control.
@@ -566,7 +612,12 @@ export function ChatInput({
 
   const sendOrdinary = useCallback(
     (
-      payload: { text: string; images: ImageAttachment[]; contextBlocks: string[] },
+      payload: {
+        text: string;
+        images: ImageAttachment[];
+        contextBlocks: string[];
+        replyTo?: MessageReplyContext;
+      },
       queued = false,
     ): boolean => {
       if (queued && (boundedFirstCommand || sendDisabledReason)) return false;
@@ -609,6 +660,8 @@ export function ChatInput({
         const draftEdited = latest.revision !== submitted.revision + (assigned ? 1 : 0);
         const textEdited = latest.textRevision !== submitted.textRevision + (assigned ? 1 : 0);
         if (status === 'accepted') {
+          if (mounted.current && ownsDraft && replyRef.current === payload.replyTo)
+            onClearReply?.();
           // The original callback remains attached to the exact command even
           // after navigation. A replacement consumes only its matching token.
           if (composerDraft && (!mounted.current || !ownsDraft)) {
@@ -694,12 +747,14 @@ export function ChatInput({
           }
         },
         composerDraft,
+        payload.replyTo,
       );
       if (!sent) onDelivery('failed');
       return sent;
     },
     [
       onSend,
+      onClearReply,
       restoreRejected,
       removeSubmitted,
       setText,
@@ -727,7 +782,9 @@ export function ChatInput({
       !interruptPending.current &&
       !previewOpen &&
       !boundedFirstCommand &&
-      !guardedConversation &&
+      !queuePaused &&
+      !queueBusy &&
+      !queueEditorOpen &&
       !sendDisabledReason &&
       queuedMessages.length > 0
     ) {
@@ -738,7 +795,8 @@ export function ChatInput({
     }
     // Keep a completed turn pending while the editor is modal. Its already
     // queued message may drain once editing closes, without sending this draft.
-    if (!previewOpen || running) prevRunning.current.running = running;
+    if ((!previewOpen && !queueEditorOpen && !queueBusy) || running)
+      prevRunning.current.running = running;
   }, [
     running,
     queuedMessages,
@@ -746,7 +804,9 @@ export function ChatInput({
     dequeue,
     previewOpen,
     boundedFirstCommand,
-    guardedConversation,
+    queuePaused,
+    queueBusy,
+    queueEditorOpen,
     sendDisabledReason,
   ]);
 
@@ -775,6 +835,7 @@ export function ChatInput({
     if (importPending.current?.scope === composerScope) return;
     if (
       previewOpen ||
+      queueOperation.current ||
       sendGuard.current ||
       sendPending.current ||
       interruptPending.current ||
@@ -793,6 +854,7 @@ export function ChatInput({
           : 'What do you see in this image?'),
       images: [...images],
       contextBlocks: [...activeContextBlocks],
+      replyTo: replyTarget,
     });
     if (sent) {
       impactMedium();
@@ -989,73 +1051,90 @@ export function ChatInput({
       }
     : null;
 
-  function handleQueue() {
-    if (importPending.current?.scope === composerScope) return;
+  async function handleQueue() {
     if (
+      importPending.current?.scope === composerScope ||
       boundedFirstCommand ||
       sendDisabledReason ||
       previewOpen ||
       sendPending.current ||
-      interruptPending.current
+      interruptPending.current ||
+      queueOperation.current
     )
       return;
+    const submitted = latestDraft.current,
+      reply = replyTarget;
     const trimmed = text.trim();
-    if (!trimmed && images.length === 0) return;
-    if (guardedConversation) {
-      sendOrdinary({
+    if (!trimmed && !images.length) return;
+    const operation = {};
+    queueOperation.current = operation;
+    setQueueBusy(true);
+    setQueueError(null);
+    try {
+      const added = await enqueuePersisted({
         text:
           trimmed ||
           (images.some((image) => image.name)
             ? 'Please read the attached PDF.'
             : 'What do you see in this image?'),
         images: [...images],
-        contextBlocks: [],
+        contextBlocks: [...activeContextBlocks],
+        replyTo: reply,
       });
-      return;
+      if (!added) {
+        if (latestDraft.current.scope === submitted.scope)
+          setQueueError({
+            scope: submitted.scope,
+            text: 'Could not save this queued prompt. Your draft is kept; free some storage or shorten the queue.',
+          });
+        return;
+      }
+      if (
+        mounted.current &&
+        latestDraft.current.scope === submitted.scope &&
+        latestDraft.current.revision === submitted.revision
+      ) {
+        impactMedium();
+        editText('');
+        setImages([]);
+        if (!useExternal) setContextBlocks([]);
+        if (replyRef.current === reply) onClearReply?.();
+        requestAnimationFrame(() => textareaRef.current?.focus());
+      }
+    } finally {
+      if (queueOperation.current === operation) queueOperation.current = null;
+      if (mounted.current) setQueueBusy(false);
     }
-    const added = enqueue({
-      text:
-        trimmed ||
-        (images.some((image) => image.name)
-          ? 'Please read the attached PDF.'
-          : 'What do you see in this image?'),
-      images: [...images],
-      contextBlocks: [...activeContextBlocks],
-    });
-    if (!added) return;
-    impactMedium();
-    editText('');
-    setImages([]);
-    if (!useExternal) setContextBlocks([]);
-    requestAnimationFrame(() => {
-      autoResize();
-      textareaRef.current?.focus();
-    });
-  }
-
-  function editQueuedMessage(index: number) {
-    if (importPending.current?.scope === composerScope) return;
-    const q = editQueued(index);
-    if (!q) return;
-    editText(q.text);
-    setImages(q.images);
-    if (!useExternal) setContextBlocks(q.contextBlocks);
-    requestAnimationFrame(() => {
-      autoResize();
-      textareaRef.current?.focus();
-    });
   }
 
   function fireQueuedAsInterrupt(index: number) {
-    if (boundedFirstCommand || guardedConversation || sendDisabledReason || previewOpen) return;
+    if (
+      boundedFirstCommand ||
+      sendDisabledReason ||
+      previewOpen ||
+      queueOperation.current ||
+      queueEditorOpen
+    )
+      return;
     const q = queuedMessages[index];
-    if (!q || sendPending.current || interruptPending.current || sendDisabledReason) return;
+    if (
+      !q ||
+      q.requiresRetry ||
+      sendPending.current ||
+      interruptPending.current ||
+      sendDisabledReason
+    )
+      return;
     if (!running) {
       removeQueued(index);
       sendOrdinary(q, true);
       return;
     }
-    if (!onInterrupt) return;
+    if (
+      !onInterrupt ||
+      (interruptLabel === 'Steer current turn' && (q.images.length || q.contextBlocks.length))
+    )
+      return;
     const pending = {};
     interruptPending.current = pending;
     removeQueued(index);
@@ -1066,11 +1145,17 @@ export function ChatInput({
       q.images.length > 0 ? q.images : undefined,
       q.contextBlocks.length > 0 ? q.contextBlocks : undefined,
       (status) => {
-        if (status === 'uncertain' || settled) return;
+        if (settled) return;
+        if (status === 'uncertain') {
+          if (interruptLabel === 'Steer current turn' && interruptPending.current === pending)
+            interruptPending.current = null;
+          return;
+        }
         settled = true;
         if (interruptPending.current === pending) interruptPending.current = null;
         if (status === 'accepted') removeSubmitted(retained);
       },
+      q.replyTo,
     );
   }
 
@@ -1085,6 +1170,7 @@ export function ChatInput({
     if (
       boundedFirstCommand ||
       previewOpen ||
+      queueOperation.current ||
       sendGuard.current ||
       sendPending.current ||
       interruptPending.current ||
@@ -1118,10 +1204,12 @@ export function ChatInput({
         }
         if (status === 'accepted') {
           clearDraft();
+          if (replyRef.current === replyTarget) onClearReply?.();
           setImages([]);
           if (!useExternal) setContextBlocks([]);
         }
       },
+      replyTarget,
     );
     // Local transport acceptance cannot confirm an interrupt. Keep its exact input
     // until an authoritative receipt, and protect edits made while it is pending.
@@ -1133,7 +1221,7 @@ export function ChatInput({
   }
 
   return (
-    <div className="chat-input chat-input--compact">
+    <div className={`chat-input chat-input--compact${expanded ? ' chat-input--expanded' : ''}`}>
       {currentSave &&
         (currentSave.failed ||
           chatStorage.failed ||
@@ -1219,34 +1307,70 @@ export function ChatInput({
           <em>{voice.partialTranscript}</em>
         </div>
       )}
-      {queuedMessages.map((q, i) => (
-        <div key={i} className="chat-input-queued">
-          <span className="chat-input-queued-label">{i + 1}</span>
-          <span className="chat-input-queued-text">{q.text}</span>
-          {onInterrupt && !boundedFirstCommand && (
-            <button
-              className="chat-input-queued-btn chat-input-queued-btn--fire"
-              disabled={!!sendDisabledReason || importing}
-              onClick={() => fireQueuedAsInterrupt(i)}
-              title={running ? 'Send now (interrupt)' : 'Send now'}
-            >
-              Send Now
-            </button>
-          )}
-          <button className="chat-input-queued-btn" onClick={() => editQueuedMessage(i)}>
-            Edit
-          </button>
-          <button
-            className="chat-input-queued-btn chat-input-queued-btn--clear"
-            onClick={() => removeQueued(i)}
-            aria-label={`Remove queued message ${i + 1}`}
-          >
-            <UiIcon name="close" size={16} />
-          </button>
-        </div>
-      ))}
+      <QueuedDraftTray
+        queue={queuedMessages}
+        paused={queuePaused}
+        busy={queueBusy}
+        running={running}
+        blocked={
+          !!sendDisabledReason ||
+          boundedFirstCommand ||
+          importing ||
+          (running && !!interruptDisabledReason) ||
+          (running && !onInterrupt)
+        }
+        textOnlySteer={interruptLabel === 'Steer current turn'}
+        onPause={() => {
+          const paused = !queuePaused;
+          setQueuePaused(paused);
+          if (
+            !paused &&
+            !running &&
+            !queueBusy &&
+            !queueEditorOpen &&
+            !sendPending.current &&
+            !interruptPending.current &&
+            !sendDisabledReason &&
+            !boundedFirstCommand
+          ) {
+            const q = dequeue();
+            if (q) sendOrdinary(q, true);
+          }
+        }}
+        onSend={fireQueuedAsInterrupt}
+        onUpdate={updateQueued}
+        onRemove={removeQueued}
+        onEditingChange={setQueueEditorOpen}
+      />
+      {queueError?.scope === composerScope && (
+        <p className="chat-draft-save-status" role="alert">
+          {queueError.text}
+        </p>
+      )}
+      {(running || queuedMessages.length > 0) && !boundedFirstCommand && (
+        <p className="queued-draft-hint">
+          The queue keeps its order. <UiIcon name="interrupt" size={16} /> sends a correction now.
+        </p>
+      )}
       <ChatStatusMessage status={sendDisabledReason} action={sendDisabledAction} />
       <div className="chat-input-row">
+        {replyTarget && (
+          <div className="chat-reply-draft">
+            <div>
+              <strong>Replying to {replyTarget.role === 'user' ? 'you' : 'Mitzo'}</strong>
+              <span>{replyTarget.text}</span>
+            </div>
+            <button
+              type="button"
+              className="chat-input-btn"
+              aria-label="Cancel reply"
+              title="Cancel reply"
+              onClick={onClearReply}
+            >
+              <UiIcon name="close" size={16} />
+            </button>
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           className="chat-input-field"
@@ -1364,6 +1488,16 @@ export function ChatInput({
                 userTurns={messages.filter((message) => message.role === 'user').length}
               />
             )}
+            <button
+              type="button"
+              className="chat-input-btn"
+              aria-label={expanded ? 'Shrink input' : 'Expand input'}
+              title={expanded ? 'Shrink input' : 'Expand input'}
+              aria-pressed={expanded}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              <UiIcon name={expanded ? 'fullscreenExit' : 'fullscreen'} />
+            </button>
             {micProps && <MicButton {...micProps} />}
             {running ? (
               <>
@@ -1387,7 +1521,7 @@ export function ChatInput({
                   <button
                     className="chat-input-btn chat-input-btn--queue"
                     aria-label="Queue message"
-                    disabled={!!sendDisabledReason || importing}
+                    disabled={!!sendDisabledReason || importing || queueBusy}
                     onClick={handleQueue}
                     title="Queue — send after current turn"
                   >
@@ -1396,7 +1530,10 @@ export function ChatInput({
                 )}
                 <button
                   className="chat-input-btn chat-input-btn--stop"
-                  onClick={onStop}
+                  onClick={() => {
+                    setQueuePaused(true);
+                    onStop();
+                  }}
                   aria-label="Stop generation"
                   title="Stop generation"
                 >

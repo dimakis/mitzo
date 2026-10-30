@@ -147,33 +147,30 @@ it('sends screenshots above the former 1 MiB command cap without removing them',
   );
 });
 
-it('submits guarded queued input immediately and preserves old local queues without replay', async () => {
-  localStorage.setItem(
-    'mitzo-queue-bound',
-    JSON.stringify([{ text: 'Older queue', contextBlocks: [] }]),
-  );
+it('keeps guarded queued drafts unsent, retains their reply and drains one after completion', async () => {
   const send = vi.fn((..._args: unknown[]) => true);
+  const reply = { messageId: 'earlier', role: 'assistant' as const, text: 'Earlier answer' };
   const props = {
     sessionId: 'bound',
     guardedConversation: true,
-    initialText: 'Admit with current settings',
+    initialText: 'Next task',
     onSend: send,
     onStop: vi.fn(),
+    replyTarget: reply,
   };
   const { rerender } = render(<ChatInput {...props} running />);
   const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
-  await waitFor(() => expect(input).toHaveValue('Admit with current settings'));
-  const retained = localStorage.getItem('mitzo-queue-bound');
+  await waitFor(() => expect(input).toHaveValue('Next task'));
   fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
-  expect(send).toHaveBeenCalledOnce();
-  expect(send.mock.calls[0][0]).toBe('Admit with current settings');
-  expect(localStorage.getItem('mitzo-queue-bound')).toBe(retained);
+  await waitFor(() => expect(input).toHaveValue(''));
+  expect(send).not.toHaveBeenCalled();
+  expect(screen.getByRole('region', { name: 'Up next' })).toBeDefined();
   rerender(<ChatInput {...props} running={false} />);
-  expect(send).toHaveBeenCalledOnce();
-  expect(localStorage.getItem('mitzo-queue-bound')).toBe(retained);
+  await waitFor(() => expect(send).toHaveBeenCalledOnce());
+  expect(send.mock.calls[0][6]).toEqual(reply);
 });
 
-it('queues Enter during a guarded running turn and leaves steering as an explicit action', () => {
+it('queues Enter during a guarded running turn and leaves steering as an explicit action', async () => {
   const onSend = vi.fn(() => true),
     onInterrupt = vi.fn();
   render(
@@ -191,11 +188,12 @@ it('queues Enter during a guarded running turn and leaves steering as an explici
   fireEvent.change(input, { target: { value: 'Next task' } });
   expect(screen.getByRole('button', { name: 'Steer current turn' })).toBeDefined();
   fireEvent.keyDown(input, { key: 'Enter' });
-  expect(onSend).toHaveBeenCalledOnce();
+  await waitFor(() => expect(input).toHaveValue(''));
+  expect(onSend).not.toHaveBeenCalled();
   expect(onInterrupt).not.toHaveBeenCalled();
 });
 
-it('allows a distinct queued draft after uncertain steering without resending the correction', () => {
+it('allows a distinct queued draft after uncertain steering without resending the correction', async () => {
   const send = vi.fn(() => true),
     steer = vi.fn((_text, _images, _context, delivery) => delivery('uncertain'));
   render(
@@ -214,6 +212,7 @@ it('allows a distinct queued draft after uncertain steering without resending th
   fireEvent.click(screen.getByRole('button', { name: 'Steer current turn' }));
   fireEvent.change(input, { target: { value: 'A different next task' } });
   fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
-  expect(send).toHaveBeenCalledOnce();
+  await waitFor(() => expect(input).toHaveValue(''));
+  expect(send).not.toHaveBeenCalled();
   expect(steer).toHaveBeenCalledOnce();
 });

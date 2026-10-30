@@ -1,3 +1,4 @@
+import { chatStorage } from '../../lib/large-chat-storage';
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
@@ -1477,4 +1478,31 @@ it('does not clear or admit a new durable queued prompt when storage refuses its
     expect(await hook.result.current.enqueuePersisted(msg('Keep my draft'))).toBe(false),
   );
   expect(hook.result.current.queue).toEqual([]);
+});
+
+it('keeps the saved source queue when navigation happens before its storage flush completes', async () => {
+  let finish!: () => void;
+  vi.spyOn(chatStorage, 'flush').mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const hook = renderHook(({ id }) => useQueuedMessages(id, 32), {
+    initialProps: { id: 'origin' },
+  });
+  let pending!: Promise<boolean>;
+  act(() => {
+    pending = hook.result.current.enqueuePersisted(msg('Saved before navigation'));
+  });
+  hook.rerender({ id: 'destination' });
+  await act(async () => {
+    finish();
+    expect(await pending).toBe(true);
+  });
+  expect(hook.result.current.queue).toEqual([]);
+  const reopened = renderHook(() => useQueuedMessages('origin', 32));
+  expect(reopened.result.current.queue.map((message) => message.text)).toEqual([
+    'Saved before navigation',
+  ]);
 });

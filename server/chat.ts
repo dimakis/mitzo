@@ -2042,6 +2042,8 @@ async function _startChatInner(
     }
   }
 
+  if (options.replyToMessageId && (!options.resume || !options.clientMsgId))
+    throw Error('Replies require an existing conversation and a message identity');
   const repliedPrompt =
     options.replyToMessageId && options.resume && options.clientMsgId
       ? assembleReplyText(
@@ -4329,7 +4331,17 @@ export function preflightStartupProviderCommand(
   if (!binding) return false;
   const existingAdmission = store.getExecutionAdmission(request.sessionId, request.clientMsgId);
   const stablePrompt = assemblePrompt(
-    request.prompt,
+    request.replyToMessageId
+      ? assembleReplyText(
+          request.prompt,
+          captureMessageReply(
+            store,
+            request.sessionId,
+            request.clientMsgId,
+            request.replyToMessageId,
+          ),
+        )
+      : request.prompt,
     request.cwd,
     undefined,
     request.contextBlocks,
@@ -4396,6 +4408,7 @@ export async function sendToChat(
   userIntent?: string,
   sourceSnapshots?: SourceSnapshot[],
   onRetained?: () => void,
+  replyToMessageId?: string,
 ): Promise<boolean> {
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
@@ -4463,14 +4476,20 @@ export async function sendToChat(
         return false;
       }
     }
+    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
+    if (replyToMessageId && !session.sessionId) throw Error('Reply conversation is unavailable');
     const fullPrompt = assemblePrompt(
-      prompt,
+      replyToMessageId
+        ? assembleReplyText(
+            prompt,
+            captureMessageReply(eventStore, session.sessionId!, messageId, replyToMessageId),
+          )
+        : prompt,
       session.cwd ?? '.',
       codex || responses ? undefined : images,
       contextBlocks,
       sourceSnapshots,
     );
-    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
     const previews = imagePreviews(images);
     let selectionReasoningEffort =
       model && model !== session.model && reasoningEffort === undefined ? null : reasoningEffort;
@@ -4730,13 +4749,19 @@ export function preflightChatCommand(
   model?: string,
   reasoningEffort?: string | null,
   sourceSnapshots?: SourceSnapshot[],
+  replyToMessageId?: string,
 ): boolean {
   const session = registry.get(clientId);
   if (session?.sessionId && eventStore.getSessionRuntimeBinding(session.sessionId))
     throw new Error('Runtime-bound commands require guarded admission');
   if (!session?.sessionId || !clientMsgId || !getResponsesRuntime(session)) return false;
   const stablePrompt = assemblePrompt(
-    prompt,
+    replyToMessageId
+      ? assembleReplyText(
+          prompt,
+          captureMessageReply(eventStore, session.sessionId, clientMsgId, replyToMessageId),
+        )
+      : prompt,
     session.cwd ?? '.',
     undefined,
     contextBlocks,
@@ -4763,6 +4788,7 @@ export async function interruptChat(
   model?: string,
   reasoningEffort?: string | null,
   sourceSnapshots?: SourceSnapshot[],
+  replyToMessageId?: string,
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
@@ -4780,6 +4806,7 @@ export async function interruptChat(
         images?.length ||
         contextBlocks?.length ||
         sourceSnapshots?.length ||
+        replyToMessageId ||
         model !== undefined ||
         reasoningEffort !== undefined
       ) {
@@ -4831,8 +4858,15 @@ export async function interruptChat(
         return false;
       }
     }
+    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
+    if (replyToMessageId && !session.sessionId) throw Error('Reply conversation is unavailable');
     const fullPrompt = assemblePrompt(
-      prompt,
+      replyToMessageId
+        ? assembleReplyText(
+            prompt,
+            captureMessageReply(eventStore, session.sessionId!, messageId, replyToMessageId),
+          )
+        : prompt,
       session.cwd ?? '.',
       codex || responses ? undefined : images,
       contextBlocks,
@@ -4914,7 +4948,6 @@ export async function interruptChat(
         ...(reasoningEffort !== undefined ? { reasoningEffort: reasoningEffort || null } : {}),
       });
     }
-    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
     const previews = imagePreviews(images);
     // Store and echo the user message. A retried interrupt must still stop
     // the agent — only the echo/store is skipped on duplicate.

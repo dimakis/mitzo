@@ -69,8 +69,11 @@ for (const theme of ['dark', 'light'])
     const input = page.getByRole('textbox', { name: 'Message Mitzo' });
     await input.fill('Please also check the previous quarter.');
     await input.press('Enter');
-    await expect.poll(() => queued.length).toBe(1);
-    await expect(page.getByText('Queued — waiting for the current turn')).toBeVisible();
+    await expect(input).toHaveValue('');
+    await expect(page.getByRole('region', { name: 'Up next' })).toContainText(
+      'Please also check the previous quarter.',
+    );
+    expect(queued).toHaveLength(0);
     await page.evaluate(() =>
       (
         window as unknown as { queueFixture: { answerEarlier(): void } }
@@ -82,6 +85,20 @@ for (const theme of ['dark', 'light'])
     await expect(reply).toBeVisible();
     await reply.click();
     await expect(page.locator('[data-command-request="first"]')).toBeFocused();
+    // Desktop context menu and mobile swipe select the same exact source.
+    const source = page
+      .locator('[data-reply-source="first"]')
+      .getByText('Review Akram’s accomplishments and current priorities.', { exact: true });
+    await source.click({ button: 'right' });
+    await expect(page.getByRole('menu', { name: 'Message actions' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Copy text' })).toBeVisible();
+    await expect(page.locator('.message-actions-date')).toContainText(/20\d\d/);
+    await page.getByRole('menuitem', { name: 'Reply', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Cancel reply' })).toBeVisible();
+    await page.getByRole('button', { name: 'Expand input' }).click();
+    await expect(input).toHaveCSS('height', /\d+px/);
+    await expect(page.locator('.chat-input--expanded')).toBeVisible();
+    await page.getByRole('button', { name: 'Shrink input' }).click();
     await input.fill('The current priorities are fine.');
     for (const name of ['Steer current turn', 'Queue message', 'Stop generation']) {
       const button = page.getByRole('button', { name, exact: true });
@@ -90,6 +107,20 @@ for (const theme of ['dark', 'light'])
       const box = await button.boundingBox();
       expect(box!.height).toBeGreaterThanOrEqual(44);
     }
+    const alignment = await page
+      .locator('.msg-bubble-group--user')
+      .first()
+      .evaluate((user) => {
+        const chat = user.closest('.chat-messages')!;
+        return Math.abs(
+          user.getBoundingClientRect().right -
+            (chat.getBoundingClientRect().left +
+              chat.clientLeft +
+              chat.clientWidth -
+              parseFloat(getComputedStyle(chat).paddingRight)),
+        );
+      });
+    expect(alignment).toBeLessThan(2);
     await page.screenshot({ path: info.outputPath(`chat-queue-${theme}.png`), fullPage: true });
     await page.getByRole('button', { name: 'Steer current turn', exact: true }).click();
     await expect.poll(() => steered.length).toBe(1);
@@ -97,6 +128,7 @@ for (const theme of ['dark', 'light'])
     expect(steered[0]).toMatchObject({
       targetCommandId: 'first',
       text: 'The current priorities are fine.',
+      replyToMessageId: 'first',
     });
     expect(stopped).toHaveLength(0);
     status = 'stale_target';
@@ -111,13 +143,35 @@ for (const theme of ['dark', 'light'])
     await expect(input).toHaveValue('An unconfirmed correction');
     await input.fill('A separate queued task');
     await input.press('Enter');
-    await expect.poll(() => queued.length).toBe(2);
     await expect(input).toHaveValue('');
+    expect(queued).toHaveLength(0);
+    await expect(page.getByRole('region', { name: 'Up next' })).toContainText(
+      'A separate queued task',
+    );
+    await page.getByRole('button', { name: 'Edit, reorder or remove queued prompt 2' }).click();
+    const editor = page.getByRole('dialog', { name: 'Queued prompt' });
+    await expect(editor).toBeVisible();
+    await editor.getByRole('textbox', { name: 'Prompt' }).fill('Edited next task');
+    await editor.getByRole('button', { name: 'Move prompt earlier' }).click();
+    await editor.getByRole('button', { name: 'Save changes' }).click();
+    await expect(editor).not.toBeVisible();
+    await expect(page.locator('.queued-draft-row').first()).toContainText('Edited next task');
 
     await page.getByRole('button', { name: 'Stop generation', exact: true }).click();
     await expect.poll(() => stopped.length).toBe(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
+    await expect(page.getByRole('button', { name: 'Resume queue' })).toBeVisible();
+    await page.evaluate(() =>
+      (window as unknown as { queueFixture: { emit(event: unknown): void } }).queueFixture.emit({
+        type: 'session_state_changed',
+        state: 'idle',
+      }),
+    );
+    expect(queued).toHaveLength(0);
+    await page.getByRole('button', { name: 'Resume queue' }).click();
+    await expect.poll(() => queued.length).toBe(1);
+    expect(queued[0]).toMatchObject({ text: 'Edited next task' });
     expect(errors).toEqual([]);
   });

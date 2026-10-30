@@ -1,3 +1,4 @@
+import type { MessageReplyContext } from '@mitzo/protocol';
 import { useTurnSteering } from '../hooks/useTurnSteering';
 import { chatStorage } from '../lib/large-chat-storage';
 import { chatModelSettings } from '../lib/chat-model-settings';
@@ -128,6 +129,10 @@ export function DesktopChatView() {
   );
   const preparationId = searchParams.get('repositoryPreparation');
   const repositoryHandoff = useRepositoryChatPreparation(preparationId, sessionId);
+  const [replySelection, setReplySelection] = useState<{
+    session: string;
+    message: MessageReplyContext;
+  } | null>(null);
   const repositoryDraftControl = useRef<ChatInputDraftControl | null>(null);
   const [launchDraftError, setLaunchDraftError] = useState<string | null>(null);
   const modeChangeReady = useMitzoStore((s) => s.modeChangeReady);
@@ -766,7 +771,11 @@ export function DesktopChatView() {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
-  function prepareOrdinaryCommand(text: string, images?: ImageAttachment[]) {
+  function prepareOrdinaryCommand(
+    text: string,
+    images?: ImageAttachment[],
+    replyTo?: MessageReplyContext,
+  ) {
     if (!activeSessionId || !localRuntime.ordinaryWorkspaceId)
       return { request: null, reason: 'Conversation workspace settings are unavailable.' };
     return prepareOrdinaryWorkspaceCommand(localRuntime.intent, localRuntime.inventory, {
@@ -777,6 +786,7 @@ export function DesktopChatView() {
       retainedAgentProfile: localRuntime.agentProfile,
       retainedAgentContext: localRuntime.agentContext,
       text,
+      replyToMessageId: replyTo?.messageId,
       images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
     });
   }
@@ -789,6 +799,7 @@ export function DesktopChatView() {
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
     composerDraft?: import('@mitzo/client').SendMessageOptions['composerDraft'],
+    replyTo?: MessageReplyContext,
   ): boolean {
     if (
       (activeSessionId && !isSessionMetadataCurrent(activeSessionId, sessionMetadataRevision)) ||
@@ -808,7 +819,7 @@ export function DesktopChatView() {
     }
     if (localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable && activeSessionId) {
       if (ctxBlocks?.length || launching || localRuntime.reason) return false;
-      const command = prepareOrdinaryCommand(text, images);
+      const command = prepareOrdinaryCommand(text, images, replyTo);
       return (
         !!command.request &&
         sendOrdinaryWorkspaceCommand(
@@ -833,6 +844,7 @@ export function DesktopChatView() {
         retainedAgentProfile: localRuntime.agentProfile,
         retainedAgentContext: localRuntime.agentContext,
         text,
+        replyToMessageId: replyTo?.messageId,
         images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
       });
       return (
@@ -860,6 +872,7 @@ export function DesktopChatView() {
         retainedAgentContext: localRuntime.agentContext,
         nativeConstraint: localRuntime.nativeConstraint,
         text,
+        replyToMessageId: replyTo?.messageId,
         images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
       });
       return (
@@ -930,6 +943,7 @@ export function DesktopChatView() {
     voice.stopSpeaking();
     const options = {
       images,
+      replyToMessageId: replyTo?.messageId,
       contextBlocks: ctxBlocks,
       ...(!activeSessionId ? { sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots } : {}),
       ...(onDelivery ? { onDelivery } : {}),
@@ -998,6 +1012,7 @@ export function DesktopChatView() {
     images?: ImageAttachment[],
     ctxBlocks?: string[],
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
+    replyTo?: MessageReplyContext,
   ): void {
     if (controlsBlocked || explicitNew) {
       onDelivery?.('failed');
@@ -1009,13 +1024,14 @@ export function DesktopChatView() {
         return;
       }
       voice.stopSpeaking();
-      turnSteering.submit(text, onDelivery);
+      turnSteering.submit(text, onDelivery, replyTo?.messageId);
       return;
     }
     if (repositoryHandoff.present) return;
     voice.stopSpeaking();
     storeInterruptMessage(text, {
       images,
+      replyToMessageId: replyTo?.messageId,
       contextBlocks: ctxBlocks,
       onDelivery,
       ...(accountSelection ?? {}),
@@ -1681,6 +1697,10 @@ export function DesktopChatView() {
               readOnly={controlsBlocked || localBound}
               sessionId={sessionId ?? activeSessionId}
               chat={{
+                onReply:
+                  !isSymposium && activeSessionId && !controlsBlocked
+                    ? (message) => setReplySelection({ session: activeSessionId, message })
+                    : undefined,
                 afterMessages: !isSymposium ? (
                   <>
                     <TelosAdvisorDraft conversationId={activeSessionId ?? undefined} />
@@ -1822,6 +1842,16 @@ export function DesktopChatView() {
                     />
                   )}
                   <ChatInput
+                    replyTarget={
+                      replySelection?.session === activeSessionId
+                        ? replySelection?.message
+                        : undefined
+                    }
+                    onClearReply={() =>
+                      setReplySelection((current) =>
+                        current?.session === activeSessionId ? null : current,
+                      )
+                    }
                     collaboration={
                       activeSessionId && !controlsBlocked && !localBound && ordinaryControls ? (
                         <OrdinaryCollaborationEntry sessionId={activeSessionId} compact />
@@ -1958,7 +1988,15 @@ export function DesktopChatView() {
                           ? 'Select an account before sending.'
                           : undefined)
                     }
-                    onSend={(text, images, context, onDelivery, onSessionAssigned, composerDraft) =>
+                    onSend={(
+                      text,
+                      images,
+                      context,
+                      onDelivery,
+                      onSessionAssigned,
+                      composerDraft,
+                      replyTo,
+                    ) =>
                       handleSend(
                         text,
                         images,
@@ -1967,6 +2005,7 @@ export function DesktopChatView() {
                         onDelivery,
                         onSessionAssigned,
                         composerDraft,
+                        replyTo,
                       )
                     }
                     onStop={handleStop}

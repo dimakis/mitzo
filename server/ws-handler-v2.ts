@@ -945,6 +945,7 @@ export function handleSendV2(
                           images: msg.images,
                           contextBlocks: msg.contextBlocks,
                           sourceSnapshots: msg.sourceSnapshots,
+                          replyToMessageId: msg.replyToMessageId,
                         },
                       },
                       onAdmitted: () => {
@@ -1067,6 +1068,7 @@ export function handleSendV2(
               images: msg.images,
               contextBlocks: msg.contextBlocks,
               sourceSnapshots: msg.sourceSnapshots,
+              replyToMessageId: msg.replyToMessageId,
               model: effectiveSelection.model,
               reasoningEffort: effectiveSelection.reasoningEffort,
             });
@@ -1104,7 +1106,11 @@ export function handleSendV2(
               msg.clientMsgId,
               msg.accountId ? msg.model : undefined,
               msg.accountId ? msg.reasoningEffort : undefined,
-              ...(msg.sourceSnapshots?.length ? ([msg.sourceSnapshots] as const) : ([] as const)),
+              ...(msg.replyToMessageId
+                ? ([msg.sourceSnapshots, msg.replyToMessageId] as const)
+                : msg.sourceSnapshots?.length
+                  ? ([msg.sourceSnapshots] as const)
+                  : ([] as const)),
             );
             const ownerConnection =
               found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
@@ -1156,6 +1162,7 @@ export function handleSendV2(
                     userIntent,
                     msg.sourceSnapshots,
                     delivery?.onRetained ?? (() => {}),
+                    ...(msg.replyToMessageId ? ([msg.replyToMessageId] as const) : ([] as const)),
                   )
                 : await sendToChat(
                     activeClientId,
@@ -1169,6 +1176,7 @@ export function handleSendV2(
                     undefined,
                     msg.sourceSnapshots,
                     delivery?.onRetained ?? (() => {}),
+                    ...(msg.replyToMessageId ? ([msg.replyToMessageId] as const) : ([] as const)),
                   );
             if (!accepted) throw new Error('Session is not accepting input. Please retry.');
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
@@ -1214,6 +1222,7 @@ export function handleSendV2(
             images: msg.images,
             contextBlocks: msg.contextBlocks,
             sourceSnapshots: msg.sourceSnapshots,
+            replyToMessageId: msg.replyToMessageId,
             clientMsgId: msg.clientMsgId,
             onStartupAdmission,
             telosTaskId: msg.telosTaskId,
@@ -1242,6 +1251,7 @@ export function handleSendV2(
             images: msg.images,
             contextBlocks: msg.contextBlocks,
             sourceSnapshots: msg.sourceSnapshots,
+            replyToMessageId: msg.replyToMessageId,
             model: effectiveSelection.model,
             reasoningEffort: effectiveSelection.reasoningEffort,
           });
@@ -1286,6 +1296,7 @@ export function handleSendV2(
             images: msg.images,
             contextBlocks: msg.contextBlocks,
             sourceSnapshots: msg.sourceSnapshots,
+            replyToMessageId: msg.replyToMessageId,
             clientMsgId: msg.clientMsgId,
             onSessionResolved,
             onStartupAdmission,
@@ -1448,7 +1459,11 @@ export function handleInterruptV2(
           msg.clientMsgId,
           msg.accountId ? msg.model : undefined,
           msg.accountId ? msg.reasoningEffort : undefined,
-          ...(msg.sourceSnapshots?.length ? ([msg.sourceSnapshots] as const) : ([] as const)),
+          ...(msg.replyToMessageId
+            ? ([msg.sourceSnapshots, msg.replyToMessageId] as const)
+            : msg.sourceSnapshots?.length
+              ? ([msg.sourceSnapshots] as const)
+              : ([] as const)),
         );
         const ownerConnection =
           found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
@@ -1485,7 +1500,11 @@ export function handleInterruptV2(
           msg.clientMsgId,
           msg.accountId ? msg.model : undefined,
           msg.accountId ? msg.reasoningEffort : undefined,
-          ...(msg.sourceSnapshots?.length ? ([msg.sourceSnapshots] as const) : ([] as const)),
+          ...(msg.replyToMessageId
+            ? ([msg.sourceSnapshots, msg.replyToMessageId] as const)
+            : msg.sourceSnapshots?.length
+              ? ([msg.sourceSnapshots] as const)
+              : ([] as const)),
         );
         log.info('interrupt', { connectionId, sessionId: msg.sessionId });
         return;
@@ -1504,6 +1523,7 @@ export function handleInterruptV2(
         images: msg.images,
         contextBlocks: msg.contextBlocks,
         sourceSnapshots: msg.sourceSnapshots,
+        replyToMessageId: msg.replyToMessageId,
         model: effectiveSelection.model,
         reasoningEffort: effectiveSelection.reasoningEffort,
       });
@@ -1551,6 +1571,7 @@ export function handleInterruptV2(
         images: msg.images,
         contextBlocks: msg.contextBlocks,
         sourceSnapshots: msg.sourceSnapshots,
+        replyToMessageId: msg.replyToMessageId,
         clientMsgId: msg.clientMsgId,
         agentName: found.session?.agentName,
         telosTaskId: found.session?.telosTaskId,

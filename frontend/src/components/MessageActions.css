@@ -53,3 +53,13 @@
   outline: 2px solid var(--color-accent);
   outline-offset: -2px;
 }
+
+.chat-user-request,
+.message-actions-target--user {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.chat-user-request > .chat-reply-link {
+  align-self: flex-end;
+}

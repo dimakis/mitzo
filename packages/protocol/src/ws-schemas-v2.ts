@@ -1,3 +1,4 @@
+import { MessageReplyIdSchema } from './message-reply.js';
 import { PaidReasoningPhaseSelectionsSchema } from './paid-reasoning-selection.js';
 /**
  * v2 WebSocket protocol schemas.
@@ -115,6 +116,7 @@ export const SessionCloseMessage = z.object({
 // interrupt/stop/permission_response/set_mode — you can't target a session
 // that doesn't exist yet for those operations.
 export const V2SendMessage = z.object({
+  replyToMessageId: MessageReplyIdSchema.optional(),
   type: z.literal('send'),
   sessionId: z.string().min(1).nullable(),
   prompt: z.string().min(1),
@@ -142,6 +144,7 @@ export const V2SendMessage = z.object({
 });
 
 export const V2InterruptMessage = z.object({
+  replyToMessageId: MessageReplyIdSchema.optional(),
   type: z.literal('interrupt'),
   sessionId: z.string().min(1),
   prompt: z.string().min(1),

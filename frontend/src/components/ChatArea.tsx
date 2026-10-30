@@ -1,3 +1,5 @@
+import { MessageActions } from './MessageActions';
+import type { MessageReplyContext } from '@mitzo/protocol';
 import './ChatCommandMetadata.css';
 import { useTelosCreatedItems } from '../hooks/useTelosCreatedItems';
 import { TelosCreatedItemCard } from './TelosCreatedItemCard';
@@ -43,6 +45,7 @@ export interface SymposiumContextItem {
 }
 
 export interface ChatAreaProps {
+  onReply?: (message: MessageReplyContext) => void;
   compactions?: ContextCompaction[];
   sessionId?: string;
   /** Only ordinary conversation identities may discover durable Telos origins. */
@@ -140,6 +143,7 @@ function turnKey(messageId: string, provenance?: SymposiumProvenance): string {
 }
 
 export function ChatArea({
+  onReply,
   compactions = [],
   sessionId,
   discoverTelosOrigins = true,
@@ -188,6 +192,54 @@ export function ChatArea({
     steered: 'Correction sent to current turn',
     uncertain: 'Correction delivery not confirmed',
   };
+  function quote(reply: MessageReplyContext) {
+    return (
+      <button
+        type="button"
+        className="chat-reply-link"
+        aria-label={`Replying to: ${reply.text.slice(0, 120)}`}
+        onClick={() => {
+          const target = Array.from(
+            scrollRef.current?.querySelectorAll<HTMLElement>('[data-reply-source]') ?? [],
+          ).find((element) => element.dataset.replySource === reply.messageId);
+          target?.scrollIntoView({ block: 'center' });
+          target?.focus({ preventScroll: true });
+        }}
+      >
+        <span className="chat-reply-author">{reply.role === 'user' ? 'You' : 'Mitzo'}</span>
+        <span className="chat-reply-excerpt">{reply.text}</span>
+      </button>
+    );
+  }
+  function withActions(message: FinishedMessage, children: ReactNode) {
+    const text = message.blocks
+      .filter((block) => block.blockType === 'text')
+      .map((block) => block.content)
+      .join('\n\n');
+    if (!onReply || message.symposiumProvenance || !text.trim()) return children;
+    return (
+      <MessageActions
+        message={{
+          messageId: message.messageId,
+          role: message.role,
+          text,
+          timestamp: message.timestamp,
+        }}
+        onReply={onReply}
+        readAloud={
+          voice?.ttsAvailable
+            ? {
+                active: speakingBlockId === message.messageId,
+                onSpeak: (text) => speakBlock(message.messageId, text),
+                onStop: stopBlock,
+              }
+            : undefined
+        }
+      >
+        {children}
+      </MessageActions>
+    );
+  }
   function replyLabel(message: FinishedMessage | StreamingMessage) {
     if (message.symposiumProvenance || !message.replyToMessageId) return null;
     const original = requests.get(message.replyToMessageId);
@@ -453,25 +505,34 @@ export function ChatArea({
               value: (
                 <>
                   {renderMessageAttribution?.(msg.messageId)}
-                  <div data-command-request={msg.messageId} tabIndex={-1}>
-                    <UserBubble
-                      key={turnKey(msg.messageId, msg.symposiumProvenance)}
-                      sourceAnchor={sourceAnchor(msg)}
-                      text={textBlock?.content}
-                      images={msg.images}
-                      contextBlocks={msg.contextBlocks}
-                      contextInjections={msg.contextInjections}
-                      timestamp={msg.timestamp}
-                      readAloud={
-                        voice?.ttsAvailable
-                          ? {
-                              active: speakingBlockId === msg.messageId,
-                              onSpeak: (text) => speakBlock(msg.messageId, text),
-                              onStop: stopBlock,
-                            }
-                          : undefined
-                      }
-                    />
+                  <div
+                    className="chat-user-request"
+                    data-command-request={msg.messageId}
+                    data-reply-source={msg.messageId}
+                    tabIndex={-1}
+                  >
+                    {msg.inReplyTo && quote(msg.inReplyTo)}
+                    {withActions(
+                      msg,
+                      <UserBubble
+                        key={turnKey(msg.messageId, msg.symposiumProvenance)}
+                        sourceAnchor={sourceAnchor(msg)}
+                        text={textBlock?.content}
+                        images={msg.images}
+                        contextBlocks={msg.contextBlocks}
+                        contextInjections={msg.contextInjections}
+                        timestamp={msg.timestamp}
+                        readAloud={
+                          voice?.ttsAvailable
+                            ? {
+                                active: speakingBlockId === msg.messageId,
+                                onSpeak: (text) => speakBlock(msg.messageId, text),
+                                onStop: stopBlock,
+                              }
+                            : undefined
+                        }
+                      />,
+                    )}
                     {!msg.symposiumProvenance &&
                       msg.commandState &&
                       !['running', 'completed', 'ended', 'steered'].includes(msg.commandState) && (
@@ -585,10 +646,16 @@ export function ChatArea({
             streaming,
             keepVisible,
             value: (
-              <div className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}>
+              <div
+                data-reply-source={msg.messageId}
+                tabIndex={-1}
+                className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}
+              >
                 {index === 0 && (keepVisible || block.blockType === 'text') && attribution}
                 {block === firstVisibleText && replyLabel(msg)}
-                {content}
+                {!streaming && turn.kind === 'finished' && block.blockType === 'text'
+                  ? withActions(turn.value, content)
+                  : content}
               </div>
             ),
           };
