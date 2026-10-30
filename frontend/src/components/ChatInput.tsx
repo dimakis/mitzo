@@ -1567,6 +1567,8 @@ export function ChatInput({
               />
             )}
             <ComposerTools
+              expanded={expanded}
+              onExpand={() => setExpanded((value) => !value)}
               terminalHref={
                 sessionId && !boundedFirstCommand && !guardedConversation
                   ? `/terminal?sessionId=${encodeURIComponent(sessionId)}&returnTo=${encodeURIComponent(`/chat/${sessionId}`)}`
@@ -1646,16 +1648,6 @@ export function ChatInput({
                 userTurns={messages.filter((message) => message.role === 'user').length}
               />
             )}
-            <button
-              type="button"
-              className="chat-input-btn"
-              aria-label={expanded ? 'Shrink input' : 'Expand input'}
-              title={expanded ? 'Shrink input' : 'Expand input'}
-              aria-pressed={expanded}
-              onClick={() => setExpanded((value) => !value)}
-            >
-              <UiIcon name={expanded ? 'fullscreenExit' : 'fullscreen'} />
-            </button>
             {micProps && <MicButton {...micProps} />}
             {running ? (
               <>

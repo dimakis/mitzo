@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { openQueuedEditor } from '../../test-utils/queued-draft-controls';
 import { ChatInput } from '../ChatInput';
 import { ContextPanel } from '../ContextPanel';
 import { ContextPicker } from '../ContextPicker';
@@ -49,7 +50,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('names queued-message removal and removes only the selected message', () => {
+it('names queued-message removal and removes only the selected message', async () => {
   localStorage.setItem(
     'mitzo-queue-new',
     JSON.stringify([
@@ -58,8 +59,11 @@ it('names queued-message removal and removes only the selected message', () => {
     ]),
   );
   render(<ChatInput running onSend={() => true} onStop={vi.fn()} />);
-  expect(screen.getByRole('button', { name: 'Remove queued message 2' })).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Remove queued message 1' }));
+  expect(
+    screen.getByRole('button', { name: 'Edit, reorder or remove queued prompt 2' }),
+  ).toBeTruthy();
+  await openQueuedEditor(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Remove', exact: true }));
   expect(screen.queryByText('First queued draft')).toBeNull();
   expect(screen.getByText('Second queued draft')).toBeTruthy();
 });

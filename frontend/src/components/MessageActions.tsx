@@ -18,7 +18,7 @@ export function MessageActions({
   children,
 }: {
   message: MessageReplyContext;
-  onReply(message: MessageReplyContext): void;
+  onReply?: (message: MessageReplyContext) => void;
   readAloud?: ReadAloudProps;
   children: ReactNode;
 }) {
@@ -40,7 +40,15 @@ export function MessageActions({
     setMenu(null);
     if (restore) owner.current?.focus({ preventScroll: true });
   };
-  const open = (x: number, y: number) => setMenu({ x, y });
+  const open = (x: number, y: number) => {
+    if (onReply) setMenu({ x, y });
+  };
+  useEffect(() => {
+    if (!onReply) {
+      clearPress();
+      setMenu(null);
+    }
+  }, [onReply]);
   useEffect(() => () => clearTimeout(press.current?.timer), []);
   useEffect(() => {
     if (!menu) return;
@@ -64,16 +72,16 @@ export function MessageActions({
     <div
       ref={owner}
       className={`message-actions-target${message.role === 'user' ? ' message-actions-target--user' : ''}`}
-      tabIndex={0}
+      tabIndex={onReply ? 0 : undefined}
       aria-label={`Message from ${message.role === 'user' ? 'you' : 'Mitzo'}`}
       onContextMenu={(event) => {
-        if (interactive(event.target)) return;
+        if (!onReply || interactive(event.target)) return;
         event.preventDefault();
         clearPress();
         open(event.clientX, event.clientY);
       }}
       onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
+        if (!onReply || event.target !== event.currentTarget) return;
         if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
           event.preventDefault();
           const rect = event.currentTarget.getBoundingClientRect();
@@ -82,6 +90,7 @@ export function MessageActions({
       }}
       onPointerDown={(event) => {
         if (
+          !onReply ||
           event.button !== 0 ||
           !['touch', 'pen'].includes(event.pointerType) ||
           interactive(event.target)
@@ -115,7 +124,7 @@ export function MessageActions({
       onPointerUp={(event) => {
         const current = press.current;
         clearPress();
-        if (!current || current.held) return;
+        if (!onReply || !current || current.held) return;
         const dx = event.clientX - current.x,
           dy = Math.abs(event.clientY - current.y);
         if (dx > SWIPE_DISTANCE && dy < 32) {
@@ -129,7 +138,7 @@ export function MessageActions({
         {copied ? 'Message copied.' : ''}
       </span>
       {createPortal(
-        <MotionPresence open={!!menu} kind="popover">
+        <MotionPresence open={!!menu && !!onReply} kind="popover">
           <div
             ref={panel}
             className="message-actions-menu"
@@ -170,7 +179,7 @@ export function MessageActions({
               role="menuitem"
               onClick={() => {
                 close(false);
-                onReply(message);
+                onReply?.(message);
               }}
             >
               <UiIcon name="back" size={16} />

@@ -101,10 +101,19 @@ for (const theme of ['dark', 'light'])
     await expect(page.locator('.message-actions-date')).toContainText(/20\d\d/);
     await page.getByRole('menuitem', { name: 'Reply', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Cancel reply' })).toBeVisible();
+    await input.fill('A draft kept while resizing');
+    const more = page.getByRole('button', { name: 'More composer actions' });
+    if (await more.isVisible()) await more.click();
     await page.getByRole('button', { name: 'Expand input' }).click();
     await expect(input).toHaveCSS('height', /\d+px/);
     await expect(page.locator('.chat-input--expanded')).toBeVisible();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue('A draft kept while resizing');
+    if (await more.isVisible()) await more.click();
     await page.getByRole('button', { name: 'Shrink input' }).click();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue('A draft kept while resizing');
+    if (await more.isVisible()) await expect(page.locator('.composer-tools')).toBeHidden();
     await input.fill('The current priorities are fine.');
     for (const name of ['Steer current turn', 'Queue message', 'Stop generation']) {
       const button = page.getByRole('button', { name, exact: true });

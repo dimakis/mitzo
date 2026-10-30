@@ -216,7 +216,9 @@ export function ChatArea({
       .filter((block) => block.blockType === 'text')
       .map((block) => block.content)
       .join('\n\n');
-    if (!onReply || message.symposiumProvenance || !text.trim()) return children;
+    // Keep the message DOM stable while session metadata enables reply controls.
+    // Replacing the text subtree here loses retained source and scroll anchors.
+    if (message.symposiumProvenance || !text.trim()) return children;
     return (
       <MessageActions
         message={{

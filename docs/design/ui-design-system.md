@@ -2361,7 +2361,9 @@ relabelled as failed. The fixture covers all three states and retained queued wo
 
 Ordinary chat preserves its existing header, model/account controls, toolbar icons
 and dispatch/error/retry notices. Queue, lightning (steer) and Stop use icon-only
-buttons with accessible names and tooltips. Expand grows the composer inline.
+buttons with accessible names and tooltips. Expand grows the composer inline and
+uses the existing composer tools menu on narrow screens. Expanding or shrinking
+returns focus to the input and preserves its draft and reply selection.
 
 Enter or Queue during a response saves an unsent draft in **Up next**. The tray
 supports multiple prompts, editing, reordering, removal and pause/resume. It sends

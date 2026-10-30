@@ -155,6 +155,34 @@ describe('ChatArea', () => {
     expect(screen.getByText('Hello')).toBeTruthy();
   });
 
+  it('preserves message DOM when metadata enables and disables reply actions', () => {
+    const messages: FinishedMessage[] = [
+      {
+        messageId: 'u1',
+        role: 'user',
+        blocks: [{ blockId: 'b1', blockType: 'text', content: 'Question' }],
+      },
+      {
+        messageId: 'a1',
+        role: 'assistant',
+        blocks: [{ blockId: 'b2', blockType: 'text', content: 'Answer' }],
+      },
+    ];
+    const { rerender } = render(<ChatArea {...defaultProps} messages={messages} />);
+    const question = screen.getByText('Question');
+    const answer = screen.getByText('Answer');
+    fireEvent.contextMenu(answer);
+    expect(screen.queryByRole('menu')).toBeNull();
+    rerender(<ChatArea {...defaultProps} messages={messages} onReply={vi.fn()} />);
+    expect(screen.getByText('Question')).toBe(question);
+    expect(screen.getByText('Answer')).toBe(answer);
+    fireEvent.contextMenu(answer);
+    expect(screen.getByRole('menu')).toBeTruthy();
+    rerender(<ChatArea {...defaultProps} messages={messages} />);
+    expect(screen.getByText('Answer')).toBe(answer);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
   it('renders assistant text blocks', () => {
     const messages: FinishedMessage[] = [
       {

@@ -740,6 +740,9 @@ test('Local conversation: future thinking and queued command retain independent 
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Queued follow-up');
   await page.getByRole('button', { name: 'Queue message', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Up next' })).toBeVisible();
+  expect(fixture.requests).toHaveLength(1);
+  await emitLocalState(page, 'idle');
   await expect.poll(() => fixture.requests.length).toBe(2);
   expect(fixture.requests).toMatchObject([
     { sessionId, selection: { thinking: 'high' }, payload: { text: 'First follow-up' } },
@@ -805,6 +808,9 @@ test('OpenShell conversation: default route starts and continues without legacy 
   ).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Queue message', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Queue message', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Up next' })).toBeVisible();
+  expect(fixture.requests).toHaveLength(1);
+  await emitLocalState(page, 'idle');
   await expect.poll(() => fixture.requests.length).toBe(2);
   expect(fixture.requests).toMatchObject([
     { runOn: 'openshell', capabilityRevision: 'sandbox-caps-r1', selection: { thinking: 'low' } },
