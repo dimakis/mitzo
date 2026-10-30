@@ -211,7 +211,7 @@ export async function runBrowserCommand({
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [script, ...args] = process.argv.slice(2);
-  if (!['test:ui', 'test:ui:ci', 'test:browser'].includes(script))
+  if (!['test:ui', 'test:ui:ci', 'test:ui:ci:prebuilt', 'test:browser'].includes(script))
     throw Error('Select a browser CI test script');
   process.exitCode = await runBrowserCommand({
     command: 'npm',

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import console from 'node:console';
 import {
@@ -8,11 +9,17 @@ import {
   requireJoinedReport,
 } from '../tests/integration/telos-s9/integrated-candidate/joined-shards.mjs';
 
-try {
-  const needs = JSON.parse(process.env.CI_JOINED_NEEDS ?? '{}');
+export function requireJoinedEvidence(root, needs) {
+  const selection = needs.changes?.outputs?.ordinary;
+  if (needs.changes?.result !== 'success' || !['true', 'false'].includes(selection))
+    throw Error('Joined acceptance selection did not succeed');
+  if (selection === 'false') {
+    if (needs['ordinary-joined']?.result !== 'skipped')
+      throw Error('Unselected joined acceptance must be skipped');
+    return false;
+  }
   if (needs['ordinary-joined']?.result !== 'success')
     throw Error('Every joined acceptance shard must succeed');
-  const root = process.argv[2];
   for (const shard of Object.keys(joinedShards)) {
     const selected = selectJoinedShard(shard);
     const summary = JSON.parse(
@@ -32,8 +39,22 @@ try {
         entry,
       );
   }
-  console.log('All twelve joined groups and fourteen actual App cases passed exactly once');
-} catch (error) {
-  console.error(String(error));
-  process.exitCode = 1;
+  return true;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    const selected = requireJoinedEvidence(
+      process.argv[2],
+      JSON.parse(process.env.CI_JOINED_NEEDS ?? '{}'),
+    );
+    console.log(
+      selected
+        ? 'All twelve joined groups and fourteen actual App cases passed exactly once'
+        : 'Joined acceptance was explicitly unselected',
+    );
+  } catch (error) {
+    console.error(String(error));
+    process.exitCode = 1;
+  }
 }

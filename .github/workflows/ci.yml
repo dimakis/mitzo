@@ -23,6 +23,7 @@ jobs:
       browser: ${{ steps.select.outputs.browser }}
       native: ${{ steps.select.outputs.native }}
       prepared: ${{ steps.select.outputs.prepared }}
+      ordinary: ${{ steps.select.outputs.ordinary }}
     steps:
       - uses: actions/checkout@v7
       - name: Select dependent checks
@@ -58,6 +59,8 @@ jobs:
   preflight:
     name: Compile and source preflight
     runs-on: ubuntu-latest
+    outputs:
+      build_artifact_id: ${{ steps.compiled-output.outputs.artifact-id }}
     permissions:
       contents: read
     steps:
@@ -84,6 +87,69 @@ jobs:
         id: preflight-source-pins
         if: ${{ !cancelled() }}
         run: npm run check:source-artifacts
+      - name: Verify candidate-bound build transfer rejection tests
+        if: ${{ !cancelled() }}
+        run: python3 scripts/test-ci-build-output.py
+      - name: Package verified server outputs for this candidate
+        run: python3 scripts/ci-build-output.py pack server "$RUNNER_TEMP/ci-server.zip"
+      - name: Publish immutable server output
+        id: compiled-output
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-server-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ci-server.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # Compile web assets alongside preflight so native owners need not wait for Vite.
+  frontend-build:
+    name: Build shared frontend assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      build_artifact_id: ${{ steps.compiled-output.outputs.artifact-id }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --global npm@11.18.0
+      - run: npm install --no-audit
+      - name: Compile frontend workspace dependencies
+        run: npx tsc -b packages/protocol packages/harness packages/client
+      - name: Build frontend once for Linux CI consumers
+        id: build
+        if: ${{ !cancelled() }}
+        env:
+          MITZO_BUILD_EVIDENCE_DIR: ${{ runner.temp }}/mitzo-production-bundle
+        run: npm run build
+      - name: Retain exact production frontend
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          MITZO_BUILD_EVIDENCE_DIR: ${{ runner.temp }}/mitzo-production-bundle
+          MITZO_PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          MITZO_PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/retain-production-bundle.mjs
+      - name: Upload exact production frontend
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: production-frontend-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mitzo-production-bundle
+          if-no-files-found: error
+      - name: Package verified frontend outputs for this candidate
+        run: python3 scripts/ci-build-output.py pack frontend "$RUNNER_TEMP/ci-frontend.zip"
+      - name: Publish immutable frontend output
+        id: compiled-output
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-frontend-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ci-frontend.zip
+          if-no-files-found: error
+          retention-days: 7
 
   browser:
     needs: [changes, preflight]
@@ -126,8 +192,8 @@ jobs:
           if-no-files-found: warn
 
   offline:
-    needs: [changes, preflight]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
+    needs: [changes, preflight, frontend-build]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs['frontend-build'].result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
     name: Offline layouts (${{ matrix.project }} ${{ matrix.shard }}/${{ matrix.shards }})
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -187,6 +253,24 @@ jobs:
           cache: npm
       - run: npm install --global npm@11.18.0
       - run: npm install --no-audit
+      - name: Require both immutable producer artifact IDs
+        env:
+          CI_SERVER_ARTIFACT_ID: ${{ needs.preflight.outputs.build_artifact_id }}
+          CI_FRONTEND_ARTIFACT_ID: ${{ needs['frontend-build'].outputs.build_artifact_id }}
+        run: |
+          [[ "$CI_SERVER_ARTIFACT_ID" =~ ^[0-9]+$ ]]
+          [[ "$CI_FRONTEND_ARTIFACT_ID" =~ ^[0-9]+$ ]]
+      - name: Download this candidate's compiled output
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.preflight.outputs.build_artifact_id }},${{ needs['frontend-build'].outputs.build_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/ci-compiled
+      - name: Verify and restore exact compiled prerequisites
+        id: compiled-prerequisites
+        run: |
+          python3 scripts/ci-build-output.py restore server "$RUNNER_TEMP/ci-compiled/ci-server.zip"
+          python3 scripts/ci-build-output.py restore frontend "$RUNNER_TEMP/ci-compiled/ci-frontend.zip"
       - name: Prefer HTTPS Ubuntu mirrors for browser dependencies
         run: |
           sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
@@ -198,7 +282,7 @@ jobs:
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Verify shared theme and mobile layouts without a backend
         id: offline-tests
-        run: node scripts/ci-browser-run.mjs test:ui:ci --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}
+        run: node scripts/ci-browser-run.mjs test:ui:ci:prebuilt --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}
       - name: Retain offline layout failure evidence
         if: ${{ always() && steps.offline-tests.outcome != 'success' }}
         uses: actions/upload-artifact@v7
@@ -364,8 +448,8 @@ jobs:
           if-no-files-found: warn
 
   ordinary-journey:
-    needs: preflight
-    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
+    needs: [changes, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.ordinary == 'true') }}
     name: Telos canonical ordinary journey (macOS)
     runs-on: macos-26
     # Native workflows and signed authority checks; joined cases have their own matrix.
@@ -511,8 +595,8 @@ jobs:
           if-no-files-found: error
 
   ordinary-joined:
-    needs: preflight
-    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
+    needs: [changes, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.ordinary == 'true') }}
     name: Telos joined acceptance (macOS ${{ matrix.shard }}/3)
     runs-on: macos-26
     timeout-minutes: 20
@@ -572,7 +656,7 @@ jobs:
 
   joined-validation:
     name: Complete joined acceptance coverage
-    needs: [ordinary-joined]
+    needs: [changes, ordinary-joined]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -596,8 +680,8 @@ jobs:
         run: node scripts/ci-joined-gate.mjs joined-results
 
   ordinary-supplemental:
-    needs: preflight
-    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
+    needs: [changes, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.ordinary == 'true') }}
     name: Telos supplemental owner journeys (macOS ${{ matrix.shard }}/2)
     runs-on: macos-26
     timeout-minutes: 20
@@ -656,8 +740,8 @@ jobs:
 
   core:
     name: Core checks
-    needs: preflight
-    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
+    needs: [preflight, frontend-build]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs['frontend-build'].result == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -686,8 +770,24 @@ jobs:
           sudo install -d -o "$USER" /sandbox
           python3 -I docs/spikes/openshell-codex/knowledge-write-scope-smoke.py
 
-      - name: Build server and verify reviewed runtime artifacts
-        run: npm run build:server
+      - name: Require both immutable producer artifact IDs
+        env:
+          CI_SERVER_ARTIFACT_ID: ${{ needs.preflight.outputs.build_artifact_id }}
+          CI_FRONTEND_ARTIFACT_ID: ${{ needs['frontend-build'].outputs.build_artifact_id }}
+        run: |
+          [[ "$CI_SERVER_ARTIFACT_ID" =~ ^[0-9]+$ ]]
+          [[ "$CI_FRONTEND_ARTIFACT_ID" =~ ^[0-9]+$ ]]
+      - name: Download this candidate's compiled output
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.preflight.outputs.build_artifact_id }},${{ needs['frontend-build'].outputs.build_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/ci-compiled
+      - name: Verify and restore exact compiled prerequisites
+        id: compiled-prerequisites
+        run: |
+          python3 scripts/ci-build-output.py restore server "$RUNNER_TEMP/ci-compiled/ci-server.zip"
+          python3 scripts/ci-build-output.py restore frontend "$RUNNER_TEMP/ci-compiled/ci-frontend.zip"
 
       - name: Verify pinned Codex resume without inference
         id: codex-resume
@@ -724,39 +824,6 @@ jobs:
         id: design
         if: ${{ !cancelled() }}
         run: npm run test:design
-
-      - name: Type check (server)
-        id: typecheck-server
-        if: ${{ !cancelled() }}
-        run: npx tsc --noEmit
-
-      - name: Type check (frontend)
-        id: typecheck-frontend
-        if: ${{ !cancelled() }}
-        run: cd frontend && npx tsc -b
-
-      - name: Build
-        id: build
-        if: ${{ !cancelled() }}
-        env:
-          MITZO_BUILD_EVIDENCE_DIR: ${{ runner.temp }}/mitzo-production-bundle
-        run: npm run build
-
-      - name: Retain exact production frontend
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        env:
-          MITZO_BUILD_EVIDENCE_DIR: ${{ runner.temp }}/mitzo-production-bundle
-          MITZO_PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          MITZO_PR_BASE: ${{ github.event.pull_request.base.sha }}
-        run: node scripts/retain-production-bundle.mjs
-
-      - name: Upload exact production frontend
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: production-frontend-${{ github.sha }}
-          path: ${{ runner.temp }}/mitzo-production-bundle
-          if-no-files-found: error
 
       - name: Audit
         id: audit
@@ -802,11 +869,9 @@ jobs:
              [ "${{ steps.quotes.outcome }}" = "failure" ] || \
              [ "${{ steps.format.outcome }}" = "failure" ] || \
              [ "${{ steps.design.outcome }}" = "failure" ] || \
-             [ "${{ steps.typecheck-server.outcome }}" = "failure" ] || \
-             [ "${{ steps.typecheck-frontend.outcome }}" = "failure" ] || \
              [ "${{ steps.secret-scan.outcome }}" = "failure" ] || \
              [ "${{ steps.build-mcp.outcome }}" = "failure" ] || \
-             [ "${{ steps.build.outcome }}" = "failure" ]; then
+             [ "${{ steps.compiled-prerequisites.outcome }}" = "failure" ]; then
             echo "One or more CI steps failed."
             exit 1
           fi
@@ -876,8 +941,8 @@ jobs:
         run: node scripts/ci-prepared-consumer-gate.mjs prepared-consumer-results
 
   unit:
-    needs: preflight
-    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
+    needs: [preflight, frontend-build]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs['frontend-build'].result == 'success' }}
     name: Unit tests (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     env:
@@ -897,20 +962,31 @@ jobs:
           cache: npm
       - run: npm install --global npm@11.18.0
       - run: npm install --no-audit
-      # Preserve the former unit suite's compiled-artifact prerequisites.
-      - name: Build server and verify reviewed runtime artifacts
-        run: npm run build:server
-      - name: Build frontend for unit test prerequisites
-        id: build-frontend
-        if: ${{ !cancelled() }}
-        run: npm run build
+      - name: Require both immutable producer artifact IDs
+        env:
+          CI_SERVER_ARTIFACT_ID: ${{ needs.preflight.outputs.build_artifact_id }}
+          CI_FRONTEND_ARTIFACT_ID: ${{ needs['frontend-build'].outputs.build_artifact_id }}
+        run: |
+          [[ "$CI_SERVER_ARTIFACT_ID" =~ ^[0-9]+$ ]]
+          [[ "$CI_FRONTEND_ARTIFACT_ID" =~ ^[0-9]+$ ]]
+      - name: Download this candidate's compiled output
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.preflight.outputs.build_artifact_id }},${{ needs['frontend-build'].outputs.build_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/ci-compiled
+      - name: Verify and restore exact compiled prerequisites
+        id: compiled-prerequisites
+        run: |
+          python3 scripts/ci-build-output.py restore server "$RUNNER_TEMP/ci-compiled/ci-server.zip"
+          python3 scripts/ci-build-output.py restore frontend "$RUNNER_TEMP/ci-compiled/ci-frontend.zip"
       - name: Discover the complete unit test suite without executing tests
         run: |
           mkdir -p unit-results
           npx vitest list --filesOnly --json=unit-results/files-${{ matrix.shard }}.json
       - name: Test
         id: test
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps['compiled-prerequisites'].outcome == 'success' }}
         run: >-
           npm test -- --shard=${{ matrix.shard }}/4
           --reporter=default --reporter=json
@@ -956,6 +1032,7 @@ jobs:
       [
         changes,
         preflight,
+        frontend-build,
         core,
         ordinary-journey,
         joined-validation,

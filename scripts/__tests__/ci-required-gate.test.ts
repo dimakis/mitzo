@@ -23,11 +23,12 @@ const selection = JSON.parse(
     'utf8',
   ),
 );
-function fixture(native = 'true', prepared = 'true') {
+function fixture(native = 'true', prepared = 'true', ordinary = 'true') {
   return Object.fromEntries(
     [
       'changes',
       'preflight',
+      'frontend-build',
       'core',
       'unit-validation',
       'ordinary-journey',
@@ -39,8 +40,12 @@ function fixture(native = 'true', prepared = 'true') {
     ].map((name) => [
       name,
       {
-        result: name === 'native' && native === 'false' ? 'skipped' : 'success',
-        ...(name === 'changes' ? { outputs: { native, prepared } } : {}),
+        result:
+          (name === 'native' && native === 'false') ||
+          (['ordinary-journey', 'ordinary-supplemental'].includes(name) && ordinary === 'false')
+            ? 'skipped'
+            : 'success',
+        ...(name === 'changes' ? { outputs: { native, prepared, ordinary } } : {}),
       },
     ]),
   );
@@ -52,11 +57,12 @@ function run(needs: unknown) {
   });
 }
 it('waits for preflight and keeps ci required across every selected owner result', () => {
-  expect(workflow.jobs.core.needs).toBe('preflight');
+  expect(workflow.jobs.core.needs).toEqual(['preflight', 'frontend-build']);
   expect(workflow.jobs.ci.if).toBe('always()');
   expect(workflow.jobs.ci.needs).toEqual([
     'changes',
     'preflight',
+    'frontend-build',
     'core',
     'ordinary-journey',
     'joined-validation',
@@ -89,6 +95,7 @@ it.each(['failure', 'cancelled', 'skipped', ''])(
     for (const name of [
       'changes',
       'preflight',
+      'frontend-build',
       'core',
       'unit-validation',
       'ordinary-journey',
@@ -190,3 +197,37 @@ it('runs the transferred owner offline on macOS with retained structured proof a
     with: { path: 'test-results/prepared-consumers/', 'if-no-files-found': 'error' },
   });
 });
+
+it('accepts explicitly unselected ordinary owners only with a successful selector and joined gate', () => {
+  const needs = fixture('false', 'false', 'false');
+  expect(run(needs).status).toBe(0);
+  for (const owner of ['ordinary-journey', 'ordinary-supplemental']) {
+    needs[owner].result = 'success';
+    expect(run(needs).status).toBe(1);
+    needs[owner].result = 'skipped';
+  }
+  needs['joined-validation'].result = 'skipped';
+  expect(run(needs).status).toBe(1);
+});
+
+it('rejects missing or invalid ordinary selection even when all statuses are successful', () => {
+  for (const selected of ['', 'unknown', undefined, false, true]) {
+    const needs = fixture();
+    Object.assign(needs.changes.outputs!, { ordinary: selected });
+    expect(run(needs).status).toBe(1);
+  }
+});
+
+it.each(['ordinary-journey', 'ordinary-supplemental'])(
+  'checks all selected and unselected ordinary outcomes for %s',
+  (owner) => {
+    for (const selected of ['true', 'false'])
+      for (const result of ['success', 'failure', 'cancelled', 'skipped', '']) {
+        const needs = fixture('true', 'true', selected);
+        needs[owner].result = result;
+        expect(run(needs).status).toBe(
+          result === (selected === 'true' ? 'success' : 'skipped') ? 0 : 1,
+        );
+      }
+  },
+);
