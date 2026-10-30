@@ -12,6 +12,20 @@ import {
 } from './callback-incident-evidence.js';
 import { reserveRepositoryStartup } from './ordinary-repository-startup.js';
 import { requireSameOriginJson } from './connections-router.js';
+import { SessionRuntimeError } from './session-runtime-error.js';
+import { createLogger } from './logger.js';
+const log = createLogger('callback-incident-repair');
+const refusalHints = {
+  startup_busy: 'Another startup owns this session. Wait for it to finish, then inspect again.',
+  owner: 'The original operator, account, runtime or workspace could not be qualified.',
+  native_receipts: 'The saved native command or queue no longer matches this repair.',
+  tool_events: 'The original tool outcomes could not be correlated safely.',
+  source_native_evidence:
+    'The retained source or native history evidence does not match this repair.',
+  stale_plan: 'The recovery inspection is stale. Inspect again before applying it.',
+  backup_or_commit:
+    'Backup or commit completion could not be confirmed. Inspect the retained audit before retrying.',
+} as const;
 
 /** Explicitly enabled operator repair for one reviewed historical callback race.
  * Runs inside the actual server/startup owner. No recovery pump/provider API. */
@@ -42,6 +56,7 @@ export function createCallbackIncidentRepairRouter(deps: {
       const auth = res.locals.authSession as AuthSession | undefined;
       let release: (() => void) | undefined;
       let releaseHold: (() => void) | undefined;
+      let stage: keyof typeof refusalHints = 'owner';
       try {
         try {
           deps.authorize(incident.sessionId, auth);
@@ -52,8 +67,10 @@ export function createCallbackIncidentRepairRouter(deps: {
             .json({ error: 'Use the original authorized login to inspect this repair.' });
           return;
         }
+        stage = 'startup_busy';
         release = reserveRepositoryStartup(incident.sessionId);
         releaseHold = deps.events.reserveOrdinaryStartup([incident.sessionId]);
+        stage = 'owner';
         const native = deps.native();
         const guard = () => {
           deps.authorize(incident.sessionId, auth);
@@ -74,8 +91,8 @@ export function createCallbackIncidentRepairRouter(deps: {
             deps.events.getLatestEvent(incident.sessionId, 'ordinary_task_worker_allocation') ||
             deps.events.getLatestEvent(incident.sessionId, 'contributor_execution') ||
             deps.events.hasUncertainOrdinaryCommand(incident.sessionId) ||
-            meta.ordinaryWorkspaceId !== incident.workspaceId ||
-            meta.repositoryWorkspaceId ||
+            meta.repositoryWorkspaceId !== incident.workspaceId ||
+            meta.ordinaryWorkspaceId ||
             runtime?.harness.implementation !== 'codex' ||
             runtime.execution.location !== 'local' ||
             runtime.execution.targetId !== 'host-mac-codex' ||
@@ -93,10 +110,12 @@ export function createCallbackIncidentRepairRouter(deps: {
           return { binding, custody, runtime, meta };
         };
         const { binding, custody, runtime, meta } = guard();
+        stage = 'native_receipts';
         const nativeHash = native.inspectCallbackIncident(binding);
         const receipts = native.callbackIncidentToolReceipts(binding);
         if (incidentHash(JSON.stringify(receipts)) !== incident.toolsHash)
           throw Error('Incident tools changed');
+        stage = 'tool_events';
         const terminal = deps.events.getEventsAfter(
           incident.sessionId,
           incident.terminalSeq - 1,
@@ -109,6 +128,7 @@ export function createCallbackIncidentRepairRouter(deps: {
           deps.events.getEventsOfType(incident.sessionId, 'block_end', 1024),
           deps.events.getEventsOfType(incident.sessionId, 'tool_result', 1024),
         );
+        stage = 'source_native_evidence';
         const evidenceHash = readCallbackIncidentEvidence(custody, deps.originalSourceRoot());
         const operatorHash = incidentHash(auth.id);
         const planHash = incidentHash(
@@ -119,7 +139,7 @@ export function createCallbackIncidentRepairRouter(deps: {
             operatorHash,
             runtime,
             custody,
-            workspace: meta.ordinaryWorkspaceId,
+            workspace: meta.repositoryWorkspaceId,
             cwd: meta.cwd,
           }),
         );
@@ -132,11 +152,14 @@ export function createCallbackIncidentRepairRouter(deps: {
           });
           return;
         }
+        stage = 'stale_plan';
         if (!('planHash' in input.data) || input.data.planHash !== planHash)
           throw Error('Incident changed after inspection');
         // Fresh owner fence immediately before the synchronous SQLite CAS; no
         // asynchronous admission can cross the actual repository startup lock.
+        stage = 'owner';
         guard();
+        stage = 'backup_or_commit';
         const result = native.applyCallbackIncident(binding, nativeHash, {
           evidenceHash: incidentHash(JSON.stringify({ evidenceHash, eventHash })),
           operatorHash,
@@ -147,10 +170,17 @@ export function createCallbackIncidentRepairRouter(deps: {
           providerCalls: 0,
           dispatched: false,
         });
-      } catch {
+      } catch (cause) {
+        const failure = new SessionRuntimeError('repair_refused', { cause });
+        log.warn('Incident repair refused', {
+          sessionId: incident.sessionId,
+          repairReason: stage,
+          ...failure.telemetry(),
+        });
         res.status(409).json({
-          error:
-            'The exact historical repair could not be qualified. Original work and queued messages remain retained; nothing was dispatched.',
+          error: `${refusalHints[stage]} ${failure.publicMessage()}`,
+          repairReason: stage,
+          runtimeFailure: failure.telemetry(),
         });
       } finally {
         releaseHold?.();

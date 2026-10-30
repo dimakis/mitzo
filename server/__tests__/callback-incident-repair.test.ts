@@ -32,7 +32,7 @@ function fixture() {
   };
   const meta = {
     accountBinding: binding,
-    ordinaryWorkspaceId: incident.workspaceId,
+    repositoryWorkspaceId: incident.workspaceId,
     cwd: '/offline',
   };
   const runtime = {
@@ -146,7 +146,24 @@ it.each(['native', 'source', 'live owner', 'worker', 'route', 'new startup'])(
       });
     if (change === 'new startup') release = reserveRepositoryStartup(incident.sessionId);
     try {
-      await f.post('apply', { planHash: inspected.body.planHash }).expect(409);
+      const refused = await f.post('apply', { planHash: inspected.body.planHash }).expect(409);
+      expect(refused.body.runtimeFailure).toMatchObject({
+        runtimeFailureCode: 'repair_refused',
+        diagnosticId: expect.any(String),
+      });
+      expect(refused.body.error).toContain('Reference:');
+      expect(refused.body.repairReason).toBe(
+        (
+          {
+            native: 'stale_plan',
+            source: 'source_native_evidence',
+            'live owner': 'owner',
+            worker: 'owner',
+            route: 'owner',
+            'new startup': 'startup_busy',
+          } as Record<string, string>
+        )[change],
+      );
       expect(f.native.applyCallbackIncident).not.toHaveBeenCalled();
     } finally {
       release?.();

@@ -27,6 +27,7 @@ function fixture() {
   });
   const controller = new AbortController();
   const history = vi.fn(async () => {});
+  const unsent = vi.fn();
   let work!: <T>(f: () => Promise<T>) => Promise<T>;
   const create = vi.fn((request: { options: Options; prompt: AsyncIterable<SDKUserMessage> }) => {
     const events = new AsyncQueue<Record<string, unknown>>();
@@ -51,6 +52,7 @@ function fixture() {
     cwd: '/offline',
     authorize: async () => {},
     assertHistory: history,
+    onUnsent: unsent,
     options: (state) => {
       work = state.runCallback;
       return {
@@ -63,7 +65,8 @@ function fixture() {
     create: create as never,
     adapt: (query) => query as never,
   });
-  const message = (content: string) => inputs.push({ message: { role: 'user', content } } as never);
+  const message = (content: string) =>
+    inputs.push({ message: { role: 'user', content }, mitzoMessageId: content } as never);
   return {
     q,
     inputs,
@@ -72,6 +75,7 @@ function fixture() {
     controller,
     create,
     history,
+    unsent,
     permission,
     finish: () => finish(),
   };
@@ -160,11 +164,15 @@ it('does not create a successor when the original saved history cannot be requal
   f.runs[0].events.push({ type: 'result', session_id: 'retained' });
   const output = f.q[Symbol.asyncIterator]();
   await output.next();
-  const next = expect(output.next()).rejects.toThrow('history unavailable');
+  const next = expect(output.next()).rejects.toMatchObject({ code: 'input_not_dispatched' });
   f.runs[0].child.emit('close');
   await next;
   expect(f.create).toHaveBeenCalledOnce();
   expect(f.runs[0].close).toHaveBeenCalledOnce();
+  expect(f.unsent).toHaveBeenCalledWith(
+    expect.objectContaining({ mitzoMessageId: 'second' }),
+    expect.objectContaining({ code: 'input_not_dispatched' }),
+  );
 });
 it('does not deliver a successful result or admit queued input after unknown callback failure', async () => {
   const f = fixture();

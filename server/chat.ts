@@ -2976,6 +2976,16 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           lifetime: sdkHookLifetime,
           sdkSessionId: resolvedResume ?? newSdkSessionId!,
           cwd,
+          onUnsent: (message, error) =>
+            reportRetainedRuntimeFailure({
+              store: eventStore,
+              sessionId: session.sessionId ?? options.resume ?? newSdkSessionId!,
+              session,
+              commandId:
+                (message as SDKUserMessage & { mitzoMessageId?: string }).mitzoMessageId ??
+                initialMessageId,
+              error,
+            }),
           authorize: authorizeSdkContext,
           create: (request) => query(request),
           adapt: adaptSdkQuery,
@@ -4724,7 +4734,7 @@ export async function sendToChat(
           makeUserMessage(
             fullPrompt,
             'next',
-            responses ? messageId : undefined,
+            messageId,
             providerAdmission,
             undefined,
             responses ? images : undefined,
@@ -4978,7 +4988,7 @@ export async function interruptChat(
     // Only push to inputQueue on first delivery — a retried interrupt should
     // still call interrupt() (to halt the agent) but not double-queue the prompt.
     if (!isDup) {
-      session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
+      session.inputQueue.push(makeUserMessage(fullPrompt, 'now', messageId));
     }
     return true;
   });

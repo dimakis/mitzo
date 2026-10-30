@@ -8,7 +8,7 @@ import {
   lstatSync,
   realpathSync,
 } from 'node:fs';
-import { join, dirname, parse } from 'node:path';
+import { join, dirname, parse, isAbsolute } from 'node:path';
 import type { HostCodexCustody } from './host-codex-custody.js';
 
 /** A single reviewed historical incident, never a generic clear-ambiguity grant. */
@@ -58,6 +58,12 @@ export function inspectCallbackIncidentToolEvents(
   receipts: IncidentToolReceipt[],
   blocks: Array<{ seq: number; payload: Record<string, unknown> }>,
   results: Array<{ seq: number; payload: Record<string, unknown> }>,
+  scope: {
+    inputSeq: number;
+    terminalSeq: number;
+    callId: string;
+    requestHash: string;
+  } = callbackIncident,
 ) {
   if (!receipts.length || blocks.length >= 1024 || results.length >= 1024)
     throw Error('Tool evidence bound exceeded');
@@ -66,8 +72,8 @@ export function inspectCallbackIncidentToolEvents(
     const matches = results
       .filter(
         (result) =>
-          result.seq > callbackIncident.inputSeq &&
-          result.seq <= callbackIncident.terminalSeq + 1 &&
+          result.seq > scope.inputSeq &&
+          result.seq <= scope.terminalSeq + 1 &&
           typeof result.payload.result === 'string' &&
           incidentHash(result.payload.result) === receipt.resultHash &&
           Number(result.payload.isError) === receipt.isError,
@@ -77,7 +83,7 @@ export function inspectCallbackIncidentToolEvents(
           .filter(
             (block) =>
               !used.has(block.seq) &&
-              block.seq > callbackIncident.inputSeq &&
+              block.seq > scope.inputSeq &&
               result.payload.toolId === block.payload.toolId,
           )
           .map((block) => ({ block, result })),
@@ -86,18 +92,18 @@ export function inspectCallbackIncidentToolEvents(
     const { block, result } = matches[0];
     used.add(block.seq);
     if (
-      block.seq >= callbackIncident.terminalSeq ||
+      block.seq >= scope.terminalSeq ||
       result.seq <= block.seq ||
-      (receipt.callId === callbackIncident.callId
-        ? result.seq !== callbackIncident.terminalSeq + 1
-        : result.seq >= callbackIncident.terminalSeq)
+      (receipt.callId === scope.callId
+        ? result.seq !== scope.terminalSeq + 1
+        : result.seq >= scope.terminalSeq)
     )
       throw Error('Original tool settlement order changed');
     if (
-      receipt.callId === callbackIncident.callId &&
+      receipt.callId === scope.callId &&
       (block.payload.toolName !== 'RequestWebAccess' ||
         typeof block.payload.input !== 'string' ||
-        incidentHash(block.payload.input) !== callbackIncident.requestHash ||
+        incidentHash(block.payload.input) !== scope.requestHash ||
         JSON.parse(block.payload.input).operation !== 'request_access')
     )
       throw Error('Historical operation is not read-access resolution');
@@ -152,7 +158,8 @@ export function inspectCallbackIncidentRollout(source: string) {
 }
 
 /** No symlink traversal, caller-selected rollout paths, or unstable file reads. */
-function readStable(path: string, maxBytes: number): Buffer {
+export function readStableIncidentFile(path: string, maxBytes: number): Buffer {
+  if (!isAbsolute(path)) throw Error('Absolute evidence path required');
   let parent = dirname(path);
   while (parent !== parse(parent).root) {
     if (!lstatSync(parent).isDirectory() || realpathSync(parent) !== parent)
@@ -190,9 +197,12 @@ export function readCallbackIncidentEvidence(
   // These exact accepted sources positively disable project hooks for owned
   // local Codex and implement request_access as in-memory grant resolution.
   for (const [file, expected] of Object.entries(callbackIncident.sources))
-    if (incidentHash(readStable(join(originalSourceRoot, file), 2 * 1024 * 1024)) !== expected)
+    if (
+      incidentHash(readStableIncidentFile(join(originalSourceRoot, file), 2 * 1024 * 1024)) !==
+      expected
+    )
       throw Error('Original source contract changed');
-  const rollout = readStable(
+  const rollout = readStableIncidentFile(
     join(custody.login.privateHome, callbackIncident.rollout),
     64 * 1024 * 1024,
   );

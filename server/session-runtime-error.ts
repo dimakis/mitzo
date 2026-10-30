@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
 const messages = {
+  input_not_dispatched:
+    'This saved message was not sent to the provider because its original runtime could not be prepared. Completed work will not be rerun.',
+  repair_refused:
+    'This historical repair could not be qualified safely. Original work and queued messages are retained; nothing was dispatched.',
   runtime_unavailable:
     'The execution runtime could not continue. The conversation, workspace and saved messages are retained.',
   callbacks_pending:

@@ -25,6 +25,7 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
   create(request: { prompt: AsyncIterable<SDKUserMessage>; options: Options }): Query;
   adapt(query: Query): T;
   assertHistory?: typeof assertOrdinaryLocalVertexHistory;
+  onUnsent?(message: SDKUserMessage, error: SessionRuntimeError): void;
 }): T {
   const stopped = new AbortController();
   const signal = AbortSignal.any([owners.controller.signal, stopped.signal]);
@@ -48,6 +49,20 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
   let closed = false;
   let first = true;
   const settings: Partial<Options> = {};
+  let unsent: SDKUserMessage | undefined;
+  const reportUnsent = (cause: unknown) => {
+    const error = new SessionRuntimeError('input_not_dispatched', { cause });
+    const message = unsent;
+    unsent = undefined;
+    if (message) {
+      try {
+        owners.onUnsent?.(message, error);
+      } catch {
+        /* Reporting cannot dispatch an input. */
+      }
+    }
+    return error;
+  };
   const create = (initial?: SDKUserMessage) => {
     const state = createSdkCallbackState();
     const options = { ...owners.options(state), ...settings };
@@ -59,9 +74,15 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
     const prompt = async function* () {
       const input = initial ? { value: initial, done: false } : await nextInput();
       if (input.done) return;
-      await owners.authorize(signal);
-      signal.throwIfAborted();
-      if (closed || state.retired) throw new SessionRuntimeError('turn_completed');
+      unsent = input.value;
+      try {
+        await owners.authorize(signal);
+        signal.throwIfAborted();
+        if (closed || state.retired) throw new SessionRuntimeError('turn_completed');
+      } catch (error) {
+        throw reportUnsent(error);
+      }
+      unsent = undefined;
       yield input.value;
       await promptFinished;
     };
@@ -145,6 +166,7 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
         await current.wait();
         const input = await nextInput();
         if (closed || input.done) break;
+        unsent = input.value;
         await (owners.assertHistory ?? assertOrdinaryLocalVertexHistory)(
           owners.sdkSessionId,
           owners.cwd,
@@ -156,6 +178,7 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
         idle = false;
       }
     } catch (error) {
+      if (unsent) throw reportUnsent(error);
       if (!closed || owners.controller.signal.aborted) throw error;
     } finally {
       signal.removeEventListener('abort', close);

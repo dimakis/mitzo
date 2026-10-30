@@ -230,6 +230,12 @@ export class CallbackIncidentStore {
         } finally {
           closeSync(fd);
         }
+        const parent = openSync(dirname(backupPath), 'r');
+        try {
+          fsyncSync(parent);
+        } finally {
+          closeSync(parent);
+        }
         const changed = this.db
           .prepare(
             'UPDATE codex_commands SET ambiguous=0,recovery_acknowledged=1 WHERE conversation_id=? AND id=? AND attempt=1 AND ambiguous=1 AND recovery_acknowledged=0',

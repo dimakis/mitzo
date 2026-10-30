@@ -1,8 +1,12 @@
 import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, fsyncSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+vi.mock('node:fs', async (original) => {
+  const actual = await original<typeof import('node:fs')>();
+  return { ...actual, fsyncSync: vi.fn(actual.fsyncSync) };
+});
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { callbackIncident as incident } from '../callback-incident-evidence.js';
 const roots: string[] = [];
@@ -72,6 +76,31 @@ function fixture() {
     },
   };
 }
+it('keeps recovery flags fenced if private backup directory durability cannot be confirmed', () => {
+  const f = fixture();
+  try {
+    const plan = f.store.inspectCallbackIncident(binding);
+    const before = f.snapshot();
+    const sync = vi.mocked(fsyncSync);
+    sync.mockClear();
+    sync
+      .mockImplementationOnce(() => {})
+      .mockImplementationOnce(() => {
+        throw Error('directory sync failed');
+      });
+    expect(() =>
+      f.store.applyCallbackIncident(binding, plan, {
+        evidenceHash: 'a'.repeat(64),
+        operatorHash: 'b'.repeat(64),
+      }),
+    ).toThrow('directory sync failed');
+    expect(sync).toHaveBeenCalledTimes(2);
+    expect(f.snapshot()).toEqual(before);
+    expect(f.store.inspectCallbackIncident(binding)).toBe(plan);
+  } finally {
+    f.close();
+  }
+});
 it('reconciles only the selected flags, with a private backup and separate idempotent audit; never claims queued inputs or invents a phase', () => {
   const f = fixture();
   try {
