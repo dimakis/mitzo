@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.778-quarterly-tool-discovery';
+  'v1.0.779-tool-outcome-observation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -589,7 +589,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/connections-credential-readiness.test.ts':
     '9fd63b18aa4c451c051711e3ad1f6602dccb8f01359af84969901de1babb2971',
   '../local-codex-observation.ts':
-    '51fb1cc9585a93eaede668ec9e39907abed09504b1cc6bcbbbf5ede9f38e494e',
+    'f90522537a75cbcaeb01ef48165e931112e7bbc6f1f01795ece550ad1d764653',
   '../__tests__/connections-credential-gate.test.ts':
     '553fe22bb02d8458d7e016d6e429c3c8a45d46c245cc2c4b282f394fcf195a02',
   '../credential-operation-gate.ts':
@@ -2175,7 +2175,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/keychain-vault.test.ts':
     '7429746ff7154d409da66aba5f3ff5737f8f156af26b496f1f67fc6a19c49d76',
   '../__tests__/local-codex-observation.test.ts':
-    'd03abea10a6df45f39ce91c9f1981e55f2905a82f40f55b7039d8cc3440cc8c2',
+    '120d4aa48eb3ddce03ef882cef9f2d662079fab52a775c7d3e8d352ca0b4c26c',
   '../__tests__/local-repository-worktree-performance.test.ts':
     '166a5bd42b294a63cfd5751bce7cd96020a3cc019d956e4a8ea9521540d89e27',
   '../__tests__/ordinary-local-codex-admission.test.ts':

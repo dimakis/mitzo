@@ -42,6 +42,50 @@ it('records failures without copying private errors into telemetry', async () =>
   ).not.toContain(error.message);
 });
 
+it('marks a returned native tool error as failed without throwing, changing the result or retaining private text', async () => {
+  exporter.reset();
+  const result = {
+    success: false,
+    contentItems: [{ type: 'inputText', text: 'private-tool-result' }],
+  };
+  expect(await observeLocalCodexPhase('host_tool_execution', async () => result)).toBe(result);
+  const span = exporter.getFinishedSpans()[0];
+  expect(span.status.code).toBe(2);
+  expect(span.attributes['phase.outcome']).toBe('failed');
+  expect(
+    JSON.stringify({ attributes: span.attributes, events: span.events, status: span.status }),
+  ).not.toContain('private-tool-result');
+});
+
+it('keeps a non-tool success field out of phase failure classification', async () => {
+  exporter.reset();
+  const result = { success: false };
+  expect(await observeLocalCodexPhase('model_qualification', async () => result)).toBe(result);
+  expect(exporter.getFinishedSpans()[0].status.code).toBe(1);
+});
+
+it('does not execute result accessors or let diagnostic inspection reject an otherwise fulfilled RPC', async () => {
+  exporter.reset();
+  let reads = 0;
+  const result = {
+    get success() {
+      reads++;
+      throw Error('private accessor');
+    },
+  };
+  expect(await observeLocalCodexPhase('host_tool_execution', async () => result)).toBe(result);
+  expect(reads).toBe(0);
+  const opaque = new Proxy(
+    {},
+    {
+      getOwnPropertyDescriptor() {
+        throw Error('private proxy');
+      },
+    },
+  );
+  expect(await observeLocalCodexPhase('host_tool_execution', async () => opaque)).toBe(opaque);
+});
+
 it('times synchronous native capture and launch integrity beneath the active startup phase', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'offline-native-spans-')));
   try {

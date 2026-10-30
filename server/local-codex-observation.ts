@@ -29,6 +29,7 @@ function beginPhase(phase: Phase) {
       const elapsedMs = Math.round(performance.now() - start);
       span.setStatus({ code: outcome === 'success' ? SpanStatusCode.OK : SpanStatusCode.ERROR });
       span.setAttribute('phase.elapsed_ms', elapsedMs);
+      span.setAttribute('phase.outcome', outcome);
       span.end();
       if (elapsedMs >= 500 || outcome === 'failed')
         log.warn('Local Codex phase completed', { phase, elapsedMs, outcome });
@@ -40,7 +41,19 @@ export async function observeLocalCodexPhase<T>(phase: Phase, work: () => Promis
   const observation = beginPhase(phase);
   let outcome: 'success' | 'failed' = 'success';
   try {
-    return await observation.run(work);
+    const result = await observation.run(work);
+    // A native dynamic-tool failure is a fulfilled RPC with success:false.
+    // Observe that outcome without throwing, inspecting content or changing
+    // the original result. Other phase results have no such tool contract.
+    if (phase === 'host_tool_execution' && result && typeof result === 'object') {
+      try {
+        const success = Object.getOwnPropertyDescriptor(result, 'success');
+        if (success && 'value' in success && success.value === false) outcome = 'failed';
+      } catch {
+        /* Diagnostic inspection must not reject or replay an otherwise fulfilled RPC. */
+      }
+    }
+    return result;
   } catch (error) {
     outcome = 'failed';
     throw error;
