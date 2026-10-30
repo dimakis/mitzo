@@ -11,10 +11,14 @@ export function reportRetainedRuntimeFailure(input: {
   store: EventStore;
   sessionId: string;
   commandId?: string;
+  /** Before acceptance the original startup owner retains correlation/reporting. */
+  onlyIfSaved?: boolean;
   session?: Pick<ManagedSession, 'transport' | 'observers'>;
   transport?: SessionTransport;
   error: unknown;
   describe?: (error: Error) => string;
+  /** Owning session delivery preserves watcher fan-out and suspended-driver buffering. */
+  deliver?: (event: Record<string, unknown>) => void;
 }): void {
   const retained = findSessionRuntimeError(input.error);
   let failure =
@@ -36,13 +40,20 @@ export function reportRetainedRuntimeFailure(input: {
     runtimeFailure: failure.telemetry(),
   };
   try {
+    const saved = input.onlyIfSaved
+      ? !!input.commandId && input.store.hasUserMessage(input.sessionId, input.commandId)
+      : undefined;
+    if (input.onlyIfSaved && !saved) return;
     const previous = input.store.getLatestEvent(input.sessionId, 'error');
     if (
       (previous?.payload.runtimeFailure as Record<string, unknown> | undefined)?.diagnosticId ===
       failure.diagnosticId
     )
       return;
-    if (input.commandId && input.store.hasUserMessage(input.sessionId, input.commandId)) {
+    if (
+      saved ??
+      (!!input.commandId && input.store.hasUserMessage(input.sessionId, input.commandId))
+    ) {
       event = {
         ...event,
         clientMsgId: input.commandId,
@@ -66,6 +77,17 @@ export function reportRetainedRuntimeFailure(input: {
     sessionId: input.sessionId,
     ...failure.telemetry(),
   });
+  if (input.deliver) {
+    try {
+      input.deliver(event);
+    } catch {
+      log.warn('Runtime diagnostic live delivery failed', {
+        sessionId: input.sessionId,
+        ...failure.telemetry(),
+      });
+    }
+    return;
+  }
   for (const transport of new Set([
     input.session?.transport ?? input.transport,
     ...(input.session?.observers ?? []),

@@ -142,6 +142,7 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
     try {
       while (!closed) {
         let terminal = false;
+        let terminalFailed = false;
         for await (const event of owners.adapt(current.native)) {
           if (event.session_id !== undefined && event.session_id !== owners.sdkSessionId)
             throw new SessionRuntimeError('provider_identity');
@@ -155,12 +156,14 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
           signal.throwIfAborted();
           if (current.state.retired) throw new SessionRuntimeError('turn_completed');
           terminal = true;
+          terminalFailed = event.is_error === true;
           idle = true;
           yield event;
           break;
         }
         if (closed) break;
         if (!terminal) throw new SessionRuntimeError('runtime_unavailable');
+        if (terminalFailed) return;
         idle = true;
         current.retire();
         await current.wait();

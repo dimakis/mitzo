@@ -210,7 +210,7 @@ import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { setSkillPolicy } from './skill-policy.js';
-import { runQueryLoop, broadcastToObservers } from './query-loop.js';
+import { runQueryLoop, broadcastToObservers, deliverRetainedSessionEvent } from './query-loop.js';
 import { clearSessionImages } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
 import {
@@ -2479,6 +2479,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           options.sourceSnapshots,
         );
       q = await openCodexChat({
+        deliverRuntimeFailure: (event) =>
+          deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
         agentProfile,
         assertAgentContextAuthorization: assertSandboxContextAuthorization,
         resume: !!options.resume,
@@ -2981,6 +2983,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               store: eventStore,
               sessionId: session.sessionId ?? options.resume ?? newSdkSessionId!,
               session,
+              onlyIfSaved: true,
+              deliver: (event) =>
+                deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
               commandId:
                 (message as SDKUserMessage & { mitzoMessageId?: string }).mitzoMessageId ??
                 initialMessageId,
@@ -3694,6 +3699,8 @@ export async function startOwnedLocalCodexCommand(
         session: liveSession,
         transport,
         error,
+        deliver: (event) =>
+          deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
       });
       try {
         ownedQuery.close();
@@ -3960,6 +3967,8 @@ export async function prepareOwnedCodexChat(
     env.MITZO_SESSION_ID = sessionId;
     env.MITZO_AGENT_NAME = expected.agentProfile?.definition.name ?? '';
     queryInstance = await openCodexChat({
+      deliverRuntimeFailure: (event) =>
+        deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
       ownedLocal: localAdmission,
       ownedOpenShell: openShellAdmission,
       resume,
@@ -6246,7 +6255,15 @@ export async function startOwnedLocalResponsesCommand(
       }
     } catch (error) {
       owner.interruptQueue();
-      reportRetainedRuntimeFailure({ store: eventStore, sessionId, session, transport, error });
+      reportRetainedRuntimeFailure({
+        store: eventStore,
+        sessionId,
+        session,
+        transport,
+        error,
+        deliver: (event) =>
+          deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
+      });
     } finally {
       scheduling = false;
       if (pumpRequested) {

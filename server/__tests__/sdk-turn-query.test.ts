@@ -211,6 +211,18 @@ it('closes once on abort during settlement without starting queued input', async
   expect(f.create).toHaveBeenCalledOnce();
   expect(f.runs[0].close).toHaveBeenCalledOnce();
 });
+it('delivers a native failure result once and does not start a queued successor', async () => {
+  const f = fixture();
+  f.message('first');
+  f.message('second');
+  f.runs[0].events.push({ type: 'result', session_id: 'retained', is_error: true });
+  const output = f.q[Symbol.asyncIterator]();
+  expect((await output.next()).value).toMatchObject({ is_error: true });
+  expect(await output.next()).toMatchObject({ done: true });
+  expect(f.create).toHaveBeenCalledOnce();
+  expect(f.history).not.toHaveBeenCalled();
+  expect(f.runs[0].close).toHaveBeenCalledOnce();
+});
 it('interrupts an idle owner without touching its closed native query, then accepts only the new input', async () => {
   const f = fixture();
   f.message('first');

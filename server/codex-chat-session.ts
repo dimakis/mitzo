@@ -708,6 +708,7 @@ interface Options {
   apiTools?: { catalog: ReturnType<typeof getApiToolCatalog> };
   mcpServers: Record<string, McpServerConfig>;
   eventStore: EventStore;
+  deliverRuntimeFailure?: (event: Record<string, unknown>) => void;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
   onBootContext?: (context: OpenShellBootContext) => void;
   /** Already resolved, authorized and persisted by common chat admission. */
@@ -3867,6 +3868,7 @@ async function openCodexChatBound(
           session: options.session,
           error,
           describe: publicCodexRuntimeError,
+          deliver: options.deliverRuntimeFailure,
         });
     },
   };
