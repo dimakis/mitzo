@@ -50,7 +50,9 @@ The 7 GiB hosted runner reported normal macOS pressure and no swap throughout;
 low free memory alone does not prove resource exhaustion.
 
 Delivery and publication now occupy two independent macOS jobs, retaining the
-same one-worker fresh-process isolation and all five case deadlines/assertions.
+same one-worker fresh-process isolation and all case deadlines/assertions. The
+completion-route follow-on expands the inventory to five delivery and two
+publication cases, requiring both subscription and API account journeys.
 The unsharded command still runs both groups. Each group retains its own summary,
 start/end timestamps, process duration, actual reporter, exit and resource trace.
 The aggregate gate validates both actual reports and successful exits, including

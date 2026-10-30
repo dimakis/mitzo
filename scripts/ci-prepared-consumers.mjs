@@ -6,14 +6,15 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import process from 'node:process';
 import { performance } from 'node:perf_hooks';
 
-// This owner transfers only these five composed cases from Linux unit shards.
+// This owner transfers only these seven composed cases from Linux unit shards.
 // Native registration's two account workflows retain their separate proof schema.
 export const preparedConsumerCases = Object.freeze([
   Object.freeze({
     name: 'delivery',
     file: 'server/__tests__/prepared-repository-delivery-flow.test.ts',
     cases: Object.freeze([
-      'recovers exact original delivery after adoption, then accepts repeated explicit prompts and a lost-response continuation without replay',
+      'recovers exact delivery with API account=false after adoption, later prompts and lost responses',
+      'recovers exact delivery with API account=true after adoption, later prompts and lost responses',
       'admits a deliberately retried never-admitted stale-workspace prompt through canonical adoption after capability deployment=false without rewriting its frozen browser body',
       'admits a deliberately retried never-admitted stale-workspace prompt through canonical adoption after capability deployment=true without rewriting its frozen browser body',
       'recovers an exact already bridged command only while its earlier attempt never crossed the native dispatch boundary',
@@ -23,7 +24,8 @@ export const preparedConsumerCases = Object.freeze([
     name: 'publication',
     file: 'server/__tests__/prepared-repository-publication-flow.test.ts',
     cases: Object.freeze([
-      'commits through native host tools, reviews the exact artifact twice before publication approval, verifies the PR and accepts another prompt',
+      'commits, reviews, approves and publishes with API account=false, then accepts another prompt',
+      'commits, reviews, approves and publishes with API account=true, then accepts another prompt',
     ]),
   }),
 ]);
@@ -118,7 +120,7 @@ export async function runPreparedConsumers({ root, group, runner = runBrowserCom
   }
   writeFileSync(summaryPath, JSON.stringify(summary, null, 2) + '\n');
   if (summary.length !== selection.length || summary.some((r) => r.status !== 'passed'))
-    throw Error('All five composed prepared repository cases must pass');
+    throw Error('All seven composed prepared repository cases must pass');
   return summary;
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -7,58 +7,62 @@ import { preparedRepositoryDeliveryFlow } from './fixtures/prepared-repository-d
 // four admissions + two 120-second reviews + commit/verification allowance.
 vi.setConfig({ testTimeout: process.env.CI ? 900_000 : 420_000 });
 
-it('recovers exact original delivery after adoption, then accepts repeated explicit prompts and a lost-response continuation without replay', async () => {
-  const f = await preparedRepositoryDeliveryFlow();
-  const nativeBefore = f.f.native.commands(f.sessionId, f.binding);
-  f.store.getState().selectLocalCommandSession(f.sessionId);
-  await vi.waitFor(() =>
-    expect(f.requests.some((request) => request.path.endsWith('/receipt'))).toBe(true),
-  );
-  expect(f.requests[0], JSON.stringify(f.requests)).toMatchObject({
-    path: '/api/chat/local-codex/send/receipt',
-    body: f.originalBody,
-    status: 202,
-  });
-  await vi.waitFor(() => expect(f.store.getState().localCommand?.state).toBe('consumed'));
-  expect(f.saved()).toEqual([]);
-  expect(f.f.native.commands(f.sessionId, f.binding)).toEqual(nativeBefore);
-  expect(
-    f.f.events.observePreparedRepositoryCommandRouting(f.originalBody.clientMsgId, true)
-      ?.originalAdmission,
-  ).toEqual(f.originalReceipt);
-  expect(f.store.getState().localCommand?.composerDraft).toEqual({
-    storageKey: 'original-composer',
-    revisionToken: 'submitted-revision',
-  });
-  for (const id of ['later-prompt', 'lost-response-prompt', 'another-later-prompt']) {
-    const delivered = vi.fn();
-    if (id === 'lost-response-prompt') f.loseNextResponse();
-    expect(
-      f.store.getState().sendLocalFirstCommand(
-        {
-          ...f.originalBody,
-          sessionId: f.sessionId,
-          repositoryWorkspaceId: f.adopted.id,
-          clientMsgId: id,
-          payload: { text: id },
-        },
-        { onDelivery: delivered },
-      ),
-    ).toBe(true);
-    await f.complete(id);
-    if (id === 'lost-response-prompt') {
-      await vi.waitFor(() => expect(f.store.getState().localCommand?.state).toBe('uncertain'));
-      f.reconnect();
-    }
-    await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('accepted'));
+it.each([false, true])(
+  'recovers exact delivery with API account=%s after adoption, later prompts and lost responses',
+  async (api) => {
+    const f = await preparedRepositoryDeliveryFlow({ api });
+    const nativeBefore = f.f.native.commands(f.sessionId, f.binding);
+    f.store.getState().selectLocalCommandSession(f.sessionId);
+    await vi.waitFor(() =>
+      expect(f.requests.some((request) => request.path.endsWith('/receipt'))).toBe(true),
+    );
+    expect(f.requests[0], JSON.stringify(f.requests)).toMatchObject({
+      path: '/api/chat/local-codex/send/receipt',
+      body: f.originalBody,
+      status: 202,
+    });
+    await vi.waitFor(() => expect(f.store.getState().localCommand?.state).toBe('consumed'));
     expect(f.saved()).toEqual([]);
+    expect(f.f.native.commands(f.sessionId, f.binding)).toEqual(nativeBefore);
     expect(
-      f.requests.filter(
-        (request) => request.body.clientMsgId === id && !request.path.endsWith('/receipt'),
-      ),
-    ).toHaveLength(1);
-  }
-});
+      f.f.events.observePreparedRepositoryCommandRouting(f.originalBody.clientMsgId, true)
+        ?.originalAdmission,
+    ).toEqual(f.originalReceipt);
+    expect(f.store.getState().localCommand?.composerDraft).toEqual({
+      storageKey: 'original-composer',
+      revisionToken: 'submitted-revision',
+    });
+    for (const label of ['later-prompt', 'lost-response-prompt', 'another-later-prompt']) {
+      const id = `${f.sessionId}-${label}`;
+      const delivered = vi.fn();
+      if (label === 'lost-response-prompt') f.loseNextResponse();
+      expect(
+        f.store.getState().sendLocalFirstCommand(
+          {
+            ...f.originalBody,
+            sessionId: f.sessionId,
+            repositoryWorkspaceId: f.adopted.id,
+            clientMsgId: id,
+            payload: { text: id },
+          },
+          { onDelivery: delivered },
+        ),
+      ).toBe(true);
+      await f.complete(id);
+      if (label === 'lost-response-prompt') {
+        await vi.waitFor(() => expect(f.store.getState().localCommand?.state).toBe('uncertain'));
+        f.reconnect();
+      }
+      await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('accepted'));
+      expect(f.saved()).toEqual([]);
+      expect(
+        f.requests.filter(
+          (request) => request.body.clientMsgId === id && !request.path.endsWith('/receipt'),
+        ),
+      ).toHaveLength(1);
+    }
+  },
+);
 
 it.each([false, true])(
   'admits a deliberately retried never-admitted stale-workspace prompt through canonical adoption after capability deployment=%s without rewriting its frozen browser body',

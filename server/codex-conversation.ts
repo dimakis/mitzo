@@ -322,6 +322,9 @@ export interface CodexConversationOptions {
   onClosed?: () => void;
   /** An owned first-command transport cannot recover or acquire another lease. */
   readonly transportClosure?: 'terminal';
+  /** Remote transport exit is not remote agent exit. Reconcile its exact durable
+   * provider ACK under the route's current authority before releasing FIFO work. */
+  readonly recoveryReconciliation?: 'exact-turn';
   onError?: (error: Error) => void;
   onTransportClosed?: (diagnostic: {
     activeTurn: boolean;
@@ -587,8 +590,8 @@ export class CodexConversation {
         });
       }
     }
+    this.retainEmptyCompletionPhase();
     if (this.opts.transportClosure === 'terminal') {
-      this.retainEmptyCompletionPhase();
       try {
         this.opts.onTransportClosed?.({ activeTurn: !!this.active, reason: 'closed', ...failure });
       } finally {
@@ -1589,10 +1592,12 @@ export class CodexConversation {
       this.opts.conversationId,
       this.binding!,
     );
-    const nativeTarget =
-      this.opts.transportClosure === 'terminal'
-        ? this.opts.store.nativeRecoveryTarget(this.opts.conversationId, this.binding!)
-        : undefined;
+    const exactRecovery =
+      this.opts.transportClosure === 'terminal' ||
+      this.opts.recoveryReconciliation === 'exact-turn';
+    const nativeTarget = exactRecovery
+      ? this.opts.store.nativeRecoveryTarget(this.opts.conversationId, this.binding!)
+      : undefined;
     const assertRecoveryAuthority = async () => {
       const verified = await this.verifyCurrentBinding(this.binding);
       if (!isDeepStrictEqual(verified, this.binding))
@@ -1606,12 +1611,8 @@ export class CodexConversation {
     };
     await assertRecoveryAuthority();
     let nativeStatus: 'completed' | 'failed' | 'interrupted' | undefined;
-    const recoveryThreadId =
-      this.opts.transportClosure === 'terminal' ? nativeTarget?.threadId : this.threadId;
-    if (
-      (automaticEpoch !== undefined || this.opts.transportClosure === 'terminal') &&
-      recoveryThreadId
-    ) {
+    const recoveryThreadId = exactRecovery ? nativeTarget?.threadId : this.threadId;
+    if ((automaticEpoch !== undefined || exactRecovery) && recoveryThreadId) {
       const page = z
         .object({ data: z.array(z.object({ id: z.string(), status: z.string() })) })
         .parse(
@@ -1623,7 +1624,7 @@ export class CodexConversation {
           }),
         );
       if (
-        (this.opts.transportClosure === 'terminal' && page.data.length === 0) ||
+        (exactRecovery && page.data.length === 0) ||
         page.data.some((turn) => !['completed', 'failed', 'interrupted'].includes(turn.status))
       )
         throw new Error('Provider turn is still active; saved work remains queued');
@@ -2888,11 +2889,12 @@ export class CodexConversation {
       policy?.policyRevision,
     );
   }
-  /** Only the original live terminal owner knows that no completion callback
+  /** Only the original live recovery owner knows that no completion callback
    * existed. Reconstructed/plain owners never manufacture this evidence. */
   private retainEmptyCompletionPhase(active = this.active) {
     if (
-      this.opts.transportClosure !== 'terminal' ||
+      (this.opts.transportClosure !== 'terminal' &&
+        this.opts.recoveryReconciliation !== 'exact-turn') ||
       this.opts.beforeComplete ||
       !active ||
       this.active !== active ||

@@ -2252,7 +2252,9 @@ export class CodexConversationStore {
     this.assertNoPendingThreadOwnership(id, binding);
     const rows = this.db
       .prepare(
-        `SELECT ${PreDispatchCandidateEvidenceSql} FROM codex_commands c WHERE c.conversation_id=? ORDER BY c.sequence DESC`,
+        `SELECT ${PreDispatchCandidateEvidenceSql} FROM codex_commands c WHERE c.conversation_id=?
+        AND (c.status NOT IN ('queued','cancelled') OR c.native_turns IS NOT NULL)
+        ORDER BY c.sequence DESC`,
       )
       .iterate(id) as Iterable<PreDispatchEvidence>;
     for (const row of rows) {
