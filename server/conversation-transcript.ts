@@ -17,6 +17,8 @@ import {
 // Pure projection of a caller-owned immutable event prefix. Source authorization,
 // cursor capture and database reads remain with the calling operation.
 export interface RestoredMessage {
+  replyToMessageId?: string;
+  commandState?: import('@mitzo/protocol').CommandState;
   messageId: string;
   symposiumProvenance?: SymposiumProvenance;
   role: string;
@@ -52,10 +54,67 @@ export interface RestoredSubagentState {
 }
 
 export interface RestoredCurrentMessage {
+  replyToMessageId?: string;
   messageId: string;
   symposiumProvenance?: SymposiumProvenance;
   startedSeq?: number;
   blocks: Array<RestoredMessage['blocks'][number] & { done: boolean }>;
+}
+
+function attributeCommands(
+  events: StoredEvent[],
+  messages: RestoredMessage[],
+  currents: RestoredCurrentMessage[] = [],
+) {
+  if (
+    !events.some(
+      (event) =>
+        event.type === 'ordinary_provider_dispatch_started' ||
+        event.type === 'ordinary_reply_source',
+    )
+  )
+    return;
+  const replies = new Map<string, string>();
+  const states = new Map<string, import('@mitzo/protocol').CommandState>();
+  let active: string | undefined;
+  for (const event of events) {
+    if (event.seatId || event.symposiumProvenance) continue;
+    const p = event.payload;
+    if (event.type === 'user_message' && typeof p.messageId === 'string')
+      states.set(p.messageId, 'queued');
+    if (event.type === 'ordinary_provider_dispatch_started' && typeof p.messageId === 'string') {
+      active = p.messageId;
+      states.set(active, 'running');
+    }
+    if (
+      event.type === 'ordinary_reply_source' &&
+      p.version === 1 &&
+      typeof p.messageId === 'string' &&
+      typeof p.commandId === 'string'
+    )
+      replies.set(p.messageId, p.commandId);
+    if (
+      event.type === 'ordinary_command_completed' &&
+      typeof p.messageId === 'string' &&
+      ['completed', 'interrupted', 'failed'].includes(String(p.status))
+    )
+      states.set(p.messageId, p.status as 'completed' | 'interrupted' | 'failed');
+    // Legacy terminal events are sequential within this ordinary conversation.
+    if (event.type === 'session_end' && active) {
+      if (states.get(active) === 'running') states.set(active, 'completed');
+      active = undefined;
+    }
+  }
+  for (const message of messages) {
+    if (message.symposiumProvenance) continue;
+    if (message.role === 'user' && states.has(message.messageId))
+      message.commandState = states.get(message.messageId);
+    if (message.role === 'assistant' && replies.has(message.messageId))
+      message.replyToMessageId = replies.get(message.messageId);
+  }
+  for (const message of currents)
+    if (!message.symposiumProvenance && replies.has(message.messageId))
+      message.replyToMessageId = replies.get(message.messageId);
 }
 
 /** Finished messages are append-only during replay. Results/subagents have
@@ -649,6 +708,7 @@ export function replayEventsToTranscript(
       throw new Error('Ambiguous duplicate Symposium message identity in stored transcript');
     ids.add(id);
   }
+  attributeCommands(ordinary, messages, base.current ? [base.current] : []);
   return { messages, current: base.current, currents };
 }
 
@@ -919,6 +979,7 @@ export function replayEventsToMessages(
   }
 
   groupRetainedReplayErrors(messages, events);
+  attributeCommands(events, messages);
   return messages;
 }
 

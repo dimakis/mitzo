@@ -2068,3 +2068,44 @@ it.each(['older', 'current'] as const)(
     }
   },
 );
+
+it('does not clear B preparation when A emits a late reply or terminal event', () => {
+  const { store } = setup();
+  const sessionId = 'queue-chat';
+  channel.listener({ type: 'session_id', sessionId });
+  channel.listener({ type: 'user_message', sessionId, messageId: 'a', text: 'First', seq: 1 });
+  channel.listener({
+    type: 'ordinary_provider_dispatch_started',
+    sessionId,
+    messageId: 'a',
+    seq: 2,
+  });
+  channel.listener({ type: 'user_message', sessionId, messageId: 'b', text: 'Correction', seq: 3 });
+  channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'b', retained: true });
+  channel.listener({
+    type: 'ordinary_reply_source',
+    sessionId,
+    messageId: 'old-reply',
+    replyToMessageId: 'a',
+    seq: 4,
+  });
+  channel.listener({ type: 'message_start', sessionId, messageId: 'old-reply', seq: 5 });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({ type: 'session_end', sessionId, seq: 6 });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'ordinary_provider_dispatch_started',
+    sessionId,
+    messageId: 'b',
+    seq: 7,
+  });
+  channel.listener({
+    type: 'ordinary_reply_source',
+    sessionId,
+    messageId: 'new-reply',
+    replyToMessageId: 'b',
+    seq: 8,
+  });
+  channel.listener({ type: 'message_start', sessionId, messageId: 'new-reply', seq: 9 });
+  expect(store.getState().sendStatus).toBeNull();
+});

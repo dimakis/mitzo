@@ -86,6 +86,8 @@ export interface BootContextMeta {
 }
 
 export interface MessagesState {
+  replySources?: Record<string, string>;
+  nativeCommands?: boolean;
   messages: FinishedMessage[];
   current: StreamingMessage | null;
   /** Simultaneous attributed seat turns, keyed by seat, generation, and provider message ID. */
@@ -121,6 +123,13 @@ export const INITIAL_MESSAGES_STATE: MessagesState = {
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
 type MessagesCoreAction =
+  | { type: 'REPLY_SOURCE'; messageId: string; replyToMessageId: string }
+  | {
+      type: 'COMMAND_STATE';
+      messageId: string;
+      commandState: import('@mitzo/protocol').CommandState;
+    }
+
   // v2 content events
   | { type: 'MESSAGE_START'; messageId: string; startedSeq?: number }
   | {
@@ -289,6 +298,7 @@ export function finishCurrent(current: StreamingMessage): FinishedMessage {
   });
   return {
     messageId: current.messageId,
+    ...(current.replyToMessageId ? { replyToMessageId: current.replyToMessageId } : {}),
     role: 'assistant',
     blocks,
     timestamp: Date.now(),
@@ -643,6 +653,35 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
 
 function reduceLegacyMessages(state: MessagesState, action: MessagesAction): MessagesState {
   switch (action.type) {
+    case 'COMMAND_STATE':
+      return {
+        ...state,
+        nativeCommands: true,
+        messages: state.messages.map((message) =>
+          message.messageId === action.messageId && message.role === 'user'
+            ? { ...message, commandState: action.commandState }
+            : message,
+        ),
+      };
+    case 'REPLY_SOURCE': {
+      const previous = state.replySources?.[action.messageId];
+      if (previous && previous !== action.replyToMessageId)
+        return { ...state, resyncRequired: true };
+      return {
+        ...state,
+        nativeCommands: true,
+        replySources: { ...state.replySources, [action.messageId]: action.replyToMessageId },
+        messages: state.messages.map((message) =>
+          message.role === 'assistant' && message.messageId === action.messageId
+            ? { ...message, replyToMessageId: action.replyToMessageId }
+            : message,
+        ),
+        current:
+          state.current?.messageId === action.messageId
+            ? { ...state.current, replyToMessageId: action.replyToMessageId }
+            : state.current,
+      };
+    }
     case 'MESSAGE_START': {
       // Dedup: skip if this message was already restored (e.g. WS replay after RESTORE)
       if (
@@ -661,6 +700,9 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
         ...base,
         current: {
           messageId: action.messageId,
+          ...(state.replySources?.[action.messageId]
+            ? { replyToMessageId: state.replySources[action.messageId] }
+            : {}),
           ...(action.startedSeq !== undefined ? { startedSeq: action.startedSeq } : {}),
           blocks: new Map<string, StreamingBlock>(),
           blockOrder: [],
@@ -805,6 +847,9 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
         ...state,
         current: {
           messageId: action.messageId,
+          ...(state.replySources?.[action.messageId]
+            ? { replyToMessageId: state.replySources[action.messageId] }
+            : {}),
           ...(action.startedSeq !== undefined ? { startedSeq: action.startedSeq } : {}),
           blocks,
           blockOrder,
@@ -1103,6 +1148,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
             messageId: action.messageId,
             ...(action.startedSeq !== undefined ? { startedSeq: action.startedSeq } : {}),
             role: 'user',
+            ...(state.nativeCommands ? { commandState: 'queued' as const } : {}),
             timestamp: Date.now(),
             images: action.images,
             contextBlocks: context?.injections.map((item) => item.name) ?? action.contextBlocks,
@@ -1128,6 +1174,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
           {
             messageId: action.clientMsgId,
             role: 'user',
+            ...(state.nativeCommands ? { commandState: 'queued' as const } : {}),
             timestamp: Date.now(),
             blocks: [],
             images: action.images,

@@ -36,6 +36,7 @@ describe('stored Symposium event wire envelope', () => {
         sessionId: 'conversation',
         seq: 7,
         prevSessionSeq: 3,
+        ...(durableType ? { messageId: 'message', replyToMessageId: 'command' } : {}),
       });
       expect(event.payload.providerThreadId).toBe('private-thread');
     },

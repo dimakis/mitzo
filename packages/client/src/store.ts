@@ -2086,6 +2086,23 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (msg.type === '_send_failed' && typeof msg.clientMsgId === 'string')
         pendingOptimisticMessageIds.delete(msg.clientMsgId);
       if (visible) {
+        if (
+          msg.type === '_send_accepted' &&
+          origin?.delivery === 'local' &&
+          typeof msg.clientMsgId === 'string'
+        ) {
+          const user = store
+            .getState()
+            .messages.messages.find((message) => message.messageId === msg.clientMsgId);
+          if (!user?.commandState || user.commandState === 'queued')
+            store.setState((state) => ({
+              messages: messagesReducer(state.messages, {
+                type: 'COMMAND_STATE',
+                messageId: msg.clientMsgId as string,
+                commandState: 'queued',
+              }),
+            }));
+        }
         const messages = store.getState().messages;
         const userIndex = messages.messages.findIndex(
           (message) => message.messageId === msg.clientMsgId,
@@ -2093,11 +2110,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         const user = messages.messages[userIndex];
         const preparationEnded =
           preparation?.ended === true && preparation.sessionId === msg.sessionId;
-        const responseStarted =
-          messages.messages.slice(userIndex + 1).some((message) => message.role === 'assistant') ||
-          (user?.startedSeq !== undefined &&
-            messages.current?.startedSeq !== undefined &&
-            messages.current.startedSeq > user.startedSeq);
+        const responseStarted = messages.nativeCommands
+          ? [...messages.messages, ...(messages.current ? [messages.current] : [])].some(
+              (message) => message.replyToMessageId === msg.clientMsgId,
+            )
+          : messages.messages
+              .slice(userIndex + 1)
+              .some((message) => message.role === 'assistant') ||
+            (user?.startedSeq !== undefined &&
+              messages.current?.startedSeq !== undefined &&
+              messages.current.startedSeq > user.startedSeq);
         if (
           awaitingSessionId &&
           (msg.type === '_send_failed' || (msg.type === '_send_accepted' && msg.sessionId === null))
@@ -2478,8 +2500,25 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
     }
 
+    const progressMessages = store.getState().messages;
+    const latestRequest = progressMessages.messages
+      .filter((message) => message.role === 'user')
+      .at(-1)?.messageId;
+    const progressForCurrentCommand =
+      !progressMessages.nativeCommands ||
+      (msg.type === 'ordinary_reply_source' && msg.replyToMessageId === latestRequest) ||
+      (msg.type === 'ordinary_command_completed' && msg.messageId === latestRequest) ||
+      (typeof msg.messageId === 'string' &&
+        progressMessages.replySources?.[msg.messageId] === latestRequest);
     if (
-      (['message_start', 'session_end', 'error'].includes(String(msg.type)) ||
+      progressForCurrentCommand &&
+      ([
+        'ordinary_reply_source',
+        'ordinary_command_completed',
+        'message_start',
+        'session_end',
+        'error',
+      ].includes(String(msg.type)) ||
         (msg.type === 'message_snapshot' &&
           Array.isArray(msg.blocks) &&
           typeof msg.startedSeq === 'number' &&

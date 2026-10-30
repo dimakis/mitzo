@@ -23,6 +23,7 @@ export type {
   StreamingMessage,
   FinishedBlock,
   FinishedMessage,
+  CommandState,
   PermissionRequest,
   UserQuestion,
   QuestionAnswers,

@@ -162,7 +162,20 @@ export interface StreamingBlock {
   subagent?: StreamingSubagentState | FinishedSubagentState;
 }
 
+export type CommandState =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'interrupted'
+  | 'failed'
+  | 'cancelled'
+  | 'steering'
+  | 'steered'
+  | 'uncertain';
+
 export interface StreamingMessage {
+  /** Public command identity only; provider thread and turn identifiers stay private. */
+  replyToMessageId?: string;
   messageId: string;
   /** Durable message_start cursor, when known. */
   startedSeq?: number;
@@ -191,6 +204,8 @@ export interface FinishedBlock {
 }
 
 export interface FinishedMessage {
+  replyToMessageId?: string;
+  commandState?: CommandState;
   messageId: string;
   /** Durable user_message or message_start cursor, when known. */
   startedSeq?: number;

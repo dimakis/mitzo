@@ -370,6 +370,33 @@ export function parseServerMessage(
       break;
     }
 
+    case 'ordinary_reply_source':
+      if (typeof msg.messageId === 'string' && typeof msg.replyToMessageId === 'string')
+        result.messagesActions.push({
+          type: 'REPLY_SOURCE',
+          messageId: msg.messageId,
+          replyToMessageId: msg.replyToMessageId,
+        });
+      break;
+    case 'ordinary_provider_dispatch_started':
+      if (typeof msg.messageId === 'string')
+        result.messagesActions.push({
+          type: 'COMMAND_STATE',
+          messageId: msg.messageId,
+          commandState: 'running',
+        });
+      break;
+    case 'ordinary_command_completed':
+      if (
+        typeof msg.messageId === 'string' &&
+        ['completed', 'interrupted', 'failed'].includes(String(msg.status))
+      )
+        result.messagesActions.push({
+          type: 'COMMAND_STATE',
+          messageId: msg.messageId,
+          commandState: msg.status as 'completed' | 'interrupted' | 'failed',
+        });
+      break;
     case 'message_start':
       result.messagesActions.push({
         type: 'MESSAGE_START',

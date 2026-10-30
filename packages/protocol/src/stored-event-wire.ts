@@ -30,6 +30,12 @@ export function storedEventToClientMessage(
     const sessionId = event.sessionId ?? _payloadSessionId;
     return {
       type: privateType,
+      ...(event.type === 'ordinary_reply_source' &&
+      event.payload.version === 1 &&
+      typeof event.payload.commandId === 'string' &&
+      typeof event.payload.messageId === 'string'
+        ? { messageId: event.payload.messageId, replyToMessageId: event.payload.commandId }
+        : {}),
       ...(typeof sessionId === 'string' ? { sessionId } : {}),
       seq: event.seq,
       ...(event.prevSessionSeq !== undefined ? { prevSessionSeq: event.prevSessionSeq } : {}),

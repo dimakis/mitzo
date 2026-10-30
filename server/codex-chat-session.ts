@@ -2880,8 +2880,13 @@ async function openCodexChatBound(
       options.ordinaryTurnLifecycle?.terminal(messageId, turnId, status),
     onProviderTerminalConflict: (messageId, _threadId, turnId) =>
       options.ordinaryTurnLifecycle?.terminalConflict?.(messageId, turnId),
-    onProviderComplete: (messageId, status) =>
-      finishTrackedProviderAttempt(options.session, messageId, status),
+    onProviderComplete: (messageId, status) => {
+      finishTrackedProviderAttempt(options.session, messageId, status);
+      options.eventStore.append(options.conversationId, 'ordinary_command_completed', {
+        messageId,
+        status,
+      });
+    },
     loadConversationHistory: () => codexRolloverHistory(options.eventStore, options.conversationId),
     loadSourceSnapshots: () => codexRolloverSources(options.eventStore, options.conversationId),
     onClosed: () => {
