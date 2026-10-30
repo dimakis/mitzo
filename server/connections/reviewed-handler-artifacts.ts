@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.788-chat-retention-service-integration';
+  'v1.0.789-native-publication-read-budget';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -463,9 +463,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-file-race.test.ts':
     '7053f0ca654531f087e025b1ae4519dd218fdaa07198c0b41dfcaf85043ee5ce',
   '../native-preparation-publication.ts':
-    '0d276ab078c70cfb1831cc9977723ae03d8407311166920d1ccf54dc025c04ae',
+    'a72ee2764232e104d850d0c5e7c5c05a5afd3143cf40e71b2e0ca9487211af37',
   '../__tests__/native-preparation-publication.test.ts':
-    '9da547fb0ad7f0a4d96faaa284c38f8d5fca5326b70a61c8af559a2675dcd07f',
+    '9e4682d6d860f2cc3606414d28b54db3cc4bbc383955074442aeb367ac15cd32',
   '../native-preparation-observation.ts':
     'c72eb636f9b9bf76f25c7e2f7d4d0cb1096f304da63f15f8821af45d8cdf4b9d',
   '../local-repository-read-exclusions.ts':
@@ -1301,7 +1301,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-permission-revision.ts':
     'cf71bb38e2008352cbccfd22aae88f747625a3533c26aad22537d9509c11a26a',
   '../auth.ts': '5486a4a5312d8214d94d981278a08aaf30e3a24c116023d954aa83b010bb0c14',
-  '../native-file-operation.ts': 'dcc90fed4511168d0848a056305fb72daa968ebafa2060737c0a48daad73c4e3',
+  '../native-file-operation.ts': 'c3adf4c733857ed950dcdf02dc67b04b17db6b018ec9c08dff2fb49c2c3d4838',
   '../sandboxed-command.ts': 'd4d2edbf83f5444ffdd78e42cc01ce2e3183d558b87ba6910019d731bb331a0b',
   '../../packages/client/src/connection.ts':
     'b3f62dfd60cb41585ef6ea79b68657ec1239a23e5894d800014a43ba8372f381',

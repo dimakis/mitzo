@@ -24,7 +24,11 @@ import {
   type NativePreparationPublicationPlan,
 } from '../native-preparation-publication.js';
 import { executePrivateNativeFileHelper } from '../sandboxed-command.js';
-import { executeNativeFileOperation } from '../native-file-operation.js';
+import {
+  executeNativeFileOperation,
+  nativeFileHelperProgram,
+  projectPrivateNativeFileHelperRequest,
+} from '../native-file-operation.js';
 import type { NativeFileHelperTransport } from '../native-file-operation.js';
 vi.mock('node:child_process', async (original) => ({
   ...(await original<typeof import('node:child_process')>()),
@@ -591,3 +595,84 @@ it('retains a complete ordinary repository manifest larger than the former inlin
   expect(Buffer.byteLength(JSON.stringify(plan))).toBeGreaterThan(120 * 1024);
   expect(projectNativePreparationPublicationPlan(plan).tree.entries).toHaveLength(1000);
 });
+
+async function instrumentedPublication(
+  f: Awaited<ReturnType<typeof fixture>>,
+  instrumentation: string,
+) {
+  const program = join(root, 'observed-publication.py');
+  await writeFile(
+    program,
+    nativeFileHelperProgram.replace('\nrequest = None\n', `\n${instrumentation}\nrequest = None\n`),
+  );
+  const input = projectPrivateNativeFileHelperRequest(
+    JSON.stringify({
+      operation: 'PublishPreparedRepository',
+      preparationPlan: f.plan,
+      identity: null,
+      limit: 1,
+      file_path: f.task,
+      parentIdentity: f.plan.taskRoot.identity,
+      timeoutMs: 15000,
+    }),
+  );
+  return JSON.parse(
+    childProcess.execFileSync('/usr/bin/python3', [program], {
+      input,
+      encoding: 'utf8',
+      timeout: 20000,
+      maxBuffer: 32768,
+    }),
+  );
+}
+
+it('keeps repository publication within a bounded per-leaf read budget', async () => {
+  const f = await fixture();
+  const result = await instrumentedPublication(
+    f,
+    String.raw`
+_original_open = os.open
+_read_opens = 0
+def bounded_open(path, flags, *args, **kwargs):
+    global _read_opens
+    if path == 'task.txt' and not flags & os.O_CREAT:
+        _read_opens += 1
+        if _read_opens > 6: raise RuntimeError('Repeated tree read budget exceeded')
+    return _original_open(path, flags, *args, **kwargs)
+os.open = bounded_open
+os.supports_dir_fd.add(bounded_open)
+`,
+  );
+  expect(result.is_error, result.content).toBe(false);
+  expect(await readFile(join(f.task, 'task.txt'), 'utf8')).toBe('TRACKED\n');
+});
+
+it.each(['after-preflight', 'after-copy'] as const)(
+  'refuses changed private source bytes %s without publishing those bytes or cleaning uncertain effects',
+  async (phase) => {
+    const f = await fixture();
+    const result = await instrumentedPublication(
+      f,
+      String.raw`
+_original_publish_tree = publish_tree
+_tampered = False
+def tampered_publish_tree(request, *args, **kwargs):
+    global _tampered
+    result = _original_publish_tree(request, *args, **kwargs)
+    if not _tampered and ${phase === 'after-preflight' ? "kwargs.get('preflight_only', False)" : "not kwargs.get('preflight_only', False) and not kwargs.get('verify_only', False)"}:
+        _tampered = True
+        with open(os.path.join(request['payload']['file_path'], 'task.txt'), 'wb') as file: file.write(b'CHANGED\n')
+    return result
+publish_tree = tampered_publish_tree
+`,
+    );
+    expect(result.is_error).toBe(true);
+    expect((await lstat(f.task)).isDirectory()).toBe(true);
+    if (phase === 'after-preflight')
+      await expect(lstat(join(f.task, 'task.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+    else expect(await readFile(join(f.task, 'task.txt'), 'utf8')).toBe('TRACKED\n');
+    expect(await readFile(join(f.plan.tree.payload.file_path, 'task.txt'), 'utf8')).toBe(
+      'CHANGED\n',
+    );
+  },
+);
