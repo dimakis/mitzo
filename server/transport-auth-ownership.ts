@@ -3,6 +3,7 @@ export const TRANSPORT_OWNERSHIP_GRACE_MS = 30_000;
 interface ConnectionOwner {
   authSessionId: string;
   expiresAt: number | null;
+  lifecycleRevision?: number;
 }
 
 const connectionOwners = new Map<string, ConnectionOwner>();
@@ -28,7 +29,7 @@ export function releaseTransportConnection(connectionId: string, authSessionId: 
   const owner = connectionOwners.get(connectionId);
   if (owner?.authSessionId === authSessionId) {
     connectionOwners.set(connectionId, {
-      authSessionId,
+      ...owner,
       expiresAt: now + TRANSPORT_OWNERSHIP_GRACE_MS,
     });
   }
@@ -56,4 +57,22 @@ export function liveTransportAuthSessionId(connectionId: string): string | undef
   pruneExpired();
   const owner = connectionOwners.get(connectionId);
   return owner?.expiresAt === null ? owner.authSessionId : undefined;
+}
+
+/** Fence HTTP/beacon lifecycle hints by client order, not network arrival order.
+ * Lives in the existing login lease so teardown beacons retain the same fence.
+ * Legacy clients remain supported until this connection opts into revisions. */
+export function acceptTransportLifecycle(connectionId: string, revision?: number): boolean {
+  pruneExpired();
+  const owner = connectionOwners.get(connectionId);
+  if (revision === undefined) return owner?.lifecycleRevision === undefined;
+  if (
+    !owner ||
+    !Number.isSafeInteger(revision) ||
+    revision < 0 ||
+    (owner.lifecycleRevision !== undefined && revision <= owner.lifecycleRevision)
+  )
+    return false;
+  owner.lifecycleRevision = revision;
+  return true;
 }

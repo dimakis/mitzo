@@ -430,7 +430,10 @@ import { homedir } from 'os';
 import { TaskStore, type TaskCreateInput, type TaskUpdateInput } from './task-store.js';
 import { SseRegistry } from '@mitzo/harness';
 import { SessionSseRegistry } from './session-sse-registry.js';
-import { isTransportConnectionOwnedBy } from './transport-auth-ownership.js';
+import {
+  isTransportConnectionOwnedBy,
+  acceptTransportLifecycle,
+} from './transport-auth-ownership.js';
 import { WorkloadStore, type WorkSignal, type TodoItemUpdateInput } from './workload-store.js';
 import type { OpenShellLifecycleService } from './openshell-lifecycle-service.js';
 
@@ -1121,7 +1124,7 @@ app.post('/api/sessions/suspend', (req, res) => {
       return;
     }
 
-    const { connectionId, sessions } = req.body || {};
+    const { connectionId, sessions, lifecycleRevision } = req.body || {};
 
     if (!connectionId || typeof connectionId !== 'string') {
       res.status(400).json({ error: 'connectionId is required' });
@@ -1133,6 +1136,18 @@ app.post('/api/sessions/suspend', (req, res) => {
     }
     if (!Array.isArray(sessions) || sessions.length === 0) {
       res.status(400).json({ error: 'sessions array is required' });
+      return;
+    }
+
+    if (
+      lifecycleRevision !== undefined &&
+      (!Number.isSafeInteger(lifecycleRevision) || lifecycleRevision < 0)
+    ) {
+      res.status(400).json({ error: 'Invalid lifecycle revision' });
+      return;
+    }
+    if (!acceptTransportLifecycle(connectionId, lifecycleRevision)) {
+      res.status(204).end();
       return;
     }
 

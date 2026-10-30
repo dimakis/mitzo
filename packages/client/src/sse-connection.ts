@@ -46,6 +46,7 @@ export class SseConnection implements ChatConnection {
   private _connectionId: string | null = null;
   private _connected = false;
   private sendScope = Date.now();
+  private lifecycleRevision = 0;
   private replayRequest: {
     es: EventSource | null;
     connectionId: string;
@@ -484,9 +485,10 @@ export class SseConnection implements ChatConnection {
         : {}),
     }));
 
+    const lifecycleRevision = ++this.lifecycleRevision;
     // Keep authentication headers on native iOS, where beacon cannot add them.
     if (this._connected && this._connectionId) {
-      this.doPost('suspend', { type: 'session_suspend', sessions });
+      this.doPost('suspend', { type: 'session_suspend', sessions, lifecycleRevision });
       return;
     }
 
@@ -496,7 +498,11 @@ export class SseConnection implements ChatConnection {
       this._connectionId &&
       typeof globalThis.navigator?.sendBeacon === 'function'
     ) {
-      const payload = JSON.stringify({ connectionId: this._connectionId, sessions });
+      const payload = JSON.stringify({
+        connectionId: this._connectionId,
+        sessions,
+        lifecycleRevision,
+      });
       globalThis.navigator.sendBeacon(
         this.config.suspendUrl,
         new Blob([payload], { type: 'application/json' }),
@@ -808,6 +814,7 @@ export class SseConnection implements ChatConnection {
       this.replayRequest.dirty = true;
       return;
     }
+    const lifecycleRevision = ++this.lifecycleRevision;
     const request = { es: welcomeEs, connectionId: welcomeConnectionId, dirty: false };
     this.replayRequest = request;
     // This exact request owns only these sessions, even if navigation changes
@@ -840,7 +847,12 @@ export class SseConnection implements ChatConnection {
                 'Content-Type': 'application/json',
                 'X-Connection-ID': welcomeConnectionId,
               },
-              body: JSON.stringify({ type: 'reconnect', supportsAppliedCursor: true, sessions }),
+              body: JSON.stringify({
+                type: 'reconnect',
+                supportsAppliedCursor: true,
+                sessions,
+                lifecycleRevision,
+              }),
             });
           };
           return this.config.sessionInterest ? this.queueControl(post) : post();

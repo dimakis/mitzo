@@ -4,6 +4,7 @@ import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.j
 import { getTransportAttachmentIdentity } from '@mitzo/harness';
 import {
   isTransportConnectionOwnedBy,
+  acceptTransportLifecycle,
   liveTransportAuthSessionId,
   transportConnectionsShareOwner,
 } from './transport-auth-ownership.js';
@@ -324,6 +325,7 @@ export function handleReconnect(
   msg: {
     type: 'reconnect';
     supportsAppliedCursor?: boolean;
+    lifecycleRevision?: number;
     sessions: Array<{ sessionId: string; lastSeq: number; subscriptionId?: string }>;
   },
   ctx: V2HandlerContext,
@@ -332,6 +334,7 @@ export function handleReconnect(
     'ws.reconnect',
     { 'ws.connectionId': connectionId, 'ws.sessionCount': msg.sessions.length },
     () => {
+      if (!acceptTransportLifecycle(connectionId, msg.lifecycleRevision)) return;
       const summaries: Array<{ sessionId: string; replayed: number }> = [];
 
       for (const entry of msg.sessions) {
@@ -1978,6 +1981,7 @@ export function handleSessionSuspend(
     'ws.session_suspend',
     { 'ws.connectionId': connectionId, 'ws.sessionCount': msg.sessions.length },
     () => {
+      if (!acceptTransportLifecycle(connectionId, msg.lifecycleRevision)) return;
       for (const entry of msg.sessions) {
         const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
         if (!found) {

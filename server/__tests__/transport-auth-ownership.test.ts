@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   claimTransportConnection,
+  acceptTransportLifecycle,
   isTransportConnectionOwnedBy,
   liveTransportAuthSessionId,
   releaseTransportConnection,
@@ -43,4 +44,25 @@ describe('transport auth ownership', () => {
     vi.advanceTimersByTime(TRANSPORT_OWNERSHIP_GRACE_MS + 1);
     expect(isTransportConnectionOwnedBy('conn-closing', 'auth-owner')).toBe(false);
   });
+});
+
+// HTTP keepalive/beacon delivery can finish after a newer foreground replay.
+it('fences stale and duplicate lifecycle transitions within the existing login lease', () => {
+  claimTransportConnection('ordered-lifecycle', 'ordered-login');
+  expect(acceptTransportLifecycle('ordered-lifecycle', 1)).toBe(true);
+  expect(acceptTransportLifecycle('ordered-lifecycle', 3)).toBe(true);
+  expect(acceptTransportLifecycle('ordered-lifecycle', 2)).toBe(false);
+  expect(acceptTransportLifecycle('ordered-lifecycle', 3)).toBe(false);
+  expect(acceptTransportLifecycle('ordered-lifecycle', undefined)).toBe(false);
+  releaseTransportConnection('ordered-lifecycle', 'ordered-login');
+  expect(acceptTransportLifecycle('ordered-lifecycle', 2)).toBe(false);
+  expect(acceptTransportLifecycle('ordered-lifecycle', 4)).toBe(true);
+});
+it('retains compatibility for legacy connections and refuses invalid revisions', () => {
+  claimTransportConnection('legacy-lifecycle', 'legacy-login');
+  expect(acceptTransportLifecycle('legacy-lifecycle', undefined)).toBe(true);
+  expect(acceptTransportLifecycle('legacy-lifecycle', undefined)).toBe(true);
+  for (const revision of [-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])
+    expect(acceptTransportLifecycle('legacy-lifecycle', revision)).toBe(false);
+  expect(acceptTransportLifecycle('missing-lifecycle', 1)).toBe(false);
 });

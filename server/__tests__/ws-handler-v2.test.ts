@@ -5359,6 +5359,46 @@ describe('stale session cleanup removes registry entry', () => {
 // ─── handleSessionSuspend ───────────────────────────────────────────────────
 
 describe('handleSessionSuspend', () => {
+  it('ignores a background request arriving after a newer foreground replay', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'lifecycle-conn:sess-1',
+      session: { sessionId: 'sess-1' },
+    });
+    const ctx = createContext({ sessionRegistry: sessionReg as never });
+    ctx.connRegistry.register('lifecycle-conn', mockTransport());
+    claimTransportConnection('lifecycle-conn', 'lifecycle-auth');
+    handleReconnect(
+      'lifecycle-conn',
+      {
+        type: 'reconnect',
+        lifecycleRevision: 2,
+        sessions: [{ sessionId: 'sess-1', lastSeq: 42 }],
+      },
+      ctx,
+    );
+    handleSessionSuspend(
+      'lifecycle-conn',
+      {
+        type: 'session_suspend',
+        lifecycleRevision: 1,
+        sessions: [{ sessionId: 'sess-1', lastSeq: 42 }],
+      },
+      ctx,
+    );
+    expect(sessionReg.suspend).not.toHaveBeenCalled();
+    handleSessionSuspend(
+      'lifecycle-conn',
+      {
+        type: 'session_suspend',
+        lifecycleRevision: 3,
+        sessions: [{ sessionId: 'sess-1', lastSeq: 42 }],
+      },
+      ctx,
+    );
+    expect(sessionReg.suspend).toHaveBeenCalledTimes(1);
+  });
+
   it('suspends sessions owned by the connection', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({
