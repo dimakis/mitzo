@@ -410,3 +410,21 @@ it('resolves the public internal-execution lookup at call time', () =>
     expect(f.store.getSession('one')).toBeNull();
     return outcome(() => f.store.incrementPromptCount('one'));
   }));
+
+it.each(['local', 'openshell'] as const)(
+  'projects %s session ownership from one fresh row',
+  (location) => {
+    const f = fixture();
+    f.store.createSessionWithRuntimeBinding(bound, { ...binding, execution: { location } });
+    const read = vi.spyOn(f.owner.statements.getSession, 'get');
+    const first = f.store.observeSessionOwnership('bound');
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(first.session?.accountBinding).toEqual(account);
+    expect(first.runtimeBinding?.execution.location).toBe(location);
+    f.db.prepare('UPDATE sessions SET mode=? WHERE session_id=?').run('ask', 'bound');
+    read.mockClear();
+    expect(f.store.observeSessionOwnership('bound').session?.mode).toBe('ask');
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(first.session?.mode).toBe('agent');
+  },
+);

@@ -8206,6 +8206,11 @@ export class EventStore {
   /** Explicit absence is legacy; invalid/unsupported metadata always throws.
    * Kept separate from SessionMeta until a separately reviewed dispatcher exists.
    */
+  /** One fresh observation for immediate comparisons only; never later authority. */
+  observeSessionOwnership(sessionId: string) {
+    return this.sessionMetadata.observeSessionOwnership(sessionId);
+  }
+
   getSessionRuntimeBinding(sessionId: string): SessionRuntimeBinding | null | undefined {
     return this.sessionMetadata.getSessionRuntimeBinding(sessionId);
   }

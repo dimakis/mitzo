@@ -518,3 +518,30 @@ it('denies retained role corruption arriving during awaited final OpenShell admi
       .some((event) => event.type === 'telos_work_role_context'),
   ).toBe(true);
 });
+
+it('shares one fresh session ownership projection and sees owner-callback mutations', () => {
+  const f = fixture(false, 'ownership-session');
+  chat.eventStore.admitOrdinaryOpenShellCommand(f.meta, f.expected.binding, {
+    clientMsgId: 'ownership-command',
+    requestFingerprint: 'ownership-fp',
+    selection: f.expected.selection,
+    payload: { text: 'Read', systemPrompt: 'Instructions' },
+  });
+  chat.eventStore.claimOrdinaryOpenShellCommandDispatch('ownership-command');
+  const admission = OwnedOpenShellCodexChatAdmission.capture(f.owner, 'ownership-command');
+  const projection = vi.spyOn(chat.eventStore, 'observeSessionOwnership');
+  const separate = vi.spyOn(chat.eventStore, 'getSessionRuntimeBinding');
+  try {
+    admission.assertCurrentSync();
+    expect(projection).toHaveBeenCalledTimes(1);
+    expect(separate).not.toHaveBeenCalled();
+    f.owner.assertCurrentSync.mockImplementation(() => {
+      chat.eventStore.upsertSession({ sessionId: 'ownership-session', mode: 'ask' });
+    });
+    expect(() => admission.assertCurrentSync()).toThrow('Owned OpenShell Codex chat unavailable');
+    expect(projection).toHaveBeenCalledTimes(2);
+  } finally {
+    projection.mockRestore();
+    separate.mockRestore();
+  }
+});

@@ -1490,7 +1490,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '9d270987bc47a9a468fdbd6d595d6a90b7297f080ce4c34103b0e7af11303ddf',
   '../../packages/protocol/src/event-store.ts':
-    '03b0df0ac960ab37507382eaeb97302b4f98bf9d7d5a8c1781c8981043cedd3f',
+    'c177298568d8c6b00142f81d03786d62489c34c04e2a4573a0ac45ee9a3f71cf',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
@@ -1600,13 +1600,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-openshell-codex-entry-owner.ts':
     'afa4868dcb236c1317e1cc496f47bee719bea5c9750cb19741f5093c5ca3f4d9',
   '../ordinary-openshell-codex-entry.ts':
-    '014bb5b17e2765d60f79682dd164f85a5389a701e239f958b79084b2f113b1bb',
+    '93a60a113b51be8790b4ba9979b2fd6e2b7e8bf9d8ebe4e6ad84963aec226362',
   '../ordinary-openshell-codex-owned-runtime.ts':
     '18f1a32ba8ce3cce3feef7189704d31b84e70bff245c090332d336600543dec1',
   '../ordinary-openshell-codex-route.ts':
     'b80e15ca0edd13075100e302a25ed8580f9212e304029bf25bee5cfa594a1c34',
   '../owned-openshell-codex-chat-admission.ts':
-    'b5676ba12d7f2dce1cb557fcd5af167cfa3c82045fb0175a9e98a2a42621882a',
+    '1caa35cdc66ebc0c869f21467aec9ffd2851db90046382b627f89b1be8e66bc1',
   '../session-registry.ts': 'd91b89354926d0ec7355e73fcae4f41066008d63097ca00077f37022fc554ccf',
   '../approved-url-fetch.ts': '523bbd692e74a9c16b7fd851b6b4b1cdc6be5581e083c04f9549662e11548ee3',
   '../owned-codex-queue-control.ts':

@@ -426,14 +426,13 @@ export class OwnedOpenShellCodexChatAdmission {
         this.#session.mode !== this.#expected.selection.permission.mode)
     )
       throw unavailable();
-    const session = this.owner.events.getSession(this.owner.sessionId);
+    const { session, runtimeBinding } = this.owner.events.observeSessionOwnership(
+      this.owner.sessionId,
+    );
     if (
       !session ||
       !isDeepStrictEqual(session.accountBinding, this.owner.account) ||
-      !isDeepStrictEqual(
-        this.owner.events.getSessionRuntimeBinding(this.owner.sessionId),
-        this.#expected.binding,
-      ) ||
+      !isDeepStrictEqual(runtimeBinding, this.#expected.binding) ||
       !isDeepStrictEqual(session.agentProfile ?? undefined, this.#expected.agentProfile) ||
       !isDeepStrictEqual(session.agentContext ?? undefined, this.#expected.agentContext) ||
       session.mode !== this.#expected.selection.permission.mode

@@ -40,14 +40,14 @@ export function ownedOpenShellCodexContinuationTarget(
   authSessionId: string,
   configured: NonNullable<ReturnType<typeof loadOrdinaryOpenShellCodexTarget>>,
 ) {
-  const meta = eventStore.getSession(sessionId);
-  if (!meta?.accountBinding) throw unavailable();
   const native = getCodexConversationStore();
+  const { session: meta, runtimeBinding: binding } = eventStore.observeSessionOwnership(sessionId);
+  if (!meta?.accountBinding) throw unavailable();
   return ordinaryOpenShellCodexContinuationTarget({
     target: configured.target,
     config: configured.config,
     account: meta.accountBinding,
-    binding: eventStore.getSessionRuntimeBinding(sessionId),
+    binding,
     custody: native.readOpenShellCustody(sessionId, meta.accountBinding),
     artifact: native.readArtifactRuntime(sessionId, meta.accountBinding),
     authSessionId,
@@ -67,8 +67,8 @@ export function canResumeOwnedOpenShellCodexDriver(
       registry.findBySessionId(sessionId)
     )
       return false;
-    const meta = eventStore.getSession(sessionId);
-    const binding = eventStore.getSessionRuntimeBinding(sessionId);
+    const { session: meta, runtimeBinding: binding } =
+      eventStore.observeSessionOwnership(sessionId);
     if (
       !meta?.accountBinding ||
       binding?.execution.location !== 'openshell' ||
