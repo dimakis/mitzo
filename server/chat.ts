@@ -3695,7 +3695,8 @@ export async function startOwnedLocalCodexCommand(
       reportRetainedRuntimeFailure({
         store: eventStore,
         sessionId,
-        commandId,
+        // This task owns the session across later commands. Its cleanup errors
+        // cannot be attributed to the completed command that first started it.
         session: liveSession,
         transport,
         error,
