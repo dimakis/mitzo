@@ -8,6 +8,7 @@ import {
   type HookCallback,
 } from '@anthropic-ai/claude-agent-sdk';
 import { AsyncQueue } from './async-queue.js';
+import { TurnCallbacks, type TurnCallbackRunner } from './turn-callbacks.js';
 import type { OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
 /** Only the lifetime of an SDK query, not runtime/auth/history state. Retiring a
@@ -43,12 +44,14 @@ export function createOrdinaryLocalVertexSdkQuery<
     selection: OrdinaryLocalCommandAdmission['selection'],
   ): Pick<Options, 'model' | 'thinking' | 'effort'>;
   inputChanged(queue: AsyncQueue<SDKUserMessage>): void;
-  mcpServers?(state: { retired: boolean }): Options['mcpServers'];
+  mcpServers?(state: { retired: boolean; runCallback: TurnCallbackRunner }): Options['mcpServers'];
 }) {
   let input = owners.input;
   const runs = new AsyncQueue<Query>();
   type State = {
     retired: boolean;
+    callbacks: TurnCallbacks;
+    runCallback: TurnCallbackRunner;
     processClose?: ReturnType<typeof observeOrdinarySdkProcessClose>;
   };
   const states = new WeakMap<Query, State>();
@@ -59,7 +62,12 @@ export function createOrdinaryLocalVertexSdkQuery<
     }
   };
   const create = (selection?: OrdinaryLocalCommandAdmission['selection']) => {
-    const state: State = { retired: false };
+    const callbacks = new TurnCallbacks();
+    const state: State = {
+      retired: false,
+      callbacks,
+      runCallback: (work) => callbacks.track(work),
+    };
     const hooks = Object.fromEntries(
       Object.entries(owners.options.hooks ?? {}).map(([event, matchers]) => [
         event,
@@ -75,13 +83,15 @@ export function createOrdinaryLocalVertexSdkQuery<
                   stopReason: 'This completed SDK query has been retired.',
                 });
                 if (state.retired) return refusal();
-                try {
-                  const result = await hook(data, id, { ...opts, signal });
-                  return state.retired ? refusal() : result;
-                } catch (error) {
-                  if (state.retired) return refusal();
-                  throw error;
-                }
+                return state.runCallback(async () => {
+                  try {
+                    const result = await hook(data, id, { ...opts, signal });
+                    return state.retired ? refusal() : result;
+                  } catch (error) {
+                    if (state.retired) return refusal();
+                    throw error;
+                  }
+                });
               }) satisfies HookCallback,
           ),
         })),
@@ -97,13 +107,15 @@ export function createOrdinaryLocalVertexSdkQuery<
       if (state.retired) return refusal();
       if (!owners.options.canUseTool)
         return { behavior: 'deny', message: 'Original SDK permission owner unavailable' };
-      try {
-        const result = await owners.options.canUseTool(name, data, { ...opts, signal });
-        return state.retired ? refusal() : result;
-      } catch (error) {
-        if (state.retired) return refusal();
-        throw error;
-      }
+      return state.runCallback(async () => {
+        try {
+          const result = await owners.options.canUseTool(name, data, { ...opts, signal });
+          return state.retired ? refusal() : result;
+        } catch (error) {
+          if (state.retired) return refusal();
+          throw error;
+        }
+      });
     };
     const cliGuidance =
       '\nThis is the selected local Mac Claude SDK route. Native Bash, Read, Glob and Grep use the existing session permissions. For service tasks, inspect workspace instructions and available local CLI tools before concluding access is unavailable. For Google Workspace, check command -v gws and gws --help with Bash; a missing Sheets MCP tool does not establish that the local CLI is unavailable. CLI presence does not establish authentication: try only the authorized service read and report its actual result. Do not run gws auth login or search for credentials to repair access.\n';
@@ -145,6 +157,8 @@ export function createOrdinaryLocalVertexSdkQuery<
   const firstQuery = native;
   runs.push(native);
   const close = () => {
+    states.get(native)!.retired = true;
+    states.get(native)!.callbacks.seal();
     input.close();
     runs.close();
     native.close();
@@ -157,7 +171,13 @@ export function createOrdinaryLocalVertexSdkQuery<
         for await (const event of owners.adapt(run)) {
           if (event.session_id !== undefined && event.session_id !== owners.sdkSessionId)
             throw Error('Original SDK thread identity changed');
-          if (event.type === 'result') terminal = true;
+          if (event.type === 'result') {
+            const state = states.get(run)!;
+            state.callbacks.seal();
+            if (state.callbacks.size) await state.callbacks.settle(owners.controller.signal);
+            await owners.authorize(owners.controller.signal);
+            terminal = true;
+          }
           yield event;
         }
       } catch (error) {

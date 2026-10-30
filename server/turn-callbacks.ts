@@ -1,4 +1,5 @@
 import { SessionRuntimeError } from './session-runtime-error.js';
+export type TurnCallbackRunner = <T>(operation: () => Promise<T>) => Promise<T>;
 
 /** Original in-memory callbacks only. A reconstructed owner cannot manufacture
  * settlement, replay a tool, or treat a missing durable result as success. */

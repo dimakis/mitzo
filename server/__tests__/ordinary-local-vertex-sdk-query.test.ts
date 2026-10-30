@@ -10,6 +10,76 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionInfo: vi.fn(async () => ({ sessionId: 'original', cwd: '/task' })),
   getSessionMessages: vi.fn(async () => [{ uuid: 'input' }]),
 }));
+it.each(['hook', 'permission', 'tool'] as const)(
+  'settles an original SDK %s callback before exposing the terminal result',
+  async (kind) => {
+    const events = new AsyncQueue<Record<string, unknown>>();
+    let captured!: Options;
+    vi.mocked(query).mockImplementation((request) => {
+      captured = request.options!;
+      return {
+        close: vi.fn(),
+        [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+      } as never;
+    });
+    let finish!: () => void;
+    const pending = async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      return { continue: true };
+    };
+    let tool!: <T>(operation: () => Promise<T>) => Promise<T>;
+    const controller = new AbortController();
+    const owner = createOrdinaryLocalVertexSdkQuery({
+      options: {
+        sessionId: 'original',
+        hooks: { PreToolUse: [{ hooks: [pending] }] },
+        canUseTool: pending as never,
+      },
+      input: new AsyncQueue(),
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      controller,
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (q) => q as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+      mcpServers: (state) => {
+        tool = state.runCallback;
+        return {};
+      },
+    });
+    const callback =
+      kind === 'tool'
+        ? tool(pending)
+        : kind === 'hook'
+          ? captured.hooks!.PreToolUse![0].hooks[0]({} as never, 'tool', {
+              signal: controller.signal,
+            })
+          : captured.canUseTool!('Read', {}, {
+              signal: controller.signal,
+              toolUseID: 'tool',
+            } as never);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    const iterator = owner.query[Symbol.asyncIterator]();
+    events.push({ type: 'result', session_id: 'original' });
+    let delivered = false;
+    const result = iterator.next().then((event) => {
+      delivered = true;
+      return event;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(delivered).toBe(false);
+    finish();
+    await callback;
+    expect((await result).value).toMatchObject({ type: 'result' });
+    await expect(tool(pending)).rejects.toThrow('already finished');
+    controller.abort();
+  },
+);
 it('retires old native hooks and permissions without executing or aborting the successor owner', async () => {
   const requests: Array<{ options: Options }> = [];
   vi.mocked(query).mockImplementation((request) => {

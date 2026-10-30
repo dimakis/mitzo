@@ -2,6 +2,7 @@ import {
   TASK_WORKER_ALLOCATION_EVENT,
   resolveTaskWorkerAllocationContext,
 } from './task-worker-authority.js';
+import type { TurnCallbackRunner } from './turn-callbacks.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
 import { restoreOwnedVertexInitialPrompt } from './ordinary-local-vertex-replay.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
@@ -2767,7 +2768,10 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       abortController.signal.addEventListener('abort', () => githubPublishing.close(), {
         once: true,
       });
-      const createSdkWebAccess = (state?: { retired: boolean }) => {
+      const createSdkWebAccess = (state?: {
+        retired: boolean;
+        runCallback: TurnCallbackRunner;
+      }) => {
         const assertWebCurrent = async () => {
           if (state?.retired) throw Error('Completed SDK query retired');
           await options.ordinarySdkAuthority?.assertCurrent(abortController.signal);
@@ -2798,6 +2802,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           ),
           abortController.signal,
           options.ordinarySdkAuthority ? undefined : githubPublishing,
+          state?.runCallback,
         );
       };
       const webAccess = createSdkWebAccess();
@@ -2899,6 +2904,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               registry,
               {
                 profilesOnly: true,
+                runCallback: state.runCallback,
                 assertCurrentSync: (signal) => {
                   if (state.retired) throw Error('Completed SDK query retired');
                   options.ordinarySdkAuthority!.assertCurrentSync(signal);
