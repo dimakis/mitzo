@@ -18,6 +18,7 @@ import * as nativeHost from '../native-host-tool-context.js';
 import * as operatorTransport from '../agent-library-transport.js';
 import { authenticateToken, login, setAuthRevocationStore } from '../auth.js';
 import { AdviserTaskScope } from '../adviser-task-scope.js';
+import { SessionRuntimeError } from '../session-runtime-error.js';
 
 const nativeQueues = vi.hoisted(() => new WeakMap<object, { startQueued(): Promise<void> }>());
 vi.mock('../codex-chat-session.js', () => ({
@@ -70,6 +71,26 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+});
+
+it('retains the precise recovery blocker when the native queue cannot start', async () => {
+  const f = fixture();
+  const prepared = await chat.prepareOwnedLocalCodexChat(
+    f.transport,
+    f.id,
+    f.input,
+    f.serverOptions,
+  );
+  f.events.completeOrdinaryLocalCommand(f.commandId);
+  const original = new SessionRuntimeError('unsettled_effects');
+  nativeQueues.set(chat.registry.get(f.id)!, {
+    startQueued: async () => {
+      throw original;
+    },
+  });
+  await expect(prepared.run()).rejects.toBe(original);
+  expect(f.nativeState.dispatchCount).toBe(0);
+  expect(f.events.getOrdinaryLocalCommandAdmission(f.commandId)?.state).toBe('consumed');
 });
 
 function fixture(store?: EventStore, withContext = false) {

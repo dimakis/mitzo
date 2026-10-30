@@ -1,4 +1,6 @@
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import { getCodexConversationStore } from './codex-chat-session.js';
+import { sessionRuntimeMessage } from './session-runtime-error.js';
 import { OrdinaryLocalCodexHostRuntime } from './ordinary-local-codex-host-runtime.js';
 import {
   OrdinaryLocalVertexTarget,
@@ -50,6 +52,23 @@ export function ordinaryCodexContinuationStatus(
       return blocked(
         'A previous command has an unconfirmed dispatch. Its original receipt and workspace are retained.',
       );
+    if (
+      authSessionId &&
+      meta.accountBinding &&
+      binding.harness.implementation === 'codex' &&
+      binding.execution.location === 'local' &&
+      !registry.findBySessionId(sessionId)
+    ) {
+      const native = getCodexConversationStore();
+      if (
+        ordinaryOperatorOwnsConversation(
+          native.readHostCustody(sessionId, meta.accountBinding)?.authSessionId,
+          authSessionId,
+        ) &&
+        native.continuationBlocker(sessionId, meta.accountBinding)
+      )
+        return blocked(sessionRuntimeMessage('unsettled_effects'));
+    }
     const location = binding.execution.location;
     if (
       custodianControllerMode ||

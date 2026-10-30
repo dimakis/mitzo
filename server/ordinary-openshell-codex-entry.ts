@@ -1,5 +1,8 @@
 import { assembleCommandPrompt } from './message-reply-context.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import { deliverRetainedSessionEvent } from './query-loop.js';
+import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
+import { findSessionRuntimeError } from './session-runtime-error.js';
 import {
   resolveTelosWorkRoleContext,
   resolveTelosWorkSystemPrompt,
@@ -23,6 +26,7 @@ import { getCodexConversationStore, getCodexRuntime } from './codex-chat-session
 import {
   eventStore,
   registry,
+  getConnectionRegistry,
   prepareOwnedCodexChat,
   echoOwnedCodexCommand,
   resolveOwnedTelosWorkCommandScope,
@@ -341,7 +345,23 @@ export async function startOwnedOpenShellCodexCommand(
       },
       close,
     };
-    void prepared.run().catch(() => {
+    void prepared.run().catch((error: unknown) => {
+      reportRetainedRuntimeFailure({
+        store: eventStore,
+        sessionId,
+        // The query outlives its first command. Only a command-scoped native
+        // failure owner can correlate a later error with a specific saved send.
+        session,
+        transport,
+        error,
+        deliver: (event) =>
+          deliverRetainedSessionEvent(
+            event,
+            clientId,
+            registry,
+            getConnectionRegistry() ?? undefined,
+          ),
+      });
       try {
         prepared?.close();
       } finally {
@@ -349,12 +369,12 @@ export async function startOwnedOpenShellCodexCommand(
       }
     });
     return result;
-  } catch {
+  } catch (error) {
     try {
       prepared?.close();
     } finally {
       close();
     }
-    throw unavailable();
+    throw findSessionRuntimeError(error) ?? unavailable();
   }
 }

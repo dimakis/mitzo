@@ -7,6 +7,10 @@ import {
   TASK_WORKER_ALLOCATION_EVENT,
   resolveTaskWorkerAllocationContext,
 } from './task-worker-authority.js';
+import { assertTurnCallbackEffects, type TurnCallbackRunner } from './turn-callbacks.js';
+import { createSdkTurnQuery } from './sdk-turn-query.js';
+import { findSessionRuntimeError } from './session-runtime-error.js';
+import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
 import { restoreOwnedVertexInitialPrompt } from './ordinary-local-vertex-replay.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
@@ -211,7 +215,7 @@ import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { setSkillPolicy } from './skill-policy.js';
-import { runQueryLoop, broadcastToObservers } from './query-loop.js';
+import { runQueryLoop, broadcastToObservers, deliverRetainedSessionEvent } from './query-loop.js';
 import { clearSessionImages } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
 import {
@@ -2498,6 +2502,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           options.sourceSnapshots,
         );
       q = await openCodexChat({
+        deliverRuntimeFailure: (event) =>
+          deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
         agentProfile,
         assertAgentContextAuthorization: assertSandboxContextAuthorization,
         resume: !!options.resume,
@@ -2751,6 +2757,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
         registry,
         () => {
+          assertTurnCallbackEffects();
           options.ordinarySdkAuthority?.assertCurrentSync(abortController.signal);
           return hostGithubPublishingSource(
             session,
@@ -2760,9 +2767,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           );
         },
         session,
-        options.ordinarySdkAuthority
-          ? () => options.ordinarySdkAuthority!.assertCurrent(abortController.signal)
-          : undefined,
+        async () => {
+          assertTurnCallbackEffects();
+          await options.ordinarySdkAuthority?.assertCurrent(abortController.signal);
+          assertTurnCallbackEffects();
+        },
         {
           explicitSelection: () => {
             // Ordinary SDK provider publication is disabled; an explicit operator
@@ -2790,11 +2799,17 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       abortController.signal.addEventListener('abort', () => githubPublishing.close(), {
         once: true,
       });
-      const createSdkWebAccess = (state?: { retired: boolean }) => {
+      const createSdkWebAccess = (state?: {
+        retired: boolean;
+        completing: boolean;
+        runCallback: TurnCallbackRunner;
+      }) => {
         const assertWebCurrent = async () => {
-          if (state?.retired) throw Error('Completed SDK query retired');
+          assertTurnCallbackEffects();
+          if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
           await options.ordinarySdkAuthority?.assertCurrent(abortController.signal);
-          if (state?.retired) throw Error('Completed SDK query retired');
+          assertTurnCallbackEffects();
+          if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
         };
         return createWebAccessSdkServer(
           createWebAccessTool(
@@ -2810,17 +2825,19 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                   ? {
                       assertCurrent: assertWebCurrent,
                       assertCurrentSync: (signal) => {
-                        if (state?.retired) throw Error('Completed SDK query retired');
+                        if (state?.retired || state?.completing)
+                          throw Error('Completed SDK query retired');
                         options.ordinarySdkAuthority!.assertCurrentSync(signal);
                       },
                       writeRoots: options.ordinarySdkAuthority.writeRoots(),
                     }
                   : {}),
               }),
-            options.ordinarySdkAuthority ? assertWebCurrent : undefined,
+            assertWebCurrent,
           ),
           abortController.signal,
           options.ordinarySdkAuthority ? undefined : githubPublishing,
+          state?.runCallback,
         );
       };
       const webAccess = createSdkWebAccess();
@@ -2922,14 +2939,15 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               registry,
               {
                 profilesOnly: true,
+                runCallback: state.runCallback,
                 assertCurrentSync: (signal) => {
-                  if (state.retired) throw Error('Completed SDK query retired');
+                  if (state.retired || state.completing) throw Error('Completed SDK query retired');
                   options.ordinarySdkAuthority!.assertCurrentSync(signal);
                 },
                 assertCurrent: async (signal) => {
-                  if (state.retired) throw Error('Completed SDK query retired');
+                  if (state.retired || state.completing) throw Error('Completed SDK query retired');
                   await options.ordinarySdkAuthority!.assertCurrent(signal);
-                  if (state.retired) throw Error('Completed SDK query retired');
+                  if (state.retired || state.completing) throw Error('Completed SDK query retired');
                 },
               },
             ),
@@ -2988,13 +3006,59 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         );
         await liveOrdinarySdkOwner.enqueue(initialMessageId);
       } else {
-        const authorizedSdkInput = async function* () {
-          for await (const message of inputQueue) {
-            await authorizeSdkContext(abortController.signal);
-            yield message;
-          }
-        };
-        q = adaptSdkQuery(query({ prompt: authorizedSdkInput(), options: sdkOptions }));
+        q = createSdkTurnQuery({
+          input: inputQueue,
+          controller: abortController,
+          lifetime: sdkHookLifetime,
+          sdkSessionId: resolvedResume ?? newSdkSessionId!,
+          cwd,
+          onUnsent: (message, error) =>
+            reportRetainedRuntimeFailure({
+              store: eventStore,
+              sessionId: session.sessionId ?? options.resume ?? newSdkSessionId!,
+              session,
+              onlyIfSaved: true,
+              deliver: (event) =>
+                deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
+              commandId:
+                (message as SDKUserMessage & { mitzoMessageId?: string }).mitzoMessageId ??
+                initialMessageId,
+              error,
+            }),
+          authorize: authorizeSdkContext,
+          create: (request) => query(request),
+          adapt: adaptSdkQuery,
+          options: (state) => ({
+            ...sdkOptions,
+            mcpServers: {
+              ...sdkOptions.mcpServers,
+              ...(Object.hasOwn(sdkOptions.mcpServers ?? {}, 'mitzo-web-access')
+                ? { 'mitzo-web-access': createSdkWebAccess(state) }
+                : {}),
+              ...(Object.hasOwn(sdkOptions.mcpServers ?? {}, 'mitzo-connections')
+                ? {
+                    'mitzo-connections': createCredentialSdkServer(
+                      () => session.sessionId ?? options.resume ?? newSdkSessionId,
+                      session,
+                      registry,
+                      {
+                        runCallback: state.runCallback,
+                        assertCurrentSync: (signal) => {
+                          signal.throwIfAborted();
+                          assertTurnCallbackEffects();
+                        },
+                        assertCurrent: async (signal) => {
+                          assertTurnCallbackEffects();
+                          await authorizeSdkContext(signal);
+                          assertTurnCallbackEffects();
+                        },
+                      },
+                    ),
+                  }
+                : {}),
+            },
+          }),
+        });
       }
     }
 
@@ -3663,13 +3727,18 @@ export async function startOwnedLocalCodexCommand(
     const ownedQuery = prepared;
     // run() is the existing chat task, started only after admit saved consumed.
     // Its normal completion/abort closes the driver through required onEnded.
-    void ownedQuery.run().catch(() => {
-      log.warn('owned local chat task failed', { sessionId });
-      try {
-        send(transport, { type: 'error', sessionId, error: unavailable().message });
-      } catch {
-        /* The receipt remains durable even when the viewer disconnected. */
-      }
+    void ownedQuery.run().catch((error: unknown) => {
+      reportRetainedRuntimeFailure({
+        store: eventStore,
+        sessionId,
+        // This task owns the session across later commands. Its cleanup errors
+        // cannot be attributed to the completed command that first started it.
+        session: liveSession,
+        transport,
+        error,
+        deliver: (event) =>
+          deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
+      });
       try {
         ownedQuery.close();
       } catch {
@@ -3693,7 +3762,9 @@ export async function startOwnedLocalCodexCommand(
     } catch {
       /* No automatic retry or custody cleanup. */
     }
-    throw findNativeMacExecutionUnavailable(error) ?? unavailable();
+    throw (
+      findNativeMacExecutionUnavailable(error) ?? findSessionRuntimeError(error) ?? unavailable()
+    );
   }
 }
 
@@ -3799,8 +3870,8 @@ export async function prepareOwnedCodexChat(
         ? { ordinaryWorkspace: workspace }
         : { repositoryWorkspace: workspace }),
     });
-  } catch {
-    throw unavailable();
+  } catch (error) {
+    throw findSessionRuntimeError(error) ?? unavailable();
   }
 
   const { expected, workspace, payload, profile } = selected;
@@ -3933,6 +4004,8 @@ export async function prepareOwnedCodexChat(
     env.MITZO_SESSION_ID = sessionId;
     env.MITZO_AGENT_NAME = expected.agentProfile?.definition.name ?? '';
     queryInstance = await openCodexChat({
+      deliverRuntimeFailure: (event) =>
+        deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
       ownedLocal: localAdmission,
       ownedOpenShell: openShellAdmission,
       resume,
@@ -4020,7 +4093,9 @@ export async function prepareOwnedCodexChat(
     } catch {
       /* Retain uncertainty even if shutdown cannot finish. */
     }
-    throw findNativeMacExecutionUnavailable(error) ?? unavailable();
+    throw (
+      findNativeMacExecutionUnavailable(error) ?? findSessionRuntimeError(error) ?? unavailable()
+    );
   } finally {
     releaseStartup?.();
   }
@@ -4050,15 +4125,15 @@ export async function prepareOwnedCodexChat(
         if (!ready || ready.session !== session) throw unavailable();
         currentClientId = ready.clientId;
         ownedClientId = currentClientId;
-      } catch {
-        throw unavailable();
+      } catch (error) {
+        throw findSessionRuntimeError(error) ?? unavailable();
       }
       ran = true;
       const safeEvents = async function* () {
         try {
           yield* preparedQuery;
-        } catch {
-          throw unavailable();
+        } catch (error) {
+          throw findSessionRuntimeError(error) ?? unavailable();
         }
       };
       try {
@@ -4090,8 +4165,8 @@ export async function prepareOwnedCodexChat(
             onSuccessfulAccountUse: (binding) => getAccountUseStore().record(binding),
           },
         );
-      } catch {
-        throw unavailable();
+      } catch (error) {
+        throw findSessionRuntimeError(error) ?? unavailable();
       } finally {
         close();
       }
@@ -4727,7 +4802,7 @@ export async function sendToChat(
           makeUserMessage(
             fullPrompt,
             'next',
-            responses ? messageId : undefined,
+            messageId,
             providerAdmission,
             undefined,
             responses ? images : undefined,
@@ -4995,7 +5070,7 @@ export async function interruptChat(
     // Only push to inputQueue on first delivery — a retried interrupt should
     // still call interrupt() (to halt the agent) but not double-queue the prompt.
     if (!isDup) {
-      session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
+      session.inputQueue.push(makeUserMessage(fullPrompt, 'now', messageId));
     }
     return true;
   });
@@ -6253,13 +6328,16 @@ export async function startOwnedLocalResponsesCommand(
           .catch(() => {})
           .finally(close);
       }
-    } catch {
+    } catch (error) {
       owner.interruptQueue();
-      send(session?.transport ?? transport, {
-        type: 'error',
+      reportRetainedRuntimeFailure({
+        store: eventStore,
         sessionId,
-        error:
-          'Saved API work is paused. Check its account, settings and original outcome before continuing.',
+        session,
+        transport,
+        error,
+        deliver: (event) =>
+          deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
       });
     } finally {
       scheduling = false;

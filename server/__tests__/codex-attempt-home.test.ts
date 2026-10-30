@@ -256,9 +256,9 @@ it('retains replay and withholds a new turn after an unknown provider failure', 
   two.c.close();
   const three = attempt(store, 'three', history);
   await three.c.initialize(); // Metadata/thread preparation is not a provider turn.
-  await expect(three.c.send({ id: 'claim3', prompt: 'Recall again' })).rejects.toThrow(
-    /effects.*reconciliation/,
-  );
+  await expect(three.c.send({ id: 'claim3', prompt: 'Recall again' })).rejects.toMatchObject({
+    code: 'unsettled_effects',
+  });
   expect(three.requests.some((request) => request.method === 'turn/start')).toBe(false);
   expect(three.dispatched).not.toHaveBeenCalled();
   expect(three.accepted).not.toHaveBeenCalled();

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { clearWebSearchGrant } from './web-search-grants.js';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -223,11 +224,14 @@ export function createUrlAccessTool(
           isError: false,
         };
       } catch {
-        return {
-          content:
-            'URL access request could not be completed. Check the URL and session before retrying.',
-          isError: true,
-        };
+        return retainCallbackOutcome(
+          {
+            content:
+              'URL access request could not be completed. Check the URL and session before retrying.',
+            isError: true,
+          },
+          'settled',
+        );
       }
     },
     async fetch(
