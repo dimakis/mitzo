@@ -247,6 +247,18 @@ export function createTelosWorkRouter(options: {
       control(store, selected.input, { kind: 'conversation', id: selected.sessionId }),
     );
   });
+  router.get('/api/telos/work/collection', options.operatorAuth, (req, res) => {
+    const authority = lifecycleActor(res);
+    if (!authority) return;
+    const query = z
+      .strictObject({ view: TelosWorkLifecycleListSchema.optional() })
+      .safeParse(req.query);
+    if (!query.success) {
+      res.status(400).json({ code: 'invalid', error: 'Invalid collection view' });
+      return;
+    }
+    run(res, (store) => store.readCollection(query.data.view ?? 'active', authority), 'record');
+  });
   router.get('/api/telos/work/items/:itemId', options.operatorAuth, (req, res) => {
     const authority = actor(res);
     if (!authority) return;
