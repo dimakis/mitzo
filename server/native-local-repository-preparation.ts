@@ -8,7 +8,7 @@ import {
   PendingHostTaskError,
   pendingHostTaskDecisionHash,
 } from './pending-host-task.js';
-import { inputSchema } from './local-repository-preparation-authorization.js';
+import { parseLocalRepositoryPreparationInput } from './local-repository-preparation-input.js';
 import { localRepositoryPreparationId, repositorySourceIdentity } from './local-repository-base.js';
 import { captureNativeLocalRepositoryReader } from './local-repository-native-read.js';
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
@@ -90,7 +90,7 @@ export async function executeNativeLocalRepositoryPreparation(
       };
       return withCodexToolCleanup(async () => {
         current();
-        const input = inputSchema.parse(rawInput);
+        const input = parseLocalRepositoryPreparationInput(rawInput);
         const binding = context.session.accountBinding;
         if (!binding) throw unavailable();
         const sourceIntent = input.source ?? { kind: 'existing' as const, path: input.path! };
