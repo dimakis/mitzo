@@ -517,6 +517,17 @@
     "requirement": "Requires the current authenticated operator and original tool selection; brief and lifecycle mutations use exact request approval. Browsing and maintenance require no lead assignment."
   },
   {
+    "id": "mitzo:TelosCreateChild",
+    "version": 1,
+    "name": "TelosCreateChild",
+    "description": "Create one child under an existing Telos parent with a title, intent, rationale and acceptance criteria. Read the parent with TelosManageItem first. Supply item.revision or the previous creation parentRevision as expectedParentRevision, a unique requestId and an audit note. Requires exact approval. Retry uncertain creation with identical input and requestId; the receipt returns the child and new parentRevision. Completed, archived or trashed parents cannot receive new children. Creates manual backlog work with a session link; no lead assignment, source capture or execution.",
+    "source": "Telos",
+    "required": false,
+    "behavior": "write",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires the current authenticated operator and original tool selection; brief and lifecycle mutations use exact request approval. Browsing and maintenance require no lead assignment."
+  },
+  {
     "id": "mitzo:TelosSaveArtifact",
     "version": 1,
     "name": "TelosSaveArtifact",
