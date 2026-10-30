@@ -101,6 +101,7 @@ import {
 } from './protected-sdk-command.js';
 import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
 import { CONNECTION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
+import { MEMORY_CAPTURE_INSTRUCTIONS } from './session-memory-instructions.js';
 import { isRegisteredConversation } from '@mitzo/protocol';
 import { clearWebSearchGrant } from './web-search-grants.js';
 import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
@@ -5112,7 +5113,7 @@ Please perform session closeout:
 
 1. If there is uncommitted work in any worktree, commit it now with a descriptive message
 2. If a reviewed GitHub publish capability is available, invoke it after committing to publish the branch and create or update a pull request. Do not run direct \`git push\` or \`gh pr create\`: the capability displays the required approval and enforces repository and branch scope. If it is unavailable, leave the local commit in place and report that publishing requires the reviewed capability.
-3. If there are memory-worthy observations, decisions, or patterns — write them to memory/Observations/ or memory/Decisions/
+3. ${MEMORY_CAPTURE_INSTRUCTIONS}
 4. Write a 2-3 sentence summary of what was accomplished and what remains unfinished — output it as your final chat message so it appears in the conversation history
 5. Do not ask for confirmation — just do it`;
 
@@ -5196,7 +5197,7 @@ const USER_CLOSEOUT_PROMPT = `The user has closed this session.
 Please perform session closeout:
 
 1. If there is uncommitted work in any worktree, commit it now with a descriptive message
-2. If there are memory-worthy observations, decisions, or patterns — write them to memory/Observations/ or memory/Decisions/
+2. ${MEMORY_CAPTURE_INSTRUCTIONS}
 3. Write a 2-3 sentence summary of what was accomplished and what remains unfinished — output it as your final chat message so it appears in the conversation history
 4. Do not ask for confirmation — just do it`;
 

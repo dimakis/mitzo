@@ -132,6 +132,7 @@ import {
 } from './symposium-artifact-reader.js';
 import { databaseBackupWatermark, backupOwnedDatabase } from './database-backup.js';
 import Database from 'better-sqlite3';
+import { recordMemoryCandidate } from './memory-candidates.js';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   SymposiumArtifactSealSelectionSchema,
@@ -3497,6 +3498,25 @@ export class EventStore {
     this.assertConversationIdentity(sessionId);
     const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload), null, null);
     return Number(result.lastInsertRowid);
+  }
+
+  recordMemoryCandidate(sessionId: string, accountId: string, input: unknown) {
+    this.assertConversationIdentity(sessionId);
+    const session = this.getSession(sessionId);
+    if (
+      !session ||
+      session.sessionType === 'symposium' ||
+      session.accountBinding?.accountId !== accountId
+    )
+      throw Error('Memory candidate requires its ordinary conversation account');
+    return recordMemoryCandidate(
+      this.db!,
+      sessionId,
+      accountId,
+      input,
+      () => this.getRecentConversationText(sessionId, 4096),
+      (payload) => this.append(sessionId, 'memory_candidate', payload),
+    );
   }
 
   /** The caller must authorize this conversation using the normal session boundary. */

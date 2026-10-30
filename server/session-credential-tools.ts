@@ -94,7 +94,7 @@ export function sessionCredentialTools(
       call?: ProfileToolCall,
     ) {
       if (connections.handles(name)) return connections.execute(name, input, signal);
-      if (name === 'ReadKnowledge' || name === 'SaveKnowledgeDraft')
+      if (knowledgeToolDefinitions.some((definition) => definition.name === name))
         return knowledgeTools.execute(name, input, signal);
       await assertRuntimeCurrent?.();
       if (!agentToolAllowed(session, name))
