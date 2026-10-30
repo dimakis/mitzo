@@ -7,8 +7,8 @@ import { writeFile } from 'node:fs/promises';
 import { createJoinedOrdinaryApplication } from './joined-ordinary-application';
 import { navigateToChatMetadata, observeTaskChatReads } from './task-chat-read-observer';
 
-// UX18/21/22 bounded current-contract journey. Bound chat intentionally keeps
-// legacy local queues behind guarded admission and omits replacement interrupts.
+// UX18/21/22 bounded current-contract journey. Explicitly paused local queues
+// remain retained while cancellation and the unrelated response are exercised.
 // This does not assert full ordinary-control parity or Symposium qualification.
 it('Actual App Stop cancels only the selected unrelated outcome while retaining drafts, queues and the other native turn', async () => {
   const h = await createJoinedOrdinaryApplication({ viewport: { width: 1280, height: 900 } });
@@ -109,6 +109,10 @@ it('Actual App Stop cancels only the selected unrelated outcome while retaining 
   for (let index = 0; index < ids.length; index++) {
     await page.goto(front.origin + '/chat/' + ids[index]);
     await h.waitForPreparedConversation(ids[index]);
+    await page.getByRole('button', { name: 'Pause queue', exact: true }).click();
+    await browserExpect(
+      page.getByRole('button', { name: 'Resume queue', exact: true }),
+    ).toBeVisible();
     await composer.fill('Start only outcome ' + index + ' for this offline probe.');
     const [first] = await Promise.all([
       page.waitForResponse(
@@ -118,7 +122,7 @@ it('Actual App Stop cancels only the selected unrelated outcome while retaining 
       ),
       page.getByRole('button', { name: 'Send message', exact: true }).click(),
     ]);
-    expect(first.status()).toBe(202);
+    expect(first.status(), await first.text()).toBe(202);
     expect(await first.json()).toMatchObject({
       sessionId: ids[index],
       state: 'consumed',
