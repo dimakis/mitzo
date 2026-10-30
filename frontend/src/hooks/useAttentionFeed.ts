@@ -1,7 +1,7 @@
 import type { UiIconName } from '../components/UiIcon';
 import { sessionAttentionReason } from '../lib/session-attention';
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { apiFetch } from '../lib/api-fetch';
+import { useState, useEffect, useMemo } from 'react';
+import { useTodoData } from './useTodoData';
 import { eventBus } from '../lib/event-bus-singleton';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import type { SessionActivity } from '@mitzo/protocol';
@@ -229,44 +229,15 @@ export interface UseAttentionFeedReturn {
 }
 
 export function useAttentionFeed(): UseAttentionFeedReturn {
-  // Telos data — lightweight fetch (no profile filter = all)
-  const [todos, setTodos] = useState<TodoItem[]>([]);
-  const [todosLoading, setTodosLoading] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const retry = useCallback(() => setRefreshKey((key) => key + 1), []);
-
-  useEffect(() => {
-    let cancelled = false;
-    apiFetch('/api/todos')
-      .then((r) => {
-        if (!r.ok) throw new Error('Attention unavailable');
-        return r.json();
-      })
-      .then((data: { items: TodoItem[] }) => {
-        if (!cancelled) {
-          if (!Array.isArray(data.items)) throw new Error('Attention data unavailable');
-          setTodos(data.items);
-          setError(null);
-          setTodosLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setError('Couldn’t load attention items. Try again.');
-          setTodosLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshKey]);
-
-  // SSE-driven refreshes
-  useEffect(() => {
-    const unsub = eventBus.on('todo_update', () => setRefreshKey((k) => k + 1));
-    return unsub;
-  }, []);
+  // Today, linked chats and Work share the same canonical collection owner.
+  const collection = useTodoData(undefined, undefined, 'active', 'canonical');
+  const todos = collection.items;
+  const todosLoading = collection.loading;
+  const retry = collection.refresh;
+  const error =
+    collection.error || collection.recordFailures?.length
+      ? 'Couldn’t load attention items. Try again.'
+      : null;
 
   // ATB tasks from store
   const tasks = useMitzoStore((s) => s.tasks.tree);

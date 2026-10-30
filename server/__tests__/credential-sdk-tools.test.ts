@@ -43,6 +43,7 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
     'GetRepositoryChatPreparation',
     'SymposiumProposeProfile',
     'SymposiumReadProfiles',
+    'RecordMemoryCandidate',
     'ReadKnowledge',
     'SaveKnowledgeDraft',
   ]);

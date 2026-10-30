@@ -78,8 +78,8 @@ it('keeps an interactive chooser disclosure and keyboard focus while canonical c
     release = resolve;
   });
   let delayedCollectionReads = 0;
-  await page.route('**/api/todos**', async (route) => {
-    if (new URL(route.request().url()).pathname === '/api/todos') {
+  await page.route('**/api/telos/work/collection**', async (route) => {
+    if (new URL(route.request().url()).pathname === '/api/telos/work/collection') {
       delayedCollectionReads++;
       await gate;
     }
@@ -134,7 +134,8 @@ it('keeps an interactive chooser disclosure and keyboard focus while canonical c
     });
   const actualCollection = page.waitForResponse(
     (response) =>
-      response.request().method() === 'GET' && new URL(response.url()).pathname === '/api/todos',
+      response.request().method() === 'GET' &&
+      new URL(response.url()).pathname === '/api/telos/work/collection',
   );
   release();
   const response = await actualCollection;

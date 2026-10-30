@@ -237,6 +237,7 @@ it.each([
   'HomeAssistantDashboard',
   'PrepareConnectionSetup',
   'GetConnectionSetup',
+  'RecordMemoryCandidate',
   'ReadKnowledge',
   'SaveKnowledgeDraft',
   'RequestWebAccess',

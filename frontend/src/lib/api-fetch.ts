@@ -1,3 +1,4 @@
+import { SharedReadRequests } from './shared-read-requests';
 /**
  * Centralised fetch wrapper for all Mitzo API calls.
  *
@@ -20,6 +21,7 @@ export const AUTH_RESTORED_EVENT = 'mitzo:auth-restored';
 export const CONVERSATION_JOINING_RECOVERY_PREFIX = 'mitzo-conversation-joining-recovery:';
 let authGeneration = 0;
 let authenticationRestored = false;
+const pendingTelosReads = new SharedReadRequests();
 const pendingTodoReads = new Map<string, Promise<Response>>();
 const COOKIE_AUTH_VERIFICATION_MS = 30_000;
 const COOKIE_AUTH_CHECK_TIMEOUT_MS = 5_000;
@@ -37,6 +39,7 @@ let cookieRestoreInFlight: {
 
 /** Fence new list reads from requests started before a refresh or mutation. */
 export function invalidateTodoReads(): void {
+  pendingTelosReads.retire();
   pendingTodoReads.clear();
 }
 
@@ -54,6 +57,7 @@ function clearJoiningRecovery(): void {
 }
 
 function dispatchAuthEvent(name: string, source: AuthEventSource = 'local'): void {
+  pendingTelosReads.clear();
   pendingTodoReads.clear();
   verifiedCookieAuth = null;
   if (typeof window !== 'undefined') {
@@ -180,8 +184,19 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
     [...new URLSearchParams(path.split('?')[1]).keys()].every((key) => key === 'profile') &&
     (!init?.method || init.method === 'GET') &&
     Object.keys(init ?? {}).every((key) => key === 'method' || key === 'credentials');
+  const shareTelosRead =
+    /^\/api\/telos\/work\/items\/[^/?]+$/.test(path) &&
+    (!init?.method || init.method === 'GET') &&
+    Object.keys(init ?? {}).every((key) => ['method', 'credentials', 'signal'].includes(key));
   let response: Response;
-  if (shareRead) {
+  if (shareTelosRead) {
+    const key = JSON.stringify([requestAuthGeneration, token, url]);
+    response = await pendingTelosReads.read(
+      key,
+      (signal) => fetch(url, { ...request, signal }),
+      init?.signal,
+    );
+  } else if (shareRead) {
     // Page, Today and badge reads share only outstanding identical requests.
     // Auth generations prevent a new login from joining an old user's request.
     const key = JSON.stringify([requestAuthGeneration, token, url]);

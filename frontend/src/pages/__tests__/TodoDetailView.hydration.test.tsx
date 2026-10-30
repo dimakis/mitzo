@@ -74,6 +74,7 @@ const collection = (items: (typeof item)[] = []) => ({
   items,
   loading: items.length === 0,
   refreshing: false,
+  refreshKey: 0,
   error: null,
   profiles: [],
   refresh: vi.fn(),
@@ -335,7 +336,7 @@ it('keeps no-snapshot navigation in a standard loading frame until the canonical
   );
   const view = mount();
   expect(view.container.querySelector('.todo-detail-legacy')).toBeNull();
-  expect(screen.getByText('Loading...').getAttribute('role')).toBe('status');
+  expect(screen.getByText('Loading item…').getAttribute('role')).toBe('status');
   expect(screen.queryByText('Urgency')).toBeNull();
   await act(async () => pending.resolve(root));
   await screen.findByRole('heading', { name: root.summary });

@@ -99,7 +99,7 @@ describe('TELOS workspace', () => {
     mount();
     fireEvent.click(await screen.findByRole('button', { name: 'work' }));
     fireEvent.click(screen.getByRole('button', { name: 'Ship desktop work' }));
-    expect(screen.getByText('Inspect current pages')).toBeTruthy();
+    expect(await screen.findByText('Inspect current pages')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Review desktop work' })).toBeNull();
     expect(screen.getByLabelText('Route').textContent).toBe('/todos/first');
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
@@ -116,7 +116,7 @@ describe('TELOS workspace', () => {
     state.desktop = false;
     mount();
     fireEvent.click(await screen.findByRole('button', { name: 'Ship desktop work' }));
-    expect(screen.getByText('Inspect current pages')).toBeTruthy();
+    expect(await screen.findByText('Inspect current pages')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Review desktop work' })).toBeNull();
   });
 });

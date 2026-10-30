@@ -1,3 +1,5 @@
+import { telosDescendants } from '../lib/telos-descendants';
+import { ReadableBrief } from './ReadableBrief';
 import { TelosItemLifecycle } from './TelosItemLifecycle';
 import type { TelosWorkLifecycleView } from '@mitzo/protocol';
 import { TodoPrioritySelect } from './TodoPrioritySelect';
@@ -59,10 +61,7 @@ export function TelosItemWorkspace({
   const key = 'telos.item.tab.' + record.itemId;
   const [tab, setTab] = useState<Tab>(() => initialTab(key, location.search));
   const [error, setError] = useState('');
-  const descendants = new Set([record.itemId]);
-  for (let i = 0; i < records.length; i++)
-    for (const r of records)
-      if (r.parentId && descendants.has(r.parentId)) descendants.add(r.itemId);
+  const descendants = telosDescendants(records, record.itemId);
   const children = records.filter((r) => r.itemId !== record.itemId && descendants.has(r.itemId));
   const parent = records.find((r) => r.itemId === record.parentId);
   const parentKind =
@@ -235,15 +234,24 @@ export function TelosItemWorkspace({
             work
           ) : (
             <>
-              <TelosItemRoleEntries key={record.itemId} itemId={record.itemId} />
-              {parentKind ? (
-                work
-              ) : (
-                <section>
-                  <h2>{record.kind === 'work_item' ? 'This work item' : 'This item'}</h2>
-                  <p>{record.intent || 'Not recorded'}</p>
-                </section>
-              )}
+              <TelosItemRoleEntries
+                key={record.itemId}
+                itemId={record.itemId}
+                onOpenChat={() => select('Chat')}
+              />
+              <section>
+                <h2>
+                  {record.kind === 'coordinator'
+                    ? 'Coordination mandate'
+                    : parentKind
+                      ? 'Overview'
+                      : record.kind === 'work_item'
+                        ? 'This work item'
+                        : 'This item'}
+                </h2>
+                <ReadableBrief text={record.intent} />
+              </section>
+              {parentKind && work}
               <section className="telos-materials-section">
                 <h2>Plans, documents & outputs</h2>
                 {materials}
@@ -252,65 +260,72 @@ export function TelosItemWorkspace({
           )}
         </div>
         <aside className="telos-brief" aria-label="Original brief">
-          <h2>{record.kind === 'coordinator' ? 'Coordination mandate' : 'Outcome'}</h2>
-          <p>{record.intent || 'Not recorded'}</p>
-          <h2>Why this matters</h2>
-          <p>{record.rationale || 'Not recorded'}</p>
-          <h2>Done when</h2>
-          {record.acceptanceCriteria.length > 0 ? (
-            <ul>
-              {record.acceptanceCriteria.map((c, i) => (
-                <li key={i}>{c}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>Not recorded</p>
-          )}
-          <h2>Task Hint</h2>
-          <p>{record.contextHints.taskHint || 'Not recorded'}</p>
-          <details className="telos-brief-context">
-            <summary>Context</summary>
-            <dl>
-              {(
-                [
-                  ['Repositories', record.contextHints.repos],
-                  ['Files', record.contextHints.paths],
-                  ['Issues', record.contextHints.issues],
-                  ['Documents', record.contextHints.docIds],
-                  ['People', record.contextHints.people],
-                  ['Jira issues', record.contextHints.jiraKeys],
-                  ['Keywords', record.contextHints.keywords],
-                  ['Session references', record.contextHints.sessionIds],
-                ] as const
-              )
-                .filter(([, values]) => values.length > 0)
-                .map(([label, values]) => (
-                  <div key={label}>
-                    <dt>{label}</dt>
-                    <dd>{values.join(' · ')}</dd>
-                  </div>
+          <details>
+            <summary>Details &amp; context</summary>
+            {current !== 'Overview' && (
+              <section>
+                <h2>Original brief</h2>
+                <ReadableBrief text={record.intent} />
+              </section>
+            )}
+            <h2>Why this matters</h2>
+            <p>{record.rationale || 'Not recorded'}</p>
+            <h2>Done when</h2>
+            {record.acceptanceCriteria.length > 0 ? (
+              <ul>
+                {record.acceptanceCriteria.map((c, i) => (
+                  <li key={i}>{c}</li>
                 ))}
+              </ul>
+            ) : (
+              <p>Not recorded</p>
+            )}
+            <h2>Task Hint</h2>
+            <p>{record.contextHints.taskHint || 'Not recorded'}</p>
+            <details className="telos-brief-context">
+              <summary>Context</summary>
+              <dl>
+                {(
+                  [
+                    ['Repositories', record.contextHints.repos],
+                    ['Files', record.contextHints.paths],
+                    ['Issues', record.contextHints.issues],
+                    ['Documents', record.contextHints.docIds],
+                    ['People', record.contextHints.people],
+                    ['Jira issues', record.contextHints.jiraKeys],
+                    ['Keywords', record.contextHints.keywords],
+                    ['Session references', record.contextHints.sessionIds],
+                  ] as const
+                )
+                  .filter(([, values]) => values.length > 0)
+                  .map(([label, values]) => (
+                    <div key={label}>
+                      <dt>{label}</dt>
+                      <dd>{values.join(' · ')}</dd>
+                    </div>
+                  ))}
+              </dl>
+            </details>
+            <h2>Origin & dates</h2>
+            <dl>
+              <dt>Profile</dt>
+              <dd>{record.profile}</dd>
+              <dt>Created</dt>
+              <dd>{date(record.createdAt)}</dd>
+              <dt>Updated</dt>
+              <dd>{date(record.updatedAt)}</dd>
+              {record.sources.map((source, i) => (
+                <div key={i}>
+                  <dt>{source.title || source.type}</dt>
+                  <dd>
+                    {source.author ?? 'Unknown'} · Created {date(source.createdAt)} · Added{' '}
+                    {date(source.addedAt)} · Updated {date(source.updatedAt)}
+                    <p>{source.rawSnippet}</p>
+                  </dd>
+                </div>
+              ))}
             </dl>
           </details>
-          <h2>Origin & dates</h2>
-          <dl>
-            <dt>Profile</dt>
-            <dd>{record.profile}</dd>
-            <dt>Created</dt>
-            <dd>{date(record.createdAt)}</dd>
-            <dt>Updated</dt>
-            <dd>{date(record.updatedAt)}</dd>
-            {record.sources.map((source, i) => (
-              <div key={i}>
-                <dt>{source.title || source.type}</dt>
-                <dd>
-                  {source.author ?? 'Unknown'} · Created {date(source.createdAt)} · Added{' '}
-                  {date(source.addedAt)} · Updated {date(source.updatedAt)}
-                  <p>{source.rawSnippet}</p>
-                </dd>
-              </div>
-            ))}
-          </dl>
         </aside>
       </div>
       <SavedArtifactRouteDialog itemId={record.itemId} />

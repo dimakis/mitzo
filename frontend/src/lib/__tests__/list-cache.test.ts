@@ -122,3 +122,25 @@ it('records derived memory only when a current read is admitted, before publicat
   await cache.load('all', async () => 'current', accepted);
   expect(accepted).toHaveBeenCalledExactlyOnceWith('current');
 });
+
+it('resolves different missing selections through one successor without retry ping-pong', async () => {
+  const cache = new ListCache<string[]>();
+  const pending: ((value: string[]) => void)[] = [];
+  const loader = vi.fn(() => new Promise<string[]>((resolve) => pending.push(resolve)));
+  const accepted = vi.fn();
+  const resolve = (id: string) => ({
+    id,
+    present: (data: string[] | undefined) => !!data?.includes(id),
+    retire: vi.fn(),
+  });
+  const first = cache.load('all', loader, accepted, resolve('first'));
+  const second = cache.load('all', loader, accepted, resolve('second'));
+  const firstRetry = cache.load('all', loader, accepted, resolve('first'));
+  expect(loader).toHaveBeenCalledTimes(2);
+  pending[1](['first', 'second']);
+  await second;
+  pending[0]([]);
+  expect(await first).toEqual(['first', 'second']);
+  expect(await firstRetry).toEqual(['first', 'second']);
+  expect(accepted).toHaveBeenCalledTimes(1);
+});

@@ -181,11 +181,13 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                                 ? 'Requires an available OS sandbox and existing workspace permissions; no network or credentials.'
                                 : source === 'Web'
                                   ? 'Requires supported provider web search and current approval.'
-                                  : source === 'Knowledge'
-                                    ? 'Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge.'
-                                    : source === 'History'
-                                      ? 'Requires the current signed native operator and original owned-local call. Reads only registered visible durable history within current tool and skill scope; no SDK transcript or credential discovery.'
-                                      : 'Existing session permissions, cancellation and runtime admission apply.',
+                                  : tool.name === 'RecordMemoryCandidate'
+                                    ? 'Requires host capture support, current interactive operator and original tool approval. Records an unverified conversation candidate; does not change accepted knowledge.'
+                                    : source === 'Knowledge'
+                                      ? 'Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge.'
+                                      : source === 'History'
+                                        ? 'Requires the current signed native operator and original owned-local call. Reads only registered visible durable history within current tool and skill scope; no SDK transcript or credential discovery.'
+                                        : 'Existing session permissions, cancellation and runtime admission apply.',
     })),
   );
   return [...taskMcpToolCatalog(), ...builtin];

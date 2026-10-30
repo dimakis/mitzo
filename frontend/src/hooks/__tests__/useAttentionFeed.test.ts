@@ -4,18 +4,25 @@ import { renderHook, waitFor } from '@testing-library/react';
 
 // ─── Mocks ─────────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockEventBusOn: any = vi.fn(() => vi.fn());
-
+const mockEventBusOn = vi.hoisted(() =>
+  vi.fn<(type: string, handler: (data: unknown) => void) => () => void>(() => vi.fn()),
+);
 vi.mock('../../lib/event-bus-singleton', () => ({
   eventBus: {
-    on: (...args: unknown[]) => mockEventBusOn(...args),
+    on: (type: string, handler: (data: unknown) => void) => mockEventBusOn(type, handler),
   },
 }));
 
-vi.mock('../../lib/api-fetch', () => ({
+vi.mock('../../lib/api-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/api-fetch')>()),
   apiFetch: vi.fn(),
 }));
+// Classification cases retain their legacy DTO fixtures while exercising the
+// shared owner; the canonical integration/call budget has a separate regression.
+vi.mock('../useTodoData', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../useTodoData')>();
+  return { ...actual, useTodoData: () => actual.useTodoData() };
+});
 
 const mockTasks = { tree: [], loopStatus: { state: 'idle' } };
 const mockLoadTasks = vi.fn();
@@ -61,6 +68,7 @@ function makeTodo(overrides: Partial<TodoItem> = {}): TodoItem {
 }
 
 beforeEach(() => {
+  window.dispatchEvent(new Event('mitzo:auth-lost'));
   mockEventBusOn.mockClear();
   mockLoadTasks.mockClear();
   mockApiFetch.mockReset();
@@ -242,6 +250,7 @@ describe('useAttentionFeed', () => {
 
     function getSessionActivityHandler(): (data: unknown) => void {
       const call = mockEventBusOn.mock.calls.find((c: unknown[]) => c[0] === 'session_activity');
+      if (!call) throw Error('Expected a session activity subscription');
       return call[1];
     }
 
