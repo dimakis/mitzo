@@ -185,12 +185,7 @@ import { fileURLToPath } from 'url';
 import { resolveBundledMcpEntrypoint } from './mcp-entrypoint.js';
 import { createHash, randomUUID } from 'crypto';
 import { homedir } from 'os';
-import {
-  createWorktree,
-  createWorktreeAsync,
-  symlinkRuntimeDirs,
-  discoverSessionWorktrees,
-} from './worktree.js';
+import { createWorktreeAsync, symlinkRuntimeDirs, discoverSessionWorktrees } from './worktree.js';
 import type { OnDemandCreateFn } from '@mitzo/harness';
 import { effectivePermissionMode } from '@mitzo/harness';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
@@ -925,17 +920,17 @@ function buildOnDemandCreate(wtId: string, clientId: string): OnDemandCreateFn {
  * All worktrees share the same session-scoped wtId. Returns the primary
  * worktree path as cwd, plus a map of all repo worktrees.
  */
-export function createSessionWorktrees(
+export async function createSessionWorktrees(
   transport: SessionTransport,
   baseCwd: string,
   wtId: string,
   options: { resume?: string; cwd?: string; isolation?: boolean },
-): {
+): Promise<{
   cwd: string;
   wtId: string;
   worktreePath?: string;
   repoWorktrees: Map<string, { path: string; wtId: string }>;
-} {
+}> {
   const repoWorktrees = new Map<string, { path: string; wtId: string }>();
 
   // Skip worktree creation when resuming, using custom cwd, or disabled
@@ -947,7 +942,7 @@ export function createSessionWorktrees(
   // by the worktree guard when an agent first writes to them (Phase 2a).
   let primaryPath: string | undefined;
   try {
-    primaryPath = createWorktree(wtId, BASE_REPO);
+    primaryPath = await createWorktreeAsync(wtId, BASE_REPO);
     repoWorktrees.set('primary', { path: primaryPath, wtId });
     writeFileSync(
       join(primaryPath, '.mitzo-session'),
@@ -1959,7 +1954,7 @@ async function _startChatInner(
 
   // Generate session-scoped worktree ID and create worktrees in all repos
   const wtId = generateWtId();
-  let sessionWorktrees: ReturnType<typeof createSessionWorktrees>;
+  let sessionWorktrees: Awaited<ReturnType<typeof createSessionWorktrees>>;
   try {
     sessionWorktrees = openShellSelected
       ? {
@@ -1968,7 +1963,7 @@ async function _startChatInner(
           worktreePath: undefined,
           repoWorktrees: new Map<string, { path: string; wtId: string }>(),
         }
-      : createSessionWorktrees(transport, baseCwd, wtId, options);
+      : await createSessionWorktrees(transport, baseCwd, wtId, options);
   } catch (error) {
     options.onStartupAdmission?.(error);
     return;

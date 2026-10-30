@@ -14,7 +14,7 @@ vi.mock('../worktree.js', async (importOriginal) => {
     ...actual,
     removeWorktree: vi.fn(),
     hasUncommittedWork: vi.fn().mockReturnValue(null),
-    createWorktree: vi.fn(actual.createWorktree as (...args: unknown[]) => unknown),
+    createWorktreeAsync: vi.fn(actual.createWorktreeAsync as (...args: unknown[]) => unknown),
   };
 });
 
@@ -277,9 +277,9 @@ describe('createSessionWorktrees — lazy secondary creation', () => {
 
   beforeEach(async () => {
     const worktreeMod = await import('../worktree.js');
-    createWorktreeMock = worktreeMod.createWorktree as ReturnType<typeof vi.fn>;
+    createWorktreeMock = worktreeMod.createWorktreeAsync as ReturnType<typeof vi.fn>;
     createWorktreeMock.mockReset();
-    createWorktreeMock.mockReturnValue('/repo/.claude/worktrees/test-id');
+    createWorktreeMock.mockResolvedValue('/repo/.claude/worktrees/test-id');
 
     const { loadRepoConfig } = await import('../repo-config.js');
     (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -309,7 +309,7 @@ describe('createSessionWorktrees — lazy secondary creation', () => {
     // checks `!BASE_REPO` (from env), so if REPO_PATH isn't set the early return
     // fires and createWorktree is never called — that's the "disabled" path.
     const mockTransport = { send: vi.fn(), isOpen: () => true };
-    const result = createSessionWorktrees(mockTransport as never, '/repo', 'test-id', {});
+    const result = await createSessionWorktrees(mockTransport as never, '/repo', 'test-id', {});
 
     if (createWorktreeMock.mock.calls.length === 0) {
       // Isolation disabled (no REPO_PATH) — verify we got the passthrough result
