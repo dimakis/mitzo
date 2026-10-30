@@ -1,10 +1,11 @@
 import { EventEmitter } from 'node:events';
-import type { Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
+import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 const span = vi.hoisted(() => ({ setAttribute: vi.fn(), setStatus: vi.fn(), end: vi.fn() }));
 const startSpan = vi.hoisted(() => vi.fn());
 vi.mock('../tracing.js', () => ({ tracer: { startSpan } }));
-import { requestPerformance } from '../request-performance.js';
+import { requestPerformance, mountObservedRouter } from '../request-performance.js';
 
 function setup(path = '/api/sessions/private-id/messages?token=secret') {
   vi.clearAllMocks();
@@ -79,4 +80,53 @@ describe('shared API performance evidence', () => {
     expect(warn).not.toHaveBeenCalled();
     expect(span.end).toHaveBeenCalledOnce();
   });
+});
+
+it('attributes mounted handlers to declared templates without exposing URL parameters', async () => {
+  vi.clearAllMocks();
+  startSpan.mockReturnValue(span);
+  const app = express();
+  app.use(requestPerformance(vi.fn()));
+  const router = express.Router();
+  router.get('/', async (_req, res) => {
+    await Promise.resolve();
+    res.json({ ok: true });
+  });
+  mountObservedRouter(app, '/api/accounts/:account/sessions', router);
+  await request(app).get('/api/accounts/private-account/sessions?token=secret').expect(200);
+  expect(span.setAttribute).toHaveBeenCalledWith('http.route', '/');
+  expect(span.setAttribute).toHaveBeenCalledWith(
+    'http.router.mount',
+    '/api/accounts/:account/sessions',
+  );
+  expect(JSON.stringify([startSpan.mock.calls, span.setAttribute.mock.calls])).not.toMatch(
+    /private-account|secret/,
+  );
+});
+it('preserves authentication ordering and clears mount labels on router fallthrough', async () => {
+  vi.clearAllMocks();
+  startSpan.mockReturnValue(span);
+  const app = express();
+  app.use(requestPerformance(vi.fn()));
+  const handler = vi.fn((_req: Request, res: Response) => {
+    res.sendStatus(200);
+  });
+  mountObservedRouter(
+    app,
+    '/api/protected',
+    (_req, res) => {
+      res.sendStatus(401);
+    },
+    handler,
+  );
+  await request(app).get('/api/protected').expect(401);
+  expect(handler).not.toHaveBeenCalled();
+  expect(span.setAttribute).toHaveBeenCalledWith('http.router.mount', '/api/protected');
+  span.setAttribute.mockClear();
+  mountObservedRouter(app, '/api/empty', express.Router());
+  app.get('/api/empty/fallback', (_req, res) => {
+    res.sendStatus(200);
+  });
+  await request(app).get('/api/empty/fallback').expect(200);
+  expect(span.setAttribute).not.toHaveBeenCalledWith('http.router.mount', expect.anything());
 });

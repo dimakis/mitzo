@@ -22,6 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/request-performance.test.ts': 'c0f6b343299b4739f31ebf192360cdbea5d5670f6338913bb110f01f408975d5',
   '../__tests__/session-dirs.test.ts': 'f97cac934bb7ca16b90815c39fbe2a33b4d267d04c6038d3108671f006f3b891',
   '../__tests__/chat-worktree-startup-failure.test.ts': '65a36801a5cd6eaa6064ccfa161f16a84cae1c6689163509c34eeff82d08d32a',
   '../__tests__/chat-metadata.test.ts': '0b718160237d3b6f40142edbb1aae927d0cd5dc8ee1816b1dc414b15dd35b4e2',
@@ -1323,7 +1324,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6be98645eb9b4467c30f5dacb3e8eee7a9c3f08cb6fc820edc872f789ef217c8',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
-  '../app.ts': '076f66857b2e3b789393293506609910bccaf90c17ce0b8ffefc9d51c9f9dad5',
+  '../app.ts': '30eef71367d617758d963bc547b481094d75bd137ab2f1dd2fed7c3b94d85992',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -1726,7 +1727,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../git-version.ts': '405110af784b38f664fa6165bc83da008aae9de92410395d22a031c6c6b4d220',
   '../logger-transport.ts': '835c336a641ceef7d2a5d368cd435aec33660c4b64f256055bea5dde671153d8',
   '../logger.ts': '7716ffb5d69ddf4307d7c7b45aa4fcde937f1ddb2c5af71f27f9706c54caf6c2',
-  '../request-performance.ts': '0e12542fbd0b53f61fbf96b6ef26bddb1bf77962e50d4cb3325d7c81def56cd9',
+  '../request-performance.ts': '7ad3773852b6a11906b107b9312725af0482c818d3bd81b127d904e9e03648f0',
   '../runtime-performance.ts': '617d0732c9bde4619be7ae36a2513e275c0a897bd354acf9459b8bd3e61c0810',
   '../telos-source-materials.ts':
     'c9ba03795ba968fe4726ce09ccd366bc6f9c7966277986c2a28580780c922111',

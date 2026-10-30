@@ -1,8 +1,37 @@
-import type { RequestHandler } from 'express';
+import type { Express, Request, RequestHandler } from 'express';
 import { performance } from 'node:perf_hooks';
 import { context, trace, SpanKind, SpanStatusCode } from '@opentelemetry/api';
 import { contextFromTraceparent } from './trace-context.js';
 import { tracer } from './tracing.js';
+
+const routerMounts = new WeakMap<Request, string>();
+
+/** Supply only the declared mount template, never a request-derived path.
+ * Install the original middleware in order, restoring the outer label if the
+ * router declines the request. Nested route templates remain separate evidence. */
+export function mountObservedRouter(
+  app: Pick<Express, 'use'>,
+  mount: string,
+  ...handlers: RequestHandler[]
+): void {
+  const previous = new WeakMap<Request, string | undefined>();
+  app.use(
+    mount,
+    (req, _res, next) => {
+      previous.set(req, routerMounts.get(req));
+      routerMounts.set(req, mount);
+      next();
+    },
+    ...handlers,
+    (req, _res, next) => {
+      const outer = previous.get(req);
+      if (outer === undefined) routerMounts.delete(req);
+      else routerMounts.set(req, outer);
+      previous.delete(req);
+      next();
+    },
+  );
+}
 
 type Warn = (message: string, fields: Record<string, unknown>) => void;
 
@@ -34,6 +63,8 @@ export function requestPerformance(warn: Warn, now = () => performance.now()): R
       const streaming = String(res.getHeader('content-type') ?? '').startsWith('text/event-stream');
       const failed = res.statusCode >= 500 || (!streaming && !res.writableFinished);
       span.setAttribute('http.route', route);
+      const routerMount = routerMounts.get(req);
+      if (routerMount) span.setAttribute('http.router.mount', routerMount);
       span.setAttribute('http.response.status_code', res.statusCode);
       span.setAttribute('http.streaming', streaming);
       if (failed) span.setStatus({ code: SpanStatusCode.ERROR });
@@ -41,6 +72,7 @@ export function requestPerformance(warn: Warn, now = () => performance.now()): R
       if (!streaming && (failed || durationMs >= 500))
         warn(failed ? 'API request failed' : 'Slow API request', {
           route,
+          ...(routerMount ? { routerMount } : {}),
           method: req.method,
           status: res.statusCode,
           durationMs,
