@@ -111,14 +111,17 @@ export function TodoDetailView() {
       ...(recordFailures ?? []).map((failure) => failure.itemId),
     ],
     primary.refreshKey,
-    { seed: collectionRecords, loading: refreshing, failures: recordFailures },
+    { seed: collectionRecords, loading: refreshing, failures: recordFailures, readMissing: true },
   );
   const canonical = {
     records: [...primary.records, ...related.records],
     unavailable: [...primary.unavailable, ...related.unavailable],
     loading: primary.loading,
     refreshKey: related.refreshKey,
-    refresh: primary.refresh,
+    refresh: () => {
+      refresh();
+      primary.refresh();
+    },
   };
   const record =
     primary.records.find((value) => value.itemId === id) ??
@@ -176,10 +179,7 @@ export function TodoDetailView() {
                     ? 'unavailable'
                     : 'ready'
             }
-            onRefresh={() => {
-              refresh();
-              canonical.refresh();
-            }}
+            onRefresh={canonical.refresh}
             records={canonical.records}
             onBack={handleBack}
             onLifecycleCurrent={onLifecycleCurrent}

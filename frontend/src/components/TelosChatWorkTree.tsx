@@ -45,15 +45,13 @@ export function TelosChatWorkTree({
   }
   const related = telosDescendants(records, root.itemId);
   const board = useTaskBoard();
-  const { refresh: refreshCollection } = collection;
   const { refresh: refreshTasks } = board;
   const previousRefreshKey = useRef(data.refreshKey);
   useEffect(() => {
     if (previousRefreshKey.current === data.refreshKey) return;
     previousRefreshKey.current = data.refreshKey;
-    refreshCollection();
     refreshTasks();
-  }, [data.refreshKey, refreshCollection, refreshTasks]);
+  }, [data.refreshKey, refreshTasks]);
   const taskIds = new Set(
     data.work.attempts
       .filter(

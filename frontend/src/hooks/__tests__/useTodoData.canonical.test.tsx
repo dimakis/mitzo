@@ -1,3 +1,4 @@
+import { eventBus } from '../../lib/event-bus-singleton';
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
@@ -112,3 +113,39 @@ it.each([false, true])(
     expect(fetchMock).toHaveBeenCalledTimes(2);
   },
 );
+
+it('coalesces reconnect renewal for two canonical owners and ignores the older pending read', async () => {
+  const listeners = new Set<(connected: boolean) => void>();
+  const subscription = vi.spyOn(eventBus, 'onConnectionChange').mockImplementation((listener) => {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  });
+  const records = createTelosWorkFixtures().homeStudio.items;
+  let old!: (response: Response) => void;
+  fetchMock.mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        old = resolve;
+      }),
+  );
+  const first = renderHook(() => useTodoData(undefined, undefined, 'active', 'canonical'));
+  const second = renderHook(() => useTodoData(undefined, undefined, 'active', 'canonical'));
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  act(() => listeners.forEach((listener) => listener(false)));
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  fetchMock.mockImplementation(async () =>
+    Response.json({ records, profiles: ['work'], failures: [] }),
+  );
+  act(() => listeners.forEach((listener) => listener(true)));
+  await waitFor(() => expect(first.result.current.records).toEqual(records));
+  expect(second.result.current.records).toEqual(records);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  await act(async () => old(Response.json({ records: [], profiles: [], failures: [] })));
+  expect(first.result.current.records).toEqual(records);
+  first.unmount();
+  second.unmount();
+  expect(listeners.size).toBe(0);
+  subscription.mockRestore();
+});

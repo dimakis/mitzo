@@ -9,8 +9,12 @@ they existed beneath the intended parent. No database migration is needed.
 
 - `GET /api/telos/work/collection` uses the existing lifecycle read owner for the selected canonical database,
   requires a current interactive operator, and returns private/no-store records.
-  Initialized databases stay read-only; genuinely missing additive lifecycle
-  tables use the existing narrow schema initializer. It rejects selections above
+  Initialized databases stay read-only unless the bounded snapshot proves snoozes
+  are due. That case rechecks the current operator and uses an owned IMMEDIATE
+  writer transaction to persist status, deadline, timestamp and history together,
+  matching the legacy local-calendar expiry. Only that explicit signal renews a
+  reader as a writer; I/O errors never trigger escalation. Genuinely missing
+  additive lifecycle tables use the existing narrow schema initializer. It rejects selections above
   5,000 items rather than silently truncating.
 - One transaction selects items, resolves inherited lifecycle in one recursive
   ancestry query, and groups sources, links and kinds once for selected identities.
@@ -19,7 +23,11 @@ they existed beneath the intended parent. No database migration is needed.
 - The client shares one collection owner across the workspace, Today, home pins and chat
   links. Accepted collection records seed tree presentation; they do not trigger
   an additional per-row record-hydration pass. Focused exact-record reads retain
-  their own refresh/error handling.
+  their own refresh/error handling. Requested ancestors omitted from a filtered
+  collection use exact reads; already-seeded descendants need no hydration.
+  Related-record retries refresh both the collection and the selected record.
+  Reconnect and session notifications invalidate once before active consumers
+  join a shared renewal; task-board refresh remains a separate owner.
 - Concurrent identical item relationship GETs share only their outstanding
   request, with independent consumer cancellation. Refresh retires old requests;
   an authentication change aborts all outstanding requests. No settled permission,

@@ -26,11 +26,23 @@ export function useTelosRecords(
     seed?: TelosWorkItem[];
     loading?: boolean;
     failures?: RecordsResult['failures'];
+    /** Only requested identities absent from a settled seed need exact reads. */
+    readMissing?: boolean;
   } = {},
 ) {
   const batch = options.batch === true;
   const seeded = options.seed !== undefined;
-  const key = JSON.stringify([...new Set(ids)]);
+  const requestedKey = JSON.stringify([...new Set(ids)]);
+  const missing =
+    options.readMissing && seeded
+      ? ids.filter(
+          (id) =>
+            !options.seed!.some((record) => record.itemId === id) &&
+            !options.failures?.some((failure) => failure.itemId === id),
+        )
+      : [];
+  const reading = !seeded || missing.length > 0;
+  const key = JSON.stringify([...new Set(seeded ? missing : ids)]);
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState<RecordsResult>();
   const latest = useRef(result);
@@ -38,7 +50,7 @@ export function useTelosRecords(
   const active = useRef<AbortController | null>(null);
   const pending = useRef(new Map(confirmations));
   useEffect(() => {
-    if (seeded) return;
+    if (!reading) return;
     const invalidate = () => {
       active.current?.abort();
       setRetry((value) => value + 1);
@@ -68,9 +80,9 @@ export function useTelosRecords(
       unsubscribePriority();
       document.removeEventListener('visibilitychange', onResume);
     };
-  }, [seeded]);
+  }, [reading]);
   useEffect(() => {
-    if (seeded) return;
+    if (!reading || (seeded && options.loading)) return;
     const controller = new AbortController();
     active.current = controller;
     const queue = JSON.parse(key) as string[];
@@ -163,23 +175,29 @@ export function useTelosRecords(
       },
     );
     return () => controller.abort();
-  }, [key, retry, refreshKey, batch, seeded]);
+  }, [key, retry, refreshKey, batch, seeded, reading, options.loading]);
   const requested = new Set(ids);
   const seedFailures = options.failures?.filter((failure) => requested.has(failure.itemId)) ?? [];
+  const fetched = reading && result?.key === key ? result : undefined;
+  const seededFailures = [...seedFailures, ...(fetched?.failures ?? [])];
+  const seededLoading = !!options.loading || (reading && (!fetched || fetched.loading));
   const current = seeded
     ? {
-        records: options.seed!.filter((record) => requested.has(record.itemId)),
-        loading: options.loading ?? false,
-        settled: !options.loading,
-        failures: seedFailures,
-        unavailable: seedFailures.map((failure) => failure.itemId),
+        records: [
+          ...options.seed!.filter((record) => requested.has(record.itemId)),
+          ...(fetched?.records ?? []),
+        ],
+        loading: seededLoading,
+        settled: !seededLoading,
+        failures: seededFailures,
+        unavailable: seededFailures.map((failure) => failure.itemId),
       }
     : result?.key === key
       ? result
       : undefined;
   return {
     // Conversation controls share this owner’s manual/event/resume invalidation.
-    refreshKey: JSON.stringify([key, retry, refreshKey]),
+    refreshKey: JSON.stringify([requestedKey, retry, refreshKey]),
     loading: current?.loading ?? true,
     initializing: !current || !current.settled,
     records: current?.records ?? [],

@@ -118,24 +118,33 @@ it('keeps the canonical desktop frame while its exact item read is pending', asy
   release(Response.json(record));
 });
 
-it('warns when a parent collection omits a malformed child rather than reporting an empty complete list', async () => {
+it('recovers a repaired child through the related-record warning retry', async () => {
   markAuthLost();
   const parent = {
     ...createTelosWorkFixtures().homeStudio.items[0],
     itemId: 'qc-parent',
     kind: null,
   };
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
-    String(input) === '/api/telos/work/collection'
+  let repaired = false;
+  const child = {
+    ...parent,
+    itemId: 'bad-child',
+    parentId: parent.itemId,
+    summary: 'Recovered child',
+  };
+  const reads: string[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    reads.push(String(input));
+    return String(input) === '/api/telos/work/collection'
       ? Response.json({
-          records: [parent],
+          records: repaired ? [parent, child] : [parent],
           profiles: ['work'],
-          failures: [{ itemId: 'bad-child', code: 'invalid_record' }],
+          failures: repaired ? [] : [{ itemId: 'bad-child', code: 'invalid_record' }],
         })
       : String(input).endsWith('/record')
         ? Response.json(parent)
-        : Response.json({}, { status: 503 }),
-  );
+        : Response.json({}, { status: 503 });
+  });
   render(
     <MemoryRouter initialEntries={['/todos/qc-parent']}>
       <Routes>
@@ -147,6 +156,12 @@ it('warns when a parent collection omits a malformed child rather than reporting
     await screen.findByText('Some related outcome records are unavailable.', { exact: false }),
   ).toBeTruthy();
   expect(screen.queryByText('No child work yet.')).toBeNull();
+  repaired = true;
+  fireEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Try again' }));
+  await screen.findByRole('button', { name: child.summary });
+  expect(screen.queryByText(/Some related outcome records are unavailable/)).toBeNull();
+  expect(reads.filter((url) => url === '/api/telos/work/collection')).toHaveLength(2);
+  expect(reads.filter((url) => url === '/api/telos/work/items/qc-parent/record')).toHaveLength(2);
 });
 
 it('refreshes the visible legacy fallback during a native outage and refreshes native data after a recovered form save', async () => {
@@ -247,3 +262,50 @@ it('keeps an established fallback mounted while its focused record retry is pend
   await act(async () => finish(Response.json(record)));
   expect(await screen.findByRole('heading', { name: record.summary })).toBeTruthy();
 });
+
+it.each(['completed', 'snoozed'] as const)(
+  'keeps the exact parent breadcrumb when its %s parent is omitted from discovery',
+  async (status) => {
+    markAuthLost();
+    const base = createTelosWorkFixtures().homeStudio.items[0];
+    const parent = {
+      ...base,
+      itemId: 'omitted-parent',
+      parentId: null,
+      summary: 'Retained parent',
+      status,
+      kind: null,
+    };
+    const child = {
+      ...base,
+      itemId: 'active-child',
+      parentId: parent.itemId,
+      summary: 'Active report',
+      kind: null,
+    };
+    const reads: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      reads.push(url);
+      if (url === '/api/telos/work/collection')
+        return Response.json({ profiles: ['work'], records: [child], failures: [] });
+      if (url === '/api/telos/work/items/active-child/record') return Response.json(child);
+      if (url === '/api/telos/work/items/omitted-parent/record') return Response.json(parent);
+      return Response.json({}, { status: 503 });
+    });
+    render(
+      <MemoryRouter initialEntries={['/todos/active-child']}>
+        <Routes>
+          <Route path="/todos/:id" element={<TodoWorkspace />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByRole('button', { name: parent.summary });
+    expect(
+      reads.filter((url) => url === '/api/telos/work/items/omitted-parent/record'),
+    ).toHaveLength(1);
+    expect(reads.filter((url) => url === '/api/telos/work/items/active-child/record')).toHaveLength(
+      1,
+    );
+  },
+);

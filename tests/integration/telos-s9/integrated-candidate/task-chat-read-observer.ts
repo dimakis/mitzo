@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { TelosWorkItemSchema } from '@mitzo/protocol';
 import type { Page, Request, Response } from '@playwright/test';
 import { expect, vi } from 'vitest';
 
@@ -8,6 +10,12 @@ type Read = {
   body?: unknown;
   bodyReadError?: string;
 };
+
+const collectionSchema = z.object({
+  profiles: z.array(z.string()),
+  records: z.array(TelosWorkItemSchema).max(5000),
+  failures: z.array(z.object({ itemId: z.string(), code: z.string() })),
+});
 
 type TaskRead = { id: string; status: string; children: TaskRead[] };
 const taskStatuses = new Set([
@@ -84,6 +92,49 @@ export function observeTaskChatReads(page: Page) {
     since,
     boundary: () => ordinal,
     pending: () => [...pending.values()],
+    async waitForCollectionRecords(
+      itemIds: string[],
+      boundary: number,
+      options = { timeout: 10_000, interval: 100 },
+    ) {
+      return vi.waitFor(() => {
+        const read = since(boundary)
+          .flatMap((read) => {
+            if (read.path !== '/api/telos/work/collection' || read.status !== 200) return [];
+            const parsed = collectionSchema.safeParse(read.body);
+            if (
+              !parsed.success ||
+              !itemIds.every((id) => parsed.data.records.some((record) => record.itemId === id))
+            )
+              return [];
+            return [{ ...read, body: parsed.data }];
+          })
+          .at(-1);
+        expect(
+          read,
+          'fresh completed canonical collection with every attached identity: ' +
+            JSON.stringify({
+              boundary,
+              observed: since(boundary)
+                .filter((value) => value.path === '/api/telos/work/collection')
+                .slice(-10)
+                .map((value) => {
+                  const parsed = collectionSchema.safeParse(value.body);
+                  return {
+                    ordinal: value.requestOrdinal,
+                    status: value.status,
+                    ids: parsed.success
+                      ? parsed.data.records.slice(0, 20).map((record) => record.itemId)
+                      : undefined,
+                    invalid: !parsed.success,
+                  };
+                }),
+              pending: [...pending.values()].slice(-10),
+            }),
+        ).toBeDefined();
+        return read!;
+      }, options);
+    },
     async waitForSessionMeta(
       sessionId: string,
       boundary: number,

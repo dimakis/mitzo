@@ -49,6 +49,34 @@ function invalidateTodos(): void {
   invalidateTodoReads();
   todoCache.invalidate();
 }
+// One invalidation boundary for all mounted canonical consumers. Subscribers
+// renew together and ListCache coalesces their reads after retiring older work.
+const collectionListeners = new Set<() => void>();
+let stopCollectionEvents: (() => void) | undefined;
+function subscribeCollectionEvents(listener: () => void) {
+  collectionListeners.add(listener);
+  if (!stopCollectionEvents) {
+    const refresh = () => {
+      invalidateTodos();
+      collectionListeners.forEach((listener) => listener());
+    };
+    const offConnection = eventBus.onConnectionChange((connected) => {
+      if (connected) refresh();
+    });
+    const offSessions = eventBus.on('sessions_changed', refresh);
+    stopCollectionEvents = () => {
+      offConnection();
+      offSessions();
+    };
+  }
+  return () => {
+    collectionListeners.delete(listener);
+    if (!collectionListeners.size) {
+      stopCollectionEvents?.();
+      stopCollectionEvents = undefined;
+    }
+  };
+}
 eventBus.on('todo_update', invalidateTodos);
 subscribeTodoLifecycleUpdates(() => todoCache.clear());
 
@@ -215,6 +243,11 @@ export function useTodoData(
       cancelled = true;
     };
   }, [url, refreshKey, resolveItemId, source, enabled]);
+
+  useEffect(() => {
+    if (source !== 'canonical' || !enabled) return;
+    return subscribeCollectionEvents(() => setRefreshKey((key) => key + 1));
+  }, [source, enabled]);
 
   // Live update: SSE todo_update signals a refetch
   useEffect(() => {

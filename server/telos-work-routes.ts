@@ -1,3 +1,4 @@
+import { TelosCollectionWakeupRequired } from './telos-snooze.js';
 import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 import {
@@ -61,7 +62,7 @@ export function createTelosWorkRouter(options: {
   const run = (
     res: Response,
     action: (store: TelosWorkStore) => unknown,
-    mode: 'write' | 'record' | 'lifecycle' = 'write',
+    mode: 'write' | 'record' | 'lifecycle' | 'collection' = 'write',
   ) => {
     let store: TelosWorkStore | undefined;
     try {
@@ -72,10 +73,21 @@ export function createTelosWorkRouter(options: {
       store =
         mode === 'record'
           ? TelosWorkStore.openForRecordRead(options.dbPath(), policy)
-          : mode === 'lifecycle'
+          : mode === 'lifecycle' || mode === 'collection'
             ? TelosWorkStore.openForLifecycleListRead(options.dbPath(), policy)
             : new TelosWorkStore(options.dbPath(), policy);
-      res.json(action(store));
+      let result: unknown;
+      try {
+        result = action(store);
+      } catch (error) {
+        if (mode !== 'collection' || !(error instanceof TelosCollectionWakeupRequired)) throw error;
+        store.close();
+        store = undefined;
+        if (!lifecycleActor(res)) return;
+        store = new TelosWorkStore(options.dbPath(), policy);
+        result = action(store);
+      }
+      res.json(result);
     } catch (error) {
       const known = error instanceof TelosWorkError;
       const constraint =
@@ -257,7 +269,7 @@ export function createTelosWorkRouter(options: {
       res.status(400).json({ code: 'invalid', error: 'Invalid collection view' });
       return;
     }
-    run(res, (store) => store.readCollection(query.data.view ?? 'active', authority), 'lifecycle');
+    run(res, (store) => store.readCollection(query.data.view ?? 'active', authority), 'collection');
   });
   router.get('/api/telos/work/items/:itemId', options.operatorAuth, (req, res) => {
     const authority = actor(res);

@@ -1,3 +1,4 @@
+import { renewDueTelosSnoozes } from './telos-snooze.js';
 import type { EventStore } from './event-store.js';
 import type { TaskStore } from './task-store.js';
 import {
@@ -1109,18 +1110,21 @@ export class TelosWorkStore {
   readCollection(rawView: unknown, actor: TelosWorkActor) {
     this.operator(actor);
     const view = TelosWorkLifecycleListSchema.parse(rawView);
-    return this.db.transaction(() => {
-      const items = this.db
-        .prepare('SELECT * FROM items ORDER BY rowid LIMIT 5001')
-        .all() as Item[];
+    const read = this.db.transaction(() => {
+      const select = this.db.prepare('SELECT * FROM items ORDER BY rowid LIMIT 5001');
+      let items = select.all() as Item[];
       if (items.length > 5000) conflict('Telos collection exceeds bounded selection');
+      if (renewDueTelosSnoozes(this.db, items)) items = select.all() as Item[];
       return projectTelosCollection(
         this.db,
         items,
         this.lifecycleVisibilityForCanonicalList(items.map((row) => row.id)),
         view,
       );
-    })();
+    });
+    // A writable retry rechecks the due set under a single writer lock. The
+    // ordinary initialized/no-due path remains a read-only snapshot.
+    return this.db.readonly ? read() : read.immediate();
   }
   readBacklogGuarded<T>(read: () => T, assertion: () => void): T {
     const check = () => {

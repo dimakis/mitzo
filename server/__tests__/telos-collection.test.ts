@@ -5,7 +5,10 @@ import { TelosItemStore } from '../telos-item-store.js';
 import { TelosWorkStore } from '../telos-work-store.js';
 
 const fixtures: ReturnType<typeof createTelosCanonicalData>[] = [];
-afterEach(() => fixtures.splice(0).forEach((fixture) => fixture.close()));
+afterEach(() => {
+  vi.useRealTimers();
+  fixtures.splice(0).forEach((fixture) => fixture.close());
+});
 function fixture() {
   const f = createTelosCanonicalData();
   fixtures.push(f);
@@ -152,4 +155,72 @@ it('refuses corrupt empty lifecycle metadata instead of treating the item as act
   const f = fixture();
   f.db.prepare('INSERT INTO telos_work_lifecycle(item_id,data) VALUES(?,?)').run('studio', '');
   expect(() => f.work.readCollection('active', f.actor)).toThrow();
+});
+
+it('persists expired snoozes including today exactly once, keeping future and indefinite snoozes hidden', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(2026, 9, 30, 12));
+  const f = fixture();
+  const insert = f.db.prepare(
+    "INSERT INTO items(id,summary,status,snoozed_until,profile,first_seen,last_seen,created_at,updated_at) VALUES(?,?,'snoozed',?,'manual',?,?,?,?)",
+  );
+  for (const [id, deadline] of [
+    ['past', '2026-10-29'],
+    ['today', '2026-10-30'],
+    ['future', '2026-10-31'],
+    ['indefinite', null],
+  ] as const)
+    insert.run(id, id, deadline, f.stamp, f.stamp, f.stamp, f.stamp);
+  const read = TelosWorkStore.openForLifecycleListRead(f.dbPath, {
+    ordinaryConversation: () => false,
+  });
+  try {
+    expect(() => read.readCollection('active', f.actor)).toThrow(
+      'Expired snoozes require canonical renewal',
+    );
+  } finally {
+    read.close();
+  }
+  expect(f.db.prepare("SELECT status FROM items WHERE id='today'").get()).toEqual({
+    status: 'snoozed',
+  });
+  const records = f.work.readCollection('active', f.actor).records;
+  expect(records.map((record) => record.itemId).sort()).toEqual(['past', 'studio', 'today']);
+  for (const id of ['past', 'today']) {
+    expect(f.work.readRecord(id, f.actor)).toMatchObject({
+      status: 'active',
+      updatedAt: expect.stringContaining('2026-10-30T12:00:00'),
+    });
+    expect(f.db.prepare('SELECT snoozed_until FROM items WHERE id=?').get(id)).toEqual({
+      snoozed_until: null,
+    });
+    expect(
+      f.db.prepare('SELECT old_status,new_status FROM history WHERE item_id=?').all(id),
+    ).toEqual([{ old_status: 'snoozed', new_status: 'active' }]);
+  }
+  f.work.readCollection('active', f.actor);
+  expect(
+    f.db.prepare("SELECT count(*) AS n FROM history WHERE old_status='snoozed'").get(),
+  ).toEqual({ n: 2 });
+  const readonly = TelosWorkStore.openForLifecycleListRead(f.dbPath, {
+    ordinaryConversation: () => false,
+  });
+  try {
+    expect(readonly.readCollection('active', f.actor).records).toEqual(records);
+  } finally {
+    readonly.close();
+  }
+});
+it('rolls back snooze history and status together when canonical renewal fails', () => {
+  const f = fixture();
+  f.db.exec(
+    "UPDATE items SET status='snoozed',snoozed_until='2000-01-01' WHERE id='studio'; CREATE TRIGGER refuse_wakeup BEFORE UPDATE OF status ON items BEGIN SELECT RAISE(ABORT,'synthetic renewal refusal'); END",
+  );
+  const history = f.db.prepare('SELECT * FROM history').all();
+  expect(() => f.work.readCollection('active', f.actor)).toThrow('synthetic renewal refusal');
+  expect(f.db.prepare('SELECT * FROM history').all()).toEqual(history);
+  expect(f.db.prepare("SELECT status,snoozed_until FROM items WHERE id='studio'").get()).toEqual({
+    status: 'snoozed',
+    snoozed_until: '2000-01-01',
+  });
 });

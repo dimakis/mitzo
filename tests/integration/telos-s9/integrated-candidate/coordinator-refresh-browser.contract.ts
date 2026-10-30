@@ -1,4 +1,3 @@
-import { TelosWorkItemSchema } from '@mitzo/protocol';
 import { observeTaskChatReads } from './task-chat-read-observer';
 import { expect, it, vi } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
@@ -107,20 +106,9 @@ it('keeps attached scope usable despite unrelated transport failure and fences o
     return result.work.assignments[0].conversation.conversationId;
   };
   const recordReads = observeTaskChatReads(page);
+  const attachedIds = Array.from({ length: 6 }, (_, index) => `refresh-feature-${index}`);
   const waitForAttachedRecords = (boundary: number) =>
-    vi.waitFor(
-      () => {
-        const reads = recordReads.since(boundary);
-        for (let index = 0; index < 6; index++) {
-          const itemId = `refresh-feature-${index}`;
-          const read = reads.find(
-            (read) => read.path === `/api/telos/work/items/${itemId}/record` && read.status === 200,
-          );
-          expect(TelosWorkItemSchema.parse(read?.body).itemId).toBe(itemId);
-        }
-      },
-      { timeout: 10_000 },
-    );
+    recordReads.waitForCollectionRecords(attachedIds, boundary);
   try {
     await add('refresh-coordinator', null, 'Refresh coordinator', 'coordinator');
     for (let i = 0; i < 6; i++)
@@ -157,6 +145,7 @@ it('keeps attached scope usable despite unrelated transport failure and fences o
       .toBeEnabled()
       .catch(() => {});
     expect.soft(await send.isEnabled()).toBe(true);
+    expect(unrelatedFailures).toBe(0);
     facts.push({
       stage: 'unrelated-transport-failure',
       unrelatedFailures,
@@ -186,27 +175,9 @@ it('keeps attached scope usable despite unrelated transport failure and fences o
     await browserExpect(releaseButton).toBeEnabled();
     const replacementId = await setup(1);
     expect(replacementId).not.toBe(oldId);
-    const pendingRelated = new Set<object>(),
-      completedRelated = new Set<string>();
-    const recordPath = (url: string) => {
-      const match = new URL(url).pathname.match(
-        /^\/api\/telos\/work\/items\/(refresh-feature-[0-5])\/record$/,
-      );
-      return match?.[1];
-    };
-    page.on('request', (req) => {
-      if (recordPath(req.url())) pendingRelated.add(req);
-    });
-    page.on('requestfinished', (req) => {
-      const id = recordPath(req.url());
-      if (id) {
-        pendingRelated.delete(req);
-        completedRelated.add(id);
-      }
-    });
-    page.on('requestfailed', (req) => {
-      pendingRelated.delete(req);
-    });
+    // The shared collection replaces six per-item hydration reads. Observe its
+    // actual completed body after this reconnect, independently of the held role read.
+    const reconnectBoundary = recordReads.boundary();
     await page.route('**/api/telos/work/items/refresh-coordinator', async (route) => {
       heldReads++;
       await gate;
@@ -223,13 +194,25 @@ it('keeps attached scope usable despite unrelated transport failure and fences o
     h.application.sseRegistry.destroy();
     await vi.waitFor(() => expect(heldReads).toBeGreaterThan(0), { timeout: 10_000 });
     await readInbox;
-    await vi.waitFor(
-      () => {
-        expect(completedRelated.size).toBe(6);
-        expect(pendingRelated.size).toBe(0);
-      },
-      { timeout: 10_000 },
-    );
+    const refreshed = await waitForAttachedRecords(reconnectBoundary);
+    const completedRelated = refreshed.body.records
+      .filter((record) => attachedIds.includes(record.itemId))
+      .map((record) => record.itemId)
+      .sort();
+    const pendingRelated = recordReads
+      .pending()
+      .filter(
+        (read) =>
+          read.requestOrdinal > reconnectBoundary && read.path === '/api/telos/work/collection',
+      );
+    expect(pendingRelated).toHaveLength(0);
+    expect(
+      recordReads
+        .since(reconnectBoundary)
+        .filter((read) =>
+          attachedIds.some((id) => read.path === `/api/telos/work/items/${id}/record`),
+        ),
+    ).toHaveLength(0);
     await page.evaluate(
       () =>
         new Promise<void>((resolve) =>
@@ -240,8 +223,8 @@ it('keeps attached scope usable despite unrelated transport failure and fences o
       oldId,
       replacementId,
       heldReads,
-      relatedCompleted: [...completedRelated].sort(),
-      pendingRelated: pendingRelated.size,
+      relatedCompleted: completedRelated,
+      pendingRelated: pendingRelated.length,
       releaseEnabled: await releaseButton.isEnabled(),
       controlText: await controls.innerText(),
     };
