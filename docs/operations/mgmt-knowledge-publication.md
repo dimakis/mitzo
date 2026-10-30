@@ -232,7 +232,7 @@ image digest. The provider's successful `turn/start` acknowledgement records the
 receipt, which survives a Mitzo restart. Acknowledgement proves delivery through the
 provider interface; it does not prove every fact influenced the model's answer.
 
-Ordinary OpenShell Codex is the implemented enrollment scope. Host, Responses,
+Ordinary OpenShell Codex and opt-in Local Mac Codex are implemented enrollment scopes. Responses,
 Claude and Symposium still require their own delivery paths, and compatible
 production runtime release plus supervised publisher/adapter configuration remain
 activation prerequisites. Task Git roots, dirty worktrees, old branches and
@@ -311,6 +311,33 @@ after normal mgmt acceptance; a host refresh alone cannot mutate a publication.
 Reviewed builder and adapter pins must be selected through existing host enrollment
 before claiming availability or adoption. This change does not update production
 configuration or enroll additional runtimes.
+
+## Local Mac Codex memory refresh
+
+`MITZO_LOCAL_KNOWLEDGE_ENABLED=1` explicitly enrolls Local Mac Codex in the
+existing host-selected knowledge store. It is independent of OpenShell enablement
+and reuses the same store owner when both are enabled. No credential source,
+publisher or compiler is introduced. Each turn reconciles once, verifies the
+selected baseline, and supplies the current shared MGMT entrypoint through
+native application context. The selected agent profile keeps its own recorded
+context revision; this does not recompile or silently replace its recipe.
+
+`ReadKnowledge` with `action: published` lists that turn's accepted memory files;
+optional `query` filters document names and `path` reads an exact published
+document. Reads reuse the selected view without another Git fetch, publisher
+reconciliation or credential lookup. Bytes and modes are verified at delivery.
+This path includes accepted learning-layer notes independently of the Library's
+curated editing scopes; it does not expand those scopes or allow published writes.
+
+The `published_knowledge_adopted` conversation event records the source, baseline,
+context hash, command, provider thread and turn only after the native provider
+acknowledges the delivered context. Task branches, dirty files and provider
+history remain intact. Failed selection cannot fall back to a previous turn's
+view. Other host provider adapters retain their existing context-delivery
+contracts; this enrollment adds Local Mac Codex delivery specifically.
+
+Activation requires reviewed accepted releases and explicit host enrollment.
+It does not restart or deploy any service.
 
 ## Preparing conversions before chat sends
 

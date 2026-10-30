@@ -41,7 +41,12 @@ function tools() {
 }
 
 it('captures a candidate through the existing permission boundary without refreshing the Library', async () => {
-  const recordMemoryCandidate = vi.fn(() => ({ status: 'captured', seq: 7, accepted: false }));
+  const recordMemoryCandidate = vi.fn(() => ({
+    status: 'captured' as const,
+    seq: 7,
+    requestId: input().requestId,
+    accepted: false,
+  }));
   const dispose = installMemoryCandidateStore({ recordMemoryCandidate });
   try {
     const result = await tools().execute(

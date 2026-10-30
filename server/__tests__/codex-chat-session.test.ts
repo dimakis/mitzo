@@ -151,6 +151,8 @@ import { AccountProfiles } from '../account-profiles.js';
 import { EventStore } from '../event-store.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
+import { installHostKnowledgeStore } from '../published-host-knowledge.js';
+import { hostKnowledgePublication } from './fixtures/host-knowledge-publication.js';
 
 beforeEach(() => {
   vi.spyOn(OpenShellRuntimeManager.prototype, 'inspectTaskCapabilities').mockResolvedValue({
@@ -781,6 +783,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'GetRepositoryChatPreparation' }),
     expect.objectContaining({ name: 'SymposiumProposeProfile' }),
     expect.objectContaining({ name: 'SymposiumReadProfiles' }),
+    expect.objectContaining({ name: 'RecordMemoryCandidate' }),
     expect.objectContaining({ name: 'ReadKnowledge' }),
     expect.objectContaining({ name: 'SaveKnowledgeDraft' }),
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
@@ -1082,6 +1085,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({ name: 'GetRepositoryChatPreparation' }),
       expect.objectContaining({ name: 'SymposiumProposeProfile' }),
       expect.objectContaining({ name: 'SymposiumReadProfiles' }),
+      expect.objectContaining({ name: 'RecordMemoryCandidate' }),
       expect.objectContaining({ name: 'ReadKnowledge' }),
       expect.objectContaining({ name: 'SaveKnowledgeDraft' }),
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
@@ -7041,5 +7045,52 @@ it('exposes approved web access in owned local chat and integration discovery', 
   } finally {
     chat?.close();
     f.eventStore.close();
+  }
+});
+
+it('delivers selected host memory on the retained provider thread and records only its acknowledgement', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'host-memory-context-')));
+  const publication = hostKnowledgePublication(root, 'a', 'Accepted memory');
+  const reconcile = vi.fn().mockResolvedValue(publication);
+  const dispose = installHostKnowledgeStore({ id: 'mgmt', reconcile });
+  const opts = options(new AbortController());
+  opts.conversationId = 'host-memory-chat';
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    chat = await openCodexChat(opts);
+    const prepare = mocks.conversationOptions?.prepareSystemPrompt as (
+      signal: AbortSignal,
+    ) => Promise<string>;
+    const acknowledge = mocks.conversationOptions?.onApplicationContextAccepted as (
+      command: string,
+      thread: string,
+      turn: string,
+      context: string,
+    ) => void;
+    const context = await prepare(AbortSignal.timeout(5000));
+    expect(context).toContain(publication.sourceCommit);
+    expect(opts.eventStore.append).not.toHaveBeenCalledWith(
+      'host-memory-chat',
+      'published_knowledge_adopted',
+      expect.anything(),
+    );
+    acknowledge('command', 'same-provider-thread', 'turn', context);
+    expect(opts.eventStore.append).toHaveBeenCalledWith(
+      'host-memory-chat',
+      'published_knowledge_adopted',
+      expect.objectContaining({
+        runtime: 'local-mac',
+        sourceCommit: publication.sourceCommit,
+        threadId: 'same-provider-thread',
+        turnId: 'turn',
+      }),
+    );
+    expect(reconcile).toHaveBeenCalledOnce();
+  } finally {
+    chat?.close();
+    dispose();
+    rmSync(root, { recursive: true, force: true });
   }
 });
