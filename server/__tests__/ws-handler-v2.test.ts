@@ -5530,6 +5530,69 @@ describe('handleReconnect suspend resume', () => {
       sessions.remove('continuity-old:session');
     }
   });
+  it('recovers when successor suspension arrives before its origin-bearing replay', () => {
+    vi.mocked(reattachChat).mockClear();
+    const sessions = new SessionRegistry();
+    const oldTransport = mockTransport();
+    const nextTransport = mockTransport();
+    sessions.register('early-old:session', {
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId: 'session',
+      ownerConnectionId: 'early-old',
+      transport: oldTransport,
+    });
+    const ctx = createContext({ sessionRegistry: sessions });
+    ctx.connRegistry.register('early-old', oldTransport);
+    ctx.connRegistry.register('early-new', nextTransport);
+    claimTransportConnection('early-old', 'early-login');
+    claimTransportConnection('early-new', 'early-login');
+    const interest = [{ sessionId: 'session', lastSeq: 0 }];
+    try {
+      handleReconnect(
+        'early-old',
+        { type: 'reconnect', lifecycleRevision: 1, sessions: interest },
+        ctx,
+      );
+      sessions.suspend('early-old:session', 0);
+      handleSessionSuspend(
+        'early-new',
+        {
+          type: 'session_suspend',
+          lifecycleRevision: 3,
+          replacesConnectionId: 'early-old',
+          sessions: interest,
+        },
+        ctx,
+      );
+      handleReconnect(
+        'early-new',
+        {
+          type: 'reconnect',
+          lifecycleRevision: 2,
+          replacesConnectionId: 'early-old',
+          sessions: interest,
+        },
+        ctx,
+      );
+      expect(reattachChat).not.toHaveBeenCalled();
+      handleReconnect(
+        'early-new',
+        {
+          type: 'reconnect',
+          lifecycleRevision: 4,
+          replacesConnectionId: 'early-old',
+          sessions: interest,
+        },
+        ctx,
+      );
+      expect(sessions.get('early-old:session')?.ownerConnectionId).toBe('early-new');
+      expect(sessions.isSuspended('early-old:session')).toBe(false);
+    } finally {
+      sessions.remove('early-old:session');
+    }
+  });
   it('keeps a pending approval actionable when the app resumes on a new connection', () => {
     const sessionReg = new SessionRegistry();
     const oldTransport = mockTransport();

@@ -1124,7 +1124,7 @@ app.post('/api/sessions/suspend', (req, res) => {
       return;
     }
 
-    const { connectionId, sessions, lifecycleRevision } = req.body || {};
+    const { connectionId, sessions, lifecycleRevision, replacesConnectionId } = req.body || {};
 
     if (!connectionId || typeof connectionId !== 'string') {
       res.status(400).json({ error: 'connectionId is required' });
@@ -1146,7 +1146,16 @@ app.post('/api/sessions/suspend', (req, res) => {
       res.status(400).json({ error: 'Invalid lifecycle revision' });
       return;
     }
-    if (!acceptTransportLifecycle(connectionId, lifecycleRevision)) {
+    if (
+      replacesConnectionId !== undefined &&
+      (typeof replacesConnectionId !== 'string' ||
+        replacesConnectionId.length === 0 ||
+        replacesConnectionId.length > 128)
+    ) {
+      res.status(400).json({ error: 'Invalid predecessor connection' });
+      return;
+    }
+    if (!acceptTransportLifecycle(connectionId, lifecycleRevision, replacesConnectionId)) {
       res.status(204).end();
       return;
     }

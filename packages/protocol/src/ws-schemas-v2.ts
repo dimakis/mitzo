@@ -94,6 +94,7 @@ export const SwitchSessionMessage = z.object({
 
 export const SessionSuspendMessage = z.object({
   type: z.literal('session_suspend'),
+  replacesConnectionId: z.string().min(1).max(128).optional(),
   lifecycleRevision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   sessions: z.array(
     z.object({

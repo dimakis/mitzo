@@ -76,8 +76,8 @@ order cannot establish client intent: a delayed keepalive or teardown beacon mus
 not suspend a session after the same connection has resumed it. The SSE client
 attaches a monotonically increasing `lifecycleRevision` to each actual reconnect
 and suspension. The existing authenticated transport lease retains the latest
-revision through its teardown grace period. A forced replacement carries the
-original stream ID; only a same-login lineage can share its revision fence and
+revision through its teardown grace period. Every lifecycle message, including pre-replay suspension/beacons, carries the
+original stream ID across a forced replacement; only a same-login lineage can share its revision fence and
 transfer the still-open predecessor's session ownership. Retired streams cannot
 resume or suspend that lineage again. The active successor retains the origin
 through bounded retries, including a lost replay response and origin-lease expiry.

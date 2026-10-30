@@ -1241,7 +1241,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/connection.ts':
     'b3f62dfd60cb41585ef6ea79b68657ec1239a23e5894d800014a43ba8372f381',
   '../../packages/client/src/sse-connection.ts':
-    '601b0344332a6290664959e85d77e63b812f2d8ae459fdb9166fb99b6e5fb862',
+    '0f7f07c617285c102503d1b98e8a8c331fea2a2879cd1f25a965e27f77b5b5fa',
   '../../packages/client/src/store.ts':
     'e6914aeccb9f5286d1aa6c464967afc80df2aae249b2d56ef9e75f5c360e910d',
   '../../packages/harness/src/permission-handler.ts':
@@ -1314,7 +1314,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6be98645eb9b4467c30f5dacb3e8eee7a9c3f08cb6fc820edc872f789ef217c8',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
-  '../app.ts': '453efee03fd33237f679433d1bfe72bcb2b4176c044686b27b49ea253122776d',
+  '../app.ts': '076f66857b2e3b789393293506609910bccaf90c17ce0b8ffefc9d51c9f9dad5',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -1323,7 +1323,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'bd41408c8dfb9fe4a239fca2e35cf8366bc379e63c4a310d3593cf709a1920d3',
   '../symposium-production-review-composition.ts':
     '5d0e4d78e45cc6d9b3c601cc1f5587c469432bb3ec9edc0c70fb34153dedfc5e',
-  '../ws-handler-v2.ts': 'f8da6b7d88df362022bcc9f8caea4ed89a6c024ab6f40eba152c5e9d0b9b3420',
+  '../ws-handler-v2.ts': '8296748bb3e6470c8b80c4ddf09e99647ee61497dd92cb9620f06c27d7c97c76',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
   '../notification-store.ts': 'f6b5ec6927c367a94511f6eaf215498ffdb7e76020f417105df81d3812de94f3',
@@ -1712,7 +1712,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/connection-registry.ts':
     'c12650cb5912de809c99070c109c43cfda8dbf9e495c4c35d164ca057d33393d',
   '../../packages/protocol/src/ws-schemas-v2.ts':
-    '5f022894a8b36c4a24ae0fcf9ca6df30156905ceabeb479740f1713282ac9ae7',
+    '764cfe15ca5210f984402426739185cdf22560cb3b99b9e6d19c9e0b12858210',
   '../auth-route-boundary.ts': '9b853baf795f6c65a7cf956311787d049c961291cf4817ad53ad9e22ec62dd4c',
   '../git-version.ts': '405110af784b38f664fa6165bc83da008aae9de92410395d22a031c6c6b4d220',
   '../logger-transport.ts': '835c336a641ceef7d2a5d368cd435aec33660c4b64f256055bea5dde671153d8',

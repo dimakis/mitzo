@@ -136,13 +136,19 @@ describe('SseConnection', () => {
         ? new Promise<Response>(() => {})
         : Promise.resolve({ ok: true } as Response),
     );
-    const conn = new SseConnection(createConfig({ fetch }));
+    const beacon = vi.fn();
+    vi.stubGlobal('navigator', { sendBeacon: beacon });
+    const conn = new SseConnection(createConfig({ fetch, suspendUrl: '/suspend' }));
     try {
       conn.connect();
       lastES()._emit('welcome', { connectionId: 'origin-stream' });
       conn.trackSeq('session', 12);
       conn.checkAndReconnect(true);
       lastES()._emit('welcome', { connectionId: 'unacknowledged-stream' });
+      conn.sendSuspend();
+      expect(beacon).toHaveBeenCalledOnce();
+      const hint = JSON.parse(await (beacon.mock.calls[0][1] as Blob).text());
+      expect(hint.replacesConnectionId).toBe('origin-stream');
       conn.checkAndReconnect(true);
       lastES()._emit('welcome', { connectionId: 'successor-stream' });
       const replays = fetch.mock.calls.filter(([url]) => url.endsWith('/reconnect'));
@@ -151,6 +157,7 @@ describe('SseConnection', () => {
         expect(JSON.parse(String(replay[1]!.body)).replacesConnectionId).toBe('origin-stream');
     } finally {
       conn.disconnect();
+      vi.unstubAllGlobals();
     }
   });
   it.each(['welcome', 'probe'] as const)(

@@ -470,6 +470,15 @@ export class SseConnection implements ChatConnection {
     return this.config.sessionInterest?.sessions() ?? Array.from(this.seqBySession.keys());
   }
 
+  private nextLifecycle(connectionId: string | null) {
+    return {
+      lifecycleRevision: ++this.lifecycleRevision,
+      ...(this.lifecycleOrigin && this.lifecycleOrigin !== connectionId
+        ? { replacesConnectionId: this.lifecycleOrigin }
+        : {}),
+    };
+  }
+
   /**
    * Signal the server that this client is about to be backgrounded.
    * Uses an authenticated keepalive POST while connected, or sendBeacon
@@ -487,10 +496,10 @@ export class SseConnection implements ChatConnection {
         : {}),
     }));
 
-    const lifecycleRevision = ++this.lifecycleRevision;
+    const lifecycle = this.nextLifecycle(this._connectionId);
     // Keep authentication headers on native iOS, where beacon cannot add them.
     if (this._connected && this._connectionId) {
-      this.doPost('suspend', { type: 'session_suspend', sessions, lifecycleRevision });
+      this.doPost('suspend', { type: 'session_suspend', sessions, ...lifecycle });
       return;
     }
 
@@ -503,7 +512,7 @@ export class SseConnection implements ChatConnection {
       const payload = JSON.stringify({
         connectionId: this._connectionId,
         sessions,
-        lifecycleRevision,
+        ...lifecycle,
       });
       globalThis.navigator.sendBeacon(
         this.config.suspendUrl,
@@ -818,7 +827,7 @@ export class SseConnection implements ChatConnection {
       this.replayRequest.dirty = true;
       return;
     }
-    const lifecycleRevision = ++this.lifecycleRevision;
+    const lifecycle = this.nextLifecycle(welcomeConnectionId);
     const request = { es: welcomeEs, connectionId: welcomeConnectionId, dirty: false };
     this.replayRequest = request;
     // This exact request owns only these sessions, even if navigation changes
@@ -855,10 +864,7 @@ export class SseConnection implements ChatConnection {
                 type: 'reconnect',
                 supportsAppliedCursor: true,
                 sessions,
-                lifecycleRevision,
-                ...(this.lifecycleOrigin && this.lifecycleOrigin !== welcomeConnectionId
-                  ? { replacesConnectionId: this.lifecycleOrigin }
-                  : {}),
+                ...lifecycle,
               }),
             });
           };

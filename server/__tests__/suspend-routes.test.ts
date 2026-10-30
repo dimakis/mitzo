@@ -141,9 +141,21 @@ describe('POST /api/sessions/suspend', () => {
     claimTransportConnection('conn-owner', authSessionId);
     claimTransportConnection('beacon-successor', authSessionId);
     acceptTransportLifecycle('conn-owner', 1);
-    expect(acceptTransportLifecycle('beacon-successor', 2, 'conn-owner')).toBe(true);
     mockSuspend.mockClear();
     try {
+      const early = await request(app)
+        .post('/api/sessions/suspend')
+        .set('Cookie', authCookie)
+        .send({
+          connectionId: 'beacon-successor',
+          lifecycleRevision: 3,
+          replacesConnectionId: 'conn-owner',
+          sessions: [{ sessionId: 'sess-known', lastSeq: 42 }],
+        });
+      expect(early.status).toBe(204);
+      expect(acceptTransportLifecycle('beacon-successor', 2, 'conn-owner')).toBe(false);
+      expect(acceptTransportLifecycle('beacon-successor', 4, 'conn-owner')).toBe(true);
+
       for (const lifecycleRevision of [1, 3]) {
         const response = await request(app)
           .post('/api/sessions/suspend')
