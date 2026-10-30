@@ -127,6 +127,15 @@ function SavedArtifactDetails({
   const location = useLocation();
   const version = versions.find((row) => row.revision === selected)!;
   const url = savedArtifactUrl(version);
+  const previewTarget = useRef(version);
+  previewTarget.current = version;
+  const previewIdentity = JSON.stringify([
+    version.itemId,
+    version.id,
+    selected,
+    version.sha256,
+    previewRetry,
+  ]);
   const isPdf = version.filename.toLocaleLowerCase().endsWith('.pdf');
   useEffect(() => {
     if (!open) {
@@ -134,7 +143,11 @@ function SavedArtifactDetails({
       return;
     }
     const controller = new AbortController();
-    setHistory((previous) => ({ ...previous, loaded: false, error: null }));
+    setHistory((previous) => ({
+      ...previous,
+      loaded: pageBefore !== undefined && previous.loaded,
+      error: null,
+    }));
     readSavedArtifactVersions(historyTarget.current, controller.signal, pageBefore)
       .then((page) => {
         if (controller.signal.aborted) return;
@@ -160,27 +173,28 @@ function SavedArtifactDetails({
       loadedPreview.current = null;
       return;
     }
-    const identity = JSON.stringify([version.id, selected, version.sha256, previewRetry]);
+    const identity = previewIdentity;
+    const target = previewTarget.current;
     if (!history.loaded || isPdf || loadedPreview.current === identity) return;
     const controller = new AbortController();
     setDocument(null);
-    readSavedArtifactDocument(version, controller.signal)
+    readSavedArtifactDocument(target, controller.signal)
       .then((value) => {
         if (!controller.signal.aborted) {
           loadedPreview.current = identity;
-          setDocument({ revision: selected, document: value, error: null });
+          setDocument({ revision: target.revision, document: value, error: null });
         }
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted)
           setDocument({
-            revision: selected,
+            revision: target.revision,
             document: null,
             error: error instanceof Error ? error.message : 'Saved preview unavailable.',
           });
       });
     return () => controller.abort();
-  }, [version, selected, history.loaded, previewRetry, open, isPdf]);
+  }, [previewIdentity, history.loaded, open, isPdf]);
   const current = document?.revision === selected ? document : null;
   const preview = history.loaded && !history.error ? current?.document : null;
   const provenance = version as SavedArtifactVersion;

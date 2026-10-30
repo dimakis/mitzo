@@ -257,7 +257,7 @@ export function createTelosWorkRouter(options: {
       res.status(400).json({ code: 'invalid', error: 'Invalid collection view' });
       return;
     }
-    run(res, (store) => store.readCollection(query.data.view ?? 'active', authority), 'record');
+    run(res, (store) => store.readCollection(query.data.view ?? 'active', authority), 'lifecycle');
   });
   router.get('/api/telos/work/items/:itemId', options.operatorAuth, (req, res) => {
     const authority = actor(res);

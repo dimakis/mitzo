@@ -18,7 +18,15 @@ import { installDialogStub } from './dialog-stub';
 import { shareFile } from '../../lib/share-file';
 
 vi.mock('../PdfPreview', () => ({
-  PdfPreview: ({ title }: { title: string }) => <div>PDF reader for {title}</div>,
+  PdfPreview: ({ title }: { title: string }) => {
+    const [page, setPage] = useState(1);
+    return (
+      <div>
+        PDF reader for {title}
+        <button onClick={() => setPage(page + 1)}>PDF page {page}</button>
+      </div>
+    );
+  },
 }));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('../../lib/share-file', () => ({
@@ -233,4 +241,30 @@ it('does not reread an unchanged preview or version history when paging history 
   expect(
     vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).includes('/versions')),
   ).toHaveLength(2);
+});
+
+it('keeps the active PDF reader mounted with its selected page while history loads', async () => {
+  const pdf = { ...version(2), filename: 'report.pdf' };
+  let finish!: (value: Response) => void;
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).includes('beforeRevision')
+      ? new Promise<Response>((resolve) => {
+          finish = resolve;
+        })
+      : response({ artifacts: [pdf], cursor: 2, hasMore: true }),
+  );
+  render(<SavedArtifactDialog artifact={pdf} onClose={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'PDF page 1' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Earlier versions' }));
+  expect(screen.getByRole('button', { name: 'PDF page 2' })).toBeTruthy();
+  await act(async () =>
+    finish(
+      response({
+        artifacts: [{ ...version(1), filename: 'report.pdf' }],
+        cursor: null,
+        hasMore: false,
+      }),
+    ),
+  );
+  expect(screen.getByRole('button', { name: 'PDF page 2' })).toBeTruthy();
 });

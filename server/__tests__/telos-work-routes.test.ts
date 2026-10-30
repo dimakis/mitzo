@@ -63,6 +63,25 @@ async function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>
   return { app: server, read, command, dbPath };
 }
 describe('authorized Telos work API', () => {
+  it('upgrades missing additive lifecycle tables before native collection discovery', async () => {
+    const canonical = createTelosCanonicalData();
+    try {
+      canonical.db.exec(
+        'DROP TABLE telos_work_lifecycle_history; DROP TABLE telos_work_lifecycle_commands; DROP TABLE telos_work_lifecycle',
+      );
+      const f = await setup({ dbPath: () => canonical.dbPath });
+      const result = await request(f.app)
+        .get('/api/telos/work/collection')
+        .set('x-operator', 'authenticated');
+      expect(result.status).toBe(200);
+      expect(result.body.records.map((record: { itemId: string }) => record.itemId)).toEqual([
+        'studio',
+      ]);
+    } finally {
+      canonical.close();
+    }
+  });
+
   it('discovers persisted records without a Python listing, with current operator authority and private responses', async () => {
     const canonical = createTelosCanonicalData();
     try {

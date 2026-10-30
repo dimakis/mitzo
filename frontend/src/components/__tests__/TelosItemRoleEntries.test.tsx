@@ -18,14 +18,14 @@ function Location() {
   const location = useLocation();
   return <output data-testid="location">{location.pathname + location.search}</output>;
 }
-function fixture(kind: 'outcome' | 'work_item' | 'coordinator' | null) {
+function fixture(kind: 'outcome' | 'work_item' | 'coordinator' | null, links: unknown[] = []) {
   vi.spyOn(TelosWorkApiClient.prototype, 'read').mockResolvedValue(
     TelosWorkViewSchema.parse({
       itemId: 'selected',
       kind,
       parentId: kind === 'work_item' ? 'goal' : null,
       revision: 'a'.repeat(64),
-      links: [],
+      links,
       assignments: [],
       sources: [],
       attempts: [],
@@ -91,4 +91,22 @@ it('offers a separate ordinary chat for unclassified backlog work without claimi
   expect(location.searchParams.get('telosRoleMode')).toBe('additional');
   expect(f.newSession).toHaveBeenCalledOnce();
   expect(f.send).not.toHaveBeenCalled();
+});
+
+it('does not call a second role on the originating chat a separate conversation', async () => {
+  const link = {
+    version: 1,
+    itemId: 'selected',
+    conversation: { namespace: 'mitzo', conversationId: 'same-chat' },
+    linkedAt: '2026-10-30T10:00:00Z',
+    linkedBy: 'operator:fixture',
+    availability: 'available',
+    attemptId: null,
+  };
+  fixture(null, [
+    { ...link, linkId: 'origin', role: 'origin' },
+    { ...link, linkId: 'advisor', role: 'advisor' },
+  ]);
+  expect(await screen.findByText('No dedicated conversation yet.')).toBeTruthy();
+  expect(screen.queryByText('Separate conversations are linked to this item.')).toBeNull();
 });

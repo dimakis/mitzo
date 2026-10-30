@@ -58,10 +58,10 @@ for (const theme of ['dark', 'light'])
       itemId: children[0].itemId,
       filename: 'associate-qc.pdf',
       title: 'Associate 0 — original QC',
-      revision: 1,
+      revision: 2,
       sha256: 'b'.repeat(64),
       size: pdfFixture().length,
-      url: `/api/telos/artifacts/${'a'.repeat(32)}?revision=1`,
+      url: `/api/telos/artifacts/${'a'.repeat(32)}?revision=2`,
       sourceKind: 'session_artifact',
     };
     const counts = new Map<string, number>();
@@ -124,7 +124,18 @@ for (const theme of ['dark', 'light'])
           json: { artifacts: path.includes('associate-0/') ? [pdf] : [], limit: 100 },
         });
       if (path.endsWith('/versions'))
-        return route.fulfill({ json: { artifacts: [pdf], cursor: null, hasMore: false } });
+        return route.fulfill({
+          json:
+            url.searchParams.get('beforeRevision') === '2'
+              ? {
+                  artifacts: [
+                    { ...pdf, revision: 1, url: pdf.url.replace('revision=2', 'revision=1') },
+                  ],
+                  cursor: null,
+                  hasMore: false,
+                }
+              : { artifacts: [pdf], cursor: 2, hasMore: true },
+        });
       if (path === `/api/telos/artifacts/${pdf.id}`)
         return route.fulfill({ body: pdfFixture(), contentType: 'application/pdf' });
       if (path === '/pdfjs/pdf.worker.min.mjs')
@@ -178,6 +189,14 @@ for (const theme of ['dark', 'light'])
     await expect(
       dialog.getByRole('img', { name: `${pdf.title} — page 2`, exact: true }),
     ).toBeVisible();
+    await dialog.getByRole('combobox', { name: 'Zoom' }).selectOption('1.5');
+    await dialog.getByRole('button', { name: 'Earlier versions' }).click();
+    await expect(dialog.getByRole('option', { name: 'Saved version 1', exact: true })).toHaveCount(
+      1,
+    );
+    await expect(dialog.getByText('Page 2 of 2', { exact: true })).toBeVisible();
+    await expect(dialog.getByRole('combobox', { name: 'Zoom' })).toHaveValue('1.5');
+    await dialog.getByRole('combobox', { name: 'Zoom' }).selectOption('1');
     expect(counts.get(`/api/telos/artifacts/${pdf.id}`)).toBe(1);
     expect(counts.get(`/api/telos/artifacts/${pdf.id}/document`) ?? 0).toBe(0);
     await expect(dialog.getByText('Rendering page…', { exact: true })).toHaveCount(0);

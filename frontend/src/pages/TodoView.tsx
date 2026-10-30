@@ -291,13 +291,16 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   // Canonical discovery covers every profile; the legacy selection remains a
   // fallback preference, including when restored through item navigation.
   const discovery = useTodoData(undefined, undefined, collectionView, 'canonical');
-  const { loading, error, items, profiles, ack, done, create, createOutcome } = useTodoData(
+  const fallback = useTodoData(
     activeProfile,
     undefined,
     collectionView,
     'legacy',
     Boolean(discovery.error),
   );
+  const { loading, error, items, profiles, ack, done, create, createOutcome } = discovery.error
+    ? fallback
+    : discovery;
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<TodoSort>('priority');
@@ -384,6 +387,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
     },
   );
   function refreshWorkspace() {
+    if (discovery.error) fallback.refresh();
     discovery.refresh();
   }
 
@@ -493,6 +497,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
           {planningError && <p role="alert">{planningError}</p>}
           {creating && (
             <TodoCreateForm
+              key="active-create-form"
               parentId={creating.parentId}
               profile={activeProfile}
               profiles={profiles}
@@ -679,6 +684,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
 
         {creating && (
           <TodoCreateForm
+            key="active-create-form"
             parentId={creating.parentId}
             profile={activeProfile}
             profiles={profiles}

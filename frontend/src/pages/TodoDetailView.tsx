@@ -106,7 +106,10 @@ export function TodoDetailView() {
   // workspace's lifetime. Keep its accepted read keyed only to the route item.
   const primary = useTelosRecords(id ? [id] : []);
   const related = useTelosRecords(
-    recordIds.filter((value) => value !== id),
+    [
+      ...recordIds.filter((value) => value !== id),
+      ...(recordFailures ?? []).map((failure) => failure.itemId),
+    ],
     primary.refreshKey,
     { seed: collectionRecords, loading: refreshing, failures: recordFailures },
   );

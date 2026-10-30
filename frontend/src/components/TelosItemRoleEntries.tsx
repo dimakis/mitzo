@@ -51,7 +51,12 @@ export function TelosItemRoleEntries({
   // Explicit item kind selects the existing setup role; it grants no authority.
   const role = telosWorkEntryRole(work.kind);
   if (!role) {
-    const hasDedicatedConversation = work.links.some((link) => link.role !== 'origin');
+    const identity = (link: TelosWorkView['links'][number]) =>
+      JSON.stringify([link.conversation.namespace, link.conversation.conversationId]);
+    const origins = new Set(work.links.filter((link) => link.role === 'origin').map(identity));
+    const hasDedicatedConversation = work.links.some(
+      (link) => link.role !== 'origin' && !origins.has(identity(link)),
+    );
     return (
       <section className="todo-detail-contract" aria-label="Item conversations">
         <h2>Conversation</h2>

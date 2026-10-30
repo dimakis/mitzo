@@ -7,9 +7,11 @@ they existed beneath the intended parent. No database migration is needed.
 
 ## Data and request ownership
 
-- `GET /api/telos/work/collection` opens the selected canonical database read-only,
+- `GET /api/telos/work/collection` uses the existing lifecycle read owner for the selected canonical database,
   requires a current interactive operator, and returns private/no-store records.
-  It rejects selections above 5,000 items rather than silently truncating.
+  Initialized databases stay read-only; genuinely missing additive lifecycle
+  tables use the existing narrow schema initializer. It rejects selections above
+  5,000 items rather than silently truncating.
 - One transaction selects items, resolves inherited lifecycle in one recursive
   ancestry query, and groups sources, links and kinds once for selected identities.
   Completed children remain beneath active parents; completed roots stay out of
@@ -37,7 +39,8 @@ also retain access to the original brief.
 
 Saved Markdown uses the shared document renderer and a wider reading dialog.
 Saved PDFs use local PDF.js assets, one bounded canvas and selected-page
-navigation/zoom. The original retained PDF is fetched once per opened version;
+navigation/zoom. The original retained PDF is fetched once per opened version; history pagination
+retains its page and zoom without reloading its bytes;
 there is no external viewer service or all-page image prefetch. Unsupported or
 unavailable files retain download/file options and an explicit error.
 

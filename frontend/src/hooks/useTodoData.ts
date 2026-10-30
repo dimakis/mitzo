@@ -158,9 +158,6 @@ export function useTodoData(
     if (!enabled) return;
     let cancelled = false;
     const cached = todoCache.get(url);
-    // A direct route to a new item must not join a read admitted before its save.
-    // Keep retained rows, but resolve missing identities with a newly admitted read.
-    if (resolveItemId && !findInTree(cached?.items ?? [], resolveItemId)) invalidateTodos();
     setDataScope(url);
     setData(cached ?? null);
     setLoading(!cached);
@@ -177,6 +174,13 @@ export function useTodoData(
           return source === 'canonical' ? canonicalTodoData(data) : (data as TodoData);
         },
         rememberPriorities,
+        resolveItemId
+          ? {
+              id: resolveItemId,
+              present: (snapshot) => !!findInTree(snapshot?.items ?? [], resolveItemId),
+              retire: invalidateTodoReads,
+            }
+          : undefined,
       )
       .then(() => {
         if (!cancelled) {

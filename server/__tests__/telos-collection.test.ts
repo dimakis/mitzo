@@ -147,3 +147,9 @@ it('restricts grouped evidence reads to the selected visible identities', () => 
     prepare.mockRestore();
   }
 });
+
+it('refuses corrupt empty lifecycle metadata instead of treating the item as active', () => {
+  const f = fixture();
+  f.db.prepare('INSERT INTO telos_work_lifecycle(item_id,data) VALUES(?,?)').run('studio', '');
+  expect(() => f.work.readCollection('active', f.actor)).toThrow();
+});

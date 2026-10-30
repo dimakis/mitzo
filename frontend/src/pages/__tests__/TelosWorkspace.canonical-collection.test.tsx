@@ -1,6 +1,7 @@
+import { canonicalTodoData } from '../../lib/canonical-todo-data';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { TodoWorkspace } from '../TodoWorkspace';
 import { markAuthLost } from '../../lib/api-fetch';
@@ -115,4 +116,89 @@ it('keeps the canonical desktop frame while its exact item read is pending', asy
   await screen.findByRole('heading', { name: record.summary });
   expect(view.container.querySelector('.todo-detail-page:not(.telos-canonical-page)')).toBeNull();
   release(Response.json(record));
+});
+
+it('warns when a parent collection omits a malformed child rather than reporting an empty complete list', async () => {
+  markAuthLost();
+  const parent = {
+    ...createTelosWorkFixtures().homeStudio.items[0],
+    itemId: 'qc-parent',
+    kind: null,
+  };
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+    String(input) === '/api/telos/work/collection'
+      ? Response.json({
+          records: [parent],
+          profiles: ['work'],
+          failures: [{ itemId: 'bad-child', code: 'invalid_record' }],
+        })
+      : String(input).endsWith('/record')
+        ? Response.json(parent)
+        : Response.json({}, { status: 503 }),
+  );
+  render(
+    <MemoryRouter initialEntries={['/todos/qc-parent']}>
+      <Routes>
+        <Route path="/todos/:id" element={<TodoWorkspace />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  expect(
+    await screen.findByText('Some related outcome records are unavailable.', { exact: false }),
+  ).toBeTruthy();
+  expect(screen.queryByText('No child work yet.')).toBeNull();
+});
+
+it('refreshes the visible legacy fallback during a native outage and refreshes native data after a recovered form save', async () => {
+  markAuthLost();
+  const record = { ...createTelosWorkFixtures().homeStudio.items[0], kind: null };
+  const collection = () => ({ records: [record], profiles: ['work'], failures: [] });
+  let available = false,
+    reads = 0,
+    nativeReads = 0,
+    created = false;
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input);
+    if (url === '/api/telos/work/collection') {
+      nativeReads++;
+      return available ? Response.json(collection()) : Response.json({}, { status: 503 });
+    }
+    if (url === '/api/todos') {
+      reads++;
+      return Response.json(canonicalTodoData(collection()));
+    }
+    if (url === '/api/todos/outcomes' && init?.method === 'POST') {
+      created = true;
+      return Response.json({ item: { id: 'new' } });
+    }
+    return Response.json({}, { status: 503 });
+  });
+  render(
+    <MemoryRouter initialEntries={['/todos']}>
+      <TodoWorkspace />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('button', { name: 'Add outcome' });
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh Telos' }));
+  await waitFor(() => expect(reads).toBe(2));
+  fireEvent.click(screen.getByRole('button', { name: 'Add outcome' }));
+  fireEvent.change(screen.getByPlaceholderText('Short outcome title'), {
+    target: { value: 'New review' },
+  });
+  for (const placeholder of [
+    'What will be true when this is achieved?',
+    'Why does this matter?',
+    'Done when — one verifiable criterion per line',
+    'Milestones — first line is the next action',
+  ])
+    fireEvent.change(screen.getByPlaceholderText(placeholder), { target: { value: 'Reviewed' } });
+  available = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh Telos' }));
+  await waitFor(() => expect(document.querySelector('.telos-canonical-page')).not.toBeNull());
+  const before = nativeReads;
+  const legacyBeforeSave = reads;
+  fireEvent.click(screen.getByRole('button', { name: 'Create outcome' }));
+  await waitFor(() => expect(created).toBe(true));
+  await waitFor(() => expect(nativeReads).toBe(before + 1));
+  expect(reads).toBe(legacyBeforeSave);
 });

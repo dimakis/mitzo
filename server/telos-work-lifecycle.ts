@@ -206,7 +206,7 @@ export class TelosWorkLifecycle {
         let inherited =
           id === null ? { disposition: 'active' as Disposition, depth: 0 } : memo.get(id)!;
         for (const row of path.reverse()) {
-          const local = row.data ? (JSON.parse(row.data) as State).disposition : 'active';
+          const local = row.data !== null ? (JSON.parse(row.data) as State).disposition : 'active';
           const disposition =
             local === 'trashed' || inherited.disposition === 'trashed'
               ? 'trashed'
