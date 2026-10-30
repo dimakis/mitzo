@@ -1,5 +1,6 @@
 import { codexNativeProfileRevision } from './codex-native-execution-policy.js';
 import { SessionRuntimeError } from './session-runtime-error.js';
+import { CallbackIncidentStore } from './callback-incident-store.js';
 import {
   CHAT_MAX_PREPARED_PROMPT_CHARS,
   ChatMessageTextSchema,
@@ -2573,6 +2574,19 @@ export class CodexConversationStore {
     return pending
       ? { commandId: pending.commandId, kind: pending.phase ? 'completion_phase' : 'tool_effects' }
       : undefined;
+  }
+  inspectCallbackIncident(binding: AccountBinding) {
+    return new CallbackIncidentStore(this.db, this).inspectCallbackIncident(binding);
+  }
+  callbackIncidentToolReceipts(binding: AccountBinding) {
+    return new CallbackIncidentStore(this.db, this).callbackIncidentToolReceipts(binding);
+  }
+  applyCallbackIncident(
+    binding: AccountBinding,
+    planHash: string,
+    audit: { evidenceHash: string; operatorHash: string },
+  ) {
+    return new CallbackIncidentStore(this.db, this).applyCallbackIncident(binding, planHash, audit);
   }
   completionPhaseRecoveryTarget(
     id: string,
