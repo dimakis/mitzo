@@ -68,3 +68,26 @@ bounded response. The unbounded history endpoint retains its legacy array respon
 
 Provider/account route migration, production deployment, and live model calls are outside this
 phase.
+
+## Foreground and background request ordering
+
+SSE suspend hints and foreground replay use separate HTTP requests. Their arrival
+order cannot establish client intent: a delayed keepalive or teardown beacon must
+not suspend a session after the same connection has resumed it. The SSE client
+attaches a monotonically increasing `lifecycleRevision` to each actual reconnect
+and suspension. The existing authenticated transport lease retains the latest
+revision through its teardown grace period. Both suspension routes and reconnect
+ignore stale or duplicate revisions before changing session state. Existing login
+and session ownership checks still apply. Unversioned connections remain supported;
+a connection that has used revisions cannot downgrade to unversioned hints.
+
+Ordinary metadata restoration uses saved model/settings and the already available
+catalog. Only an explicit `refresh=1` performs optional model discovery. Client
+metadata and capability reads have a 15-second deadline covering headers and body;
+timeout aborts the read, presents the existing retry state, and cannot overwrite a
+newer retry or conversation selection. These read paths do not enqueue commands.
+
+Offline regressions cover reversed suspend/reconnect arrival, delayed beacons,
+duplicate and legacy hints, interrupted metadata bodies and late results after
+retry. They establish request ordering and retry behavior, not live phone/network
+acceptance.
