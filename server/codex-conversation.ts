@@ -3958,7 +3958,7 @@ export class CodexConversation {
         result,
       );
     }
-    if (retainedCallbackOutcome(result) === 'settled')
+    if (callbackOutcome(result) === 'settled')
       (active.settledToolCallbacks ??= new Set()).add(call.callId);
     this.mapper!.toolResult(publicId, result.content, result.isError, result.contentItems);
     try {

@@ -3,7 +3,7 @@ import {
   resolveTaskWorkerAllocationContext,
 } from './task-worker-authority.js';
 import { assertTurnCallbackEffects, type TurnCallbackRunner } from './turn-callbacks.js';
-import { createContinuousSdkQuery } from './continuous-sdk-callbacks.js';
+import { createSdkTurnQuery } from './sdk-turn-query.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
@@ -2970,10 +2970,12 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         );
         await liveOrdinarySdkOwner.enqueue(initialMessageId);
       } else {
-        q = createContinuousSdkQuery({
+        q = createSdkTurnQuery({
           input: inputQueue,
           controller: abortController,
           lifetime: sdkHookLifetime,
+          sdkSessionId: resolvedResume ?? newSdkSessionId!,
+          cwd,
           authorize: authorizeSdkContext,
           create: (request) => query(request),
           adapt: adaptSdkQuery,
@@ -2981,24 +2983,30 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             ...sdkOptions,
             mcpServers: {
               ...sdkOptions.mcpServers,
-              'mitzo-web-access': createSdkWebAccess(state),
-              'mitzo-connections': createCredentialSdkServer(
-                () => session.sessionId ?? options.resume ?? newSdkSessionId,
-                session,
-                registry,
-                {
-                  runCallback: state.runCallback,
-                  assertCurrentSync: (signal) => {
-                    signal.throwIfAborted();
-                    assertTurnCallbackEffects();
-                  },
-                  assertCurrent: async (signal) => {
-                    assertTurnCallbackEffects();
-                    await authorizeSdkContext(signal);
-                    assertTurnCallbackEffects();
-                  },
-                },
-              ),
+              ...(Object.hasOwn(sdkOptions.mcpServers ?? {}, 'mitzo-web-access')
+                ? { 'mitzo-web-access': createSdkWebAccess(state) }
+                : {}),
+              ...(Object.hasOwn(sdkOptions.mcpServers ?? {}, 'mitzo-connections')
+                ? {
+                    'mitzo-connections': createCredentialSdkServer(
+                      () => session.sessionId ?? options.resume ?? newSdkSessionId,
+                      session,
+                      registry,
+                      {
+                        runCallback: state.runCallback,
+                        assertCurrentSync: (signal) => {
+                          signal.throwIfAborted();
+                          assertTurnCallbackEffects();
+                        },
+                        assertCurrent: async (signal) => {
+                          assertTurnCallbackEffects();
+                          await authorizeSdkContext(signal);
+                          assertTurnCallbackEffects();
+                        },
+                      },
+                    ),
+                  }
+                : {}),
             },
           }),
         });
