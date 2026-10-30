@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.783-telos-callback-ownership-integration';
+  'v1.0.784-codex-preexecution-refusal';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -600,7 +600,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     '4ebeea8d0974cb1d8ddd5f2d853ee8f3eb0987bab66436da2cfed42080defb57',
   '../__tests__/codex-conversation.test.ts':
-    'cf0306a35242ac88f53f98936b975d88120aaa5463652e0573bb9da746559a9a',
+    '09fa8266212ddf773004eaff888a77ca40837aaea5009d789ae71f09e2b70640',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -1398,7 +1398,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '4ad3c42888636e83a08a066c955b1489af33ed9cdfb363548987a225fb4510b7',
+  '../codex-conversation.ts': '48452605946a303af2779b83bf26a2ce7d6f0ba786ed96896286780895caa036',
   '../codex-conversation-store.ts':
     '7be9ad9d04c3fd23ead3c49278f860a1010e82712ff3bb367775c522f1564ec4',
   '../symposium-custodian-ipc.ts':
