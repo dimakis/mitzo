@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   apiFetch,
+  invalidateTodoReads,
   getApiBaseUrl,
   getEventSourceUrl,
   getWsBaseUrl,
@@ -569,4 +570,65 @@ it('starts a new Telos read after a successful write while an older read is stil
   finishOld(Response.json({ items: [] }));
   expect(await (await fresh).json()).toEqual({ items: [{ id: 'created' }] });
   await old;
+});
+
+it('shares concurrent Telos relationship reads while keeping each subscriber cancellation independent', async () => {
+  let finish!: (response: Response) => void;
+  mockFetch.mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const firstController = new AbortController(),
+    secondController = new AbortController();
+  const path = '/api/telos/work/items/same-item';
+  const first = apiFetch(path, { signal: firstController.signal });
+  const second = apiFetch(path, { signal: secondController.signal });
+  const rejected = expect(first).rejects.toMatchObject({ name: 'AbortError' });
+  firstController.abort();
+  await rejected;
+  finish(Response.json({ itemId: 'same-item' }));
+  expect(await (await second).json()).toEqual({ itemId: 'same-item' });
+  expect(mockFetch.mock.calls[0][1].signal.aborted).toBe(false);
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+});
+it('retires shared Telos reads when authentication changes and never shares a mutation', async () => {
+  let finish!: (response: Response) => void;
+  mockFetch.mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const path = '/api/telos/work/items/same-item';
+  const old = apiFetch(path, { signal: new AbortController().signal });
+  const oldFailure = expect(old).rejects.toMatchObject({ name: 'AbortError' });
+  loginSucceeded('new-operator');
+  mockFetch.mockResolvedValueOnce(Response.json({ itemId: 'fresh' }));
+  const fresh = apiFetch(path, { signal: new AbortController().signal });
+  finish(Response.json({ itemId: 'stale' }));
+  await oldFailure;
+  expect(await (await fresh).json()).toEqual({ itemId: 'fresh' });
+  await Promise.all([
+    apiFetch('/api/telos/work/commands', { method: 'POST' }),
+    apiFetch('/api/telos/work/commands', { method: 'POST' }),
+  ]);
+  expect(mockFetch).toHaveBeenCalledTimes(4);
+});
+
+it('clears pending relationship reads from before an invalidation when the login changes', async () => {
+  let finish!: (response: Response) => void;
+  mockFetch.mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const old = apiFetch('/api/telos/work/items/retired', { signal: new AbortController().signal });
+  const failure = expect(old).rejects.toMatchObject({ name: 'AbortError' });
+  invalidateTodoReads();
+  loginSucceeded('new-operator');
+  finish(Response.json({ itemId: 'old-operator' }));
+  await failure;
 });
