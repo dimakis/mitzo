@@ -2068,3 +2068,379 @@ it.each(['older', 'current'] as const)(
     }
   },
 );
+
+it('does not clear B preparation when A emits a late reply or terminal event', () => {
+  const { store } = setup();
+  const sessionId = 'queue-chat';
+  channel.listener({ type: 'session_id', sessionId });
+  channel.listener({ type: 'user_message', sessionId, messageId: 'a', text: 'First', seq: 1 });
+  channel.listener({
+    type: 'ordinary_provider_dispatch_started',
+    sessionId,
+    messageId: 'a',
+    seq: 2,
+  });
+  channel.listener({ type: 'user_message', sessionId, messageId: 'b', text: 'Correction', seq: 3 });
+  channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'b', retained: true });
+  channel.listener({
+    type: 'ordinary_reply_source',
+    sessionId,
+    messageId: 'old-reply',
+    replyToMessageId: 'a',
+    seq: 4,
+  });
+  channel.listener({ type: 'message_start', sessionId, messageId: 'old-reply', seq: 5 });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({ type: 'session_end', sessionId, seq: 6 });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'ordinary_provider_dispatch_started',
+    sessionId,
+    messageId: 'b',
+    seq: 7,
+  });
+  channel.listener({
+    type: 'ordinary_reply_source',
+    sessionId,
+    messageId: 'new-reply',
+    replyToMessageId: 'b',
+    seq: 8,
+  });
+  channel.listener({ type: 'message_start', sessionId, messageId: 'new-reply', seq: 9 });
+  expect(store.getState().sendStatus).toBeNull();
+});
+
+it('labels a guarded accepted continuation as queued and ignores the older completion on receipt retry', async () => {
+  const { store, fetch } = setup();
+  channel.id = 'live';
+  channel.listener({ type: '_open' });
+  channel.listener({ type: 'session_id', sessionId: 'owned-session' });
+  channel.listener({
+    type: 'user_message',
+    sessionId: 'owned-session',
+    messageId: 'a',
+    text: 'First',
+    seq: 1,
+  });
+  channel.listener({
+    type: 'ordinary_provider_dispatch_started',
+    sessionId: 'owned-session',
+    messageId: 'a',
+    seq: 2,
+  });
+  const input = {
+    ...request,
+    sessionId: 'owned-session',
+    clientMsgId: 'b',
+    payload: { text: 'Correction next' },
+  };
+  fetch.mockImplementation(async (path) =>
+    path === '/local/continue'
+      ? Response.json(
+          {
+            ok: true,
+            clientMsgId: 'b',
+            sessionId: 'owned-session',
+            dispatched: true,
+            state: 'consumed',
+          },
+          { status: 202 },
+        )
+      : Response.json([]),
+  );
+  expect(store.getState().sendLocalFirstCommand(input)).toBe(true);
+  await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
+  expect(store.getState().messages.messages.find((m) => m.messageId === 'b')?.commandState).toBe(
+    'queued',
+  );
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'ordinary_reply_source',
+    sessionId: 'owned-session',
+    messageId: 'old',
+    replyToMessageId: 'a',
+    seq: 3,
+  });
+  channel.listener({ type: 'message_start', sessionId: 'owned-session', messageId: 'old', seq: 4 });
+  channel.listener({ type: 'session_end', sessionId: 'owned-session', seq: 5 });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'ordinary_command_completed',
+    sessionId: 'owned-session',
+    messageId: 'b',
+    status: 'completed',
+    seq: 6,
+  });
+  expect(store.getState().sendStatus).toBeNull();
+});
+
+it('uses an exact snapshot source after reconnect without treating an older A snapshot as B output', () => {
+  const { store } = setup(),
+    sessionId = 'snapshots';
+  channel.listener({ type: 'session_id', sessionId });
+  channel.listener({ type: 'user_message', sessionId, messageId: 'a', text: 'First', seq: 1 });
+  channel.listener({
+    type: 'ordinary_provider_dispatch_started',
+    sessionId,
+    messageId: 'a',
+    seq: 2,
+  });
+  channel.listener({ type: 'user_message', sessionId, messageId: 'b', text: 'Next', seq: 3 });
+  channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'b', retained: true });
+  channel.listener({
+    type: 'message_snapshot',
+    sessionId,
+    messageId: 'answer-a',
+    replyToMessageId: 'a',
+    startedSeq: 4,
+    blocks: [],
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'message_snapshot',
+    sessionId,
+    messageId: 'answer-b',
+    replyToMessageId: 'b',
+    startedSeq: 5,
+    blocks: [],
+  });
+  expect(store.getState().sendStatus).toBeNull();
+  expect(store.getState().messages.current?.replyToMessageId).toBe('b');
+});
+
+it.each([true, false])(
+  'reconciles command metadata from a bounded snapshot and live suffix (suffix %s)',
+  async (suffix) => {
+    const { store, fetch } = setup(),
+      sessionId = 'metadata-reconnect';
+    channel.listener({ type: 'session_id', sessionId });
+    channel.listener({ type: 'user_message', sessionId, messageId: 'a', text: 'First', seq: 1 });
+    channel.listener({
+      type: 'ordinary_provider_dispatch_started',
+      sessionId,
+      messageId: 'a',
+      seq: 2,
+    });
+    let finish!: () => void;
+    fetch.mockImplementation(async (url: string) =>
+      url.includes('messages?throughSeq=2')
+        ? new Promise<Response>((resolve) => {
+            finish = () =>
+              resolve(
+                Response.json({
+                  cursor: 2,
+                  messages: [
+                    {
+                      messageId: 'a',
+                      role: 'user',
+                      startedSeq: 1,
+                      commandState: suffix ? 'running' : 'completed',
+                      commandStateSeq: 2,
+                      blocks: [{ blockId: 'u', blockType: 'text', content: 'First' }],
+                    },
+                  ],
+                  current: null,
+                }),
+              );
+          })
+        : Response.json([]),
+    );
+    channel.listener({
+      type: 'session_reconnect_snapshot',
+      sessionId,
+      cursor: 2,
+      cursorValid: true,
+      offerId: 'metadata',
+      state: 'idle',
+    });
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    if (suffix)
+      channel.listener({
+        type: 'ordinary_command_completed',
+        sessionId,
+        messageId: 'a',
+        status: 'completed',
+        seq: 3,
+        prevSessionSeq: 2,
+      });
+    finish();
+    await vi.waitFor(() =>
+      expect(channel.acknowledgeSnapshot).toHaveBeenCalledWith(sessionId, 2, 'metadata'),
+    );
+    expect(store.getState().messages.messages).toContainEqual(
+      expect.objectContaining({ messageId: 'a', commandState: 'completed' }),
+    );
+  },
+);
+it('does not require Codex-only attribution to finish a Responses continuation', async () => {
+  const { store, fetch } = setup();
+  channel.id = 'live';
+  channel.listener({ type: '_open' });
+  channel.listener({ type: 'session_id', sessionId: 'owned-session' });
+  const input = {
+    ...request,
+    sessionId: 'owned-session',
+    clientMsgId: 'responses-input',
+    runtime: {
+      ...request.runtime,
+      account: { ...request.runtime.account, provider: 'openai' as const },
+      harness: 'responses' as const,
+    },
+  };
+  fetch.mockImplementation(async (path) =>
+    String(path).endsWith('/continue')
+      ? Response.json(
+          {
+            ok: true,
+            clientMsgId: input.clientMsgId,
+            sessionId: 'owned-session',
+            dispatched: true,
+            state: 'consumed',
+          },
+          { status: 202 },
+        )
+      : Response.json([]),
+  );
+  expect(store.getState().sendLocalFirstCommand(input)).toBe(true);
+  await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
+  channel.listener({ type: 'message_start', sessionId: 'owned-session', messageId: 'response' });
+  channel.listener({ type: 'session_end', sessionId: 'owned-session' });
+  expect(store.getState().sendStatus).toBeNull();
+  expect(
+    store.getState().messages.messages.find((m) => m.messageId === input.clientMsgId)?.commandState,
+  ).not.toBe('queued');
+});
+
+it.each(['completed', 'reply', 'current', 'newer'])(
+  'reconciles preparing against exact reconnect evidence (%s)',
+  async (evidence) => {
+    const { store, fetch } = setup(),
+      sessionId = 'prepare-reconnect';
+    channel.listener({ type: 'session_id', sessionId });
+    channel.listener({ type: 'user_message', sessionId, messageId: 'a', text: 'Earlier', seq: 1 });
+    channel.listener({
+      type: 'ordinary_provider_dispatch_started',
+      sessionId,
+      messageId: 'a',
+      seq: 2,
+    });
+    channel.listener({ type: 'user_message', sessionId, messageId: 'b', text: 'Latest', seq: 3 });
+    channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'b', retained: true });
+    expect(store.getState().sendStatus).toBe('Preparing response…');
+    let finish!: () => void;
+    fetch.mockImplementation(async (url: string) =>
+      url.includes('messages?throughSeq=10')
+        ? new Promise<Response>((resolve) => {
+            finish = () =>
+              resolve(
+                Response.json({
+                  cursor: 10,
+                  messages: [
+                    { messageId: 'a', role: 'user', blocks: [] },
+                    {
+                      messageId: 'b',
+                      role: 'user',
+                      commandState:
+                        evidence === 'reply' || evidence === 'current' ? 'running' : 'completed',
+                      commandStateSeq: 9,
+                      blocks: [],
+                    },
+                    ...(evidence === 'reply'
+                      ? [
+                          {
+                            messageId: 'answer-b',
+                            role: 'assistant',
+                            replyToMessageId: 'b',
+                            blocks: [],
+                          },
+                        ]
+                      : []),
+                  ],
+                  current:
+                    evidence === 'current'
+                      ? { messageId: 'answer-b', replyToMessageId: 'b', startedSeq: 10, blocks: [] }
+                      : null,
+                }),
+              );
+          })
+        : Response.json([]),
+    );
+    channel.listener({
+      type: 'session_reconnect_snapshot',
+      sessionId,
+      cursor: 10,
+      cursorValid: true,
+      offerId: 'preparing',
+      state: 'idle',
+    });
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    if (evidence === 'newer') {
+      channel.listener({
+        type: 'user_message',
+        sessionId,
+        messageId: 'c',
+        text: 'Newer',
+        seq: 11,
+        prevSessionSeq: 10,
+      });
+      channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'c', retained: true });
+    }
+    finish();
+    await vi.waitFor(() =>
+      expect(channel.acknowledgeSnapshot).toHaveBeenCalledWith(sessionId, 10, 'preparing'),
+    );
+    expect(store.getState().sendStatus).toBe(evidence === 'newer' ? 'Preparing response…' : null);
+  },
+);
+it('clears preparation only for the latest command cancellation and never revives it on a late receipt', () => {
+  const { store } = setup(),
+    sessionId = 'cancel-preparation';
+  channel.listener({ type: 'session_id', sessionId });
+  channel.listener({ type: 'user_message', sessionId, messageId: 'a', text: 'Earlier', seq: 1 });
+  channel.listener({ type: 'user_message', sessionId, messageId: 'b', text: 'Latest', seq: 2 });
+  channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'b', retained: true });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'ordinary_command_state',
+    sessionId,
+    messageId: 'a',
+    commandState: 'cancelled',
+    seq: 3,
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'ordinary_command_state',
+    sessionId,
+    messageId: 'b',
+    commandState: 'queued',
+    seq: 4,
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'ordinary_command_state',
+    sessionId,
+    messageId: 'b',
+    commandState: 'cancelled',
+    seq: 5,
+  });
+  expect(store.getState().sendStatus).toBeNull();
+  channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'b', retained: true });
+  expect(store.getState().sendStatus).toBeNull();
+  channel.listener({ type: 'user_message', sessionId, messageId: 'c', text: 'Newer', seq: 6 });
+  channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'c', retained: true });
+  channel.listener({
+    type: 'ordinary_command_state',
+    sessionId,
+    messageId: 'b',
+    commandState: 'cancelled',
+    seq: 7,
+  });
+  channel.listener({
+    type: 'ordinary_command_state',
+    sessionId: 'foreign',
+    messageId: 'c',
+    commandState: 'cancelled',
+    seq: 8,
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+});

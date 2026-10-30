@@ -180,6 +180,7 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
     return receipt;
   };
   const composer = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  const nativeByConversation = new Map<string, (typeof nativeSessions)[number]>();
   const start = async (id: string, label: string) => {
     await page.goto(front.origin + '/chat/' + id);
     const before = nativeSessions.length;
@@ -193,7 +194,7 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
       ),
       page.getByRole('button', { name: 'Send message', exact: true }).click(),
     ]);
-    expect(sent.status()).toBe(202);
+    expect(sent.status(), await sent.text()).toBe(202);
     expect(await sent.json()).toMatchObject({ state: 'consumed', dispatched: true, sessionId: id });
     await vi.waitFor(() => expect(nativeSessions).toHaveLength(before + 1));
     const native = nativeSessions.at(-1)!;
@@ -201,6 +202,7 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
       expect(native.rpc.request.mock.calls.filter(([m]) => m === 'turn/start')).toHaveLength(1),
     );
     expect(native.tools.some((tool) => tool.name === 'TelosWorkControl')).toBe(true);
+    nativeByConversation.set(id, native);
     return native;
   };
   const ack = async (
@@ -513,8 +515,23 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
       limitation:
         'No connected/approved main action owner. Private denial ledger is not completed current-main publication qualification.',
     });
-    const safe = await uiRequest('safe_point');
     const held = features[1];
+    // Queue now saves an unsent local draft. Reach the next actual command
+    // boundary from an idle composer before asserting the host's refusal.
+    await page.goto(front.origin + '/chat/' + held.leadId);
+    const heldNative = nativeByConversation.get(held.leadId)!;
+    await browserExpect(
+      page.getByRole('button', { name: 'Stop generation', exact: true }),
+    ).toBeVisible();
+    heldNative.lifecycle.onNotification('turn/completed', {
+      threadId: heldNative.threadId,
+      turn: { id: heldNative.turnId, status: 'completed' },
+    });
+    await browserExpect(
+      page.getByRole('button', { name: 'Stop generation', exact: true }),
+    ).toBeHidden();
+    await page.goto(front.origin + '/chat/' + coordinatorId);
+    const safe = await uiRequest('safe_point');
     await page.goto(front.origin + '/chat/' + held.leadId);
     await composer.fill('New command refused at the declared safe point.');
     const beforeTurns = nativeSessions.map(
@@ -526,7 +543,7 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
           r.url().endsWith('/api/ordinary/workspaces/commands/continue') &&
           r.request().method() === 'POST',
       ),
-      page.getByRole('button', { name: 'Queue message', exact: true }).click(),
+      page.getByRole('button', { name: 'Send message', exact: true }).click(),
     ]);
     const refusal = await refused.json();
     // Existing ordinary entry catch preserves a retained command as uncertain;

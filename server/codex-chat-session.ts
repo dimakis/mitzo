@@ -1,3 +1,4 @@
+import { assembleReplyText, captureMessageReply } from './message-reply-context.js';
 import { sessionLocalServiceTools } from './session-local-service-tools.js';
 import { sessionGoogleWorkspaceTools } from './session-google-workspace-tools.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
@@ -2869,6 +2870,63 @@ async function openCodexChatBound(
         }
       : {}),
     emit: (event) => events.push(event),
+    assertSteeringCurrent: () => {
+      if (!ownedHost || !options.assertAgentContextAuthorization)
+        throw Error('Steering owner unavailable');
+      options.ownedLocal?.assertCurrentSync();
+      options.ownedOpenShell?.assertCurrentSync();
+      options.assertAgentContextAuthorization();
+    },
+    onCommandQueued: (messageId) => {
+      try {
+        options.eventStore.append(options.conversationId, 'ordinary_command_state', {
+          messageId,
+          commandState: 'queued',
+        });
+      } catch {
+        log.warn('Command display state could not be saved', {
+          conversationId: options.conversationId,
+        });
+      }
+    },
+    prepareSteeringText: (input) =>
+      assembleReplyText(
+        input.text,
+        input.replyToMessageId
+          ? captureMessageReply(
+              options.eventStore,
+              options.conversationId,
+              input.requestId,
+              input.replyToMessageId,
+            )
+          : undefined,
+      ),
+    onSteeringUpdate: (input, status) => {
+      const inReplyTo =
+        status === 'steering' && input.replyToMessageId
+          ? captureMessageReply(
+              options.eventStore,
+              options.conversationId,
+              input.requestId,
+              input.replyToMessageId,
+            )
+          : undefined;
+      if (status === 'steering')
+        options.eventStore.append(options.conversationId, 'user_message', {
+          v: 2,
+          type: 'user_message',
+          ts: Date.now(),
+          messageId: input.requestId,
+          text: input.text,
+          steersMessageId: input.targetCommandId,
+          ...(inReplyTo ? { inReplyTo } : {}),
+          commandState: 'steering',
+        });
+      options.eventStore.append(options.conversationId, 'ordinary_command_state', {
+        messageId: input.requestId,
+        commandState: status === 'accepted' ? 'steered' : status === 'rejected' ? 'failed' : status,
+      });
+    },
     onProviderDispatch: (messageId) => {
       options.adviserScope?.assertCommand(options.conversationId, messageId);
       options.assertWorkTurnAdmission?.();
@@ -2919,8 +2977,19 @@ async function openCodexChatBound(
       options.ordinaryTurnLifecycle?.terminal(messageId, turnId, status),
     onProviderTerminalConflict: (messageId, _threadId, turnId) =>
       options.ordinaryTurnLifecycle?.terminalConflict?.(messageId, turnId),
-    onProviderComplete: (messageId, status) =>
-      finishTrackedProviderAttempt(options.session, messageId, status),
+    onProviderComplete: (messageId, status) => {
+      finishTrackedProviderAttempt(options.session, messageId, status);
+      try {
+        options.eventStore.append(options.conversationId, 'ordinary_command_completed', {
+          messageId,
+          status,
+        });
+      } catch {
+        log.warn('Command display state could not be saved', {
+          conversationId: options.conversationId,
+        });
+      }
+    },
     loadConversationHistory: () => codexRolloverHistory(options.eventStore, options.conversationId),
     loadSourceSnapshots: () => codexRolloverSources(options.eventStore, options.conversationId),
     onClosed: () => {

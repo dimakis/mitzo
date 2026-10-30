@@ -1,3 +1,5 @@
+import type { MessageReplyContext } from '@mitzo/protocol';
+import { useTurnSteering } from '../hooks/useTurnSteering';
 import { chatStorage } from '../lib/large-chat-storage';
 import { chatModelSettings } from '../lib/chat-model-settings';
 import { LegacyNativeContinuation } from '../components/LegacyNativeContinuation';
@@ -137,6 +139,10 @@ export function ChatView() {
   );
   const preparationId = searchParams.get('repositoryPreparation');
   const repositoryHandoff = useRepositoryChatPreparation(preparationId, sessionId);
+  const [replySelection, setReplySelection] = useState<{
+    session: string;
+    message: MessageReplyContext;
+  } | null>(null);
   const repositoryDraftControl = useRef<ChatInputDraftControl | null>(null);
   const [launchDraftError, setLaunchDraftError] = useState<string | null>(null);
   const modeChangeReady = useMitzoStore((s) => s.modeChangeReady);
@@ -246,6 +252,12 @@ export function ChatView() {
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
   const localFirstCommand = explicitNew || localRuntime.preparedFirst;
+  const steerTarget = messages.messages
+    .filter((message) => message.role === 'user' && message.commandState === 'running')
+    .at(-1)?.messageId;
+  const supportsSteering = localBound && localRuntime.binding?.harness.implementation === 'codex';
+  const turnSteering = useTurnSteering(activeSessionId, steerTarget, !!supportsSteering);
+
   const defaultWorkspaceAvailable =
     localRuntime.intent.execution.location === 'local'
       ? localRuntime.inventory?.defaultLocalRepository === true
@@ -771,17 +783,23 @@ export function ChatView() {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
-  function prepareOrdinaryCommand(text: string, images?: ImageAttachment[]) {
+  function prepareOrdinaryCommand(
+    text: string,
+    images?: ImageAttachment[],
+    replyTo?: MessageReplyContext,
+    queuedCommandId?: string,
+  ) {
     if (!activeSessionId || !localRuntime.ordinaryWorkspaceId)
       return { request: null, reason: 'Conversation workspace settings are unavailable.' };
     return prepareOrdinaryWorkspaceCommand(localRuntime.intent, localRuntime.inventory, {
       sessionId: activeSessionId,
       ordinaryWorkspaceId: localRuntime.ordinaryWorkspaceId,
-      clientMsgId: createBrowserId(),
+      clientMsgId: queuedCommandId ?? createBrowserId(),
       mode: localRuntime.mode ?? 'agent',
       retainedAgentProfile: localRuntime.agentProfile,
       retainedAgentContext: localRuntime.agentContext,
       text,
+      replyToMessageId: replyTo?.messageId,
       images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
     });
   }
@@ -794,6 +812,8 @@ export function ChatView() {
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
     composerDraft?: import('@mitzo/client').SendMessageOptions['composerDraft'],
+    replyTo?: MessageReplyContext,
+    queuedCommandId?: string,
   ): boolean {
     if (
       (activeSessionId && !isSessionMetadataCurrent(activeSessionId, sessionMetadataRevision)) ||
@@ -813,7 +833,7 @@ export function ChatView() {
     }
     if (localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable && activeSessionId) {
       if (ctxBlocks?.length || launching || localRuntime.reason) return false;
-      const command = prepareOrdinaryCommand(text, images);
+      const command = prepareOrdinaryCommand(text, images, replyTo, queuedCommandId);
       return (
         !!command.request &&
         sendOrdinaryWorkspaceCommand(
@@ -832,12 +852,13 @@ export function ChatView() {
     if (localRuntime.preparedFirst && localRuntime.repositoryWorkspaceId && activeSessionId) {
       if (ctxBlocks?.length || launching || localRuntime.reason) return false;
       const command = prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
-        clientMsgId: createBrowserId(),
+        clientMsgId: queuedCommandId ?? createBrowserId(),
         repositoryWorkspaceId: localRuntime.repositoryWorkspaceId,
         mode: localRuntime.mode ?? 'agent',
         retainedAgentProfile: localRuntime.agentProfile,
         retainedAgentContext: localRuntime.agentContext,
         text,
+        replyToMessageId: replyTo?.messageId,
         images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
       });
       return (
@@ -858,13 +879,14 @@ export function ChatView() {
         return false;
       const command = prepareLocalContinuationCommand(localRuntime.intent, localRuntime.inventory, {
         sessionId: activeSessionId,
-        clientMsgId: createBrowserId(),
+        clientMsgId: queuedCommandId ?? createBrowserId(),
         repositoryWorkspaceId: localRuntime.repositoryWorkspaceId,
         mode: localRuntime.mode ?? 'agent',
         retainedAgentProfile: localRuntime.agentProfile,
         retainedAgentContext: localRuntime.agentContext,
         nativeConstraint: localRuntime.nativeConstraint,
         text,
+        replyToMessageId: replyTo?.messageId,
         images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
       });
       return (
@@ -887,7 +909,7 @@ export function ChatView() {
       )
         return false;
       const command = buildLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
-        clientMsgId: createBrowserId(),
+        clientMsgId: queuedCommandId ?? createBrowserId(),
         repositoryWorkspaceId: repositorySelection?.repositoryWorkspaceId,
         mode,
         text,
@@ -937,6 +959,8 @@ export function ChatView() {
     // sessions bound to other providers and rejects cross-account rebinding.
     const options = {
       images,
+      replyToMessageId: replyTo?.messageId,
+      clientMsgId: queuedCommandId,
       contextBlocks: ctxBlocks,
       ...(!activeSessionId ? { sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots } : {}),
       ...(onDelivery ? { onDelivery } : {}),
@@ -1005,9 +1029,29 @@ export function ChatView() {
     images?: ImageAttachment[],
     ctxBlocks?: string[],
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
+    replyTo?: MessageReplyContext,
+    queuedCommandId?: string,
+    retainedSteeringTarget?: string,
+    onDefinitiveRefusal?: () => void,
   ): void {
-    if (controlsBlocked || explicitNew || localBound) {
+    if (controlsBlocked || explicitNew) {
       onDelivery?.('failed');
+      return;
+    }
+    if (localBound) {
+      if (!supportsSteering || images?.length || ctxBlocks?.length || repositoryHandoff.present) {
+        onDelivery?.('failed');
+        return;
+      }
+      voice.stopSpeaking();
+      turnSteering.submit(
+        text,
+        onDelivery,
+        replyTo?.messageId,
+        queuedCommandId,
+        retainedSteeringTarget,
+        onDefinitiveRefusal,
+      );
       return;
     }
     if (repositoryHandoff.present) {
@@ -1018,6 +1062,8 @@ export function ChatView() {
     // Preserve the same per-turn Codex selection when interrupting an active turn.
     storeInterruptMessage(text, {
       images,
+      replyToMessageId: replyTo?.messageId,
+      clientMsgId: queuedCommandId,
       contextBlocks: ctxBlocks,
       onDelivery,
       ...(accountSelection ?? {}),
@@ -1052,6 +1098,8 @@ export function ChatView() {
   const compactionHistory = useCompactionHistory(
     activeSessionId,
     `${tokens.numCompactions}:${tokens.compactionPhase ?? ''}:${messages.running}`,
+    tokens.agentContext,
+    tokens.turnIndex,
   );
   const [agentLabel, setAgentLabel] = useState<string | undefined>(undefined);
   const modelSettings = chatModelSettings({
@@ -1708,6 +1756,10 @@ export function ChatView() {
           readOnly={controlsBlocked || localBound}
           sessionId={sessionId ?? activeSessionId}
           chat={{
+            onReply:
+              !isSymposium && activeSessionId && !controlsBlocked
+                ? (message) => setReplySelection({ session: activeSessionId, message })
+                : undefined,
             afterMessages: !isSymposium ? (
               <>
                 <TelosAdvisorDraft conversationId={activeSessionId ?? undefined} />
@@ -1781,6 +1833,20 @@ export function ChatView() {
                   onStop={handleStop}
                 />
               )}
+              <ChatStatusMessage
+                error={turnSteering.error}
+                status={turnSteering.busy ? 'Sending correction…' : undefined}
+                busy={turnSteering.busy}
+                action={
+                  turnSteering.retry
+                    ? {
+                        label: 'Retry correction',
+                        onClick: turnSteering.retry,
+                        disabled: turnSteering.busy || !connected,
+                      }
+                    : undefined
+                }
+              />
               <CodexQueueStatus
                 sessionId={controlsBlocked ? null : activeSessionId}
                 deliveryStatus={
@@ -1829,6 +1895,15 @@ export function ChatView() {
                 />
               )}
               <ChatInput
+                steeringTargetCommandId={steerTarget}
+                replyTarget={
+                  replySelection?.session === activeSessionId ? replySelection?.message : undefined
+                }
+                onClearReply={() =>
+                  setReplySelection((current) =>
+                    current?.session === activeSessionId ? null : current,
+                  )
+                }
                 collaboration={
                   activeSessionId && !controlsBlocked && !localBound && ordinaryControls ? (
                     <OrdinaryCollaborationEntry sessionId={activeSessionId} compact />
@@ -1887,7 +1962,16 @@ export function ChatView() {
                     ? `${repositoryHandoff.scope}:${repositoryHandoff.preparation ? 'loaded' : 'loading'}`
                     : undefined
                 }
-                onSend={(text, images, context, onDelivery, onSessionAssigned, composerDraft) =>
+                onSend={(
+                  text,
+                  images,
+                  context,
+                  onDelivery,
+                  onSessionAssigned,
+                  composerDraft,
+                  replyTo,
+                  queuedCommandId,
+                ) =>
                   handleSend(
                     text,
                     images,
@@ -1896,10 +1980,20 @@ export function ChatView() {
                     onDelivery,
                     onSessionAssigned,
                     composerDraft,
+                    replyTo,
+                    queuedCommandId,
                   )
                 }
                 onStop={handleStop}
-                onInterrupt={localBound ? undefined : handleInterrupt}
+                onInterrupt={localBound && !supportsSteering ? undefined : handleInterrupt}
+                interruptLabel={supportsSteering ? 'Steer current turn' : undefined}
+                interruptDisabledReason={
+                  supportsSteering
+                    ? !steerTarget
+                      ? 'Waiting for the active turn to be confirmed.'
+                      : undefined
+                    : undefined
+                }
                 running={repositoryHandoff.present ? false : messages.running}
                 initialText={initialPrompt}
                 draftControl={repositoryDraftControl}

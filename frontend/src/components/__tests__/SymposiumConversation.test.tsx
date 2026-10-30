@@ -567,23 +567,37 @@ describe('SymposiumConversation', () => {
       finish(json({ sessionId: 'session', config: null, seats: [] }));
       await screen.findByText('queued follow-up');
       expect(onSend).not.toHaveBeenCalled();
-      expect(localStorage.getItem('mitzo-queue-session')).toBe(queued);
+      const indexed = JSON.parse(localStorage.getItem('mitzo-queue-session')!);
+      expect(indexed).toEqual([
+        { text: 'queued follow-up', contextBlocks: [], queueEntryId: expect.any(String) },
+      ]);
+      const queueEntryId = indexed[0].queueEntryId;
+      expect(queueEntryId).toMatch(/^[a-f0-9-]{36}$/);
       rerender(view(true));
       rerender(view(false));
-      expect(onSend).toHaveBeenCalledExactlyOnceWith(
-        'queued follow-up',
-        undefined,
-        undefined,
-        expect.any(Function),
-        expect.any(Function),
-        undefined,
+      await waitFor(() =>
+        expect(onSend).toHaveBeenCalledExactlyOnceWith(
+          'queued follow-up',
+          undefined,
+          undefined,
+          expect.any(Function),
+          expect.any(Function),
+          undefined,
+          undefined,
+          queueEntryId,
+        ),
       );
-      const queueEntryId = JSON.parse(localStorage.getItem('mitzo-queue-session')!)[0].queueEntryId;
-      expect(queueEntryId).toMatch(/^[a-f0-9-]{36}$/);
-      const retained = JSON.stringify([
-        { text: 'queued follow-up', contextBlocks: [], requiresRetry: true, queueEntryId },
+      const retained = localStorage.getItem('mitzo-queue-session');
+      expect(JSON.parse(retained!)).toEqual([
+        {
+          text: 'queued follow-up',
+          contextBlocks: [],
+          requiresRetry: true,
+          dispatchPending: true,
+          dispatchKind: 'send',
+          queueEntryId,
+        },
       ]);
-      expect(localStorage.getItem('mitzo-queue-session')).toBe(retained);
       const [, , , onDelivery, onSessionAssigned] = onSend.mock.calls[0];
       act(() => {
         onSessionAssigned?.('session');
@@ -596,8 +610,20 @@ describe('SymposiumConversation', () => {
       expect(localStorage.getItem('mitzo-queue-session')).toBe(retained);
 
       act(() => onDelivery?.(receipt));
-      const settled = receipt === 'accepted' ? null : retained;
-      expect(localStorage.getItem('mitzo-queue-session')).toBe(settled);
+      const settled = localStorage.getItem('mitzo-queue-session');
+      if (receipt === 'accepted') expect(settled).toBeNull();
+      else {
+        const retry = JSON.parse(settled!);
+        expect(retry).toEqual([
+          {
+            text: 'queued follow-up',
+            contextBlocks: [],
+            requiresRetry: true,
+            queueEntryId: expect.any(String),
+          },
+        ]);
+        expect(retry[0].queueEntryId).not.toBe(queueEntryId);
+      }
       rerender(view(true));
       rerender(view(false));
       expect(onSend).toHaveBeenCalledTimes(1);

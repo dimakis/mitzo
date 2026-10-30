@@ -1,7 +1,9 @@
+import type { MessageReplyContext } from '@mitzo/protocol';
+import { chatStorage, CHAT_STORAGE_CHANGED } from '../lib/large-chat-storage';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ImageAttachment } from '../types/chat';
 import type { DraftSessionAssignment } from './useDraft';
-import { createBrowserId } from '../lib/browser-crypto';
+import { createBrowserId, sha256Hex } from '../lib/browser-crypto';
 
 const KEY_PREFIX = 'mitzo-queue-';
 const QUEUE_CHANGED_EVENT = 'mitzo-queue-changed';
@@ -11,15 +13,26 @@ export interface QueuedMessage {
   queueEntryId?: string;
   /** Submitted or refused input must never resume automatic queue drain. */
   requiresRetry?: boolean;
+  dispatchPending?: boolean;
+  dispatchKind?: 'send' | 'interrupt' | 'steer';
+  steeringTargetCommandId?: string;
   text: string;
+  replyTo?: MessageReplyContext;
+  /** Only the new durable draft flow retains attachment bytes. */
+  retainAttachments?: boolean;
   images: ImageAttachment[];
   contextBlocks: string[];
 }
 
-/** Stored shape omits images — base64 data is too large for localStorage. */
+/** Large payloads use the existing IndexedDB-backed chat storage. */
 interface StoredMessage {
+  replyTo?: MessageReplyContext;
+  images?: Array<Omit<ImageAttachment, 'preview'>>;
   queueEntryId?: string;
   requiresRetry?: boolean;
+  dispatchPending?: boolean;
+  dispatchKind?: 'send' | 'interrupt' | 'steer';
+  steeringTargetCommandId?: string;
   text: string;
   contextBlocks: string[];
 }
@@ -29,26 +42,66 @@ function queueKey(sessionId: string | undefined): string {
 }
 
 function toStored(msgs: QueuedMessage[]): StoredMessage[] {
-  return msgs.map(({ text, contextBlocks, requiresRetry, queueEntryId }) => ({
-    text,
-    contextBlocks,
-    ...(requiresRetry ? { requiresRetry: true } : {}),
-    ...(queueEntryId ? { queueEntryId } : {}),
-  }));
+  return msgs.map(
+    ({
+      text,
+      contextBlocks,
+      requiresRetry,
+      dispatchPending,
+      dispatchKind,
+      steeringTargetCommandId,
+      queueEntryId,
+      replyTo,
+      images,
+      retainAttachments,
+    }) => ({
+      text,
+      contextBlocks,
+      ...(replyTo ? { replyTo } : {}),
+      ...(retainAttachments && images.length
+        ? { images: images.map(({ preview: _preview, ...image }) => image) }
+        : {}),
+      ...(requiresRetry ? { requiresRetry: true } : {}),
+      ...(dispatchPending ? { dispatchPending: true } : {}),
+      ...(dispatchKind ? { dispatchKind } : {}),
+      ...(steeringTargetCommandId ? { steeringTargetCommandId } : {}),
+      ...(queueEntryId ? { queueEntryId } : {}),
+    }),
+  );
 }
 
 function fromStored(msgs: StoredMessage[]): QueuedMessage[] {
-  return msgs.map(({ text, contextBlocks, requiresRetry, queueEntryId }) => ({
-    text,
-    contextBlocks,
-    images: [],
-    ...(requiresRetry ? { requiresRetry: true } : {}),
-    ...(typeof queueEntryId === 'string' ? { queueEntryId } : {}),
-  }));
+  return msgs.map(
+    ({
+      text,
+      contextBlocks,
+      requiresRetry,
+      dispatchPending,
+      dispatchKind,
+      steeringTargetCommandId,
+      queueEntryId,
+      replyTo,
+      images,
+    }) => ({
+      text,
+      contextBlocks,
+      ...(replyTo ? { replyTo } : {}),
+      ...(images?.length ? { retainAttachments: true } : {}),
+      images: (images ?? []).map((image) => ({
+        ...image,
+        preview: `data:${image.mediaType};base64,${image.data}`,
+      })),
+      ...(requiresRetry ? { requiresRetry: true } : {}),
+      ...(dispatchPending ? { dispatchPending: true } : {}),
+      ...(dispatchKind ? { dispatchKind } : {}),
+      ...(steeringTargetCommandId ? { steeringTargetCommandId } : {}),
+      ...(typeof queueEntryId === 'string' ? { queueEntryId } : {}),
+    }),
+  );
 }
 
 function readQueue(sessionId: string | undefined): QueuedMessage[] {
-  const raw = localStorage.getItem(queueKey(sessionId));
+  const raw = chatStorage.getItem(queueKey(sessionId));
   if (!raw) return [];
   const parsed: unknown = JSON.parse(raw);
   if (!Array.isArray(parsed)) throw Error('Queue storage is unavailable.');
@@ -64,11 +117,17 @@ function loadQueue(sessionId: string | undefined): QueuedMessage[] {
 }
 
 function mergeLiveImages(stored: QueuedMessage[], live: QueuedMessage[]): QueuedMessage[] {
-  const imagesById = new Map(live.map((entry) => [entry.queueEntryId, entry.images]));
-  return stored.map((entry) => ({
-    ...entry,
-    images: entry.queueEntryId ? (imagesById.get(entry.queueEntryId) ?? []) : [],
-  }));
+  const liveById = new Map(live.map((entry) => [entry.queueEntryId, entry]));
+  return stored.map((entry) => {
+    const previous = entry.queueEntryId ? liveById.get(entry.queueEntryId) : undefined;
+    // Preserve transient previews only when their durable attachment payload is
+    // unchanged. A fresh peer replacement/removal must remain authoritative.
+    const sameImages =
+      previous &&
+      JSON.stringify(toStored([previous])[0].images) ===
+        JSON.stringify(toStored([entry])[0].images);
+    return { ...entry, images: sameImages ? previous.images : entry.images };
+  });
 }
 
 function indexedEntries(entries: QueuedMessage[]): Array<[string, QueuedMessage]> {
@@ -124,12 +183,12 @@ function saveQueue(sessionId: string | undefined, queue: QueuedMessage[]): boole
   try {
     const key = queueKey(sessionId);
     if (queue.length === 0) {
-      localStorage.removeItem(key);
-      return localStorage.getItem(key) === null;
+      chatStorage.removeItem(key);
+      return chatStorage.getItem(key) === null;
     }
     const serialized = JSON.stringify(toStored(queue));
-    localStorage.setItem(key, serialized);
-    return localStorage.getItem(key) === serialized;
+    chatStorage.setItem(key, serialized);
+    return chatStorage.getItem(key) === serialized;
   } catch {
     // Optional storage may be readable but unable to retain newer live work.
     return false;
@@ -145,6 +204,12 @@ export function useQueuedMessages(
 ): {
   queue: QueuedMessage[];
   enqueue: (msg: QueuedMessage) => boolean;
+  enqueuePersisted: (msg: QueuedMessage) => Promise<boolean>;
+  ensureDispatchIds: () => void;
+  acknowledgeSubmission: (messageId: string) => void;
+  prepareSubmission: (msg: QueuedMessage) => Promise<QueuedMessage | undefined>;
+  releaseSubmission: (retained: QueuedMessage, original: QueuedMessage) => void;
+  update: (index: number, msg: QueuedMessage, position: number) => boolean;
   dequeue: () => QueuedMessage | undefined;
   restoreRejected: (msg: QueuedMessage) => QueuedMessage;
   removeSubmitted: (msg: QueuedMessage) => void;
@@ -154,6 +219,7 @@ export function useQueuedMessages(
   const [queue, setQueueRaw] = useState<QueuedMessage[]>(() => loadQueue(sessionId));
   const queueRef = useRef(queue);
   const sessionRef = useRef(sessionId);
+  const pendingAdmission = useRef(new Map<string | undefined, QueuedMessage[]>());
   const submittedOwners = useRef(new Map<string, string | undefined>());
   const suppressOwnEvent = useRef(false);
   const mounted = useRef(false);
@@ -176,25 +242,35 @@ export function useQueuedMessages(
     [],
   );
   const persist = useCallback(
-    (id: string | undefined, next: QueuedMessage[]) => {
+    (id: string | undefined, next: QueuedMessage[], maximum?: number) => {
       const ownsLiveQueue = mounted.current && persistence.current.sessionId === id;
       let observed: QueuedMessage[] | undefined;
       let readable = true;
       let reconciled = next;
-      if (ownsLiveQueue && persistence.current.dirty) {
+      if (ownsLiveQueue) {
         try {
           observed = readQueue(id);
-          reconciled = reconcileQueue(observed, next, persistence.current.baseline);
+          if (!sameStoredQueue(observed, persistence.current.baseline))
+            reconciled = reconcileQueue(observed, next, persistence.current.baseline);
         } catch {
           readable = false;
         }
       }
       const filtered = ownsLiveQueue ? excludeAccepted(reconciled, next, id) : reconciled;
       const candidate = sameQueue(filtered, next) ? next : filtered;
-      const written =
-        readable &&
-        ((observed !== undefined && sameStoredQueue(observed, candidate)) ||
-          saveQueue(id, candidate));
+      if (maximum !== undefined && candidate.length > maximum)
+        return { written: false, readable, queue: observed ?? queueRef.current };
+      const suppressed = suppressOwnEvent.current;
+      suppressOwnEvent.current = true;
+      let written: boolean;
+      try {
+        written =
+          readable &&
+          ((observed !== undefined && sameStoredQueue(observed, candidate)) ||
+            saveQueue(id, candidate));
+      } finally {
+        suppressOwnEvent.current = suppressed;
+      }
       if (persistence.current.sessionId === id) {
         if (written) persistence.current = { sessionId: id, baseline: candidate, dirty: false };
         else if (observed)
@@ -214,7 +290,10 @@ export function useQueuedMessages(
     mounted.current = true;
     const changed = (event: Event) => {
       if (suppressOwnEvent.current) return;
-      if ((event as CustomEvent<{ key: string }>).detail?.key !== queueKey(sessionRef.current))
+      if (
+        event.type === QUEUE_CHANGED_EVENT &&
+        (event as CustomEvent<{ key: string }>).detail?.key !== queueKey(sessionRef.current)
+      )
         return;
       let stored: QueuedMessage[];
       try {
@@ -234,13 +313,17 @@ export function useQueuedMessages(
         baseline: stored,
         dirty: !sameStoredQueue(stored, restored),
       };
-      queueRef.current = restored;
-      setQueueRaw(restored);
+      if (!sameQueue(restored, live)) {
+        queueRef.current = restored;
+        setQueueRaw(restored);
+      }
     };
     window.addEventListener(QUEUE_CHANGED_EVENT, changed);
+    window.addEventListener(CHAT_STORAGE_CHANGED, changed);
     return () => {
       mounted.current = false;
       window.removeEventListener(QUEUE_CHANGED_EVENT, changed);
+      window.removeEventListener(CHAT_STORAGE_CHANGED, changed);
     };
   }, [excludeAccepted]);
 
@@ -265,7 +348,7 @@ export function useQueuedMessages(
     sessionRef.current = sessionId;
     if (prev === sessionId) return;
 
-    const previousSaved = persist(prev, queueRef.current);
+    const previousSaved = persist(prev, pendingAdmission.current.get(prev) ?? queueRef.current);
     if (previousSaved.readable) queueRef.current = previousSaved.queue;
     persistence.current = { sessionId, baseline: loadQueue(sessionId), dirty: false };
     if (assignment && assignment.fromSessionId === prev && assignment.toSessionId === sessionId) {
@@ -282,7 +365,7 @@ export function useQueuedMessages(
       setQueueRaw(promoted);
       if (persist(sessionId, promoted).written) {
         try {
-          localStorage.removeItem(queueKey(prev));
+          chatStorage.removeItem(queueKey(prev));
         } catch {
           /* Optional storage. */
         }
@@ -300,15 +383,15 @@ export function useQueuedMessages(
     // Use the same persistence baseline as explicit assignment, including quota failure.
     const oldKey = queueKey(prev);
     try {
-      const existing = localStorage.getItem(queueKey(sessionId));
+      const existing = chatStorage.getItem(queueKey(sessionId));
       if (existing) {
         const restored = fromStored(JSON.parse(existing));
         queueRef.current = restored;
         setQueueRaw(restored);
         persistence.current = { sessionId, baseline: restored, dirty: false };
-        localStorage.removeItem(oldKey);
+        chatStorage.removeItem(oldKey);
       } else if (persist(sessionId, queueRef.current).written) {
-        localStorage.removeItem(oldKey);
+        chatStorage.removeItem(oldKey);
       }
     } catch {
       persistence.current.dirty = true;
@@ -326,9 +409,68 @@ export function useQueuedMessages(
     [maxQueued],
   );
 
+  const enqueuePersisted = useCallback(
+    async (msg: QueuedMessage): Promise<boolean> => {
+      const owner = sessionRef.current;
+      const admitted = { ...msg, retainAttachments: true, queueEntryId: createBrowserId() };
+      const next = [...queueRef.current, admitted];
+      const saved = persist(owner, next, maxQueued);
+      if (!saved.written) return false;
+      pendingAdmission.current.set(owner, saved.queue);
+      let restored: QueuedMessage[];
+      let retained: boolean;
+      try {
+        await chatStorage.flush();
+        if (chatStorage.failed) return false;
+        const stored = readQueue(owner);
+        retained = stored.some(
+          (entry) =>
+            entry.queueEntryId === admitted.queueEntryId && sameStoredQueue([entry], [admitted]),
+        );
+        restored = mergeLiveImages(stored, saved.queue);
+      } catch {
+        return false;
+      } finally {
+        if (pendingAdmission.current.get(owner) === saved.queue)
+          pendingAdmission.current.delete(owner);
+      }
+      if (mounted.current && sessionRef.current === owner) {
+        queueRef.current = restored;
+        setQueueRaw(restored);
+      }
+      return retained;
+    },
+    [maxQueued, persist],
+  );
+  const update = useCallback(
+    (index: number, msg: QueuedMessage, position: number): boolean => {
+      const original = queueRef.current[index];
+      if (
+        !original ||
+        original.dispatchPending ||
+        position < 0 ||
+        position >= queueRef.current.length
+      )
+        return false;
+      const next = queueRef.current.filter((_, i) => i !== index);
+      next.splice(position, 0, { ...msg, queueEntryId: original.queueEntryId });
+      const saved = persist(sessionRef.current, next);
+      if (!saved.written) return false;
+      queueRef.current = saved.queue;
+      setQueueRaw(saved.queue);
+      return true;
+    },
+    [persist],
+  );
+
   const dequeue = useCallback((): QueuedMessage | undefined => {
     const current = queueRef.current;
-    if (current.length === 0 || current[0].requiresRetry) return undefined;
+    if (
+      current.length === 0 ||
+      current[0].requiresRetry ||
+      current.some((entry) => entry.dispatchPending)
+    )
+      return undefined;
     const item = current[0];
     queueRef.current = current.slice(1);
     setQueueRaw(queueRef.current);
@@ -337,10 +479,21 @@ export function useQueuedMessages(
 
   // Return already-submitted input without discarding it when the ordinary queue is full.
   const restoreRejected = useCallback(
-    (msg: QueuedMessage) => {
-      const retained = { ...msg, requiresRetry: true, queueEntryId: createBrowserId() };
+    (msg: QueuedMessage, preserveIdentity = false) => {
+      const retained = {
+        ...msg,
+        requiresRetry: true,
+        queueEntryId: preserveIdentity
+          ? (msg.queueEntryId ?? createBrowserId())
+          : createBrowserId(),
+      };
       submittedOwners.current.set(retained.queueEntryId, sessionRef.current);
-      const next = [...queueRef.current.filter((item) => item !== msg), retained];
+      const next = [
+        ...queueRef.current.filter(
+          (item) => item !== msg && item.queueEntryId !== retained.queueEntryId,
+        ),
+        retained,
+      ];
       queueRef.current = next;
       // The fence must exist before the caller dispatches its command, even if
       // the page disappears before React's persistence effect can commit.
@@ -352,6 +505,82 @@ export function useQueuedMessages(
     [persist],
   );
 
+  const ensureDispatchIds = useCallback(() => {
+    if (queueRef.current.every((entry) => entry.queueEntryId)) return;
+    const owner = sessionRef.current;
+    const next = queueRef.current.map((entry, index) => {
+      if (entry.queueEntryId) return entry;
+      const hash = sha256Hex(JSON.stringify([owner ?? null, index, toStored([entry])[0]]));
+      return {
+        ...entry,
+        queueEntryId: `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`,
+      };
+    });
+    const saved = persist(owner, next);
+    queueRef.current = saved.queue;
+    setQueueRaw(saved.queue);
+  }, [persist]);
+  const releaseSubmission = useCallback(
+    (retained: QueuedMessage, original: QueuedMessage) => {
+      const id = retained.queueEntryId;
+      if (!id || !submittedOwners.current.has(id)) return;
+      const owner = submittedOwners.current.get(id),
+        active = mounted.current && sessionRef.current === owner;
+      const live = queueRef.current;
+      let observed: QueuedMessage[];
+      try {
+        observed = readQueue(owner);
+      } catch {
+        observed = active ? live : [];
+      }
+      const reconciled = active
+        ? persistence.current.dirty
+          ? reconcileQueue(observed, live, persistence.current.baseline)
+          : mergeLiveImages(observed, live)
+        : observed;
+      const matches = (entry: QueuedMessage) =>
+        entry.queueEntryId === id &&
+        JSON.stringify(toStored([entry])) === JSON.stringify(toStored([retained]));
+      const replacement = {
+        ...original,
+        requiresRetry: true,
+        dispatchPending: false,
+        queueEntryId: createBrowserId(),
+      };
+      const next = reconciled.map((entry) => (matches(entry) ? replacement : entry));
+      const saved = persist(owner, next);
+      if (saved.written) submittedOwners.current.delete(id);
+      if (active) {
+        queueRef.current = saved.queue;
+        setQueueRaw(saved.queue);
+      }
+    },
+    [persist],
+  );
+  const prepareSubmission = useCallback(
+    async (msg: QueuedMessage) => {
+      const owner = sessionRef.current;
+      const retained = restoreRejected({ ...msg, dispatchPending: true }, true);
+      try {
+        await chatStorage.flush();
+        if (chatStorage.failed) throw Error('storage');
+        const stored = readQueue(owner).find(
+          (entry) => entry.queueEntryId === retained.queueEntryId,
+        );
+        if (
+          !stored?.requiresRetry ||
+          JSON.stringify(toStored([stored])) !== JSON.stringify(toStored([retained]))
+        )
+          throw Error('claim changed');
+        return retained;
+      } catch {
+        if (!msg.dispatchPending) releaseSubmission(retained, msg);
+        return undefined;
+      }
+    },
+    [restoreRejected, releaseSubmission],
+  );
+
   const removeSubmitted = useCallback(
     (msg: QueuedMessage) => {
       const id = msg.queueEntryId;
@@ -361,11 +590,30 @@ export function useQueuedMessages(
       // A receipt may arrive after navigation or unmount. Reread the owner's
       // storage, preserving locally unsaved work without reviving external deletions.
       const active = mounted.current && sessionRef.current === owner;
-      const live = queueRef.current.filter((entry) => entry.queueEntryId !== id);
+      const revised = new Map<string, QueuedMessage>();
+      const removeExactClaim = (entries: QueuedMessage[]) =>
+        entries.flatMap((entry) => {
+          if (entry.queueEntryId !== id) return [entry];
+          const signature = JSON.stringify(toStored([entry]));
+          if (signature === JSON.stringify(toStored([msg]))) return [];
+          // An accepted identity cannot consume text edited by another view.
+          let replacement = revised.get(signature);
+          if (!replacement) {
+            replacement = {
+              ...entry,
+              queueEntryId: createBrowserId(),
+              requiresRetry: true,
+              dispatchPending: false,
+            };
+            revised.set(signature, replacement);
+          }
+          return [replacement];
+        });
+      const live = removeExactClaim(queueRef.current);
       let fallback = live;
       try {
         const observed = readQueue(owner);
-        const stored = observed.filter((entry) => entry.queueEntryId !== id);
+        const stored = removeExactClaim(observed);
         const remaining = active
           ? persistence.current.dirty
             ? reconcileQueue(stored, live, persistence.current.baseline)
@@ -407,6 +655,17 @@ export function useQueuedMessages(
     [persist],
   );
 
+  const acknowledgeSubmission = useCallback(
+    (messageId: string) => {
+      const row = queueRef.current.find(
+        (entry) => entry.queueEntryId === messageId && entry.dispatchPending,
+      );
+      if (!row) return;
+      submittedOwners.current.set(messageId, sessionRef.current);
+      removeSubmitted(row);
+    },
+    [removeSubmitted],
+  );
   const remove = useCallback((index: number) => {
     const id = queueRef.current[index]?.queueEntryId;
     if (id) submittedOwners.current.delete(id);
@@ -423,5 +682,19 @@ export function useQueuedMessages(
     return item;
   }, []);
 
-  return { queue, enqueue, dequeue, restoreRejected, removeSubmitted, remove, edit };
+  return {
+    queue,
+    enqueue,
+    enqueuePersisted,
+    ensureDispatchIds,
+    acknowledgeSubmission,
+    prepareSubmission,
+    releaseSubmission,
+    update,
+    dequeue,
+    restoreRejected,
+    removeSubmitted,
+    remove,
+    edit,
+  };
 }

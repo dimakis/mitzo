@@ -155,6 +155,34 @@ describe('ChatArea', () => {
     expect(screen.getByText('Hello')).toBeTruthy();
   });
 
+  it('preserves message DOM when metadata enables and disables reply actions', () => {
+    const messages: FinishedMessage[] = [
+      {
+        messageId: 'u1',
+        role: 'user',
+        blocks: [{ blockId: 'b1', blockType: 'text', content: 'Question' }],
+      },
+      {
+        messageId: 'a1',
+        role: 'assistant',
+        blocks: [{ blockId: 'b2', blockType: 'text', content: 'Answer' }],
+      },
+    ];
+    const { rerender } = render(<ChatArea {...defaultProps} messages={messages} />);
+    const question = screen.getByText('Question');
+    const answer = screen.getByText('Answer');
+    fireEvent.contextMenu(answer);
+    expect(screen.queryByRole('menu')).toBeNull();
+    rerender(<ChatArea {...defaultProps} messages={messages} onReply={vi.fn()} />);
+    expect(screen.getByText('Question')).toBe(question);
+    expect(screen.getByText('Answer')).toBe(answer);
+    fireEvent.contextMenu(answer);
+    expect(screen.getByRole('menu')).toBeTruthy();
+    rerender(<ChatArea {...defaultProps} messages={messages} />);
+    expect(screen.getByText('Answer')).toBe(answer);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
   it('renders assistant text blocks', () => {
     const messages: FinishedMessage[] = [
       {
@@ -647,3 +675,38 @@ it.each([undefined, true, false])(
     );
   },
 );
+
+it('identifies the older request answered below a queued correction and lets the user find it', () => {
+  const messages: FinishedMessage[] = [
+    {
+      messageId: 'a',
+      role: 'user',
+      commandState: 'running',
+      blocks: [{ blockId: 'a', blockType: 'text', content: 'First request' }],
+    },
+    {
+      messageId: 'b',
+      role: 'user',
+      commandState: 'queued',
+      blocks: [{ blockId: 'b', blockType: 'text', content: 'Correction' }],
+    },
+    {
+      messageId: 'answer',
+      role: 'assistant',
+      replyToMessageId: 'a',
+      blocks: [{ blockId: 'text', blockType: 'text', content: 'Earlier answer' }],
+    },
+  ];
+  render(
+    <ChatArea
+      messages={messages}
+      current={null}
+      running
+      permission={null}
+      onPermissionRespond={vi.fn()}
+    />,
+  );
+  expect(screen.getByText('Queued — waiting for the current turn')).toBeDefined();
+  expect(screen.queryByText('Agent is answering')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Replying to: First request' })).toBeDefined();
+});
