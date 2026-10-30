@@ -368,7 +368,7 @@ import {
   type ConnectionsRuntime,
 } from './connections-runtime.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
-import { requestPerformance } from './request-performance.js';
+import { requestPerformance, mountObservedRouter } from './request-performance.js';
 import { authenticationRoute } from './auth-route-boundary.js';
 import {
   resolvePending,
@@ -563,8 +563,8 @@ const YAPPER_TARGET = process.env.YAPPER_PROXY_TARGET || 'http://localhost:8700'
 export const yapperHttpProxy = createVoiceProxy(YAPPER_TARGET, '/api/yapper').http;
 export const yapperWsProxy = createVoiceProxy(YAPPER_TARGET, '/api/yapper-ws');
 
-app.use('/api/yapper', yapperHttpProxy);
-app.use('/api/yapper-ws', yapperWsProxy.http);
+mountObservedRouter(app, '/api/yapper', yapperHttpProxy);
+mountObservedRouter(app, '/api/yapper-ws', yapperWsProxy.http);
 
 app.use(cookieParser());
 
@@ -733,16 +733,21 @@ app.post(
   operatorAuthMiddleware,
   ...recentAppReauthorizationHandlers(),
 );
-app.use('/api/credential-connections', operatorAuthMiddleware, (req, res, next) => {
-  if (!res.locals.authSession)
-    return res.status(401).json({ error: 'Browser authentication required' });
-  if (!credentialConnectionsRouter)
-    return res.status(503).json({
-      error: 'Apple Keychain connections require a signed Mac helper. Complete setup on the Mac.',
-    });
-  return credentialConnectionsRouter(req, res, next);
-});
-app.use('/api/connections', authMiddleware, (req, res, next) => {
+mountObservedRouter(
+  app,
+  '/api/credential-connections',
+  operatorAuthMiddleware,
+  (req, res, next) => {
+    if (!res.locals.authSession)
+      return res.status(401).json({ error: 'Browser authentication required' });
+    if (!credentialConnectionsRouter)
+      return res.status(503).json({
+        error: 'Apple Keychain connections require a signed Mac helper. Complete setup on the Mac.',
+      });
+    return credentialConnectionsRouter(req, res, next);
+  },
+);
+mountObservedRouter(app, '/api/connections', authMiddleware, (req, res, next) => {
   if (!connectionsRouter)
     return res.status(503).json({
       error:
@@ -750,7 +755,7 @@ app.use('/api/connections', authMiddleware, (req, res, next) => {
     });
   return connectionsRouter(req, res, next);
 });
-app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
+mountObservedRouter(app, '/api/capability-operations', authMiddleware, (req, res, next) => {
   if (!capabilityOperationsRouter)
     return res.status(503).json({ error: 'Capability operations are not configured.' });
   return capabilityOperationsRouter(req, res, next);
@@ -765,7 +770,8 @@ app.post(
   operatorAuthMiddleware,
   express.json({ limit: '8mb' }),
 );
-app.use(
+mountObservedRouter(
+  app,
   '/api/telemetry',
   authMiddleware,
   createTelemetryRelay(process.env.OTEL_EXPORTER_OTLP_ENDPOINT),
@@ -786,7 +792,8 @@ const getKnowledgeLibraryRuntime = createKnowledgeLibraryLoader(() =>
 installContextPackRuntime(getKnowledgeLibraryRuntime);
 installKnowledgeDraftRuntime(getKnowledgeLibraryRuntime);
 installMemoryCandidateStore(eventStore);
-app.use(
+mountObservedRouter(
+  app,
   '/api/knowledge',
   operatorAuthMiddleware,
   createKnowledgeLibraryRouter(getKnowledgeLibraryRuntime),
@@ -1220,7 +1227,7 @@ app.post(
   ),
 );
 
-app.use('/api', authMiddleware);
+mountObservedRouter(app, '/api', authMiddleware);
 if (custodianControllerClient)
   app.use(
     createCustodianProxy(
@@ -1241,8 +1248,14 @@ if (custodianControllerClient)
 receiveCustodianEvents(broadcastDurableSymposiumEvent);
 // Only the canonical owner opens task persistence. Controllers use closed IPC above.
 if (!custodianControllerClient)
-  app.use('/api/agent-tasks', operatorAuthMiddleware, createAgentTaskRouter(getAgentTasks()));
-app.use(
+  mountObservedRouter(
+    app,
+    '/api/agent-tasks',
+    operatorAuthMiddleware,
+    createAgentTaskRouter(getAgentTasks()),
+  );
+mountObservedRouter(
+  app,
   '/api/context-packs',
   operatorAuthMiddleware,
   createContextPackRouter(async () => {
@@ -1250,7 +1263,8 @@ app.use(
     return runtime ? contextPackRouterDependencies(runtime, getAgentLibrary()) : undefined;
   }),
 );
-app.use(
+mountObservedRouter(
+  app,
   '/api/agent-library',
   operatorAuthMiddleware,
   createAgentLibraryRouter(getAgentLibrary(), {
@@ -1286,14 +1300,16 @@ const symposiumAccessRequests = new SymposiumAccessRequests(
 const symposiumProfileProposalStore = new SymposiumProfileProposalStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
-app.use(
+mountObservedRouter(
+  app,
   '/api/symposium/profile-proposals',
   operatorAuthMiddleware,
   createSymposiumProfileProposalRouter(symposiumProfileProposalStore, (sessionId) =>
     Boolean(eventStore.getSession(sessionId)),
   ),
 );
-app.use(
+mountObservedRouter(
+  app,
   '/api/symposium/profiles',
   operatorAuthMiddleware,
   createSymposiumProfileRouter(symposiumProfileStore),
@@ -1720,7 +1736,8 @@ export function setSymposiumDirectorRuntimeFactory(
 ): void {
   symposiumRuntimeForSession = factory;
 }
-app.use(
+mountObservedRouter(
+  app,
   '/api/symposium/sessions',
   operatorAuthMiddleware,
   createSymposiumSessionRouter({
@@ -1739,7 +1756,8 @@ const symposiumReviewActionAuthority = new SymposiumReviewActionAuthority();
 const symposiumReviewStore = new SymposiumReviewStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
-app.use(
+mountObservedRouter(
+  app,
   '/api/sessions/:id/symposium/access-requests',
   operatorAuthMiddleware,
   createSymposiumAccessRouter(
@@ -1747,7 +1765,8 @@ app.use(
     (id) => eventStore.getSession(id)?.sessionType === 'symposium',
   ),
 );
-app.use(
+mountObservedRouter(
+  app,
   '/api/sessions/:id/github-publication',
   operatorAuthMiddleware,
   createGithubPublicationOperatorRouter({
@@ -1795,7 +1814,8 @@ mountSymposiumDirectorRoutes(app, {
   registry,
 });
 
-app.use(
+mountObservedRouter(
+  app,
   '/api/sandboxes',
   createWarmPoolRouter({
     pool: getOpenShellWarmPool,
@@ -2524,7 +2544,8 @@ export const captureMitzoTelosCoreBackup = bindMitzoTelosCoreCapture({
   knowledge: async () => (await getKnowledgeLibraryRuntime())?.store,
 });
 
-app.use(
+mountObservedRouter(
+  app,
   '/api/backups',
   createBackupRouter(createHostBackupService(captureMitzoTelosCoreBackup), operatorAuthMiddleware),
 );
@@ -3096,7 +3117,8 @@ app.post(
       }),
   ),
 );
-app.use(
+mountObservedRouter(
+  app,
   '/api/symposium/personal/connections',
   createSymposiumPersonalConnectionRouter(() => symposiumProductionHost?.personalConnections),
 );
@@ -3114,7 +3136,8 @@ app.get('/api/symposium/accounts', (_req, res) => {
   }
 });
 
-app.use(
+mountObservedRouter(
+  app,
   '/api/connections-access',
   operatorAuthMiddleware,
   createConnectionsAccessRouter((auth) => {
@@ -3231,7 +3254,8 @@ app.get('/api/models', (_req, res) => {
   }
 });
 
-app.use(
+mountObservedRouter(
+  app,
   '/api/repository-workspaces',
   createRepositoryWorkspaceRouter({
     resolveBinding: repositoryWorkspaceBinding,
@@ -3365,7 +3389,8 @@ app.get('/api/sessions/search', (req, res) => {
   }
 });
 
-app.use(
+mountObservedRouter(
+  app,
   '/api/sessions',
   createSdkConversationImportRouter({
     list: () => listImportableSdkConversations(),
@@ -3454,7 +3479,8 @@ app.get(
   }),
 );
 
-app.use(
+mountObservedRouter(
+  app,
   '/api/session-collaborations',
   operatorAuthMiddleware,
   createSessionCollaborationRouter({
@@ -3467,7 +3493,8 @@ app.use(
   }),
 );
 
-app.use(
+mountObservedRouter(
+  app,
   '/api/sessions/:id/outputs',
   operatorAuthMiddleware,
   createSessionOutputRouter({
@@ -3497,7 +3524,8 @@ const outputContributors = createOutputContributors({
   },
   resolveProfile: readAgentLibraryProfile,
 });
-app.use(
+mountObservedRouter(
+  app,
   '/api/sessions/:id/contributors',
   operatorAuthMiddleware,
   createOutputContributorRouter({
@@ -3506,7 +3534,8 @@ app.use(
   }),
 );
 
-app.use(
+mountObservedRouter(
+  app,
   '/api/sessions',
   createSessionRemovalRouter({
     authorize: operatorAuthMiddleware,
@@ -3532,7 +3561,8 @@ app.use(
   }),
 );
 
-app.use(
+mountObservedRouter(
+  app,
   '/api/sessions/:id/access',
   operatorAuthMiddleware,
   createSessionAccessRouter({
@@ -3940,7 +3970,8 @@ function assertQueueOperator(id: string, authorization?: import('./auth.js').Aut
   );
 }
 
-app.use(
+mountObservedRouter(
+  app,
   '/api/sessions',
   createCallbackIncidentRepairRouter({
     enabled: () => process.env.MITZO_CALLBACK_INCIDENT_REPAIR_ENABLED === '1',
@@ -3955,7 +3986,8 @@ app.use(
     authorize: assertQueueOperator,
   }),
 );
-app.use(
+mountObservedRouter(
+  app,
   '/api/sessions',
   createCodexQueueRouter({
     authorizeMutation: assertQueueOperator,
@@ -4338,7 +4370,8 @@ export const terminalService = new TerminalService(new TerminalStore(taskStore.g
   }),
 });
 terminalService.startOwnerMaintenance(registerAuthSession);
-app.use(
+mountObservedRouter(
+  app,
   '/api/terminals',
   createTerminalRouter({
     service: terminalService,
@@ -4624,7 +4657,7 @@ app.get(
 );
 
 // Browser file access adds no agent capability; internal artifact routes retain their own scopes.
-app.use('/api/files', (req, res, next) => {
+mountObservedRouter(app, '/api/files', (req, res, next) => {
   const sessionId =
     req.method === 'PUT' && typeof req.body?.sessionId === 'string'
       ? req.body.sessionId
@@ -4976,7 +5009,8 @@ async function selectRuntimeBriefing(date: string, signal?: AbortSignal) {
   return briefing;
 }
 
-app.use(
+mountObservedRouter(
+  app,
   '/api/home',
   createHomeRouter({
     store: new HomeStore(join(BASE_REPO || '.', '.mitzo', 'home.json')),
@@ -5020,7 +5054,7 @@ app.get('/api/briefings/latest', async (req, res) => {
   }
 });
 
-app.use('/api/inbox', inboxRouter);
+mountObservedRouter(app, '/api/inbox', inboxRouter);
 app.get('/api/inbox', (_req, res) => {
   const inboxPath = getRepoConfig().resolvedInboxPath;
   if (!inboxPath) {
@@ -5067,7 +5101,7 @@ app.post('/api/inbox', (req, res) => {
 
 // Inbox archive/delete can move documents too; enrolled operator authority is
 // never a document, including a JSON file with an .md filename.
-app.use('/api/inbox/:filename', (req, res, next) => {
+mountObservedRouter(app, '/api/inbox/:filename', (req, res, next) => {
   const inboxPath = getRepoConfig().resolvedInboxPath;
   if (!inboxPath) return next();
   try {
@@ -5136,7 +5170,7 @@ app.delete('/api/inbox/:filename', (req, res) => {
   broadcastInboxUpdate();
 });
 
-app.use('/api/notifications', notificationRouter(notificationCenter));
+mountObservedRouter(app, '/api/notifications', notificationRouter(notificationCenter));
 
 // --- Push notification device token registration ---
 

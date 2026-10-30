@@ -4366,7 +4366,8 @@ it('admits selected MCP through the actual owned Local Codex lifecycle and fence
         })
       ).content,
     );
-    expect(list.tools).toHaveLength(1);
+    expect(list.tools).toHaveLength(2);
+    expect(list.tools[1]).toMatchObject({ toolId: 'ReadToolOutput' });
     const wire = list.tools[0].toolId;
     const detail = JSON.parse(
       (
@@ -6282,6 +6283,110 @@ it('enforces the current Read skill ceiling before and after native skill discov
     f.eventStore.close();
   }
 });
+
+it('corrects invalid retained-output limits before asynchronous local credential checks', async () => {
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const f = ownedLocalOptions();
+  const query = await openCodexChat(f.opts);
+  try {
+    vi.mocked(f.lease.assertCurrent).mockClear();
+    mocks.readToolOutput.mockClear();
+    const execute = mocks.conversationOptions!
+      .executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    const result = await execute(
+      'ReadToolOutput',
+      {
+        outputId: '22222222-2222-4222-8222-222222222222',
+        limit: 20000,
+      },
+      new AbortController().signal,
+      { turnId: 'turn', callId: 'invalid-read' },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('4096');
+    expect(result.content).toContain('not executed');
+    expect(f.lease.assertCurrent).not.toHaveBeenCalled();
+    expect(mocks.readToolOutput).not.toHaveBeenCalled();
+  } finally {
+    query.close();
+    f.eventStore.close();
+  }
+});
+
+it('corrects invalid retained-output limits before asynchronous OpenShell credential checks', async () => {
+  const f = await openOwnedOpenShellEfficiencyFixture();
+  try {
+    f.owner.assertCurrent.mockClear();
+    mocks.readToolOutput.mockClear();
+    const execute = f.captured
+      .executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    const result = await execute(
+      'ReadToolOutput',
+      {
+        outputId: '22222222-2222-4222-8222-222222222222',
+        limit: 6500,
+      },
+      new AbortController().signal,
+      { turnId: 'turn', callId: 'invalid-read' },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('4096');
+    expect(result.content).toContain('not executed');
+    expect(f.owner.assertCurrent).not.toHaveBeenCalled();
+    expect(mocks.readToolOutput).not.toHaveBeenCalled();
+  } finally {
+    f.cleanup();
+  }
+});
+
+it.each(['local', 'openshell'] as const)(
+  'describes the registered retained-output contract through the selected %s catalog',
+  async (location) => {
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
+    });
+    const local = location === 'local' ? ownedLocalOptions() : undefined;
+    if (local)
+      local.opts.registry = {
+        ...local.opts.registry,
+        findBySessionId: () => ({ clientId: 'owned-client', session: local.opts.session }),
+        get: () => local.opts.session,
+      } as never;
+    const shell =
+      location === 'openshell' ? await openOwnedOpenShellEfficiencyFixture() : undefined;
+    const query = local ? await openCodexChat(local.opts) : undefined;
+    try {
+      const captured = shell?.captured ?? mocks.conversationOptions!;
+      const execute =
+        captured.executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+      const registered = (captured.tools as { name: string; input_schema: unknown }[]).find(
+        (t) => t.name === 'ReadToolOutput',
+      );
+      expect(registered).toBeDefined();
+      const detail = await execute(
+        'DescribeIntegrationTool',
+        { toolId: 'ReadToolOutput' },
+        new AbortController().signal,
+        { turnId: 'turn', callId: 'describe' },
+      );
+      expect(detail.isError).toBe(false);
+      expect(JSON.parse(detail.content)).toMatchObject({
+        invocation: 'direct',
+        inputSchema: registered!.input_schema,
+      });
+    } finally {
+      query?.close();
+      local?.eventStore.close();
+      shell?.cleanup();
+    }
+  },
+);
 
 it('projects large GitHub reads after hooks and refuses output from a former native runtime', async () => {
   const native = await import('../native-tool-executor.js');

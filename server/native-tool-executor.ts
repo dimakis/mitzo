@@ -16,6 +16,7 @@ import { basename, dirname, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { loadAccountProfiles } from './account-profiles.js';
+import { toolInputError } from './tool-input-error.js';
 import { createCodexPathProtection, privateCodexRoots } from './codex-private-path.js';
 import {
   workspaceRuntimeAuthorityPaths,
@@ -58,8 +59,17 @@ const schemas = {
         .max(1000)
         .regex(/^\/(?:user|repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_./?=&%+-]*)?)$/)
         .refine(isTrustedGitHubEndpoint, 'Invalid GitHub path'),
+      view: z
+        .enum(['summary', 'full'])
+        .optional()
+        .describe(
+          'Known list endpoints default to concise fields before the output bound. Use full only when missing record detail is required; the existing output bound still applies.',
+        ),
     })
-    .strict(),
+    .strict()
+    .describe(
+      'GitHubRead accepts /user or /repos/OWNER/REPO/... with a leading slash and URL-encoded query values. /search endpoints are unavailable in this tool. Use a selected connection guide for supported search operations. Prefer small per_page values and narrow reads.',
+    ),
   GitCommit: z
     .object({
       files: z.array(z.string().min(1).max(1000)).min(1).max(64),
@@ -174,7 +184,14 @@ export function createNativeToolExecutor(
             'GitCommit supports at most 64 selected files. Use native Git in the admitted task checkout for larger commits and merges.',
             true,
           );
-        return result('Invalid native tool input', true);
+        return result(
+          toolInputError(
+            'native tool input',
+            schemas[block.name as keyof typeof schemas],
+            parsed.error,
+          ).content,
+          true,
+        );
       }
       if (block.name === 'AskUserQuestion') {
         const permission = await canUseTool(block.name, parsed.data, {
@@ -187,7 +204,10 @@ export function createNativeToolExecutor(
           : result(permission.message, true);
       }
       if (block.name === 'GitHubRead' && 'endpoint' in parsed.data) {
-        const input = { endpoint: parsed.data.endpoint };
+        const input = {
+          endpoint: parsed.data.endpoint,
+          ...('view' in parsed.data && parsed.data.view ? { view: parsed.data.view } : {}),
+        };
         const permission = await canUseTool(block.name, input, {
           signal,
           toolUseID: block.id,
@@ -211,6 +231,7 @@ export function createNativeToolExecutor(
             signal,
             options.timeoutMs,
             options.maxOutputBytes,
+            input.view,
           ),
         );
       }
