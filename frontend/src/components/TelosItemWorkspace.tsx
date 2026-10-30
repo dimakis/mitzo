@@ -236,7 +236,11 @@ export function TelosItemWorkspace({
             work
           ) : (
             <>
-              <TelosItemRoleEntries key={record.itemId} itemId={record.itemId} />
+              <TelosItemRoleEntries
+                key={record.itemId}
+                itemId={record.itemId}
+                onOpenChat={() => select('Chat')}
+              />
               <section>
                 <h2>
                   {record.kind === 'coordinator'

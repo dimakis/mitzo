@@ -11,9 +11,11 @@ const api = new TelosWorkApiClient(apiFetch);
 export function TelosItemRoleEntries({
   itemId,
   onOrdinaryRoles,
+  onOpenChat,
 }: {
   itemId: string;
   onOrdinaryRoles?(itemId: string, available: boolean): void;
+  onOpenChat?(): void;
 }) {
   const navigate = useNavigate();
   const [result, setResult] = useState<{ itemId: string; work?: TelosWorkView; error?: string }>();
@@ -48,7 +50,30 @@ export function TelosItemRoleEntries({
   const work = result.work!;
   // Explicit item kind selects the existing setup role; it grants no authority.
   const role = telosWorkEntryRole(work.kind);
-  if (!role) return null;
+  if (!role) {
+    const hasDedicatedConversation = work.links.some((link) => link.role !== 'origin');
+    return (
+      <section className="todo-detail-contract" aria-label="Item conversations">
+        <h2>Conversation</h2>
+        <p>
+          {hasDedicatedConversation
+            ? 'Separate conversations are linked to this item.'
+            : 'No dedicated conversation yet.'}
+        </p>
+        <div className="home-inline-actions">
+          {onOpenChat && (
+            <button className="home-secondary" onClick={onOpenChat}>
+              View chats
+            </button>
+          )}
+          <button className="home-secondary" onClick={() => configure('advisor', 'additional')}>
+            New chat
+          </button>
+        </div>
+        {saveError && <p role="alert">{saveError}</p>}
+      </section>
+    );
+  }
   const hasOrigin =
     work.links.some((link) => link.role === 'origin') ||
     work.sources.some((source) => source.source !== null);

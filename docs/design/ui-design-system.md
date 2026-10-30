@@ -2376,3 +2376,9 @@ are fetched once per open, and page changes make no file request. Import and
 inspection share one bundled worker/font configuration and run no PDF action or
 annotation layer. The canvas retains its geometry while hidden during rendering
 to prevent scrollbar/resize feedback. PDF bytes stay on the authenticated app path.
+
+Unclassified backlog items retain their canonical unknown kind. Tree rows offer
+Open chats without fetching relationship history to rediscover that kind. Item
+Overview explicitly says when no dedicated conversation is linked and exposes
+ordinary New chat setup; this prepares an unsent contextual draft and grants no
+worker assignment or model execution. The original conversation stays provenance.

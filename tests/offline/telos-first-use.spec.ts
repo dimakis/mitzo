@@ -151,10 +151,15 @@ for (const theme of ['dark', 'light'])
     await expect(page.getByText('10 children', { exact: true })).toBeVisible();
     expect(counts.get('/api/telos/work/collection')).toBe(1);
     expect(counts.get('/api/telos/work/records') ?? 0).toBe(0);
+    expect([...counts.keys()].some((path) => /^\/api\/telos\/work\/items\/[^/]+$/.test(path))).toBe(
+      false,
+    );
     await page.getByRole('button', { name: 'Associate 0', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Associate 0', exact: true })).toBeVisible();
     await expect(page.locator('.todo-detail-page:not(.telos-canonical-page)')).toHaveCount(0);
     await expect(page.getByLabel('Brief summary')).toBeVisible();
+    await expect(page.getByText('No dedicated conversation yet.', { exact: true })).toBeVisible();
+    expect(counts.get('/api/telos/work/items/associate-0')).toBe(1);
     await expect(page.getByText('Details & context', { exact: true })).toBeVisible();
     await page.screenshot({ path: info.outputPath(`telos-overview-${theme}.png`) });
     await page.getByRole('button', { name: 'Materials', exact: true }).click();

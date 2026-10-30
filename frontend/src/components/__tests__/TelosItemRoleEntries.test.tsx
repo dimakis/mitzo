@@ -18,7 +18,7 @@ function Location() {
   const location = useLocation();
   return <output data-testid="location">{location.pathname + location.search}</output>;
 }
-function fixture(kind: 'outcome' | 'work_item' | 'coordinator') {
+function fixture(kind: 'outcome' | 'work_item' | 'coordinator' | null) {
   vi.spyOn(TelosWorkApiClient.prototype, 'read').mockResolvedValue(
     TelosWorkViewSchema.parse({
       itemId: 'selected',
@@ -76,6 +76,18 @@ it('offers child advisor setup for an explicitly typed outcome with no existing 
   const location = new URL(screen.getByTestId('location').textContent!, 'https://offline.test');
   expect(location.searchParams.get('telosAdvisor')).toBe('child');
   expect(location.searchParams.get('telosRole')).toBe('advisor');
+  expect(location.searchParams.get('telosRoleMode')).toBe('additional');
+  expect(f.newSession).toHaveBeenCalledOnce();
+  expect(f.send).not.toHaveBeenCalled();
+});
+
+it('offers a separate ordinary chat for unclassified backlog work without claiming a session exists', async () => {
+  const f = fixture(null);
+  expect(await screen.findByText('No dedicated conversation yet.')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  const location = new URL(screen.getByTestId('location').textContent!, 'https://fixture.test');
+  expect(location.pathname).toBe('/chat');
+  expect(location.searchParams.get('telosRoleItem')).toBe('selected');
   expect(location.searchParams.get('telosRoleMode')).toBe('additional');
   expect(f.newSession).toHaveBeenCalledOnce();
   expect(f.send).not.toHaveBeenCalled();
