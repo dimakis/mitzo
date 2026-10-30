@@ -4,11 +4,8 @@ import {
   CHAT_MAX_IMAGE_BYTES,
   base64DecodedBytes,
 } from '@mitzo/protocol';
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+import { loadPdf } from './pdf-document';
 import type { ImageAttachment } from '../types/chat';
-
-// Bundle the worker locally: importing a private PDF must not contact a CDN.
-GlobalWorkerOptions.workerSrc = `${import.meta.env.BASE_URL}pdfjs/pdf.worker.min.mjs`;
 
 const MAX_PAGE_DIMENSION = 2000;
 
@@ -20,14 +17,7 @@ export async function pdfToImages(
 ): Promise<ImageAttachment[]> {
   if (file.size > CHAT_MAX_PDF_BYTES) throw new Error('PDFs must be 50 MiB or smaller.');
   if (available < 1) throw new Error('Remove an attachment before importing a PDF.');
-  const loading = getDocument({
-    data: new Uint8Array(await file.arrayBuffer()),
-    cMapUrl: `${import.meta.env.BASE_URL}pdfjs/cmaps/`,
-    cMapPacked: true,
-    standardFontDataUrl: `${import.meta.env.BASE_URL}pdfjs/standard_fonts/`,
-    wasmUrl: `${import.meta.env.BASE_URL}pdfjs/wasm/`,
-    stopAtErrors: true,
-  });
+  const loading = loadPdf(new Uint8Array(await file.arrayBuffer()));
   try {
     const pdf = await loading.promise;
     if (pdf.numPages > available)

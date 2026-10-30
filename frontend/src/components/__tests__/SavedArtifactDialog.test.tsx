@@ -17,6 +17,9 @@ import { apiFetch } from '../../lib/api-fetch';
 import { installDialogStub } from './dialog-stub';
 import { shareFile } from '../../lib/share-file';
 
+vi.mock('../PdfPreview', () => ({
+  PdfPreview: ({ title }: { title: string }) => <div>PDF reader for {title}</div>,
+}));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('../../lib/share-file', () => ({
   shareFile: vi.fn().mockResolvedValue(true),
@@ -186,4 +189,18 @@ it('links only the actual retained Work item without creating an association', a
   expect(
     vi.mocked(apiFetch).mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
   ).toBe(true);
+});
+
+it('opens a saved PDF reader without requesting the unsupported text-document preview', async () => {
+  const pdf = { ...version(1), filename: 'associate.pdf', title: 'Associate quarterly connection' };
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).includes('/versions')
+      ? response({ artifacts: [pdf], hasMore: false, cursor: null })
+      : response(doc(1)),
+  );
+  render(<SavedArtifactDialog artifact={pdf} onClose={vi.fn()} />);
+  await screen.findByText('PDF reader for Associate quarterly connection');
+  expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('/document'))).toBe(
+    false,
+  );
 });

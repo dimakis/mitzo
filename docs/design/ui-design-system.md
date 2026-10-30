@@ -2366,3 +2366,13 @@ text without model summarization. Details & context retains rationale, acceptanc
 criteria, dates and original evidence in a native collapsed disclosure. Work and
 Materials use the available reading width. Shared typography, semantic colors,
 spacing and the native disclosure motion/focus behavior remain authoritative.
+
+Saved documents use the existing `SavedArtifactDialog` at a document-sized 75rem
+maximum width, retaining its shared header/footer, scrolling, focus return and
+exact revision selector. Markdown uses scoped reading rhythm; provenance remains
+collapsed. Saved PDFs use a local PDF.js canvas reader with page and zoom controls.
+Only the selected page is rendered, canvas dimensions are bounded, retained bytes
+are fetched once per open, and page changes make no file request. Import and
+inspection share one bundled worker/font configuration and run no PDF action or
+annotation layer. The canvas retains its geometry while hidden during rendering
+to prevent scrollbar/resize feedback. PDF bytes stay on the authenticated app path.
