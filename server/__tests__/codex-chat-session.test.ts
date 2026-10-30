@@ -193,6 +193,15 @@ it('uses assigned GitHub credentials instead of the legacy fallback on a new run
   expect(ordinaryRuntimeServiceProviders(['github'], [])).toEqual(['github']);
 });
 
+it('preserves reviewed runtime recovery reasons and references through wrappers', async () => {
+  const { SessionRuntimeError } = await import('../session-runtime-error.js');
+  const original = new SessionRuntimeError('unsettled_effects', { cause: Error('Bearer secret') });
+  const message = publicCodexRuntimeError(Error('Owned runtime unavailable', { cause: original }));
+  expect(message).toContain('unresolved tool or completion effects');
+  expect(message).toContain(original.diagnosticId);
+  expect(message).not.toContain('Bearer secret');
+});
+
 it('forwards only recognized sanitized Codex diagnostics', () => {
   expect(
     publicCodexRuntimeError(

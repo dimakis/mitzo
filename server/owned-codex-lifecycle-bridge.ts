@@ -1,5 +1,6 @@
 import {
   CodexServerRequestResolvedError,
+  CodexTurnCompletedError,
   type CodexLifecycleTransport,
 } from './codex-app-server-client.js';
 import type { FrozenHostCodexBootstrapLease } from './frozen-host-codex-bootstrap.js';
@@ -90,7 +91,10 @@ export class OwnedCodexLifecycleBridge {
           let requestAlreadyResolved = false;
           if (
             signal.aborted &&
-            signal.reason instanceof CodexServerRequestResolvedError &&
+            (signal.reason instanceof CodexServerRequestResolvedError ||
+              (signal.reason instanceof CodexTurnCompletedError &&
+                signal.reason.threadId === params.threadId &&
+                signal.reason.turnId === params.turnId)) &&
             signal.reason.requestId === requestId &&
             originalLease &&
             !this.#abort.signal.aborted

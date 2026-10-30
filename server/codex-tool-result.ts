@@ -1,3 +1,4 @@
+import { copyCallbackOutcome } from './turn-callbacks.js';
 /** Product tools use the native dynamic-tool result surface. These are receipts,
  * not another tool executor or native history. Keep legacy text results intact. */
 export type CodexToolContentItem =
@@ -55,7 +56,8 @@ export function normalizeCodexToolResult(result: CodexToolResult): CodexToolResu
   if (typeof result.content !== 'string' || typeof result.isError !== 'boolean') throw invalid();
   // Trusted adapters also carry private environment-change receipts. Preserve
   // those in memory; the store and native serializers select only public fields.
-  if (result.contentItems === undefined) return Object.freeze({ ...result });
+  if (result.contentItems === undefined)
+    return copyCallbackOutcome(result, Object.freeze({ ...result }));
   if (!Array.isArray(result.contentItems) || result.contentItems.length > MAX_ITEMS)
     throw new CodexToolResultBoundError();
   if (Buffer.byteLength(result.content) > MAX_TEXT_BYTES) throw new CodexToolResultBoundError();
@@ -81,7 +83,7 @@ export function normalizeCodexToolResult(result: CodexToolResult): CodexToolResu
     throw new CodexToolResultBoundError();
   contentItems.forEach(Object.freeze);
   Object.freeze(contentItems);
-  return Object.freeze({ ...result, ...copy });
+  return copyCallbackOutcome(result, Object.freeze({ ...result, ...copy }));
 }
 
 export function codexToolResultContentItems(result: CodexToolResult): CodexToolContentItem[] {

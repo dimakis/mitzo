@@ -10,6 +10,138 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionInfo: vi.fn(async () => ({ sessionId: 'original', cwd: '/task' })),
   getSessionMessages: vi.fn(async () => [{ uuid: 'input' }]),
 }));
+it.each(['hook', 'permission', 'tool'] as const)(
+  'settles an original SDK %s callback before exposing the terminal result',
+  async (kind) => {
+    const events = new AsyncQueue<Record<string, unknown>>();
+    let captured!: Options;
+    vi.mocked(query).mockImplementation((request) => {
+      captured = request.options!;
+      return {
+        close: vi.fn(),
+        [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+      } as never;
+    });
+    let finish!: () => void;
+    const pending = async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      return { continue: true };
+    };
+    let tool!: <T>(operation: () => Promise<T>) => Promise<T>;
+    const controller = new AbortController();
+    const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
+      options: {
+        sessionId: 'original',
+        hooks: { PreToolUse: [{ hooks: [pending] }] },
+        canUseTool: (async () => {
+          await pending();
+          return { behavior: 'allow', updatedInput: {} };
+        }) as never,
+      },
+      input: new AsyncQueue(),
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      controller,
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (q) => q as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+      mcpServers: (state) => {
+        tool = state.runCallback;
+        return {};
+      },
+    });
+    const callback =
+      kind === 'tool'
+        ? tool(pending)
+        : kind === 'hook'
+          ? captured.hooks!.PreToolUse![0].hooks[0]({} as never, 'tool', {
+              signal: controller.signal,
+            })
+          : captured.canUseTool!('Read', {}, {
+              signal: controller.signal,
+              toolUseID: 'tool',
+            } as never);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    const iterator = owner.query[Symbol.asyncIterator]();
+    events.push({ type: 'result', session_id: 'original' });
+    let delivered = false;
+    const result = iterator.next().then((event) => {
+      delivered = true;
+      return event;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(delivered).toBe(false);
+    finish();
+    const callbackResult = await callback;
+    if (kind === 'permission') expect(callbackResult).toMatchObject({ behavior: 'deny' });
+    expect((await result).value).toMatchObject({ type: 'result' });
+    await expect(tool(pending)).rejects.toThrow('already finished');
+    controller.abort();
+  },
+);
+it.each(['hook', 'tool'] as const)(
+  'does not expose successful SDK completion after an unknown %s outcome',
+  async (kind) => {
+    const events = new AsyncQueue<Record<string, unknown>>();
+    let captured!: Options;
+    vi.mocked(query).mockImplementation((request) => {
+      captured = request.options!;
+      return {
+        close: vi.fn(),
+        [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+      } as never;
+    });
+    let finish!: () => void;
+    const work = async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      if (kind === 'hook') throw Error('private unknown effect');
+      return { isError: true, content: 'unknown effect' };
+    };
+    let tool!: <T>(operation: () => Promise<T>) => Promise<T>;
+    const controller = new AbortController();
+    const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
+      options: { sessionId: 'original', hooks: { PostToolUse: [{ hooks: [work as never] }] } },
+      input: new AsyncQueue(),
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      controller,
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (q) => q as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+      mcpServers: (state) => {
+        tool = state.runCallback;
+        return {};
+      },
+    });
+    const callback =
+      kind === 'tool'
+        ? tool(work)
+        : captured.hooks!.PostToolUse![0].hooks[0]({} as never, 'tool', {
+            signal: controller.signal,
+          });
+    const observed = Promise.resolve(callback).catch(() => {});
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    events.push({ type: 'result', session_id: 'original' });
+    const result = owner.query[Symbol.asyncIterator]().next();
+    const blocked = expect(result).rejects.toMatchObject({ code: 'callbacks_failed' });
+    await new Promise((resolve) => setImmediate(resolve));
+    finish();
+    await observed;
+    await blocked;
+    controller.abort();
+  },
+);
+
 it('retires old native hooks and permissions without executing or aborting the successor owner', async () => {
   const requests: Array<{ options: Options }> = [];
   vi.mocked(query).mockImplementation((request) => {
@@ -20,7 +152,7 @@ it('retires old native hooks and permissions without executing or aborting the s
     lifetime = new SdkHookLifetime();
   const effect = vi.fn(async () => ({ continue: true })),
     permission = vi.fn(async () => ({ behavior: 'allow', updatedInput: {} }));
-  const owner = createOrdinaryLocalVertexSdkQuery({
+  const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
     options: {
       sessionId: 'original',
       extraArgs: { 'offline-existing-flag': null },
@@ -101,7 +233,7 @@ it('refuses old native approval completions after retirement even when the SDK r
     await approved;
     return { behavior: 'allow', updatedInput: {} };
   });
-  const owner = createOrdinaryLocalVertexSdkQuery({
+  const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
     options: {
       sessionId: 'original',
       hooks: { PreToolUse: [{ hooks: [hook] }] },
@@ -154,7 +286,7 @@ it('does not replace a native query until its exact spawned process closes and f
     processes.push(process);
     return process as never;
   });
-  const owner = createOrdinaryLocalVertexSdkQuery({
+  const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
     options: { sessionId: 'original', spawnClaudeCodeProcess: spawn },
     input: new AsyncQueue(),
     lifetime: new SdkHookLifetime(),
@@ -192,7 +324,7 @@ it('preserves segmented SDK system prompts when appending local CLI guidance', (
     return { close: vi.fn(), async *[Symbol.asyncIterator]() {} } as never;
   });
   const controller = new AbortController();
-  createOrdinaryLocalVertexSdkQuery({
+  createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
     options: {
       sessionId: 'original',
       systemPrompt: ['Original profile.', 'Original instructions.'],
