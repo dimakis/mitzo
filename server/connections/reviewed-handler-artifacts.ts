@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.791-tool-efficiency-refusal-integration';
+  'v1.0.792-cancellable-chat-preparation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,11 +23,15 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/worktree-upstream-base.test.ts':
+    '80824d2d6ca05f31498a4e6906bf86d0ab49781e0b3153a32ef3c88166246978',
+  '../../packages/harness/__tests__/session-registry.test.ts':
+    '6e591b4bdd01533af3c5efd8d826dd91651c7ebccf17ed6b918ccf89f1339d93',
   '../__tests__/github-native-read-projection.test.ts':
     '53747969b5a59c7393c3758e3e28d8e646966962646e0d5f973113b640a8bff6',
-  '../chat-metadata.ts': 'fe42df43ff00658fb3a118a7b0be44c32907d59e4b7d026a3cf7613600e1068d',
+  '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../__tests__/chat-metadata.test.ts':
-    '0b718160237d3b6f40142edbb1aae927d0cd5dc8ee1816b1dc414b15dd35b4e2',
+    'a990461605a67ae715379ab6691b08dbc0d917d5f8432b01fcfeac971f240fac',
   '../__tests__/chat-worktree-startup-failure.test.ts':
     '65a36801a5cd6eaa6064ccfa161f16a84cae1c6689163509c34eeff82d08d32a',
   '../__tests__/session-dirs.test.ts':
@@ -45,7 +49,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/sdk-child-environment.test.ts':
     '5590d6466e30ff3dc70487424ef5c591c04a887c6391db84ece2a0496b4cfdb6',
   '../__tests__/chat-startup-metadata.test.ts':
-    'd480b4b72509810feab3e9f137f25456b81635de5226cadf30c18b83bd1e3193',
+    '2f36612fee7a0aeb76e1d225b3d53c9481149bf9bb408a63b5cb02d2522b18ca',
   '../__tests__/symposium-personal-connection-router.test.ts':
     '672b6da994f8e1d233b6c39efe477d10fb4344131b06c240826ccd4cbf16cd14',
   '../__tests__/sdk-query-usage.test.ts':
@@ -1394,9 +1398,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '83c52ce5057645bbd913fda18220ac8ef21b54904c1b103f9f5af97e3505e46a',
+  '../chat.ts': '3314d2d1c8ab09fc92396657b64bb5ad8869cd68b52273cb900c3c0f8cbd1517',
   '../../packages/harness/src/session-registry.ts':
-    '0ae1713bc617b37f773aa50f36868b69e10b5c985b2419318c2b2168108b8b39',
+    '25e0ae6a62c005b0b53596834cc193512a7bb09c1b7dd8d72fe8bd4ddf184795',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
   '../symposium-personal-connection-router.ts':
     'f254cadb334bc75dbb19104fdb7ed2b3e46bf2856b81d29300fd4f45db02674e',
@@ -1413,7 +1417,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'bd41408c8dfb9fe4a239fca2e35cf8366bc379e63c4a310d3593cf709a1920d3',
   '../symposium-production-review-composition.ts':
     '5d0e4d78e45cc6d9b3c601cc1f5587c469432bb3ec9edc0c70fb34153dedfc5e',
-  '../ws-handler-v2.ts': '206a1ef8030f17e09d9a4aa175413a3ba404a93a9e9c348373c1511d93d58400',
+  '../ws-handler-v2.ts': '8442cc4dc8c491ca3c6ec281676c5528028e4f5e6aec643e95481ca85a80f02a',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
   '../notification-store.ts': 'f6b5ec6927c367a94511f6eaf215498ffdb7e76020f417105df81d3812de94f3',
@@ -1553,7 +1557,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../github-repository-source.ts':
     '02e1a872e4f24c7fd42ddd4c9a1e535be847f3e1c16ab34593e3511a22003fe5',
-  '../worktree.ts': '897ca9a43fa529fc8a5ecc7735a78e8a90bb5e8a26b6c3ffef8ae18f87e4928d',
+  '../worktree.ts': '949ed326b5a090fe504b5c4b20e5522e771d11a8fdc677a016ce3a41c469355d',
   '../local-repository-worktree.ts':
     'dfdcb8754a1aee2c41ffa5c677ce97ee2e9bb1231480eb977e1418bc1031fb48',
   '../repository-task-checkout.ts':

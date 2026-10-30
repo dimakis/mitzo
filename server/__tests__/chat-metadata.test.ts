@@ -79,3 +79,13 @@ it('propagates cancellation rather than returning a successful fallback', async 
   );
   expect(child.execFile).not.toHaveBeenCalled();
 });
+
+it('cancels resume validation instead of reporting a missing workspace', async () => {
+  const controller = new AbortController();
+  child.execFile.mockImplementation((_program, _args, options, callback) => {
+    options.signal.addEventListener('abort', () => callback(Error('aborted'), ''));
+  });
+  const validation = isGitDirectory('/workspace', controller.signal);
+  controller.abort(Error('resume stopped'));
+  await expect(validation).rejects.toThrow('resume stopped');
+});

@@ -26,8 +26,11 @@ async function readMetadata(
     );
   });
 }
-export async function isGitDirectory(cwd: string): Promise<boolean> {
-  return (await readMetadata('git', ['-C', cwd, 'rev-parse', '--git-dir'], 5000)) !== null;
+export async function isGitDirectory(cwd: string, signal?: AbortSignal): Promise<boolean> {
+  return (
+    (await readMetadata('git', ['-C', cwd, 'rev-parse', '--git-dir'], 5000, undefined, signal)) !==
+    null
+  );
 }
 export async function readWorkspaceBranch(cwd: string, signal?: AbortSignal): Promise<string> {
   return (

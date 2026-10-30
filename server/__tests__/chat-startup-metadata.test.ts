@@ -9,6 +9,11 @@ const metadata = vi.hoisted(() => ({
   readSshAuthSock: vi.fn(),
 }));
 vi.mock('../chat-metadata.js', () => metadata);
+const preparation = vi.hoisted(() => ({ createWorktree: vi.fn() }));
+vi.mock('../worktree.js', async (original) => ({
+  ...(await original<object>()),
+  createWorktreeAsync: preparation.createWorktree,
+}));
 vi.mock('google-auth-library', () => ({
   GoogleAuth: class {
     async getAccessToken() {
@@ -59,6 +64,7 @@ beforeEach(async () => {
     'fetch',
     vi.fn(async () => new Response(JSON.stringify({ boot: {} }))),
   );
+  preparation.createWorktree.mockReset();
   metadata.isGitDirectory.mockReset().mockResolvedValue(true);
   metadata.readWorkspaceBranch.mockReset().mockResolvedValue('main');
   metadata.readSshAuthSock.mockReset().mockResolvedValue(null);
@@ -306,5 +312,92 @@ it.each([false, true])(
       release();
       await running;
     }
+  },
+);
+
+it.each([
+  [false, 'validation'],
+  [true, 'validation'],
+  [false, 'recreation'],
+  [true, 'recreation'],
+  [false, 'primary'],
+  [true, 'primary'],
+] as const)(
+  'cancels SDK startup for selected account=%s during %s preparation through Stop',
+  async (selected, phase) => {
+    const accountProfiles = profiles();
+    const cwd = join(root, '.claude', 'worktrees', 'restored');
+    if (phase !== 'primary')
+      chat.eventStore.upsertSession({
+        sessionId,
+        cwd,
+        mode: 'ask',
+        ...(selected
+          ? { accountBinding: accountProfiles.resolve('work', 'claude-sonnet-4-6') }
+          : {}),
+      });
+    let release!: () => void;
+    let entered = false;
+    let preparationSignal: AbortSignal | undefined;
+    const hold = <T>(signal: AbortSignal | undefined, result: T) =>
+      new Promise<T>((resolve) => {
+        entered = true;
+        preparationSignal = signal;
+        // A non-cooperative preparation must also be fenced after it eventually returns.
+        release = () => resolve(result);
+      });
+    if (phase === 'validation')
+      metadata.isGitDirectory.mockImplementation((_cwd, signal) => hold(signal, true));
+    else {
+      if (phase === 'primary') vi.stubEnv('WORKTREE_ENABLED', 'true');
+      metadata.isGitDirectory.mockResolvedValue(false);
+      preparation.createWorktree.mockImplementation((_id, _root, options) =>
+        hold(options?.abortSignal, cwd),
+      );
+    }
+    let replacement: import('../session-registry.js').ManagedSession | undefined;
+    const replacementAbort = new AbortController();
+    const running = chat
+      .startChat({ send: vi.fn(), isOpen: () => true }, 'cold-resume', 'Continue', {
+        ...(phase === 'primary'
+          ? { initialSessionId: sessionId, isolation: true }
+          : { resume: sessionId, cwd, isolation: false }),
+        ...(selected ? { accountId: 'work', model: 'claude-sonnet-4-6', accountProfiles } : {}),
+      })
+      .catch((error) => error);
+    await vi.waitFor(() => expect(entered).toBe(true));
+    try {
+      const { handleStopV2 } = await import('../ws-handler-v2.js');
+      const context = {
+        eventStore: chat.eventStore,
+        sessionRegistry: chat.registry,
+        connRegistry: { broadcast: vi.fn(), get: () => undefined },
+      } as never;
+      expect(handleStopV2('operator', { type: 'stop', sessionId: 'unrelated' }, context)).toBe(
+        true,
+      );
+      expect.soft(preparationSignal?.aborted).toBe(false);
+      if (selected && phase === 'validation')
+        preparationSignal!.addEventListener('abort', () => {
+          chat.registry.register('cold-resume', {
+            transport: { send: vi.fn(), isOpen: () => true },
+            abortController: replacementAbort,
+            mode: 'ask',
+            sessionAllowList: new Set(),
+            sessionId,
+          });
+          replacement = chat.registry.get('cold-resume');
+        });
+      expect(handleStopV2('operator', { type: 'stop', sessionId }, context)).toBe(true);
+      expect.soft(preparationSignal?.aborted).toBe(true);
+    } finally {
+      release();
+      await running;
+    }
+    expect(chat.registry.get('cold-resume')).toBe(replacement);
+    expect(replacementAbort.signal.aborted).toBe(false);
+    expect(metadata.readWorkspaceBranch).not.toHaveBeenCalled();
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    expect(query).not.toHaveBeenCalled();
   },
 );

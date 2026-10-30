@@ -709,12 +709,20 @@ export async function validateResumable(
   cwd: string,
   _resumeId: string,
   deps?: {
-    isGitDir: (path: string) => boolean | Promise<boolean>;
-    recreateWorktree: (wtId: string, repoRoot: string) => string | Promise<string>;
+    isGitDir: (path: string, signal?: AbortSignal) => boolean | Promise<boolean>;
+    recreateWorktree: (
+      wtId: string,
+      repoRoot: string,
+      signal?: AbortSignal,
+    ) => string | Promise<string>;
   },
+  signal?: AbortSignal,
 ): Promise<{ valid: boolean; recreated?: boolean }> {
+  signal?.throwIfAborted();
   const isGitDir = deps?.isGitDir ?? isGitDirectory;
-  if (await isGitDir(cwd)) return { valid: true };
+  const valid = await isGitDir(cwd, signal);
+  signal?.throwIfAborted();
+  if (valid) return { valid: true };
 
   const wtMatch = cwd.match(/\/(\.claude|\.cursor)\/worktrees\/([^/]+)$/);
   if (!wtMatch) return { valid: false };
@@ -723,13 +731,15 @@ export async function validateResumable(
   const repoRoot = cwd.slice(0, cwd.indexOf(`/${prefix}/worktrees/`));
   const recreate =
     deps?.recreateWorktree ??
-    ((id: string, repo: string) =>
-      createWorktreeAsync(id, repo, { prefix: prefix as '.claude' | '.cursor' }));
+    ((id: string, repo: string, abortSignal?: AbortSignal) =>
+      createWorktreeAsync(id, repo, { prefix: prefix as '.claude' | '.cursor', abortSignal }));
 
   try {
-    await recreate(wtId, repoRoot);
+    await recreate(wtId, repoRoot, signal);
+    signal?.throwIfAborted();
     return { valid: true, recreated: true };
   } catch {
+    signal?.throwIfAborted();
     return { valid: false };
   }
 }
@@ -948,12 +958,14 @@ export async function createSessionWorktrees(
   baseCwd: string,
   wtId: string,
   options: SessionWorktreeOptions,
+  signal?: AbortSignal,
 ): Promise<{
   cwd: string;
   wtId: string;
   worktreePath?: string;
   repoWorktrees: Map<string, { path: string; wtId: string }>;
 }> {
+  signal?.throwIfAborted();
   if (!requiresSessionWorktree(options)) return unisolatedSessionWorktrees(baseCwd, wtId);
   const repoWorktrees = new Map<string, { path: string; wtId: string }>();
 
@@ -961,7 +973,8 @@ export async function createSessionWorktrees(
   // by the worktree guard when an agent first writes to them (Phase 2a).
   let primaryPath: string | undefined;
   try {
-    primaryPath = await createWorktreeAsync(wtId, BASE_REPO);
+    primaryPath = await createWorktreeAsync(wtId, BASE_REPO, { abortSignal: signal });
+    signal?.throwIfAborted();
     repoWorktrees.set('primary', { path: primaryPath, wtId });
     writeFileSync(
       join(primaryPath, '.mitzo-session'),
@@ -974,6 +987,7 @@ export async function createSessionWorktrees(
     send(transport, { type: 'worktree', path: primaryPath });
     log.info('primary worktree created', { wtId, path: primaryPath });
   } catch (err: unknown) {
+    signal?.throwIfAborted();
     const message = err instanceof Error ? err.message : String(err);
     log.error('primary worktree creation failed', { error: message });
     send(transport, {
@@ -1217,6 +1231,7 @@ function makeUserMessage(
 export { nativeStartupSessionId } from './ordinary-repository-startup.js';
 
 interface ChatStartupGuard {
+  releasePreparation?: () => void;
   admission?: ProviderDispatchAdmission;
   releaseContext?: () => void;
   session?: ManagedSession;
@@ -1413,6 +1428,7 @@ export async function startChat(
       try {
         cleanupUndispatchedStartup(startupGuard.admission, clientId, startupGuard.session);
       } finally {
+        startupGuard.releasePreparation?.();
         releaseOrdinaryStartup?.();
         startupGuard.releaseContext?.();
         releaseRepositoryStartup?.();
@@ -1718,7 +1734,16 @@ async function _startChatInner(
       : process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
     : undefined;
   const abortController = new AbortController();
+  const releasePreparation = registry.registerStartup(
+    clientId,
+    options.resume ?? options.initialSessionId,
+    abortController,
+  );
   const abortAdviser = () => abortController.abort(options.adviserScope?.signal.reason);
+  startupGuard.releasePreparation = () => {
+    releasePreparation();
+    options.adviserScope?.signal.removeEventListener('abort', abortAdviser);
+  };
   options.adviserScope?.signal.addEventListener('abort', abortAdviser, { once: true });
   if (options.adviserScope?.signal.aborted) abortAdviser();
   options.ordinarySdkAuthority?.bindAbortController(abortController);
@@ -1968,7 +1993,7 @@ async function _startChatInner(
     const validation =
       codexProfile || apiKey || gemini
         ? { valid: true }
-        : await validateResumable(baseCwd, options.resume);
+        : await validateResumable(baseCwd, options.resume, undefined, abortController.signal);
     if (!validation.valid) {
       log.warn('session not resumable, starting fresh', {
         sessionId: options.resume,
@@ -1982,6 +2007,7 @@ async function _startChatInner(
     }
   }
 
+  abortController.signal.throwIfAborted();
   // Generate session-scoped worktree ID and create worktrees in all repos
   const wtId = generateWtId();
   let sessionWorktrees: Awaited<ReturnType<typeof createSessionWorktrees>>;
@@ -1990,11 +2016,12 @@ async function _startChatInner(
     sessionWorktrees =
       openShellSelected || !requiresSessionWorktree(options)
         ? unisolatedSessionWorktrees(openShellSelected ? openShellWorkdir! : baseCwd, wtId)
-        : await createSessionWorktrees(transport, baseCwd, wtId, options);
+        : await createSessionWorktrees(transport, baseCwd, wtId, options, abortController.signal);
   } catch (error) {
     options.onStartupAdmission?.(error);
     return;
   }
+  abortController.signal.throwIfAborted();
   const { cwd, worktreePath, repoWorktrees } = sessionWorktrees;
 
   if (repositoryWorkspace?.directory && !openShellSelected) {
@@ -2083,6 +2110,7 @@ async function _startChatInner(
     });
   }
 
+  abortController.signal.throwIfAborted();
   mode = resolveStartupMode();
   registry.register(clientId, {
     ...(options.operatorConnectionId ? { ownerConnectionId: options.operatorConnectionId } : {}),
@@ -3258,7 +3286,6 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       }
     }
   } finally {
-    options.adviserScope?.signal.removeEventListener('abort', abortAdviser);
     const current = registry.get(clientId);
     if (!current || current === session) _onSessionChange?.(clientId, 'end', session.sessionId);
   }

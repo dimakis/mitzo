@@ -162,6 +162,35 @@ export interface CloseoutEpisode {
 export type CloseoutHandler = (clientId: string, episode: CloseoutEpisode) => void;
 
 export class SessionRegistry {
+  private startups = new Map<string, { sessionId?: string; abortController: AbortController }>();
+
+  /** Cancellation ownership only; preparation is not a routable query or tool authority. */
+  registerStartup(
+    clientId: string,
+    sessionId: string | undefined,
+    abortController: AbortController,
+  ): () => void {
+    if (this.startups.has(clientId)) throw Error('Session startup already in progress');
+    const owner = { sessionId, abortController };
+    this.startups.set(clientId, owner);
+    return () => {
+      if (this.startups.get(clientId) === owner) this.startups.delete(clientId);
+    };
+  }
+
+  /** Stop only the preparations present at this conversation's control boundary. */
+  abortStartup(sessionId: string): boolean {
+    const owners = [...this.startups].filter(([, owner]) => owner.sessionId === sessionId);
+    let aborted = false;
+    for (const [clientId, owner] of owners) {
+      if (this.startups.get(clientId) !== owner) continue;
+      this.startups.delete(clientId);
+      owner.abortController.abort();
+      aborted = true;
+    }
+    return aborted;
+  }
+
   private sessions = new Map<string, ManagedSession>();
   private attached = new Set<string>();
   private detachTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -242,6 +271,10 @@ export class SessionRegistry {
       sessionId?: string;
     },
   ): void {
+    const startup = this.startups.get(clientId);
+    this.startups.delete(clientId);
+    if (startup && startup.abortController !== init.abortController)
+      startup.abortController.abort();
     this.sessions.set(clientId, {
       ...init,
       worktreePaths: new Map(),
@@ -461,7 +494,10 @@ export class SessionRegistry {
    */
   abort(clientId: string): void {
     const session = this.sessions.get(clientId);
-    if (!session) return;
+    const startup = this.startups.get(clientId);
+    this.startups.delete(clientId);
+    startup?.abortController.abort();
+    if (!session || this.sessions.get(clientId) !== session) return;
 
     this.clearDetachTimer(clientId);
     this.clearCloseoutTimer(clientId);
@@ -470,6 +506,7 @@ export class SessionRegistry {
     // check isClosingOut() to distinguish 'abandoned' vs 'closed' status.
     session.abortController.abort();
     session.observers.clear();
+    if (this.sessions.get(clientId) !== session) return;
     this.sessions.delete(clientId);
     this.attached.delete(clientId);
     this.closingOut.delete(clientId);
@@ -498,6 +535,7 @@ export class SessionRegistry {
    * Clean up all sessions and timers. Used for graceful shutdown.
    */
   dispose(): void {
+    for (const clientId of this.startups.keys()) this.abort(clientId);
     for (const timer of this.detachTimers.values()) {
       clearTimeout(timer);
     }
