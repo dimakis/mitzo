@@ -1,56 +1,6 @@
+// @vitest-environment node-compatible-dom
 import { afterEach, expect, it, vi } from 'vitest';
 import React from 'react';
-vi.hoisted(async () => {
-  // Keep Node's server-module URL handling while rendering the real composer
-  // in an isolated DOM; no browser process or app connection is created.
-  const { JSDOM } = await import('jsdom');
-  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
-    url: 'https://mitzo.test',
-    pretendToBeVisual: true,
-  });
-  for (const key of [
-    'window',
-    'document',
-    'navigator',
-    'localStorage',
-    'sessionStorage',
-    'Storage',
-    'HTMLElement',
-    'HTMLTextAreaElement',
-    'HTMLInputElement',
-    'Element',
-    'Node',
-    'MutationObserver',
-    'Event',
-    'CustomEvent',
-    'KeyboardEvent',
-    'File',
-    'Blob',
-    'Image',
-    'getComputedStyle',
-  ]) {
-    Object.defineProperty(globalThis, key, {
-      configurable: true,
-      value: Reflect.get(dom.window, key),
-      writable: true,
-    });
-  }
-  Object.defineProperty(globalThis, 'requestAnimationFrame', {
-    configurable: true,
-    value: dom.window.requestAnimationFrame.bind(dom.window),
-    writable: true,
-  });
-  Object.defineProperty(globalThis, 'cancelAnimationFrame', {
-    configurable: true,
-    value: dom.window.cancelAnimationFrame.bind(dom.window),
-    writable: true,
-  });
-  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
-    configurable: true,
-    value: true,
-    writable: true,
-  });
-});
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MitzoStoreProvider, useMitzoStore } from '@mitzo/client/hooks';
 import { ChatInput } from '../../../frontend/src/components/ChatInput';

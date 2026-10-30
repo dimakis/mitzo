@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.784-chat-replies-callback-recovery-and-passive-actions';
+  'v1.0.785-chat-replies-and-isolated-composer-delivery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../tests/support/node-compatible-dom.ts':
+    '9632c4df897b9c0aa0056c173a58b803e78812615e1db96d2384658139bd2e3d',
   '../queued-message-receipt.ts':
     '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
   '../../frontend/src/components/QueuedDraftTray.tsx':
@@ -212,7 +214,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../skills/land-pr/SKILL.md':
     '5e71b7c7c625735ec72e1cffb04ff2f9cb9ab140d80e7708b61f6b9d8b21258d',
   '../../tests/integration/prepared-repository/composer-delivery.test.tsx':
-    'f0db3f23aa4ccd5f02a472993e0dc5f20941b7d8bf40f2cc33f26ae64b26678a',
+    'b44a35837387a89df15f21292ebda7d4ae69411293a3c3dbc7790930fbe8e089',
   '../__tests__/capability-service.test.ts':
     '52d69523ad9b7b090ec4d17b2a8315957d7a8f3ec3c3a1ebaf14e15f88cdfc9d',
   '../__tests__/fixtures/prepared-repository-browser.ts':
@@ -2922,7 +2924,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'b603ee7ad71f1f5f9eb18cb50eabe762e81b18f81c216e42f172aa8a04ffab41',
   '../../tests/integration/telos-s9/integrated-candidate/joined-shards.mjs':
     '8a8c61219cc505dc95c91a1de7ff0db1362d9a6add47629fea43cda3b18ef07c',
-  '../../vitest.config.ts': '8f30b679a4b6921636f1792988432e0fd0cc9c0122b1946ae699e5c23813edc7',
+  '../../vitest.config.ts': '699431252067bfb2918bb97baf3ef2accd06c59de426e7508e8f5b8d3c2cf034',
   '../__tests__/codex-diagnostic-release.test.ts':
     '55ff5b03c35602da030efa21c7f8b75c2074d36eba35d26466909bd717c520ea',
   '../__tests__/codex-tool-failure-diagnostics.test.ts':
