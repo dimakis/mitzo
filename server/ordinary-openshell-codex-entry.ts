@@ -1,9 +1,9 @@
+import { assembleCommandPrompt } from './message-reply-context.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import {
   resolveTelosWorkRoleContext,
   resolveTelosWorkSystemPrompt,
 } from './telos-work-role-context.js';
-import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { isDeepStrictEqual } from 'node:util';
 import { OrdinaryCodexFirstCommandSchema } from '@mitzo/protocol';
 import type { SessionTransport } from '@mitzo/harness';
@@ -264,9 +264,11 @@ export async function startOwnedOpenShellCodexCommand(
         await native.admitExplicitSend(
           {
             id: dispatch.commandId,
-            prompt: assembleSourceSnapshots(
-              dispatch.payload.text,
-              dispatch.payload.sourceSnapshots,
+            prompt: assembleCommandPrompt(
+              eventStore,
+              sessionId,
+              dispatch.commandId,
+              dispatch.payload,
             ),
             intent: dispatch.payload.intent ?? dispatch.payload.text,
             images: dispatch.payload.images,

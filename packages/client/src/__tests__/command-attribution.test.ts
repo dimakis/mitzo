@@ -41,3 +41,25 @@ it('retains the established malformed-cache tolerance while deriving metadata', 
   });
   expect(state.messages.map((m) => m.messageId)).toEqual(['a']);
 });
+it('retains a user-selected reply independently of assistant request attribution across metadata ordering and restoration', () => {
+  const context = {
+    messageId: 'old-answer',
+    role: 'assistant' as const,
+    text: 'Original visible answer',
+    timestamp: 1000,
+  };
+  let state = messagesReducer(INITIAL_MESSAGES_STATE, {
+    type: 'MESSAGE_REPLY',
+    messageId: 'new-input',
+    context,
+  });
+  state = messagesReducer(state, {
+    type: 'USER_MESSAGE_RECEIVED',
+    messageId: 'new-input',
+    text: 'Correction',
+  });
+  expect(state.messages[0].inReplyTo).toEqual(context);
+  expect(state.nativeCommands).not.toBe(true);
+  state = messagesReducer(INITIAL_MESSAGES_STATE, { type: 'RESTORE', messages: state.messages });
+  expect(state.messages[0].inReplyTo).toEqual(context);
+});

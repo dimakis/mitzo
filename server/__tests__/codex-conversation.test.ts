@@ -8946,3 +8946,30 @@ it.each(['missing', 'revoked'])(
     expect(f.requests.filter((r) => r.method === 'turn/steer')).toHaveLength(0);
   },
 );
+
+it('delivers server-prepared reply context through steering without changing the captured turn', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'a', prompt: 'First' });
+  f.conversationOptions.prepareSteeringText = (input) =>
+    'Quoted source: Original answer.\nNew reply: ' + input.text;
+  const rpc = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'turn/steer' ? { turnId: 'turn-1' } : rpc(method, params),
+  );
+  expect(
+    await f.c.steer(
+      {
+        requestId: 'quoted',
+        targetCommandId: 'a',
+        text: 'Correct this.',
+        replyToMessageId: 'source',
+      },
+      () => {},
+    ),
+  ).toEqual({ status: 'accepted' });
+  expect(f.rpc.request).toHaveBeenCalledWith('turn/steer', {
+    threadId: f.getProviderThread(),
+    expectedTurnId: 'turn-1',
+    input: [{ type: 'text', text: 'Quoted source: Original answer.\nNew reply: Correct this.' }],
+  });
+});

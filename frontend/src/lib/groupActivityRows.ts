@@ -7,6 +7,8 @@ export interface ActivityRow<T> {
   attribution?: T;
   block?: ChatBlock;
   streaming?: boolean;
+  /** Quiet request lifecycle detail, shown only inside existing activity. */
+  requestStatus?: string;
   keepVisible?: boolean;
   endsTurn?: boolean;
   /** Message controls that can remain inside this speaker's preceding activity. */

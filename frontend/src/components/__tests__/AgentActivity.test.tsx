@@ -701,3 +701,36 @@ it('keeps the running state of a delegated agent visible after its parent tool c
   expect(toggle.getAttribute('aria-label')).toContain('Running');
   expect(toggle.getAttribute('aria-expanded')).toBe('true');
 });
+
+it('keeps routine request status inside collapsed activity, with a quoted reply outside it', () => {
+  render(
+    <MemoryRouter>
+      <ChatArea
+        {...base}
+        messages={[
+          {
+            messageId: 'request',
+            role: 'user',
+            commandState: 'completed',
+            blocks: [{ blockId: 'request', blockType: 'text', content: 'Check these records' }],
+          },
+          {
+            messageId: 'answer',
+            role: 'assistant',
+            replyToMessageId: 'request',
+            blocks: [
+              thought,
+              { blockId: 'answer', blockType: 'text', content: 'Here is the answer.' },
+            ],
+          },
+        ]}
+        current={null}
+      />
+    </MemoryRouter>,
+  );
+  const activity = screen.getByRole('button', { name: /^Activity:/ });
+  expect(activity.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.getByRole('button', { name: 'Replying to: Check these records' })).toBeDefined();
+  fireEvent.click(activity);
+  expect(screen.getByText('Response complete').closest('.agent-activity-details')).toBeTruthy();
+});

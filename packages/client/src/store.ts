@@ -309,6 +309,7 @@ function mergeLiveWithDurable(
   const durableContext = durableText && splitContextPrompt(durableText.content);
   return {
     ...liveContent,
+    ...(durable.inReplyTo ? { inReplyTo: durable.inReplyTo } : {}),
     ...(durable.replyToMessageId ? { replyToMessageId: durable.replyToMessageId } : {}),
     ...(durable.steersMessageId ? { steersMessageId: durable.steersMessageId } : {}),
     ...(durable.commandState &&
@@ -1022,7 +1023,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             const replayedIds = new Set(
               liveActions.flatMap((action) => {
                 if (
-                  !['COMMAND_STATE', 'REPLY_SOURCE'].includes(action.type) &&
+                  !['COMMAND_STATE', 'REPLY_SOURCE', 'MESSAGE_REPLY'].includes(action.type) &&
                   'messageId' in action &&
                   typeof action.messageId === 'string'
                 )
@@ -1314,7 +1315,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             .map((item) => item.action);
           const replayedIds = new Set(
             liveActions.flatMap((action) =>
-              !['COMMAND_STATE', 'REPLY_SOURCE'].includes(action.type) &&
+              !['COMMAND_STATE', 'REPLY_SOURCE', 'MESSAGE_REPLY'].includes(action.type) &&
               'messageId' in action &&
               typeof action.messageId === 'string'
                 ? [messageIdentity(action.messageId, action.symposiumProvenance)]

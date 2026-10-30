@@ -1,3 +1,4 @@
+import { MessageReplyContextSchema } from '@mitzo/protocol';
 import { AgentContextReceiptSchema, SourceSnapshotsSchema } from '@mitzo/protocol';
 /**
  * Protocol parser — maps ServerMessage → store actions.
@@ -370,6 +371,16 @@ export function parseServerMessage(
       break;
     }
 
+    case 'message_reply_context': {
+      const context = MessageReplyContextSchema.safeParse(msg.context);
+      if (typeof msg.messageId === 'string' && context.success)
+        result.messagesActions.push({
+          type: 'MESSAGE_REPLY',
+          messageId: msg.messageId,
+          context: context.data,
+        });
+      break;
+    }
     case 'ordinary_reply_source':
       if (typeof msg.messageId === 'string' && typeof msg.replyToMessageId === 'string')
         result.messagesActions.push({
@@ -600,6 +611,12 @@ export function parseServerMessage(
       break;
 
     case 'user_message':
+      if (MessageReplyContextSchema.safeParse(msg.inReplyTo).success)
+        result.messagesActions.push({
+          type: 'MESSAGE_REPLY',
+          messageId: msg.messageId as string,
+          context: MessageReplyContextSchema.parse(msg.inReplyTo),
+        });
       result.messagesActions.push({
         type: 'USER_MESSAGE_RECEIVED',
         messageId: msg.messageId as string,

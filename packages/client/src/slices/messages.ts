@@ -87,6 +87,7 @@ export interface BootContextMeta {
 
 export interface MessagesState {
   replySources?: Record<string, string>;
+  userReplies?: Record<string, import('@mitzo/protocol').MessageReplyContext>;
   nativeCommands?: boolean;
   commandStates?: Record<string, import('@mitzo/protocol').CommandState>;
   commandStateSequences?: Record<string, number>;
@@ -243,6 +244,11 @@ type MessagesCoreAction =
   | { type: 'NATIVE_COMMAND_RESULT'; command: string; content: string }
   | { type: 'SET_SESSION_CONTEXT'; context: string }
   | { type: 'SET_BOOT_CONTEXT'; bootContext: BootContextMeta }
+  | {
+      type: 'MESSAGE_REPLY';
+      messageId: string;
+      context: import('@mitzo/protocol').MessageReplyContext;
+    }
   | { type: 'CLEAR' };
 
 export type MessagesAction = MessagesCoreAction & {
@@ -663,6 +669,16 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
 
 function reduceLegacyMessages(state: MessagesState, action: MessagesAction): MessagesState {
   switch (action.type) {
+    case 'MESSAGE_REPLY':
+      return {
+        ...state,
+        userReplies: { ...state.userReplies, [action.messageId]: action.context },
+        messages: state.messages.map((message) =>
+          message.messageId === action.messageId && message.role === 'user'
+            ? { ...message, inReplyTo: action.context }
+            : message,
+        ),
+      };
     case 'COMMAND_STATE':
       return {
         ...state,
@@ -1033,6 +1049,17 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
       const valid = action.messages
         .filter((m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks))
         .map(projectUserContext);
+      state = {
+        ...state,
+        userReplies: {
+          ...state.userReplies,
+          ...Object.fromEntries(
+            valid
+              .filter((message) => !message.symposiumProvenance && message.inReplyTo)
+              .map((message) => [message.messageId, message.inReplyTo!]),
+          ),
+        },
+      };
       const restoredSources = Object.fromEntries(
         valid
           .filter((message) => !message.symposiumProvenance && message.replyToMessageId)
@@ -1072,7 +1099,8 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
             (message.replyToMessageId !== existing.replyToMessageId ||
               message.commandState !== existing.commandState ||
               message.commandStateSeq !== existing.commandStateSeq ||
-              message.steersMessageId !== existing.steersMessageId)
+              message.steersMessageId !== existing.steersMessageId ||
+              JSON.stringify(message.inReplyTo) !== JSON.stringify(existing.inReplyTo))
           );
         });
         const hasNewSequence = valid.some(
@@ -1208,6 +1236,9 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
             messageId: action.messageId,
             ...(action.startedSeq !== undefined ? { startedSeq: action.startedSeq } : {}),
             role: 'user',
+            ...(state.userReplies?.[action.messageId]
+              ? { inReplyTo: state.userReplies[action.messageId] }
+              : {}),
             ...(state.nativeCommands
               ? {
                   commandState: state.commandStates?.[action.messageId] ?? ('queued' as const),
@@ -1244,6 +1275,9 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
           {
             messageId: action.clientMsgId,
             role: 'user',
+            ...(state.userReplies?.[action.clientMsgId]
+              ? { inReplyTo: state.userReplies[action.clientMsgId] }
+              : {}),
             ...(state.nativeCommands
               ? {
                   commandState: state.commandStates?.[action.clientMsgId] ?? ('sending' as const),

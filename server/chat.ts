@@ -1,4 +1,9 @@
 import {
+  assembleCommandPrompt,
+  assembleReplyText,
+  captureMessageReply,
+} from './message-reply-context.js';
+import {
   TASK_WORKER_ALLOCATION_EVENT,
   resolveTaskWorkerAllocationContext,
 } from './task-worker-authority.js';
@@ -1258,6 +1263,7 @@ export async function startChat(
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
     sourceSnapshots?: SourceSnapshot[];
+    replyToMessageId?: string;
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     onStartupAdmission?: (error?: unknown) => void;
@@ -1455,6 +1461,7 @@ async function _startChatInner(
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
     sourceSnapshots?: SourceSnapshot[];
+    replyToMessageId?: string;
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     onStartupAdmission?: (error?: unknown) => void;
@@ -2035,10 +2042,22 @@ async function _startChatInner(
     }
   }
 
+  const repliedPrompt =
+    options.replyToMessageId && options.resume && options.clientMsgId
+      ? assembleReplyText(
+          prompt,
+          captureMessageReply(
+            eventStore,
+            options.resume,
+            options.clientMsgId,
+            options.replyToMessageId,
+          ),
+        )
+      : prompt;
   const fullPrompt = options.adviserScope
-    ? prompt
+    ? repliedPrompt
     : assemblePrompt(
-        prompt,
+        repliedPrompt,
         cwd,
         codexProfile || nativeProviderSelected ? undefined : options.images,
         options.contextBlocks,
@@ -2926,7 +2945,18 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               id === initialMessageId
                 ? fullPrompt
                 : assemblePrompt(
-                    repositoryChatContext(repositoryWorkspace) + frozenPayload.text,
+                    repositoryChatContext(repositoryWorkspace) +
+                      assembleReplyText(
+                        frozenPayload.text,
+                        frozenPayload.replyToMessageId
+                          ? captureMessageReply(
+                              eventStore,
+                              session.sessionId!,
+                              id,
+                              frozenPayload.replyToMessageId,
+                            )
+                          : undefined,
+                      ),
                     cwd,
                     frozenPayload.images,
                     undefined,
@@ -3521,9 +3551,11 @@ export async function startOwnedLocalCodexCommand(
         await native.admitExplicitSend(
           {
             id: dispatch.commandId,
-            prompt: assembleSourceSnapshots(
-              dispatch.payload.text,
-              dispatch.payload.sourceSnapshots,
+            prompt: assembleCommandPrompt(
+              eventStore,
+              sessionId,
+              dispatch.commandId,
+              dispatch.payload,
             ),
             intent: dispatch.payload.intent ?? dispatch.payload.text,
             images: dispatch.payload.images,
@@ -3748,7 +3780,7 @@ export async function prepareOwnedCodexChat(
     input.admission.assertPreparedOptions({
       ...selected.payload,
       intent: selected.payload.intent ?? selected.payload.text,
-      prompt: assembleSourceSnapshots(selected.payload.text, selected.payload.sourceSnapshots),
+      prompt: assembleCommandPrompt(eventStore, input.sessionId, input.commandId, selected.payload),
       conversationId: input.sessionId,
       messageId: input.commandId,
       resume,
@@ -3944,7 +3976,7 @@ export async function prepareOwnedCodexChat(
         });
         send(transport, { ...context, sessionId });
       },
-      prompt: assembleSourceSnapshots(payload.text, payload.sourceSnapshots),
+      prompt: assembleCommandPrompt(eventStore, sessionId, commandId, payload),
       intent: payload.intent ?? payload.text,
       systemPrompt: payload.systemPrompt,
       adviserScope: options.adviserScope,
@@ -4070,6 +4102,7 @@ export function echoOwnedCodexCommand(
   payload: {
     text: string;
     sourceSnapshots?: SourceSnapshot[];
+    replyToMessageId?: string;
     images?: Array<{ data: string; mediaType: string }>;
   },
 ): void {
@@ -4165,12 +4198,14 @@ function storeAndEchoIfNew(
   if (eventStore.hasUserMessage(sessionId, messageId)) {
     return true;
   }
+  const inReplyTo = eventStore.getMessageReplyContext(sessionId, messageId);
   const seq = eventStore.append(sessionId, 'user_message', {
     v: 2,
     type: 'user_message',
     ts: Date.now(),
     messageId,
     text,
+    ...(inReplyTo ? { inReplyTo } : {}),
     ...(source === 'closeout' ? { source } : {}),
     ...(images?.length ? { images } : {}),
     ...(contextBlocks?.length ? { contextBlocks } : {}),
@@ -4183,6 +4218,7 @@ function storeAndEchoIfNew(
     v: 2,
     messageId,
     text,
+    ...(inReplyTo ? { inReplyTo } : {}),
     ...(source === 'closeout' ? { source } : {}),
     sessionId,
     seq,
@@ -4281,6 +4317,7 @@ export function preflightStartupProviderCommand(
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
     sourceSnapshots?: SourceSnapshot[];
+    replyToMessageId?: string;
     model?: string;
     reasoningEffort?: string | null;
   },
@@ -6135,9 +6172,11 @@ export async function startOwnedLocalResponsesCommand(
       const commandId = await owner.claimNextCommand();
       if (!commandId || closed) return;
       const selected = owner.snapshot(commandId);
-      const providerPrompt = assembleSourceSnapshots(
-        selected.payload.text,
-        selected.payload.sourceSnapshots,
+      const providerPrompt = assembleCommandPrompt(
+        eventStore,
+        sessionId,
+        commandId,
+        selected.payload,
       );
       const provider = admitProviderDispatch({
         store: eventStore,

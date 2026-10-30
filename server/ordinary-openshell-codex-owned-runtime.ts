@@ -1,5 +1,5 @@
+import { assembleCommandPrompt } from './message-reply-context.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
-import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import {
   assertOrdinaryCodexContextIdentity,
   assertOrdinaryCodexSnapshotCustody,
@@ -173,7 +173,7 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
     const current = o.capabilitiesCurrent();
     const request = OrdinaryLocalCodexCommandRequestSchema.parse(requestInput);
     const sourcePayload = OwnedOpenShellCodexPayloadSchema.parse(request.payload);
-    assembleSourceSnapshots(sourcePayload.text, sourcePayload.sourceSnapshots);
+    assembleCommandPrompt(o.events, o.sessionId, request.clientMsgId, sourcePayload);
     const meta = structuredClone(metaInput);
     if (
       meta.sessionId !== o.sessionId ||

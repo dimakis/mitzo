@@ -77,7 +77,7 @@ for (const theme of ['dark', 'light'])
       ).queueFixture.answerEarlier(),
     );
     const reply = page.getByRole('button', {
-      name: 'Answering: Review Akram’s accomplishments and current priorities.',
+      name: 'Replying to: Review Akram’s accomplishments and current priorities.',
     });
     await expect(reply).toBeVisible();
     await reply.click();

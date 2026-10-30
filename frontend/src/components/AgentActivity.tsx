@@ -144,6 +144,11 @@ export function AgentActivity({
               detailsFocused.current = event.currentTarget.contains(event.relatedTarget);
           }}
         >
+          {reversed.find((row) => row.requestStatus)?.requestStatus && (
+            <p className="chat-command-meta">
+              {reversed.find((row) => row.requestStatus)!.requestStatus}
+            </p>
+          )}
           {rows.map((row) => (
             <div key={row.key}>{row.value}</div>
           ))}

@@ -289,6 +289,7 @@ export interface CodexConversationOptions {
   onActivity?: () => boolean | void;
   onThreadChanged?: (threadId: string) => void | Promise<void>;
   assertSteeringCurrent?: () => void;
+  prepareSteeringText?: (input: CodexSteerInput) => string;
   onCommandQueued?: (commandId: string) => void;
   onSteeringUpdate?: (input: CodexSteerInput, status: 'steering' | CodexSteerStatus) => void;
   onProviderDispatch?: (commandId: string) => void;
@@ -4050,13 +4051,13 @@ export class CodexConversation {
           : 'stale_target',
       };
     }
-    this.opts.onSteeringUpdate?.(input, 'steering');
     const span = tracer.startSpan('codex.turn.steer');
     span.setAttribute('mitzo.command.id', target.commandId);
     span.setAttribute('mitzo.correction.id', input.requestId);
     let status: CodexSteerStatus = 'uncertain';
     let attempted = false;
     try {
+      this.opts.onSteeringUpdate?.(input, 'steering');
       authorize();
       if (
         this.closed ||
@@ -4067,6 +4068,13 @@ export class CodexConversation {
         active.interruptRequested
       )
         throw Error('Original turn unavailable');
+      const text =
+        this.opts.prepareSteeringText?.(input) ??
+        (input.replyToMessageId
+          ? (() => {
+              throw Error('Reply context unavailable');
+            })()
+          : input.text);
       this.opts.assertSteeringCurrent!();
       if (active.nativeExecution)
         this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
@@ -4075,7 +4083,7 @@ export class CodexConversation {
       const ack = await client.request('turn/steer', {
         threadId: target.threadId,
         expectedTurnId: target.turnId,
-        input: [{ type: 'text', text: input.text }],
+        input: [{ type: 'text', text }],
       });
       if (z.object({ turnId: z.literal(target.turnId) }).safeParse(ack).success)
         status = 'accepted';

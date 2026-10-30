@@ -1,3 +1,4 @@
+import { MessageReplyContextSchema, type MessageReplyContext } from '@mitzo/protocol';
 import { isDeepStrictEqual } from 'node:util';
 import {
   interruptUnansweredToolBlocks,
@@ -17,6 +18,7 @@ import {
 // Pure projection of a caller-owned immutable event prefix. Source authorization,
 // cursor capture and database reads remain with the calling operation.
 export interface RestoredMessage {
+  inReplyTo?: MessageReplyContext;
   replyToMessageId?: string;
   commandState?: import('@mitzo/protocol').CommandState;
   commandStateSeq?: number;
@@ -68,6 +70,7 @@ function attributeCommands(
   messages: RestoredMessage[],
   currents: RestoredCurrentMessage[] = [],
 ) {
+  const userReplies = new Map<string, MessageReplyContext>();
   const replies = new Map<string, string>(),
     corrections = new Map<string, string>();
   const states = new Map<string, { state: import('@mitzo/protocol').CommandState; seq: number }>();
@@ -75,6 +78,10 @@ function attributeCommands(
   for (const event of events) {
     if (event.seatId || event.symposiumProvenance) continue;
     const p = event.payload;
+    if (event.type === 'message_reply_context' && typeof p.messageId === 'string') {
+      const context = MessageReplyContextSchema.safeParse(p.context);
+      if (context.success) userReplies.set(p.messageId, context.data);
+    }
     if (
       event.type === 'user_message' &&
       typeof p.messageId === 'string' &&
@@ -127,6 +134,8 @@ function attributeCommands(
   }
   for (const message of messages) {
     if (message.symposiumProvenance) continue;
+    if (message.role === 'user' && userReplies.has(message.messageId))
+      message.inReplyTo = userReplies.get(message.messageId);
     const status = states.get(message.messageId);
     if (message.role === 'user' && status) {
       message.commandState = status.state;

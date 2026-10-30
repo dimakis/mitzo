@@ -457,3 +457,73 @@ it(interruptedDelegationCase, async () => {
   expect(native.CodexAppServerClient.launchIsolated).not.toHaveBeenCalled();
   expect(chat.eventStore.getOrdinaryCommandAdmission(input.clientMsgId)).toBeUndefined();
 });
+
+it('delivers a queued reply with the exact server-captured source text through actual ordinary HTTP and native turn input', async () => {
+  await mount();
+  const input = first();
+  await api.firstCommand(input);
+  const next = {
+    ...input,
+    clientMsgId: randomUUID(),
+    payload: { text: 'The current priorities are fine.', replyToMessageId: input.clientMsgId },
+  };
+  const pending = api.continueCommand(next);
+  await vi.waitFor(() =>
+    expect(chat.eventStore.getOrdinaryCommandAdmission(next.clientMsgId)).toBeDefined(),
+  );
+  lifecycle!.onNotification('turn/completed', {
+    threadId: 'offline-ordinary-thread',
+    turn: { id: 'offline-ordinary-turn-1', status: 'completed' },
+  });
+  await pending;
+  await vi.waitFor(() =>
+    expect(
+      f.first.rpc.request.mock.calls.filter(([method]) => method === 'turn/start'),
+    ).toHaveLength(2),
+  );
+  const sent = JSON.stringify(
+    f.first.rpc.request.mock.calls.filter(([method]) => method === 'turn/start').at(-1),
+  );
+  expect(sent).toContain(input.payload.text);
+  expect(sent).toContain(next.payload.text);
+  expect(sent).toContain('mitzo_message_reply');
+  expect(chat.eventStore.getMessageReplyContext(input.sessionId, next.clientMsgId)).toMatchObject({
+    messageId: input.clientMsgId,
+    text: input.payload.text,
+  });
+  expect(
+    chat.eventStore
+      .getSessionEvents(input.sessionId)
+      .filter((e) => e.type === 'message_reply_context'),
+  ).toHaveLength(1);
+});
+it('delivers a reply correction to the exact active native turn with the same-chat reference included', async () => {
+  await mount();
+  const input = first();
+  await api.firstCommand(input);
+  const rpc = f.first.rpc.request.getMockImplementation()!;
+  f.first.rpc.request.mockImplementation(async (method, ...args) =>
+    method === 'turn/steer'
+      ? ({ turnId: 'offline-ordinary-turn-1' } as never)
+      : rpc(method, ...args),
+  );
+  const { getCodexRuntime } = await import('../codex-chat-session.js');
+  const runtime = getCodexRuntime(chat.registry.findBySessionId(input.sessionId)!.session)!;
+  expect(
+    await runtime.steer(
+      {
+        requestId: 'quoted-correction',
+        targetCommandId: input.clientMsgId,
+        text: 'Use this correction.',
+        replyToMessageId: input.clientMsgId,
+      },
+      () => {},
+    ),
+  ).toEqual({ status: 'accepted' });
+  const sent = JSON.stringify(
+    f.first.rpc.request.mock.calls.filter(([method]) => method === 'turn/steer').at(-1),
+  );
+  expect(sent).toContain(input.payload.text);
+  expect(sent).toContain('Use this correction.');
+  expect(sent).toContain('mitzo_message_reply');
+});

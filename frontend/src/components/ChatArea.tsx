@@ -193,7 +193,7 @@ export function ChatArea({
     const original = requests.get(message.replyToMessageId);
     const text = original?.blocks.find((block) => block.blockType === 'text')?.content;
     if (!text) return <div className="chat-command-meta">Answering an earlier message</div>;
-    const label = `Answering: ${text.length > 120 ? text.slice(0, 120) + '…' : text}`;
+    const label = `Replying to: ${text.length > 120 ? text.slice(0, 120) + '…' : text}`;
     return (
       <button
         type="button"
@@ -207,8 +207,8 @@ export function ChatArea({
           target?.focus({ preventScroll: true });
         }}
       >
-        <UiIcon name="back" size={16} />
-        <span>{label}</span>
+        <span className="chat-reply-author">You</span>
+        <span className="chat-reply-excerpt">{text}</span>
       </button>
     );
   }
@@ -472,13 +472,15 @@ export function ChatArea({
                           : undefined
                       }
                     />
-                    {!msg.symposiumProvenance && msg.commandState && (
-                      <div className="chat-command-meta chat-command-meta--user" role="status">
-                        {msg.steersMessageId && msg.commandState === 'failed'
-                          ? 'Correction not accepted'
-                          : commandLabels[msg.commandState]}
-                      </div>
-                    )}
+                    {!msg.symposiumProvenance &&
+                      msg.commandState &&
+                      !['running', 'completed', 'ended', 'steered'].includes(msg.commandState) && (
+                        <div className="chat-command-meta chat-command-meta--user" role="status">
+                          {msg.steersMessageId && msg.commandState === 'failed'
+                            ? 'Correction not accepted'
+                            : commandLabels[msg.commandState]}
+                        </div>
+                      )}
                   </div>
                   {createdItemCards(msg)}
                   {renderMessageOutcome?.(msg.messageId)}
@@ -576,6 +578,9 @@ export function ChatArea({
             key: `${ownerKey}:${bid}`,
             scope,
             attribution,
+            requestStatus: msg.replyToMessageId
+              ? commandLabels[requests.get(msg.replyToMessageId)?.commandState ?? '']
+              : undefined,
             block,
             streaming,
             keepVisible,

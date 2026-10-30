@@ -679,5 +679,6 @@ it('identifies the older request answered below a queued correction and lets the
     />,
   );
   expect(screen.getByText('Queued — waiting for the current turn')).toBeDefined();
-  expect(screen.getByRole('button', { name: 'Answering: First request' })).toBeDefined();
+  expect(screen.queryByText('Agent is answering')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Replying to: First request' })).toBeDefined();
 });

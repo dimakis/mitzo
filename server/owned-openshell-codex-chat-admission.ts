@@ -1,3 +1,5 @@
+import { assembleCommandPrompt } from './message-reply-context.js';
+import { MessageReplyIdSchema } from '@mitzo/protocol';
 import {
   CHAT_MAX_IMAGES,
   CHAT_MAX_PREPARED_PROMPT_CHARS,
@@ -6,7 +8,6 @@ import {
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { SourceSnapshotsSchema } from '@mitzo/protocol';
-import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { bootContextWithRetainedReceipt } from './agent-context-delivery.js';
 import {
   assertOrdinaryCodexContextIdentity,
@@ -45,6 +46,7 @@ import type { OrdinarySessionRuntimeCatalog } from './ordinary-session-runtime.j
 const unavailable = () => new Error('Owned OpenShell Codex chat unavailable');
 export const OwnedOpenShellCodexPayloadSchema = z.strictObject({
   sourceSnapshots: SourceSnapshotsSchema.optional(),
+  replyToMessageId: MessageReplyIdSchema.optional(),
   text: z.string().min(1).max(CHAT_MAX_PREPARED_PROMPT_CHARS),
   systemPrompt: z.string().max(1_000_000),
   intent: ChatMessageTextSchema.optional(),
@@ -187,7 +189,7 @@ export class OwnedOpenShellCodexChatAdmission {
       const retained = result.#commands.get(queued.id)!;
       if (
         queued.prompt !==
-          assembleSourceSnapshots(retained.payload.text, retained.payload.sourceSnapshots) ||
+          assembleCommandPrompt(owner.events, owner.sessionId, queued.id, retained.payload) ||
         (queued.intent ?? queued.prompt) !== (retained.payload.intent ?? retained.payload.text) ||
         queued.model !== receipt.selection.model ||
         (queued.reasoningEffort ?? null) !== receipt.selection.thinking ||
@@ -315,7 +317,12 @@ export class OwnedOpenShellCodexChatAdmission {
       !workspace?.sandbox ||
       workspace.conversationId !== this.owner.sessionId ||
       options.prompt !==
-        assembleSourceSnapshots(command.payload.text, command.payload.sourceSnapshots) ||
+        assembleCommandPrompt(
+          this.owner.events,
+          this.owner.sessionId,
+          options.messageId,
+          command.payload,
+        ) ||
       options.systemPrompt !== command.payload.systemPrompt ||
       (options.intent ?? options.prompt) !== (command.payload.intent ?? command.payload.text) ||
       !isDeepStrictEqual(options.images ?? [], command.payload.images ?? []) ||
@@ -504,7 +511,7 @@ export class OwnedOpenShellCodexChatAdmission {
       !command ||
       command.enqueued ||
       input.prompt !==
-        assembleSourceSnapshots(command.payload.text, command.payload.sourceSnapshots) ||
+        assembleCommandPrompt(this.owner.events, this.owner.sessionId, input.id, command.payload) ||
       (input.intent ?? input.prompt) !== (command.payload.intent ?? command.payload.text) ||
       !isDeepStrictEqual(input.images ?? [], command.payload.images ?? []) ||
       (input.model ?? command.expected.selection.model) !== command.expected.selection.model ||

@@ -63,3 +63,26 @@ it('leaves already answered legacy input unknown and restores a first queued nat
     expect(messages.find((m) => m.messageId === 'native')?.commandState).toBe('queued');
   }
 });
+it('restores the same quoted source for a user reply from its captured immutable metadata', () => {
+  const context = {
+    messageId: 'source',
+    role: 'assistant',
+    text: 'Original visible answer',
+    timestamp: 1000,
+  };
+  const events = [
+    ['message_reply_context', { messageId: 'reply', context }],
+    ['user_message', { messageId: 'reply', text: 'Correction' }],
+  ].map(([type, payload], i) => ({
+    type,
+    payload,
+    seq: i + 1,
+    createdAt: i,
+    sessionId: 'chat',
+  })) as StoredEvent[];
+  for (const messages of [
+    replayEventsToMessages(events),
+    replayEventsToTranscript(events).messages,
+  ])
+    expect(messages[0].inReplyTo).toEqual(context);
+});

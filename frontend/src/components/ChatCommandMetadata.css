@@ -14,19 +14,29 @@
   padding-inline: var(--space-3);
 }
 .chat-reply-link {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  display: grid;
+  gap: var(--space-1);
   min-height: var(--control-height);
   max-width: 100%;
-  background: transparent;
+  background: var(--color-surface);
   border: 0;
+  border-inline-start: 3px solid var(--color-accent);
+  border-radius: var(--radius-control);
+  margin-block: var(--space-2);
   padding: var(--space-1) var(--space-2);
   text-align: start;
   cursor: pointer;
 }
-.chat-reply-link svg {
-  flex-shrink: 0;
+.chat-reply-author {
+  color: var(--color-accent);
+  font-weight: 600;
+  font-size: var(--text-xs);
+}
+.chat-reply-excerpt {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .chat-reply-link:focus-visible {
   outline: 2px solid var(--color-accent);

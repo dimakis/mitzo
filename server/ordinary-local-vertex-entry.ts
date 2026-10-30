@@ -172,6 +172,7 @@ export async function startOwnedLocalVertexCommand(
         agentProfile: selected.expected.selection.agent,
         images: selected.payload.images,
         sourceSnapshots: selected.payload.sourceSnapshots,
+        replyToMessageId: selected.payload.replyToMessageId,
         clientMsgId: selected.commandId,
         operatorConnectionId: options.ownerConnectionId,
         ordinarySdkAuthority: authority,

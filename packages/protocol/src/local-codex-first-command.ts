@@ -1,3 +1,4 @@
+import { MessageReplyIdSchema } from './message-reply.js';
 import {
   CHAT_MAX_COMMAND_BYTES,
   ChatMessageTextSchema,
@@ -44,6 +45,7 @@ export const LocalCodexFirstCommandSchema = z
     }).strict(),
     payload: z.strictObject({
       sourceSnapshots: SourceSnapshotsSchema.optional(),
+      replyToMessageId: MessageReplyIdSchema.optional(),
       text: ChatMessageTextSchema.refine((text) => text.length > 0),
       intent: ChatMessageTextSchema.optional(),
       images: ChatImagesSchema.optional(),

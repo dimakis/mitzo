@@ -1,3 +1,4 @@
+import { assembleReplyText, captureMessageReply } from './message-reply-context.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
 import type { CodexToolResult } from './codex-tool-result.js';
 import { projectToolOutput, readToolOutputPage } from './tool-output-projection.js';
@@ -2849,7 +2850,28 @@ async function openCodexChatBound(
         });
       }
     },
+    prepareSteeringText: (input) =>
+      assembleReplyText(
+        input.text,
+        input.replyToMessageId
+          ? captureMessageReply(
+              options.eventStore,
+              options.conversationId,
+              input.requestId,
+              input.replyToMessageId,
+            )
+          : undefined,
+      ),
     onSteeringUpdate: (input, status) => {
+      const inReplyTo =
+        status === 'steering' && input.replyToMessageId
+          ? captureMessageReply(
+              options.eventStore,
+              options.conversationId,
+              input.requestId,
+              input.replyToMessageId,
+            )
+          : undefined;
       if (status === 'steering')
         options.eventStore.append(options.conversationId, 'user_message', {
           v: 2,
@@ -2858,6 +2880,7 @@ async function openCodexChatBound(
           messageId: input.requestId,
           text: input.text,
           steersMessageId: input.targetCommandId,
+          ...(inReplyTo ? { inReplyTo } : {}),
           commandState: 'steering',
         });
       options.eventStore.append(options.conversationId, 'ordinary_command_state', {

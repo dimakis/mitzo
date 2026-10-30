@@ -206,6 +206,7 @@ export interface FinishedBlock {
 }
 
 export interface FinishedMessage {
+  inReplyTo?: import('./message-reply.js').MessageReplyContext;
   replyToMessageId?: string;
   commandState?: CommandState;
   commandStateSeq?: number;
