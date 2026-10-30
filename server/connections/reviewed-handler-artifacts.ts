@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/symposium-personal-connection-router.test.ts':
+    '672b6da994f8e1d233b6c39efe477d10fb4344131b06c240826ccd4cbf16cd14',
   '../__tests__/chat-startup-metadata.test.ts':
     'b4987352fc6ad18a7517950a2e632e5b4b200db86c80dad31acdec9ae395065b',
   '../__tests__/sdk-child-environment.test.ts':

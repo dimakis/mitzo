@@ -281,7 +281,7 @@ it('retains routing diagnostic validation and delegates to its existing owner', 
 it('mounts the focused router in app composition with authentication owned by each matched route', () => {
   const source = readFileSync(new URL('../app.ts', import.meta.url), 'utf8');
   expect(source).toMatch(
-    /app\.use\(\s*'\/api\/symposium\/personal\/connections',\s*createSymposiumPersonalConnectionRouter/,
+    /mountObservedRouter\(\s*app,\s*'\/api\/symposium\/personal\/connections',\s*createSymposiumPersonalConnectionRouter/,
   );
   expect(source).not.toContain("app.post('/api/symposium/personal/connections'");
   expect(source).not.toContain("app.get('/api/symposium/personal/connections'");
