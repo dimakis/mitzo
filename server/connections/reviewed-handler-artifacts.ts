@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.780-native-github-summary';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.781-tool-efficiency';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,10 +22,24 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../__tests__/request-performance.test.ts': 'c0f6b343299b4739f31ebf192360cdbea5d5670f6338913bb110f01f408975d5',
-  '../__tests__/session-dirs.test.ts': 'f97cac934bb7ca16b90815c39fbe2a33b4d267d04c6038d3108671f006f3b891',
-  '../__tests__/chat-worktree-startup-failure.test.ts': '65a36801a5cd6eaa6064ccfa161f16a84cae1c6689163509c34eeff82d08d32a',
-  '../__tests__/chat-metadata.test.ts': '0b718160237d3b6f40142edbb1aae927d0cd5dc8ee1816b1dc414b15dd35b4e2',
+  '../__tests__/sdk-child-environment.test.ts':
+    '5590d6466e30ff3dc70487424ef5c591c04a887c6391db84ece2a0496b4cfdb6',
+  '../__tests__/owned-openshell-codex-chat-consumer.test.ts':
+    '0d1a7622088e9f6f304fd0e359d588fd8bef963f7df93037136a56138ff3a703',
+  '../__tests__/native-tool-executor.test.ts':
+    '9080ca289e0ba6ed275b7c434017878118500fb33106dabc24abb57a4e2ba3d7',
+  '../__tests__/chat-account-startup.test.ts':
+    'b01aa3f9fa435632e2bc827e0b3086d2cf56c104dc08b89b8f177164b088a6ef',
+  '../../packages/protocol/__tests__/session-metadata.test.ts':
+    'b5de78900afd0a35f44cde5dcf0f2aeeceb1aaf36e13243cc30527fa23f65b08',
+  '../__tests__/request-performance.test.ts':
+    'c0f6b343299b4739f31ebf192360cdbea5d5670f6338913bb110f01f408975d5',
+  '../__tests__/session-dirs.test.ts':
+    'f97cac934bb7ca16b90815c39fbe2a33b4d267d04c6038d3108671f006f3b891',
+  '../__tests__/chat-worktree-startup-failure.test.ts':
+    '65a36801a5cd6eaa6064ccfa161f16a84cae1c6689163509c34eeff82d08d32a',
+  '../__tests__/chat-metadata.test.ts':
+    '0b718160237d3b6f40142edbb1aae927d0cd5dc8ee1816b1dc414b15dd35b4e2',
   '../chat-metadata.ts': 'fe42df43ff00658fb3a118a7b0be44c32907d59e4b7d026a3cf7613600e1068d',
   '../__tests__/github-native-read-projection.test.ts':
     '53747969b5a59c7393c3758e3e28d8e646966962646e0d5f973113b640a8bff6',
