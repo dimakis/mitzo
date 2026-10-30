@@ -1,3 +1,4 @@
+import { MessageReplyContextSchema, type MessageReplyContext } from './message-reply.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute, resolve, sep } from 'node:path';
 import {
@@ -4022,6 +4023,68 @@ export class EventStore {
        ORDER BY seq LIMIT ?`,
     ).all(sessionId, afterSeq, limit) as EventRow[];
     return rows.map(rowToEvent);
+  }
+
+  /** Exact ordinary source lookup without loading the conversation or private tool blocks. */
+  getOrdinaryMessageReplySource(
+    sessionId: string,
+    messageId: string,
+  ): MessageReplyContext | undefined {
+    const meta = this.getSession(sessionId);
+    if (!meta || meta.symposiumConfig) return undefined;
+    const rows = this.db!.prepare(
+      `SELECT * FROM events WHERE session_id=? AND type IN ('user_message','message_start','message') AND json_extract(payload,'$.messageId')=? ORDER BY seq`,
+    ).all(sessionId, messageId) as EventRow[];
+    if (rows.length !== 1) return undefined;
+    const event = rowToEvent(rows[0]);
+    if (
+      event.seatId ||
+      event.symposiumProvenance ||
+      event.payload.seatId ||
+      event.payload.symposiumProvenance
+    )
+      return undefined;
+    const source =
+      event.type === 'message'
+        ? {
+            content: Array.isArray(event.payload.blocks)
+              ? event.payload.blocks
+                  .filter(
+                    (block: Record<string, unknown>) =>
+                      block.blockType === 'text' && typeof block.content === 'string',
+                  )
+                  .map((block: Record<string, unknown>) => block.content)
+                  .join('\n\n')
+              : '',
+            provenance: null,
+          }
+        : this.getSymposiumSourceMessage(sessionId, messageId, { seatId: null });
+    if (!source || source.provenance) return undefined;
+    const role =
+      event.type === 'user_message'
+        ? 'user'
+        : event.type === 'message'
+          ? event.payload.role
+          : 'assistant';
+    const parsed = MessageReplyContextSchema.safeParse({
+      messageId,
+      role,
+      text: source.content,
+      timestamp: event.createdAt,
+    });
+    return parsed.success ? parsed.data : undefined;
+  }
+  getMessageReplyContext(sessionId: string, commandId: string): MessageReplyContext | undefined {
+    const rows = this.db!.prepare(
+      `SELECT payload FROM events WHERE session_id=? AND type='message_reply_context' AND json_extract(payload,'$.messageId')=? ORDER BY seq`,
+    ).all(sessionId, commandId) as Array<{ payload: string }>;
+    if (!rows.length) return undefined;
+    const contexts = rows.map((row) =>
+      MessageReplyContextSchema.parse(JSON.parse(row.payload).context),
+    );
+    if (contexts.some((context) => JSON.stringify(context) !== JSON.stringify(contexts[0])))
+      throw Error('Reply reference changed');
+    return contexts[0];
   }
 
   /** Completed durable text that a user may explicitly select for a later delivery. */

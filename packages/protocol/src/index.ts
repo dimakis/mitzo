@@ -400,3 +400,9 @@ export {
 } from './paid-reasoning-selection.js';
 
 export * from './chat-input-limits.js';
+
+export {
+  MessageReplyIdSchema,
+  MessageReplyContextSchema,
+  type MessageReplyContext,
+} from './message-reply.js';
