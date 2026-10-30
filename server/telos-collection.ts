@@ -31,20 +31,22 @@ export function projectTelosCollection(
         )
         .map((row) => row.id),
     );
-    // Keep completed milestones below listed parents, including nested milestones.
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const row of selected.values())
-        if (
-          row.status === 'completed' &&
-          row.parent_id &&
-          active.has(row.parent_id) &&
-          !active.has(row.id)
-        ) {
-          active.add(row.id);
-          changed = true;
-        }
+    // Walk each completed descendant once; sibling count must not multiply
+    // repeated passes over the collection or change the original row order.
+    const children = new Map<string, string[]>();
+    for (const row of selected.values()) {
+      if (row.status !== 'completed' || !row.parent_id) continue;
+      const ids = children.get(row.parent_id) ?? [];
+      ids.push(row.id);
+      children.set(row.parent_id, ids);
+    }
+    const queue = [...active];
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+      for (const id of children.get(queue[cursor]) ?? []) {
+        if (active.has(id)) continue;
+        active.add(id);
+        queue.push(id);
+      }
     }
     for (const id of selected.keys()) if (!active.has(id)) selected.delete(id);
   }

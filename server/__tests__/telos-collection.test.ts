@@ -110,3 +110,24 @@ it('reports malformed records individually and reads source/link/kind tables onc
     prepare.mockRestore();
   }
 });
+
+it('keeps ancestry and lifecycle reads bounded as the number of sibling reports grows', () => {
+  const f = fixture();
+  const insert = f.db.prepare(
+    `INSERT INTO items(id,parent_id,summary,status,profile,context_hints,first_seen,last_seen,created_at,updated_at) VALUES(?,'studio',?,'active','manual','{}',?,?,?,?)`,
+  );
+  for (let i = 0; i < 100; i++)
+    insert.run(`child-${i}`, `Associate ${i}`, f.stamp, f.stamp, f.stamp, f.stamp);
+  const prepare = vi.spyOn(Database.prototype, 'prepare');
+  try {
+    expect(f.work.readCollection('active', f.actor).records).toHaveLength(101);
+    const ancestry = prepare.mock.calls.filter(([sql]) => /FROM items\b/i.test(sql));
+    const lifecycle = prepare.mock.calls.filter(([sql]) =>
+      /FROM telos_work_lifecycle\b/i.test(sql),
+    );
+    expect(ancestry.length).toBeLessThanOrEqual(2);
+    expect(lifecycle.length).toBeLessThanOrEqual(1);
+  } finally {
+    prepare.mockRestore();
+  }
+});
