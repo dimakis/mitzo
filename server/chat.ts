@@ -1198,6 +1198,12 @@ function makeUserMessage(
 
 export { nativeStartupSessionId } from './ordinary-repository-startup.js';
 
+interface ChatStartupGuard {
+  admission?: ProviderDispatchAdmission;
+  releaseContext?: () => void;
+  session?: ManagedSession;
+}
+
 export async function startChat(
   transport: SessionTransport,
   clientId: string,
@@ -1351,7 +1357,7 @@ export async function startChat(
     options = { ...options, initialSessionId: repositoryStartupId };
     releaseRepositoryStartup = reserveRepositoryStartup(repositoryStartupId);
   }
-  const startupGuard: { admission?: ProviderDispatchAdmission; releaseContext?: () => void } = {};
+  const startupGuard: ChatStartupGuard = {};
   let releaseOrdinaryStartup: (() => void) | undefined;
   return withSpanAsync(
     'chat.start',
@@ -1386,7 +1392,7 @@ export async function startChat(
     })
     .finally(() => {
       try {
-        cleanupUndispatchedStartup(startupGuard.admission, clientId);
+        cleanupUndispatchedStartup(startupGuard.admission, clientId, startupGuard.session);
       } finally {
         releaseOrdinaryStartup?.();
         startupGuard.releaseContext?.();
@@ -1451,7 +1457,7 @@ async function _startChatInner(
       reopen: (selection: OrdinaryLocalCommandAdmission['selection']) => Promise<void>,
     ) => OrdinaryLocalVertexCommandOwner;
   },
-  startupGuard: { admission?: ProviderDispatchAdmission; releaseContext?: () => void },
+  startupGuard: ChatStartupGuard,
 ) {
   const openShellAvailable =
     process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
@@ -2066,6 +2072,7 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
+  startupGuard.session = session;
   bindAgentToolSelection(session, agentProfile?.definition, toolRoute);
   if (options.contributorGuidance !== undefined && session.sessionId)
     saveOrdinaryContributorGuidance(
@@ -4224,6 +4231,7 @@ function terminalizeUndispatchedStartup(admission: ProviderDispatchAdmission | u
 function cleanupUndispatchedStartup(
   admission: ProviderDispatchAdmission | undefined,
   clientId: string,
+  originalSession: ManagedSession | undefined,
 ): void {
   if (!admission || eventStore.getProviderAttempts(admission.token).length > 0) return;
   terminalizeUndispatchedStartup(admission);
@@ -4234,6 +4242,8 @@ function cleanupUndispatchedStartup(
     current.executionPhase === 'TERMINAL' &&
     current.executionTerminalReason === 'startup_failed';
   if (!failedBeforeDispatch) return;
+  const currentDriver = registry.get(clientId);
+  if (currentDriver && currentDriver !== originalSession) return;
   try {
     eventStore.setSessionState(admission.token.sessionId, 'ENDED', {
       clientId,
@@ -4246,8 +4256,10 @@ function cleanupUndispatchedStartup(
     });
   }
   const failedSession = registry.get(clientId);
-  if (failedSession) cleanupSessionWorktrees(failedSession);
-  registry.abort(clientId);
+  if (failedSession && failedSession === originalSession) {
+    cleanupSessionWorktrees(failedSession);
+    registry.abort(clientId);
+  }
 }
 
 /**

@@ -9,6 +9,13 @@ const metadata = vi.hoisted(() => ({
   readSshAuthSock: vi.fn(),
 }));
 vi.mock('../chat-metadata.js', () => metadata);
+vi.mock('google-auth-library', () => ({
+  GoogleAuth: class {
+    async getAccessToken() {
+      return 'offline-google-token';
+    }
+  },
+}));
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<object>()),
   query: vi.fn(),
@@ -199,43 +206,66 @@ it.each(['resume-validation', 'branch'] as const)(
   },
 );
 
-it('does not retire a replacement driver when pending metadata finishes', async () => {
-  let release!: () => void,
-    entered = false;
-  metadata.readWorkspaceBranch.mockImplementation(
-    () =>
-      new Promise<string>((resolve) => {
-        entered = true;
-        release = () => resolve('main');
-      }),
-  );
-  const changes = vi.fn();
-  chat.setSessionChangeCallback(changes);
-  const transport = { send: vi.fn(), isOpen: () => true };
-  const startup = chat.startChat(transport, 'metadata-replaced', 'Review', {
-    initialSessionId: sessionId,
-    cwd: root,
-    isolation: false,
-  });
-  await vi.waitFor(() => expect(entered).toBe(true));
-  const original = chat.registry.get('metadata-replaced')!;
-  const closed = vi.spyOn(original.inputQueue!, 'close');
-  const replacementAbort = new AbortController();
-  chat.registry.register('metadata-replaced', {
-    transport,
-    abortController: replacementAbort,
-    mode: 'ask',
-    sessionAllowList: new Set(),
-    sessionId,
-  });
-  const replacement = chat.registry.get('metadata-replaced');
-  release();
-  await startup;
-  expect(chat.registry.get('metadata-replaced')).toBe(replacement);
-  expect(replacementAbort.signal.aborted).toBe(false);
-  expect(chat.eventStore.getSession(sessionId)?.state).toBe('CREATED');
-  expect(changes).not.toHaveBeenCalledWith('metadata-replaced', 'end', sessionId);
-  expect(closed).toHaveBeenCalledOnce();
-  const { query } = await import('@anthropic-ai/claude-agent-sdk');
-  expect(query).not.toHaveBeenCalled();
-});
+it.each([false, true])(
+  'does not retire a replacement driver when pending metadata finishes (native admission=%s)',
+  async (native) => {
+    let release!: () => void,
+      entered = false;
+    metadata.readWorkspaceBranch.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          entered = true;
+          release = () => resolve('main');
+        }),
+    );
+    const changes = vi.fn();
+    chat.setSessionChangeCallback(changes);
+    const transport = { send: vi.fn(), isOpen: () => true };
+    const startup = chat.startChat(transport, 'metadata-replaced', 'Review', {
+      clientMsgId: 'replacement-command',
+      initialSessionId: sessionId,
+      cwd: root,
+      isolation: false,
+      ...(native
+        ? {
+            accountId: 'google',
+            model: 'gemini-2.5-pro',
+            accountProfiles: new AccountProfiles([
+              {
+                id: 'google',
+                label: 'Offline Google',
+                provider: 'google-vertex',
+                projectId: 'fixture-project',
+                region: 'global',
+                credentialRef: '/fixture/google-adc.json',
+                models: [{ id: 'gemini-2.5-pro', label: 'Fixture' }],
+              },
+            ]),
+          }
+        : {}),
+    });
+    await vi.waitFor(() => expect(entered).toBe(true));
+    if (native)
+      expect(chat.eventStore.getExecutionAdmission(sessionId, 'replacement-command')).toBeDefined();
+    const original = chat.registry.get('metadata-replaced')!;
+    const closed = vi.spyOn(original.inputQueue!, 'close');
+    const replacementAbort = new AbortController();
+    chat.registry.register('metadata-replaced', {
+      transport,
+      abortController: replacementAbort,
+      mode: 'ask',
+      sessionAllowList: new Set(),
+      sessionId,
+    });
+    const replacement = chat.registry.get('metadata-replaced');
+    release();
+    await startup;
+    expect(chat.registry.get('metadata-replaced')).toBe(replacement);
+    expect(replacementAbort.signal.aborted).toBe(false);
+    expect(chat.eventStore.getSession(sessionId)?.state).toBe('CREATED');
+    expect(changes).not.toHaveBeenCalledWith('metadata-replaced', 'end', sessionId);
+    expect(closed).toHaveBeenCalledOnce();
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    expect(query).not.toHaveBeenCalled();
+  },
+);
