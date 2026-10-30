@@ -10,8 +10,7 @@ const f = vi.hoisted(() => ({
 const binding = { harness: { implementation: 'codex' }, execution: { location: 'openshell' } };
 vi.mock('../chat.js', () => ({
   eventStore: {
-    getSession: () => ({ accountBinding: {} }),
-    getSessionRuntimeBinding: () => binding,
+    observeSessionOwnership: () => ({ session: { accountBinding: {} }, runtimeBinding: binding }),
   },
   registry: { findBySessionId: () => f.live },
   prepareOwnedCodexChat: vi.fn(),

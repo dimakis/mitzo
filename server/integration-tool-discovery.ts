@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { ToolDefinition } from '@mitzo/harness';
 import type { CodexToolResult } from './codex-tool-result.js';
+import { toolInputError } from './tool-input-error.js';
 
 type Input = Record<string, unknown>;
 // These small host contracts sit on the common connection path. Keep their
@@ -12,13 +13,17 @@ const inlineDirectNames = new Set([
   'RequestConnectionAccess',
   'GetConnectionGuide',
   'ConnectionRequest',
+  'ReadToolOutput',
+  'SearchSkills',
+  'GitHubRead',
 ]);
 const maxInlineDirectBytes = 4096;
+export const INTEGRATION_TOOL_PAGE_MAX = 20;
 const schemas = {
   ListIntegrationTools: z.strictObject({
     query: z.string().trim().max(256).optional(),
     offset: z.number().int().min(0).max(10000).default(0),
-    limit: z.number().int().min(1).max(20).default(10),
+    limit: z.number().int().min(1).max(INTEGRATION_TOOL_PAGE_MAX).default(10),
   }),
   DescribeIntegrationTool: z.strictObject({
     toolId: z.string().min(1).max(64),
@@ -144,7 +149,13 @@ Call tools with full argument schemas directly; use DescribeIntegrationTool only
           return reply(
             {
               error: 'invalid_input',
-              action: 'Use query, offset >= 0 and limit between 1 and 20.',
+              action: toolInputError(
+                'ListIntegrationTools input',
+                schemas.ListIntegrationTools,
+                parsed.error,
+              ).content,
+              effectStatus: 'not_started',
+              retry: 'after_correction',
             },
             true,
           );
@@ -157,6 +168,12 @@ Call tools with full argument schemas directly; use DescribeIntegrationTool only
         return reply({
           catalogRevision: revision,
           total: matches.length,
+          ...(matches.length === 0
+            ? {
+                notice:
+                  'No selected tool matches this metadata search. This does not establish service availability. Use the available connection tools and the selected connection guide; do not repeat unchanged searches or switch credentials.',
+              }
+            : {}),
           tools: matches.slice(offset, offset + limit).map((tool) => {
             const description = tool.description
               .replace(`${tool.name}: `, '')

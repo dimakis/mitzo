@@ -1202,3 +1202,76 @@ describe('SessionRegistry', () => {
     });
   });
 });
+
+describe('startup cancellation ownership', () => {
+  let registry: SessionRegistry;
+  beforeEach(() => {
+    registry = new SessionRegistry();
+  });
+  afterEach(() => registry.dispose());
+  const driver = (abortController: AbortController) => ({
+    transport: fakeTransport(),
+    abortController,
+    mode: 'ask' as const,
+    sessionAllowList: new Set<string>(),
+    sessionId: 'conversation',
+  });
+
+  it('keeps preparation non-routable and fences stale release and reentrant cancellation', () => {
+    const original = new AbortController();
+    const replacement = new AbortController();
+    const release = registry.registerStartup('client', 'conversation', original);
+    original.signal.addEventListener('abort', () =>
+      registry.registerStartup('client', 'conversation', replacement),
+    );
+    expect(registry.findBySessionId('conversation')).toBeNull();
+    expect(registry.abortStartup('unrelated')).toBe(false);
+    expect(original.signal.aborted).toBe(false);
+    expect(registry.abortStartup('conversation')).toBe(true);
+    expect(original.signal.aborted).toBe(true);
+    expect(replacement.signal.aborted).toBe(false);
+    release();
+    expect(registry.abortStartup('conversation')).toBe(true);
+    expect(replacement.signal.aborted).toBe(true);
+  });
+
+  it('hands cancellation to the registered driver without retaining a startup owner', () => {
+    const controller = new AbortController();
+    const release = registry.registerStartup('client', 'conversation', controller);
+    registry.register('client', driver(controller));
+    expect(registry.abortStartup('conversation')).toBe(false);
+    expect(controller.signal.aborted).toBe(false);
+    const next = new AbortController();
+    registry.registerStartup('client', 'next-conversation', next);
+    release();
+    expect(registry.abortStartup('next-conversation')).toBe(true);
+    expect(controller.signal.aborted).toBe(false);
+    registry.abort('client');
+    expect(controller.signal.aborted).toBe(true);
+  });
+
+  it('cancels preparation on direct stop and shutdown', () => {
+    const first = new AbortController(),
+      second = new AbortController();
+    registry.registerStartup('first', 'first-conversation', first);
+    registry.registerStartup('second', 'second-conversation', second);
+    registry.abort('first');
+    expect(first.signal.aborted).toBe(true);
+    expect(second.signal.aborted).toBe(false);
+    registry.dispose();
+    expect(second.signal.aborted).toBe(true);
+  });
+
+  it('does not retire a replacement driver created by an original abort listener', () => {
+    const original = new AbortController(),
+      replacement = new AbortController();
+    registry.register('client', driver(original));
+    original.signal.addEventListener('abort', () =>
+      registry.register('client', driver(replacement)),
+    );
+    registry.abort('client');
+    expect(registry.get('client')?.abortController).toBe(replacement);
+    expect(replacement.signal.aborted).toBe(false);
+    expect(registry.isAttached('client')).toBe(true);
+  });
+});

@@ -367,14 +367,17 @@ export async function createWorktreeAsync(
     : undefined;
   const runGit = safeGit
     ? safeGit
-    : (args: string[]) => execFileAsync('git', args, { timeout: WORKTREE_GIT_TIMEOUT_MS });
+    : (args: string[]) =>
+        execFileAsync('git', args, { timeout: WORKTREE_GIT_TIMEOUT_MS, signal: opts?.abortSignal });
   const prefix = opts?.prefix ?? '.claude';
   const dir = opts?.dir ?? join(baseRepo, prefix, 'worktrees');
   if (safeGit) {
     opts?.abortSignal?.throwIfAborted();
     await opts?.safeLocalBeforeEffect?.();
   }
+  opts?.abortSignal?.throwIfAborted();
   await mkdir(dir, { recursive: true });
+  opts?.abortSignal?.throwIfAborted();
   if (safeGit) {
     opts?.abortSignal?.throwIfAborted();
     await opts?.safeLocalBeforeEffect?.();
@@ -399,7 +402,7 @@ export async function createWorktreeAsync(
     return worktreePath;
   }
 
-  const startPoint = opts?.startPoint ?? (await fetchWorktreeBase(baseRepo));
+  const startPoint = opts?.startPoint ?? (await fetchWorktreeBase(baseRepo, opts?.abortSignal));
   const checkout = safeGit ? ['--no-checkout'] : [];
   if (safeGit && opts?.safeLocalRequireNew) {
     const { stdout: common } = await runGit([

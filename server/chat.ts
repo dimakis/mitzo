@@ -187,19 +187,15 @@ import type {
   CloseoutEpisode,
 } from '@mitzo/harness';
 import { getTransportAttachmentIdentity } from '@mitzo/harness';
-import { execFileSync } from 'child_process';
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
+import { isGitDirectory, readWorkspaceBranch, readSshAuthSock } from './chat-metadata.js';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, resolve, dirname, isAbsolute } from 'path';
+import { access, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'url';
 import { resolveBundledMcpEntrypoint } from './mcp-entrypoint.js';
 import { createHash, randomUUID } from 'crypto';
-import { homedir, platform } from 'os';
-import {
-  createWorktree,
-  createWorktreeAsync,
-  symlinkRuntimeDirs,
-  discoverSessionWorktrees,
-} from './worktree.js';
+import { homedir } from 'os';
+import { createWorktreeAsync, symlinkRuntimeDirs, discoverSessionWorktrees } from './worktree.js';
 import type { OnDemandCreateFn } from '@mitzo/harness';
 import { effectivePermissionMode } from '@mitzo/harness';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
@@ -219,7 +215,6 @@ import { runQueryLoop, broadcastToObservers, deliverRetainedSessionEvent } from 
 import { clearSessionImages } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
 import {
-  GIT_BRANCH_TIMEOUT_MS,
   SESSION_PAGE_SIZE,
   SESSION_MESSAGES_LIMIT,
   USER_CLOSEOUT_TIMEOUT_MS,
@@ -710,26 +705,24 @@ export function resolveResumeCwd(
  * Check if a resume CWD is a valid git directory (worktree or repo).
  * If invalid and the path looks like a worktree, attempt recreation.
  */
-export function validateResumable(
+export async function validateResumable(
   cwd: string,
   _resumeId: string,
   deps?: {
-    isGitDir: (path: string) => boolean;
-    recreateWorktree: (wtId: string, repoRoot: string) => string;
+    isGitDir: (path: string, signal?: AbortSignal) => boolean | Promise<boolean>;
+    recreateWorktree: (
+      wtId: string,
+      repoRoot: string,
+      signal?: AbortSignal,
+    ) => string | Promise<string>;
   },
-): { valid: boolean; recreated?: boolean } {
-  const isGitDir =
-    deps?.isGitDir ??
-    ((p: string) => {
-      try {
-        execFileSync('git', ['-C', p, 'rev-parse', '--git-dir'], { stdio: 'pipe', timeout: 5000 });
-        return true;
-      } catch {
-        return false;
-      }
-    });
-
-  if (isGitDir(cwd)) return { valid: true };
+  signal?: AbortSignal,
+): Promise<{ valid: boolean; recreated?: boolean }> {
+  signal?.throwIfAborted();
+  const isGitDir = deps?.isGitDir ?? isGitDirectory;
+  const valid = await isGitDir(cwd, signal);
+  signal?.throwIfAborted();
+  if (valid) return { valid: true };
 
   const wtMatch = cwd.match(/\/(\.claude|\.cursor)\/worktrees\/([^/]+)$/);
   if (!wtMatch) return { valid: false };
@@ -738,13 +731,15 @@ export function validateResumable(
   const repoRoot = cwd.slice(0, cwd.indexOf(`/${prefix}/worktrees/`));
   const recreate =
     deps?.recreateWorktree ??
-    ((id: string, repo: string) =>
-      createWorktree(id, repo, { prefix: prefix as '.claude' | '.cursor' }));
+    ((id: string, repo: string, abortSignal?: AbortSignal) =>
+      createWorktreeAsync(id, repo, { prefix: prefix as '.claude' | '.cursor', abortSignal }));
 
   try {
-    recreate(wtId, repoRoot);
+    await recreate(wtId, repoRoot, signal);
+    signal?.throwIfAborted();
     return { valid: true, recreated: true };
   } catch {
+    signal?.throwIfAborted();
     return { valid: false };
   }
 }
@@ -800,21 +795,9 @@ function send(transport: SessionTransport, data: Record<string, unknown> | BootC
 
 const IPV4_PRELOAD = join(dirname(fileURLToPath(import.meta.url)), 'ipv4-preload.cjs');
 
-// launchctl resolves the live socket — the inherited one goes stale after sleep/wake.
-export function resolveSshAuthSock(): string | null {
-  if (platform() !== 'darwin') return null;
-  try {
-    const sock = execFileSync('launchctl', ['getenv', 'SSH_AUTH_SOCK'], {
-      encoding: 'utf8',
-      timeout: 500,
-    }).trim();
-    return sock || null;
-  } catch {
-    return null;
-  }
-}
+export { readSshAuthSock as resolveSshAuthSock } from './chat-metadata.js';
 
-export function buildSdkChildEnvironment(): Record<string, string> {
+function sdkChildEnvironmentBase(): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;
   env.CLAUDE_CODE_USE_VERTEX = process.env.CLAUDE_CODE_USE_VERTEX || '1';
   env.ANTHROPIC_VERTEX_PROJECT_ID = process.env.ANTHROPIC_VERTEX_PROJECT_ID || '';
@@ -832,9 +815,6 @@ export function buildSdkChildEnvironment(): Record<string, string> {
 
   prependConfiguredVenvPaths(env);
 
-  const sock = resolveSshAuthSock();
-  if (sock) env.SSH_AUTH_SOCK = sock;
-
   delete env.AUTH_PASSPHRASE;
   delete env.AUTH_SECRET;
   delete env.NTFY_AUTH_TOKEN;
@@ -842,6 +822,16 @@ export function buildSdkChildEnvironment(): Record<string, string> {
   delete env.GH_TOKEN;
   delete env.GITHUB_TOKEN;
   return env;
+}
+
+async function resolveSdkChildSocket(env: Record<string, string>, signal?: AbortSignal) {
+  const sock = await readSshAuthSock(signal);
+  if (sock) env.SSH_AUTH_SOCK = sock;
+  return env;
+}
+
+export function buildSdkChildEnvironment(signal?: AbortSignal): Promise<Record<string, string>> {
+  return resolveSdkChildSocket(sdkChildEnvironmentBase(), signal);
 }
 
 function restrictedChildEnv(): Record<string, string> {
@@ -898,20 +888,6 @@ export function resolveClaudeEffort(
   return undefined;
 }
 
-function getBranch(cwd: string): string {
-  try {
-    return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-      cwd,
-      stdio: 'pipe',
-      timeout: GIT_BRANCH_TIMEOUT_MS,
-    })
-      .toString()
-      .trim();
-  } catch {
-    return 'unknown';
-  }
-}
-
 function buildMcpAllowedTools(clientId?: string): string[] {
   const patterns = buildConfiguredMcpAllowedTools(mcpServers);
   if (clientId) {
@@ -964,34 +940,41 @@ function buildOnDemandCreate(wtId: string, clientId: string): OnDemandCreateFn {
   };
 }
 
+type SessionWorktreeOptions = { resume?: string; cwd?: string; isolation?: boolean };
+function requiresSessionWorktree(options: SessionWorktreeOptions): boolean {
+  return !!BASE_REPO && !options.resume && !options.cwd && isIsolationEnabled(options.isolation);
+}
+function unisolatedSessionWorktrees(cwd: string, wtId: string) {
+  return { cwd, wtId, repoWorktrees: new Map<string, { path: string; wtId: string }>() };
+}
+
 /**
  * Create worktrees for the primary repo and all configured secondary repos.
  * All worktrees share the same session-scoped wtId. Returns the primary
  * worktree path as cwd, plus a map of all repo worktrees.
  */
-export function createSessionWorktrees(
+export async function createSessionWorktrees(
   transport: SessionTransport,
   baseCwd: string,
   wtId: string,
-  options: { resume?: string; cwd?: string; isolation?: boolean },
-): {
+  options: SessionWorktreeOptions,
+  signal?: AbortSignal,
+): Promise<{
   cwd: string;
   wtId: string;
   worktreePath?: string;
   repoWorktrees: Map<string, { path: string; wtId: string }>;
-} {
+}> {
+  signal?.throwIfAborted();
+  if (!requiresSessionWorktree(options)) return unisolatedSessionWorktrees(baseCwd, wtId);
   const repoWorktrees = new Map<string, { path: string; wtId: string }>();
-
-  // Skip worktree creation when resuming, using custom cwd, or disabled
-  if (!isIsolationEnabled(options.isolation) || options.resume || options.cwd || !BASE_REPO) {
-    return { cwd: baseCwd, wtId, repoWorktrees };
-  }
 
   // Create primary worktree only — secondary repos are created on-demand
   // by the worktree guard when an agent first writes to them (Phase 2a).
   let primaryPath: string | undefined;
   try {
-    primaryPath = createWorktree(wtId, BASE_REPO);
+    primaryPath = await createWorktreeAsync(wtId, BASE_REPO, { abortSignal: signal });
+    signal?.throwIfAborted();
     repoWorktrees.set('primary', { path: primaryPath, wtId });
     writeFileSync(
       join(primaryPath, '.mitzo-session'),
@@ -1004,6 +987,7 @@ export function createSessionWorktrees(
     send(transport, { type: 'worktree', path: primaryPath });
     log.info('primary worktree created', { wtId, path: primaryPath });
   } catch (err: unknown) {
+    signal?.throwIfAborted();
     const message = err instanceof Error ? err.message : String(err);
     log.error('primary worktree creation failed', { error: message });
     send(transport, {
@@ -1246,6 +1230,13 @@ function makeUserMessage(
 
 export { nativeStartupSessionId } from './ordinary-repository-startup.js';
 
+interface ChatStartupGuard {
+  releasePreparation?: () => void;
+  admission?: ProviderDispatchAdmission;
+  releaseContext?: () => void;
+  session?: ManagedSession;
+}
+
 export async function startChat(
   transport: SessionTransport,
   clientId: string,
@@ -1400,7 +1391,7 @@ export async function startChat(
     options = { ...options, initialSessionId: repositoryStartupId };
     releaseRepositoryStartup = reserveRepositoryStartup(repositoryStartupId);
   }
-  const startupGuard: { admission?: ProviderDispatchAdmission; releaseContext?: () => void } = {};
+  const startupGuard: ChatStartupGuard = {};
   let releaseOrdinaryStartup: (() => void) | undefined;
   return withSpanAsync(
     'chat.start',
@@ -1435,8 +1426,9 @@ export async function startChat(
     })
     .finally(() => {
       try {
-        cleanupUndispatchedStartup(startupGuard.admission, clientId);
+        cleanupUndispatchedStartup(startupGuard.admission, clientId, startupGuard.session);
       } finally {
+        startupGuard.releasePreparation?.();
         releaseOrdinaryStartup?.();
         startupGuard.releaseContext?.();
         releaseRepositoryStartup?.();
@@ -1501,7 +1493,7 @@ async function _startChatInner(
       reopen: (selection: OrdinaryLocalCommandAdmission['selection']) => Promise<void>,
     ) => OrdinaryLocalVertexCommandOwner;
   },
-  startupGuard: { admission?: ProviderDispatchAdmission; releaseContext?: () => void },
+  startupGuard: ChatStartupGuard,
 ) {
   const openShellAvailable =
     process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
@@ -1711,7 +1703,7 @@ async function _startChatInner(
           };
         } else apiCredentialRef = profile.credentialRef;
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
-      } else accountEnv = profiles!.sdkEnv(accountBinding, buildSdkChildEnvironment());
+      } else accountEnv = profiles!.sdkEnv(accountBinding, sdkChildEnvironmentBase());
     }
     if (options.adviserScope) {
       if (!accountBinding || accountBinding.provider !== 'anthropic-vertex')
@@ -1742,24 +1734,36 @@ async function _startChatInner(
       : process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
     : undefined;
   const abortController = new AbortController();
+  const releasePreparation = registry.registerStartup(
+    clientId,
+    options.resume ?? options.initialSessionId,
+    abortController,
+  );
   const abortAdviser = () => abortController.abort(options.adviserScope?.signal.reason);
+  startupGuard.releasePreparation = () => {
+    releasePreparation();
+    options.adviserScope?.signal.removeEventListener('abort', abortAdviser);
+  };
   options.adviserScope?.signal.addEventListener('abort', abortAdviser, { once: true });
   if (options.adviserScope?.signal.aborted) abortAdviser();
   options.ordinarySdkAuthority?.bindAbortController(abortController);
-  const resumedSession = options.resume
-    ? registry.findBySessionId(options.resume)?.session
-    : undefined;
-  // Read durable policy after account verification. A stopped runtime's captured
-  // ceiling is valid only until another mode change has been acknowledged.
-  const capturedPermission = options.resumePermission;
-  const mode = options.resume
-    ? ((resumedSession && effectivePermissionMode(resumedSession)) ??
-      (capturedPermission &&
-      capturedPermission.revision === permissionRevision(eventStore, options.resume)
-        ? capturedPermission.mode
-        : eventStore.getSession(options.resume)?.mode) ??
-      'agent')
-    : (options.mode ?? 'agent');
+  // Refresh after asynchronous startup work as well as account verification.
+  // A captured stopped-runtime ceiling is valid only at its current revision.
+  const resolveStartupMode = () => {
+    const resumedSession = options.resume
+      ? registry.findBySessionId(options.resume)?.session
+      : undefined;
+    const capturedPermission = options.resumePermission;
+    return options.resume
+      ? ((resumedSession && effectivePermissionMode(resumedSession)) ??
+          (capturedPermission &&
+          capturedPermission.revision === permissionRevision(eventStore, options.resume)
+            ? capturedPermission.mode
+            : eventStore.getSession(options.resume)?.mode) ??
+          'agent')
+      : (options.mode ?? 'agent');
+  };
+  let mode = resolveStartupMode();
 
   let repositoryWorkspace: RepositoryChatWorkspace | undefined;
   if (options.ordinarySdkAuthority) {
@@ -1989,7 +1993,7 @@ async function _startChatInner(
     const validation =
       codexProfile || apiKey || gemini
         ? { valid: true }
-        : validateResumable(baseCwd, options.resume);
+        : await validateResumable(baseCwd, options.resume, undefined, abortController.signal);
     if (!validation.valid) {
       log.warn('session not resumable, starting fresh', {
         sessionId: options.resume,
@@ -2003,22 +2007,21 @@ async function _startChatInner(
     }
   }
 
+  abortController.signal.throwIfAborted();
   // Generate session-scoped worktree ID and create worktrees in all repos
   const wtId = generateWtId();
-  let sessionWorktrees: ReturnType<typeof createSessionWorktrees>;
+  let sessionWorktrees: Awaited<ReturnType<typeof createSessionWorktrees>>;
   try {
-    sessionWorktrees = openShellSelected
-      ? {
-          cwd: openShellWorkdir!,
-          wtId,
-          worktreePath: undefined,
-          repoWorktrees: new Map<string, { path: string; wtId: string }>(),
-        }
-      : createSessionWorktrees(transport, baseCwd, wtId, options);
+    // Keep an already accepted chat routable before its first metadata await.
+    sessionWorktrees =
+      openShellSelected || !requiresSessionWorktree(options)
+        ? unisolatedSessionWorktrees(openShellSelected ? openShellWorkdir! : baseCwd, wtId)
+        : await createSessionWorktrees(transport, baseCwd, wtId, options, abortController.signal);
   } catch (error) {
     options.onStartupAdmission?.(error);
     return;
   }
+  abortController.signal.throwIfAborted();
   const { cwd, worktreePath, repoWorktrees } = sessionWorktrees;
 
   if (repositoryWorkspace?.directory && !openShellSelected) {
@@ -2107,6 +2110,8 @@ async function _startChatInner(
     });
   }
 
+  abortController.signal.throwIfAborted();
+  mode = resolveStartupMode();
   registry.register(clientId, {
     ...(options.operatorConnectionId ? { ownerConnectionId: options.operatorConnectionId } : {}),
     transport,
@@ -2128,6 +2133,7 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
+  startupGuard.session = session;
   bindAgentToolSelection(session, agentProfile?.definition, toolRoute);
   if (options.contributorGuidance !== undefined && session.sessionId)
     saveOrdinaryContributorGuidance(
@@ -2162,312 +2168,331 @@ async function _startChatInner(
     session.worktreePaths.set(name, info);
   }
 
-  const branch = repositoryWorkspace?.featureBranch ?? getBranch(cwd);
-  session.branch = branch;
-  send(transport, { type: 'session_info', branch, cwd, worktree: !!worktreePath, wtId });
+  let newSdkSessionId: string | undefined;
+  const assertStartupCurrent = () => {
+    abortController.signal.throwIfAborted();
+    if (registry.get(clientId) !== session) throw Error('Original startup owner changed');
+  };
+  try {
+    const branch =
+      repositoryWorkspace?.featureBranch ??
+      (await readWorkspaceBranch(cwd, session.abortController.signal));
+    assertStartupCurrent();
+    session.branch = branch;
+    send(transport, { type: 'session_info', branch, cwd, worktree: !!worktreePath, wtId });
 
-  // Pre-register resumed sessions in EventStore so they're discoverable
-  // even if the query loop dies before the first assistant event.
-  // Preserve existing updatedAt so server restarts don't reset all timestamps.
-  if (options.resume) {
-    const existingMeta = eventStore.getSession(options.resume);
-    eventStore.upsertSession({
-      sessionId: options.resume,
-      cwd,
-      mode,
-      branch,
-      isActive: true,
-      ...(worktreePath ? { wtId } : {}),
-      ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
-      ...(existingMeta ? { updatedAt: existingMeta.updatedAt } : {}),
-      agentName,
-      ...(options.model ? { selectedModel: options.model } : {}),
-      ...(options.reasoningEffort !== undefined
-        ? { reasoningEffort: options.reasoningEffort || null }
-        : {}),
-    });
-  }
-
-  // OpenShell owns its workspace lifecycle; only host sessions belong in the
-  // host worktree index.
-  if (!openShellSelected) {
-    try {
-      registerSession(BASE_REPO, wtId, repoWorktrees, branch);
-    } catch (err: unknown) {
-      log.warn('session index write failed', {
-        error: err instanceof Error ? err.message : 'unknown',
+    // Pre-register resumed sessions in EventStore so they're discoverable
+    // even if the query loop dies before the first assistant event.
+    // Preserve existing updatedAt so server restarts don't reset all timestamps.
+    if (options.resume) {
+      const existingMeta = eventStore.getSession(options.resume);
+      eventStore.upsertSession({
+        sessionId: options.resume,
+        cwd,
+        mode: session.mode,
+        branch,
+        isActive: true,
+        ...(worktreePath ? { wtId } : {}),
+        ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
+        ...(existingMeta ? { updatedAt: existingMeta.updatedAt } : {}),
+        agentName,
+        ...(options.model ? { selectedModel: options.model } : {}),
+        ...(options.reasoningEffort !== undefined
+          ? { reasoningEffort: options.reasoningEffort || null }
+          : {}),
       });
     }
-  }
 
-  // Build session env with worktree paths for the agent (all repos including primary)
-  const sessionEnv = accountEnv ?? buildSdkChildEnvironment();
-  sessionEnv.MITZO_SESSION_ID = wtId;
-  sessionEnv.MITZO_AGENT_NAME = agentName;
-  for (const [name, { path }] of repoWorktrees) {
-    sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
-  }
-
-  // Merge dynamic MCP servers (task board if active)
-  const taskMcp = supportsHostTaskTools(openShellSelected) ? buildTaskMcpServer(clientId) : null;
-  const telosMcp = supportsHostTaskTools(openShellSelected) ? buildTelosMcpServer(clientId) : null;
-  const allMcpServers = { ...mcpServers, ...taskMcp, ...telosMcp };
-
-  const sdkCredentialBoundary =
-    !codexProfile && !apiCredentialRef && !gemini
-      ? credentialSdkBoundary(process.platform, options.ordinarySdkAuthority?.writeRoots())
-      : undefined;
-  options.ordinarySdkAuthority?.assertEnvironment(sessionEnv);
-
-  const sdkCredentialIsolation = sdkCredentialBoundary?.credentialIsolation ?? false;
-  const projectCommandRunner = sdkCredentialIsolation
-    ? undefined
-    : createWorkspaceRuntimeCommandRunner();
-
-  // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
-  const projectHooks =
-    options.adviserScope || sdkCredentialIsolation
-      ? undefined
-      : loadProjectHooks(cwd, sessionEnv, projectCommandRunner);
-  const hooks =
-    agentProfile?.definition.contextRecipe && projectHooks
-      ? (Object.fromEntries(
-          Object.entries(projectHooks).filter(([name]) => name !== 'SessionStart'),
-        ) as typeof projectHooks)
-      : projectHooks;
-
-  // Fetch boot context BEFORE building system prompt so it's part of the
-  // system prompt append and survives SDK context compaction.
-  // fetchBootContext never throws and has a 5s AbortSignal timeout internally.
-  // Await the bounded fetch/fallback before opening any provider. A shorter race
-  // could discard a valid bundle while persisting empty context for the session.
-  let agentContext: AgentContextSnapshot | undefined;
-  let prepareAgentContext: ((signal: AbortSignal) => Promise<void>) | undefined;
-  let assertSandboxContextAuthorization: (() => void) | undefined;
-  try {
-    const stored = options.resume ? eventStore.getSession(options.resume)?.agentContext : undefined;
-    if (agentProfile?.definition.contextRecipe || stored) {
-      const authorization = captureAgentLibraryAuthorization(options.operatorConnectionId);
-      const scope = retainAgentContextAuthority(authorization.auth, abortController);
-      startupGuard.releaseContext = scope.release;
-      const packRecipe = agentProfile?.definition.contextRecipe?.source === 'packs';
-      if (
-        (stored?.sandbox && (!openShellSelected || packRecipe || stored.source === 'packs')) ||
-        (openShellSelected && !packRecipe && stored && !stored.sandbox)
-      )
-        throw Error('Agent context compilation scope differs; start a new chat');
-      const contextRuntime = packRecipe ? await getContextPackRuntime() : undefined;
-      if (packRecipe && !contextRuntime)
-        throw Error('Knowledge Library is not configured for the selected agent context');
-      if (openShellSelected && !packRecipe) {
-        assertSandboxContextAuthorization = () => {
-          authorization.assertCurrent();
-          scope.assertCurrent();
-        };
-      } else {
-        agentContext = await resolveChatAgentContext({
-          profile: agentProfile,
-          stored,
-          workspaceRoot: cwd,
-          signal: abortController.signal,
-          ...(contextRuntime ? { packs: createAcceptedContextPacks(contextRuntime, scope) } : {}),
+    // OpenShell owns its workspace lifecycle; only host sessions belong in the
+    // host worktree index.
+    if (!openShellSelected) {
+      try {
+        registerSession(BASE_REPO, wtId, repoWorktrees, branch);
+      } catch (err: unknown) {
+        log.warn('session index write failed', {
+          error: err instanceof Error ? err.message : 'unknown',
         });
       }
-      authorization.assertCurrent();
-      scope.assertCurrent();
-      prepareAgentContext = async (signal) => {
-        signal.throwIfAborted();
-        scope.assertCurrent();
-        for (const document of agentContext?.provenance?.documents ?? []) {
-          if (
-            !contextRuntime ||
-            document.storeId !== contextRuntime.sourceIdentity ||
-            !contextRuntime.source.allowed(document.path)
-          )
-            throw Error('Agent context source scope changed');
-          await contextRuntime.source.authorize(document.path, document.revision, signal);
-          scope.assertCurrent();
-        }
-      };
-      if (stateSessionId && agentContext)
-        eventStore.upsertSession({ sessionId: stateSessionId, agentProfile, agentContext });
     }
-  } catch (error: unknown) {
-    options.onStartupAdmission?.(error);
-    terminalizeUndispatchedStartup(initialProviderAdmission);
-    if (stateSessionId)
-      eventStore.setSessionState(stateSessionId, 'ENDED', {
-        clientId,
-        reason: 'context_admission_failed',
-      });
-    send(transport, {
-      type: 'error',
-      ...(stateSessionId ? { sessionId: stateSessionId } : {}),
-      error: error instanceof Error ? error.message : 'Agent context could not be compiled',
-    });
-    // Preserve task roots for inspection/retry; compilation has opened no provider.
-    inputQueue.close();
-    registry.abort(clientId);
-    _onSessionChange?.(clientId, 'end', session.sessionId);
-    return;
-  }
-  let bootContextMsg: BootContextMessage =
-    (agentContext
-      ? bootContextWithRetainedReceipt(
-          agentContext,
-          stateSessionId
-            ? (eventStore.getSession(stateSessionId)?.bootContext ?? undefined)
-            : undefined,
+
+    // Build session env with worktree paths for the agent (all repos including primary)
+    const sessionEnv = accountEnv
+      ? accountBinding?.provider === 'anthropic-vertex'
+        ? await resolveSdkChildSocket(accountEnv, session.abortController.signal)
+        : accountEnv
+      : await buildSdkChildEnvironment(session.abortController.signal);
+    assertStartupCurrent();
+    sessionEnv.MITZO_SESSION_ID = wtId;
+    sessionEnv.MITZO_AGENT_NAME = agentName;
+    for (const [name, { path }] of repoWorktrees) {
+      sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
+    }
+
+    // Merge dynamic MCP servers (task board if active)
+    const taskMcp = supportsHostTaskTools(openShellSelected) ? buildTaskMcpServer(clientId) : null;
+    const telosMcp = supportsHostTaskTools(openShellSelected)
+      ? buildTelosMcpServer(clientId)
+      : null;
+    const allMcpServers = { ...mcpServers, ...taskMcp, ...telosMcp };
+
+    const sdkCredentialBoundary =
+      !codexProfile && !apiCredentialRef && !gemini
+        ? credentialSdkBoundary(process.platform, options.ordinarySdkAuthority?.writeRoots())
+        : undefined;
+    options.ordinarySdkAuthority?.assertEnvironment(sessionEnv);
+
+    const sdkCredentialIsolation = sdkCredentialBoundary?.credentialIsolation ?? false;
+    const projectCommandRunner = sdkCredentialIsolation
+      ? undefined
+      : createWorkspaceRuntimeCommandRunner();
+
+    // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
+    const projectHooks =
+      options.adviserScope || sdkCredentialIsolation
+        ? undefined
+        : loadProjectHooks(cwd, sessionEnv, projectCommandRunner);
+    const hooks =
+      agentProfile?.definition.contextRecipe && projectHooks
+        ? (Object.fromEntries(
+            Object.entries(projectHooks).filter(([name]) => name !== 'SessionStart'),
+          ) as typeof projectHooks)
+        : projectHooks;
+
+    // Fetch boot context BEFORE building system prompt so it's part of the
+    // system prompt append and survives SDK context compaction.
+    // fetchBootContext never throws and has a 5s AbortSignal timeout internally.
+    // Await the bounded fetch/fallback before opening any provider. A shorter race
+    // could discard a valid bundle while persisting empty context for the session.
+    let agentContext: AgentContextSnapshot | undefined;
+    let prepareAgentContext: ((signal: AbortSignal) => Promise<void>) | undefined;
+    let assertSandboxContextAuthorization: (() => void) | undefined;
+    try {
+      const stored = options.resume
+        ? eventStore.getSession(options.resume)?.agentContext
+        : undefined;
+      if (agentProfile?.definition.contextRecipe || stored) {
+        const authorization = captureAgentLibraryAuthorization(options.operatorConnectionId);
+        const scope = retainAgentContextAuthority(authorization.auth, abortController);
+        startupGuard.releaseContext = scope.release;
+        const packRecipe = agentProfile?.definition.contextRecipe?.source === 'packs';
+        if (
+          (stored?.sandbox && (!openShellSelected || packRecipe || stored.source === 'packs')) ||
+          (openShellSelected && !packRecipe && stored && !stored.sandbox)
         )
-      : undefined) ??
-    (options.adviserScope || options.ordinarySdkAuthority
-      ? { ...FALLBACK_BOOT_CONTEXT, fullMarkdown: '' }
-      : openShellSelected
-        ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
-        : await fetchBootContext(
-            agentName,
-            undefined,
-            undefined,
-            !sdkCredentialIsolation,
-            projectCommandRunner,
-          ));
-  const bootContextAppend = bootContextMsg.fullMarkdown
-    ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
-    : '';
+          throw Error('Agent context compilation scope differs; start a new chat');
+        const contextRuntime = packRecipe ? await getContextPackRuntime() : undefined;
+        if (packRecipe && !contextRuntime)
+          throw Error('Knowledge Library is not configured for the selected agent context');
+        if (openShellSelected && !packRecipe) {
+          assertSandboxContextAuthorization = () => {
+            authorization.assertCurrent();
+            scope.assertCurrent();
+          };
+        } else {
+          agentContext = await resolveChatAgentContext({
+            profile: agentProfile,
+            stored,
+            workspaceRoot: cwd,
+            signal: abortController.signal,
+            ...(contextRuntime ? { packs: createAcceptedContextPacks(contextRuntime, scope) } : {}),
+          });
+        }
+        authorization.assertCurrent();
+        scope.assertCurrent();
+        prepareAgentContext = async (signal) => {
+          signal.throwIfAborted();
+          scope.assertCurrent();
+          for (const document of agentContext?.provenance?.documents ?? []) {
+            if (
+              !contextRuntime ||
+              document.storeId !== contextRuntime.sourceIdentity ||
+              !contextRuntime.source.allowed(document.path)
+            )
+              throw Error('Agent context source scope changed');
+            await contextRuntime.source.authorize(document.path, document.revision, signal);
+            scope.assertCurrent();
+          }
+        };
+        if (stateSessionId && agentContext)
+          eventStore.upsertSession({ sessionId: stateSessionId, agentProfile, agentContext });
+      }
+    } catch (error: unknown) {
+      options.onStartupAdmission?.(error);
+      terminalizeUndispatchedStartup(initialProviderAdmission);
+      if (stateSessionId)
+        eventStore.setSessionState(stateSessionId, 'ENDED', {
+          clientId,
+          reason: 'context_admission_failed',
+        });
+      send(transport, {
+        type: 'error',
+        ...(stateSessionId ? { sessionId: stateSessionId } : {}),
+        error: error instanceof Error ? error.message : 'Agent context could not be compiled',
+      });
+      // Preserve task roots for inspection/retry; compilation has opened no provider.
+      inputQueue.close();
+      registry.abort(clientId);
+      return;
+    }
+    let bootContextMsg: BootContextMessage =
+      (agentContext
+        ? bootContextWithRetainedReceipt(
+            agentContext,
+            stateSessionId
+              ? (eventStore.getSession(stateSessionId)?.bootContext ?? undefined)
+              : undefined,
+          )
+        : undefined) ??
+      (options.adviserScope || options.ordinarySdkAuthority
+        ? { ...FALLBACK_BOOT_CONTEXT, fullMarkdown: '' }
+        : openShellSelected
+          ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
+          : await fetchBootContext(
+              agentName,
+              undefined,
+              undefined,
+              !sdkCredentialIsolation,
+              projectCommandRunner,
+            ));
+    const bootContextAppend = bootContextMsg.fullMarkdown
+      ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
+      : '';
 
-  // Send boot context to UI immediately (sessionId may be undefined for new sessions — OK,
-  // it's a display-only hint; the client doesn't key on it for boot context).
-  if (!openShellSelected || agentContext)
-    send(transport, {
-      ...bootContextMsg,
-      ...(stateSessionId ? { sessionId: stateSessionId } : {}),
-    });
-  // Cache in ManagedSession for replay on reconnect/switch
-  session.bootContext = bootContextMsg as unknown as Record<string, unknown>;
-  if (options.adviserScope && stateSessionId) {
-    options.adviserScope.assertCurrent();
-    eventStore.append(stateSessionId, 'adviser_task_scope', {
-      version: 1,
-      contextSha256: options.adviserScope.contextSha256,
-      feature: options.adviserScope.feature(),
-      policy: 'reviewed-context-only',
-    });
-  }
-  // For resumed sessions, persist immediately (sessionId is known).
-  // For new sessions, persist in onSessionResolved once SDK assigns the ID.
-  if (stateSessionId) {
-    eventStore.upsertSession({
-      sessionId: stateSessionId,
-      bootContext: JSON.stringify(bootContextMsg),
-    });
-  }
+    // Send boot context to UI immediately (sessionId may be undefined for new sessions — OK,
+    // it's a display-only hint; the client doesn't key on it for boot context).
+    if (!openShellSelected || agentContext)
+      send(transport, {
+        ...bootContextMsg,
+        ...(stateSessionId ? { sessionId: stateSessionId } : {}),
+      });
+    // Cache in ManagedSession for replay on reconnect/switch
+    session.bootContext = bootContextMsg as unknown as Record<string, unknown>;
+    if (options.adviserScope && stateSessionId) {
+      options.adviserScope.assertCurrent();
+      eventStore.append(stateSessionId, 'adviser_task_scope', {
+        version: 1,
+        contextSha256: options.adviserScope.contextSha256,
+        feature: options.adviserScope.feature(),
+        policy: 'reviewed-context-only',
+      });
+    }
+    // For resumed sessions, persist immediately (sessionId is known).
+    // For new sessions, persist in onSessionResolved once SDK assigns the ID.
+    if (stateSessionId) {
+      eventStore.upsertSession({
+        sessionId: stateSessionId,
+        bootContext: JSON.stringify(bootContextMsg),
+      });
+    }
 
-  const acceptAgentContext = (
-    commandId: string,
-    providerThreadId: string,
-    providerTurnId: string,
-    contextSha256: string,
-  ) => {
-    const sessionId = session.sessionId ?? stateSessionId ?? newSdkSessionId;
-    if (!agentContext || !sessionId) throw Error('Prepared agent context identity is unavailable');
-    const message = recordAgentContextAcceptance({
-      store: eventStore,
-      sessionId,
-      snapshot: agentContext,
-      commandId,
-      providerThreadId,
-      providerTurnId,
-      contextSha256,
-    });
-    session.bootContext = message as unknown as Record<string, unknown>;
-    send(transport, { ...message, sessionId });
-  };
+    const acceptAgentContext = (
+      commandId: string,
+      providerThreadId: string,
+      providerTurnId: string,
+      contextSha256: string,
+    ) => {
+      const sessionId = session.sessionId ?? stateSessionId ?? newSdkSessionId;
+      if (!agentContext || !sessionId)
+        throw Error('Prepared agent context identity is unavailable');
+      const message = recordAgentContextAcceptance({
+        store: eventStore,
+        sessionId,
+        snapshot: agentContext,
+        commandId,
+        providerThreadId,
+        providerTurnId,
+        contextSha256,
+      });
+      session.bootContext = message as unknown as Record<string, unknown>;
+      send(transport, { ...message, sessionId });
+    };
 
-  // Build the system prompt append string (used by both query and comparison)
-  const workspacePrompt = repositoryWorkspace
-    ? `# Repository task workspace
+    // Build the system prompt append string (used by both query and comparison)
+    const workspacePrompt = repositoryWorkspace
+      ? `# Repository task workspace
 This is an independent checkout with its own Git storage, not a linked worktree. Work inside ${cwd} for code edits, dependency setup and tests. Use the dedicated Mitzo integrations for network access and publication. Do not switch to the configured default repository.
 `
-    : openShellWorkdir
-      ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
-      : buildWorktreeSystemPrompt(repoWorktrees);
-  const systemPromptAppend = options.adviserScope
-    ? options.adviserScope.instructions()
-    : repositoryChatContext(repositoryWorkspace) +
-      'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
-      SESSION_PERMISSION_INSTRUCTIONS +
-      PROFILE_TOOL_INSTRUCTIONS +
-      (options.contributorGuidance === undefined ? telosArtifactInstructions(!!agentContext) : '') +
-      '- Read operations are fine without asking.\n' +
-      '- Keep responses concise — small screen.\n' +
-      (agentContext
-        ? ''
-        : '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.') +
-      buildClientCapabilitiesPrompt() +
-      workspacePrompt +
-      (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
-      (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
-      (options.contributorGuidance
-        ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
-        : '') +
-      bootContextAppend;
+      : openShellWorkdir
+        ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
+        : buildWorktreeSystemPrompt(repoWorktrees);
+    const systemPromptAppend = options.adviserScope
+      ? options.adviserScope.instructions()
+      : repositoryChatContext(repositoryWorkspace) +
+        'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
+        SESSION_PERMISSION_INSTRUCTIONS +
+        PROFILE_TOOL_INSTRUCTIONS +
+        (options.contributorGuidance === undefined
+          ? telosArtifactInstructions(!!agentContext)
+          : '') +
+        '- Read operations are fine without asking.\n' +
+        '- Keep responses concise — small screen.\n' +
+        (agentContext
+          ? ''
+          : '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.') +
+        buildClientCapabilitiesPrompt() +
+        workspacePrompt +
+        (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
+        (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
+        (options.contributorGuidance
+          ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
+          : '') +
+        bootContextAppend;
 
-  // Recipe-bound chats already have their exact Library definition and context.
-  // Loading the legacy definition would compile another, unrelated default bundle.
-  if (
-    !options.adviserScope &&
-    !options.ordinarySdkAuthority &&
-    !agentContext &&
-    !agentProfile?.definition.contextRecipe
-  )
-    loadAgentDef(agentName, cwd)
-      .then((loaded) => {
-        const s = registry.get(clientId);
-        if (s) {
-          s.agentDefinition = loaded.definition;
-          s.agentDefinitionSource = loaded.source;
-          log.info('agent definition stored', {
+    // Recipe-bound chats already have their exact Library definition and context.
+    // Loading the legacy definition would compile another, unrelated default bundle.
+    if (
+      !options.adviserScope &&
+      !options.ordinarySdkAuthority &&
+      !agentContext &&
+      !agentProfile?.definition.contextRecipe
+    )
+      loadAgentDef(agentName, cwd)
+        .then((loaded) => {
+          const s = registry.get(clientId);
+          if (s) {
+            s.agentDefinition = loaded.definition;
+            s.agentDefinitionSource = loaded.source;
+            log.info('agent definition stored', {
+              agent: agentName,
+              source: loaded.source,
+              identity: loaded.definition.identity.description,
+            });
+          } else {
+            log.warn('agent definition loaded but session already torn down', {
+              agent: agentName,
+              source: loaded.source,
+            });
+          }
+        })
+        .catch((err: unknown) => {
+          log.warn('agent definition load failed', {
             agent: agentName,
-            source: loaded.source,
-            identity: loaded.definition.identity.description,
+            error: err instanceof Error ? err.message : String(err),
           });
-        } else {
-          log.warn('agent definition loaded but session already torn down', {
-            agent: agentName,
-            source: loaded.source,
-          });
-        }
-      })
-      .catch((err: unknown) => {
-        log.warn('agent definition load failed', {
-          agent: agentName,
-          error: err instanceof Error ? err.message : String(err),
         });
-      });
 
-  if (!openShellSelected) {
-    capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
-  }
-
-  // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
-  let liveOrdinarySdkOwner: OrdinaryLocalVertexCommandOwner | undefined;
-  let resolvedResume: string | undefined;
-  if (options.resume && !codexProfile && !apiKey && !gemini) {
-    if (!BASE_REPO) {
-      log.warn('REPO_PATH unset — resume will use raw worktree ID, SDK may reject it');
+    if (!openShellSelected) {
+      capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
     }
-    resolvedResume =
-      options.ordinarySdkAuthority?.sdkSessionId() ??
-      (BASE_REPO ? getSessionSdkId(BASE_REPO, options.resume) : undefined) ??
-      options.resume;
-  }
 
-  // Bound sessions have durable routing before the SDK can create history or side effects.
-  const newSdkSessionId =
-    !resolvedResume && !options.resume
-      ? (options.ordinarySdkAuthority?.sdkSessionId() ?? options.initialSessionId ?? randomUUID())
-      : undefined;
-  try {
+    // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
+    let liveOrdinarySdkOwner: OrdinaryLocalVertexCommandOwner | undefined;
+    let resolvedResume: string | undefined;
+    if (options.resume && !codexProfile && !apiKey && !gemini) {
+      if (!BASE_REPO) {
+        log.warn('REPO_PATH unset — resume will use raw worktree ID, SDK may reject it');
+      }
+      resolvedResume =
+        options.ordinarySdkAuthority?.sdkSessionId() ??
+        (BASE_REPO ? getSessionSdkId(BASE_REPO, options.resume) : undefined) ??
+        options.resume;
+    }
+
+    // Bound sessions have durable routing before the SDK can create history or side effects.
+    newSdkSessionId =
+      !resolvedResume && !options.resume
+        ? (options.ordinarySdkAuthority?.sdkSessionId() ?? options.initialSessionId ?? randomUUID())
+        : undefined;
     if (newSdkSessionId) {
       eventStore.upsertSession({
         sessionId: newSdkSessionId,
@@ -3241,6 +3266,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         });
       }
     } finally {
+      inputQueue.close();
       const failedSession = registry.get(clientId);
       if (failedSession === session) {
         // A resumed startup also entered CREATED. Retire its driver state while
@@ -3260,7 +3286,6 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       }
     }
   } finally {
-    options.adviserScope?.signal.removeEventListener('abort', abortAdviser);
     const current = registry.get(clientId);
     if (!current || current === session) _onSessionChange?.(clientId, 'end', session.sessionId);
   }
@@ -4001,7 +4026,8 @@ export async function prepareOwnedCodexChat(
       eventStore.upsertSession({ sessionId, bootContext: JSON.stringify(context) });
       send(transport, { ...context, sessionId });
     }
-    const env = buildSdkChildEnvironment();
+    const env = await buildSdkChildEnvironment(session.abortController.signal);
+    admission.assertCurrentSync();
     env.MITZO_SESSION_ID = sessionId;
     env.MITZO_AGENT_NAME = expected.agentProfile?.definition.name ?? '';
     queryInstance = await openCodexChat({
@@ -4357,6 +4383,7 @@ function terminalizeUndispatchedStartup(admission: ProviderDispatchAdmission | u
 function cleanupUndispatchedStartup(
   admission: ProviderDispatchAdmission | undefined,
   clientId: string,
+  originalSession: ManagedSession | undefined,
 ): void {
   if (!admission || eventStore.getProviderAttempts(admission.token).length > 0) return;
   terminalizeUndispatchedStartup(admission);
@@ -4367,6 +4394,8 @@ function cleanupUndispatchedStartup(
     current.executionPhase === 'TERMINAL' &&
     current.executionTerminalReason === 'startup_failed';
   if (!failedBeforeDispatch) return;
+  const currentDriver = registry.get(clientId);
+  if (currentDriver && currentDriver !== originalSession) return;
   try {
     eventStore.setSessionState(admission.token.sessionId, 'ENDED', {
       clientId,
@@ -4379,8 +4408,10 @@ function cleanupUndispatchedStartup(
     });
   }
   const failedSession = registry.get(clientId);
-  if (failedSession) cleanupSessionWorktrees(failedSession);
-  registry.abort(clientId);
+  if (failedSession && failedSession === originalSession) {
+    cleanupSessionWorktrees(failedSession);
+    registry.abort(clientId);
+  }
 }
 
 /**
@@ -5449,7 +5480,16 @@ export function isActive(clientId: string): boolean {
  *
  * This keeps all paths configurable (no hardcoded machine-specific paths).
  */
-export function getSessionDirs(options?: { claudeProjectsRoot?: string }): string[] {
+async function sessionPathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getSessionDirs(options?: { claudeProjectsRoot?: string }): Promise<string[]> {
   const dirs = [BASE_REPO];
   const seen = new Set([BASE_REPO]);
 
@@ -5472,11 +5512,14 @@ export function getSessionDirs(options?: { claudeProjectsRoot?: string }): strin
 
     for (const parent of parentDirs) {
       try {
-        for (const entry of readdirSync(parent, { withFileTypes: true })) {
+        for (const entry of await readdir(parent, { withFileTypes: true })) {
           if (!entry.isDirectory()) continue;
           const child = join(parent, entry.name);
           if (seen.has(child)) continue;
-          if (existsSync(join(child, '.git')) || existsSync(join(child, '.claude'))) {
+          if (
+            (await sessionPathExists(join(child, '.git'))) ||
+            (await sessionPathExists(join(child, '.claude')))
+          ) {
             dirs.push(child);
             seen.add(child);
           }
@@ -5492,7 +5535,7 @@ export function getSessionDirs(options?: { claudeProjectsRoot?: string }): strin
   // Legacy location: <repo>-sessions/ sibling directory
   const sessionsDir = `${BASE_REPO}-sessions`;
   try {
-    const entries = readdirSync(sessionsDir);
+    const entries = await readdir(sessionsDir);
     for (const e of entries) {
       if (e.startsWith('session-')) dirs.push(join(sessionsDir, e));
     }
@@ -5510,7 +5553,7 @@ export function getSessionDirs(options?: { claudeProjectsRoot?: string }): strin
   const wtPrefix = `${encodedBase}--claude-worktrees-`;
   try {
     const claudeProjects = options?.claudeProjectsRoot ?? join(homedir(), '.claude', 'projects');
-    for (const entry of readdirSync(claudeProjects)) {
+    for (const entry of await readdir(claudeProjects)) {
       if (!entry.startsWith(wtPrefix)) continue;
       const wtId = entry.slice(wtPrefix.length);
       if (!wtId) continue;
@@ -5551,7 +5594,7 @@ export async function renameSessionById(
     return;
   }
   const errors: string[] = [];
-  for (const dir of getSessionDirs()) {
+  for (const dir of await getSessionDirs()) {
     try {
       await renameSession(sessionId, title, { dir });
       if (manual) {
@@ -5595,7 +5638,7 @@ export async function listImportableSdkConversations() {
     string,
     { id: string; summary: string; lastModified: number; cwd?: string }
   >();
-  for (const dir of getSessionDirs().filter(Boolean)) {
+  for (const dir of (await getSessionDirs()).filter(Boolean)) {
     try {
       const projectCandidates = new Set<string>();
       // Excluded SDK records cannot consume the candidate budget. Each project
@@ -5711,7 +5754,7 @@ export async function syncSessionTimestamps(): Promise<void> {
     { lastModified: number; summary: string; branch?: string; cwd?: string }
   >();
   const fetchLimit = 250;
-  for (const dir of getSessionDirs()) {
+  for (const dir of await getSessionDirs()) {
     try {
       const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
       for (const s of sessions) {
@@ -5774,7 +5817,7 @@ export async function importSdkConversation(
     return null;
   const registered = eventStore.getSession(sessionId);
   if (isRegisteredConversation(registered)) return registered;
-  for (const dir of getSessionDirs().filter(Boolean)) {
+  for (const dir of (await getSessionDirs()).filter(Boolean)) {
     try {
       const info = await getSessionInfo(sessionId, { dir });
       if (!info || info.sessionId !== sessionId || !(await hasSdkConversation(info, dir))) continue;
@@ -5811,7 +5854,7 @@ async function recoverSessionWorkspace(sessionId: string, dirs?: string[]) {
   const provider = session?.accountBinding?.provider;
   if (provider && provider !== 'anthropic-vertex') return;
   // Discover directories only after the cheap metadata checks above.
-  for (const dir of dirs ?? getSessionDirs()) {
+  for (const dir of dirs ?? (await getSessionDirs())) {
     try {
       const info = await getSessionInfo(sessionId, { dir });
       if (typeof info?.cwd !== 'string' || !isAbsolute(info.cwd)) continue;
@@ -5868,8 +5911,8 @@ export async function getMessages(sessionId: string, throughSeq?: number) {
   let rawMessages: RawSdkMessage[] = [];
   for (const dir of [
     ...new Set(
-      [eventStore.getSession(sessionId)?.cwd, ...getSessionDirs()].filter((dir): dir is string =>
-        Boolean(dir),
+      [eventStore.getSession(sessionId)?.cwd, ...(await getSessionDirs())].filter(
+        (dir): dir is string => Boolean(dir),
       ),
     ),
   ]) {
