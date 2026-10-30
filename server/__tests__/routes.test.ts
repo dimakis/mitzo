@@ -1760,6 +1760,52 @@ describe('account catalog routes', () => {
     const res = await request(app).get('/api/sessions/bound/meta').set('Cookie', authCookie);
     expect(res.body.accountBinding).toEqual(binding);
   });
+  it('serves retained conversation settings without waiting for unrelated model discovery', async () => {
+    const accounts = await import('../account-profiles.js');
+    let finish!: () => void;
+    const refresh = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const load = vi.spyOn(accounts, 'loadAccountProfiles').mockReturnValue({
+      refresh,
+      catalog: () => [],
+    } as unknown as ReturnType<typeof accounts.loadAccountProfiles>);
+    vi.mocked(eventStore.getSession).mockReturnValueOnce({
+      sessionId: 'retained-settings',
+      accountBinding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'anthropic-vertex',
+        model: 'retained-model',
+        profileRevision: 'revision',
+      },
+      selectedModel: 'retained-model',
+      reasoningEffort: 'high',
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    } as ReturnType<typeof eventStore.getSession>);
+    try {
+      const res = await request(app)
+        .get('/api/sessions/retained-settings/meta')
+        .set('Cookie', authCookie)
+        .timeout({ deadline: 500 });
+      expect(res.status).toBe(200);
+      expect(res.body.modelSelection).toMatchObject({
+        model: 'retained-model',
+        reasoningEffort: 'high',
+      });
+      expect(refresh).not.toHaveBeenCalled();
+    } finally {
+      finish?.();
+      load.mockRestore();
+    }
+  });
+
   it('serves Symposium metadata without ordinary account discovery or queue recovery', async () => {
     const accounts = await import('../account-profiles.js');
     const load = vi.spyOn(accounts, 'loadAccountProfiles').mockImplementation(() => {

@@ -4,6 +4,8 @@ import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.j
 import { getTransportAttachmentIdentity } from '@mitzo/harness';
 import {
   isTransportConnectionOwnedBy,
+  acceptTransportLifecycle,
+  transportConnectionReplaces,
   liveTransportAuthSessionId,
   transportConnectionsShareOwner,
 } from './transport-auth-ownership.js';
@@ -324,6 +326,8 @@ export function handleReconnect(
   msg: {
     type: 'reconnect';
     supportsAppliedCursor?: boolean;
+    lifecycleRevision?: number;
+    replacesConnectionId?: string;
     sessions: Array<{ sessionId: string; lastSeq: number; subscriptionId?: string }>;
   },
   ctx: V2HandlerContext,
@@ -332,6 +336,8 @@ export function handleReconnect(
     'ws.reconnect',
     { 'ws.connectionId': connectionId, 'ws.sessionCount': msg.sessions.length },
     () => {
+      if (!acceptTransportLifecycle(connectionId, msg.lifecycleRevision, msg.replacesConnectionId))
+        return;
       const summaries: Array<{ sessionId: string; replayed: number }> = [];
 
       for (const entry of msg.sessions) {
@@ -383,7 +389,12 @@ export function handleReconnect(
             found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
           const ownerGone = ctx.connRegistry.get(ownerConnection)?.transport.isOpen() !== true;
           const isOwner = ownerConnection === connectionId;
-          if ((isOwner && !ctx.sessionRegistry.isAttached(found.clientId)) || ownerGone) {
+          const replacesOwner = transportConnectionReplaces(connectionId, ownerConnection);
+          if (
+            (isOwner && !ctx.sessionRegistry.isAttached(found.clientId)) ||
+            ownerGone ||
+            replacesOwner
+          ) {
             const conn = ctx.connRegistry.get(connectionId);
             if (conn) {
               reattachChat(found.clientId, conn.transport);
@@ -1978,6 +1989,8 @@ export function handleSessionSuspend(
     'ws.session_suspend',
     { 'ws.connectionId': connectionId, 'ws.sessionCount': msg.sessions.length },
     () => {
+      if (!acceptTransportLifecycle(connectionId, msg.lifecycleRevision, msg.replacesConnectionId))
+        return;
       for (const entry of msg.sessions) {
         const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
         if (!found) {

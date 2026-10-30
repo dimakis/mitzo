@@ -107,6 +107,7 @@ const profiles = {
     Object.entries(productProfiles.permissions).map(([name, value]) => [name, value.filesystem]),
   ),
   base,
+  runtimeScratch: { ...hardFence, ':tmpdir': 'write', ':slash_tmp': 'write' },
   granted: { ...base, [extra]: 'write' },
   broadPrivateHomeDenyWithoutException: { ...base, [home]: 'deny' },
   broadPrivateHomeDeny: { ...base, [home]: 'deny', [runtime]: 'read' },
@@ -276,6 +277,21 @@ try {
     (await command('mitzo-native-agent', ['/usr/bin/touch', join(extra, 'git-escape')])).exitCode,
     0,
   );
+  // Native shell heredocs may allocate a file before running an otherwise
+  // read-only command. Qualify scratch writes with the same credential fence.
+  const heredoc = ['/bin/zsh', '-c', "cat <<'EOF'\n" + 'scratch-data\n'.repeat(2048) + 'EOF'];
+  const blockedHeredoc = await command('base', heredoc);
+  assert.notEqual(blockedHeredoc.exitCode, 0, JSON.stringify(blockedHeredoc));
+  const scratchHeredoc = await command('runtimeScratch', heredoc);
+  assert.equal(scratchHeredoc.exitCode, 0, JSON.stringify(scratchHeredoc));
+  assert.equal(scratchHeredoc.stdout, 'scratch-data\n'.repeat(2048));
+  const scratchCredentialRead = await command('runtimeScratch', ['/bin/cat', secret]);
+  assert.notEqual(scratchCredentialRead.exitCode, 0, JSON.stringify(scratchCredentialRead));
+  const scratchOutsideWrite = await command('runtimeScratch', [
+    '/usr/bin/touch',
+    join(extra, 'scratch-outside'),
+  ]);
+  assert.notEqual(scratchOutsideWrite.exitCode, 0, JSON.stringify(scratchOutsideWrite));
   const local = await command('base', ['/usr/bin/touch', join(workspace, 'allowed')]);
   assert.equal(local.exitCode, 0, JSON.stringify(local));
   assert.ok(existsSync(join(workspace, 'allowed')));
@@ -514,6 +530,12 @@ try {
           outsideWrite: 'denied',
         },
         workspaceWrite: 'allowed',
+        runtimeScratch: {
+          heredocWithoutTempAccess: 'denied',
+          heredocWithTempAccess: 'allowed',
+          credentialRead: 'denied',
+          outsideWrite: 'denied',
+        },
         outsideWrite: 'denied',
         exactAddedRootWrite: 'allowed',
         credentialReadAfterGrant: 'denied',

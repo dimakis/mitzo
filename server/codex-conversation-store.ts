@@ -1,3 +1,4 @@
+import { codexNativeProfileRevision } from './codex-native-execution-policy.js';
 import {
   CHAT_MAX_PREPARED_PROMPT_CHARS,
   ChatMessageTextSchema,
@@ -312,6 +313,7 @@ const NativeExecutionPolicySnapshotSchema = z
     enforcement: z.literal('configured'),
     scopeKind: z.literal('base-profile'),
     grantState: z.literal('upstream-owned'),
+    temporaryAccess: z.literal('runtime').optional(),
     cwd: NativePolicyPath,
     readableRoots: NativePolicyRoots,
     writableRoots: NativePolicyRoots,
@@ -327,12 +329,7 @@ const NativeExecutionPolicySnapshotSchema = z
   .superRefine((policy, context) => {
     const digest = (value: unknown) =>
       createHash('sha256').update(JSON.stringify(value)).digest('hex');
-    const profileRevision = digest([
-      policy.bindingRevision,
-      policy.readableRoots,
-      policy.deniedRoots,
-      policy.writeProtectedRoots,
-    ]);
+    const profileRevision = codexNativeProfileRevision(policy);
     const policyRevision = digest([
       profileRevision,
       policy.cwd,

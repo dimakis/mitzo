@@ -5359,6 +5359,46 @@ describe('stale session cleanup removes registry entry', () => {
 // ─── handleSessionSuspend ───────────────────────────────────────────────────
 
 describe('handleSessionSuspend', () => {
+  it('ignores a background request arriving after a newer foreground replay', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'lifecycle-conn:sess-1',
+      session: { sessionId: 'sess-1' },
+    });
+    const ctx = createContext({ sessionRegistry: sessionReg as never });
+    ctx.connRegistry.register('lifecycle-conn', mockTransport());
+    claimTransportConnection('lifecycle-conn', 'lifecycle-auth');
+    handleReconnect(
+      'lifecycle-conn',
+      {
+        type: 'reconnect',
+        lifecycleRevision: 2,
+        sessions: [{ sessionId: 'sess-1', lastSeq: 42 }],
+      },
+      ctx,
+    );
+    handleSessionSuspend(
+      'lifecycle-conn',
+      {
+        type: 'session_suspend',
+        lifecycleRevision: 1,
+        sessions: [{ sessionId: 'sess-1', lastSeq: 42 }],
+      },
+      ctx,
+    );
+    expect(sessionReg.suspend).not.toHaveBeenCalled();
+    handleSessionSuspend(
+      'lifecycle-conn',
+      {
+        type: 'session_suspend',
+        lifecycleRevision: 3,
+        sessions: [{ sessionId: 'sess-1', lastSeq: 42 }],
+      },
+      ctx,
+    );
+    expect(sessionReg.suspend).toHaveBeenCalledTimes(1);
+  });
+
   it('suspends sessions owned by the connection', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({
@@ -5444,6 +5484,115 @@ describe('handleSessionSuspend', () => {
 // ─── handleReconnect — suspend resume ───────────────────────────────────────
 
 describe('handleReconnect suspend resume', () => {
+  it('transfers explicit same-login stream continuity before the predecessor closes', () => {
+    vi.mocked(reattachChat).mockClear();
+    const sessions = new SessionRegistry();
+    const oldTransport = mockTransport();
+    const currentTransport = mockTransport();
+    sessions.register('continuity-old:session', {
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId: 'session',
+      ownerConnectionId: 'continuity-old',
+      transport: oldTransport,
+    });
+    sessions.suspend('continuity-old:session', 0);
+    const ctx = createContext({ sessionRegistry: sessions });
+    ctx.connRegistry.register('continuity-old', oldTransport);
+    ctx.connRegistry.register('continuity-new', currentTransport);
+    claimTransportConnection('continuity-old', 'same-login');
+    claimTransportConnection('continuity-new', 'same-login');
+    try {
+      handleReconnect(
+        'continuity-new',
+        {
+          type: 'reconnect',
+          lifecycleRevision: 2,
+          replacesConnectionId: 'continuity-old',
+          sessions: [{ sessionId: 'session', lastSeq: 0 }],
+        },
+        ctx,
+      );
+      expect(sessions.get('continuity-old:session')?.ownerConnectionId).toBe('continuity-new');
+      expect(reattachChat).toHaveBeenCalledWith('continuity-old:session', currentTransport);
+      handleSessionSuspend(
+        'continuity-old',
+        {
+          type: 'session_suspend',
+          lifecycleRevision: 1,
+          sessions: [{ sessionId: 'session', lastSeq: 0 }],
+        },
+        ctx,
+      );
+      expect(sessions.isSuspended('continuity-old:session')).toBe(false);
+    } finally {
+      sessions.remove('continuity-old:session');
+    }
+  });
+  it('recovers when successor suspension arrives before its origin-bearing replay', () => {
+    vi.mocked(reattachChat).mockClear();
+    const sessions = new SessionRegistry();
+    const oldTransport = mockTransport();
+    const nextTransport = mockTransport();
+    sessions.register('early-old:session', {
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId: 'session',
+      ownerConnectionId: 'early-old',
+      transport: oldTransport,
+    });
+    const ctx = createContext({ sessionRegistry: sessions });
+    ctx.connRegistry.register('early-old', oldTransport);
+    ctx.connRegistry.register('early-new', nextTransport);
+    claimTransportConnection('early-old', 'early-login');
+    claimTransportConnection('early-new', 'early-login');
+    const interest = [{ sessionId: 'session', lastSeq: 0 }];
+    try {
+      handleReconnect(
+        'early-old',
+        { type: 'reconnect', lifecycleRevision: 1, sessions: interest },
+        ctx,
+      );
+      sessions.suspend('early-old:session', 0);
+      handleSessionSuspend(
+        'early-new',
+        {
+          type: 'session_suspend',
+          lifecycleRevision: 3,
+          replacesConnectionId: 'early-old',
+          sessions: interest,
+        },
+        ctx,
+      );
+      handleReconnect(
+        'early-new',
+        {
+          type: 'reconnect',
+          lifecycleRevision: 2,
+          replacesConnectionId: 'early-old',
+          sessions: interest,
+        },
+        ctx,
+      );
+      expect(reattachChat).not.toHaveBeenCalled();
+      handleReconnect(
+        'early-new',
+        {
+          type: 'reconnect',
+          lifecycleRevision: 4,
+          replacesConnectionId: 'early-old',
+          sessions: interest,
+        },
+        ctx,
+      );
+      expect(sessions.get('early-old:session')?.ownerConnectionId).toBe('early-new');
+      expect(sessions.isSuspended('early-old:session')).toBe(false);
+    } finally {
+      sessions.remove('early-old:session');
+    }
+  });
   it('keeps a pending approval actionable when the app resumes on a new connection', () => {
     const sessionReg = new SessionRegistry();
     const oldTransport = mockTransport();
