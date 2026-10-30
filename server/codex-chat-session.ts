@@ -1,4 +1,6 @@
 import { assembleReplyText, captureMessageReply } from './message-reply-context.js';
+import { sessionLocalServiceTools } from './session-local-service-tools.js';
+import { sessionGoogleWorkspaceTools } from './session-google-workspace-tools.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import type { CodexToolResult } from './codex-tool-result.js';
@@ -1793,10 +1795,32 @@ async function openCodexChatBound(
   const localExecutionTools = nativeExecutionEnabled
     ? nativeToolDefinitions.filter((tool) => !['Bash', 'Read', 'Write', 'Edit'].includes(tool.name))
     : nativeToolDefinitions;
+  const googleWorkspaceTools = options.ownedLocal
+    ? sessionGoogleWorkspaceTools({
+        sessionId: options.conversationId,
+        session: options.session,
+        registry: options.registry,
+        assertCurrent: assertHostCurrent,
+        assertCurrentSync: assertHostCurrentSync,
+      })
+    : undefined;
+  const googleReadOutputScope = createHash('sha256').update(randomUUID()).digest('hex');
+  const localServiceTools = options.ownedLocal
+    ? sessionLocalServiceTools({
+        sessionId: options.conversationId,
+        session: options.session,
+        registry: options.registry,
+        assertCurrent: assertHostCurrent,
+        assertCurrentSync: assertHostCurrentSync,
+      })
+    : undefined;
+  const localServiceDefinitions = localServiceTools?.definitions ?? [];
   const ownedToolNames = options.ownedLocal
     ? new Set(
         [
           ...localExecutionTools,
+          ...localServiceDefinitions,
+          ...(googleWorkspaceTools?.definitions ?? []),
           ...mcp.definitions,
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
@@ -1933,6 +1957,8 @@ async function openCodexChatBound(
       ? createIntegrationToolDiscovery({
           tools: filterAgentTools(options.session, mcp.definitions),
           directTools: filterAgentTools(options.session, [
+            ...localServiceDefinitions,
+            ...(googleWorkspaceTools?.definitions ?? []),
             ...profileToolDefinitions,
             ...agentTaskToolDefinitions,
             ...agentCommunicationDefinitions,
@@ -2096,6 +2122,10 @@ async function openCodexChatBound(
     : options.ownedLocal
       ? options.systemPrompt +
         (nativeExecution ? NATIVE_MAC_EXECUTION_INSTRUCTIONS : HOST_TOOL_INSTRUCTIONS) +
+        (localServiceTools?.instructions ?? '') +
+        (googleWorkspaceTools?.definitions.length
+          ? '\nUse GoogleWorkspaceRead for Google Drive, Docs, Sheets, Slides and Calendar reads. Discover its full schema with DescribeIntegrationTool. This controller tool uses the existing Google sign-in after exact approval; shell gws has no credential access.\n'
+          : '') +
         WEB_ACCESS_INSTRUCTIONS +
         GITHUB_PUBLISHING_INSTRUCTIONS +
         (localRepositoryReadDefinitions.some((tool) => agentToolAllowed(options.session, tool.name))
@@ -2218,6 +2248,8 @@ async function openCodexChatBound(
     options.ownedLocal
       ? [
           ...localExecutionTools,
+          ...localServiceDefinitions,
+          ...(googleWorkspaceTools?.definitions ?? []),
           ...mcp.definitions,
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
@@ -2269,7 +2301,9 @@ async function openCodexChatBound(
         filterAgentTools(options.session, mcp.definitions).length > 0 ||
         selectedDirectToolDefinitions.some(
           ({ name }) =>
-            name === 'GitHubRead' || (options.ownedOpenShell && openShellReadToolNames.has(name)),
+            name === 'GitHubRead' ||
+            name === 'GoogleWorkspaceRead' ||
+            (options.ownedOpenShell && openShellReadToolNames.has(name)),
         ),
     ),
     ...(integrationDiscovery?.definitions ?? []),
@@ -3016,6 +3050,25 @@ async function openCodexChatBound(
         }
       : {}),
     executeTool: async (name, input, signal, callContext) => {
+      if (name === 'GoogleWorkspaceRead' && googleWorkspaceTools) {
+        callContext.assertCurrentSync?.();
+        assertAgentToolSelected(options.session, name);
+        const result = await googleWorkspaceTools.execute(input, signal);
+        callContext.assertCurrentSync?.();
+        if (result.isError) return result;
+        return {
+          ...result,
+          content: projectToolOutput(result.content, (full) =>
+            privateStorage.retainToolOutput(
+              options.conversationId,
+              options.binding,
+              name,
+              full,
+              googleReadOutputScope,
+            ),
+          ),
+        };
+      }
       if (options.adviserScope) throw new CodexToolFailure('permission_denied');
       if (ownedHost && localEfficiencyDefinitions.some((tool) => tool.name === name)) {
         callContext.assertCurrentSync?.();
@@ -3098,7 +3151,11 @@ async function openCodexChatBound(
           current();
           return { content: JSON.stringify(result), isError: false };
         }
-        if (output.toolName === 'GitHubRead') {
+        if (output.toolName === 'GoogleWorkspaceRead') {
+          if (!googleWorkspaceTools || output.sourceScope !== googleReadOutputScope)
+            throw new CodexToolFailure('stale_owner');
+          await googleWorkspaceTools.assertCurrent();
+        } else if (output.toolName === 'GitHubRead') {
           assertHostCurrentSync();
           if (output.sourceScope !== githubReadOutputScope)
             return {
@@ -3481,7 +3538,9 @@ async function openCodexChatBound(
       const profileResult = await localProfileTools?.execute(name, input, signal, callContext);
       if (profileResult) return profileResult;
       const keychainResult = options.ownedLocal
-        ? undefined
+        ? localServiceTools?.handles(name)
+          ? await localServiceTools.execute(name, input, signal, callContext)
+          : undefined
         : await connectionTools.execute(name, input, signal, callContext);
       if (keychainResult) return keychainResult;
       if (name === REQUEST_GITHUB_PUBLISH) return githubPublishing(input, signal, callContext);

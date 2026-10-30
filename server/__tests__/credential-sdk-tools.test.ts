@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { createCredentialSdkServer, credentialSdkPermission } from '../credential-sdk-tools.js';
 import * as credentialRuntime from '../credential-connections-runtime.js';
 import { SessionRegistry } from '@mitzo/harness';
+import { TurnCallbacks, assertTurnCallbackEffects } from '../turn-callbacks.js';
 const mocked = vi.hoisted(() => ({
   tools: [] as Array<{
     name: string;
@@ -47,6 +48,143 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
   ]);
   const result = await mocked.tools[0].handler({});
   expect(JSON.stringify(result)).toContain('connections');
+});
+
+function callbackSdkFixture() {
+  const effect = vi.fn(async () => '{"ok":true}');
+  const send = async (...args: unknown[]) => {
+    await (args[5] as () => Promise<void>)();
+    return effect();
+  };
+  const service = {
+    catalog: () => [{ id: 'ha', access: 'approved' }],
+    connection: () => ({
+      id: 'ha',
+      revision: 1,
+      endpoint: 'https://ha.example.com',
+      paths: ['/api/'],
+      methods: ['GET', 'POST'],
+      auth: { kind: 'bearer' },
+      serviceTemplate: 'home-assistant',
+      homeAssistantDashboards: 'read-write',
+      websocket: { path: '/api/websocket', authentication: { kind: 'headers' } },
+    }),
+    websocketRequest: vi.fn(send),
+    dashboardRequest: vi.fn(send),
+    setups: { prepare: vi.fn(() => ({ id: 'setup', status: 'pending' })) },
+    relay: { prepare: vi.fn(() => ({ id: 'relay', status: 'pending' })) },
+  };
+  const runtime = vi
+    .spyOn(credentialRuntime, 'getCredentialConnectionsRuntime')
+    .mockReturnValue(service as never);
+  const registry = new SessionRegistry();
+  registry.register('client', {
+    sessionId: 'chat',
+    mode: 'agent',
+    abortController: new AbortController(),
+  } as never);
+  const session = registry.get('client')!;
+  const callbacks = new TurnCallbacks();
+  const assert = (signal: AbortSignal) => {
+    signal.throwIfAborted();
+    assertTurnCallbackEffects();
+  };
+  createCredentialSdkServer(() => 'chat', session, registry, {
+    connectionBoundary: 'sdk-callback',
+    runCallback: (work) => callbacks.track(work),
+    assertCurrent: async (signal) => {
+      assert(signal);
+    },
+    assertCurrentSync: assert,
+  });
+  return {
+    service,
+    effect,
+    callbacks,
+    session,
+    call: (name: string, input: Record<string, unknown>) =>
+      mocked.tools
+        .find((tool) => tool.name === name)!
+        .handler(input, { signal: session.abortController.signal }),
+    close: () => {
+      runtime.mockRestore();
+      registry.dispose();
+    },
+  };
+}
+
+const callbackConnectionCases = [
+  { name: 'ConnectionWebSocket', input: { connectionId: 'ha', message: '{}' } },
+  { name: 'HomeAssistantDashboard', input: { connectionId: 'ha', operation: 'read' } },
+  {
+    name: 'PrepareConnectionSetup',
+    input: { profile: 'home-assistant', endpoint: 'https://ha.example.com' },
+  },
+  {
+    name: 'PrepareSecretRelay',
+    input: {
+      label: 'Private setup',
+      targets: [
+        {
+          connectionId: 'ha',
+          revision: 1,
+          path: '/api/notify',
+          method: 'POST',
+          encoding: 'json',
+          body: '{}',
+          fields: ['token'],
+        },
+      ],
+    },
+  },
+] satisfies Array<{ name: string; input: Record<string, unknown> }>;
+
+it.each(callbackConnectionCases)(
+  'retains legacy $name through the registered callback-fenced SDK handler',
+  async ({ name, input }) => {
+    const f = callbackSdkFixture();
+    try {
+      expect(f.session.ordinaryRuntimeOwner).toBeUndefined();
+      expect(await f.call(name, input)).toMatchObject({ isError: false });
+      const invoked =
+        name === 'ConnectionWebSocket'
+          ? f.service.websocketRequest
+          : name === 'HomeAssistantDashboard'
+            ? f.service.dashboardRequest
+            : name === 'PrepareConnectionSetup'
+              ? f.service.setups.prepare
+              : f.service.relay.prepare;
+      expect(invoked).toHaveBeenCalledOnce();
+    } finally {
+      f.close();
+    }
+  },
+);
+
+it('still fences a pending SDK frame when its original callback turn completes', async () => {
+  const f = callbackSdkFixture();
+  let release!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.service.websocketRequest.mockImplementationOnce(async (...args: unknown[]) => {
+    await barrier;
+    await (args[5] as () => Promise<void>)();
+    return f.effect();
+  });
+  try {
+    const pending = f
+      .call('ConnectionWebSocket', { connectionId: 'ha', message: '{}' })
+      .catch((error) => error);
+    await vi.waitFor(() => expect(f.service.websocketRequest).toHaveBeenCalledOnce());
+    f.callbacks.seal();
+    release();
+    expect(await pending).toMatchObject({ code: 'turn_completed' });
+    expect(f.effect).not.toHaveBeenCalled();
+  } finally {
+    release();
+    f.close();
+  }
 });
 it('enforces Ask mode and schema validation before the SDK dispatches requests', () => {
   const registry = new SessionRegistry();

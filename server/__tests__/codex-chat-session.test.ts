@@ -3634,6 +3634,8 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
   });
   const credentialModule = await import('../session-credential-tools.js');
   const { profileToolDefinitions } = await import('../session-profile-tools.js');
+  const { nativeConnectionToolNames } = await import('../credential-connection-tools.js');
+  const { knowledgeToolDefinitions } = await import('../session-knowledge-tools.js');
   const connectionExecute = vi.fn(async () => ({
     content: 'Unexpected helper effect',
     isError: false,
@@ -3664,6 +3666,8 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
           .filter((tool) => !['Bash', 'Read', 'Write', 'Edit'].includes(tool.name))
           .map((tool) => tool.name),
         ...profileToolDefinitions.map((tool) => tool.name),
+        ...nativeConnectionToolNames,
+        ...knowledgeToolDefinitions.map((tool) => tool.name),
         'AgentReadTasks',
         'AgentProposeTask',
         'AgentCommunication',
@@ -3696,12 +3700,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
       return Object.freeze(context);
     };
     vi.mocked(f.lease.assertCurrent).mockClear();
-    for (const name of [
-      'ListConnections',
-      'PrepareRepositoryChat',
-      'Capability_fixture',
-      'UnknownAlias',
-    ])
+    for (const name of ['PrepareRepositoryChat', 'Capability_fixture', 'UnknownAlias'])
       await expect(
         execute(name, {}, new AbortController().signal, { turnId: 'turn', callId: name }),
       ).rejects.toThrow('Tool unavailable for owned local Codex chat');
@@ -3856,7 +3855,7 @@ it('ignores trusted project command hooks and SessionStart context for the owned
     chat = await openCodexChat(f.opts);
     expect(existsSync(marker)).toBe(false);
     expect(mocks.conversationOptions?.systemPrompt).not.toContain('UNADMITTED PROJECT CONTEXT');
-    expect(mocks.conversationOptions?.systemPrompt).not.toContain('ListConnections');
+    expect(mocks.conversationOptions?.systemPrompt).toContain('ListConnections');
     expect(mocks.conversationOptions?.beforeComplete).toBeUndefined();
     expect(existsSync(marker)).toBe(false);
   } finally {

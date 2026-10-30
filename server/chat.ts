@@ -3042,6 +3042,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                       session,
                       registry,
                       {
+                        connectionBoundary: 'sdk-callback',
                         runCallback: state.runCallback,
                         assertCurrentSync: (signal) => {
                           signal.throwIfAborted();

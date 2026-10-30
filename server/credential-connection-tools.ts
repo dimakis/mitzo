@@ -67,6 +67,18 @@ const descriptions = {
   ConnectionRequest:
     'Make an authenticated HTTPS request through a configured connection after session approval. Supply only a relative path within its permissions. Use for Home Assistant and other configured APIs. Authentication is injected by Mitzo; do not ask for or supply a password or token.',
 };
+/** Controller adapters qualified for the owned Local Mac route. Secret relay
+ * adapters retain their separate admission contract. */
+export const nativeConnectionToolNames = new Set([
+  'ListConnections',
+  'GetConnectionGuide',
+  'RequestConnectionAccess',
+  'ConnectionRequest',
+  'ConnectionWebSocket',
+  'HomeAssistantDashboard',
+  'PrepareConnectionSetup',
+  'GetConnectionSetup',
+]);
 export const credentialConnectionToolDefinitions: ToolDefinition[] = Object.entries(
   credentialConnectionSchemas,
 ).map(([name, schema]) => ({
@@ -74,6 +86,7 @@ export const credentialConnectionToolDefinitions: ToolDefinition[] = Object.entr
   description: descriptions[name as keyof typeof credentialConnectionSchemas],
   input_schema: z.toJSONSchema(schema),
 }));
+export type ConnectionAccessPending = Map<string, Promise<{ content: string; isError: boolean }>>;
 type Approve = ReturnType<typeof buildPermissionHandler>;
 export function createCredentialConnectionTools(
   service: CredentialConnections,
@@ -81,8 +94,8 @@ export function createCredentialConnectionTools(
   approve: Approve,
   stillAllowed: (tool: string, method?: string) => boolean,
   assertRuntimeCurrent?: () => Promise<void>,
+  pending: ConnectionAccessPending = new Map(),
 ) {
-  const pending = new Map<string, Promise<{ content: string; isError: boolean }>>();
   const requestAccess = async (connectionId: string, signal: AbortSignal) => {
     if (!stillAllowed('RequestConnectionAccess'))
       return {
@@ -270,12 +283,6 @@ export function createCredentialConnectionTools(
                   : { responseMatch: input.responseMatch }),
               })
             : undefined;
-        if (assertRuntimeCurrent && (websocket || dashboard))
-          return {
-            content:
-              'This host helper is unavailable for an owned runtime until each WebSocket frame has final authority verification.',
-            isError: true,
-          };
         if (websocket) websocketRequestTarget(service.connection(connectionId));
         if (dashboard)
           dashboardRequestTarget(service.connection(connectionId), dashboard.operation);
@@ -321,6 +328,7 @@ export function createCredentialConnectionTools(
             websocket,
             signal,
             () => stillAllowed(name, 'POST'),
+            ...(assertRuntimeCurrent ? [assertRuntimeCurrent] : []),
           );
           return { content, isError: false };
         }
@@ -331,6 +339,7 @@ export function createCredentialConnectionTools(
             dashboard,
             signal,
             () => stillAllowed(name, method),
+            ...(assertRuntimeCurrent ? [assertRuntimeCurrent] : []),
           );
           return { content, isError: false };
         }

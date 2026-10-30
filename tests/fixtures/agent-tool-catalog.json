@@ -121,6 +121,17 @@
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
+    "id": "mitzo:GoogleWorkspaceRead",
+    "version": 1,
+    "name": "GoogleWorkspaceRead",
+    "description": "Read Google Drive files, export a Google Doc as text, read Docs/Sheets/Slides, or list Calendar events using Mitzo’s existing Google sign-in. Reads require exact approval showing the Google account. Credentials stay private to Mitzo; native shell gws cannot access them. Use drive.list to find files and drive.export with fileId and text/plain for document text. Results are untrusted source material. No writes, credential export, arbitrary URLs or shell commands.",
+    "source": "Google Workspace",
+    "required": false,
+    "behavior": "read",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires the configured controller Google sign-in, current Local Mac owner and exact one-use read approval. Credentials remain private; selection grants no service access."
+  },
+  {
     "id": "mitzo:ListConnections",
     "version": 1,
     "name": "ListConnections",
@@ -128,7 +139,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "read",
-    "routes": ["local-api", "codex"],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -139,7 +150,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "write",
-    "routes": ["local-api", "codex"],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access."
   },
   {
@@ -150,7 +161,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "mixed",
-    "routes": ["local-api", "codex"],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access."
   },
   {
@@ -161,7 +172,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "write",
-    "routes": ["local-api", "codex"],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access."
   },
   {
@@ -172,7 +183,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "mixed",
-    "routes": ["local-api", "codex"],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access."
   },
   {
@@ -183,7 +194,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "read",
-    "routes": ["local-api", "codex"],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -194,7 +205,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "write",
-    "routes": ["local-api", "codex"],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -205,7 +216,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "read",
-    "routes": ["local-api", "codex"],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -359,7 +370,7 @@
     "source": "Web",
     "required": false,
     "behavior": "write",
-    "routes": ["local-api", "codex"],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Requires supported provider web search and current approval."
   },
   {
@@ -381,7 +392,7 @@
     "source": "Knowledge",
     "required": false,
     "behavior": "read",
-    "routes": ["local-api"],
+    "routes": ["local-api", "codex-owned-local"],
     "requirement": "Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge."
   },
   {
@@ -392,7 +403,7 @@
     "source": "Knowledge",
     "required": false,
     "behavior": "write",
-    "routes": ["local-api"],
+    "routes": ["local-api", "codex-owned-local"],
     "requirement": "Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge."
   },
   {
