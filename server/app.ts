@@ -3946,6 +3946,11 @@ app.use(
       const previous = getCodexConversationStore().steeringReceipt(id, _binding, input);
       if (previous)
         return { status: previous.status === 'claimed' ? 'uncertain' : previous.status };
+      if (
+        eventStore.hasUserMessage(id, input.requestId) ||
+        eventStore.getSendCommand(input.requestId)
+      )
+        throw Error('Correction identity already reserved');
       const session = registry.findBySessionId(id)?.session;
       if (!session) return { status: 'stale_target' };
       const runtime = getCodexRuntime(session);

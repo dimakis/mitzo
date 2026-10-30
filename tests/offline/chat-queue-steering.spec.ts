@@ -27,7 +27,7 @@ for (const theme of ['dark', 'light'])
     const queued: unknown[] = [],
       steered: Record<string, unknown>[] = [],
       stopped: unknown[] = [];
-    let reject = false;
+    let status: 'accepted' | 'stale_target' | 'uncertain' = 'accepted';
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.route('**/*', (route) => {
@@ -44,8 +44,8 @@ for (const theme of ['dark', 'light'])
         const body = route.request().postDataJSON();
         steered.push(body);
         return route.fulfill({
-          status: reject ? 409 : 200,
-          json: { requestId: body.requestId, status: reject ? 'stale_target' : 'accepted' },
+          status: status === 'stale_target' ? 409 : 200,
+          json: { requestId: body.requestId, status },
         });
       }
       if (path.startsWith('/api/')) return route.fulfill({ json: [] });
@@ -99,11 +99,21 @@ for (const theme of ['dark', 'light'])
       text: 'The current priorities are fine.',
     });
     expect(stopped).toHaveLength(0);
-    reject = true;
+    status = 'stale_target';
     await input.fill('A later correction');
     await page.getByRole('button', { name: 'Steer current turn', exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('That turn has finished');
     await expect(input).toHaveValue('A later correction');
+    status = 'uncertain';
+    await input.fill('An unconfirmed correction');
+    await page.getByRole('button', { name: 'Steer current turn', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('delivery not confirmed');
+    await expect(input).toHaveValue('An unconfirmed correction');
+    await input.fill('A separate queued task');
+    await input.press('Enter');
+    await expect.poll(() => queued.length).toBe(2);
+    await expect(input).toHaveValue('');
+
     await page.getByRole('button', { name: 'Stop generation', exact: true }).click();
     await expect.poll(() => stopped.length).toBe(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(

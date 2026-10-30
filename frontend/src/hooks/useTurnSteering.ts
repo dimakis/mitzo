@@ -44,8 +44,9 @@ export function useTurnSteering(
   const [, render] = useState(0);
   const [feedback, setFeedback] = useState<{ owner: object; error: string }>();
   const selected = owner.current;
-  const error =
-    feedback?.owner === selected
+  const error = selected.busy
+    ? ''
+    : feedback?.owner === selected
       ? feedback.error
       : selected.blocked
         ? 'Saved correction is unavailable. Keep this draft.'
@@ -107,8 +108,11 @@ export function useTurnSteering(
     }
     if (status === 'accepted' || status === 'rejected' || status === 'stale_target') {
       try {
-        chatStorage.removeItem(key(scope.sessionId));
-        await chatStorage.flush();
+        const saved = retained(scope.sessionId);
+        if (saved?.requestId === input.requestId) {
+          chatStorage.removeItem(key(scope.sessionId));
+          await chatStorage.flush();
+        }
       } catch {
         /* Native identity remains idempotent if a stale receipt survives reload. */
       }

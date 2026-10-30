@@ -5,6 +5,7 @@ it('restores late reply ownership and queued messages from the same immutable pr
   const rows = [
     ['user_message', { messageId: 'a', text: 'First' }],
     ['ordinary_provider_dispatch_started', { messageId: 'a' }],
+    ['ordinary_command_state', { messageId: 'b', commandState: 'queued' }],
     ['user_message', { messageId: 'b', text: 'Correction' }],
     [
       'ordinary_reply_source',
@@ -36,5 +37,29 @@ it('restores late reply ownership and queued messages from the same immutable pr
     expect(messages.find((m) => m.messageId === 'reply')).toMatchObject({ replyToMessageId: 'a' });
     expect(messages.find((m) => m.messageId === 'b')).toMatchObject({ commandState: 'queued' });
     expect(JSON.stringify(messages)).not.toContain('private');
+  }
+});
+
+it('leaves already answered legacy input unknown and restores a first queued native command before dispatch', () => {
+  const events = [
+    ['user_message', { messageId: 'legacy', text: 'Old task' }],
+    ['message_start', { messageId: 'old-answer' }],
+    ['message_end', { messageId: 'old-answer' }],
+    ['session_end', {}],
+    ['ordinary_command_state', { messageId: 'native', commandState: 'queued' }],
+    ['user_message', { messageId: 'native', text: 'New task' }],
+  ].map(([type, payload], i) => ({
+    seq: i + 1,
+    sessionId: 'chat',
+    createdAt: i,
+    type,
+    payload,
+  })) as StoredEvent[];
+  for (const messages of [
+    replayEventsToMessages(events),
+    replayEventsToTranscript(events).messages,
+  ]) {
+    expect(messages.find((m) => m.messageId === 'legacy')?.commandState).toBeUndefined();
+    expect(messages.find((m) => m.messageId === 'native')?.commandState).toBe('queued');
   }
 });

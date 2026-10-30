@@ -194,3 +194,26 @@ it('queues Enter during a guarded running turn and leaves steering as an explici
   expect(onSend).toHaveBeenCalledOnce();
   expect(onInterrupt).not.toHaveBeenCalled();
 });
+
+it('allows a distinct queued draft after uncertain steering without resending the correction', () => {
+  const send = vi.fn(() => true),
+    steer = vi.fn((_text, _images, _context, delivery) => delivery('uncertain'));
+  render(
+    <ChatInput
+      onSend={send}
+      onStop={() => {}}
+      onInterrupt={steer}
+      interruptLabel="Steer current turn"
+      guardedConversation
+      running
+      sessionId="uncertain-correction"
+    />,
+  );
+  const input = screen.getByRole('textbox');
+  fireEvent.change(input, { target: { value: 'Correction' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Steer current turn' }));
+  fireEvent.change(input, { target: { value: 'A different next task' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  expect(send).toHaveBeenCalledOnce();
+  expect(steer).toHaveBeenCalledOnce();
+});

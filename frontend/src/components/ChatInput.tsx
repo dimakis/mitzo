@@ -1104,7 +1104,11 @@ export function ChatInput({
       images.length > 0 ? images : undefined,
       activeContextBlocks.length > 0 ? activeContextBlocks : undefined,
       (status) => {
-        if (status === 'uncertain') return;
+        if (status === 'uncertain') {
+          if (interruptLabel === 'Steer current turn' && interruptPending.current === pending)
+            interruptPending.current = null;
+          return;
+        }
         if (interruptPending.current === pending) interruptPending.current = null;
         if (!mounted.current || latestDraft.current.scope !== submitted.scope) return;
         if (latestDraft.current.revision !== submitted.revision) {

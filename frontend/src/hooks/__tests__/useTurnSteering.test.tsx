@@ -8,6 +8,7 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.restoreAllMocks();
+  vi.mocked(apiFetch).mockReset();
   vi.useRealTimers();
 });
 it('retains and explicitly retries the same correction after response loss, even after the active turn changes', async () => {
@@ -74,4 +75,49 @@ it('bounds a stalled correction response body and retains its identity', async (
   expect(hook.result.current.error).toMatch(/not confirmed/);
   expect(delivery).toHaveBeenCalledWith('uncertain');
   expect(localStorage.getItem('mitzo-turn-steering:chat')).toContain('Correction');
+});
+
+it('a late original receipt cannot remove a newer correction saved after returning to the chat', async () => {
+  let original!: (value: Response) => void;
+  vi.mocked(apiFetch).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        original = resolve;
+      }),
+  );
+  const hook = renderHook(({ id }) => useTurnSteering(id, 'a', true), {
+    initialProps: { id: 'chat' },
+  });
+  await act(async () => {
+    hook.result.current.submit('R1');
+  });
+  const first = JSON.parse(vi.mocked(apiFetch).mock.calls[0][1]!.body as string);
+  hook.rerender({ id: 'other' });
+  hook.rerender({ id: 'chat' });
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    Response.json({ requestId: first.requestId, status: 'accepted' }),
+  );
+  await act(async () => {
+    hook.result.current.retry();
+  });
+  vi.mocked(apiFetch).mockRejectedValueOnce(Error('lost'));
+  await act(async () => {
+    hook.result.current.submit('R2');
+  });
+  const second = localStorage.getItem('mitzo-turn-steering:chat');
+  expect(second).toContain('R2');
+  await act(async () => {
+    original(Response.json({ requestId: first.requestId, status: 'accepted' }));
+  });
+  expect(localStorage.getItem('mitzo-turn-steering:chat')).toBe(second);
+});
+it('shows sending progress while a first correction is pending', async () => {
+  vi.useFakeTimers();
+  vi.mocked(apiFetch).mockImplementation(() => new Promise(() => {}));
+  const hook = renderHook(() => useTurnSteering('chat', 'a', true));
+  await act(async () => {
+    hook.result.current.submit('Correction');
+  });
+  expect(hook.result.current.busy).toBe(true);
+  expect(hook.result.current.error).toBe('');
 });

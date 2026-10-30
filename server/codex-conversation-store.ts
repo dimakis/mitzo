@@ -2024,6 +2024,12 @@ export class CodexConversationStore {
     return this.db.transaction(() => {
       this.read(id, b);
       const data = CommandInput.parse(input);
+      if (
+        this.db
+          .prepare('SELECT 1 FROM codex_steering WHERE conversation_id=? AND request_id=?')
+          .get(id, data.id)
+      )
+        throw Error('Message ID is reserved for a correction');
       const json = JSON.stringify(data);
       const old = this.db
         .prepare('SELECT input FROM codex_commands WHERE conversation_id=? AND id=?')

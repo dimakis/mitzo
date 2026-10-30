@@ -2830,6 +2830,25 @@ async function openCodexChatBound(
         }
       : {}),
     emit: (event) => events.push(event),
+    assertSteeringCurrent: () => {
+      if (!ownedHost || !options.assertAgentContextAuthorization)
+        throw Error('Steering owner unavailable');
+      options.ownedLocal?.assertCurrentSync();
+      options.ownedOpenShell?.assertCurrentSync();
+      options.assertAgentContextAuthorization();
+    },
+    onCommandQueued: (messageId) => {
+      try {
+        options.eventStore.append(options.conversationId, 'ordinary_command_state', {
+          messageId,
+          commandState: 'queued',
+        });
+      } catch {
+        log.warn('Command display state could not be saved', {
+          conversationId: options.conversationId,
+        });
+      }
+    },
     onSteeringUpdate: (input, status) => {
       if (status === 'steering')
         options.eventStore.append(options.conversationId, 'user_message', {
@@ -2898,10 +2917,16 @@ async function openCodexChatBound(
       options.ordinaryTurnLifecycle?.terminalConflict?.(messageId, turnId),
     onProviderComplete: (messageId, status) => {
       finishTrackedProviderAttempt(options.session, messageId, status);
-      options.eventStore.append(options.conversationId, 'ordinary_command_completed', {
-        messageId,
-        status,
-      });
+      try {
+        options.eventStore.append(options.conversationId, 'ordinary_command_completed', {
+          messageId,
+          status,
+        });
+      } catch {
+        log.warn('Command display state could not be saved', {
+          conversationId: options.conversationId,
+        });
+      }
     },
     loadConversationHistory: () => codexRolloverHistory(options.eventStore, options.conversationId),
     loadSourceSnapshots: () => codexRolloverSources(options.eventStore, options.conversationId),

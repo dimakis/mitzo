@@ -288,6 +288,8 @@ export interface CodexConversationOptions {
   onQueueChange?: () => void;
   onActivity?: () => boolean | void;
   onThreadChanged?: (threadId: string) => void | Promise<void>;
+  assertSteeringCurrent?: () => void;
+  onCommandQueued?: (commandId: string) => void;
   onSteeringUpdate?: (input: CodexSteerInput, status: 'steering' | CodexSteerStatus) => void;
   onProviderDispatch?: (commandId: string) => void;
   /** Persist an exact provider turn receipt after turn/start confirms its ID. */
@@ -1329,6 +1331,7 @@ export class CodexConversation {
       // The durable enqueue has returned; time waiting for this exact command's claim.
       const timing = startCommandTimingSpan('codex.command.queue_wait', input.id, context.active());
       if (timing) this.queueTimingSpans.set(input.id, timing);
+      this.opts.onCommandQueued?.(input.id);
     }
     this.opts.onQueueChange?.();
     return { model, reasoningEffort };
@@ -4025,8 +4028,14 @@ export class CodexConversation {
       active.turnId !== target.turnId
     )
       return { status: 'stale_target' };
-    if (active.nativeExecution)
-      this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
+    try {
+      if (!this.opts.assertSteeringCurrent) return { status: 'rejected' };
+      this.opts.assertSteeringCurrent();
+      if (active.nativeExecution)
+        this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
+    } catch {
+      return { status: 'rejected' };
+    }
     if (!this.opts.store.claimSteering(this.opts.conversationId, this.binding, input, target)) {
       const retained = this.opts.store.steeringReceipt(
         this.opts.conversationId,
@@ -4058,6 +4067,7 @@ export class CodexConversation {
         active.interruptRequested
       )
         throw Error('Original turn unavailable');
+      this.opts.assertSteeringCurrent!();
       if (active.nativeExecution)
         this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
       // Exact target, no turn-level overrides; a successor can never accept it.

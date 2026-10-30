@@ -382,6 +382,7 @@ export function parseServerMessage(
       if (typeof msg.messageId === 'string')
         result.messagesActions.push({
           type: 'COMMAND_STATE',
+          seq: typeof msg.seq === 'number' ? msg.seq : undefined,
           messageId: msg.messageId,
           commandState: 'running',
         });
@@ -403,6 +404,7 @@ export function parseServerMessage(
       )
         result.messagesActions.push({
           type: 'COMMAND_STATE',
+          seq: typeof msg.seq === 'number' ? msg.seq : undefined,
           messageId: msg.messageId,
           commandState: msg.commandState as import('@mitzo/protocol').CommandState,
         });
@@ -414,6 +416,7 @@ export function parseServerMessage(
       )
         result.messagesActions.push({
           type: 'COMMAND_STATE',
+          seq: typeof msg.seq === 'number' ? msg.seq : undefined,
           messageId: msg.messageId,
           commandState: msg.status as 'completed' | 'interrupted' | 'failed',
         });

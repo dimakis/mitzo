@@ -182,7 +182,7 @@ export function ChatArea({
     completed: 'Response complete',
     ended: 'Turn ended',
     interrupted: 'Turn stopped',
-    failed: 'Not accepted',
+    failed: 'Turn failed',
     cancelled: 'Cancelled',
     steering: 'Sending correction…',
     steered: 'Correction sent to current turn',
@@ -474,7 +474,9 @@ export function ChatArea({
                     />
                     {!msg.symposiumProvenance && msg.commandState && (
                       <div className="chat-command-meta chat-command-meta--user" role="status">
-                        {commandLabels[msg.commandState]}
+                        {msg.steersMessageId && msg.commandState === 'failed'
+                          ? 'Correction not accepted'
+                          : commandLabels[msg.commandState]}
                       </div>
                     )}
                   </div>

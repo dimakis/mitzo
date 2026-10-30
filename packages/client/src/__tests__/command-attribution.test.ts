@@ -30,3 +30,14 @@ it('keeps late output attributed to A while B waits, and preserves attribution i
   state = messagesReducer(state, { type: 'MESSAGE_SNAPSHOT', messageId: 'answer-a', blocks: [] });
   expect(state.current?.replyToMessageId).toBe('a');
 });
+
+it('retains the established malformed-cache tolerance while deriving metadata', () => {
+  const state = messagesReducer(INITIAL_MESSAGES_STATE, {
+    type: 'RESTORE',
+    messages: [
+      null,
+      { messageId: 'a', role: 'user', blocks: [] },
+    ] as unknown as import('@mitzo/protocol').FinishedMessage[],
+  });
+  expect(state.messages.map((m) => m.messageId)).toEqual(['a']);
+});

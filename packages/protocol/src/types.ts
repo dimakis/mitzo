@@ -208,6 +208,7 @@ export interface FinishedBlock {
 export interface FinishedMessage {
   replyToMessageId?: string;
   commandState?: CommandState;
+  commandStateSeq?: number;
   steersMessageId?: string;
   messageId: string;
   /** Durable user_message or message_start cursor, when known. */

@@ -1,11 +1,11 @@
 # Queue, reply attribution and turn corrections
 
 Ordinary sends retain the existing native FIFO and full guarded command admission.
-Each accepted request has display-only queued/running/terminal state, while an
+Each native Codex request has explicit display-only queued/running/terminal state, while an
 assistant message's `replyToMessageId` comes from the existing durable
 `ordinary_reply_source` record. Only Mitzo command and message identities are
 projected to clients; provider identities remain private. Legacy source-less
-responses remain unattributed. Live and immutable-prefix history use the same
+responses remain unattributed, and older requests without state evidence retain no guessed status. Live and immutable-prefix history use the same
 ownership. `Preparing response…` is cleared by the submitted request's own output
 or completion rather than the previous turn's late output or terminal event.
 
@@ -15,7 +15,7 @@ The native ordinary Codex route exposes POST
 ordinary contributor control and the current retained Codex owner. Model, settings,
 attachments, workspace and authorization overrides are refused. The active target
 is captured before asynchronous binding validation and rechecked immediately before
-the provider call. Steering does not interrupt, start, retry, or reorder commands.
+the provider call. A dedicated synchronous guard also rechecks the current host/account, agent context and delegated work allocation before claiming and immediately before steering. Steering does not interrupt, start, retry, or reorder commands.
 Responses/Claude/Gemini and Symposium do not inherit a legacy replacement path.
 
 The private native store retains an atomic per-conversation correction claim and
@@ -24,7 +24,7 @@ request is never dispatched again, including after reconnect. Accepted/rejected
 receipts can be read with the same request when the runtime has ended. An explicit
 provider refusal is rejected; an absent/mismatched acknowledgment or lost transport
 response remains uncertain. The UI retains the input on refusal and uses its saved
-identity for explicit recovery, with no automatic retry on reload. Corrections keep
+identity for explicit recovery, with no automatic retry on reload. An uncertain correction leaves Queue available for a different draft, and a delayed receipt cannot remove a newer saved correction. Corrections keep
 the running turn's original account, model, permissions and workspace; changed
 future picker settings affect queued commands only.
 

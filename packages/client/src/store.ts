@@ -309,6 +309,13 @@ function mergeLiveWithDurable(
   const durableContext = durableText && splitContextPrompt(durableText.content);
   return {
     ...liveContent,
+    ...(durable.replyToMessageId ? { replyToMessageId: durable.replyToMessageId } : {}),
+    ...(durable.steersMessageId ? { steersMessageId: durable.steersMessageId } : {}),
+    ...(durable.commandState &&
+    (live.commandStateSeq === undefined ||
+      (durable.commandStateSeq !== undefined && durable.commandStateSeq >= live.commandStateSeq))
+      ? { commandState: durable.commandState, commandStateSeq: durable.commandStateSeq }
+      : {}),
     ...(durable.startedSeq !== undefined ? { startedSeq: durable.startedSeq } : {}),
     ...(durable.symposiumProvenance ? { symposiumProvenance: durable.symposiumProvenance } : {}),
     images: live.images ?? durable.images,
@@ -515,6 +522,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                     ?.commandState);
               if (
                 request &&
+                request.runtime.harness === 'codex' &&
                 state === 'consumed' &&
                 event.acknowledged === true &&
                 (!ownState || ['sending', 'queued'].includes(ownState))
@@ -979,7 +987,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             // order and blocks are applied once after the durable prefix.
             const replayedIds = new Set(
               liveActions.flatMap((action) => {
-                if ('messageId' in action && typeof action.messageId === 'string')
+                if (
+                  !['COMMAND_STATE', 'REPLY_SOURCE'].includes(action.type) &&
+                  'messageId' in action &&
+                  typeof action.messageId === 'string'
+                )
                   return [messageIdentity(action.messageId, action.symposiumProvenance)];
                 if (
                   (action.type === 'ERROR' || action.type === 'CONTROL_REJECTED') &&
@@ -1263,7 +1275,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             .map((item) => item.action);
           const replayedIds = new Set(
             liveActions.flatMap((action) =>
-              'messageId' in action && typeof action.messageId === 'string'
+              !['COMMAND_STATE', 'REPLY_SOURCE'].includes(action.type) &&
+              'messageId' in action &&
+              typeof action.messageId === 'string'
                 ? [messageIdentity(action.messageId, action.symposiumProvenance)]
                 : [],
             ),

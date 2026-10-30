@@ -14,7 +14,7 @@ const input = {
   targetCommandId: 'active',
   text: 'Current priorities are fine.',
 };
-function fixture(status = 'accepted') {
+function fixture(status: import('../codex-steering.js').CodexSteerResult['status'] = 'accepted') {
   const steer = vi.fn(async () => ({ status }));
   const authorizeMutation = vi.fn();
   const auth = { id: 'signed', expiresAt: Date.now() + 10000 };

@@ -1032,6 +1032,7 @@ async function setup(
     }),
   };
   const conversationOptions: CodexConversationOptions = {
+    assertSteeringCurrent: () => {},
     ownerKind: nativeTool?.ownerKind,
     conversationId: 'app',
     cwd: '/workspace',
@@ -8893,3 +8894,55 @@ it('rechecks the operator after publishing correction progress, before any steer
   ).toEqual({ status: 'rejected' });
   expect(f.requests.filter((r) => r.method === 'turn/steer')).toHaveLength(0);
 });
+
+it('requires the universal steering owner fence even without a native filesystem policy', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'a', prompt: 'First' });
+  f.conversationOptions.assertSteeringCurrent = () => {
+    throw Error('Delegated work revoked');
+  };
+  expect(
+    await f.c.steer(
+      { requestId: 'work-revoked', targetCommandId: 'a', text: 'Correction' },
+      () => {},
+    ),
+  ).toEqual({ status: 'rejected' });
+  expect(f.requests.filter((r) => r.method === 'turn/steer')).toHaveLength(0);
+});
+it('reserves a correction ID against later ordinary commands too', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'a', prompt: 'First' });
+  const rpc = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'turn/steer' ? { turnId: 'turn-1' } : rpc(method, params),
+  );
+  await f.c.steer({ requestId: 'shared-id', targetCommandId: 'a', text: 'Correction' }, () => {});
+  await expect(f.c.send({ id: 'shared-id', prompt: 'Another task' })).rejects.toThrow(
+    /correction|steer/i,
+  );
+});
+
+it.each(['missing', 'revoked'])(
+  'rejects %s universal steering authority before a provider effect',
+  async (mode) => {
+    const f = await setup();
+    await f.c.send({ id: 'a', prompt: 'First' });
+    if (mode === 'missing') f.conversationOptions.assertSteeringCurrent = undefined;
+    else {
+      let revoked = false;
+      f.conversationOptions.assertSteeringCurrent = () => {
+        if (revoked) throw Error('Work allocation revoked');
+      };
+      f.conversationOptions.onSteeringUpdate = (_input, status) => {
+        if (status === 'steering') revoked = true;
+      };
+    }
+    expect(
+      await f.c.steer(
+        { requestId: 'owner-fence', targetCommandId: 'a', text: 'Correction' },
+        () => {},
+      ),
+    ).toEqual({ status: 'rejected' });
+    expect(f.requests.filter((r) => r.method === 'turn/steer')).toHaveLength(0);
+  },
+);
