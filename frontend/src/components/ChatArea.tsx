@@ -1,3 +1,6 @@
+import { MessageActions } from './MessageActions';
+import type { MessageReplyContext } from '@mitzo/protocol';
+import './ChatCommandMetadata.css';
 import { useTelosCreatedItems } from '../hooks/useTelosCreatedItems';
 import { TelosCreatedItemCard } from './TelosCreatedItemCard';
 import { matchesTelosSourceBoundary } from '../lib/telos-source-boundary';
@@ -42,6 +45,7 @@ export interface SymposiumContextItem {
 }
 
 export interface ChatAreaProps {
+  onReply?: (message: MessageReplyContext) => void;
   compactions?: ContextCompaction[];
   sessionId?: string;
   /** Only ordinary conversation identities may discover durable Telos origins. */
@@ -139,6 +143,7 @@ function turnKey(messageId: string, provenance?: SymposiumProvenance): string {
 }
 
 export function ChatArea({
+  onReply,
   compactions = [],
   sessionId,
   discoverTelosOrigins = true,
@@ -165,6 +170,102 @@ export function ChatArea({
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const prevMessageCount = useRef(0);
+  const requests = useMemo(
+    () =>
+      new Map(
+        messages
+          .filter((message) => message.role === 'user' && !message.symposiumProvenance)
+          .map((message) => [message.messageId, message]),
+      ),
+    [messages],
+  );
+  const commandLabels: Record<string, string> = {
+    sending: 'Sending…',
+    queued: 'Queued — waiting for the current turn',
+    running: 'Agent is answering',
+    completed: 'Response complete',
+    ended: 'Turn ended',
+    interrupted: 'Turn stopped',
+    failed: 'Turn failed',
+    cancelled: 'Cancelled',
+    steering: 'Sending correction…',
+    steered: 'Correction sent to current turn',
+    uncertain: 'Correction delivery not confirmed',
+  };
+  function quote(reply: MessageReplyContext) {
+    return (
+      <button
+        type="button"
+        className="chat-reply-link"
+        aria-label={`Replying to: ${reply.text.slice(0, 120)}`}
+        onClick={() => {
+          const target = Array.from(
+            scrollRef.current?.querySelectorAll<HTMLElement>('[data-reply-source]') ?? [],
+          ).find((element) => element.dataset.replySource === reply.messageId);
+          target?.scrollIntoView({ block: 'center' });
+          target?.focus({ preventScroll: true });
+        }}
+      >
+        <span className="chat-reply-author">{reply.role === 'user' ? 'You' : 'Mitzo'}</span>
+        <span className="chat-reply-excerpt">{reply.text}</span>
+      </button>
+    );
+  }
+  function withActions(message: FinishedMessage, children: ReactNode) {
+    const text = message.blocks
+      .filter((block) => block.blockType === 'text')
+      .map((block) => block.content)
+      .join('\n\n');
+    // Keep the message DOM stable while session metadata enables reply controls.
+    // Replacing the text subtree here loses retained source and scroll anchors.
+    if (message.symposiumProvenance || !text.trim()) return children;
+    return (
+      <MessageActions
+        message={{
+          messageId: message.messageId,
+          role: message.role,
+          text,
+          timestamp: message.timestamp,
+        }}
+        onReply={onReply}
+        readAloud={
+          voice?.ttsAvailable
+            ? {
+                active: speakingBlockId === message.messageId,
+                onSpeak: (text) => speakBlock(message.messageId, text),
+                onStop: stopBlock,
+              }
+            : undefined
+        }
+      >
+        {children}
+      </MessageActions>
+    );
+  }
+  function replyLabel(message: FinishedMessage | StreamingMessage) {
+    if (message.symposiumProvenance || !message.replyToMessageId) return null;
+    const original = requests.get(message.replyToMessageId);
+    const text = original?.blocks.find((block) => block.blockType === 'text')?.content;
+    if (!text) return <div className="chat-command-meta">Answering an earlier message</div>;
+    const label = `Replying to: ${text.length > 120 ? text.slice(0, 120) + '…' : text}`;
+    return (
+      <button
+        type="button"
+        className="chat-reply-link"
+        aria-label={label}
+        onClick={() => {
+          const target = Array.from(
+            scrollRef.current?.querySelectorAll<HTMLElement>('[data-command-request]') ?? [],
+          ).find((element) => element.dataset.commandRequest === message.replyToMessageId);
+          target?.scrollIntoView({ block: 'center' });
+          target?.focus({ preventScroll: true });
+        }}
+      >
+        <span className="chat-reply-author">You</span>
+        <span className="chat-reply-excerpt">{text}</span>
+      </button>
+    );
+  }
   const source = useTelosSourceNavigation();
   const sourceAnchor = (message: FinishedMessage) => {
     if (source?.status !== 'ready' || source.conversationId !== sessionId) return false;
@@ -406,24 +507,44 @@ export function ChatArea({
               value: (
                 <>
                   {renderMessageAttribution?.(msg.messageId)}
-                  <UserBubble
-                    key={turnKey(msg.messageId, msg.symposiumProvenance)}
-                    sourceAnchor={sourceAnchor(msg)}
-                    text={textBlock?.content}
-                    images={msg.images}
-                    contextBlocks={msg.contextBlocks}
-                    contextInjections={msg.contextInjections}
-                    timestamp={msg.timestamp}
-                    readAloud={
-                      voice?.ttsAvailable
-                        ? {
-                            active: speakingBlockId === msg.messageId,
-                            onSpeak: (text) => speakBlock(msg.messageId, text),
-                            onStop: stopBlock,
-                          }
-                        : undefined
-                    }
-                  />
+                  <div
+                    className="chat-user-request"
+                    data-command-request={msg.messageId}
+                    data-reply-source={msg.messageId}
+                    tabIndex={-1}
+                  >
+                    {msg.inReplyTo && quote(msg.inReplyTo)}
+                    {withActions(
+                      msg,
+                      <UserBubble
+                        key={turnKey(msg.messageId, msg.symposiumProvenance)}
+                        sourceAnchor={sourceAnchor(msg)}
+                        text={textBlock?.content}
+                        images={msg.images}
+                        contextBlocks={msg.contextBlocks}
+                        contextInjections={msg.contextInjections}
+                        timestamp={msg.timestamp}
+                        readAloud={
+                          voice?.ttsAvailable
+                            ? {
+                                active: speakingBlockId === msg.messageId,
+                                onSpeak: (text) => speakBlock(msg.messageId, text),
+                                onStop: stopBlock,
+                              }
+                            : undefined
+                        }
+                      />,
+                    )}
+                    {!msg.symposiumProvenance &&
+                      msg.commandState &&
+                      !['running', 'completed', 'ended', 'steered'].includes(msg.commandState) && (
+                        <div className="chat-command-meta chat-command-meta--user" role="status">
+                          {msg.steersMessageId && msg.commandState === 'failed'
+                            ? 'Correction not accepted'
+                            : commandLabels[msg.commandState]}
+                        </div>
+                      )}
+                  </div>
                   {createdItemCards(msg)}
                   {renderMessageOutcome?.(msg.messageId)}
                 </>
@@ -520,13 +641,23 @@ export function ChatArea({
             key: `${ownerKey}:${bid}`,
             scope,
             attribution,
+            requestStatus: msg.replyToMessageId
+              ? commandLabels[requests.get(msg.replyToMessageId)?.commandState ?? '']
+              : undefined,
             block,
             streaming,
             keepVisible,
             value: (
-              <div className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}>
+              <div
+                data-reply-source={msg.messageId}
+                tabIndex={-1}
+                className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}
+              >
                 {index === 0 && (keepVisible || block.blockType === 'text') && attribution}
-                {content}
+                {block === firstVisibleText && replyLabel(msg)}
+                {!streaming && turn.kind === 'finished' && block.blockType === 'text'
+                  ? withActions(turn.value, content)
+                  : content}
               </div>
             ),
           };

@@ -11,6 +11,8 @@ interface Props {
   commandsDisabled?: boolean;
   onAttach: () => void;
   attachmentDisabled: boolean;
+  expanded?: boolean;
+  onExpand?: () => void;
   onDismiss: () => void;
   isolation?: boolean;
   onIsolationChange?: (enabled: boolean) => void;
@@ -25,6 +27,8 @@ export function ComposerTools({
   commandsDisabled,
   onAttach,
   attachmentDisabled,
+  expanded,
+  onExpand,
   onDismiss,
   isolation,
   onIsolationChange,
@@ -161,6 +165,24 @@ export function ComposerTools({
           >
             <UiIcon name="terminal" />
             <span className="composer-tools-label">Terminal · unavailable for this route</span>
+          </button>
+        )}
+        {onExpand && (
+          <button
+            type="button"
+            className="chat-input-btn"
+            aria-label={expanded ? 'Shrink input' : 'Expand input'}
+            aria-pressed={expanded}
+            onClick={() => {
+              setToolsExpanded(false);
+              onExpand();
+              onDismiss();
+            }}
+          >
+            <UiIcon name={expanded ? 'fullscreenExit' : 'fullscreen'} />
+            <span className="composer-tools-label">
+              {expanded ? 'Shrink input' : 'Expand input'}
+            </span>
           </button>
         )}
         {onIsolationChange && (

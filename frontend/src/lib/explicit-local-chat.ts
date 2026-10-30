@@ -177,6 +177,7 @@ export function normalizeLocalInventory(data: ExplicitLocalInventory): ChatRunti
   };
 }
 type ExplicitCommandContent = {
+  replyToMessageId?: string;
   clientMsgId: string;
   mode: 'ask' | 'agent' | 'auto';
   text: string;
@@ -302,6 +303,7 @@ function prepareExplicitCommand<T>(
     },
     payload: {
       text: input.text,
+      ...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
       ...(input.sourceSnapshots?.length ? { sourceSnapshots: input.sourceSnapshots } : {}),
       ...(input.images?.length ? { images: input.images } : {}),
     },

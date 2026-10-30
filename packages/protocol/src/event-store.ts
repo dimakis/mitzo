@@ -1,3 +1,4 @@
+import { MessageReplyContextSchema, type MessageReplyContext } from './message-reply.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute, resolve, sep } from 'node:path';
 import {
@@ -4024,11 +4025,98 @@ export class EventStore {
     return rows.map(rowToEvent);
   }
 
+  /** Exact ordinary source identity; only completed visible text is returned. */
+  getOrdinaryMessageReplySource(
+    sessionId: string,
+    messageId: string,
+  ): MessageReplyContext | undefined {
+    const meta = this.getSession(sessionId);
+    if (!meta || meta.symposiumConfig) return undefined;
+    const rows = this.db!.prepare(
+      `SELECT * FROM events WHERE session_id=? AND type IN ('user_message','message_start','message') AND json_extract(payload,'$.messageId')=? ORDER BY seq`,
+    ).all(sessionId, messageId) as EventRow[];
+    if (!rows.length) return undefined;
+    const events = rows.map(rowToEvent);
+    const event = events[0];
+    // Legacy SDK startup could echo an identical user event twice. It is one
+    // visible message only when every copy has the same text and public scope.
+    if (
+      events.length > 1 &&
+      events.some(
+        (copy) =>
+          copy.type !== 'user_message' ||
+          event.type !== 'user_message' ||
+          copy.payload.text !== event.payload.text,
+      )
+    )
+      return undefined;
+    if (
+      events.some(
+        (copy) =>
+          copy.seatId ||
+          copy.symposiumProvenance ||
+          copy.payload.seatId ||
+          copy.payload.symposiumProvenance,
+      )
+    )
+      return undefined;
+    const source =
+      event.type === 'user_message'
+        ? { content: event.payload.text, provenance: null }
+        : event.type === 'message'
+          ? {
+              content: Array.isArray(event.payload.blocks)
+                ? event.payload.blocks
+                    .filter(
+                      (block: Record<string, unknown>) =>
+                        block.blockType === 'text' && typeof block.content === 'string',
+                    )
+                    .map((block: Record<string, unknown>) => block.content)
+                    .join('\n\n')
+                : '',
+              provenance: null,
+            }
+          : this.getSymposiumSourceMessage(sessionId, messageId, {
+              seatId: null,
+              blockSeparator: '\n\n',
+            });
+    if (!source || source.provenance) return undefined;
+    const role =
+      event.type === 'user_message'
+        ? 'user'
+        : event.type === 'message'
+          ? event.payload.role
+          : 'assistant';
+    const parsed = MessageReplyContextSchema.safeParse({
+      messageId,
+      role,
+      text: source.content,
+      timestamp: event.createdAt,
+    });
+    return parsed.success ? parsed.data : undefined;
+  }
+  getMessageReplyContext(sessionId: string, commandId: string): MessageReplyContext | undefined {
+    const rows = this.db!.prepare(
+      `SELECT payload FROM events WHERE session_id=? AND type='message_reply_context' AND json_extract(payload,'$.messageId')=? ORDER BY seq`,
+    ).all(sessionId, commandId) as Array<{ payload: string }>;
+    if (!rows.length) return undefined;
+    const contexts = rows.map((row) =>
+      MessageReplyContextSchema.parse(JSON.parse(row.payload).context),
+    );
+    if (contexts.some((context) => JSON.stringify(context) !== JSON.stringify(contexts[0])))
+      throw Error('Reply reference changed');
+    return contexts[0];
+  }
+
   /** Completed durable text that a user may explicitly select for a later delivery. */
   getSymposiumSourceMessage(
     sessionId: string,
     messageId: string,
-    identity?: { seatId: string | null; membershipGeneration?: number | null },
+    identity?: {
+      seatId: string | null;
+      membershipGeneration?: number | null;
+      blockSeparator?: string;
+    },
   ):
     | {
         messageId: string;
@@ -4085,6 +4173,7 @@ export class EventStore {
        FROM events WHERE session_id = ? AND seq > ? AND seq < ? ORDER BY seq`,
     ).all(sessionId, start.seq, end.seq) as EventRow[];
     const textBlocks = new Set<string>();
+    const chunks = new Map<string, string>();
     let content = '';
     for (const row of events) {
       const event = rowToEvent(row);
@@ -4102,13 +4191,18 @@ export class EventStore {
         event.type === 'block_delta' &&
         textBlocks.has(blockId) &&
         typeof event.payload.delta === 'string'
-      )
+      ) {
         content += event.payload.delta;
+        chunks.set(blockId, (chunks.get(blockId) ?? '') + event.payload.delta);
+      }
     }
     return {
       messageId,
       seatId: start.seatId ?? null,
-      content,
+      content:
+        identity?.blockSeparator !== undefined
+          ? [...chunks.values()].join(identity.blockSeparator)
+          : content,
       provenance: start.symposiumProvenance ?? null,
     };
   }
