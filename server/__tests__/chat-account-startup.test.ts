@@ -1,9 +1,10 @@
-import { beforeEach, afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccountProfiles } from '../account-profiles.js';
 import { createHash } from 'node:crypto';
+import { sdkFixtureBoundary } from './fixtures/sdk-query-peer.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<object>()),
   query: vi.fn(),
@@ -24,20 +25,19 @@ vi.mock('../hook-bridge.js', async (original) => ({
   ...(await original<object>()),
   loadProjectHooks: vi.fn(),
 }));
-let privateDirectory: string;
-beforeEach(async () => {
-  privateDirectory = await mkdtemp(join(tmpdir(), 'mitzo-account-startup-private-'));
-  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', privateDirectory);
-});
-afterEach(async () => {
+function stubWorkspace(root: string) {
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private-codex'));
+}
+
+afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
-  await rm(privateDirectory, { recursive: true, force: true });
 });
 it('delivers the exact dated briefing snapshot to the mocked Codex provider and durable user history', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-source-provider-'));
-  vi.stubEnv('REPO_PATH', root);
+  stubWorkspace(root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubGlobal(
     'fetch',
@@ -148,7 +148,7 @@ it.each([false, true])(
   async (resume) => {
     vi.resetModules();
     const root = await mkdtemp(join(tmpdir(), 'mitzo-library-startup-'));
-    vi.stubEnv('REPO_PATH', root);
+    stubWorkspace(root);
     vi.stubEnv('WORKTREE_ENABLED', 'false');
     vi.stubGlobal(
       'fetch',
@@ -235,8 +235,7 @@ it.each([
   async (resume, replaced, deliveryFails) => {
     vi.resetModules();
     const root = await mkdtemp(join(tmpdir(), 'mitzo-startup-error-reference-'));
-    vi.stubEnv('REPO_PATH', root);
-    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private-codex'));
+    stubWorkspace(root);
     vi.stubEnv('WORKTREE_ENABLED', 'false');
     vi.stubGlobal(
       'fetch',
@@ -374,7 +373,7 @@ it.each([
 it('rejects unregistered and internal resumes before provider dispatch', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-owned-resume-'));
-  vi.stubEnv('REPO_PATH', root);
+  stubWorkspace(root);
   const chat = await import('../chat.js');
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
   vi.mocked(query).mockClear();
@@ -404,7 +403,7 @@ it('rejects unregistered and internal resumes before provider dispatch', async (
 it('sanitizes typed host account preflight errors before session registration', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-preflight-diagnostic-'));
-  vi.stubEnv('REPO_PATH', root);
+  stubWorkspace(root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   const chat = await import('../chat.js');
   const { CodexAppServerClient, CodexRequestError } = await import('../codex-app-server-client.js');
@@ -463,7 +462,7 @@ it.each([
   async (initialMode, updatedMode, sdkMode) => {
     vi.resetModules();
     const root = await mkdtemp(join(tmpdir(), 'mitzo-account-start-'));
-    vi.stubEnv('REPO_PATH', root);
+    stubWorkspace(root);
     vi.stubEnv('WORKTREE_ENABLED', 'false');
     vi.stubGlobal(
       'fetch',
@@ -533,7 +532,7 @@ it.each([false, true])(
   async (live) => {
     vi.resetModules();
     const root = await mkdtemp(join(tmpdir(), 'mitzo-resume-mode-'));
-    vi.stubEnv('REPO_PATH', root);
+    stubWorkspace(root);
     vi.stubEnv('WORKTREE_ENABLED', 'false');
     vi.stubGlobal(
       'fetch',
@@ -604,7 +603,7 @@ it.each([false, true])(
 it('rejects a cold resume when its persisted Anthropic model left the account catalog', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-stale-anthropic-model-'));
-  vi.stubEnv('REPO_PATH', root);
+  stubWorkspace(root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   const chat = await import('../chat.js');
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
@@ -668,7 +667,7 @@ it.each(['cold', 'zombie-downgrade', 'zombie-aba', 'zombie-unchanged'] as const)
   async (scenario) => {
     vi.resetModules();
     const root = await mkdtemp(join(tmpdir(), 'mitzo-delayed-resume-'));
-    vi.stubEnv('REPO_PATH', root);
+    stubWorkspace(root);
     vi.stubEnv('WORKTREE_ENABLED', 'false');
     vi.stubGlobal(
       'fetch',
@@ -760,7 +759,7 @@ it.each(['cold', 'zombie-downgrade', 'zombie-aba', 'zombie-unchanged'] as const)
 it('fences all ordinary startup and active-runtime entrypoints for Symposium sessions', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-symposium-fence-'));
-  vi.stubEnv('REPO_PATH', root);
+  stubWorkspace(root);
   const fetch = vi.fn();
   vi.stubGlobal('fetch', fetch);
   const chat = await import('../chat.js');
@@ -814,7 +813,7 @@ it('fences all ordinary startup and active-runtime entrypoints for Symposium ses
 it('serializes paused ordinary resume and draft conversion in both orderings', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-conversion-race-'));
-  vi.stubEnv('REPO_PATH', root);
+  stubWorkspace(root);
   vi.stubEnv('MITZO_OPENSHELL_ENABLED', '0');
   vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', '');
   const fetch = vi.fn();
@@ -924,7 +923,7 @@ it('serializes paused ordinary resume and draft conversion in both orderings', a
 it('confines protected SDK sessions and excludes configured MCPs and parent project hooks in Auto mode', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-sdk-protected-start-'));
-  vi.stubEnv('REPO_PATH', root);
+  stubWorkspace(root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '1');
   vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_DIR', join(root, 'private'));
@@ -967,7 +966,7 @@ it('confines protected SDK sessions and excludes configured MCPs and parent proj
 it('retains project hooks, settings, configured MCPs and legacy boot context under a runtime-only SDK fence', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-sdk-runtime-only-start-'));
-  vi.stubEnv('REPO_PATH', root);
+  stubWorkspace(root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '0');
   vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', join(root, 'operator-enrollment.json'));
@@ -978,7 +977,10 @@ it('retains project hooks, settings, configured MCPs and legacy boot context und
   });
   const { loadProjectHooks } = await import('../hook-bridge.js');
   vi.mocked(loadProjectHooks).mockClear();
-  const projectHooks = { SessionStart: [{ hooks: [vi.fn()] }] };
+  const startupOutput = { systemMessage: 'original project startup' };
+  const originalStartup = vi.fn(async () => startupOutput);
+  const projectHooks = { SessionStart: [{ matcher: '*', timeout: 17, hooks: [originalStartup] }] };
+  let startupWork: Promise<unknown> | undefined;
   vi.mocked(loadProjectHooks).mockReturnValue(projectHooks as never);
   const boundary = await import('../credential-sdk-boundary.js');
   const protectedCommands = await import('../protected-sdk-command.js');
@@ -989,7 +991,8 @@ it('retains project hooks, settings, configured MCPs and legacy boot context und
   const runnerFactory = vi
     .spyOn(protectedCommands, 'createWorkspaceRuntimeCommandRunner')
     .mockReturnValue(projectRunner);
-  const outerSpawn = vi.fn();
+  const child = sdkFixtureBoundary().spawnClaudeCodeProcess();
+  const outerSpawn = vi.fn(() => child);
   const fence = vi.spyOn(boundary, 'credentialSdkBoundary').mockReturnValue({
     credentialIsolation: false,
     deniedRoots: [],
@@ -1005,12 +1008,37 @@ it('retains project hooks, settings, configured MCPs and legacy boot context und
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
   let inspected = false;
   vi.mocked(query).mockImplementation(({ options }) => {
-    expect(options?.spawnClaudeCodeProcess).toBe(outerSpawn);
+    expect(options?.spawnClaudeCodeProcess).toBeTypeOf('function');
+    const launch = {
+      command: 'offline-fixture',
+      args: [],
+      env: {},
+      signal: new AbortController().signal,
+    };
+    expect(options!.spawnClaudeCodeProcess!(launch)).toBe(child);
+    expect(outerSpawn).toHaveBeenCalledWith(launch);
     expect(options?.settingSources).toEqual(['project']);
     expect(options?.strictMcpConfig).toBeUndefined();
     expect(options?.mcpServers).toHaveProperty('project');
     expect(options?.allowedTools).toContain('mcp__project__*');
-    expect(options?.hooks?.SessionStart).toBe(projectHooks.SessionStart);
+    expect(options?.hooks?.SessionStart).toHaveLength(projectHooks.SessionStart.length);
+    expect(options?.hooks?.SessionStart?.[0].hooks).toHaveLength(
+      projectHooks.SessionStart[0].hooks.length,
+    );
+    expect(options?.hooks?.SessionStart?.[0]).toMatchObject({ matcher: '*', timeout: 17 });
+    startupWork = Promise.resolve(
+      options!.hooks!.SessionStart![0].hooks[0](
+        {
+          hook_event_name: 'SessionStart',
+          session_id: 'offline',
+          cwd: root,
+          transcript_path: '/fixture',
+          source: 'startup',
+        } as import('@anthropic-ai/claude-agent-sdk').HookInput,
+        undefined,
+        { signal: new AbortController().signal },
+      ),
+    );
     inspected = true;
     throw new Error('fixture stops before any model request');
   });
@@ -1021,6 +1049,8 @@ it('retains project hooks, settings, configured MCPs and legacy boot context und
       mode: 'auto',
     });
     expect(inspected).toBe(true);
+    await expect(startupWork).resolves.toEqual(startupOutput);
+    expect(originalStartup).toHaveBeenCalledOnce();
     expect(loadProjectHooks).toHaveBeenCalledWith(root, expect.any(Object), projectRunner);
     expect(projectRunner).toHaveBeenCalledWith(
       'python3',
@@ -1033,7 +1063,7 @@ it('retains project hooks, settings, configured MCPs and legacy boot context und
         fullMarkdown: 'synthetic local boot context',
       }),
     );
-    expect(outerSpawn).not.toHaveBeenCalled();
+    expect(outerSpawn).toHaveBeenCalledOnce();
   } finally {
     fence.mockRestore();
     runnerFactory.mockRestore();

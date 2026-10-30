@@ -244,6 +244,7 @@ import {
   readCodexCapacityRecovery,
 } from './codex-chat-session.js';
 import { createCodexQueueRouter } from './codex-queue-routes.js';
+import { createCallbackIncidentRepairRouter } from './callback-incident-repair.js';
 import { assertRepositoryTaskRetirement } from './repository-task-retirement.js';
 import { createCodexPathProtection } from './codex-private-path.js';
 import { isWorkspaceRuntimeAuthorityWritePath } from './workspace-runtime-private-paths.js';
@@ -3958,6 +3959,22 @@ function assertQueueOperator(id: string, authorization?: import('./auth.js').Aut
   );
 }
 
+mountObservedRouter(
+  app,
+  '/api/sessions',
+  createCallbackIncidentRepairRouter({
+    enabled: () => process.env.MITZO_CALLBACK_INCIDENT_REPAIR_ENABLED === '1',
+    originalSourceRoot: () => {
+      const root = process.env.MITZO_CALLBACK_INCIDENT_ORIGINAL_SOURCE;
+      if (!root) throw Error('Original accepted source unavailable');
+      return root;
+    },
+    events: eventStore,
+    native: getCodexConversationStore,
+    registry,
+    authorize: assertQueueOperator,
+  }),
+);
 mountObservedRouter(
   app,
   '/api/sessions',

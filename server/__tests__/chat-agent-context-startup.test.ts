@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { AccountProfiles } from '../account-profiles.js';
 import { AgentContextRecipeSchema, type AgentContextRecipe } from '@mitzo/protocol';
 import { ContextPackStore } from '../context-pack-store.js';
+import { sdkFixtureBoundary } from './fixtures/sdk-query-peer.js';
 
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<object>()),
@@ -545,7 +546,8 @@ it.each([false, true])(
     const protectedRunner = vi
       .fn()
       .mockResolvedValue({ stdout: 'Unexpected fallback', stderr: '' });
-    const outerSpawn = vi.fn();
+    const child = sdkFixtureBoundary().spawnClaudeCodeProcess();
+    const outerSpawn = vi.fn(() => child);
     if (runtimeOnly) {
       const boundary = await import('../credential-sdk-boundary.js');
       vi.spyOn(boundary, 'credentialSdkBoundary').mockReturnValue({
@@ -569,7 +571,17 @@ it.each([false, true])(
         'Unaccepted task instruction must not enter context.',
       );
       const { query } = await import('@anthropic-ai/claude-agent-sdk');
-      vi.mocked(query).mockImplementation(() => {
+      vi.mocked(query).mockImplementation((args) => {
+        if (runtimeOnly) {
+          const launch = {
+            command: 'offline-fixture',
+            args: [],
+            env: {},
+            signal: new AbortController().signal,
+          };
+          expect(args.options!.spawnClaudeCodeProcess!(launch)).toBe(child);
+          expect(outerSpawn).toHaveBeenCalledWith(launch);
+        }
         throw Error('Mocked provider dispatch');
       });
       await chat.startChat(transport, 'pack-context', 'Review', {
@@ -598,7 +610,9 @@ it.each([false, true])(
         vi.mocked(query).mock.calls[0][0].options?.hooks?.PostToolBatch?.length,
       ).toBeGreaterThan(0);
       if (runtimeOnly) {
-        expect(vi.mocked(query).mock.calls[0][0].options?.spawnClaudeCodeProcess).toBe(outerSpawn);
+        expect(vi.mocked(query).mock.calls[0][0].options?.spawnClaudeCodeProcess).toBeTypeOf(
+          'function',
+        );
         expect(vi.mocked(query).mock.calls[0][0].options?.strictMcpConfig).toBeUndefined();
         expect(hooks.loadProjectHooks).toHaveBeenCalledWith(
           root,
@@ -919,7 +933,8 @@ it.each([
     }
     const sdkBoundary = await import('../credential-sdk-boundary.js');
     const protectedRunner = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-    const outerSpawn = vi.fn();
+    const child = sdkFixtureBoundary().spawnClaudeCodeProcess();
+    const outerSpawn = vi.fn(() => child);
     if ('runtimeOnly' in boundary) {
       vi.stubEnv('WORKSPACE_RUNTIME_FIXTURE_ENV', 'preserved');
       vi.spyOn(sdkBoundary, 'credentialSdkBoundary').mockReturnValue({
@@ -946,7 +961,14 @@ it.each([
             interrupt: vi.fn(),
             async *[Symbol.asyncIterator]() {
               if ('runtimeOnly' in boundary) {
-                expect(args.options?.spawnClaudeCodeProcess).toBe(outerSpawn);
+                const launch = {
+                  command: 'offline-fixture',
+                  args: [],
+                  env: {},
+                  signal: new AbortController().signal,
+                };
+                expect(args.options!.spawnClaudeCodeProcess!(launch)).toBe(child);
+                expect(outerSpawn).toHaveBeenCalledWith(launch);
                 expect(args.options?.settingSources).toEqual([]);
                 expect(args.options?.strictMcpConfig).toBeUndefined();
                 expect(args.options?.mcpServers).toHaveProperty('fixture');
@@ -1125,12 +1147,32 @@ it('preserves legacy SDK hook matchers and outputs when no pack context is selec
   ];
   const hooks = await import('../hook-bridge.js');
   vi.mocked(hooks.loadProjectHooks).mockReturnValue({ PostToolBatch: project });
+  let legacyOutput: unknown;
   try {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
     vi.mocked(query).mockImplementation((args) => {
-      expect(args.options?.hooks?.PostToolBatch).toBe(project);
+      expect(args.options?.hooks?.PostToolBatch?.[0]).toMatchObject({
+        matcher: 'Read',
+        timeout: 17,
+      });
       expect(args.options?.hooks?.PreCompact).toBeUndefined();
-      return { close: vi.fn(), interrupt: vi.fn(), async *[Symbol.asyncIterator]() {} } as never;
+      return {
+        close: vi.fn(),
+        interrupt: vi.fn(),
+        async *[Symbol.asyncIterator]() {
+          const input = {
+            hook_event_name: 'PostToolBatch',
+            session_id: sessionId,
+            cwd: root,
+            transcript_path: '/fixture',
+            tool_calls: [],
+          } as unknown as import('@anthropic-ai/claude-agent-sdk').HookInput;
+          legacyOutput = await args.options!.hooks!.PostToolBatch![0].hooks[0](input, undefined, {
+            signal: new AbortController().signal,
+          });
+          yield* [];
+        },
+      } as never;
     });
     await chat.startChat(transport, 'legacy-sdk', 'Review', {
       cwd: root,
@@ -1138,6 +1180,8 @@ it('preserves legacy SDK hook matchers and outputs when no pack context is selec
       model: 'luna',
     });
     expect(query).toHaveBeenCalledOnce();
+    expect(project[0].hooks[0]).toHaveBeenCalledOnce();
+    expect(legacyOutput).toEqual({ systemMessage: 'legacy hook' });
   } finally {
     unbind();
     chat.registry.dispose();

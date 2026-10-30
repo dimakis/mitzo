@@ -409,3 +409,59 @@ it('buffered immediate completion observes detached notification state before qu
   expect(f.workspace.getHostReservation(f.reservation).state).toBe('claimed');
   expect(native.CodexAppServerClient.launchIsolated).toHaveBeenCalledOnce();
 });
+
+it('keeps a later session cleanup failure separate from its completed first command', async () => {
+  expect(await sendFirstCommand()).toMatchObject({ status: 202 });
+  const sessionId = f.reservation.conversationId;
+  const original = chat.registry.findBySessionId(sessionId)!;
+  const codex = await import('../codex-chat-session.js');
+  await vi.waitFor(() =>
+    expect(
+      codex
+        .getCodexConversationStore()
+        .commandLifecycle(sessionId, f.reservation.binding, f.request.clientMsgId).nativeTarget,
+    ).toBeDefined(),
+  );
+  lifecycle!.onNotification('turn/completed', {
+    threadId: 'offline-entry-thread',
+    turn: { id: 'offline-entry-turn', status: 'completed' },
+  });
+  await vi.waitFor(() =>
+    expect(
+      codex
+        .getCodexConversationStore()
+        .commandStatus(sessionId, f.reservation.binding, f.request.clientMsgId),
+    ).toBe('completed'),
+  );
+  chat.setSessionChangeCallback((_clientId, change) => {
+    if (change === 'end') throw Error('Offline later lifecycle cleanup failure');
+  });
+  try {
+    codex.getCodexRuntime(original.session)!.close();
+    await vi.waitFor(() =>
+      expect(
+        chat.eventStore.getSessionEvents(sessionId).filter((event) => event.type === 'error'),
+      ).toHaveLength(1),
+    );
+    const error = chat.eventStore.getLatestEvent(sessionId, 'error')!.payload;
+    expect(error).toMatchObject({
+      runtimeFailure: {
+        runtimeFailureCode: 'runtime_unavailable',
+        diagnosticId: expect.any(String),
+      },
+    });
+    expect(error).not.toHaveProperty('clientMsgId');
+    expect(error).not.toHaveProperty('retainedCommandFailure');
+    expect(
+      codex
+        .getCodexConversationStore()
+        .commandStatus(sessionId, f.reservation.binding, f.request.clientMsgId),
+    ).toBe('completed');
+    expect(chat.eventStore.getOrdinaryLocalCommandAdmission(f.request.clientMsgId)?.state).toBe(
+      'consumed',
+    );
+    expect(native.CodexAppServerClient.launchIsolated).toHaveBeenCalledOnce();
+  } finally {
+    chat.setSessionChangeCallback(changes);
+  }
+});
