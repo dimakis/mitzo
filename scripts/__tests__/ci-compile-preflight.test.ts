@@ -47,7 +47,7 @@ it('admits expensive owners only after complete preflight, retaining conditional
           preflight: { result },
           changes: {
             result: 'success',
-            outputs: { browser: 'true', native: 'true', prepared: 'true' },
+            outputs: { browser: 'true', native: 'true', prepared: 'true', ordinary: 'true' },
           },
         }),
         name,
@@ -57,14 +57,27 @@ it('admits expensive owners only after complete preflight, retaining conditional
       preflight: { result: 'success' },
       changes: {
         result: 'success',
-        outputs: { browser: 'true', native: 'true', prepared: 'true' },
+        outputs: { browser: 'true', native: 'true', prepared: 'true', ordinary: 'true' },
       },
     };
     expect(enabled(job.if, needs), name).toBe(true);
     expect(enabled(job.if, needs, true), name).toBe(false);
-    needs.changes.outputs = { browser: 'false', native: 'false', prepared: 'false' };
+    needs.changes.outputs = {
+      browser: 'false',
+      native: 'false',
+      prepared: 'false',
+      ordinary: 'false',
+    };
     expect(enabled(job.if, needs), name).toBe(
-      !['browser', 'offline', 'native', 'prepared-consumers'].includes(name),
+      ![
+        'browser',
+        'offline',
+        'native',
+        'prepared-consumers',
+        'ordinary-journey',
+        'ordinary-joined',
+        'ordinary-supplemental',
+      ].includes(name),
     );
   }
 });

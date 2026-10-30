@@ -80,7 +80,13 @@ function fixture() {
   const run = (result = 'success') =>
     spawnSync(process.execPath, ['scripts/ci-joined-gate.mjs', root], {
       encoding: 'utf8',
-      env: { ...process.env, CI_JOINED_NEEDS: JSON.stringify({ 'ordinary-joined': { result } }) },
+      env: {
+        ...process.env,
+        CI_JOINED_NEEDS: JSON.stringify({
+          changes: { result: 'success', outputs: { ordinary: 'true' } },
+          'ordinary-joined': { result },
+        }),
+      },
     });
   return { root, run };
 }
@@ -137,11 +143,44 @@ it('requires every macOS shard and aggregate without changing the native authori
       s.run?.endsWith('run-joined-ci.mjs --shard=${{ matrix.shard }}/3'),
     ),
   ).toBe(true);
-  expect(jobs['joined-validation'].needs).toEqual(['ordinary-joined']);
+  expect(jobs['joined-validation'].needs).toEqual(['changes', 'ordinary-joined']);
   expect(jobs.ci.needs).toContain('joined-validation');
   expect(
     jobs['ordinary-journey'].steps.some(
       (s) => s.name === 'Verify signed native operator lifetime and repository tools',
     ),
   ).toBe(true);
+});
+
+function selectionGate(changes: unknown, result = 'skipped') {
+  return spawnSync(process.execPath, ['scripts/ci-joined-gate.mjs', '/missing'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CI_JOINED_NEEDS: JSON.stringify({
+        changes,
+        'ordinary-joined': { result },
+      }),
+    },
+  });
+}
+it('allows no joined artifacts only when the full-PR selector explicitly unselects the skipped matrix', () => {
+  expect(selectionGate({ result: 'success', outputs: { ordinary: 'false' } }).status).toBe(0);
+  for (const result of ['success', 'failure', 'cancelled', ''])
+    expect(
+      selectionGate({ result: 'success', outputs: { ordinary: 'false' } }, result).status,
+    ).toBe(1);
+});
+it('rejects an absent, failed or malformed selector before considering skipped joined work', () => {
+  for (const changes of [
+    undefined,
+    {},
+    { result: 'failure', outputs: { ordinary: 'false' } },
+    { result: 'cancelled', outputs: { ordinary: 'false' } },
+    { result: 'success', outputs: {} },
+    { result: 'success', outputs: { ordinary: 'unknown' } },
+    { result: 'success', outputs: { ordinary: false } },
+    { result: 'success', outputs: { ordinary: 'true' } },
+  ])
+    expect(selectionGate(changes).status).toBe(1);
 });

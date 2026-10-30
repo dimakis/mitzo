@@ -6,9 +6,7 @@ for (const name of [
   'preflight',
   'core',
   'unit-validation',
-  'ordinary-journey',
   'joined-validation',
-  'ordinary-supplemental',
   'browser-validation',
 ]) {
   if (needs[name]?.result !== 'success') {
@@ -31,5 +29,16 @@ if (
   needs['prepared-consumer-validation']?.result !== 'success'
 ) {
   console.error('Selected composed prepared consumer owner incomplete or selection unavailable');
+  process.exit(1);
+}
+
+const selectedOrdinary = needs.changes.outputs?.ordinary;
+if (
+  !['true', 'false'].includes(selectedOrdinary) ||
+  ['ordinary-journey', 'ordinary-supplemental'].some(
+    (name) => needs[name]?.result !== (selectedOrdinary === 'true' ? 'success' : 'skipped'),
+  )
+) {
+  console.error('Selected ordinary CI owners incomplete or selection unavailable');
   process.exit(1);
 }

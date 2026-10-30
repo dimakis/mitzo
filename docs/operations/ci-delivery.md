@@ -65,6 +65,14 @@ Compare subsequent clean runs including queue delays before claiming a speedup.
 
 ## Executable qualification and hosted fixture budgets, 28 October 2026
 
+The bounded executable stream now reads up to 1 MiB per call instead of 64 KiB.
+It still independently hashes every byte at every qualification and capture,
+retains pre/post identity checks, and refuses incomplete headers and mutations.
+A 64 MiB local fixture (two warmups, seven samples, warning memory pressure)
+measured median fresh inspection 24.66 → 23.31 ms and capture 87.06 → 76.46 ms.
+These modest local measurements do not establish a whole-CI speedup. No executable
+attestation or mutable authority is cached across qualifications.
+
 A focused offline run with the same hash-qualified native Codex fixture passed
 its non-Git browser journey in 26.573 seconds. A second run with a CPU profile
 passed in 27.109 seconds. Of the worker profile's 27.948 seconds, SHA-256 self
@@ -97,6 +105,17 @@ local suite passed with custody, execution, revocation, logout and expiry
 assertions intact. All native operation and authorization deadlines remain.
 
 ## Execution and completeness
+
+The six canonical, joined and supplemental macOS jobs use one conservative
+`ordinary` selection over the complete PR diff, including both sides of renames.
+Ordinary prose-only documentation and iOS-only changes skip these unrelated
+server/browser journeys; the latter still selects native Swift/build coverage.
+Runtime spikes, proof records, admission instructions, shared/runtime/CI code,
+unknown paths, incomplete diffs and main run the complete relevant selection.
+Core, compiler/source validation and the complete Linux unit selection remain.
+The joined and final gates require a successful selector and accept skips only
+when explicitly unselected; missing, cancelled, failed or contradictory evidence
+still fails. No acceptance case, assertion or deadline is removed.
 
 - The native consumer family retains the same 32 collected cases and 178
   `expect` expressions in nine files. Each public-entry case gets its own isolated
@@ -147,9 +166,10 @@ assertions intact. All native operation and authorization deadlines remain.
   existing native-evidence check must pass. Cancellation stops later admission;
   ordinary failures still permit the other required case to run. This isolates
   test JavaScript lifetimes; native workers retain their own existing cleanup.
-- Signed native authorization, both native account workflows, the canonical
-  macOS artifact journey, both supplemental shards, all layout projects, core
-  checks and the final Centaur gate remain required.
+- When selected, signed native authorization, both native account workflows,
+  the canonical macOS artifact journey, both supplemental shards and all layout
+  projects remain required in full. Core, source/compiler checks, full unit
+  discovery and the final Centaur approval gate remain mandatory.
 - WebKit retains four layout shards; both Chromium projects use three shards.
   Each layout job keeps one worker; all browser jobs have a 20-minute deadline.
   The CI layout command discovers the original shard and runs at most five primary
@@ -236,10 +256,20 @@ admission of the expensive unit, browser and macOS jobs, while the aggregate CI
 gate remains red. Conservative affected-job selection still applies after a
 successful preflight.
 
-Core and unit owners retain their original compilation and build prerequisites.
-This intentionally duplicates some compilation on a clean run, preserving exact
-owner evidence without introducing cross-job build-artifact reuse. Measure that
-overhead alongside avoided failed matrix runs before claiming a total speedup.
+Preflight produces server/workspace JavaScript and the production frontend once
+for the combined candidate, after retaining every compiler and source-pin check.
+Core, all four unit shards and all ten layout shards restore these prerequisites
+from the producer's immutable artifact ID. They verify the exact commit/tree,
+workflow run, Node version, platform/architecture, installed lockfile and every
+output digest before replacing any output. Missing, mismatched, partial,
+corrupted, linked or oversized output fails closed; no cross-run cache is used.
+Failed-only retries retain the successful producer's output ID. A full rerun
+publishes a new immutable artifact under its own attempt. macOS owners continue
+to build their own platform prerequisites; dependency installations are never
+transferred. Production bundle input/output evidence remains retained by preflight.
+Local build commands keep compiling as before; only the verified CI layout path
+uses the prebuilt assets. Measure upload/download and added preflight time before
+claiming an end-to-end speedup.
 
 Collect all known compiler, format, test and review findings before pushing.
 Complete focused offline checks and independent local review on a stable

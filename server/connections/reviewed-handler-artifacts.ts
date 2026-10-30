@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.764-bound-fixture-draft-owners';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.765-ci-candidate-build-reuse';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,18 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../scripts/ci-selection.mjs':
+    'a73cfa4fe546a69df686d729e3df1b5b37d205c2b3ea53922f52f1312c7f7736',
+  '../../scripts/__tests__/ci-selection.test.ts':
+    '397581a81e2c67d2b6208fd6b357968238ee86228b30eb66a1fcd6c47c502f3a',
+
+  '../../scripts/ci-build-output.py':
+    'c97ffb8ea84d9a34d673418cfc9adc8717fda42ca3ab508ad012d66e4ff78f3c',
+  '../../scripts/test-ci-build-output.py':
+    '399f565ed41638513292d05cb6ed770af61209cf8741621cee075e6ccddf69fe',
+  '../../scripts/__tests__/ci-build-output.test.ts':
+    'b4d563090e95e43c8cbc65360050d7ffd82e85ce650f151e0a033f6e17076d90',
+
   '../../tests/support/__tests__/persisted-chat-storage.test.ts':
     'f57fe593916993335995224a47a8eed92e45548a3bf16745c54920c66e60d2d9',
   '../../tests/support/__tests__/service-health-navigation.test.ts':
@@ -56,7 +67,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/pr-landing.mjs':
     'b9b053bd41da755db77d8505869f3f15ccdd4e556be5bfed9a355e379b992769',
   '../../scripts/__tests__/ci-compile-preflight.test.ts':
-    'ebdcec9743f3cd2f3fbba80c3f6d67db1d384c9faee2b28f9ca40a4525e1f9ee',
+    '78de93c53fda8edaf5480dc6943968d7dd63d5c01683cdeb1eb6ce4f47b76b14',
   '../../scripts/__tests__/ci-prepared-consumer-gate.test.ts':
     '3a9f82a8a9aedbb5ebdd8305cee2131704f3e1ec0fa5d665e02ea5a26f76a584',
   '../../scripts/__tests__/pr-landing.test.ts':
@@ -1212,7 +1223,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../frozen-host-codex-login.ts':
     'd1f5d8b6fc4f2793f80308918918161206c644300e1f8f6242e5b1cf26620c1a',
   '../frozen-host-codex-executable.ts':
-    '54106826add4062d7e29d1f2249856629c1afe89a15d148aea497ef9858480fb',
+    'ef3c54f4d877eb7fb9af2beee771f5379364c6ccb5d5656ac61d354d3fa0cfc9',
   '../frozen-host-codex-bootstrap.ts':
     'c3f3647bfde4a279cc54d67c6c0e126c0207b98d9edc61f6f17d9d4ca9422003',
   '../owned-codex-lifecycle-bridge.ts':
@@ -2199,11 +2210,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-sqlite-owners.ts':
     '19ac125030b518a353b2f7dbe51a4a1eca7ff5b30bf719e45dc9d9b5debdb006',
   '../../scripts/__tests__/ci-cancellation.test.ts':
-    '680bb14ef3b8786afcd3a4c146576418c79445655caa6b2a02f64e16e1afa4b7',
+    '2b1ee92281d4e831a7dad6cee18645b3f552f44cc607a06cdc344ddff5d470cf',
   '../../scripts/__tests__/ci-required-gate.test.ts':
-    'cfddc7352babb97cb2d6fc91d6681f641e52b8af0188a6e753233bf27ff6630f',
+    '476e64e64e1976616b8df7bfbe33523a753c2f9dbfabc0787c0e227233de86b8',
   '../../scripts/ci-required-gate.mjs':
-    '41f625ddd84f7d540fac09ecb803325c855e6dcde56f6d77c4e7080048a5f44a',
+    'c8c7b4a7fd90ade08837b2bfcb3e788b37cc7e60e3446165047507bece98b5bc',
   '../__tests__/agent-communication-nongit-app.test.ts':
     'da8d6f78621b75c4fcda23b1693065439fe7d106fd83cd1388a240628e30103e',
   '../__tests__/agent-communication-nongit-native.test.ts':
@@ -2581,7 +2592,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-native-authorization.test.ts':
     '27e1f121c8132a45953a1204545277c33a7f17e0f3b6e970dbea383f5b4b358a',
   '../../scripts/__tests__/ci-unit-gate.test.ts':
-    '35470a91a0b2c43d1e5f266974281969a18bdcf1924d155db90f1886579d3fb5',
+    '357850b18306f9118c8deaeb11eafe19b8a7da2eb48c75f53f30c466ab84bfc2',
   '../../scripts/ci-unit-gate.mjs':
     'cb2b475bb2dda66c893796fc0ec89d5ad200af1f1e4299df72d4f1f13881ec56',
   '../__tests__/bundled-skills.test.ts':
@@ -2635,7 +2646,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '3f875e0c6b15c6e1afa35177b920b2ec3c3a0af6afc6cfd837a6ecaa6a8aaf0e',
   '../secret-relay-runtime.ts': '9cc241b6fd22ca948021e0db06346e81718e12f5eaf340742d42c7b0a172711f',
   '../secret-relay.ts': 'cb4efaae8cb99f879de787d5f2ce1c1e364b7c0abf0db333420e10e11493f95d',
-  '../../package.json': '9171434cdb94da45240ade14f086d7f09d5cc60eac0be719b93cd4cd79e5cc3a',
+  '../../package.json': 'c8e444f0e363b8723a64551bcad7b00c278690ac10b34049164a0a3837ee152e',
   '../../package-lock.json': 'f4b1613e00b863da92337278f7bd5630ce6509d7cbf6b3681a38043c54a52f9c',
   '../../packages/harness/package.json':
     '974deedfb3b496939f6c0a441048234b57bca0af746f4107d41e1406b81b1768',
@@ -2831,7 +2842,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '2ad827f6ba9168a84a73651bd0098f22997c34e283225118fad68fd0ee7338e2',
+    '118c65ea0a399fe872806b198920633d07d5ed53efdff7209db62f31b80eed4d',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
@@ -2842,7 +2853,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-browser-run.test.ts':
     'ac128f141312e358819dfa962e36f433c7d6447959535e23c126935bc3f9d29b',
   '../../scripts/__tests__/ci-joined-shards.test.ts':
-    '36915cd9ec1df2634467a99416ccc3d03ed26b3fd6d65ab21a847858d8d0a321',
+    '5d23c741962fa2ba57d6d9eaef1a628cb54cc04d7b0775b75a9aa68ed7d5c738',
   '../../scripts/__tests__/ci-recovery.test.ts':
     '92559bb14c80de9c28e7879c1bf218bf895cab2d2209958dd0499ddc5feda256',
   '../../scripts/__tests__/ci-source-preflight.test.ts':
@@ -2854,9 +2865,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/ci-browser-failure-reporter.mjs':
     'b22313559453a57bb106403e09c3c0f2ff1648a1045ad0293404cbc1c173f7e6',
   '../../scripts/ci-browser-run.mjs':
-    '6464bdf20646363853820eb0cb530632aea46cee69ae4809b431945173afe966',
+    '2044da7ca0a9105644c60c11dec26ba8d889949dc557fb8670e11998266585e9',
   '../../scripts/ci-joined-gate.mjs':
-    'aec3fa1106ed98cb715d973e5b186887b7252bca68309ae0bae1da3aa0a5b3bd',
+    '90d824b300fc6adb96486826f7c0431687a9dfb941667f753c0a88957b96f5e4',
   '../../scripts/ci-recovery.mjs':
     'c1e0bc15bbda175a793bf524375870e788a9acc398a7770057d3fa586338214f',
   '../../scripts/ci-unit-sequencer.ts':
@@ -2864,7 +2875,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/ci-unit-shards.mjs':
     'b67ad5c964e4e9504ecdb68348bbd63197c85f859540d024c4ffd77594dd37cf',
   '../__tests__/ci-validation-artifacts.test.ts':
-    'ef42279fa86ab33bc5de702ddb215196ae718122c3b5c533705a6e0912c47480',
+    '2a3a2bf3710944b267873dd9e1ba1df59c789b3e0958d186e59e64b6cde972f1',
   '../__tests__/fixtures/prepared-repository-native-consumer.ts':
     '6879262ceadc86f666ca8ccaf463608a9e81a5736a2b6c22f47cbd31a6512de2',
   '../__tests__/fixtures/prepared-repository-native-public.ts':
