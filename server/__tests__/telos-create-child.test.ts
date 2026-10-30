@@ -98,6 +98,11 @@ it.each(['fresh', 'upgraded'] as const)(
         status: 'active',
       },
       update: { sessionId: 'planning', requestId: input.requestId, note: input.note },
+      preparation: {
+        dedicatedConversationCreated: false,
+        sourceFilesSaved: false,
+        originatingConversationId: 'planning',
+      },
     });
     const parent = f.items.read('studio');
     expect(parent.children).toEqual([

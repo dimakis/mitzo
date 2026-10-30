@@ -91,7 +91,14 @@ filename and a unique requestId to upload each substantial document before handi
 for files, including binary documents; content accepts inline UTF-8 text. The host reads only this
 session's workspace. A successful tool receipt (ID, revision, SHA-256 and URL) proves persistence;
 report failures and preserve the local draft if upload fails. Include the returned durable references
-in the handover. Reuse requestId for retries of that exact save; use a new ID for edits or reverts. Changed content under the same item and filename creates a retained revision.
+in the handover. For document-review work, retain the original source PDFs under the appropriate
+person's child item before claiming the materials are available there. Shared background documents
+may stay under the parent with explicit retained references. A local filename, path, hash, source
+manifest or rendered page images do not prove the original PDF is saved or delivered. If original
+bytes are unavailable in this session workspace, state that gap rather than claiming an attachment.
+Use concise human-readable handovers: item, source file, review state, draft and next action. Keep
+technical provenance in saved evidence and return durable document links.
+Reuse requestId for retries of that exact save; use a new ID for edits or reverts. Changed content under the same item and filename creates a retained revision.
 When prior task history is relevant (a linked outcome, referenced earlier work, or a request to resume),
 use TelosFindArtifacts by itemId or topic, then TelosReadArtifact before declaring that work missing.
 History retrieval is not a prerequisite for a fresh request, a live inventory, or meeting preparation.
