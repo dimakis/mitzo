@@ -16,6 +16,7 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { performance } from 'node:perf_hooks';
 
 const seam = vi.hoisted(() => ({
   transform: undefined as ((source: string) => string) | undefined,
@@ -38,6 +39,8 @@ vi.mock('node:child_process', async (original) => {
 });
 import { copyRepositoryTaskCheckout } from '../repository-task-copy.js';
 
+// Cross the helper's 64 KiB chunk/boundary without a megabyte in every fixture.
+const fixtureBytes = 64 * 1024 + 37;
 const roots: string[] = [];
 afterEach(async () => {
   seam.transform = undefined;
@@ -50,20 +53,48 @@ async function fixture() {
     parent = join(root, 'private'),
     destination = join(parent, 'task'),
     outside = join(root, 'unrelated');
-  await mkdir(join(source, '.git'), { recursive: true });
-  await mkdir(parent, { mode: 0o700 });
-  await mkdir(join(outside, 'task'), { recursive: true });
-  await writeFile(join(outside, 'owned.txt'), 'unrelated work');
-  await writeFile(join(outside, 'task', 'owned.txt'), 'unrelated nested work');
-  await writeFile(join(source, '.git', 'HEAD'), 'ref: refs/heads/mitzo/task\n');
-  await writeFile(join(source, 'file.txt'), Buffer.alloc(1024 * 1024, 37));
-  await writeFile(join(source, 'run.sh'), '#!/bin/sh\n');
+  await Promise.all([
+    mkdir(join(source, '.git'), { recursive: true }),
+    mkdir(parent, { mode: 0o700 }),
+    mkdir(join(outside, 'task'), { recursive: true }),
+  ]);
+  // No visibility/durability boundary is claimed until all fixture writes finish.
+  await Promise.all([
+    writeFile(join(outside, 'owned.txt'), 'unrelated work'),
+    writeFile(join(outside, 'task', 'owned.txt'), 'unrelated nested work'),
+    writeFile(join(source, '.git', 'HEAD'), 'ref: refs/heads/mitzo/task\n'),
+    writeFile(join(source, 'file.txt'), Buffer.alloc(fixtureBytes, 37)),
+    writeFile(join(source, 'run.sh'), '#!/bin/sh\n'),
+  ]);
   await chmod(join(source, 'run.sh'), 0o755);
   return { root, source, parent, destination, outside };
 }
-it('copies independent content and Git metadata with modes preserved through seed deletion', async () => {
+it('copies independent content and Git metadata with modes preserved through seed deletion', async ({
+  onTestFailed,
+}) => {
+  let phase = 'fixture',
+    started = performance.now();
+  const completedPhaseMs: Record<string, number> = {};
+  const mark = (next: string) => {
+    completedPhaseMs[phase] = Math.round(performance.now() - started);
+    phase = next;
+    started = performance.now();
+  };
+  // Diagnose the repeated CI timeout using this required case; no extra journey.
+  onTestFailed(() =>
+    console.info(
+      'repository-task-copy timing',
+      JSON.stringify({
+        completedPhaseMs,
+        phase,
+        elapsedPhaseMs: Math.round(performance.now() - started),
+      }),
+    ),
+  );
   const f = await fixture();
+  mark('copy');
   await copyRepositoryTaskCheckout(f.source, f.destination);
+  mark('verification');
   for (const file of ['file.txt', '.git/HEAD', 'run.sh']) {
     const source = await stat(join(f.source, file)),
       task = await stat(join(f.destination, file));
@@ -74,10 +105,12 @@ it('copies independent content and Git metadata with modes preserved through see
   }
   await writeFile(join(f.destination, 'file.txt'), 'task edit');
   await writeFile(join(f.destination, '.git', 'HEAD'), 'ref: refs/heads/task-edited\n');
-  expect((await readFile(join(f.source, 'file.txt'))).length).toBe(1024 * 1024);
+  expect((await readFile(join(f.source, 'file.txt'))).length).toBe(fixtureBytes);
   expect(await readFile(join(f.source, '.git', 'HEAD'), 'utf8')).toContain('mitzo/task');
+  mark('seed deletion');
   await rm(f.source, { recursive: true });
   expect(await readFile(join(f.destination, 'file.txt'), 'utf8')).toBe('task edit');
+  mark('complete');
 });
 it('refuses an existing destination and preserves its files', async () => {
   const f = await fixture();
@@ -150,7 +183,7 @@ it.each([
         : replacement === 'parent'
           ? join(f.parent + '-retained', 'task')
           : f.destination;
-    expect((await readFile(join(retainedTask, 'file.txt'))).length).toBe(1024 * 1024);
+    expect((await readFile(join(retainedTask, 'file.txt'))).length).toBe(fixtureBytes);
     expect(await readFile(join(retainedTask, '.git', 'HEAD'), 'utf8')).toContain('mitzo/task');
     if (kind === 'directory') expect(await readdir(selected)).toEqual([]);
   },
