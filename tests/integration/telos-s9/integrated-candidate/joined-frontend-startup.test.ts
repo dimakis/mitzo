@@ -49,9 +49,10 @@ it('withholds the browser target until the entry and lazy chat graph are transfo
       return target;
     },
   );
-  await vi.waitFor(() => expect(pending.transformRequest).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(pending.transformRequest).toHaveBeenCalledTimes(3));
   expect(pending.transformRequest.mock.calls.map(([url]) => url)).toEqual([
     '/src/main.tsx',
+    '/src/render-app.tsx',
     '/src/components/ResponsiveChatView.tsx',
   ]);
   expect(returned).toBe(false);
@@ -64,14 +65,21 @@ it('withholds the browser target until the entry and lazy chat graph are transfo
   expect(returned).toBe(true);
 });
 
-it('rejects a startup transform error instead of returning a superficially ready target', async () => {
-  pending.transformRequest.mockRejectedValue(Error('chat transform failed'));
-  pending.waitForRequestsIdle.mockResolvedValue(undefined);
-  const started = createJoinedFrontend(express(), '/private/tmp/joined-startup-unit');
-  // Retain cleanup even if the uncorrected implementation unexpectedly opens a listener.
-  void started.then(
-    (target) => cleanup.push(() => target.close()),
-    () => {},
-  );
-  await expect(started).rejects.toThrow('chat transform failed');
-});
+it.each(['/src/main.tsx', '/src/render-app.tsx', '/src/components/ResponsiveChatView.tsx'])(
+  'rejects startup transform failure in %s instead of returning a superficially ready target',
+  async (failedEntry) => {
+    pending.transformRequest.mockImplementation((entry) =>
+      entry === failedEntry
+        ? Promise.reject(Error('chat transform failed'))
+        : Promise.resolve(null),
+    );
+    pending.waitForRequestsIdle.mockResolvedValue(undefined);
+    const started = createJoinedFrontend(express(), '/private/tmp/joined-startup-unit');
+    // Retain cleanup even if the uncorrected implementation unexpectedly opens a listener.
+    void started.then(
+      (target) => cleanup.push(() => target.close()),
+      () => {},
+    );
+    await expect(started).rejects.toThrow('chat transform failed');
+  },
+);

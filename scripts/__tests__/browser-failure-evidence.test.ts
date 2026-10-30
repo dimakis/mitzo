@@ -83,7 +83,7 @@ describe('browser failure evidence', () => {
     [
       'offline',
       'offline-tests',
-      'node scripts/ci-browser-run.mjs test:ui:ci --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}',
+      'node scripts/ci-browser-run.mjs test:ui:ci:prebuilt --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}',
     ],
   ])(
     'uploads %s failure evidence immediately after its suite and keeps rerun attempts separate',
@@ -112,8 +112,9 @@ describe('browser failure evidence', () => {
 
   it('runs suites independently after compile preflight and keeps every configured layout project', () => {
     expect(workflow.jobs.browser.needs).toEqual(['changes', 'preflight']);
-    expect(workflow.jobs.offline.needs).toEqual(['changes', 'preflight']);
-    expect(workflow.jobs.offline.if).toBe(workflow.jobs.browser.if);
+    expect(workflow.jobs.offline.needs).toEqual(['changes', 'preflight', 'frontend-build']);
+    expect(workflow.jobs.offline.if).toContain("needs['frontend-build'].result == 'success'");
+    expect(workflow.jobs.browser.if).not.toContain('frontend-build');
     expect(workflow.jobs.offline.strategy?.['fail-fast']).toBe(false);
     const projects = offline.projects!.filter((p) => !p.name!.startsWith('browser-startup-'));
     const matrix = workflow.jobs.offline.strategy!.matrix;

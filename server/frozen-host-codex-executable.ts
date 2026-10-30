@@ -103,13 +103,18 @@ function inspect(path: string, destination?: number): Identity {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     sameMetadata(fstatSync(fd, { bigint: true }), before);
+    // Every measurement still streams and hashes fresh bytes. A bounded larger
+    // chunk reduces synchronous read/write calls for real native artifacts,
+    // without retaining byte evidence across qualifications or enlarging the
+    // 256 MiB file bound. Tiny fixtures allocate only their own byte length.
     const hash = createHash('sha256'),
-      chunk = Buffer.alloc(64 * 1024);
+      chunk = Buffer.allocUnsafe(Math.min(Number(before.size), 1024 * 1024));
     let length = 0;
     for (;;) {
       const count = readSync(fd, chunk, 0, chunk.length, length);
       if (!count) break;
       if (!length) {
+        if (count < 4) throw unavailable();
         const magic = chunk.subarray(0, 4).toString('hex');
         if (
           ![

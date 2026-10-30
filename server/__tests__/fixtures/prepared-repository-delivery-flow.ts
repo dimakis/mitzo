@@ -20,6 +20,7 @@ export async function preparedRepositoryDeliveryFlow(
   options: {
     images?: Array<{ data: string; mediaType: string }>;
     publicationFlow?: boolean;
+    api?: boolean;
     unadmittedStaleWorkspace?: boolean;
     storage?: (
       seed: string,
@@ -30,7 +31,13 @@ export async function preparedRepositoryDeliveryFlow(
   // Production authentication and the separate expiry-negative fixtures retain
   // their own lifetimes; no authority is refreshed during an active operation.
   const operatorLifetimeMs = process.env.CI ? 960_000 : 480_000;
-  const f = await fixture(true, operatorLifetimeMs, options.images, options.publicationFlow);
+  const f = await fixture(
+    true,
+    operatorLifetimeMs,
+    options.images,
+    options.publicationFlow,
+    options.api,
+  );
   const sessionId = f.first.sessionId;
   const binding = f.first.lease.binding;
   const originalBody = LocalCodexFirstCommandSchema.parse({
@@ -80,7 +87,7 @@ export async function preparedRepositoryDeliveryFlow(
     return underlying(method);
   });
   const launch = vi
-    .spyOn(CodexAppServerClient, 'launchIsolated')
+    .spyOn(CodexAppServerClient, options.api ? 'launchIsolatedApiResume' : 'launchIsolated')
     .mockReturnValue({ ...f.rpc, close: vi.fn() } as never);
   const { SessionSseRegistry } = await import('../../session-sse-registry.js');
   const { ConnectionRegistry } = await import('@mitzo/harness');

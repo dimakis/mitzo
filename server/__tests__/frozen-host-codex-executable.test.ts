@@ -14,6 +14,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 const reads = vi.hoisted(() => ({ readSync: vi.fn() }));
 vi.mock('node:fs', async (importOriginal) => {
   const original = await importOriginal<typeof import('node:fs')>();
@@ -24,6 +25,97 @@ import {
   FrozenHostCodexExecutable,
   measureHostCodexExecutable,
 } from '../frozen-host-codex-executable.js';
+it('measures every byte freshly with bounded native I/O instead of thousands of small reads', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'frozen-codex-stream-')));
+  try {
+    const source = join(root, 'codex');
+    const bytes = Buffer.alloc(3 * 1024 * 1024 + 137, 0x5a);
+    bytes.set([0xcf, 0xfa, 0xed, 0xfe]);
+    writeFileSync(source, bytes, { mode: 0o755 });
+    const expected = createHash('sha256').update(bytes).digest('hex');
+    for (let qualification = 0; qualification < 2; qualification++) {
+      reads.readSync.mockClear();
+      expect(measureHostCodexExecutable(source).sha256).toBe(expected);
+      // Each qualification must independently read the complete file and EOF.
+      expect(reads.readSync).toHaveBeenCalledTimes(5);
+      const requests = reads.readSync.mock.calls;
+      expect(requests.every((call) => call[1].byteLength <= 1024 * 1024)).toBe(true);
+      expect(requests.slice(0, -1).map((call) => call[4])).toEqual([
+        0,
+        1024 * 1024,
+        2 * 1024 * 1024,
+        3 * 1024 * 1024,
+      ]);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+it('copies and hashes short native reads without including bytes outside the returned slice', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'frozen-codex-short-stream-')));
+  const originalRead = reads.readSync.getMockImplementation()!;
+  try {
+    const home = join(root, 'home');
+    const source = join(root, 'codex');
+    mkdirSync(home, { mode: 0o700 });
+    const bytes = Buffer.alloc(1024 * 1024 + 313, 0xa5);
+    bytes.set([0xcf, 0xfa, 0xed, 0xfe]);
+    writeFileSync(source, bytes, { mode: 0o755 });
+    reads.readSync.mockImplementation((fd, buffer, offset, length, position) =>
+      originalRead(fd, buffer, offset, Math.min(length, 3001), position),
+    );
+    const frozen = FrozenHostCodexExecutable.capture(source, home);
+    expect(frozen.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+    expect(readFileSync(frozen.path)).toEqual(bytes);
+    frozen.assertLaunchCurrent();
+  } finally {
+    reads.readSync.mockImplementation(originalRead);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+it('rejects a source changed during a streamed measurement', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'frozen-codex-changing-stream-')));
+  const originalRead = reads.readSync.getMockImplementation()!;
+  try {
+    const source = join(root, 'codex');
+    const bytes = Buffer.alloc(2 * 1024 * 1024 + 313, 0x5a);
+    bytes.set([0xcf, 0xfa, 0xed, 0xfe]);
+    writeFileSync(source, bytes, { mode: 0o755 });
+    let changed = false;
+    reads.readSync.mockImplementation((...args) => {
+      const count = originalRead(...args);
+      if (!changed) {
+        changed = true;
+        bytes[bytes.length - 1] ^= 1;
+        writeFileSync(source, bytes);
+      }
+      return count;
+    });
+    expect(() => measureHostCodexExecutable(source)).toThrow('Host Codex runtime unavailable');
+    expect(changed).toBe(true);
+  } finally {
+    reads.readSync.mockImplementation(originalRead);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+it('refuses a partial first header without inspecting unread buffer bytes', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'frozen-codex-short-header-')));
+  const originalRead = reads.readSync.getMockImplementation()!;
+  try {
+    const source = join(root, 'codex');
+    writeFileSync(source, Buffer.from([0xcf, 0xfa, 0xed, 0, 1, 2, 3]), { mode: 0o755 });
+    reads.readSync.mockImplementation((fd, buffer, offset, length, position) => {
+      const count = originalRead(fd, buffer, offset, Math.min(length, 3), position);
+      // Bytes not returned by readSync cannot establish a native file header.
+      buffer[3] = 0xfe;
+      return count;
+    });
+    expect(() => measureHostCodexExecutable(source)).toThrow('Host Codex runtime unavailable');
+  } finally {
+    reads.readSync.mockImplementation(originalRead);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 it('captures and fences the native code-mode companion with the executable bundle', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'frozen-codex-bundle-')));
   try {

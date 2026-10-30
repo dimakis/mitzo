@@ -459,6 +459,46 @@ it('reacquires npm when an implementation module changes without changing its en
   ).resolves.toBe('verified-npm-command');
 });
 
+it('keeps Python native-build bytecode in the task cache without invalidating verified npm artifacts', async () => {
+  const f = await fixture();
+  const original = f.run.getMockImplementation()!;
+  let pythonModule = '';
+  f.run.mockImplementation(async (command, args, options) => {
+    const result = await original(command, args, options);
+    if (args[0] === 'install') {
+      const toolchain = args[args.indexOf('--prefix') + 1]!;
+      pythonModule = join(toolchain, 'node_modules', 'npm', 'lib');
+      await writeFile(join(pythonModule, 'offline_native_build.py'), 'value = 42\n');
+    }
+    if (args[0] === 'ci')
+      await promisify(execFile)(
+        'python3',
+        [
+          '-c',
+          'import sys; sys.path.insert(0, sys.argv[1]); import offline_native_build; assert offline_native_build.value == 42',
+          pythonModule,
+        ],
+        { env: options.env },
+      );
+    return result;
+  });
+  const first = await prepareDevelopment({ ...f, install: true });
+  const pythonCache = f.run.mock.calls.find(([, args]) => args[0] === 'ci')![2].env
+    .PYTHONPYCACHEPREFIX;
+  expect(pythonCache).toContain(f.cwd);
+  await expect(access(pythonCache)).rejects.toMatchObject({ code: 'ENOENT' });
+  f.run.mockClear();
+  await expect(prepareDevelopment({ ...f, install: false })).resolves.toMatchObject({
+    ready: true,
+    installationIdentity: first.installationIdentity,
+  });
+  expect(await readdir(pythonModule)).not.toContain('__pycache__');
+  expect(f.run.mock.calls[0][2].env.PYTHONPYCACHEPREFIX).not.toBe(pythonCache);
+  expect(f.run.mock.calls.some(([, args]) => args[0] === 'install' || args[0] === 'ci')).toBe(
+    false,
+  );
+});
+
 it('invalidates an otherwise unchanged toolchain when executable permissions change', async () => {
   const f = await fixture();
   const first = await prepareDevelopment({ ...f, install: true });

@@ -4063,6 +4063,14 @@ it('consumes frozen owned OpenShell configuration and executes guarded runtime a
       expect.arrayContaining(['AgentReadTasks', 'AgentProposeTask']),
     );
     expect(captured.enableCapacityRecovery).toBe(false);
+    expect(captured.transportClosure).toBeUndefined();
+    expect(captured.recoveryReconciliation).toBe('exact-turn');
+    const binding = captured.verifyBinding as () => Promise<unknown>;
+    vi.mocked(owner.assertCurrent).mockClear();
+    await expect(binding()).resolves.toEqual(f.binding);
+    expect(owner.assertCurrent).toHaveBeenCalledOnce();
+    vi.mocked(owner.assertCurrent).mockRejectedValueOnce(Error('Remote grant revoked'));
+    await expect(binding()).rejects.toThrow('Remote grant revoked');
     const prepare = captured.prepareAgentContext as (signal: AbortSignal) => Promise<void>;
     vi.mocked(owner.assertCurrent).mockClear();
     await prepare(new AbortController().signal);

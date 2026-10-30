@@ -492,7 +492,9 @@ export class OwnedOpenShellCodexChatAdmission {
     const selected = [...this.#commands.entries()].find(([id, command]) =>
       this.pending(id, command.dispatched),
     )?.[1].expected;
-    if (selected) await this.owner.assertCurrent(selected);
+    // Recovery and metadata reads still need fresh provider grant authority
+    // when no live command remains. Settled work cannot turn this into a no-op.
+    await this.owner.assertCurrent(selected ?? this.#expected);
     this.assertCurrentSync();
   }
   assertBeforeEnqueue(input: CodexCommandInput) {

@@ -133,12 +133,14 @@ export async function createJoinedFrontend(app: Express, privateRoot: string) {
     },
   });
   // Finish cold development transforms before the browser acceptance deadline.
-  // Import analysis skips dynamic imports, so include the actual lazy chat route.
+  // Import analysis skips dynamic imports: main defers render-app until storage
+  // initializes, and that app entry separately loads the lazy chat route.
   // Errors remain startup failures; the browser still mounts the real app and
   // performs its fresh exact role review within the unchanged ten-second phase.
   try {
     await Promise.all([
       vite.transformRequest('/src/main.tsx'),
+      vite.transformRequest('/src/render-app.tsx'),
       vite.transformRequest('/src/components/ResponsiveChatView.tsx'),
     ]);
     await vite.waitForRequestsIdle();
