@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { TelosWorkItemSchema } from '@mitzo/protocol';
 import type { Page, Request, Response } from '@playwright/test';
 import { expect, vi } from 'vitest';
 
@@ -8,6 +10,12 @@ type Read = {
   body?: unknown;
   bodyReadError?: string;
 };
+
+const collectionSchema = z.object({
+  profiles: z.array(z.string()),
+  records: z.array(TelosWorkItemSchema).max(5000),
+  failures: z.array(z.object({ itemId: z.string(), code: z.string() })),
+});
 
 type TaskRead = { id: string; status: string; children: TaskRead[] };
 const taskStatuses = new Set([
@@ -46,31 +54,50 @@ function containsTask(body: unknown, taskId: string): boolean {
 /** Retain real browser reads without attributing old response completions to a new route. */
 export function observeTaskChatReads(page: Page) {
   const reads: Read[] = [];
-  const requests = new WeakMap<Request, number>();
+  const requests = new WeakMap<
+    Request,
+    { path: string; requestOrdinal: number; observed: boolean }
+  >();
   const pending = new Map<number, { path: string; requestOrdinal: number }>();
+  const failed = new Set<number>();
+  const admissions: Array<{ path: string; requestOrdinal: number }> = [];
   let ordinal = 0;
-  const onRequest = (request: Request) => requests.set(request, ++ordinal);
+  const onRequest = (request: Request) => {
+    const path = new URL(request.url()).pathname;
+    const admission = {
+      path,
+      requestOrdinal: ++ordinal,
+      observed:
+        request.method() === 'GET' &&
+        (path === '/api/tasks' ||
+          path.startsWith('/api/telos/work/') ||
+          (path.startsWith('/api/sessions/') && path.endsWith('/meta'))),
+    };
+    requests.set(request, admission);
+    if (admission.observed) {
+      const read = { path, requestOrdinal: admission.requestOrdinal };
+      admissions.push(read);
+      pending.set(admission.requestOrdinal, read);
+    }
+  };
+  const onRequestFailed = (request: Request) => {
+    const admission = requests.get(request);
+    if (admission?.observed) {
+      failed.add(admission.requestOrdinal);
+      pending.delete(admission.requestOrdinal);
+    }
+  };
   const onResponse = (response: Response) => {
-    const request = response.request();
-    const requestOrdinal = requests.get(request);
-    const path = new URL(response.url()).pathname;
-    if (
-      requestOrdinal === undefined ||
-      request.method() !== 'GET' ||
-      !(
-        path === '/api/tasks' ||
-        path.startsWith('/api/telos/work/') ||
-        (path.startsWith('/api/sessions/') && path.endsWith('/meta'))
-      )
-    )
-      return;
-    pending.set(requestOrdinal, { path, requestOrdinal });
+    const admission = requests.get(response.request());
+    if (!admission?.observed) return;
+    const { path, requestOrdinal } = admission;
     void (async () => {
       const read = { path, requestOrdinal, status: response.status() };
       try {
-        reads.push({ ...read, body: await response.json() });
+        const body = await response.json();
+        if (!failed.has(requestOrdinal)) reads.push({ ...read, body });
       } catch (error) {
-        reads.push({ ...read, bodyReadError: String(error) });
+        if (!failed.has(requestOrdinal)) reads.push({ ...read, bodyReadError: String(error) });
       } finally {
         pending.delete(requestOrdinal);
       }
@@ -78,12 +105,58 @@ export function observeTaskChatReads(page: Page) {
   };
   page.on('request', onRequest);
   page.on('response', onResponse);
+  page.on('requestfailed', onRequestFailed);
   const since = (boundary: number) => reads.filter((read) => read.requestOrdinal > boundary);
   return {
     reads,
     since,
     boundary: () => ordinal,
+    requestedSince: (boundary: number) =>
+      admissions.filter((read) => read.requestOrdinal > boundary),
     pending: () => [...pending.values()],
+    async waitForCollectionRecords(
+      itemIds: string[],
+      boundary: number,
+      options = { timeout: 10_000, interval: 100 },
+    ) {
+      return vi.waitFor(() => {
+        const read = since(boundary)
+          .flatMap((read) => {
+            if (read.path !== '/api/telos/work/collection' || read.status !== 200) return [];
+            const parsed = collectionSchema.safeParse(read.body);
+            if (
+              !parsed.success ||
+              !itemIds.every((id) => parsed.data.records.some((record) => record.itemId === id))
+            )
+              return [];
+            return [{ ...read, body: parsed.data }];
+          })
+          .at(-1);
+        expect(
+          read,
+          'fresh completed canonical collection with every attached identity: ' +
+            JSON.stringify({
+              boundary,
+              observed: since(boundary)
+                .filter((value) => value.path === '/api/telos/work/collection')
+                .slice(-10)
+                .map((value) => {
+                  const parsed = collectionSchema.safeParse(value.body);
+                  return {
+                    ordinal: value.requestOrdinal,
+                    status: value.status,
+                    ids: parsed.success
+                      ? parsed.data.records.slice(0, 20).map((record) => record.itemId)
+                      : undefined,
+                    invalid: !parsed.success,
+                  };
+                }),
+              pending: [...pending.values()].slice(-10),
+            }),
+        ).toBeDefined();
+        return read!;
+      }, options);
+    },
     async waitForSessionMeta(
       sessionId: string,
       boundary: number,
@@ -122,6 +195,7 @@ export function observeTaskChatReads(page: Page) {
     close() {
       page.off('request', onRequest);
       page.off('response', onResponse);
+      page.off('requestfailed', onRequestFailed);
     },
   };
 }

@@ -7,10 +7,12 @@ const api = new TelosWorkApiClient(apiFetch);
 /** A workspace entry, never an allocator or a second role setup owner. */
 export function TelosTreeConversationEntry({
   itemId,
+  kind,
   refreshKey,
   onOpenChat,
 }: {
   itemId: string;
+  kind?: TelosWorkView['kind'];
   refreshKey: string | number;
   onOpenChat(): void;
 }) {
@@ -20,6 +22,7 @@ export function TelosTreeConversationEntry({
     failed?: boolean;
   }>();
   useEffect(() => {
+    if (kind === null) return;
     const controller = new AbortController();
     void api.read(itemId, controller.signal).then(
       (view) => {
@@ -30,7 +33,8 @@ export function TelosTreeConversationEntry({
       },
     );
     return () => controller.abort();
-  }, [itemId, refreshKey]);
+  }, [itemId, refreshKey, kind]);
+  if (kind === null) return <button onClick={onOpenChat}>Open chats</button>;
   if (result?.itemId !== itemId)
     return <span className="telos-node-meta">Loading conversations…</span>;
   if (result.failed) return <span className="telos-node-meta">Conversations unavailable</span>;

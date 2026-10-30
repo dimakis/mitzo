@@ -275,14 +275,11 @@ it('CT13/14 actual App: recursive canonical tree, category pins and provenance s
   await browserExpect(
     workspace.getByRole('heading', { name: 'Home studio', exact: true }),
   ).toBeVisible();
+  // The overview renders intent once; supporting provenance stays on request.
+  await browserExpect(workspace.getByText('Record music', { exact: true })).toBeVisible();
   const brief = workspace.getByRole('complementary', { name: 'Original brief' });
-  for (const text of [
-    'Record music',
-    'Make music',
-    'Approved plan',
-    'Original hint',
-    'Original person',
-  ]) {
+  await brief.getByText('Details & context', { exact: true }).click();
+  for (const text of ['Make music', 'Approved plan', 'Original hint', 'Original person']) {
     if (text === 'Original person') await brief.getByText('Context', { exact: true }).click();
     await browserExpect(brief).toContainText(text);
   }
@@ -312,7 +309,7 @@ it('CT13/14 actual App: recursive canonical tree, category pins and provenance s
     .getByRole('link', { name: 'External room notes', exact: true })
     .scrollIntoViewIfNeeded();
   await capture('workspace-sources-and-external');
-  // The same pinned real MGMT CLI used for collection reads now executes only
+  // The pinned real MGMT CLI executes only
   // --action priority against this private synthetic DB. This action does not
   // refresh, enrich, publish workload or call an external/provider service.
   const priority = page.getByRole('combobox', { name: 'Priority', exact: true });

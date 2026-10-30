@@ -17,6 +17,17 @@ import { apiFetch } from '../../lib/api-fetch';
 import { installDialogStub } from './dialog-stub';
 import { shareFile } from '../../lib/share-file';
 
+vi.mock('../PdfPreview', () => ({
+  PdfPreview: ({ title }: { title: string }) => {
+    const [page, setPage] = useState(1);
+    return (
+      <div>
+        PDF reader for {title}
+        <button onClick={() => setPage(page + 1)}>PDF page {page}</button>
+      </div>
+    );
+  },
+}));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('../../lib/share-file', () => ({
   shareFile: vi.fn().mockResolvedValue(true),
@@ -186,4 +197,74 @@ it('links only the actual retained Work item without creating an association', a
   expect(
     vi.mocked(apiFetch).mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
   ).toBe(true);
+});
+
+it('opens a saved PDF reader without requesting the unsupported text-document preview', async () => {
+  const pdf = { ...version(1), filename: 'associate.pdf', title: 'Associate quarterly connection' };
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).includes('/versions')
+      ? response({ artifacts: [pdf], hasMore: false, cursor: null })
+      : response(doc(1)),
+  );
+  render(<SavedArtifactDialog artifact={pdf} onClose={vi.fn()} />);
+  await screen.findByText('PDF reader for Associate quarterly connection');
+  expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('/document'))).toBe(
+    false,
+  );
+});
+
+it('does not reread an unchanged preview or version history when paging history and selecting a known version', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).includes('/versions'))
+      return String(url).includes('beforeRevision=2')
+        ? response({ artifacts: [version(1)], cursor: null, hasMore: false })
+        : response({ artifacts: [version(2)], cursor: 2, hasMore: true });
+    return response(
+      doc(Number(new URL(String(url), 'https://fixture').searchParams.get('revision'))),
+    );
+  });
+  function Controlled() {
+    const [artifact, setArtifact] = useState(version(2));
+    return (
+      <SavedArtifactDialog artifact={artifact} onClose={vi.fn()} onVersionChange={setArtifact} />
+    );
+  }
+  render(<Controlled />);
+  await screen.findByRole('heading', { name: 'Version 2' });
+  fireEvent.click(screen.getByRole('button', { name: 'Earlier versions' }));
+  await screen.findByRole('option', { name: /Saved version 1/ });
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).includes('/document')),
+  ).toHaveLength(1);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Version' }), { target: { value: '1' } });
+  await screen.findByRole('heading', { name: 'Version 1' });
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).includes('/versions')),
+  ).toHaveLength(2);
+});
+
+it('keeps the active PDF reader mounted with its selected page while history loads', async () => {
+  const pdf = { ...version(2), filename: 'report.pdf' };
+  let finish!: (value: Response) => void;
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).includes('beforeRevision')
+      ? new Promise<Response>((resolve) => {
+          finish = resolve;
+        })
+      : response({ artifacts: [pdf], cursor: 2, hasMore: true }),
+  );
+  render(<SavedArtifactDialog artifact={pdf} onClose={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'PDF page 1' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Earlier versions' }));
+  expect(screen.getByRole('button', { name: 'PDF page 2' })).toBeTruthy();
+  await act(async () =>
+    finish(
+      response({
+        artifacts: [{ ...version(1), filename: 'report.pdf' }],
+        cursor: null,
+        hasMore: false,
+      }),
+    ),
+  );
+  expect(screen.getByRole('button', { name: 'PDF page 2' })).toBeTruthy();
 });

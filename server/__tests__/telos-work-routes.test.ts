@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import { createTelosWorkFixtures } from './fixtures/telos-work-fixtures.js';
-import { TelosWorkError } from '../telos-work-store.js';
+import { TelosWorkError, TelosWorkStore } from '../telos-work-store.js';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 
 const roots: string[] = [];
@@ -63,6 +63,160 @@ async function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>
   return { app: server, read, command, dbPath };
 }
 describe('authorized Telos work API', () => {
+  it('refuses snooze effects when authority expires after writer-lock admission', async () => {
+    const canonical = createTelosCanonicalData();
+    const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 };
+    let admitted = false;
+    const original = Database.prototype.prepare;
+    const prepare = vi.spyOn(Database.prototype, 'prepare').mockImplementation(function (
+      this: Database.Database,
+      sql: string,
+    ) {
+      if (sql === 'SELECT * FROM items ORDER BY rowid LIMIT 5001' && !this.readonly) {
+        expect(this.inTransaction).toBe(true);
+        admitted = true;
+        auth.expiresAt = 0;
+      }
+      return original.call(this, sql);
+    });
+    try {
+      canonical.db.exec(
+        "UPDATE items SET status='snoozed',snoozed_until='2000-01-01' WHERE id='studio'",
+      );
+      const f = await setup({
+        dbPath: () => canonical.dbPath,
+        operatorAuth: (_req, res, next) => {
+          res.locals.authSession = auth;
+          next();
+        },
+      });
+      expect((await request(f.app).get('/api/telos/work/collection')).status).toBe(403);
+      expect(admitted).toBe(true);
+      expect(canonical.work.readRecord('studio', canonical.actor).status).toBe('snoozed');
+      expect(
+        canonical.db.prepare("SELECT * FROM history WHERE old_status='snoozed'").all(),
+      ).toEqual([]);
+    } finally {
+      prepare.mockRestore();
+      canonical.close();
+    }
+  });
+
+  it('rechecks the current operator before admitting a snooze-renewal writer', async () => {
+    const canonical = createTelosCanonicalData();
+    const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 };
+    const original = TelosWorkStore.prototype.readCollection;
+    const read = vi
+      .spyOn(TelosWorkStore.prototype, 'readCollection')
+      .mockImplementationOnce(function (this: TelosWorkStore, view, actor) {
+        try {
+          return original.call(this, view, actor);
+        } finally {
+          auth.expiresAt = 0;
+        }
+      });
+    try {
+      canonical.db.exec(
+        "UPDATE items SET status='snoozed',snoozed_until='2000-01-01' WHERE id='studio'",
+      );
+      const f = await setup({
+        dbPath: () => canonical.dbPath,
+        operatorAuth: (_req, res, next) => {
+          res.locals.authSession = auth;
+          next();
+        },
+      });
+      expect((await request(f.app).get('/api/telos/work/collection')).status).toBe(403);
+      expect(canonical.work.readRecord('studio', canonical.actor).status).toBe('snoozed');
+      expect(
+        canonical.db.prepare("SELECT * FROM history WHERE old_status='snoozed'").all(),
+      ).toEqual([]);
+    } finally {
+      read.mockRestore();
+      canonical.close();
+    }
+  });
+
+  it('renews due snoozes through the canonical owner only for an authenticated current operator', async () => {
+    const canonical = createTelosCanonicalData();
+    try {
+      canonical.db.exec(
+        "UPDATE items SET status='snoozed',snoozed_until='2000-01-01' WHERE id='studio'",
+      );
+      const f = await setup({ dbPath: () => canonical.dbPath });
+      const path = '/api/telos/work/collection';
+      expect((await request(f.app).get(path)).status).toBe(403);
+      expect(canonical.work.readRecord('studio', canonical.actor).status).toBe('snoozed');
+      const result = await request(f.app).get(path).set('x-operator', 'authenticated');
+      expect(result.status).toBe(200);
+      expect(result.body.records).toEqual([
+        expect.objectContaining({ itemId: 'studio', status: 'active' }),
+      ]);
+      expect(canonical.work.readRecord('studio', canonical.actor).status).toBe('active');
+      await request(f.app).get(path).set('x-operator', 'authenticated').expect(200);
+      expect(
+        canonical.db
+          .prepare("SELECT old_status,new_status FROM history WHERE old_status='snoozed'")
+          .all(),
+      ).toEqual([{ old_status: 'snoozed', new_status: 'active' }]);
+    } finally {
+      canonical.close();
+    }
+  });
+
+  it('upgrades missing additive lifecycle tables before native collection discovery', async () => {
+    const canonical = createTelosCanonicalData();
+    try {
+      canonical.db.exec(
+        'DROP TABLE telos_work_lifecycle_history; DROP TABLE telos_work_lifecycle_commands; DROP TABLE telos_work_lifecycle',
+      );
+      const f = await setup({ dbPath: () => canonical.dbPath });
+      const result = await request(f.app)
+        .get('/api/telos/work/collection')
+        .set('x-operator', 'authenticated');
+      expect(result.status).toBe(200);
+      expect(result.body.records.map((record: { itemId: string }) => record.itemId)).toEqual([
+        'studio',
+      ]);
+    } finally {
+      canonical.close();
+    }
+  });
+
+  it('discovers persisted records without a Python listing, with current operator authority and private responses', async () => {
+    const canonical = createTelosCanonicalData();
+    try {
+      const f = await setup({ dbPath: () => canonical.dbPath });
+      const path = '/api/telos/work/collection';
+      const result = await request(f.app).get(path).set('x-operator', 'authenticated');
+      expect(result.status).toBe(200);
+      expect(result.headers['cache-control']).toBe('private, no-store');
+      expect(result.body.records.map((record: { itemId: string }) => record.itemId)).toEqual([
+        'studio',
+      ]);
+      expect(result.body.failures).toEqual([]);
+      expect((await request(f.app).get(path).set('x-operator', 'foreign')).status).toBe(403);
+      expect(
+        (
+          await request(f.app)
+            .get(path)
+            .query({ view: 'unknown' })
+            .set('x-operator', 'authenticated')
+        ).status,
+      ).toBe(400);
+      expect(
+        (
+          await request(f.app)
+            .get(path)
+            .query({ actorId: 'spoofed' })
+            .set('x-operator', 'authenticated')
+        ).status,
+      ).toBe(400);
+    } finally {
+      canonical.close();
+    }
+  });
+
   it('hydrates a bounded batch in one authenticated read and retains per-item failures', async () => {
     const canonical = createTelosCanonicalData();
     try {

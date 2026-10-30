@@ -201,7 +201,13 @@ describe('TodoView', () => {
     // All, centaur, work
     expect(pills.length).toBe(3);
     fireEvent.click(pills[1]); // centaur
-    expect(mockUseTodoData).toHaveBeenLastCalledWith('centaur');
+    expect(mockUseTodoData).toHaveBeenLastCalledWith(
+      'centaur',
+      undefined,
+      'active',
+      'legacy',
+      false,
+    );
   });
 
   it('navigates to detail view on item tap', async () => {

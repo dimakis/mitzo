@@ -1,3 +1,4 @@
+import { createTelosWorkFixtures } from '../../../../frontend/src/test-utils/telos-work-fixtures';
 import { EventEmitter } from 'node:events';
 import type { Page, Request, Response } from '@playwright/test';
 import { expect, it, vi } from 'vitest';
@@ -195,3 +196,70 @@ it.each([false, true])(
     expect(events.listenerCount('response')).toBe(0);
   },
 );
+
+const collectionBody = () => ({
+  profiles: ['manual'],
+  records: createTelosWorkFixtures().homeStudio.items,
+  failures: [],
+});
+it('requires a fresh completed collection containing every attached identity', async () => {
+  const f = fixture();
+  const body = collectionBody();
+  const ids = body.records.map((record) => record.itemId);
+  const old = f.request('/api/telos/work/collection');
+  const boundary = f.observer.boundary();
+  f.response(old, Promise.resolve(body));
+  f.response(f.request('/api/telos/work/collection'), new Promise(() => {}));
+  await expect(
+    f.observer.waitForCollectionRecords(ids, boundary, { timeout: 20, interval: 1 }),
+  ).rejects.toThrow();
+  f.response(f.request('/api/telos/work/collection'), Promise.resolve(body));
+  await expect(f.observer.waitForCollectionRecords(ids, boundary)).resolves.toMatchObject({
+    requestOrdinal: 3,
+    body,
+  });
+  f.observer.close();
+});
+it.each(['missing identity', 'malformed record', 'malformed failures', 'unsuccessful', 'non-GET'])(
+  'does not admit a collection with %s',
+  async (problem) => {
+    const f = fixture();
+    const body = collectionBody();
+    const ids = body.records.map((record) => record.itemId);
+    const raw =
+      problem === 'missing identity'
+        ? { ...body, records: body.records.slice(1) }
+        : problem === 'malformed record'
+          ? { ...body, records: [{ itemId: ids[0] }] }
+          : problem === 'malformed failures'
+            ? { ...body, failures: ['invalid'] }
+            : body;
+    f.response(
+      f.request('/api/telos/work/collection', problem === 'non-GET' ? 'POST' : 'GET'),
+      Promise.resolve(raw),
+      problem === 'unsuccessful' ? 503 : 200,
+    );
+    await expect(
+      f.observer.waitForCollectionRecords(ids, 0, { timeout: 20, interval: 1 }),
+    ).rejects.toThrow();
+    // A later valid response can recover without accepting the earlier invalid body.
+    f.response(f.request('/api/telos/work/collection'), Promise.resolve(body));
+    await expect(f.observer.waitForCollectionRecords(ids, 0)).resolves.toMatchObject({ body });
+    f.observer.close();
+  },
+);
+
+it('tracks a second admitted collection before headers and clears it on request failure', async () => {
+  const f = fixture();
+  const body = collectionBody();
+  const ids = body.records.map((record) => record.itemId);
+  f.response(f.request('/api/telos/work/collection'), Promise.resolve(body));
+  const later = f.request('/api/telos/work/collection');
+  await f.observer.waitForCollectionRecords(ids, 0);
+  expect(f.observer.pending()).toEqual([{ path: '/api/telos/work/collection', requestOrdinal: 2 }]);
+  f.events.emit('requestfailed', later);
+  expect(f.observer.pending()).toEqual([]);
+  expect(f.observer.requestedSince(0)).toHaveLength(2);
+  f.observer.close();
+  expect(f.events.listenerCount('requestfailed')).toBe(0);
+});

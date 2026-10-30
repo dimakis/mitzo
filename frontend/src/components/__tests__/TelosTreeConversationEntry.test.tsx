@@ -65,3 +65,14 @@ it('does not treat an additional coordinator lead link as a current control assi
   expect(screen.getByRole('button', { name: 'View coordinator' })).toBeTruthy();
   expect(screen.queryByText('Coordinator assigned')).toBeNull();
 });
+
+it('uses a chat entry for a canonically unclassified row without making a relationship read to infer its role', async () => {
+  const read = vi.spyOn(TelosWorkApiClient.prototype, 'read');
+  const open = vi.fn();
+  render(
+    <TelosTreeConversationEntry itemId="new-report" kind={null} refreshKey={0} onOpenChat={open} />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Open chats' }));
+  expect(open).toHaveBeenCalledOnce();
+  expect(read).not.toHaveBeenCalled();
+});

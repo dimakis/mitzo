@@ -99,7 +99,11 @@ it('preserves complete and unknown legacy provenance through repeated real schem
       workspace.getByRole('heading', { name: 'Known legacy provenance', exact: true }),
     ).toBeVisible();
     const brief = workspace.getByRole('complementary', { name: 'Original brief' });
-    await browserExpect(brief).toContainText('Keep original intent — Καλημέρα');
+    // Intent appears once in the overview; preserved provenance is disclosed separately.
+    await browserExpect(
+      workspace.getByText('Keep original intent — Καλημέρα', { exact: true }),
+    ).toBeVisible();
+    await brief.getByText('Details & context', { exact: true }).click();
     await browserExpect(brief).toContainText('Original rationale');
     await browserExpect(brief).toContainText('Exact old fields');
     await browserExpect(brief).toContainText('Original Person');
@@ -111,6 +115,7 @@ it('preserves complete and unknown legacy provenance through repeated real schem
     await browserExpect(
       workspace.getByRole('heading', { name: 'Unknown legacy provenance', exact: true }),
     ).toBeVisible();
+    await brief.getByText('Details & context', { exact: true }).click();
     await browserExpect(brief).toContainText('Unknown author and source date must remain unknown.');
     await browserExpect(brief).toContainText('Unknown');
     await workspace.getByRole('button', { name: 'Chat', exact: true }).click();

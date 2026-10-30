@@ -136,6 +136,11 @@ beforeEach(() => {
       return telosRecordBatchFixture(init, (id) =>
         globalThis.fetch('/api/telos/work/items/' + encodeURIComponent(id) + '/record'),
       );
+    if (url.pathname === '/api/telos/work/collection') {
+      await collectionGate;
+      await recordGate;
+      return Response.json({ records, failures: [], profiles: ['manual'] });
+    }
     if (url.pathname === '/api/todos') {
       await collectionGate;
       return Response.json({
@@ -193,10 +198,10 @@ it('restores a deeply scrolled expanded tree after focused item Back and delayed
   await waitFor(() =>
     expect(document.querySelector('.todo-page.telos-canonical-page')).toBeTruthy(),
   );
-  await screen.findByText('Loading outcomes…');
+  await screen.findByRole('button', { name: 'Deep child 11' });
   expect(document.querySelector('.todo-card')).toBeNull();
   expect(scroller()).not.toBe(original);
-  expect(scroller().scrollTop).toBe(0);
+  expect(scroller().scrollTop).toBe(600);
   await act(async () => {
     releaseRecords!();
   });

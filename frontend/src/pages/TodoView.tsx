@@ -290,13 +290,17 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   const [activeProfile, setActiveProfile] = useState<string | undefined>(restoredProfile);
   // Canonical discovery covers every profile; the legacy selection remains a
   // fallback preference, including when restored through item navigation.
-  const discoveryArgs: [] | [undefined, undefined, typeof collectionView] =
-    collectionView === 'active' ? [] : [undefined, undefined, collectionView];
-  const filteredArgs: [] | [undefined, typeof collectionView] =
-    collectionView === 'active' ? [] : [undefined, collectionView];
-  const discovery = useTodoData(...discoveryArgs);
-  const { loading, error, items, profiles, ack, done, create, createOutcome, refresh } =
-    useTodoData(activeProfile, ...filteredArgs);
+  const discovery = useTodoData(undefined, undefined, collectionView, 'canonical');
+  const fallback = useTodoData(
+    activeProfile,
+    undefined,
+    collectionView,
+    'legacy',
+    Boolean(discovery.error),
+  );
+  const { loading, error, items, profiles, ack, done, create, createOutcome } = discovery.error
+    ? fallback
+    : discovery;
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<TodoSort>('priority');
@@ -372,11 +376,19 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
     }
   }
   collectIds(discovery.items);
-  const canonical = useTelosRecords(recordIds, 0, { batch: true });
+  const canonical = useTelosRecords(
+    [...recordIds, ...(discovery.recordFailures ?? []).map((failure) => failure.itemId)],
+    discovery.refreshKey,
+    {
+      batch: true,
+      seed: discovery.error ? undefined : discovery.records,
+      loading: discovery.loading,
+      failures: discovery.recordFailures,
+    },
+  );
   function refreshWorkspace() {
+    if (discovery.error) fallback.refresh();
     discovery.refresh();
-    refresh();
-    canonical.refresh();
   }
 
   // A short fallback or rows still growing cannot yet hold the saved offset.
@@ -485,6 +497,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
           {planningError && <p role="alert">{planningError}</p>}
           {creating && (
             <TodoCreateForm
+              key="active-create-form"
               parentId={creating.parentId}
               profile={activeProfile}
               profiles={profiles}
@@ -671,6 +684,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
 
         {creating && (
           <TodoCreateForm
+            key="active-create-form"
             parentId={creating.parentId}
             profile={activeProfile}
             profiles={profiles}
