@@ -143,7 +143,8 @@ it('recovers every profile after a mounted legacy profile selection and retains 
   fireEvent.click(screen.getByRole('button', { name: 'Refresh Telos' }));
   await expectAllOutcomes();
   expect(reads.filter((path) => path === '/api/todos')).toHaveLength(1);
-  expect(reads.filter((path) => path === '/api/todos?profile=work')).toHaveLength(1);
+  // An explicit refresh also renews the currently visible fallback once.
+  expect(reads.filter((path) => path === '/api/todos?profile=work')).toHaveLength(2);
   fireEvent.click(screen.getByRole('button', { name: home.summary }));
   await screen.findByRole('heading', { name: home.summary });
   fireEvent.click(screen.getByRole('button', { name: 'Back' }));
