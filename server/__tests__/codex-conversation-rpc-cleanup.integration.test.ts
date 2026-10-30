@@ -14,6 +14,7 @@ import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstr
 import type { AccountBinding } from '@mitzo/protocol';
 import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
 import { retainCallbackOutcome } from '../turn-callbacks.js';
+import { createHash } from 'node:crypto';
 
 const cleanup: (() => void)[] = [];
 afterEach(() =>
@@ -97,6 +98,47 @@ it('does not admit a host request whose turn finishes in the same stdio chunk', 
   expect(approve).not.toHaveBeenCalled();
   expect(f.sent.filter((frame) => frame.id === 'same-chunk')).toEqual([]);
   expect(f.lease.close).not.toHaveBeenCalled();
+});
+it('retains an ordinary durable success when exact terminal cancellation interrupts final response authorization', async () => {
+  const f = await fixture();
+  const gate = deferred();
+  let executed = false;
+  let finalFence = false;
+  const identity = {
+    turnId: 'turn',
+    toolName: 'Read',
+    requestHash: createHash('sha256').update('{}').digest('hex'),
+  };
+  f.options.executeTool = async () => {
+    executed = true;
+    return { content: 'original success', isError: false };
+  };
+  f.setPrepare(async () => {
+    if (
+      executed &&
+      f.store.replayToolResult('conversation', f.getBinding(), 'command', 'call', identity)
+    ) {
+      finalFence = true;
+      await gate.promise;
+    }
+  });
+  f.reply({
+    id: 'tool',
+    method: 'item/tool/call',
+    params: { threadId: 'thread', turnId: 'turn', callId: 'call', tool: 'Read', arguments: {} },
+  });
+  await vi.waitFor(() => expect(finalFence).toBe(true));
+  f.reply({
+    method: 'turn/completed',
+    params: { threadId: 'thread', turn: { id: 'turn', status: 'completed' } },
+  });
+  gate.resolve();
+  await vi.waitFor(() => expect(f.conversation.queue()[0].status).toBe('completed'));
+  expect(f.store.commandLifecycle('conversation', f.getBinding(), 'command').effectStatus).toBe(
+    'completed',
+  );
+  expect(f.lease.close).not.toHaveBeenCalled();
+  f.noReply('tool');
 });
 
 it.each(['known-not-started', 'unknown'] as const)(
