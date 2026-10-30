@@ -34,6 +34,24 @@ const project = (body: unknown, url: string) => {
   }).trim();
 };
 
+it('retains the exact commit identity of a tag in native and URL summaries', () => {
+  const url = 'https://api.github.com/repos/example/project/tags';
+  const tags = [
+    {
+      name: 'v1.0',
+      commit: {
+        sha: 'a'.repeat(40),
+        url: 'https://api.github.com/repos/example/project/commits/' + 'a'.repeat(40),
+      },
+      zipball_url: 'verbose',
+    },
+  ];
+  const native = JSON.parse(githubReadSummary(project(tags, url), url));
+  const web = JSON.parse(githubReadSummary(JSON.stringify(tags), url));
+  expect(native.items[0]).toMatchObject({ name: 'v1.0', commit: tags[0].commit });
+  expect(native).toEqual(web);
+});
+
 it.each(['issues', 'pulls', 'commits', 'contributors', 'releases', 'tags', 'contents/src'])(
   'projects %s before the native stdout cap using the same fields as approved URL reads',
   (endpoint) => {

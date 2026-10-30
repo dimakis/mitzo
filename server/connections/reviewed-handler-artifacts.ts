@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/github-native-read-projection.test.ts':
-    '7d2de224ac884021117bab0fb28d4e30bdc516b964de9c1756d4af1a17db2cde',
+    '53747969b5a59c7393c3758e3e28d8e646966962646e0d5f973113b640a8bff6',
   '../__tests__/prepared-repository-native-public-followup-interrupted.test.ts':
     '0018c2d7bf04ada97dc7ac978dbe1c2e9b6e670169163764862da96d43a28d4f',
   '../__tests__/local-repository-preparation-capacity.test.ts':
@@ -1798,7 +1798,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useTelosRoleSetup.ts':
     'cbded6cb6136a45627de2b563b433cfc4b9f80c248035dcdbbfb05c79d9810d8',
   '../research-instructions.ts': '43b6b28df80b4b1e306619c7089c5e3e1326cfc97253f810a1732ce67bf9c082',
-  '../github-read-summary.ts': '01f2af4a9523e073c413a4b4dfe7652dc79f5a726424b615f97b8fdc5659fcfa',
+  '../github-read-summary.ts': '96451bc704358f41e66c402a42e1b2d89015276bc8839879e301fcc5574a1dcb',
   '../../frontend/src/components/AgentActivity.tsx':
     '6dace0ce097e4c7647a14134f3d75e0d2e76650da4a222ea1e117c7bf04178a0',
   '../../frontend/src/lib/web-access-outcome.ts':

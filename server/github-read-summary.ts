@@ -40,6 +40,7 @@ const ITEM_FIELDS = [
 ] as const;
 
 const DETAIL_FIELDS = {
+  commit: ['sha', 'url'],
   user: ['login'],
   labels: ['name'],
   pull_request: ['url', 'html_url', 'merged_at'],
@@ -58,6 +59,7 @@ function itemSummary(value: unknown) {
   if (item.commit) {
     const commit = record(item.commit);
     result.commit = {
+      ...fields(commit, DETAIL_FIELDS.commit),
       ...(typeof commit.message === 'string'
         ? { message: commit.message.split(/\r?\n/, 1)[0] }
         : {}),
@@ -104,7 +106,7 @@ export function githubReadProjection(sourceUrl: string): string | undefined {
     | if $item.commit then .commit = {
         author: ($item.commit.author | ${pick(DETAIL_FIELDS.author)}),
         verification: ($item.commit.verification | ${pick(DETAIL_FIELDS.verification)})
-      } + (if ($item.commit.message | type) == "string" then {message: ($item.commit.message | split("\\n") | if length > 1 then .[0] | rtrimstr("\\r") else .[0] end)} else {} end)
+      } + ($item.commit | ${pick(DETAIL_FIELDS.commit)}) + (if ($item.commit.message | type) == "string" then {message: ($item.commit.message | split("\\n") | if length > 1 then .[0] | rtrimstr("\\r") else .[0] end)} else {} end)
       else . end`;
   const records = `if type == "array" and all(.[]; type == "object") then map(${item}) else . end`;
   const prefix =
