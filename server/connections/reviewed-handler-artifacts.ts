@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.769-ci-route-parity-integration';
+  'v1.0.770-ci-recovery-fixture-batching';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2918,7 +2918,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-source-route-diagnostics.test.ts':
     'c86ae1b37bcfaaee96a8e5e5059915ced33d87cc2b52a1c88b4707586d5e82a2',
   '../__tests__/codex-recovery-read-budget.test.ts':
-    'c2b4cb4ba0b336712c5441b007019448479ad995f45afe4fb4059375b150c195',
+    '10c7c8cc17ce3f0f308741b0af9b7fac7aef40f5bddf02c4b5eec93ec68fab54',
   '../__tests__/ordinary-openshell-completion-flow.test.ts':
     '53b9f889c7aaaa442d43e1a740aa97728fafd0a9c7799193c6d2fcd5a9389935',
   '../__tests__/fixtures/openshell-publication-effects.ts':

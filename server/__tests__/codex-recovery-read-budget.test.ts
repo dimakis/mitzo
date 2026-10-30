@@ -18,6 +18,7 @@ it('bounds exact recovery observations independently of completed history and qu
   roots.push(root);
   const store = new CodexConversationStore(join(root, 'native.db'));
   stores.push(store);
+  const db = (store as unknown as { db: Database.Database }).db;
   const binding = {
     accountId: 'offline',
     accountLabel: 'Offline API',
@@ -25,20 +26,37 @@ it('bounds exact recovery observations independently of completed history and qu
     profileRevision: 'api-r1',
     model: 'synthetic',
   };
-  for (const session of ['first', 'second']) {
-    store.create(session, binding, '/sandbox/workspaces/task');
-    store.bindThread(session, binding, `thread-${session}`);
-    for (let index = 0; index < 200; index++) {
-      const id = `${session}-${index}`;
-      store.enqueue(session, binding, { id, prompt: id });
-      const command = store.claimNext(session, binding)!;
-      store.recordNativeTurnAck(session, binding, command, `thread-${session}`, `turn-${index}`);
-      store.finish(session, binding, id, 'completed', `turn-${index}`);
+  // Build the static history through the same store transitions, with nested
+  // savepoints and one durable commit instead of syncing every fixture write.
+  // The recovery observations below run after this preparation has committed.
+  db.transaction(() => {
+    for (const session of ['first', 'second']) {
+      store.create(session, binding, '/sandbox/workspaces/task');
+      store.bindThread(session, binding, `thread-${session}`);
+      for (let index = 0; index < 200; index++) {
+        const id = `${session}-${index}`;
+        store.enqueue(session, binding, { id, prompt: id });
+        const command = store.claimNext(session, binding)!;
+        store.recordNativeTurnAck(session, binding, command, `thread-${session}`, `turn-${index}`);
+        store.finish(session, binding, id, 'completed', `turn-${index}`);
+      }
+      for (let index = 0; index < 20; index++)
+        store.enqueue(session, binding, { id: `${session}-queued-${index}`, prompt: 'later' });
     }
-    for (let index = 0; index < 20; index++)
-      store.enqueue(session, binding, { id: `${session}-queued-${index}`, prompt: 'later' });
-  }
-  const db = (store as unknown as { db: Database.Database }).db;
+  })();
+  expect(db.inTransaction).toBe(false);
+  expect(
+    db
+      .prepare(
+        'SELECT conversation_id,status,COUNT(*) AS count FROM codex_commands GROUP BY conversation_id,status ORDER BY conversation_id,status',
+      )
+      .all(),
+  ).toEqual([
+    { conversation_id: 'first', status: 'completed', count: 200 },
+    { conversation_id: 'first', status: 'queued', count: 20 },
+    { conversation_id: 'second', status: 'completed', count: 200 },
+    { conversation_id: 'second', status: 'queued', count: 20 },
+  ]);
   const prepare = db.prepare.bind(db);
   let rows = 0,
     bytes = 0,
