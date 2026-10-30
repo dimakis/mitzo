@@ -42,7 +42,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     );
     console.log(
       selected
-        ? 'All five composed prepared repository cases passed exactly once'
+        ? 'All seven composed prepared repository cases passed exactly once'
         : 'Prepared consumers were explicitly unselected',
     );
   } catch (error) {

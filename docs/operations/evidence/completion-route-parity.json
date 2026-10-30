@@ -1,0 +1,755 @@
+{
+  "schema": 1,
+  "baselineStoreSource": "accepted main bf6bc428786617feac601834e4f340254d44bd8f",
+  "workload": "two synthetic sessions, actual stream/store owners, 200 retained commands each, 25 new turns each, delayed tools, history switching, held maintenance and exact interrupted recovery",
+  "scope": "SQL method/row instrumentation and delivery/replay bytes; no external provider transports",
+  "samples": {
+    "before": [
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 0,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31460,
+        "sqlRowBytes": 5550199,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 252.31487500000003,
+        "eventLoopMaxMs": 21.30320800000004,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 1,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31460,
+        "sqlRowBytes": 5550199,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 256.61991599999965,
+        "eventLoopMaxMs": 17.44079099999999,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 2,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31460,
+        "sqlRowBytes": 5550199,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 224.25254200000018,
+        "eventLoopMaxMs": 19.67395900000065,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 3,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31460,
+        "sqlRowBytes": 5550199,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 213.53220800000054,
+        "eventLoopMaxMs": 13.993459000000257,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 4,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31460,
+        "sqlRowBytes": 5550199,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 191.70175000000017,
+        "eventLoopMaxMs": 16.16045899999972,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 5,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31460,
+        "sqlRowBytes": 5550199,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 219.5560000000005,
+        "eventLoopMaxMs": 21.170375000000604,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 6,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31460,
+        "sqlRowBytes": 5550199,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 177.96999999999935,
+        "eventLoopMaxMs": 14.140166999999565,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 7,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31460,
+        "sqlRowBytes": 5550199,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 169.69404099999883,
+        "eventLoopMaxMs": 11.75512499999968,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 8,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31460,
+        "sqlRowBytes": 5550199,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 189.54325000000063,
+        "eventLoopMaxMs": 18.771749999999884,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 9,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31460,
+        "sqlRowBytes": 5550199,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 169.06658400000015,
+        "eventLoopMaxMs": 11.445750000000771,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 10,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31460,
+        "sqlRowBytes": 5550199,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 155.29458300000078,
+        "eventLoopMaxMs": 10.692999999999302,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      }
+    ],
+    "after": [
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 0,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31458,
+        "sqlRowBytes": 5549782,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 186.40291700000012,
+        "eventLoopMaxMs": 16.10916599999996,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 1,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31458,
+        "sqlRowBytes": 5549782,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 177.0758340000002,
+        "eventLoopMaxMs": 11.450082999999722,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 2,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31458,
+        "sqlRowBytes": 5549782,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 187.78466699999944,
+        "eventLoopMaxMs": 14.757416999999805,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 3,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31458,
+        "sqlRowBytes": 5549782,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 198.13224999999966,
+        "eventLoopMaxMs": 13.570707999999286,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 4,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31458,
+        "sqlRowBytes": 5549782,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 163.8402500000002,
+        "eventLoopMaxMs": 11.140790999999808,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 5,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31458,
+        "sqlRowBytes": 5549782,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 180.56762499999968,
+        "eventLoopMaxMs": 14.456291999999848,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 6,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31458,
+        "sqlRowBytes": 5549782,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 219.20241700000042,
+        "eventLoopMaxMs": 17.277125000000524,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 7,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31458,
+        "sqlRowBytes": 5549782,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 168.75704099999894,
+        "eventLoopMaxMs": 12.785041999999521,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 8,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31458,
+        "sqlRowBytes": 5549782,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 175.4320830000015,
+        "eventLoopMaxMs": 12.566208000000188,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 9,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31458,
+        "sqlRowBytes": 5549782,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 167.85216599999876,
+        "eventLoopMaxMs": 11.121041000000332,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      },
+      {
+        "workload": "two-session-stream-replay-tool-maintenance-recovery",
+        "sample": 10,
+        "sqlReads": 1944,
+        "sqlWrites": 1126,
+        "sqlRows": 31458,
+        "sqlRowBytes": 5549782,
+        "deliveredBytes": 118598,
+        "replayBytes": 408003,
+        "peakQueued": 1,
+        "syntheticProviderTurns": 50,
+        "workflowMs": 160.57816700000149,
+        "eventLoopMaxMs": 11.146082999999635,
+        "helperProcesses": 0,
+        "credentialRefreshes": 0,
+        "providerRpcs": 0,
+        "realModelCalls": 0
+      }
+    ]
+  },
+  "boundedRecoveryRows": {
+    "observations": 44,
+    "before": 484,
+    "after": 44,
+    "beforeBytes": 108240,
+    "afterBytes": 13200,
+    "scope": "Only the two selected recovery queries; excludes unrelated SQL",
+    "measurements": {
+      "before": {
+        "workload": "two-session-recovery-200-completed-20-queued",
+        "reads": 44,
+        "rows": 484,
+        "bytes": 108240,
+        "durationsMs": [
+          1.73762499999998, 0.6563329999999041, 0.6062500000000455, 0.4915000000000873,
+          0.49908400000003894, 0.5380419999999049, 0.5428329999999733, 0.46845799999982773,
+          0.483417000000145, 0.4619999999999891, 0.48895900000002257
+        ],
+        "exitCode": 1,
+        "budgetExpectation": "red against candidate row bound"
+      },
+      "after": {
+        "workload": "two-session-recovery-200-completed-20-queued",
+        "reads": 44,
+        "rows": 44,
+        "bytes": 13200,
+        "durationsMs": [
+          1.597332999999935, 0.6291249999999309, 0.5523749999999836, 0.47775000000001455,
+          0.5061249999999973, 0.5004579999999805, 0.48958300000003874, 0.4632499999999027,
+          0.46508300000004965, 0.44404199999996763, 0.4473329999999578
+        ],
+        "exitCode": 0,
+        "budgetExpectation": "green"
+      }
+    }
+  },
+  "macNativeQualification": {
+    "ready": true,
+    "platform": "darwin",
+    "arch": "arm64",
+    "node": "v24.22.2",
+    "npm": "11.18.0",
+    "abi": "137",
+    "nativeCompilation": true,
+    "compilationMs": 2019.873583,
+    "setupInstallCalls": 0,
+    "reuseProbeProcesses": 10,
+    "taskOwnedEnvironment": true,
+    "headersDownloaded": false
+  },
+  "linuxNativeQualification": {
+    "platform": "linux",
+    "arch": "arm64",
+    "node": "v24.22.2",
+    "abi": "137",
+    "nativeCompilation": true,
+    "network": "none",
+    "credentialEnvironmentKeys": [],
+    "helperSetupAcceptance": false
+  },
+  "pinnedLinuxArtifacts": [
+    {
+      "name": "node-linux-arm64",
+      "version": "24.22.2",
+      "integrity": "sha512-oQdPGkdDO6FnJqlSdX0QaEwoNXDTwYjo5VxNlg8GsG299N9w/5RnkmuDNsvnov3rRdUy0nBlDCqOYJ47Jw7Nug==",
+      "filename": "node-linux-arm64-24.22.2.tgz"
+    },
+    {
+      "name": "npm",
+      "version": "11.18.0",
+      "integrity": "sha512-T67M4L5wNm0cZ7EBLErcEkY1SmzEW/WJ+SADBzsFUY1UdAPfFHXFQtZ6SEXiK0+vzXysCvAsepbMaBTwnrAD+w==",
+      "filename": "npm-11.18.0.tgz"
+    }
+  ],
+  "localValidation": {
+    "heapMiB": 4096,
+    "workerCountPerTestProcess": 1,
+    "authorization": "User requested heavier local validation after initial focused checks",
+    "memory": {
+      "physicalGiB": 48,
+      "pressure": 2,
+      "swapMiBBefore": 9725.69,
+      "swapMiBAfter": 9629.69,
+      "swapoutsBefore": 13193265,
+      "swapoutsAfter": 13193265
+    },
+    "checks": {
+      "allSourceServerTypecheck": "passed",
+      "serverBuildAndSourceArtifacts": "passed",
+      "frontendTypecheckAndProductionBundle": "passed",
+      "expandedRegressions": {
+        "passed": 1794,
+        "skipped": 2,
+        "filesPassed": 83,
+        "durationSeconds": 85.94,
+        "skippedScopes": [
+          "opt-in component benchmark",
+          "physical Claude contract; subsequently passed separately"
+        ]
+      },
+      "offlineBrowsers": {
+        "passed": 38,
+        "durationSeconds": 33.7,
+        "projects": ["mobile-webkit", "mobile-chromium", "desktop-chromium"],
+        "representativeCapturesInspected": true
+      },
+      "physicalClaudeContract": "passed; unique container, no network, no mounts, no inference",
+      "nativeApiStartup": "passed; verified0.160.0+helper, synthetic key, turn/start intercepted",
+      "preparedInventory": "Vitest discovery matches5delivery+2publication exact names",
+      "lint": {
+        "errors": 0,
+        "warnings": 22
+      },
+      "format": "passed",
+      "preparedConsumers": [
+        {
+          "name": "delivery",
+          "file": "server/__tests__/prepared-repository-delivery-flow.test.ts",
+          "cases": 5,
+          "status": "passed",
+          "processDurationMs": 187955,
+          "exit": {
+            "code": 0,
+            "signal": null,
+            "interruptedBy": null,
+            "timestamp": "2026-10-29T18:43:11.164Z"
+          },
+          "assertions": [
+            {
+              "fullName": "recovers exact delivery with API account=false after adoption, later prompts and lost responses",
+              "status": "passed",
+              "durationMs": 54160.839250000005
+            },
+            {
+              "fullName": "recovers exact delivery with API account=true after adoption, later prompts and lost responses",
+              "status": "passed",
+              "durationMs": 55925.985583
+            },
+            {
+              "fullName": "admits a deliberately retried never-admitted stale-workspace prompt through canonical adoption after capability deployment=false without rewriting its frozen browser body",
+              "status": "passed",
+              "durationMs": 22024.47275
+            },
+            {
+              "fullName": "admits a deliberately retried never-admitted stale-workspace prompt through canonical adoption after capability deployment=true without rewriting its frozen browser body",
+              "status": "passed",
+              "durationMs": 24677.989208999992
+            },
+            {
+              "fullName": "recovers an exact already bridged command only while its earlier attempt never crossed the native dispatch boundary",
+              "status": "passed",
+              "durationMs": 28293.95199999999
+            }
+          ],
+          "reportSha256": "1134d5d6515862720727bfd1c633de68ab0514be3de80cfc6cd9d4de2058dd51",
+          "exitSha256": "e87e58b5485002d952e5665cea0e301d74535e9ebc1dc6f8aecfded9193fb4c6"
+        },
+        {
+          "name": "publication",
+          "file": "server/__tests__/prepared-repository-publication-flow.test.ts",
+          "cases": 2,
+          "status": "passed",
+          "processDurationMs": 335508,
+          "exit": {
+            "code": 0,
+            "signal": null,
+            "interruptedBy": null,
+            "timestamp": "2026-10-29T18:48:46.680Z"
+          },
+          "assertions": [
+            {
+              "fullName": "commits, reviews, approves and publishes with API account=false, then accepts another prompt",
+              "status": "passed",
+              "durationMs": 168144.119083
+            },
+            {
+              "fullName": "commits, reviews, approves and publishes with API account=true, then accepts another prompt",
+              "status": "passed",
+              "durationMs": 164706.009125
+            }
+          ],
+          "reportSha256": "d6cd3f4570cb3b514f20f8f1ebc68cd246245ed11b5fd67621f8083a40929f79",
+          "exitSha256": "4719e2d10131be705b5590332ad1bb20776a728d19f80714e4f66b575660ecea"
+        }
+      ]
+    },
+    "logSha256": {
+      "local-server-typecheck.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "local-build-all.txt": "3d9912243afd7b2582a34539ef0b21bcdc60a7d4b4cd879d62cc48ca4ce21d0a",
+      "local-expanded-regressions.json": "e7fd3b304ff1697aa0bdebec146ec9801a1f54ef08c93fd62c1ec1ae076a99cf",
+      "local-browser-continuity.txt": "448fdc60a256a7d56cbb686948b4a5669a360a2d732cb2d0f20169d9576d3bba",
+      "local-claude-physical.txt": "48319a6913f06aeb554c33f6d44beb936fe079798f4b990936427f4e0c6c4f3f",
+      "local-offline-native-start.txt": "ec2193e396d5898035da11daadba5f90ee0b81b0c3bd2a17d18628810058cec8",
+      "local-lint.txt": "1cab5ec4678b7314a84c691e3619e699797e93c539b2dddd3f0e42da0a2386c7",
+      "local-format.txt": "5303ea44b65cefccaaa4597c747e0fb27ff9ba2157c37149e3b060e418c1b6c4",
+      "prepared-inventory-discovered.json": "720ad6019c652cbd65c4555a3feb55c32d153fa070d19788ae528b193352d0cb",
+      "prepared-inventory-green.txt": "992e89c05c521a218ee36e13eb79d06e4991ec0fce716c6e5fac8bf2e7126d1c",
+      "local-prepared-consumers.txt": "83689f1dd8fea1152a691c56f53048324cc6765c36f905b1f4c79e4ab63278c9"
+    },
+    "nativeArtifactQualification": {
+      "release": "rust-v0.160.0",
+      "source": "https://github.com/openai/codex/releases/tag/rust-v0.160.0",
+      "archives": {
+        "codex-aarch64-apple-darwin.tar.gz": "07c3c7ca376a8f791115342f53138dda37e97cfa29b8125d0652d93784894b5d",
+        "codex-code-mode-host-aarch64-apple-darwin.tar.gz": "dc70fbc76e9dcae5ae3d5424808c8e7c2df5e0db4ac827ddd4fbe339015aad75"
+      },
+      "binarySha256": "112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b",
+      "helperSha256": "679eedaea70529aa1cffc9bc0a0788c186412663544fa76c09d63b57f383a65a",
+      "inferenceCalls": 0
+    },
+    "sourceHead": "4a2ecf63c62b8552c0116539943803b1f2080112 (retained initial coverage)"
+  },
+  "measurementProvenance": {
+    "acceptedMain": "bf6bc428786617feac601834e4f340254d44bd8f",
+    "dependencyPullRequest": 1158,
+    "reviewedDependencyHead": "f40bf3c0ad060442ee7e42df4ff559895fc57d94",
+    "acceptedDependencyTreeMatchesReviewedHead": true,
+    "baselineStoreSourceSha256": "98140e5f8d56c044ac217fffd0a43cb00b9887d2f2549709616ea76c3a2e60d3",
+    "candidateStoreSourceSha256": "5169c6c862775d5b9f155b8a0fba23e4051bcd06232a992bb7784a54010919e7",
+    "composedFixtureSourceSha256": "dc5f6c669bf879eb2a9a41a945c29d4b2e9f303d920efd04f2e3f297a7fc52b1",
+    "recoveryFixtureSourceSha256": "c2b4cb4ba0b336712c5441b007019448479ad995f45afe4fb4059375b150c195",
+    "heapMiB": 1024,
+    "workers": 1,
+    "samplesPerSide": 11,
+    "scope": "Timed streams/replay/tools/maintenance/recovery after historical database seeding; no external transports",
+    "logSha256": {
+      "composed-accepted-before.txt": "5171496e84328152acc51f92204ab5616d87e0f5b48903a7f8242d14ffe070bb",
+      "composed-accepted-after.txt": "4b15b67897ca4ba8acc9ec1c1e2a8525a0c15daa22a58baad2c0c8205c2b54ee",
+      "recovery-accepted-before.txt": "bbd1b649c9a7cbccab60b5c099a7bee42cde14fe9bcddb4673eb34de58da2712",
+      "recovery-accepted-after.txt": "7c0d9231f3c6669d0f026b791116b384f4aa04734746a2de41dd0231ba3cec8f"
+    }
+  },
+  "integrationValidation": {
+    "dependencyCandidate": "f40bf3c0ad060442ee7e42df4ff559895fc57d94",
+    "ownWorktreeParent": "4a2ecf63c62b8552c0116539943803b1f2080112",
+    "reviewedPatchSha256": "bc2ade211d53d992a4b834aea5efad5d46eb2fc3fe50809fee4c63121b576c74",
+    "reviews": ["CORRECTNESS-INTEGRATION-2026-10-29-11", "BEHAVIOR-2026-10-29-INTEGRATION-03"],
+    "sourceSha256": {
+      "server/codex-conversation-store.ts": "5169c6c862775d5b9f155b8a0fba23e4051bcd06232a992bb7784a54010919e7",
+      "server/codex-conversation.ts": "2ecd325ce5aaba32a01b783bfce0508cff07a7579b988b650dfef8177bca06da",
+      "server/__tests__/codex-recovery-read-budget.test.ts": "c2b4cb4ba0b336712c5441b007019448479ad995f45afe4fb4059375b150c195",
+      "server/__tests__/completion-concurrency.test.ts": "dc5f6c669bf879eb2a9a41a945c29d4b2e9f303d920efd04f2e3f297a7fc52b1"
+    },
+    "focusedRegressions": {
+      "distinctPassed": 779,
+      "files": 11,
+      "heapMiB": 1024,
+      "workers": 1,
+      "initial": {
+        "passed": 778,
+        "socketBindBlocked": 1,
+        "durationSeconds": 40.43
+      },
+      "hostRerun": {
+        "file": "ordinary-openshell-codex-owned-runtime.test.ts",
+        "passed": 23,
+        "durationSeconds": 4.12,
+        "overlapsInitial": true
+      }
+    },
+    "preparedConsumers": [
+      {
+        "name": "delivery",
+        "file": "server/__tests__/prepared-repository-delivery-flow.test.ts",
+        "cases": 5,
+        "status": "passed",
+        "processDurationMs": 179303,
+        "heapMiB": 4096,
+        "workers": 1,
+        "assertions": [
+          {
+            "fullName": "recovers exact delivery with API account=false after adoption, later prompts and lost responses",
+            "status": "passed",
+            "durationMs": 53279.57375
+          },
+          {
+            "fullName": "recovers exact delivery with API account=true after adoption, later prompts and lost responses",
+            "status": "passed",
+            "durationMs": 52131.950166999995
+          },
+          {
+            "fullName": "admits a deliberately retried never-admitted stale-workspace prompt through canonical adoption after capability deployment=false without rewriting its frozen browser body",
+            "status": "passed",
+            "durationMs": 20653.0705
+          },
+          {
+            "fullName": "admits a deliberately retried never-admitted stale-workspace prompt through canonical adoption after capability deployment=true without rewriting its frozen browser body",
+            "status": "passed",
+            "durationMs": 21975.198542000013
+          },
+          {
+            "fullName": "recovers an exact already bridged command only while its earlier attempt never crossed the native dispatch boundary",
+            "status": "passed",
+            "durationMs": 28564.123499999987
+          }
+        ],
+        "reportSha256": "20a6ce46a1927d929b4bd2baf3ff58ca0470df36af65c4a8beedaacf69c4c324",
+        "exitSha256": "594134416e34904d7502a2d71a815bc093d3a2a96434196ec44fb7ed4a86b3c7"
+      },
+      {
+        "name": "publication",
+        "file": "server/__tests__/prepared-repository-publication-flow.test.ts",
+        "cases": 2,
+        "status": "passed",
+        "processDurationMs": 334798,
+        "heapMiB": 4096,
+        "workers": 1,
+        "assertions": [
+          {
+            "fullName": "commits, reviews, approves and publishes with API account=false, then accepts another prompt",
+            "status": "passed",
+            "durationMs": 164024.690875
+          },
+          {
+            "fullName": "commits, reviews, approves and publishes with API account=true, then accepts another prompt",
+            "status": "passed",
+            "durationMs": 167972.07766599997
+          }
+        ],
+        "reportSha256": "feafc26ab94fe889998862bde50ef0e6a99f55a5993e46c2de4476a73b5192c1",
+        "exitSha256": "3273ba7aa33b17befab645067944b88686d2ed7911e4a09d6c3f6ab0781359e8"
+      }
+    ],
+    "allSourceServerTypecheck": "passed",
+    "buildAll": "passed",
+    "buildHeapMiB": 4096,
+    "logSha256": {
+      "scratch-f40-integration-regressions.txt": "a83b4a905fef4b3bb104f82120d47a9a513f11684f8c8ee9f9c8da29fad031b4",
+      "scratch-f40-owned-runtime-host.txt": "cf59140cb93eb2800cb8871ef266a50f584d7996e136332422937cf7c9129c36",
+      "scratch-f40-prepared-consumers.txt": "318bea05886b5a2c42cce29f2557fe875e3e6bf45839dcb5b13f695b55eacd8f",
+      "scratch-f40-server-typecheck.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "scratch-f40-build-all.txt": "28a7f244c590e35f03229b538f047f5396569643394482990804ee0ea0a6fdf2"
+    },
+    "memory": {
+      "physicalGiB": 48,
+      "pressure": 2,
+      "swapMiB": 9461.12,
+      "swapouts": 13234790,
+      "swapTrend": "stable during the complete seven-case run"
+    },
+    "inferenceCalls": 0,
+    "productionOrStagingMutations": 0,
+    "acceptedMain": "bf6bc428786617feac601834e4f340254d44bd8f",
+    "acceptedDependencyTreeMatchesCandidate": true,
+    "actualAcceptedIntegrationPatchSha256": "bc2ade211d53d992a4b834aea5efad5d46eb2fc3fe50809fee4c63121b576c74",
+    "patchFingerprintScope": "Accepted integration snapshot before documentation/measurement refresh; runtime/store/fixture hashes unchanged"
+  }
+}

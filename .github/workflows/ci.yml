@@ -903,7 +903,7 @@ jobs:
       - run: npm install --global npm@11.18.0
       - run: npm install --no-audit
       - run: npx tsc -b packages/protocol packages/harness packages/client
-      - name: Run all five offline delivery and publication cases in isolated processes
+      - name: Run all seven offline delivery and publication cases in isolated processes
         run: node scripts/ci-prepared-consumers.mjs ${{ matrix.group }}
       - name: Retain exact consumer reports, exits and resource evidence
         if: ${{ always() }}

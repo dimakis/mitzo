@@ -50,7 +50,9 @@ The 7 GiB hosted runner reported normal macOS pressure and no swap throughout;
 low free memory alone does not prove resource exhaustion.
 
 Delivery and publication now occupy two independent macOS jobs, retaining the
-same one-worker fresh-process isolation and all five case deadlines/assertions.
+same one-worker fresh-process isolation and all case deadlines/assertions. The
+completion-route follow-on expands the inventory to five delivery and two
+publication cases, requiring both subscription and API account journeys.
 The unsharded command still runs both groups. Each group retains its own summary,
 start/end timestamps, process duration, actual reporter, exit and resource trace.
 The aggregate gate validates both actual reports and successful exits, including
@@ -117,15 +119,16 @@ The joined and final gates require a successful selector and accept skips only
 when explicitly unselected; missing, cancelled, failed or contradictory evidence
 still fails. No acceptance case, assertion or deadline is removed.
 
-- The native consumer family retains the same 32 collected cases and 178
-  `expect` expressions in nine files. Each public-entry case gets its own isolated
+- The complete discovered native consumer family retains its required cases and
+  assertions. Each public-entry case gets its own isolated
   Vitest module graph and retained authentication-store lifetime. A sequencer
   distributes eight expensive files across the existing four unit jobs; other
   files retain a path-hash partition. Complete discovery and exact once-only file
   coverage remain mandatory in `ci-unit-gate.mjs`.
-- The five new composed prepared-repository delivery/publication cases have a
-  separate one-worker macOS owner with delivery/publication matrix groups. The delivery file's four cases run in one fresh Vitest process, and
-  a separate job runs a fresh process for the publication file's one case. These exercise
+- The seven composed prepared-repository delivery/publication cases have a
+  separate one-worker macOS owner with delivery/publication matrix groups. The
+  delivery file's five cases run in one fresh Vitest process, and a separate job
+  runs a fresh process for the publication file's two cases. These exercise
   LocalMac behavior with synthetic provider/model transport; no live model or
   account credentials are used. Only these two files transfer from the four
   Linux shards. Full discovery still lists them, the unit gate requires both
@@ -136,7 +139,7 @@ still fails. No acceptance case, assertion or deadline is removed.
   It retains JSON reports, exits, resource traces and a summary, including failures.
   Cancellation stops admission of the next file. Its finite 40-minute job budget
   allows setup and hosted timing variance over the measured 8–27 minute journeys.
-  It is a lane resource bound, not a sum-of-case-budgets guarantee; the five
+  It is a lane resource bound, not a sum-of-case-budgets guarantee; the seven
   individual 15-minute envelopes remain unchanged, and the job cutoff fails closed.
   No production, operation, assertion or authentication deadline is expanded.
   Runtime and unknown changes conservatively select this owner, as do incomplete

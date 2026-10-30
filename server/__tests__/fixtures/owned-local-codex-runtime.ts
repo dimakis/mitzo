@@ -483,13 +483,21 @@ export async function ownedRuntimeFixture(
       launch,
       ...(options.api
         ? {
-            launchApi: async (home: string) => {
-              expect(events.getOrdinaryLocalCommandAdmission(commandId)?.state).toBe('uncertain');
-              await writeFile(
-                join(home, 'auth.json'),
-                JSON.stringify({ OPENAI_API_KEY: 'synthetic-api-key' }),
-                { mode: 0o600, flag: 'wx' },
-              );
+            launchApi: async (
+              home: string,
+              _executable: unknown,
+              _binding: unknown,
+              resume = false,
+            ) => {
+              expect(
+                events.getLatestOrdinaryCommandAdmission(reservation.conversationId)?.state,
+              ).toBe('uncertain');
+              if (!resume)
+                await writeFile(
+                  join(home, 'auth.json'),
+                  JSON.stringify({ OPENAI_API_KEY: 'synthetic-api-key' }),
+                  { mode: 0o600, flag: 'wx' },
+                );
               return rpc;
             },
           }
