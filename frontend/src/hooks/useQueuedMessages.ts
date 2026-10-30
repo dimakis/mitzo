@@ -1,5 +1,5 @@
 import type { MessageReplyContext } from '@mitzo/protocol';
-import { chatStorage } from '../lib/large-chat-storage';
+import { chatStorage, CHAT_STORAGE_CHANGED } from '../lib/large-chat-storage';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ImageAttachment } from '../types/chat';
 import type { DraftSessionAssignment } from './useDraft';
@@ -117,13 +117,17 @@ function loadQueue(sessionId: string | undefined): QueuedMessage[] {
 }
 
 function mergeLiveImages(stored: QueuedMessage[], live: QueuedMessage[]): QueuedMessage[] {
-  const imagesById = new Map(live.map((entry) => [entry.queueEntryId, entry.images]));
-  return stored.map((entry) => ({
-    ...entry,
-    images: entry.queueEntryId
-      ? (imagesById.get(entry.queueEntryId) ?? entry.images)
-      : entry.images,
-  }));
+  const liveById = new Map(live.map((entry) => [entry.queueEntryId, entry]));
+  return stored.map((entry) => {
+    const previous = entry.queueEntryId ? liveById.get(entry.queueEntryId) : undefined;
+    // Preserve transient previews only when their durable attachment payload is
+    // unchanged. A fresh peer replacement/removal must remain authoritative.
+    const sameImages =
+      previous &&
+      JSON.stringify(toStored([previous])[0].images) ===
+        JSON.stringify(toStored([entry])[0].images);
+    return { ...entry, images: sameImages ? previous.images : entry.images };
+  });
 }
 
 function indexedEntries(entries: QueuedMessage[]): Array<[string, QueuedMessage]> {
@@ -238,25 +242,35 @@ export function useQueuedMessages(
     [],
   );
   const persist = useCallback(
-    (id: string | undefined, next: QueuedMessage[]) => {
+    (id: string | undefined, next: QueuedMessage[], maximum?: number) => {
       const ownsLiveQueue = mounted.current && persistence.current.sessionId === id;
       let observed: QueuedMessage[] | undefined;
       let readable = true;
       let reconciled = next;
-      if (ownsLiveQueue && persistence.current.dirty) {
+      if (ownsLiveQueue) {
         try {
           observed = readQueue(id);
-          reconciled = reconcileQueue(observed, next, persistence.current.baseline);
+          if (!sameStoredQueue(observed, persistence.current.baseline))
+            reconciled = reconcileQueue(observed, next, persistence.current.baseline);
         } catch {
           readable = false;
         }
       }
       const filtered = ownsLiveQueue ? excludeAccepted(reconciled, next, id) : reconciled;
       const candidate = sameQueue(filtered, next) ? next : filtered;
-      const written =
-        readable &&
-        ((observed !== undefined && sameStoredQueue(observed, candidate)) ||
-          saveQueue(id, candidate));
+      if (maximum !== undefined && candidate.length > maximum)
+        return { written: false, readable, queue: observed ?? queueRef.current };
+      const suppressed = suppressOwnEvent.current;
+      suppressOwnEvent.current = true;
+      let written: boolean;
+      try {
+        written =
+          readable &&
+          ((observed !== undefined && sameStoredQueue(observed, candidate)) ||
+            saveQueue(id, candidate));
+      } finally {
+        suppressOwnEvent.current = suppressed;
+      }
       if (persistence.current.sessionId === id) {
         if (written) persistence.current = { sessionId: id, baseline: candidate, dirty: false };
         else if (observed)
@@ -276,7 +290,10 @@ export function useQueuedMessages(
     mounted.current = true;
     const changed = (event: Event) => {
       if (suppressOwnEvent.current) return;
-      if ((event as CustomEvent<{ key: string }>).detail?.key !== queueKey(sessionRef.current))
+      if (
+        event.type === QUEUE_CHANGED_EVENT &&
+        (event as CustomEvent<{ key: string }>).detail?.key !== queueKey(sessionRef.current)
+      )
         return;
       let stored: QueuedMessage[];
       try {
@@ -296,13 +313,17 @@ export function useQueuedMessages(
         baseline: stored,
         dirty: !sameStoredQueue(stored, restored),
       };
-      queueRef.current = restored;
-      setQueueRaw(restored);
+      if (!sameQueue(restored, live)) {
+        queueRef.current = restored;
+        setQueueRaw(restored);
+      }
     };
     window.addEventListener(QUEUE_CHANGED_EVENT, changed);
+    window.addEventListener(CHAT_STORAGE_CHANGED, changed);
     return () => {
       mounted.current = false;
       window.removeEventListener(QUEUE_CHANGED_EVENT, changed);
+      window.removeEventListener(CHAT_STORAGE_CHANGED, changed);
     };
   }, [excludeAccepted]);
 
@@ -390,20 +411,23 @@ export function useQueuedMessages(
 
   const enqueuePersisted = useCallback(
     async (msg: QueuedMessage): Promise<boolean> => {
-      if (queueRef.current.length >= maxQueued) return false;
       const owner = sessionRef.current;
-      const next = [
-        ...queueRef.current,
-        { ...msg, retainAttachments: true, queueEntryId: createBrowserId() },
-      ];
-      const saved = persist(owner, next);
+      const admitted = { ...msg, retainAttachments: true, queueEntryId: createBrowserId() };
+      const next = [...queueRef.current, admitted];
+      const saved = persist(owner, next, maxQueued);
       if (!saved.written) return false;
       pendingAdmission.current.set(owner, saved.queue);
       let restored: QueuedMessage[];
+      let retained: boolean;
       try {
         await chatStorage.flush();
         if (chatStorage.failed) return false;
-        restored = mergeLiveImages(readQueue(owner), saved.queue);
+        const stored = readQueue(owner);
+        retained = stored.some(
+          (entry) =>
+            entry.queueEntryId === admitted.queueEntryId && sameStoredQueue([entry], [admitted]),
+        );
+        restored = mergeLiveImages(stored, saved.queue);
       } catch {
         return false;
       } finally {
@@ -414,7 +438,7 @@ export function useQueuedMessages(
         queueRef.current = restored;
         setQueueRaw(restored);
       }
-      return true;
+      return retained;
     },
     [maxQueued, persist],
   );
@@ -441,7 +465,12 @@ export function useQueuedMessages(
 
   const dequeue = useCallback((): QueuedMessage | undefined => {
     const current = queueRef.current;
-    if (current.length === 0 || current[0].requiresRetry) return undefined;
+    if (
+      current.length === 0 ||
+      current[0].requiresRetry ||
+      current.some((entry) => entry.dispatchPending)
+    )
+      return undefined;
     const item = current[0];
     queueRef.current = current.slice(1);
     setQueueRaw(queueRef.current);

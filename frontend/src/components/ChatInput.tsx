@@ -1334,7 +1334,7 @@ export function ChatInput({
     sendGuard.current = true;
     const pending = {};
     interruptPending.current = pending;
-    const submitted = latestDraft.current;
+    const submitted = { ...latestDraft.current, replyTo: replyTarget };
     onInterrupt(
       attachmentPrompt(trimmed, images),
       images.length > 0 ? images : undefined,
@@ -1348,7 +1348,10 @@ export function ChatInput({
         if (interruptPending.current === pending) interruptPending.current = null;
         if (mounted.current) settleDelivery((n) => n + 1);
         if (!mounted.current || latestDraft.current.scope !== submitted.scope) return;
-        if (latestDraft.current.revision !== submitted.revision) {
+        if (
+          latestDraft.current.revision !== submitted.revision ||
+          replyRef.current !== submitted.replyTo
+        ) {
           if (status === 'failed')
             restoreRejected({ ...submitted, text: trimmed || 'What do you see in this image?' });
           return;

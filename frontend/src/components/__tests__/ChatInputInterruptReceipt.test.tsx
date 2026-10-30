@@ -10,6 +10,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { useStore } from 'zustand';
 import { createMitzoStore } from '../../../../packages/client/src/store';
 import { ChatInput } from '../ChatInput';
+import { chatStorage } from '../../lib/large-chat-storage';
 
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
 vi.mock('../MicButton', () => ({ MicButton: () => null }));
@@ -37,6 +38,60 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
 });
+
+it.each(['text-and-quote', 'quote-only', 'cancel-quote'] as const)(
+  'retains a quoted correction after rejection without replacing a newer %s edit',
+  (edit) => {
+    const original = {
+      messageId: 'original',
+      role: 'assistant' as const,
+      text: 'Original quoted answer',
+      timestamp: 1000,
+    };
+    const newer = {
+      messageId: 'newer',
+      role: 'user' as const,
+      text: 'Newer quoted question',
+      timestamp: 2000,
+    };
+    const interrupt = vi.fn<NonNullable<Parameters<typeof ChatInput>[0]['onInterrupt']>>();
+    const clearReply = vi.fn();
+    const props = {
+      sessionId: 'quoted-refusal',
+      running: true,
+      onSend: () => true,
+      onStop: vi.fn(),
+      onInterrupt: interrupt,
+      onClearReply: clearReply,
+    };
+    const view = render(<ChatInput {...props} replyTarget={original} />);
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Original correction' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Interrupt and send now' }));
+    expect(interrupt.mock.calls[0][4]).toEqual(original);
+    view.rerender(
+      <ChatInput {...props} replyTarget={edit === 'cancel-quote' ? undefined : newer} />,
+    );
+    if (edit === 'text-and-quote')
+      fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+        target: { value: 'Newer untouched draft' },
+      });
+    act(() => interrupt.mock.calls[0][3]?.('failed'));
+    expect(JSON.parse(chatStorage.getItem('mitzo-queue-quoted-refusal')!)).toMatchObject([
+      { text: 'Original correction', replyTo: original },
+    ]);
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty(
+      'value',
+      edit === 'text-and-quote' ? 'Newer untouched draft' : 'Original correction',
+    );
+    if (edit === 'cancel-quote')
+      expect(view.container.querySelector('.chat-reply-draft')).toBeNull();
+    else
+      expect(view.container.querySelector('.chat-reply-draft')?.textContent).toContain(newer.text);
+    expect(clearReply).not.toHaveBeenCalled();
+  },
+);
 
 async function fixture() {
   let ws: {

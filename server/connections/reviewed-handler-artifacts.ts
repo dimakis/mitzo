@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.786-chat-queue-acceptance-boundaries';
+  'v1.0.787-shared-queue-admission-retention';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/__tests__/ChatInputInterruptReceipt.test.tsx':
+    'fc9d3a374f9486b6f7fc4ff5cf31fab8ff662294b2ad03307926c2f6d989c995',
+  '../../frontend/src/hooks/__tests__/useQueuedMessages.test.ts':
+    '74d835a984b7fb490a2a23cef25d93dc9f7600adefbaf46abbaf5e7e7bb65e70',
+  '../../frontend/src/hooks/useQueuedMessages.ts':
+    '77fe51c827ba76b39809c6424093e0b68521ede0249238d90d6c374031904d08',
   '../../tests/support/node-compatible-dom.ts':
     '9632c4df897b9c0aa0056c173a58b803e78812615e1db96d2384658139bd2e3d',
   '../queued-message-receipt.ts':
@@ -1162,7 +1168,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    '0dc2f2de2456f917f57df0555be53ecd0314a61e28898f05ff7f84cf91d5df60',
+    'cc17cf56575d4e6f76851fca70af650fbc81bf33a2acd49996282fa073091b17',
   '../../frontend/src/components/ComposerTools.tsx':
     '40c818bb1683a26d083960c6666d6c46003d293bd78319f51cf07e73655d0d1f',
   '../../frontend/src/components/ContextPanel.tsx':

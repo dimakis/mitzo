@@ -1,5 +1,5 @@
-import { chatStorage } from '../../lib/large-chat-storage';
 // @vitest-environment jsdom
+import { chatStorage, CHAT_STORAGE_CHANGED } from '../../lib/large-chat-storage';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
 import { useQueuedMessages, type QueuedMessage } from '../useQueuedMessages';
@@ -8,6 +8,134 @@ import type { DraftSessionAssignment } from '../useDraft';
 function msg(text: string): QueuedMessage {
   return { text, images: [], contextBlocks: [] };
 }
+
+it('retains durable admissions from two open views of the same queue', async () => {
+  const first = renderHook(() => useQueuedMessages('shared-admission', 2));
+  const second = renderHook(() => useQueuedMessages('shared-admission', 2));
+  await act(async () => {
+    expect(
+      await Promise.all([
+        first.result.current.enqueuePersisted(msg('First view')),
+        second.result.current.enqueuePersisted(msg('Second view')),
+      ]),
+    ).toEqual([true, true]);
+  });
+  const restored = renderHook(() => useQueuedMessages('shared-admission', 2));
+  expect(restored.result.current.queue.map((entry) => entry.text)).toEqual([
+    'First view',
+    'Second view',
+  ]);
+  expect(new Set(restored.result.current.queue.map((entry) => entry.queueEntryId)).size).toBe(2);
+});
+
+it('checks fresh queue capacity before admitting from a stale view', async () => {
+  const first = renderHook(() => useQueuedMessages('shared-capacity', 1));
+  const second = renderHook(() => useQueuedMessages('shared-capacity', 1));
+  await act(async () =>
+    expect(await first.result.current.enqueuePersisted(msg('Already saved'))).toBe(true),
+  );
+  await act(async () =>
+    expect(await second.result.current.enqueuePersisted(msg('Keep in composer'))).toBe(false),
+  );
+  expect(JSON.parse(chatStorage.getItem('mitzo-queue-shared-capacity')!)).toMatchObject([
+    { text: 'Already saved' },
+  ]);
+});
+
+it('does not acknowledge an admitted prompt lost before its storage flush completes', async () => {
+  let finish!: () => void;
+  vi.spyOn(chatStorage, 'flush').mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const hook = renderHook(() => useQueuedMessages('lost-admission', 2));
+  let pending!: Promise<boolean>;
+  act(() => {
+    pending = hook.result.current.enqueuePersisted(msg('Keep in composer'));
+  });
+  chatStorage.setItem(
+    'mitzo-queue-lost-admission',
+    JSON.stringify([{ text: 'External replacement', contextBlocks: [], queueEntryId: 'external' }]),
+  );
+  await act(async () => {
+    finish();
+    expect(await pending).toBe(false);
+  });
+});
+
+it.each(['replace', 'remove'] as const)(
+  'does not acknowledge an admitted prompt after a peer %ss its attachments during flush',
+  async (change) => {
+    let finish!: () => void;
+    vi.spyOn(chatStorage, 'flush').mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const hook = renderHook(() => useQueuedMessages('attachment-admission', 2));
+    const original = {
+      ...msg('Keep original attachment'),
+      images: [{ data: 'AAAA', mediaType: 'image/png', preview: 'original preview' }],
+    };
+    let pending!: Promise<boolean>;
+    act(() => {
+      pending = hook.result.current.enqueuePersisted(original);
+    });
+    const stored = JSON.parse(chatStorage.getItem('mitzo-queue-attachment-admission')!);
+    const replacement = { data: 'BBBB', mediaType: 'image/jpeg' };
+    if (change === 'remove') delete stored[0].images;
+    else stored[0].images = [replacement];
+    chatStorage.setItem('mitzo-queue-attachment-admission', JSON.stringify(stored));
+    await act(async () => {
+      finish();
+      expect(await pending).toBe(false);
+    });
+    expect(hook.result.current.queue[0].images).toEqual(
+      change === 'remove' ? [] : [{ ...replacement, preview: 'data:image/jpeg;base64,BBBB' }],
+    );
+    expect(original.images[0].data).toBe('AAAA');
+  },
+);
+
+it('refreshes the displayed queue after shared chat storage changes', async () => {
+  const hook = renderHook(() => useQueuedMessages('external-notice', 2));
+  chatStorage.setItem(
+    'mitzo-queue-external-notice',
+    JSON.stringify([{ text: 'Another window', contextBlocks: [], queueEntryId: 'external' }]),
+  );
+  act(() => window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED)));
+  expect(hook.result.current.queue.map((entry) => entry.text)).toEqual(['Another window']);
+});
+
+it('keeps another view from draining past an unconfirmed dispatch', async () => {
+  const first = renderHook(() => useQueuedMessages('shared-dispatch', 2));
+  await act(async () => {
+    await first.result.current.enqueuePersisted(msg('In flight'));
+    await first.result.current.enqueuePersisted(msg('Wait for receipt'));
+  });
+  const second = renderHook(() => useQueuedMessages('shared-dispatch', 2));
+  let retained!: QueuedMessage;
+  await act(async () => {
+    retained = (await first.result.current.prepareSubmission(first.result.current.queue[0]))!;
+    window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));
+  });
+  // The retained claim moves behind ordinary saved work. Its receipt still gates
+  // the conversation, including observers which did not submit the claim.
+  expect(second.result.current.queue.map((entry) => entry.text)).toEqual([
+    'Wait for receipt',
+    'In flight',
+  ]);
+  expect(second.result.current.dequeue()).toBeUndefined();
+  act(() => first.result.current.removeSubmitted(retained));
+  let next!: QueuedMessage | undefined;
+  act(() => {
+    next = second.result.current.dequeue();
+  });
+  expect(next?.text).toBe('Wait for receipt');
+});
 
 beforeEach(() => localStorage.clear());
 afterEach(() => {
@@ -1334,18 +1462,20 @@ it('excludes the exact accepted ID when writes succeeded but verification reads 
   expect(
     owner.result.current.queue.find((row) => row.queueEntryId === other.queueEntryId)?.images,
   ).toBe(other.images);
+  // Fresh verification converges the baseline despite the earlier failed read;
+  // the externally revised row retains its saved position.
   expect(owner.result.current.queue.map((row) => row.text)).toEqual([
-    'Other A',
     'Fresh edit of the accepted row',
+    'Other A',
   ]);
   expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([
-    { text: other.text, contextBlocks: other.contextBlocks, queueEntryId: other.queueEntryId },
     {
       text: revised.text,
       contextBlocks: revised.contextBlocks,
       queueEntryId: revised.queueEntryId,
       requiresRetry: true,
     },
+    { text: other.text, contextBlocks: other.contextBlocks, queueEntryId: other.queueEntryId },
   ]);
 });
 
