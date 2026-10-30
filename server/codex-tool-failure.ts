@@ -9,6 +9,7 @@ export type ToolFailureCode =
   | 'permission_denied'
   | 'stale_owner'
   | 'invalid_input'
+  | 'resource_exhausted'
   | 'internal_failure';
 
 const FailureDetailSchema = z.strictObject({
@@ -25,6 +26,7 @@ const FailureDetailSchema = z.strictObject({
     'filesystem_denied',
     'deadline',
     'storage_full',
+    'preparation_capacity',
     'custody_changed',
     'missing_connection',
     'invalid_input',
@@ -246,6 +248,8 @@ export function codexToolFailureResult(
     stale_owner:
       'The admitted owner or repository binding changed. Reconcile the current session/workspace before another call.',
     invalid_input: 'Read the tool contract and correct the arguments before another call.',
+    resource_exhausted:
+      'Repository preparation capacity is unavailable. Resume or explicitly retire an unfinished preparation, or restore free disk space, before requesting another checkout. Retained task work has been preserved.',
     internal_failure:
       'The outcome is uncertain. Inspect current state and the diagnostic reference before retrying; do not repeat a write blindly.',
   };

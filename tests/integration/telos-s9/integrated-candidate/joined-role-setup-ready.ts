@@ -1,11 +1,15 @@
 import { expect as browserExpect, type Page, type Request, type Response } from '@playwright/test';
-import { TelosWorkRoleContextReviewSchema } from '@mitzo/protocol';
+import { TelosWorkRoleContextReviewSchema, TelosWorkViewSchema } from '@mitzo/protocol';
 import { ExplicitLocalInventorySchema } from '../../../../frontend/src/lib/explicit-local-chat';
 import { expect } from 'vitest';
 
 /** Capture requests before the real action without treating a departing
  * document's late response as the new draft's readiness. */
-function observeFreshResponse(page: Page, accepts: (response: Response) => Promise<boolean>) {
+function observeFreshResponse(
+  page: Page,
+  accepts: (response: Response) => Promise<boolean>,
+  acceptsRequest: (request: Request) => boolean = () => true,
+) {
   const fresh = new WeakSet<Request>();
   let resolve!: () => void;
   let reject!: (error: unknown) => void;
@@ -15,7 +19,7 @@ function observeFreshResponse(page: Page, accepts: (response: Response) => Promi
   });
   void ready.catch(() => {});
   const onRequest = (request: Request) => {
-    fresh.add(request);
+    if (acceptsRequest(request)) fresh.add(request);
   };
   const onResponse = (response: Response) => {
     if (!fresh.has(response.request())) return;
@@ -32,7 +36,7 @@ function observeFreshResponse(page: Page, accepts: (response: Response) => Promi
         await Promise.race([
           ready,
           new Promise<void>((_, no) => {
-            timer = setTimeout(() => no(Error('Role setup response deadline')), 10_000);
+            timer = setTimeout(() => no(Error('Browser readiness response deadline')), 10_000);
           }),
         ]);
       } finally {
@@ -44,6 +48,58 @@ function observeFreshResponse(page: Page, accepts: (response: Response) => Promi
       page.off('response', onResponse);
     },
   };
+}
+
+/** Chooser navigation loads the canonical item before mounting its work read.
+ * Observe that exact dependency within ten seconds from before the click; DOM
+ * counts retain their five-second assertions and the journey its whole-case bound.
+ */
+export async function actToItemChatChooser(
+  page: Page,
+  target: { origin: string; itemId: string; conversationId: string },
+  action: () => Promise<unknown>,
+) {
+  const origin = new URL(target.origin).origin;
+  const destinationMatches = () => {
+    const destination = new URL(page.url());
+    return (
+      destination.origin === origin &&
+      destination.pathname === `/todos/${encodeURIComponent(target.itemId)}` &&
+      destination.searchParams.get('view') === 'Chat' &&
+      destination.searchParams.get('chooseChat') === '1'
+    );
+  };
+  const observer = observeFreshResponse(
+    page,
+    async (response) => {
+      const url = new URL(response.url());
+      if (
+        url.origin !== origin ||
+        url.pathname !== `/api/telos/work/items/${encodeURIComponent(target.itemId)}` ||
+        response.request().method() !== 'GET'
+      )
+        return false;
+      expect(response.status()).toBe(200);
+      expect(await response.finished()).toBeNull();
+      const work = TelosWorkViewSchema.parse(await response.json());
+      expect(work.itemId).toBe(target.itemId);
+      expect(
+        work.links.some(
+          (link) =>
+            link.conversation.namespace === 'mitzo' &&
+            link.conversation.conversationId === target.conversationId,
+        ),
+      ).toBe(true);
+      return true;
+    },
+    destinationMatches,
+  );
+  await performObservedAction(observer, action, true);
+  const destination = new URL(page.url());
+  expect(destination.origin).toBe(origin);
+  expect(destination.pathname).toBe(`/todos/${encodeURIComponent(target.itemId)}`);
+  expect(destination.searchParams.get('view')).toBe('Chat');
+  expect(destination.searchParams.get('chooseChat')).toBe('1');
 }
 async function performObservedAction(
   observer: ReturnType<typeof observeFreshResponse>,
