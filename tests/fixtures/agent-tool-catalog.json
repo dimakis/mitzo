@@ -520,7 +520,7 @@
     "id": "mitzo:TelosCreateChild",
     "version": 1,
     "name": "TelosCreateChild",
-    "description": "Create one child under an existing Telos parent with a title, intent, rationale and acceptance criteria. Read the parent with TelosManageItem first. Supply item.revision or the previous creation parentRevision as expectedParentRevision, a unique requestId and an audit note. Requires exact approval. Retry uncertain creation with identical input and requestId; the receipt returns the child and new parentRevision. Completed, archived or trashed parents cannot receive new children. Creates manual backlog work with a session link; no lead assignment, source capture or execution.",
+    "description": "Create one child under an existing Telos parent with a title, intent, rationale and acceptance criteria. Read the parent with TelosManageItem first. Supply item.revision or the previous creation parentRevision as expectedParentRevision, a unique requestId and an audit note. Requires exact approval. Retry uncertain creation with identical input and requestId; the receipt returns the child and new parentRevision. Completed, archived or trashed parents cannot receive new children. Creates manual backlog work and records the existing originating conversation only. It does not create a dedicated conversation, attach source files, assign a lead or start execution.",
     "source": "Telos",
     "required": false,
     "behavior": "write",

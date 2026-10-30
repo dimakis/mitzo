@@ -70,6 +70,11 @@ async function surface(page: Page, theme: 'dark' | 'light') {
         contentType: 'text/html',
         body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
       });
+    if (path === '/api/telos/work/collection') {
+      collectionReads++;
+      canonicalReads++;
+      return route.fulfill({ json: data.canonicalCollection() });
+    }
     if (path === '/api/todos') {
       collectionReads++;
       return route.fulfill({ json: data.collection() });
@@ -255,6 +260,7 @@ for (const theme of ['dark', 'light'] as const) {
       page.getByRole('heading', { name: 'Original outcome', exact: true }),
     ).toBeVisible();
     const aside = page.getByRole('complementary', { name: 'Original brief' });
+    await aside.getByText('Details & context', { exact: true }).click();
     const trigger = aside.getByText('Context', { exact: true });
     await page.screenshot({ path: info.outputPath(`context-${theme}.png`), fullPage: true });
     const state = await trigger.evaluate((element) => {

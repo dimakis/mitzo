@@ -2251,7 +2251,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     '15d3a88708e22b72e498dbc924555d4c1eb0b562de8dc43554b8f382d406b440',
   '../../tests/fixtures/agent-tool-catalog.json':
-    '39fca0c23186361f12e7729c83273672ad4224337ca96be74709062682c29058',
+    'bfbc42e762e1117a9d94ccf7b9b399029742a76a9fbeee9b5cfbb1ca9d51843a',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     '5e8b2f0829cbd05ecfead981b3f74b1edef9de7e005eb7344e04c909304206b3',
   '../../packages/sqlite-file-owner/package.json':
@@ -2335,7 +2335,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/coherent-final-preparation/cold-readback.ts':
     '3c13821c02774153c7dfb7a33fff711b30e82d737a667df6f351655cef24c1ee',
   '../../tests/integration/telos-s9/coherent-final-preparation/collection-entry.ts':
-    '2c98f0f56fef3ae631022f8503773e08a8f8a6fb29dba7417acba9bcfd9d9c44',
+    '19fc67649042648dd458d07e750b797140b9ebc4b1382613a9a616d17a7c4b4e',
   '../../tests/integration/telos-s9/coherent-final-preparation/execute-case.ts':
     '031cafa3ff8afbe8a1e324480392a2e01114c119d3661609bac970f236835bb8',
   '../../tests/integration/telos-s9/coherent-final-preparation/fixtures/mgmt-read-cli-3077.manifest.json':
@@ -2379,7 +2379,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/advisor-refine-browser.contract.ts':
     '5467b86a0a8b7a64063e92acc2807f6caf758ed6f884cf56de815ceb9e9b6832',
   '../../tests/integration/telos-s9/integrated-candidate/chooser-hydration-browser.contract.ts':
-    '4b339a31adc44ea3a116cf11d4082ab04c7db7a2e616e5f5ff8d50c2f6e6a5fe',
+    '84a96896cb06dbf9c4c82aa5553989b2b39e62510c30faba1e4cb0ffd8a98cb2',
   '../../tests/integration/telos-s9/integrated-candidate/closed-supplemental-selection.json':
     '9c31914b2f4de2d76ac0b2cce569fe80e8e7bc2e01fc14826edc3a00e00a0e12',
   '../../tests/integration/telos-s9/integrated-candidate/coordinator-controls-browser.contract.ts':
@@ -2405,7 +2405,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/legacy-backup-child-app.mjs':
     '9efa99e0b3064bc21b2550e89d6e9f804597f9b0097bcde9096628bf463d485e',
   '../../tests/integration/telos-s9/integrated-candidate/legacy-backup-process-browser.contract.ts':
-    'e28d56adc9d1859e8d80e104307df0b33367c7ad860bfba361c02ebb311678ed',
+    '57e18b938354656da9dc8e16d6e2c4cd85fdbcf353df9bfc0a13b432edb57d23',
   '../../tests/integration/telos-s9/integrated-candidate/legacy-backup-process-fixture.ts':
     '63a732b558162c30702fc51f5ece2f6760ee7738a4e1a626bcfff34ffa19ec18',
   '../../tests/integration/telos-s9/integrated-candidate/legacy-backup-seed.ts':
@@ -2794,7 +2794,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useTelosRecords.test.tsx':
     '3bc01312c761b62b6d214fc79a0e99f44e962eccf941295f5ce34671cecd780c',
   '../../frontend/src/pages/__tests__/TelosLifecycleNavigation.test.tsx':
-    'a444a8ab06c0ee30e9b77b1c56dea980cfb08c3aec68b8ffcfea457d3ce7fabf',
+    '1f6c7451ecf452b57ff70b29d8e87ccbd016214b2c67178f32c6d695a0490537',
   '../../frontend/src/pages/__tests__/TelosWorkspace.discovery.test.tsx':
     '7fb92b26e96533313d0122e9d6a9691d8ccc8e9e646594f04990794a9e2e3276',
   '../../frontend/src/pages/__tests__/TelosWorkspace.home-return.test.tsx':
@@ -3005,4 +3005,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'b413e56f3c1d67c0aba182cafbada0b69c25e97f715711c89263b0026f41e78c',
   '../../frontend/src/hooks/__tests__/useAttentionFeed.canonical.test.tsx':
     'cac18f7dcd86924d644f88afcaaf886f0a01e39ca090d9dd9c882b4e70e9c6af',
+  '../../frontend/src/components/__tests__/TelosTreeConversationEntry.refresh.test.tsx':
+    '9306bcf09125209c2145c5b394f7305a469f4e240fbc40c215943532bd6a69d8',
+  '../../tests/integration/telos-s9/ui-data.ts':
+    '1a16b0959a29736da873f35f8d725d2e43335df82e9761c975c6c7d5772160b7',
+  '../../tests/integration/telos-s9/ui.contract.ts':
+    'f81b43c65d9aa74425337d944ac158b1650a5ea5561d13e220908a3062f06e93',
 });

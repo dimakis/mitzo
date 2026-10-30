@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useEffect, useState } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -23,7 +24,32 @@ vi.mock('../../lib/event-bus-singleton', () => ({
 }));
 vi.mock('../../hooks/useTodoData', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../hooks/useTodoData')>()),
-  useTodoData: collection,
+  useTodoData: function useFixtureData(...args: unknown[]) {
+    const data = collection(...args);
+    const [refreshKey, setRefreshKey] = useState(0);
+    useEffect(() => {
+      const refresh = () => setRefreshKey((key) => key + 1);
+      const resume = () => {
+        if (document.visibilityState === 'visible') refresh();
+      };
+      updates.add(refresh);
+      document.addEventListener('visibilitychange', resume);
+      return () => {
+        updates.delete(refresh);
+        document.removeEventListener('visibilitychange', resume);
+      };
+    }, []);
+    // The native collection owns both records and refresh invalidation.
+    return {
+      ...data,
+      records: [record, ...(childRecord ? [childRecord] : [])],
+      refreshKey,
+      refresh: () => {
+        data.refresh();
+        setRefreshKey((key) => key + 1);
+      },
+    };
+  },
 }));
 vi.mock('../TelosItemRoleEntries', () => ({ TelosItemRoleEntries: () => null }));
 vi.mock('../TelosItemSources', () => ({ TelosItemSources: () => null }));
@@ -133,8 +159,8 @@ it('recovers a failed conversation read through the actual Refresh Telos action 
   refresh();
   await screen.findByRole('button', { name: 'Lead chat' });
   expect(row()).toBe(mounted);
-  // This fixture shares one spy between the full discovery and legacy owners.
-  expect(collection().refresh).toHaveBeenCalledTimes(2);
+  // A native refresh does not speculatively refresh the disabled legacy owner.
+  expect(collection().refresh).toHaveBeenCalledTimes(1);
   expect(read).toHaveBeenCalledTimes(2);
   expect(screen.queryByText('Conversations unavailable')).toBeNull();
 });
@@ -162,7 +188,7 @@ it('updates authoritative assignment and kind controls for the same mounted item
   record = { ...record, kind: null };
   current = work(null);
   update();
-  await screen.findByText('Role unclassified');
+  await screen.findByRole('button', { name: 'Open chats' });
   expect(screen.queryByRole('button', { name: 'View coordinator' })).toBeNull();
   expect(row()).toBe(mounted);
 });
@@ -285,7 +311,7 @@ it.each([
     childRecord = { ...child, kind: null };
     current = work(null, false, child.itemId);
     update();
-    await screen.findByText('Role unclassified');
+    await screen.findByRole('button', { name: 'Open chats' });
     expect(row(child.summary)).toBe(mounted);
     expect(
       screen.getByRole('button', { name: tab, pressed: true }).getAttribute('aria-pressed'),
