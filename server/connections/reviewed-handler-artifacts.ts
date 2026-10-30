@@ -22,6 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/session-dirs.test.ts': 'f97cac934bb7ca16b90815c39fbe2a33b4d267d04c6038d3108671f006f3b891',
   '../__tests__/chat-worktree-startup-failure.test.ts': '65a36801a5cd6eaa6064ccfa161f16a84cae1c6689163509c34eeff82d08d32a',
   '../__tests__/chat-metadata.test.ts': '0b718160237d3b6f40142edbb1aae927d0cd5dc8ee1816b1dc414b15dd35b4e2',
   '../chat-metadata.ts': 'fe42df43ff00658fb3a118a7b0be44c32907d59e4b7d026a3cf7613600e1068d',
@@ -1312,7 +1313,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '147561fa2f98d14d218cbbf3267b15896b2c61b8ad7447af76e7aa0c915d052b',
+  '../chat.ts': '91d7f4a9f038678b28e4664a13dc79e76ab14f75bba123dfcf24dde496b8fa7e',
   '../../packages/harness/src/session-registry.ts':
     '0ae1713bc617b37f773aa50f36868b69e10b5c985b2419318c2b2168108b8b39',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',

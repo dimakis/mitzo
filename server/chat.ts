@@ -179,8 +179,9 @@ import type {
 } from '@mitzo/harness';
 import { getTransportAttachmentIdentity } from '@mitzo/harness';
 import { isGitDirectory, readWorkspaceBranch, readSshAuthSock } from './chat-metadata.js';
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, resolve, dirname, isAbsolute } from 'path';
+import { access, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'url';
 import { resolveBundledMcpEntrypoint } from './mcp-entrypoint.js';
 import { createHash, randomUUID } from 'crypto';
@@ -5264,7 +5265,16 @@ export function isActive(clientId: string): boolean {
  *
  * This keeps all paths configurable (no hardcoded machine-specific paths).
  */
-export function getSessionDirs(options?: { claudeProjectsRoot?: string }): string[] {
+async function sessionPathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getSessionDirs(options?: { claudeProjectsRoot?: string }): Promise<string[]> {
   const dirs = [BASE_REPO];
   const seen = new Set([BASE_REPO]);
 
@@ -5287,11 +5297,14 @@ export function getSessionDirs(options?: { claudeProjectsRoot?: string }): strin
 
     for (const parent of parentDirs) {
       try {
-        for (const entry of readdirSync(parent, { withFileTypes: true })) {
+        for (const entry of await readdir(parent, { withFileTypes: true })) {
           if (!entry.isDirectory()) continue;
           const child = join(parent, entry.name);
           if (seen.has(child)) continue;
-          if (existsSync(join(child, '.git')) || existsSync(join(child, '.claude'))) {
+          if (
+            (await sessionPathExists(join(child, '.git'))) ||
+            (await sessionPathExists(join(child, '.claude')))
+          ) {
             dirs.push(child);
             seen.add(child);
           }
@@ -5307,7 +5320,7 @@ export function getSessionDirs(options?: { claudeProjectsRoot?: string }): strin
   // Legacy location: <repo>-sessions/ sibling directory
   const sessionsDir = `${BASE_REPO}-sessions`;
   try {
-    const entries = readdirSync(sessionsDir);
+    const entries = await readdir(sessionsDir);
     for (const e of entries) {
       if (e.startsWith('session-')) dirs.push(join(sessionsDir, e));
     }
@@ -5325,7 +5338,7 @@ export function getSessionDirs(options?: { claudeProjectsRoot?: string }): strin
   const wtPrefix = `${encodedBase}--claude-worktrees-`;
   try {
     const claudeProjects = options?.claudeProjectsRoot ?? join(homedir(), '.claude', 'projects');
-    for (const entry of readdirSync(claudeProjects)) {
+    for (const entry of await readdir(claudeProjects)) {
       if (!entry.startsWith(wtPrefix)) continue;
       const wtId = entry.slice(wtPrefix.length);
       if (!wtId) continue;
@@ -5366,7 +5379,7 @@ export async function renameSessionById(
     return;
   }
   const errors: string[] = [];
-  for (const dir of getSessionDirs()) {
+  for (const dir of await getSessionDirs()) {
     try {
       await renameSession(sessionId, title, { dir });
       if (manual) {
@@ -5410,7 +5423,7 @@ export async function listImportableSdkConversations() {
     string,
     { id: string; summary: string; lastModified: number; cwd?: string }
   >();
-  for (const dir of getSessionDirs().filter(Boolean)) {
+  for (const dir of (await getSessionDirs()).filter(Boolean)) {
     try {
       const projectCandidates = new Set<string>();
       // Excluded SDK records cannot consume the candidate budget. Each project
@@ -5526,7 +5539,7 @@ export async function syncSessionTimestamps(): Promise<void> {
     { lastModified: number; summary: string; branch?: string; cwd?: string }
   >();
   const fetchLimit = 250;
-  for (const dir of getSessionDirs()) {
+  for (const dir of await getSessionDirs()) {
     try {
       const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
       for (const s of sessions) {
@@ -5589,7 +5602,7 @@ export async function importSdkConversation(
     return null;
   const registered = eventStore.getSession(sessionId);
   if (isRegisteredConversation(registered)) return registered;
-  for (const dir of getSessionDirs().filter(Boolean)) {
+  for (const dir of (await getSessionDirs()).filter(Boolean)) {
     try {
       const info = await getSessionInfo(sessionId, { dir });
       if (!info || info.sessionId !== sessionId || !(await hasSdkConversation(info, dir))) continue;
@@ -5626,7 +5639,7 @@ async function recoverSessionWorkspace(sessionId: string, dirs?: string[]) {
   const provider = session?.accountBinding?.provider;
   if (provider && provider !== 'anthropic-vertex') return;
   // Discover directories only after the cheap metadata checks above.
-  for (const dir of dirs ?? getSessionDirs()) {
+  for (const dir of dirs ?? (await getSessionDirs())) {
     try {
       const info = await getSessionInfo(sessionId, { dir });
       if (typeof info?.cwd !== 'string' || !isAbsolute(info.cwd)) continue;
@@ -5683,8 +5696,8 @@ export async function getMessages(sessionId: string, throughSeq?: number) {
   let rawMessages: RawSdkMessage[] = [];
   for (const dir of [
     ...new Set(
-      [eventStore.getSession(sessionId)?.cwd, ...getSessionDirs()].filter((dir): dir is string =>
-        Boolean(dir),
+      [eventStore.getSession(sessionId)?.cwd, ...(await getSessionDirs())].filter(
+        (dir): dir is string => Boolean(dir),
       ),
     ),
   ]) {
