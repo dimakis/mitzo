@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.783-chat-replies-and-turn-callback-recovery';
+  'v1.0.784-chat-replies-callback-recovery-and-passive-actions';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -30,7 +30,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/QueuedDraftTray.css':
     '016f51f306b7aee9d6f9322425f6192b2c0fa70aabcd5473adea565460f89807',
   '../../frontend/src/components/MessageActions.tsx':
-    'f8a3d02b7ca359cde5a9454d9dfd1867a54acb39bd8cd6eaec408879c06d3eb8',
+    '6c35e335425b7205601d170d580cc53ac0da1bc3b1136ede1b30b630984abcd5',
   '../../frontend/src/components/MessageActions.css':
     'fd733d55f1051d6579110eb28ad96eae9b7b728747f9c76bd9e6d54dc8110d26',
   '../message-reply-context.ts': '4fd3233cbd57b166f1b04c574f06d7ddc58e8c53c1d8761e42f34ef5f8faf34a',

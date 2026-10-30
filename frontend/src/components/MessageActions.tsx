@@ -134,8 +134,8 @@ export function MessageActions({
       }}
     >
       {children}
-      <span className="sr-only" role="status">
-        {copied ? 'Message copied.' : ''}
+      <span className="sr-only" role={onReply ? 'status' : undefined}>
+        {onReply && copied ? 'Message copied.' : ''}
       </span>
       {createPortal(
         <MotionPresence open={!!menu && !!onReply} kind="popover">
