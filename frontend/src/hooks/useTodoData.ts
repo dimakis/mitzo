@@ -1,3 +1,4 @@
+import { canonicalTodoData } from '../lib/canonical-todo-data';
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import type { TodoItem, TodoData, TodoOutcomeDraft } from '../types/todo';
 import { apiFetch, invalidateTodoReads } from '../lib/api-fetch';
@@ -36,7 +37,13 @@ export function useLatestTodoPriority(item: TodoItem | undefined): TodoItem | un
 }
 subscribeTodoPriorityUpdates(({ id, priority }) => {
   prioritySnapshots.set(id, priority);
-  todoCache.update((data) => ({ ...data, items: setPriorityInTree(data.items, id, priority) }));
+  todoCache.update((data) => ({
+    ...data,
+    items: setPriorityInTree(data.items, id, priority),
+    records: data.records?.map((record) =>
+      record.itemId === id ? { ...record, priority } : record,
+    ),
+  }));
 });
 function invalidateTodos(): void {
   invalidateTodoReads();
@@ -51,6 +58,9 @@ export interface UseTodoDataResult {
   error: string | null;
   items: TodoItem[];
   profiles: string[];
+  records?: TodoData['records'];
+  recordFailures?: TodoData['recordFailures'];
+  refreshKey: number;
   ack: (id: string) => Promise<void>;
   snooze: (id: string, days?: number) => Promise<void>;
   done: (id: string) => Promise<void>;
@@ -107,12 +117,16 @@ export function useTodoData(
   profile?: string,
   resolveItemId?: string,
   view: TelosCollectionView = 'active',
+  source: 'legacy' | 'canonical' = 'legacy',
+  enabled = true,
 ): UseTodoDataResult {
   const params = new URLSearchParams();
-  if (profile) params.set('profile', profile);
+  if (profile && source === 'legacy') params.set('profile', profile);
   if (view !== 'active') params.set('view', view);
   const query = params.toString();
-  const url = '/api/todos' + (query ? '?' + query : '');
+  const url =
+    (source === 'canonical' ? '/api/telos/work/collection' : '/api/todos') +
+    (query ? '?' + query : '');
   const [data, setData] = useState<TodoData | null>(() => todoCache.get(url) ?? null);
   const [dataScope, setDataScope] = useState(url);
   const visibleData = dataScope === url ? data : (todoCache.get(url) ?? null);
@@ -135,6 +149,7 @@ export function useTodoData(
   );
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     const cached = todoCache.get(url);
     // A direct route to a new item must not join a read admitted before its save.
@@ -152,7 +167,8 @@ export function useTodoData(
         async () => {
           const response = await apiFetch(url);
           if (!response.ok) throw new Error(`Todo API returned ${response.status}`);
-          return response.json();
+          const data: unknown = await response.json();
+          return source === 'canonical' ? canonicalTodoData(data) : (data as TodoData);
         },
         rememberPriorities,
       )
@@ -182,7 +198,7 @@ export function useTodoData(
     return () => {
       cancelled = true;
     };
-  }, [url, refreshKey, resolveItemId]);
+  }, [url, refreshKey, resolveItemId, source, enabled]);
 
   // Live update: SSE todo_update signals a refetch
   useEffect(() => {
@@ -314,6 +330,9 @@ export function useTodoData(
     error: dataScope === url ? error : null,
     items: visibleData?.items ?? [],
     profiles: visibleData?.profiles ?? [],
+    records: visibleData?.records,
+    recordFailures: visibleData?.recordFailures,
+    refreshKey,
     ack,
     snooze,
     done,
