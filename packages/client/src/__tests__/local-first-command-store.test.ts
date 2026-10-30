@@ -2392,3 +2392,55 @@ it.each(['completed', 'reply', 'current', 'newer'])(
     expect(store.getState().sendStatus).toBe(evidence === 'newer' ? 'Preparing response…' : null);
   },
 );
+it('clears preparation only for the latest command cancellation and never revives it on a late receipt', () => {
+  const { store } = setup(),
+    sessionId = 'cancel-preparation';
+  channel.listener({ type: 'session_id', sessionId });
+  channel.listener({ type: 'user_message', sessionId, messageId: 'a', text: 'Earlier', seq: 1 });
+  channel.listener({ type: 'user_message', sessionId, messageId: 'b', text: 'Latest', seq: 2 });
+  channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'b', retained: true });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'ordinary_command_state',
+    sessionId,
+    messageId: 'a',
+    commandState: 'cancelled',
+    seq: 3,
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'ordinary_command_state',
+    sessionId,
+    messageId: 'b',
+    commandState: 'queued',
+    seq: 4,
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'ordinary_command_state',
+    sessionId,
+    messageId: 'b',
+    commandState: 'cancelled',
+    seq: 5,
+  });
+  expect(store.getState().sendStatus).toBeNull();
+  channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'b', retained: true });
+  expect(store.getState().sendStatus).toBeNull();
+  channel.listener({ type: 'user_message', sessionId, messageId: 'c', text: 'Newer', seq: 6 });
+  channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'c', retained: true });
+  channel.listener({
+    type: 'ordinary_command_state',
+    sessionId,
+    messageId: 'b',
+    commandState: 'cancelled',
+    seq: 7,
+  });
+  channel.listener({
+    type: 'ordinary_command_state',
+    sessionId: 'foreign',
+    messageId: 'c',
+    commandState: 'cancelled',
+    seq: 8,
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+});

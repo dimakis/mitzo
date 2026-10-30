@@ -1106,11 +1106,11 @@ export function handleSendV2(
               msg.clientMsgId,
               msg.accountId ? msg.model : undefined,
               msg.accountId ? msg.reasoningEffort : undefined,
-              ...(msg.replyToMessageId
-                ? ([msg.sourceSnapshots, msg.replyToMessageId] as const)
+              ...((msg.replyToMessageId
+                ? [msg.sourceSnapshots, msg.replyToMessageId]
                 : msg.sourceSnapshots?.length
-                  ? ([msg.sourceSnapshots] as const)
-                  : ([] as const)),
+                  ? [msg.sourceSnapshots]
+                  : []) as [import('@mitzo/protocol').SourceSnapshot[]?, string?]),
             );
             const ownerConnection =
               found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
@@ -1459,11 +1459,11 @@ export function handleInterruptV2(
           msg.clientMsgId,
           msg.accountId ? msg.model : undefined,
           msg.accountId ? msg.reasoningEffort : undefined,
-          ...(msg.replyToMessageId
-            ? ([msg.sourceSnapshots, msg.replyToMessageId] as const)
+          ...((msg.replyToMessageId
+            ? [msg.sourceSnapshots, msg.replyToMessageId]
             : msg.sourceSnapshots?.length
-              ? ([msg.sourceSnapshots] as const)
-              : ([] as const)),
+              ? [msg.sourceSnapshots]
+              : []) as [import('@mitzo/protocol').SourceSnapshot[]?, string?]),
         );
         const ownerConnection =
           found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
@@ -1500,11 +1500,11 @@ export function handleInterruptV2(
           msg.clientMsgId,
           msg.accountId ? msg.model : undefined,
           msg.accountId ? msg.reasoningEffort : undefined,
-          ...(msg.replyToMessageId
-            ? ([msg.sourceSnapshots, msg.replyToMessageId] as const)
+          ...((msg.replyToMessageId
+            ? [msg.sourceSnapshots, msg.replyToMessageId]
             : msg.sourceSnapshots?.length
-              ? ([msg.sourceSnapshots] as const)
-              : ([] as const)),
+              ? [msg.sourceSnapshots]
+              : []) as [import('@mitzo/protocol').SourceSnapshot[]?, string?]),
         );
         log.info('interrupt', { connectionId, sessionId: msg.sessionId });
         return;

@@ -816,11 +816,11 @@ export function ChatInput({
           }
         },
         composerDraft,
-        ...(queued
-          ? ([payload.replyTo, payload.queueEntryId ?? retained?.queueEntryId] as const)
+        ...((queued
+          ? [payload.replyTo, payload.queueEntryId ?? retained?.queueEntryId]
           : payload.replyTo
-            ? ([payload.replyTo] as const)
-            : ([] as const)),
+            ? [payload.replyTo]
+            : []) as [MessageReplyContext?, string?]),
       );
       if (!sent) onDelivery('failed');
       return sent;

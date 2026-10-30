@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.779-chat-replies-compaction-native-git';
+  'v1.0.780-chat-replies-steer-transport-and-cancellation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../queued-message-receipt.ts':
-    'f3460a5125504b6a05814284e89fd5da76da96612a10060d71a7480253807c65',
+    'a33d18a9a2d8ecbc2f8f27c176bf6938339a8c5a217e8371b4df5f7f7767f2b5',
   '../../frontend/src/components/QueuedDraftTray.tsx':
     'a8721de63086cd332a3952004527493dbc920c173e41da732a746b337f11a1ca',
   '../../frontend/src/components/QueuedDraftTray.css':
@@ -1160,7 +1160,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    '495f86558e1fd77df1e269247718f05f997a7200750f983ce45e857a82f86994',
+    'a874d299a4ad3d2f80ff10823831932efcceb86aac0c24b3170c87b751519268',
   '../../frontend/src/components/ComposerTools.tsx':
     'f939155993b0783c1a231a693de30c13d9594ff558cacc27a23c17a781315245',
   '../../frontend/src/components/ContextPanel.tsx':
@@ -1269,7 +1269,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '0f7f07c617285c102503d1b98e8a8c331fea2a2879cd1f25a965e27f77b5b5fa',
   '../../packages/client/src/store.ts':
-    '02c9453a5c3ad24a1dfc0ac33f75823166b2047f246017c345b2e5276f4be6db',
+    '3f8ac06ed62a5c7a8bd6f8a331d806fed8648f70c61799d5f8de341c8aacb38c',
   '../../packages/harness/src/permission-handler.ts':
     'ded77a1bb6dc8c81ec80ee8a0cafb2691cc90a6b088b12c3559b06a0c7b4b05a',
   '../../packages/harness/src/permissions.ts':
@@ -1277,7 +1277,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-approval-scope.ts':
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
-    '438ba2819226e16ccb8944e8957dc87e0eb66d069f4eac09c4e737a362f6e02c',
+    'd3bb6852f6b97d7edacbc92b5a0faf3f838776dc2e98a29ad9856d50a2e2ca4b',
   '../codex-mcp-tools.ts': '4e4b62af34964f9d3c0e29624b3b37ee70478849715b8b1c8ebcf3efbd01c0f3',
   '../codex-runtime-diagnostics.ts':
     '68077ddf8fc9e01df5da6a6652497544bf09a80a45f6c5eb61fcccf9659179ec',
@@ -1349,7 +1349,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'bd41408c8dfb9fe4a239fca2e35cf8366bc379e63c4a310d3593cf709a1920d3',
   '../symposium-production-review-composition.ts':
     '5d0e4d78e45cc6d9b3c601cc1f5587c469432bb3ec9edc0c70fb34153dedfc5e',
-  '../ws-handler-v2.ts': '8397daaf8291992c108c2abce5a8df2bd3a5e944a17caff87238574583967498',
+  '../ws-handler-v2.ts': '206a1ef8030f17e09d9a4aa175413a3ba404a93a9e9c348373c1511d93d58400',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
   '../notification-store.ts': 'f6b5ec6927c367a94511f6eaf215498ffdb7e76020f417105df81d3812de94f3',
@@ -2175,7 +2175,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-provider-admission.test.ts':
     '487b01b94336c384d247af35f4b5d0d520ebd36d0444f27f3ba45fb009f865a1',
   '../__tests__/codex-app-server-client.test.ts':
-    '3c26879a976c02f8308bf33a62184f75a4aa0feef6766e7e3ae2b5ec42e0da83',
+    '1f8270ff3059c5d495032998576a676c7defd11aedf0780ca42655293b9e5f05',
   '../__tests__/codex-chat-dispatch.test.ts':
     '274484967b1ab918912ee8efb3857cce461f7324d2bcecac8ea3f998be487928',
   '../__tests__/codex-isolated-api-launch.test.ts':

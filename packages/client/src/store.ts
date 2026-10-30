@@ -68,6 +68,14 @@ import { messageIdentity } from './message-identity.js';
 
 // ─── Store state ─────────────────────────────────────────────────────────────
 
+const PREPARATION_TERMINAL_STATES = new Set([
+  'completed',
+  'ended',
+  'interrupted',
+  'failed',
+  'cancelled',
+]);
+
 export interface SendMessageOptions {
   /** Stable local queue identity; normal edits still create a fresh command. */
   clientMsgId?: string;
@@ -733,10 +741,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         message.role === 'user' && !message.steersMessageId && !message.symposiumProvenance,
     );
     const progressed = (message: FinishedMessage) =>
-      replies.has(message.messageId) ||
-      ['completed', 'ended', 'interrupted', 'failed', 'cancelled'].includes(
-        message.commandState ?? '',
-      );
+      replies.has(message.messageId) || PREPARATION_TERMINAL_STATES.has(message.commandState ?? '');
     for (const request of requests) {
       if (!progressed(request)) continue;
       const observation = preparationObservations.get(request.messageId);
@@ -2494,7 +2499,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     // Observe a known command's completion even when its view is offscreen.
     // This is UI progress only: it never accepts or retries an uncertain send.
-    if (msg.type === 'ordinary_command_completed' && typeof msg.messageId === 'string') {
+    const commandPreparationEnded =
+      msg.type === 'ordinary_command_completed' ||
+      (msg.type === 'ordinary_command_state' &&
+        PREPARATION_TERMINAL_STATES.has(String(msg.commandState)));
+    if (commandPreparationEnded && typeof msg.messageId === 'string') {
       const observation = preparationObservations.get(msg.messageId);
       if (observation && observation.sessionId === eventSessionId) observation.ended = true;
     } else if (
@@ -2606,21 +2615,20 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       .filter((message) => message.role === 'user' && !message.steersMessageId)
       .at(-1)?.messageId;
     const progressForCurrentCommand =
-      (!progressMessages.nativeCommands && typeof msg.replyToMessageId !== 'string') ||
+      (!progressMessages.nativeCommands &&
+        typeof msg.replyToMessageId !== 'string' &&
+        !commandPreparationEnded) ||
       (['ordinary_reply_source', 'message_snapshot'].includes(String(msg.type)) &&
         msg.replyToMessageId === latestRequest) ||
-      (msg.type === 'ordinary_command_completed' && msg.messageId === latestRequest) ||
+      (commandPreparationEnded && msg.messageId === latestRequest) ||
       (typeof msg.messageId === 'string' &&
         progressMessages.replySources?.[msg.messageId] === latestRequest);
     if (
       progressForCurrentCommand &&
-      ([
-        'ordinary_reply_source',
-        'ordinary_command_completed',
-        'message_start',
-        'session_end',
-        'error',
-      ].includes(String(msg.type)) ||
+      (commandPreparationEnded ||
+        ['ordinary_reply_source', 'message_start', 'session_end', 'error'].includes(
+          String(msg.type),
+        ) ||
         (msg.type === 'message_snapshot' &&
           Array.isArray(msg.blocks) &&
           (msg.replyToMessageId === latestRequest ||

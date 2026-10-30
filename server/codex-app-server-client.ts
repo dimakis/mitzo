@@ -827,6 +827,7 @@ export class CodexAppServerClient {
         'thread/read',
         'thread/turns/list',
         'turn/start',
+        'turn/steer',
         'turn/interrupt',
       );
     if (!allowed.includes(method))

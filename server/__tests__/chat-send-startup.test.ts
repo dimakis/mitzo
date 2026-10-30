@@ -161,7 +161,7 @@ it('keeps reply anchors in provider input while the legacy transcript echoes onl
     sessionAllowList: new Set(),
     agentName: 'fixture',
   });
-  const queue = new AsyncQueue<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>();
+  const queue = new AsyncQueue<unknown>();
   chat.registry.get('legacy-reply-client')!.inputQueue = queue;
   try {
     expect(
