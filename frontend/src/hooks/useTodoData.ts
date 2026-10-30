@@ -142,6 +142,7 @@ export function useTodoData(
   const [refreshKey, setRefreshKey] = useState(0);
   const dataRef = useRef<TodoData | null>(null);
   dataRef.current = visibleData;
+  const errorScope = useRef(url);
   const urlRef = useRef(url);
   urlRef.current = url;
 
@@ -162,7 +163,12 @@ export function useTodoData(
     setData(cached ?? null);
     setLoading(!cached);
     setRefreshing(true);
-    setError(null);
+    // Keep the visible fallback and its error while a retry is pending. Only
+    // an accepted read proves recovery; switching query scopes starts fresh.
+    if (errorScope.current !== url) {
+      errorScope.current = url;
+      setError(null);
+    }
 
     todoCache
       .load(

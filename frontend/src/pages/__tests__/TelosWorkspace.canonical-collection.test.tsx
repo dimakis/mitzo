@@ -1,7 +1,7 @@
 import { canonicalTodoData } from '../../lib/canonical-todo-data';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { TodoWorkspace } from '../TodoWorkspace';
 import { markAuthLost } from '../../lib/api-fetch';
@@ -153,6 +153,8 @@ it('refreshes the visible legacy fallback during a native outage and refreshes n
   markAuthLost();
   const record = { ...createTelosWorkFixtures().homeStudio.items[0], kind: null };
   const collection = () => ({ records: [record], profiles: ['work'], failures: [] });
+  let nativeGate: ((response: Response) => void) | undefined;
+  let delayRetry = false;
   let available = false,
     reads = 0,
     nativeReads = 0,
@@ -161,6 +163,12 @@ it('refreshes the visible legacy fallback during a native outage and refreshes n
     const url = String(input);
     if (url === '/api/telos/work/collection') {
       nativeReads++;
+      if (delayRetry) {
+        delayRetry = false;
+        return new Promise<Response>((resolve) => {
+          nativeGate = resolve;
+        });
+      }
       return available ? Response.json(collection()) : Response.json({}, { status: 503 });
     }
     if (url === '/api/todos') {
@@ -179,8 +187,12 @@ it('refreshes the visible legacy fallback during a native outage and refreshes n
     </MemoryRouter>,
   );
   await screen.findByRole('button', { name: 'Add outcome' });
+  delayRetry = true;
   fireEvent.click(screen.getByRole('button', { name: 'Refresh Telos' }));
   await waitFor(() => expect(reads).toBe(2));
+  expect(screen.getByRole('button', { name: 'Add outcome' })).toBeTruthy();
+  await act(async () => nativeGate!(Response.json({}, { status: 503 })));
+  expect(reads).toBe(2);
   fireEvent.click(screen.getByRole('button', { name: 'Add outcome' }));
   fireEvent.change(screen.getByPlaceholderText('Short outcome title'), {
     target: { value: 'New review' },

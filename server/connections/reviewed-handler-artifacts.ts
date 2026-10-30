@@ -62,7 +62,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/telos-descendants.ts':
     'bc5f76c66fb620520ac67b5b2eb3cbe70e34b352f9f00b95d7127af1aa3549d9',
   '../../frontend/src/pages/__tests__/TelosWorkspace.canonical-collection.test.tsx':
-    '9add5a82a3b6f2d31cec05118633c009241032ad8aaccccbb8fa11735409e731',
+    'c1081b0061718991bd796dd06faf21949628583f07c27afcec5f7f6e4559304e',
   '../../frontend/src/pages/__tests__/TodoView.test.tsx':
     '5200a57b447b294573b965aad4a972e042d353cbc15b62dfa6fb4ee53e528ace',
   '../__tests__/telos-collection.test.ts':
@@ -1747,7 +1747,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useSessionList.ts':
     '8da1fb05d820785afec8e7ab671b10ed83b84c67ffff1317d5fd5ce677f2a4c7',
   '../../frontend/src/hooks/useTodoData.ts':
-    'ead301e143b818203a61de9b689f78e143b5011adefd26cb4191449ca2433e63',
+    '8c2fd8da41b9475786a3bd748642af064a914fea0067af939a6788b6ef66835c',
   '../../frontend/src/lib/api-fetch.ts':
     '98a410a5f8d5001ebf6983db9b9afe05ce67f81da2d9d08b0f48b376481cf845',
   '../../frontend/src/lib/api-json-read.ts':
