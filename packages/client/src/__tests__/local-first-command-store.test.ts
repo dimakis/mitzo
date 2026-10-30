@@ -2310,3 +2310,85 @@ it('does not require Codex-only attribution to finish a Responses continuation',
     store.getState().messages.messages.find((m) => m.messageId === input.clientMsgId)?.commandState,
   ).not.toBe('queued');
 });
+
+it.each(['completed', 'reply', 'current', 'newer'])(
+  'reconciles preparing against exact reconnect evidence (%s)',
+  async (evidence) => {
+    const { store, fetch } = setup(),
+      sessionId = 'prepare-reconnect';
+    channel.listener({ type: 'session_id', sessionId });
+    channel.listener({ type: 'user_message', sessionId, messageId: 'a', text: 'Earlier', seq: 1 });
+    channel.listener({
+      type: 'ordinary_provider_dispatch_started',
+      sessionId,
+      messageId: 'a',
+      seq: 2,
+    });
+    channel.listener({ type: 'user_message', sessionId, messageId: 'b', text: 'Latest', seq: 3 });
+    channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'b', retained: true });
+    expect(store.getState().sendStatus).toBe('Preparing response…');
+    let finish!: () => void;
+    fetch.mockImplementation(async (url: string) =>
+      url.includes('messages?throughSeq=10')
+        ? new Promise<Response>((resolve) => {
+            finish = () =>
+              resolve(
+                Response.json({
+                  cursor: 10,
+                  messages: [
+                    { messageId: 'a', role: 'user', blocks: [] },
+                    {
+                      messageId: 'b',
+                      role: 'user',
+                      commandState:
+                        evidence === 'reply' || evidence === 'current' ? 'running' : 'completed',
+                      commandStateSeq: 9,
+                      blocks: [],
+                    },
+                    ...(evidence === 'reply'
+                      ? [
+                          {
+                            messageId: 'answer-b',
+                            role: 'assistant',
+                            replyToMessageId: 'b',
+                            blocks: [],
+                          },
+                        ]
+                      : []),
+                  ],
+                  current:
+                    evidence === 'current'
+                      ? { messageId: 'answer-b', replyToMessageId: 'b', startedSeq: 10, blocks: [] }
+                      : null,
+                }),
+              );
+          })
+        : Response.json([]),
+    );
+    channel.listener({
+      type: 'session_reconnect_snapshot',
+      sessionId,
+      cursor: 10,
+      cursorValid: true,
+      offerId: 'preparing',
+      state: 'idle',
+    });
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    if (evidence === 'newer') {
+      channel.listener({
+        type: 'user_message',
+        sessionId,
+        messageId: 'c',
+        text: 'Newer',
+        seq: 11,
+        prevSessionSeq: 10,
+      });
+      channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'c', retained: true });
+    }
+    finish();
+    await vi.waitFor(() =>
+      expect(channel.acknowledgeSnapshot).toHaveBeenCalledWith(sessionId, 10, 'preparing'),
+    );
+    expect(store.getState().sendStatus).toBe(evidence === 'newer' ? 'Preparing response…' : null);
+  },
+);

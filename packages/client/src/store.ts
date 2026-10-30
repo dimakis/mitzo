@@ -558,7 +558,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 },
                 sendStatus:
                   state === 'consumed'
-                    ? hasReply || terminal
+                    ? hasReply ||
+                      terminal ||
+                      (request &&
+                        preparationObservations.get(request.clientMsgId)?.ended &&
+                        preparationObservations.get(request.clientMsgId)?.sessionId === sessionId)
                       ? null
                       : 'Preparing response…'
                     : state === 'pending'
@@ -712,6 +716,30 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         preparationObservations.delete(preparationObservations.keys().next().value!);
     } else if (!observation.sessionId && sessionId) observation.sessionId = sessionId;
     return observation;
+  }
+  function restoredPreparationProgress(messages: MessagesState, sessionId: string): boolean {
+    const replies = new Set([
+      ...Object.values(messages.replySources ?? {}),
+      ...[...messages.messages, ...(messages.current ? [messages.current] : [])]
+        .filter((message) => !message.symposiumProvenance)
+        .flatMap((message) => (message.replyToMessageId ? [message.replyToMessageId] : [])),
+    ]);
+    const requests = messages.messages.filter(
+      (message) =>
+        message.role === 'user' && !message.steersMessageId && !message.symposiumProvenance,
+    );
+    const progressed = (message: FinishedMessage) =>
+      replies.has(message.messageId) ||
+      ['completed', 'ended', 'interrupted', 'failed', 'cancelled'].includes(
+        message.commandState ?? '',
+      );
+    for (const request of requests) {
+      if (!progressed(request)) continue;
+      const observation = preparationObservations.get(request.messageId);
+      if (observation?.sessionId === sessionId) observation.ended = true;
+    }
+    const latest = requests.at(-1);
+    return !!latest && progressed(latest);
   }
   const deliveryObservers = new Map<string, NonNullable<SendMessageOptions['onDelivery']>>();
   const assignmentObservers = new Map<
@@ -928,7 +956,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (Array.isArray(msgs)) {
           const appliedCursor = cursor ?? throughSeq;
           store.setState((s) => {
-            const restored = replace
+            const restoredContent = replace
               ? {
                   ...s.messages,
                   messages: (() => {
@@ -977,6 +1005,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               : msgs.length > 0
                 ? mergeHistory(s.messages, msgs, initialCurrent)
                 : s.messages;
+            const restored = replace
+              ? messagesReducer(
+                  { ...restoredContent, messages: [] },
+                  { type: 'RESTORE', messages: restoredContent.messages },
+                )
+              : restoredContent;
             const liveActions = currentBoundedRestore.liveActions
               .filter((item) => appliedCursor === undefined || item.seq > appliedCursor)
               .map((item) => item.action);
@@ -1043,6 +1077,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             if (replayed.resyncRequired) throw new Error('Unsafe reconnect seat transcript');
             return { messages: replayed };
           });
+          if (
+            restoredPreparationProgress(store.getState().messages, sessionId) &&
+            store.getState().sendStatus === 'Preparing response…'
+          )
+            store.setState({ sendStatus: null });
           if (appliedCursor !== undefined)
             connection.commitTranscriptCursor(sessionId, appliedCursor);
           onApplied?.();

@@ -4006,7 +4006,10 @@ app.use(
                 commandId,
                 registry.findBySessionId(id)?.session,
               );
-      if (result === 'cancelled')
+      if (
+        result === 'cancelled' &&
+        eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'codex'
+      )
         eventStore.append(id, 'ordinary_command_state', {
           messageId: commandId,
           commandState: 'cancelled',

@@ -1249,7 +1249,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '0f7f07c617285c102503d1b98e8a8c331fea2a2879cd1f25a965e27f77b5b5fa',
   '../../packages/client/src/store.ts':
-    'aa37214665aa50428d22bd9b534e03987b670bee8f5e43850983e2f6c578eb1c',
+    '1dda197ad4b4d23cbf5fb7c8d874c2fe8f47c2c50f72787a1b8942afdeed033e',
   '../../packages/harness/src/permission-handler.ts':
     'ded77a1bb6dc8c81ec80ee8a0cafb2691cc90a6b088b12c3559b06a0c7b4b05a',
   '../../packages/harness/src/permissions.ts':
@@ -1320,7 +1320,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6be98645eb9b4467c30f5dacb3e8eee7a9c3f08cb6fc820edc872f789ef217c8',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
-  '../app.ts': 'fb3ec9c564086c9ef8a8f4240d43e158ed2a412869a3de3576f4f44960275e9d',
+  '../app.ts': 'f18256b5c6feb727b303288f4042651f774624cfbbc6b3fbba250dd6419d85a6',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
