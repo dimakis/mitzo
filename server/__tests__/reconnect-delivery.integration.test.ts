@@ -10,6 +10,7 @@ import { ConnectionRegistry } from '@mitzo/harness';
 import { SessionSseRegistry } from '../session-sse-registry.js';
 import { NativeCommandRegistry } from '../native-commands.js';
 import { SseTransport } from '../sse-transport.js';
+import { sdkFixtureBoundary, sdkFixtureHistory, sdkQueryPeer } from './fixtures/sdk-query-peer.js';
 import {
   claimTransportConnection,
   releaseTransportConnection,
@@ -17,6 +18,16 @@ import {
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<object>()),
   query: vi.fn(),
+  getSessionInfo: vi.fn((id: string, options?: { dir?: string }) => sdkFixtureHistory(id, options)),
+  getSessionMessages: vi.fn(async () => [{ uuid: 'original-input' }]),
+}));
+vi.mock('../credential-sdk-boundary.js', async (original) => ({
+  ...(await original<object>()),
+  credentialSdkBoundary: () => sdkFixtureBoundary(),
+}));
+vi.mock('../auto-rename.js', async (original) => ({
+  ...(await original<object>()),
+  shouldAutoRename: () => false,
 }));
 vi.mock('../session-index.js', async (original) => ({
   ...(await original<object>()),
@@ -35,6 +46,7 @@ vi.mock('../app.js', () => ({
 it('delivers one prompt after background/reconnect even when its HTTP acknowledgement is lost', async () => {
   const root = await mkdtemp(join(tmpdir(), 'mitzo-reconnect-'));
   vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private-codex'));
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubGlobal(
     'fetch',
@@ -58,13 +70,14 @@ it('delivers one prompt after background/reconnect even when its HTTP acknowledg
     createChatRestRouter(streams, ctx as Parameters<typeof createChatRestRouter>[1]),
   );
   const inputs: string[] = [];
-  vi.mocked(query).mockImplementation(
-    (args) =>
+  vi.mocked(query).mockImplementation((args) =>
+    sdkQueryPeer(
+      args,
       (async function* () {
         for await (const input of args.prompt as AsyncIterable<{ message: { content: string } }>) {
           inputs.push(input.message.content);
           const n = inputs.length;
-          const sessionId = args.options!.sessionId!;
+          const sessionId = args.options!.sessionId ?? args.options!.resume!;
           yield {
             type: 'stream_event',
             event: { type: 'message_start', message: { id: `answer-${n}` } },
@@ -85,7 +98,8 @@ it('delivers one prompt after background/reconnect even when its HTTP acknowledg
           yield { type: 'assistant', session_id: sessionId, message: { content: [] } };
           yield { type: 'result', session_id: sessionId };
         }
-      })() as ReturnType<typeof query>,
+      })(),
+    ),
   );
 
   let nextConnection = 0;
@@ -209,7 +223,8 @@ it('delivers one prompt after background/reconnect even when its HTTP acknowledg
     expect(inputs).toHaveLength(2);
     expect(sendRequests).toBe(3); // initial + lost ack + retry, only two SDK inputs
     expect(chat.registry.findBySessionId(sessionId)!.clientId).toBe(runtimeId);
-    expect(query).toHaveBeenCalledTimes(1);
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(query).mock.calls[1][0].options?.resume).toBe(sessionId);
   } finally {
     client.disconnect();
     for (const [, session] of chat.registry.entries()) session.inputQueue?.close();

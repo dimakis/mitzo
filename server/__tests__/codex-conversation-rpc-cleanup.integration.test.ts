@@ -11,7 +11,10 @@ import {
 import { CodexConversation, type CodexConversationOptions } from '../codex-conversation.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
+import type { AccountBinding } from '@mitzo/protocol';
 import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
+import { retainCallbackOutcome } from '../turn-callbacks.js';
+import { createHash } from 'node:crypto';
 
 const cleanup: (() => void)[] = [];
 afterEach(() =>
@@ -45,6 +48,133 @@ function question(itemId: string) {
     ],
   };
 }
+
+it('never writes a late native grant after the exact provider terminal and keeps settled custody', async () => {
+  const f = await fixture();
+  const gate = deferred();
+  let entered = false;
+  f.options.requestNativeApproval = async () => {
+    entered = true;
+    await gate.promise;
+    return { decision: 'accept' };
+  };
+  f.reply({
+    id: 'approval',
+    method: 'item/commandExecution/requestApproval',
+    params: { threadId: 'thread', turnId: 'turn', itemId: 'command' },
+  });
+  await vi.waitFor(() => expect(entered).toBe(true));
+  f.reply({
+    method: 'turn/completed',
+    params: { threadId: 'thread', turn: { id: 'turn', status: 'completed' } },
+  });
+  gate.resolve();
+  await vi.waitFor(() => expect(f.conversation.queue()[0].status).toBe('completed'));
+  expect(f.sent.filter((frame) => frame.id === 'approval')).toEqual([]);
+  expect(f.lease.close).not.toHaveBeenCalled();
+});
+
+it('does not admit a host request whose turn finishes in the same stdio chunk', async () => {
+  const f = await fixture();
+  const approve = vi.fn(async () => ({ decision: 'accept' }));
+  f.options.requestNativeApproval = approve;
+  // One write is essential: lifecycle admission normally begins in a microtask.
+  f.child.stdout.write(
+    [
+      {
+        id: 'same-chunk',
+        method: 'item/commandExecution/requestApproval',
+        params: { threadId: 'thread', turnId: 'turn', itemId: 'command' },
+      },
+      {
+        method: 'turn/completed',
+        params: { threadId: 'thread', turn: { id: 'turn', status: 'completed' } },
+      },
+    ]
+      .map((frame) => JSON.stringify(frame) + '\n')
+      .join(''),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(approve).not.toHaveBeenCalled();
+  expect(f.sent.filter((frame) => frame.id === 'same-chunk')).toEqual([]);
+  expect(f.lease.close).not.toHaveBeenCalled();
+});
+it('retains an ordinary durable success when exact terminal cancellation interrupts final response authorization', async () => {
+  const f = await fixture();
+  const gate = deferred();
+  let executed = false;
+  let finalFence = false;
+  const identity = {
+    turnId: 'turn',
+    toolName: 'Read',
+    requestHash: createHash('sha256').update('{}').digest('hex'),
+  };
+  f.options.executeTool = async () => {
+    executed = true;
+    return { content: 'original success', isError: false };
+  };
+  f.setPrepare(async () => {
+    if (
+      executed &&
+      f.store.replayToolResult('conversation', f.getBinding(), 'command', 'call', identity)
+    ) {
+      finalFence = true;
+      await gate.promise;
+    }
+  });
+  f.reply({
+    id: 'tool',
+    method: 'item/tool/call',
+    params: { threadId: 'thread', turnId: 'turn', callId: 'call', tool: 'Read', arguments: {} },
+  });
+  await vi.waitFor(() => expect(finalFence).toBe(true));
+  f.reply({
+    method: 'turn/completed',
+    params: { threadId: 'thread', turn: { id: 'turn', status: 'completed' } },
+  });
+  gate.resolve();
+  await vi.waitFor(() => expect(f.conversation.queue()[0].status).toBe('completed'));
+  expect(f.store.commandLifecycle('conversation', f.getBinding(), 'command').effectStatus).toBe(
+    'completed',
+  );
+  expect(f.lease.close).not.toHaveBeenCalled();
+  f.noReply('tool');
+});
+
+it.each(['known-not-started', 'unknown'] as const)(
+  'retains exact %s tool settlement after native terminal cancellation',
+  async (outcome) => {
+    const f = await fixture();
+    const gate = deferred();
+    let entered = false;
+    f.options.executeTool = async () => {
+      entered = true;
+      await gate.promise;
+      return outcome === 'unknown'
+        ? { content: 'unqualified late success', isError: false }
+        : retainCallbackOutcome(
+            { content: 'approval did not start an action', isError: true },
+            'settled',
+          );
+    };
+    f.reply({
+      id: 'tool',
+      method: 'item/tool/call',
+      params: { threadId: 'thread', turnId: 'turn', callId: 'call', tool: 'Read', arguments: {} },
+    });
+    await vi.waitFor(() => expect(entered).toBe(true));
+    f.reply({
+      method: 'turn/completed',
+      params: { threadId: 'thread', turn: { id: 'turn', status: 'completed' } },
+    });
+    gate.resolve();
+    await vi.waitFor(() => expect(f.conversation.queue()[0].status).toBe('completed'));
+    const status = f.store.commandLifecycle('conversation', f.getBinding(), 'command');
+    expect(status.effectStatus).toBe(outcome === 'unknown' ? 'unknown' : 'completed');
+    if (outcome === 'known-not-started') expect(f.lease.close).not.toHaveBeenCalled();
+    expect(f.sent.filter((frame) => frame.id === 'tool')).toEqual([]);
+  },
+);
 
 /** Real stdio client, owned lease/bridge, conversation and private store. Only
  * the offline protocol peer and application admission/UI boundaries are fixtures. */
@@ -129,7 +259,7 @@ async function fixture() {
     profile: lease.profile,
     store,
     systemPrompt: 'Offline fixture',
-    tools: [],
+    tools: [{ name: 'Read', description: 'Offline tool', input_schema: { type: 'object' } }],
     getMode: () => 'agent',
     startupSignal: startup.signal,
     transportClosure: 'terminal',
@@ -167,6 +297,11 @@ async function fixture() {
   };
   return {
     bridge,
+    getBinding: () => (conversation as unknown as { binding: AccountBinding }).binding,
+    reply,
+    sent,
+    store,
+    child,
     client,
     conversation,
     options,

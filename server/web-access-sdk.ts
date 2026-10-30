@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { TurnCallbackRunner } from './turn-callbacks.js';
 import {
   GithubPublishingFields,
   githubPublishingDefinition,
@@ -23,6 +24,7 @@ export function createWebAccessSdkServer(
     signal: AbortSignal,
     call: { turnId: string; callId: string },
   ) => Promise<{ content: string; isError: boolean }>,
+  runCallback: TurnCallbackRunner = (work) => work(),
 ): McpSdkServerConfigWithInstance {
   const publishingRuntimeId = randomUUID();
   const instance = new McpServer({ name: 'mitzo-web-access', version: '1.0.0' });
@@ -33,7 +35,9 @@ export function createWebAccessSdkServer(
       inputSchema: WebAccessToolFields,
     },
     async (input, extra) => {
-      const result = await execute(input, AbortSignal.any([sessionSignal, extra.signal]));
+      const result = await runCallback(() =>
+        execute(input, AbortSignal.any([sessionSignal, extra.signal])),
+      );
       return { content: [{ type: 'text', text: result.content }], isError: result.isError };
     },
   );
@@ -42,10 +46,12 @@ export function createWebAccessSdkServer(
       REQUEST_GITHUB_PUBLISH,
       { description: githubPublishingDefinition.description, inputSchema: GithubPublishingFields },
       async (input, extra) => {
-        const result = await publish(input, AbortSignal.any([sessionSignal, extra.signal]), {
-          turnId: `sdk:${publishingRuntimeId}`,
-          callId: String(extra.requestId),
-        });
+        const result = await runCallback(() =>
+          publish(input, AbortSignal.any([sessionSignal, extra.signal]), {
+            turnId: `sdk:${publishingRuntimeId}`,
+            callId: String(extra.requestId),
+          }),
+        );
         return { content: [{ type: 'text', text: result.content }], isError: result.isError };
       },
     );

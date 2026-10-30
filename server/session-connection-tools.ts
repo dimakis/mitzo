@@ -15,6 +15,7 @@ import {
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
 import { connectionGuide } from './connection-guide.js';
 
+export type ConnectionBoundary = 'owned-runtime' | 'sdk-callback';
 export interface SessionConnectionOptions {
   sessionId: string;
   session: ManagedSession;
@@ -36,6 +37,8 @@ export interface SessionConnectionOptions {
   };
   assertRuntimeCurrent?: () => Promise<void>;
   assertRuntimeCurrentSync?: () => void;
+  /** A callback lifetime fence does not impose owned-runtime route restrictions. */
+  boundary?: ConnectionBoundary;
   enableOwnedFrames?: boolean;
   pendingAccess?: ConnectionAccessPending;
 }
@@ -52,13 +55,15 @@ export function sessionConnectionTools(options: SessionConnectionOptions) {
     integrations,
     assertRuntimeCurrent,
     assertRuntimeCurrentSync,
+    boundary = 'owned-runtime',
     enableOwnedFrames = false,
     pendingAccess,
   } = options;
+  const ownedBoundary = !!assertRuntimeCurrent && boundary === 'owned-runtime';
   // Framed adapters require the qualified per-frame owner fence on this route.
   const credentialDefinitions = credentialConnectionToolDefinitions.filter(
     ({ name }) =>
-      !assertRuntimeCurrent ||
+      !ownedBoundary ||
       enableOwnedFrames ||
       (name !== 'ConnectionWebSocket' && name !== 'HomeAssistantDashboard'),
   );
@@ -122,13 +127,13 @@ export function sessionConnectionTools(options: SessionConnectionOptions) {
       if (!Object.hasOwn(credentialConnectionSchemas, name)) return undefined;
       await assertRuntimeCurrent?.();
       if (
-        assertRuntimeCurrent &&
+        ownedBoundary &&
         !enableOwnedFrames &&
         (name === 'ConnectionWebSocket' || name === 'HomeAssistantDashboard')
       )
         return unavailable();
       if (
-        assertRuntimeCurrent &&
+        ownedBoundary &&
         (name === 'PrepareSecretRelay' || name === 'PrepareConnectionSetup') &&
         !session.ordinaryRuntimeOwner?.notifyCredentialSetup
       )

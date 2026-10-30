@@ -246,6 +246,12 @@ grants and native-call authority are always checked against current state. A
 cancelled initiating request fails the shared consent rather than keeping its
 authority alive for another caller.
 
+Trusted controller composition selects the connection boundary explicitly.
+Legacy SDK callback tracking retains its existing framed and secure-setup tools,
+with callback authority checked before effects and delivery. Owned-runtime frame
+qualification and private setup-continuation requirements remain separate;
+adding a callback lifetime fence cannot silently change those capabilities.
+
 Knowledge reads use the enrolled accepted revision, independently of dirty task
 files. Draft saves recheck current native authority immediately before the
 idempotent store write and require exact request approval. They save a draft;

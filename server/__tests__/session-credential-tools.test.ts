@@ -301,7 +301,7 @@ it('exposes framed helpers and their guide on the qualified native controller ro
     async () => {},
     () => {},
     false,
-    true,
+    { enableOwnedFrames: true },
   );
   expect(tools.definitions.map((tool) => tool.name)).toEqual(
     expect.arrayContaining(['ConnectionWebSocket', 'HomeAssistantDashboard']),

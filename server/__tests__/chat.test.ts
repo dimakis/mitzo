@@ -424,9 +424,12 @@ describe('resume resolves SDK session ID', () => {
 
   it('resolvedResume is computed before the query() call', () => {
     const resolveIdx = chatSource.indexOf('let resolvedResume');
-    const queryIdx = chatSource.indexOf('query({');
+    const queryIdx = chatSource.indexOf('createSdkTurnQuery({');
     expect(resolveIdx).toBeGreaterThan(-1);
     expect(queryIdx).toBeGreaterThan(resolveIdx);
+    expect(chatSource.slice(queryIdx)).toContain(
+      'sdkSessionId: resolvedResume ?? newSdkSessionId!',
+    );
   });
 
   it('warns when REPO_PATH is unset during resume', () => {

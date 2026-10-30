@@ -71,6 +71,8 @@ it('uses the production shared SDK query with exact feature instructions and enf
   vi.mocked(query).mockClear();
   let permission: Promise<unknown> | undefined;
   vi.mocked(query).mockImplementation((args) => {
+    expect(args.options?.mcpServers).toEqual({});
+    expect(args.options?.hooks).toEqual({});
     expect(args.options).toMatchObject({
       systemPrompt: 'Only reviewed profile draft.',
       tools: [],

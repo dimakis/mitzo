@@ -3,6 +3,7 @@ import { nativeFailureCategories } from './codex-native-diagnostics.js';
 import { ProviderFailureError, providerFailureTelemetry } from './provider-failure.js';
 import { CodexStartupError } from './codex-startup-error.js';
 import { RuntimePolicyAttestationError } from './openshell-runtime-policy.js';
+import { findSessionRuntimeError } from './session-runtime-error.js';
 
 const requestMethods = new Set([
   'initialize',
@@ -64,6 +65,8 @@ export function codexRuntimeDiagnostic(error: Error): string | undefined {
 
 /** Shared by startup and running turns, with bounded fields safe for logs. */
 export function codexRuntimeErrorTelemetry(error: Error): Record<string, unknown> {
+  const retained = findSessionRuntimeError(error);
+  if (retained) return retained.telemetry();
   if (error.message === 'OpenShell ChatGPT grant is expired, revoked, or requires sign-in')
     return { subscriptionSignInRequired: true };
   if (error instanceof RuntimePolicyAttestationError)

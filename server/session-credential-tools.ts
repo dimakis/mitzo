@@ -32,7 +32,7 @@ export function sessionCredentialTools(
   assertRuntimeCurrent?: () => Promise<void>,
   assertRuntimeCurrentSync?: () => void,
   enableAgentTasks = false,
-  enableOwnedFrames = false,
+  connectionOptions: Pick<SessionConnectionOptions, 'boundary' | 'enableOwnedFrames'> = {},
 ) {
   const taskToolsEnabled = enableAgentTasks && !!assertRuntimeCurrent && !!assertRuntimeCurrentSync;
   const taskTools = taskToolsEnabled
@@ -77,7 +77,7 @@ export function sessionCredentialTools(
     integrations,
     assertRuntimeCurrent,
     assertRuntimeCurrentSync,
-    enableOwnedFrames,
+    ...connectionOptions,
   });
   return {
     definitions: filterAgentTools(session, [
