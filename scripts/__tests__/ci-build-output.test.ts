@@ -9,7 +9,8 @@ type Step = {
   with?: Record<string, string | boolean>;
   env?: Record<string, string>;
 };
-const { jobs } = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
+const { jobs, env } = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
+  env: Record<string, string>;
   jobs: Record<
     string,
     { needs?: string | string[]; outputs?: Record<string, string>; steps: Step[] }
@@ -119,6 +120,17 @@ it('does not collide with retained producer artifacts on a failed-only retry', (
           .replace('${{ github.sha }}', 'combined-candidate')
           .replace('${{ github.run_attempt }}', String(attempt));
       expect(render(1), name).not.toBe(render(2));
+    }
+  }
+});
+
+it('pins one exact Node patch across compiled artifact producers and consumers', () => {
+  expect(env.MITZO_CI_NODE_VERSION).toMatch(/^24\.\d+\.\d+$/);
+  for (const job of Object.values(jobs)) {
+    for (const step of job.steps) {
+      if (step.uses?.startsWith('actions/setup-node@')) {
+        expect(step.with?.['node-version']).toBe('${{ env.MITZO_CI_NODE_VERSION }}');
+      }
     }
   }
 });

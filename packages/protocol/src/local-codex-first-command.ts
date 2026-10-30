@@ -195,7 +195,23 @@ export const LocalCodexRetainedCommandObservationSchema = z.strictObject({
 });
 
 /** Generic runtime entry retains the same receipt semantics and route-specific reasons. */
+export const KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE =
+  'Current knowledge could not be prepared for this runtime. Check the knowledge publisher and release a compatible runtime before retrying. Your draft and conversation are retained.';
+export const KnowledgeRuntimeFailureSchema = z.strictObject({
+  runtimeFailureCode: z.literal('knowledge_unavailable'),
+  diagnosticId: z.uuid(),
+});
+export type KnowledgeRuntimeFailure = z.infer<typeof KnowledgeRuntimeFailureSchema>;
+export function knowledgeRuntimeFailureMessage(failure: KnowledgeRuntimeFailure): string {
+  return `${KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE} Reference: ${failure.diagnosticId}`;
+}
 export const OrdinaryCodexRetainedCommandObservationSchema =
   LocalCodexRetainedCommandObservationSchema.extend({
     error: z.enum(['Local Codex entry unavailable', 'Conversation runtime unavailable']),
-  });
+  }).or(
+    LocalCodexRetainedCommandObservationSchema.extend({
+      // Ignore upstream text; the client renders only the reviewed code and UUID.
+      error: z.string().max(2048),
+      runtimeFailure: KnowledgeRuntimeFailureSchema,
+    }),
+  );

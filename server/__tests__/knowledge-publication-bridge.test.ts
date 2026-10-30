@@ -20,6 +20,7 @@ import {
   KnowledgePublicationBridge,
   KnowledgePublicationUnavailableError,
 } from '../knowledge-publication-bridge.js';
+import { findSessionRuntimeError } from '../session-runtime-error.js';
 
 const roots: string[] = [];
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -108,6 +109,33 @@ async function addPublished(s: Awaited<ReturnType<typeof setup>>, path: string) 
     new Response(JSON.stringify({ current: { ...s.selection, manifestSha256: hash(raw) } })),
   );
 }
+
+it('reports a blocked conversion without selecting an old bundle and recovers after runtime repair', async () => {
+  const s = await setup();
+  s.fetcher.mockImplementation(async () => Response.json({ current: s.selection }));
+  const signal = new AbortController().signal;
+  const original = await s.bridge.reconcile(signal);
+  s.adapt.mockRejectedValueOnce(Error('private-path secret-token dependency mismatch'));
+  const failure = await s.bridge.reconcile(signal).catch((error: unknown) => error);
+  const diagnostic = findSessionRuntimeError(Error('startup wrapper', { cause: failure }));
+  expect(diagnostic?.code).toBe('knowledge_unavailable');
+  expect(diagnostic?.publicMessage()).toContain('compatible runtime');
+  expect(diagnostic?.publicMessage()).not.toMatch(/private-path|secret-token/);
+  expect(s.adapt).toHaveBeenCalledTimes(2);
+  expect(await s.bridge.reconcile(signal)).toEqual(original);
+  expect(s.adapt).toHaveBeenCalledTimes(3);
+});
+
+it('preserves cancellation during conversion instead of suggesting runtime repair', async () => {
+  const s = await setup();
+  const controller = new AbortController();
+  const cancelled = Error('cancelled by owner');
+  s.adapt.mockImplementationOnce(async () => {
+    controller.abort(cancelled);
+    throw Error('adapter failed after abort');
+  });
+  await expect(s.bridge.reconcile(controller.signal)).rejects.toBe(cancelled);
+});
 
 async function gateSourceReads(count: number) {
   const s = await setup({ optionalPaths: ['context/'] });

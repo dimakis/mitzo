@@ -20,6 +20,8 @@ import type { StoreApi } from 'zustand/vanilla';
 import type { FinishedMessage, MitzoMode, ImageAttachment, SourceSnapshot } from '@mitzo/protocol';
 import {
   splitContextPrompt,
+  KnowledgeRuntimeFailureSchema,
+  knowledgeRuntimeFailureMessage,
   type OrdinaryRuntimeContinuationCommand,
   type OrdinaryRuntimeFirstCommand,
   type OrdinaryWorkspaceFirstCommand,
@@ -525,6 +527,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                       ordinaryDelivery?.version === 1 ? ordinaryDelivery.sessionId : sessionId,
                     );
             if (visible) {
+              const runtimeFailure = KnowledgeRuntimeFailureSchema.safeParse(event.runtimeFailure);
               visibleLocalCommandId = request?.clientMsgId;
               let messages = store.getState().messages;
               const ownState =
@@ -555,6 +558,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 ['completed', 'ended', 'interrupted', 'failed', 'cancelled'].includes(ownState);
               store.setState({
                 messages,
+                ...(runtimeFailure.success && state === 'retained'
+                  ? { sendError: knowledgeRuntimeFailureMessage(runtimeFailure.data) }
+                  : ['pending', 'consumed'].includes(state)
+                    ? { sendError: null }
+                    : {}),
                 localCommand: {
                   request,
                   ...(composerDraft ? { composerDraft } : {}),
