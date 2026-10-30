@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { EventStore } from '../event-store.js';
 import { codexRolloverHistory, codexRolloverSources } from '../codex-rollover-context.js';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
@@ -104,7 +104,7 @@ it('refreshes native cwd and workspace policy for the exact command on the same 
 });
 
 it.each(['tool-surface', 'provider-recovery'] as const)(
-  'links frozen native policy to the exact replacement ACK after %s',
+  'requires qualified evidence before frozen native policy replacement after %s',
   async (replacement) => {
     const args: Parameters<typeof setup> = [];
     args[4] = async () => binding;
@@ -143,9 +143,20 @@ it.each(['tool-surface', 'provider-recovery'] as const)(
         },
       });
     }
+    if (replacement === 'provider-recovery') {
+      await expect(
+        f.c.send({ id: 'replacement', prompt: 'Continue on the original workspace' }),
+      ).rejects.toThrow(/phase|effect/);
+      expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+      expect(
+        f.store.readNativeExecution('app', binding, { id: 'replacement', attempt: 1 }),
+      ).toBeUndefined();
+      expect(f.c.queue().map(({ status }) => status)).toEqual(['failed', 'queued']);
+      return;
+    }
     await f.c.send({ id: 'replacement', prompt: 'Continue on the original workspace' });
     const threadId = f.getProviderThread();
-    const turnId = replacement === 'provider-recovery' ? 'turn-2' : 'turn-1';
+    const turnId = 'turn-1';
     expect(
       f.store.readNativeExecution('app', binding, { id: 'replacement', attempt: 1 }),
     ).toMatchObject({ phase: 'accepted', threadId, turnId, generation: 1, policy });
@@ -1383,7 +1394,7 @@ it('rejects a corrupt retained briefing before replacement thread creation', asy
   expect(args[24]).not.toHaveBeenCalledWith('turn/start');
 });
 
-it('replays retained sources when provider recovery starts a clean replacement thread', async () => {
+it('retains sources without dispatching a replacement while provider effects remain unknown', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-clean-source-'));
   const history = new EventStore(join(dir, 'events.db'));
   cleanup.push(() => {
@@ -1421,13 +1432,13 @@ it('replays retained sources when provider recovery starts a clean replacement t
       error: { message: 'stream disconnected before completion' },
     },
   });
-  await c.send({ id: 'new-request', prompt: 'What about the meetings?' });
-  expect(requests.filter((request) => request.method === 'thread/start')).toHaveLength(2);
-  const turn = requests.filter((request) => request.method === 'turn/start').at(-1);
-  const input = turn?.params.input as Array<{ text: string }>;
-  expect(input.some((item) => item.text.includes(content))).toBe(true);
-  expect(input.some((item) => item.text.includes(source.revision))).toBe(true);
-  expect(input.at(-1)?.text).toBe('What about the meetings?');
+  await expect(c.send({ id: 'new-request', prompt: 'What about the meetings?' })).rejects.toThrow(
+    /phase|effect/,
+  );
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  expect(c.queue().find(({ id }) => id === 'new-request')?.prompt).toBe('What about the meetings?');
+  expect(firstInput[0].text).toContain(content);
+  expect(firstInput[0].text).toContain(source.revision);
 });
 
 it.each(['cold', 'hot'] as const)(
@@ -2650,9 +2661,13 @@ it('interrupts the current turn, keeps queued follow-ups paused, and cancels a p
   expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'queued']);
 });
 
-it('treats a new send as recovery acknowledgement, reconnects, resumes queued FIFO work, and skips interrupted work', async () => {
+it('reconnects settled idle work on a new send and preserves saved FIFO ordering', async () => {
   const { c, callbacks, requests } = await setup();
   await c.send({ id: 'a', prompt: 'hello' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
   c.enqueue({ id: 'b', prompt: 'already sent' });
   callbacks.onClose(new Error('process lost'));
   expect(c.isPaused()).toBe(true);
@@ -2663,7 +2678,7 @@ it('treats a new send as recovery acknowledgement, reconnects, resumes queued FI
   expect(requests.filter((request) => request.method === 'turn/start')[1].params.input).toEqual([
     { type: 'text', text: 'already sent' },
   ]);
-  expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'running', 'queued']);
+  expect(c.queue().map((q) => q.status)).toEqual(['completed', 'running', 'queued']);
   callbacks.onNotification('turn/completed', {
     threadId: 'provider-thread',
     turn: { id: 'turn-2', status: 'completed' },
@@ -2709,6 +2724,14 @@ it('retains the event mapper across same-thread reconnect so replayed reasoning 
     return request(method, params);
   });
 
+  callbacks.onNotification('item/completed', {
+    threadId: 'provider-thread',
+    item: { type: 'reasoning', id: 'reasoning-1', summary: ['Checked the file'] },
+  });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
   callbacks.onClose(new Error('process lost'));
   await c.send({ id: 'b', prompt: 'continue' });
 
@@ -3008,17 +3031,42 @@ it('does not persist an explicit send cancelled during its transport probe', asy
   releaseProbe();
 });
 
-it('reconnects an interrupted turn without replaying it when no later command is queued', async () => {
+it('fences uncorroborated plain transport effects through automatic, manual and cold recovery', async () => {
+  const old = await setup();
+  vi.useFakeTimers();
+  await old.c.send({ id: 'legacy-unknown', prompt: 'work' });
+  await old.c.send({ id: 'legacy-saved', prompt: 'later' });
+  old.callbacks.onClose(new CodexTransportError('connection'));
+  await vi.advanceTimersByTimeAsync(20000);
+  await expect(old.c.acknowledgeRecovery()).rejects.toThrow(/phase|effect/);
+  expect(old.store.read('app', old.getBinding()).recovery).toBe(1);
+  expect(old.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  old.c.close();
+  old.store.recoverAtStartup();
+  const restored = await setup(old.store);
+  await expect(restored.c.send({ id: 'legacy-new-intent', prompt: 'new' })).rejects.toThrow(
+    /phase|effect/,
+  );
+  expect(restored.c.queue().map(({ status }) => status)).toEqual([
+    'interrupted',
+    'queued',
+    'queued',
+  ]);
+  expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  vi.useRealTimers();
+});
+
+it('retains interrupted unknown effects after manual reconnect even without later queued work', async () => {
   const { c, callbacks, requests } = await setup();
   await c.send({ id: 'a', prompt: 'hello' });
   callbacks.onClose(new Error('process lost'));
 
   expect(c.queue().map((command) => command.status)).toEqual(['interrupted']);
-  await c.acknowledgeRecovery();
+  await expect(c.acknowledgeRecovery()).rejects.toThrow(/phase|effect/);
 
   expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
   expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
-  expect(c.isPaused()).toBe(false);
+  expect(c.isPaused()).toBe(true);
 });
 
 it('reports workspace startup only until reconnect completes, not through the new turn', async () => {
@@ -3043,7 +3091,7 @@ it('reports workspace startup only until reconnect completes, not through the ne
   await vi.waitFor(() => expect(c.getRecoveryPhase()).toBe('starting_workspace'));
   expect(c.isRecovering()).toBe(true);
   release();
-  await send;
+  await expect(send).rejects.toThrow(/phase|effect/);
   expect(c.isRecovering()).toBe(false);
   expect(c.getRecoveryPhase()).toBeUndefined();
 });
@@ -3073,8 +3121,9 @@ it('treats transport loss during turn startup as paused recovery instead of a fa
   expect(onClosed).not.toHaveBeenCalled();
   expect(c.queue().map((command) => command.status)).toEqual(['failed', 'queued']);
 
-  await c.acknowledgeRecovery();
-  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+  await expect(c.acknowledgeRecovery()).rejects.toThrow(/phase|effect/);
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  expect(c.queue().map((command) => command.status)).toEqual(['failed', 'queued']);
 });
 
 it('re-establishes the external sandbox before recreating a recovery transport', async () => {
@@ -3224,24 +3273,20 @@ it('ignores unrelated buffered completion when accepting the current turn', asyn
   expect(c.queue()[0].status).toBe('completed');
 });
 
-it('does not reconnect or replay interrupted work until a new send explicitly requests recovery', async () => {
+it('keeps interrupted effects fenced when a new send explicitly requests recovery', async () => {
   const { c, callbacks, requests } = await setup();
   await c.send({ id: 'first', prompt: 'first' });
   callbacks.onClose(new Error('process lost'));
   expect(c.isPaused()).toBe(true);
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
   expect(requests.filter((r) => r.method === 'thread/resume')).toHaveLength(0);
-  await c.send({ id: 'second', prompt: 'second' });
-  expect(c.isPaused()).toBe(false);
-  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
-  callbacks.onNotification('turn/completed', {
-    threadId: 'provider-thread',
-    turn: { id: 'turn-2', status: 'completed' },
-  });
-  expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'completed']);
+  await expect(c.send({ id: 'second', prompt: 'second' })).rejects.toThrow(/phase|effect/);
+  expect(c.isPaused()).toBe(true);
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'queued']);
 });
 
-it('restarts a disconnected provider and runs an already queued follow-up exactly once', async () => {
+it('reconnects a failed provider while keeping an uncorroborated queued follow-up held', async () => {
   const beforeReconnect = vi.fn(async () => {});
   const { c, callbacks, requests, rpc } = await setup(
     undefined,
@@ -3263,25 +3308,18 @@ it('restarts a disconnected provider and runs an already queued follow-up exactl
     },
   });
 
-  await vi.waitFor(() =>
-    expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2),
-  );
-  expect(beforeReconnect).toHaveBeenCalledOnce();
+  await vi.waitFor(() => expect(beforeReconnect).toHaveBeenCalledOnce());
+  await expect(c.acknowledgeRecovery()).rejects.toThrow(/phase|effect/);
   expect(rpc.close).toHaveBeenCalledOnce();
-  expect(c.isPaused()).toBe(false);
+  expect(c.isPaused()).toBe(true);
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
   expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
     { id: 'failed-turn', status: 'failed' },
-    { id: 'saved-follow-up', status: 'running' },
-  ]);
-  expect(
-    requests.filter((request) => request.method === 'turn/start').map((request) => request.params),
-  ).toEqual([
-    expect.objectContaining({ input: [{ type: 'text', text: 'first' }] }),
-    expect.objectContaining({ input: [{ type: 'text', text: 'second' }] }),
+    { id: 'saved-follow-up', status: 'queued' },
   ]);
 });
 
-it('moves an old conversation to a new thread generation before accepting the next turn', async () => {
+it('retains the saved checkpoint and new input when old provider effects are uncorroborated', async () => {
   const beforeReconnect = vi.fn(async () => {});
   const { c, callbacks, requests, rpc, store, getProviderThread } = await setup(
     undefined,
@@ -3314,39 +3352,20 @@ it('moves an old conversation to a new thread generation before accepting the ne
     recoveryStrategy: 'fork',
   });
 
-  await c.send({ id: 'after-rollover', prompt: 'continue safely' });
-
+  await expect(c.send({ id: 'after-rollover', prompt: 'continue safely' })).rejects.toThrow(
+    /phase|effect/,
+  );
   expect(beforeReconnect).toHaveBeenCalledOnce();
   expect(rpc.close).toHaveBeenCalledOnce();
-  expect(requests.find((request) => request.method === 'thread/fork')?.params).toMatchObject({
-    threadId: 'provider-thread',
-    lastTurnId: 'turn-1',
-    config: { web_search: 'disabled' },
-  });
-  expect(store.read('app', binding)).toMatchObject({
-    threadId: 'provider-thread-fork-1',
-    threadGeneration: 1,
-    lastCompletedTurnId: 'turn-1',
-    recoveryStrategy: 'resume',
-  });
-  expect(
-    requests.filter((request) => request.method === 'turn/start').map((request) => request.params),
-  ).toEqual([
-    expect.objectContaining({ input: [{ type: 'text', text: 'establish context' }] }),
-    expect.objectContaining({ input: [{ type: 'text', text: 'partly execute tools' }] }),
-    expect.objectContaining({
-      threadId: 'provider-thread-fork-1',
-      input: [{ type: 'text', text: 'continue safely' }],
-    }),
-  ]);
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
   expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
     { id: 'good', status: 'completed' },
     { id: 'poisoned', status: 'failed' },
-    { id: 'after-rollover', status: 'running' },
+    { id: 'after-rollover', status: 'queued' },
   ]);
 });
 
-it('forks from the provider latest completion when the durable ledger missed its notification', async () => {
+it('observes the provider latest checkpoint without releasing unknown prior effects', async () => {
   const { c, callbacks, rpc, requests, store } = await setup(
     undefined,
     undefined,
@@ -3390,7 +3409,9 @@ it('forks from the provider latest completion when the durable ledger missed its
     };
   });
 
-  await c.send({ id: 'after-rollover', prompt: 'continue from provider truth' });
+  await expect(
+    c.send({ id: 'after-rollover', prompt: 'continue from provider truth' }),
+  ).rejects.toThrow(/phase|effect/);
 
   expect(requests.find(({ method }) => method === 'thread/fork')?.params).toMatchObject({
     threadId: 'provider-thread',
@@ -3425,7 +3446,7 @@ it('forks from the provider latest completion when the durable ledger missed its
   });
 });
 
-it('replaces provider thread state after a rejected turn admission', async () => {
+it('keeps rejected turn admission effects fenced without an accepted negative-effect receipt', async () => {
   const beforeReconnect = vi.fn(async () => {});
   const { c, rpc, requests, store } = await setup(
     undefined,
@@ -3450,32 +3471,18 @@ it('replaces provider thread state after a rejected turn admission', async () =>
   );
   expect(store.read('app', binding).recoveryStrategy).toBe('fork');
 
-  await c.send({ id: 'after-rejection', prompt: 'continue' });
-
+  await expect(c.send({ id: 'after-rejection', prompt: 'continue' })).rejects.toThrow(
+    /phase|effect/,
+  );
   expect(beforeReconnect).toHaveBeenCalledOnce();
-  expect(requests.filter(({ method }) => method === 'thread/turns/list')).toHaveLength(1);
-  expect(store.read('app', binding)).toMatchObject({
-    threadId: 'provider-thread-reset-1',
-    threadGeneration: 1,
-    recoveryStrategy: 'resume',
-  });
-  expect(requests.filter(({ method }) => method === 'thread/start')[1]?.params).toMatchObject({
-    dynamicTools: [
-      {
-        type: 'function',
-        name: 'Read',
-        description: 'Read',
-        inputSchema: { type: 'object' },
-      },
-    ],
-  });
+  expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
   expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
     { id: 'rejected', status: 'failed' },
-    { id: 'after-rejection', status: 'running' },
+    { id: 'after-rejection', status: 'queued' },
   ]);
 });
 
-it('automatically probes only one saved follow-up during a persistent provider outage', async () => {
+it('never probes saved follow-ups while failed provider effects remain uncorroborated', async () => {
   const beforeReconnect = vi.fn(async () => {});
   const { c, callbacks, requests, rpc, getProviderThread } = await setup(
     undefined,
@@ -3497,40 +3504,15 @@ it('automatically probes only one saved follow-up during a persistent provider o
       error: { message: 'stream disconnected before completion' },
     },
   });
-  await vi.waitFor(() =>
-    expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2),
-  );
-
-  callbacks.onNotification('turn/completed', {
-    threadId: getProviderThread(),
-    turn: {
-      id: 'turn-2',
-      status: 'failed',
-      error: { message: 'stream disconnected before completion' },
-    },
-  });
-  await Promise.resolve();
-
-  expect(beforeReconnect).toHaveBeenCalledOnce();
-  expect(rpc.close).toHaveBeenCalledTimes(2);
-  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
-  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(0);
+  await vi.waitFor(() => expect(beforeReconnect).toHaveBeenCalledOnce());
+  await expect(c.acknowledgeRecovery()).rejects.toThrow(/phase|effect/);
+  expect(rpc.close).toHaveBeenCalledOnce();
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
   expect(c.isPaused()).toBe(true);
   expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
     { id: 'first', status: 'failed' },
-    { id: 'probe', status: 'failed' },
+    { id: 'probe', status: 'queued' },
     { id: 'preserved', status: 'queued' },
-  ]);
-
-  await c.acknowledgeRecovery();
-  expect(beforeReconnect).toHaveBeenCalledTimes(2);
-  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(0);
-  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(3);
-  expect(c.isPaused()).toBe(false);
-  expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
-    { id: 'first', status: 'failed' },
-    { id: 'probe', status: 'failed' },
-    { id: 'preserved', status: 'running' },
   ]);
 });
 
@@ -3565,7 +3547,7 @@ it('tolerates the transport closing while interrupt is in flight', async () => {
   await expect(c.interrupt()).resolves.toBeUndefined();
 });
 
-it('resumes durable queued work after replacing the runtime and acknowledging recovery', async () => {
+it('restores durable queued work and grants without releasing unknown retired effects', async () => {
   const old = await setup();
   old.store.setWebSearchGrant('app', old.getBinding(), 0, 'allowed', 123);
   await old.c.send({ id: 'first', prompt: 'first' });
@@ -3581,13 +3563,9 @@ it('resumes durable queued work after replacing the runtime and acknowledging re
   );
   expect(resumed.requests.some((r) => r.method === 'turn/start')).toBe(false);
   expect(resumed.c.isPaused()).toBe(true);
-  await resumed.c.acknowledgeRecovery();
-  expect(resumed.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
-  resumed.callbacks.onNotification('turn/completed', {
-    threadId: 'provider-thread',
-    turn: { id: 'turn-1', status: 'completed' },
-  });
-  expect(resumed.c.queue().map((q) => q.status)).toEqual(['failed', 'completed']);
+  await expect(resumed.c.acknowledgeRecovery()).rejects.toThrow(/phase|effect/);
+  expect(resumed.requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+  expect(resumed.c.queue().map((q) => q.status)).toEqual(['failed', 'queued']);
   resumed.c.close();
 });
 
@@ -4700,7 +4678,7 @@ it('pauses admission failure before claim and resumes the preserved FIFO on expl
   ]);
 });
 
-it('performs ordinary provider fork recovery on a current runtime through the real migration admission engine', async () => {
+it('validates current runtime migration admission while unknown provider effects keep work held', async () => {
   const source = {
     runtime: {
       sandboxName: 'current',
@@ -4765,7 +4743,9 @@ it('performs ordinary provider fork recovery on a current runtime through the re
       error: { message: 'stream disconnected before completion' },
     },
   });
-  await fixture.c.send({ id: 'resumed', prompt: 'continue safely' });
+  await expect(fixture.c.send({ id: 'resumed', prompt: 'continue safely' })).rejects.toThrow(
+    /phase|effect/,
+  );
   expect(beforeReconnect).toHaveBeenCalledOnce();
   expect(adapters.observe).toHaveBeenCalledOnce();
   expect(forbidden).not.toHaveBeenCalled();
@@ -4773,11 +4753,11 @@ it('performs ordinary provider fork recovery on a current runtime through the re
     threadId: 'provider-thread',
     lastTurnId: 'turn-1',
   });
-  expect(fixture.requests.filter((r) => r.method === 'turn/start')).toHaveLength(3);
+  expect(fixture.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
   expect(fixture.c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
     { id: 'good', status: 'completed' },
     { id: 'failed', status: 'failed' },
-    { id: 'resumed', status: 'running' },
+    { id: 'resumed', status: 'queued' },
   ]);
 });
 
@@ -6358,7 +6338,10 @@ it.each([
         error: { message: 'stream disconnected before completion' },
       },
     });
-    await forked.c.send({ id: 'replacement-turn', prompt: 'third' });
+    await expect(forked.c.send({ id: 'replacement-turn', prompt: 'third' })).rejects.toThrow(
+      /phase|effect/,
+    );
+    expect(forked.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
     assertPolicy(forked.requests, 'thread/fork');
   },
 );
@@ -7043,16 +7026,20 @@ it('does not duplicate a targeted cancellation invoked during the actual accepta
   );
 });
 
-it('automatically reconnects a dropped transport and dispatches saved FIFO work without replaying the interrupted turn', async () => {
+it('automatically reconnects a dropped transport and dispatches saved FIFO work after settled work without replaying the completed turn', async () => {
   vi.useFakeTimers();
   const f = await setup();
   await f.c.send({ id: 'lost', prompt: 'Synthetic first request' });
-  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  f.c.enqueue({ id: 'saved', prompt: 'Synthetic follow-up' });
   f.callbacks.onClose(new Error('connection closed'));
   expect(f.c.isRecovering()).toBe(true);
   await vi.advanceTimersByTimeAsync(1000);
   expect(f.c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
-    { id: 'lost', status: 'interrupted' },
+    { id: 'lost', status: 'completed' },
     { id: 'saved', status: 'running' },
   ]);
   expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
@@ -7063,7 +7050,11 @@ it('retries transient reconnect failures with backoff without consuming saved co
   vi.useFakeTimers();
   const f = await setup();
   await f.c.send({ id: 'lost', prompt: 'Synthetic first request' });
-  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  f.c.enqueue({ id: 'saved', prompt: 'Synthetic follow-up' });
   f.rpc.initialize.mockRejectedValueOnce(new Error('temporary outage'));
   f.callbacks.onClose(new Error('connection closed'));
   await vi.advanceTimersByTimeAsync(1000);
@@ -7078,7 +7069,11 @@ it('cancels pending automatic recovery when the user stops the conversation', as
   vi.useFakeTimers();
   const f = await setup();
   await f.c.send({ id: 'lost', prompt: 'Synthetic first request' });
-  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  f.c.enqueue({ id: 'saved', prompt: 'Synthetic follow-up' });
   f.callbacks.onClose(new Error('connection closed'));
   await f.c.interrupt();
   await vi.advanceTimersByTimeAsync(60000);
@@ -7091,7 +7086,11 @@ it('does not release saved work while provider metadata still reports an active 
   vi.useFakeTimers();
   const f = await setup();
   await f.c.send({ id: 'lost', prompt: 'Synthetic first request' });
-  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  f.c.enqueue({ id: 'saved', prompt: 'Synthetic follow-up' });
   const request = f.rpc.request.getMockImplementation()!;
   f.rpc.request.mockImplementation(async (method, params) =>
     method === 'thread/turns/list'
@@ -7114,7 +7113,11 @@ it('bounds automatic reconnect attempts and preserves the queue during a sustain
   vi.useFakeTimers();
   const f = await setup();
   await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
-  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  f.c.enqueue({ id: 'saved', prompt: 'Synthetic follow-up' });
   f.rpc.initialize.mockRejectedValue(new Error('still offline'));
   f.callbacks.onClose(new Error('connection closed'));
   await vi.advanceTimersByTimeAsync(120000);
@@ -7128,7 +7131,11 @@ it('does not undo an explicit Stop when its idle transport later closes', async 
   vi.useFakeTimers();
   const f = await setup();
   await f.c.send({ id: 'first', prompt: 'Synthetic request' });
-  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  f.c.enqueue({ id: 'saved', prompt: 'Synthetic follow-up' });
   await f.c.interrupt();
   f.callbacks.onClose(new Error('idle transport expired'));
   await vi.advanceTimersByTimeAsync(60000);
@@ -7147,7 +7154,11 @@ it('fences an in-flight automatic reconnect when Stop arrives during workspace s
     });
   const f = await setup(...args);
   await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
-  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  f.c.enqueue({ id: 'saved', prompt: 'Synthetic follow-up' });
   f.callbacks.onClose(new Error('connection closed'));
   await vi.advanceTimersByTimeAsync(1000);
   await f.c.interrupt();
@@ -7162,7 +7173,11 @@ it('retains qualified transport recovery across a cold reattach without replayin
   vi.useFakeTimers();
   const first = await setup();
   await first.c.send({ id: 'lost', prompt: 'Synthetic request' });
-  await first.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  first.callbacks.onNotification('turn/completed', {
+    threadId: first.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  first.c.enqueue({ id: 'saved', prompt: 'Synthetic follow-up' });
   first.callbacks.onClose(new Error('connection closed'));
   expect(first.store.automaticRecoveryPending('app', first.getBinding())).toBe(true);
   first.c.close();
@@ -7179,7 +7194,11 @@ it('does not restore automatic eligibility when a reconnect transport closes aft
   vi.useFakeTimers();
   const f = await setup();
   await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
-  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  f.c.enqueue({ id: 'saved', prompt: 'Synthetic follow-up' });
   let release!: () => void;
   const request = f.rpc.request.getMockImplementation()!;
   f.rpc.request.mockImplementation(async (method, params) => {
@@ -7211,7 +7230,11 @@ it('rejects recovery metadata from a transport that closes before its continuati
   vi.useFakeTimers();
   const f = await setup();
   await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
-  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  f.c.enqueue({ id: 'saved', prompt: 'Synthetic follow-up' });
   const request = f.rpc.request.getMockImplementation()!;
   f.rpc.request.mockImplementation(async (method, params) => {
     if (method === 'thread/turns/list') {
@@ -7235,7 +7258,11 @@ it('leaves recovery of guarded ordinary routes to their existing runtime owner',
   const f = await setup();
   f.conversationOptions.canClaimCommand = () => true;
   await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
-  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  f.c.enqueue({ id: 'saved', prompt: 'Synthetic follow-up' });
   f.callbacks.onClose(new Error('connection closed'));
   await vi.advanceTimersByTimeAsync(60000);
   expect(f.c.isRecovering()).toBe(false);
@@ -7246,8 +7273,12 @@ it('does not drain further saved commands if the automatic follow-up loses its t
   vi.useFakeTimers();
   const f = await setup();
   await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
-  await f.c.send({ id: 'probe', prompt: 'Synthetic follow-up' });
-  await f.c.send({ id: 'preserved', prompt: 'Synthetic later work' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  f.c.enqueue({ id: 'probe', prompt: 'Synthetic follow-up' });
+  f.c.enqueue({ id: 'preserved', prompt: 'Synthetic later work' });
   const request = f.rpc.request.getMockImplementation()!;
   f.rpc.request.mockImplementation(async (method, params) => {
     const result = await request(method, params);
@@ -7351,6 +7382,110 @@ it('invokes the genuine native base-scope owner despite a poisoned original call
   expect(captured).toBe(false);
   expect(poisoned).not.toHaveBeenCalled();
 });
+
+it.each(['prepareSystemPrompt', 'prepareTurn'] as const)(
+  'resumes new explicit work after repairing a proved %s pre-dispatch failure',
+  async (callback) => {
+    const f = await setup();
+    f.conversationOptions[callback] = async () => {
+      throw Error('Offline preparation needs repair');
+    };
+    await expect(
+      f.c.send({ id: 'preparation-failed', prompt: 'Original retained work' }),
+    ).rejects.toThrow('Offline preparation needs repair');
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(
+      f.store.assertUndispatchedCommand('app', f.getBinding(), 'preparation-failed'),
+    ).toMatchObject({ status: 'failed', attempt: 1 });
+    f.conversationOptions[callback] = async () => undefined;
+    await f.c.send({ id: 'after-repair', prompt: 'New explicit work' });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    expect(f.c.queue()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'preparation-failed', status: 'failed', attempt: 1 }),
+        expect.objectContaining({ id: 'after-repair', status: 'running', attempt: 1 }),
+      ]),
+    );
+  },
+);
+
+it.each(['prepareSystemPrompt', 'prepareTurn'] as const)(
+  'completes the repaired original %s input and its completion hook after qualified requeue',
+  async (callback) => {
+    const hook = vi.fn(async () => {});
+    const f = await setup(undefined, undefined, hook);
+    f.conversationOptions[callback] = async () => {
+      throw Error('Repair needed');
+    };
+    await expect(
+      f.c.send({ id: 'repaired-original', prompt: 'Retained original' }),
+    ).rejects.toThrow('Repair needed');
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    f.conversationOptions[callback] = async () => undefined;
+    const recordRecovery = vi.fn();
+    f.store.requeueUndispatchedCommand('app', f.getBinding(), 'repaired-original', recordRecovery);
+    await f.c.acknowledgeRecovery();
+    expect(recordRecovery).toHaveBeenCalledOnce();
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() =>
+      expect(f.store.commandLifecycle('app', f.getBinding(), 'repaired-original')).toMatchObject({
+        state: 'completed',
+        effectStatus: 'completed',
+      }),
+    );
+    expect(hook).toHaveBeenCalledOnce();
+    await f.c.send({ id: 'later-new-work', prompt: 'Later explicit work' });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+  },
+);
+
+it.each(['prepareSystemPrompt', 'prepareTurn'] as const)(
+  'completes a repaired %s failure through confirmed generic retry and its completion hook',
+  async (callback) => {
+    const hook = vi.fn(async () => {});
+    const f = await setup(undefined, undefined, hook);
+    f.conversationOptions[callback] = async () => {
+      throw Error('Repair retry preparation');
+    };
+    await expect(
+      f.c.send({ id: 'retry-preparation', prompt: 'Retained retry input' }),
+    ).rejects.toThrow('Repair retry preparation');
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    f.conversationOptions[callback] = async () => undefined;
+    await expect(f.c.retryLatestFailed()).resolves.toBe('confirmation_required');
+    await expect(f.c.retryLatestFailed(true)).resolves.toBe('queued');
+    const db = (f.store as unknown as { db: Database.Database }).db;
+    expect(
+      db
+        .prepare(
+          "SELECT attempt,pre_dispatch_failure,ambiguous FROM codex_commands WHERE id='retry-preparation'",
+        )
+        .get(),
+    ).toEqual({ attempt: 2, pre_dispatch_failure: 0, ambiguous: 0 });
+    expect(f.c.queue()).toEqual([
+      expect.objectContaining({ id: 'retry-preparation', status: 'running', attempt: 2 }),
+    ]);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() =>
+      expect(f.store.commandLifecycle('app', f.getBinding(), 'retry-preparation')).toMatchObject({
+        state: 'completed',
+        effectStatus: 'completed',
+        attempt: 2,
+      }),
+    );
+    expect(hook).toHaveBeenCalledOnce();
+    await f.c.send({ id: 'after-confirmed-retry', prompt: 'Later explicit work' });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+  },
+);
 
 it.each(['preparation-error', 'closed-during-preparation'] as const)(
   'records a positive undispatched failure witness for %s only',
@@ -7728,6 +7863,11 @@ async function remoteRecoveryFixture(pendingTool = false) {
   expect(old.store.commandLifecycle('app', old.getBinding(), 'remote-operation').state).toBe(
     'ambiguous_effect',
   );
+  expect(old.store.completionPhase('app', old.getBinding(), 'remote-operation', 1)).toEqual(
+    pendingTool
+      ? undefined
+      : expect.objectContaining({ status: 'unknown', observedOutcome: 'completed' }),
+  );
   old.c.close();
   args[0] = old.store;
   const restored = await setup(...args);
@@ -7736,13 +7876,24 @@ async function remoteRecoveryFixture(pendingTool = false) {
   return { old, restored, request };
 }
 
-it.each(['wrong_turn', 'unknown', 'active', 'lost_acceptance', 'pending_tool'] as const)(
+it.each([
+  'wrong_turn',
+  'unknown',
+  'active',
+  'lost_acceptance',
+  'pending_tool',
+  'missing_phase',
+] as const)(
   'keeps remote recovery fenced for %s without replay or a Local execution policy',
   async (outcome) => {
     const { restored: f, request } = await remoteRecoveryFixture(outcome === 'pending_tool');
     const db = (f.store as unknown as { db: Database.Database }).db;
     if (outcome === 'lost_acceptance')
       db.prepare("UPDATE codex_commands SET native_turns=NULL WHERE id='remote-operation'").run();
+    if (outcome === 'missing_phase')
+      db.prepare(
+        "UPDATE codex_commands SET completion_phases=NULL WHERE id='remote-operation'",
+      ).run();
     f.rpc.request.mockImplementation(async (method, params) =>
       method === 'thread/turns/list'
         ? {
@@ -7763,6 +7914,10 @@ it.each(['wrong_turn', 'unknown', 'active', 'lost_acceptance', 'pending_tool'] a
     expect(f.store.read('app', f.getBinding()).recovery).toBeTruthy();
     expect(f.c.queue().find(({ id }) => id === 'remote-next')?.status).toBe('queued');
     expect(f.conversationOptions.nativeExecution).toBeUndefined();
+    if (outcome === 'missing_phase') {
+      f.c.close();
+      expect(f.store.completionPhase('app', f.getBinding(), 'remote-operation', 1)).toBeUndefined();
+    }
   },
 );
 
@@ -7839,6 +7994,109 @@ it.each(['wrong_turn', 'unknown', 'active'] as const)(
     expect(f.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
     expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
     expect(f.store.read('app', f.getBinding()).recovery).toBeTruthy();
+  },
+);
+
+it.each(['transport', 'direct'] as const)(
+  'retains original no-hook downstream evidence before terminal %s retirement observers',
+  async (retirement) => {
+    const f = await setupTerminalTransport();
+    await f.c.send({ id: 'empty-downstream', prompt: 'work' });
+    const observe = vi.fn(() => {
+      expect(f.store.completionPhase('app', f.getBinding(), 'empty-downstream', 1)).toMatchObject({
+        status: 'unknown',
+        observedOutcome: 'completed',
+        priorEffectsUnknown: false,
+        target: { commandId: 'empty-downstream', turnId: 'turn-1', generation: 0 },
+      });
+    });
+    f.conversationOptions.onTransportClosed = observe;
+    if (retirement === 'transport') {
+      f.callbacks.onClose(new CodexTransportError('connection'));
+      expect(observe).toHaveBeenCalledOnce();
+    } else {
+      f.c.close();
+      observe();
+    }
+    expect(f.store.commandStatus('app', f.getBinding(), 'empty-downstream')).toBe('interrupted');
+    expect(f.store.commandLifecycle('app', f.getBinding(), 'empty-downstream').nextAction).toBe(
+      'reconcile_native_outcome',
+    );
+  },
+);
+
+it.each(['plain', 'hook', 'tool', 'ambiguous'] as const)(
+  'does not mint no-hook success evidence from %s retirement',
+  async (uncertainty) => {
+    const f =
+      uncertainty === 'plain'
+        ? await setup()
+        : await setupTerminalTransport(
+            undefined,
+            uncertainty === 'hook' ? async () => {} : undefined,
+          );
+    await f.c.send({ id: 'no-empty-proof', prompt: 'work' });
+    if (uncertainty === 'tool')
+      f.store.claimTool('app', f.getBinding(), 'no-empty-proof', 'pending-effect', {
+        turnId: 'turn-1',
+        toolName: 'RequestGithubPublish',
+        requestHash: 'c'.repeat(64),
+      });
+    if (uncertainty === 'ambiguous')
+      (f.store as unknown as { db: Database.Database }).db
+        .prepare("UPDATE codex_commands SET ambiguous=1 WHERE id='no-empty-proof'")
+        .run();
+    f.callbacks.onClose(new CodexTransportError('connection'));
+    expect(f.store.completionPhase('app', f.getBinding(), 'no-empty-proof', 1)).toBeUndefined();
+  },
+);
+
+it('keeps retirement witness persistence failure inspection-only without replacing transport cleanup', async () => {
+  const f = await setupTerminalTransport();
+  await f.c.send({ id: 'missing-empty-evidence', prompt: 'work' });
+  await f.c.send({ id: 'after-missing-empty-evidence', prompt: 'later' });
+  vi.spyOn(f.store, 'observeEmptyCompletionPhase').mockImplementation(() => {
+    throw Error('receipt unavailable');
+  });
+  expect(() =>
+    f.callbacks.onClose(
+      new CodexTransportError('connection', {
+        reason: 'child_exit',
+        exitCode: 7,
+        signal: null,
+      }),
+    ),
+  ).not.toThrow();
+  expect(
+    f.store.completionPhase('app', f.getBinding(), 'missing-empty-evidence', 1),
+  ).toBeUndefined();
+  expect(
+    f.store.commandLifecycle('app', f.getBinding(), 'missing-empty-evidence').diagnostic,
+  ).toMatchObject({ reason: 'child_exit', exitCode: 7 });
+  const restored = await setupTerminalTransport(f.store);
+  const request = restored.rpc.request.getMockImplementation()!;
+  restored.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list'
+      ? { data: [{ id: 'turn-1', status: 'completed' }] }
+      : request(method, params),
+  );
+  await expect(restored.c.acknowledgeRecovery()).rejects.toThrow(/phase|effect/);
+  expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+});
+
+it.each(['plain', 'failed', 'interrupted'] as const)(
+  'keeps original empty downstream evidence fenced after %s recovery',
+  async (outcome) => {
+    const { old, restored: terminal, request } = await nativeRecoveryFixture();
+    const f = outcome === 'plain' ? await setup(old.store) : terminal;
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list'
+        ? { data: [{ id: 'turn-1', status: outcome === 'plain' ? 'completed' : outcome }] }
+        : request(method, params),
+    );
+    await expect(f.c.acknowledgeRecovery()).rejects.toThrow(/phase|effect|outcome/);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
   },
 );
 
@@ -8106,48 +8364,56 @@ it('records a pending completion-phase receipt before invoking the original hook
   );
 });
 
-it('reconciles a late original hook success under fresh authority without rerunning the hook or releasing work automatically', async () => {
-  let finish!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    finish = resolve;
-  });
-  const hook = vi.fn(() => gate);
-  const old = await setupTerminalTransport(undefined, hook);
-  await old.c.send({ id: 'late-hook', prompt: 'work' });
-  await old.c.send({ id: 'after-late-hook', prompt: 'later' });
-  old.callbacks.onNotification('turn/completed', {
-    threadId: 'provider-thread',
-    turn: { id: 'turn-1', status: 'completed' },
-  });
-  old.callbacks.onClose(new CodexTransportError('connection'));
-  old.conversationOptions.verifyBinding = async () => {
-    throw Error('original authority retired');
-  };
-  finish();
-  await vi.waitFor(() =>
-    expect(old.store.completionPhase('app', old.getBinding(), 'late-hook', 1)).toMatchObject({
-      status: 'unknown',
-      observedOutcome: 'completed',
-    }),
-  );
-  expect(old.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
-  expect(old.store.commandLifecycle('app', old.getBinding(), 'late-hook').nextAction).toBe(
-    'reconcile_completion_phase',
-  );
-  const restored = await setupTerminalTransport(old.store);
-  const request = restored.rpc.request.getMockImplementation()!;
-  restored.rpc.request.mockImplementation(async (method, params) =>
-    method === 'thread/turns/list'
-      ? { data: [{ id: 'turn-1', status: 'completed' }] }
-      : request(method, params),
-  );
-  await restored.c.acknowledgeRecovery();
-  expect(restored.store.completionPhase('app', restored.getBinding(), 'late-hook', 1)?.status).toBe(
-    'completed',
-  );
-  expect(restored.c.queue().map(({ status }) => status)).toEqual(['completed', 'running']);
-  expect(hook).toHaveBeenCalledOnce();
-});
+it.each([undefined, 'terminal'] as const)(
+  'reconciles a late original hook success under fresh authority without replay or automatic queue release (%s)',
+  async (closure) => {
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const hook = vi.fn(() => gate);
+    const args: Parameters<typeof setup> = [];
+    args[2] = hook;
+    args[29] = closure;
+    const old = await setup(...args);
+    await old.c.send({ id: 'late-hook', prompt: 'work' });
+    await old.c.send({ id: 'after-late-hook', prompt: 'later' });
+    old.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    old.callbacks.onClose(new CodexTransportError('connection'));
+    old.conversationOptions.verifyBinding = async () => {
+      throw Error('original authority retired');
+    };
+    finish();
+    await vi.waitFor(() =>
+      expect(old.store.completionPhase('app', old.getBinding(), 'late-hook', 1)).toMatchObject({
+        status: 'unknown',
+        observedOutcome: 'completed',
+      }),
+    );
+    expect(old.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+    expect(old.store.commandLifecycle('app', old.getBinding(), 'late-hook').nextAction).toBe(
+      'reconcile_completion_phase',
+    );
+    args[0] = old.store;
+    args[2] = undefined;
+    const restored = await setup(...args);
+    const request = restored.rpc.request.getMockImplementation()!;
+    restored.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list'
+        ? { data: [{ id: 'turn-1', status: 'completed' }] }
+        : request(method, params),
+    );
+    await restored.c.acknowledgeRecovery();
+    expect(
+      restored.store.completionPhase('app', restored.getBinding(), 'late-hook', 1)?.status,
+    ).toBe('completed');
+    expect(restored.c.queue().map(({ status }) => status)).toEqual(['completed', 'running']);
+    expect(hook).toHaveBeenCalledOnce();
+  },
+);
 
 it('keeps an unknown hook phase fenced when diagnostic persistence is unavailable', async () => {
   const gate = new Promise<void>(() => {});
@@ -8257,5 +8523,287 @@ it.each(['close', 'stop'] as const)(
     expect(restored.c.isPaused()).toBe(true);
     expect(restored.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
     expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  },
+);
+
+it.each(['failed', 'timeout'] as const)(
+  'retains a sole completed command with %s hook effects across cold reopen and a new send',
+  async (outcome) => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-phase-cold-'));
+    const path = join(root, 'private.db');
+    let store = new CodexConversationStore(path);
+    const hook = vi.fn(async () => {
+      if (outcome === 'failed') throw Error('unknown original hook effects');
+      await new Promise<void>(() => {});
+    });
+    const old = await setup(store, undefined, hook, 10);
+    let restored: Awaited<ReturnType<typeof setup>> | undefined;
+    try {
+      await old.c.send({ id: 'sole-hook', prompt: 'work' });
+      old.callbacks.onNotification('turn/completed', {
+        threadId: old.getProviderThread(),
+        turn: { id: 'turn-1', status: 'completed' },
+      });
+      await vi.waitFor(() => expect(old.onClosed).toHaveBeenCalledOnce());
+      expect(store.read('app', old.getBinding()).recovery).toBe(1);
+      expect(old.c.queue()).toMatchObject([{ id: 'sole-hook', status: 'completed' }]);
+      store.close();
+      store = new CodexConversationStore(path);
+      store.recoverAtStartup();
+      restored = await setup(store);
+      expect(restored.c.isPaused()).toBe(true);
+      await expect(
+        restored.c.send({ id: 'after-cold-hook', prompt: 'new intent' }),
+      ).rejects.toThrow(/phase|effect/);
+      expect(restored.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+      expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+      expect(hook).toHaveBeenCalledOnce();
+    } finally {
+      old.c.close();
+      restored?.c.close();
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it.each(['explicit', 'automatic'] as const)(
+  'fences plain transport %s recovery while the original completion hook remains pending',
+  async (mode) => {
+    const hook = vi.fn(() => new Promise<void>(() => {}));
+    const f = await setup(undefined, undefined, hook);
+    await f.c.send({ id: 'plain-hook', prompt: 'work' });
+    await f.c.send({ id: 'after-plain-hook', prompt: 'later' });
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    const request = f.rpc.request.getMockImplementation()!;
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list'
+        ? { data: [{ id: 'turn-1', status: 'completed' }] }
+        : request(method, params),
+    );
+    if (mode === 'automatic') vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    f.callbacks.onClose(new CodexTransportError('connection'));
+    if (mode === 'explicit')
+      await expect(f.c.acknowledgeRecovery()).rejects.toThrow(/phase|effect/);
+    else await vi.advanceTimersByTimeAsync(1000);
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    expect(f.c.isPaused()).toBe(true);
+    expect(f.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    expect(hook).toHaveBeenCalledOnce();
+  },
+);
+
+it('retains no-Stop pending tool effects after sole provider completion and plain cold recovery', async () => {
+  const old = await setup();
+  await old.c.send({ id: 'sole-tool', prompt: 'work' });
+  old.store.claimTool('app', old.getBinding(), 'sole-tool', 'lost-result', {
+    turnId: 'turn-1',
+    toolName: 'RequestGithubPublish',
+    requestHash: 'a'.repeat(64),
+  });
+  old.callbacks.onNotification('turn/completed', {
+    threadId: old.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  expect(old.store.read('app', old.getBinding()).recovery).toBe(1);
+  old.c.close();
+  old.store.recoverAtStartup();
+  const restored = await setup(old.store);
+  const allocation = vi.fn();
+  const admission = vi.fn(async () => {
+    allocation();
+  });
+  restored.conversationOptions.beforeRuntimeAdmission = {
+    kind: 'prepared-repository-primary',
+    admit: admission,
+  };
+  expect(restored.c.isPaused()).toBe(true);
+  await expect(restored.c.send({ id: 'after-sole-tool', prompt: 'new intent' })).rejects.toThrow(
+    /phase|effect/,
+  );
+  expect(restored.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+  expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  expect(admission).not.toHaveBeenCalled();
+  expect(allocation).not.toHaveBeenCalled();
+});
+
+it.each([false, true])(
+  'preserves actual completion phase custody before changed-tool replacement (known success=%s)',
+  async (known) => {
+    let finish!: () => void;
+    const hook = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const old = await setup(undefined, undefined, hook);
+    await old.c.send({ id: 'surface-phase', prompt: 'work' });
+    await old.c.send({ id: 'surface-followup', prompt: 'later' });
+    old.callbacks.onNotification('turn/completed', {
+      threadId: old.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    old.callbacks.onClose(new CodexTransportError('connection'));
+    old.conversationOptions.verifyBinding = async () => {
+      throw Error('original authority retired');
+    };
+    if (known) {
+      finish();
+      await vi.waitFor(() =>
+        expect(
+          old.store.completionPhase('app', old.getBinding(), 'surface-phase', 1),
+        ).toMatchObject({ status: 'unknown', observedOutcome: 'completed' }),
+      );
+    }
+    const original = old.store.read('app', old.getBinding());
+    const startCount = old.requests.filter(({ method }) => method === 'thread/start').length;
+    const restored = new CodexConversation({
+      ...old.conversationOptions,
+      storedBinding: old.getBinding(),
+      beforeComplete: undefined,
+      verifyBinding: async () => old.getBinding(),
+      tools: [
+        ...old.conversationOptions.tools,
+        { name: 'NewRead', description: 'Offline read', input_schema: { type: 'object' } },
+      ],
+    });
+    cleanup.push(() => restored.close());
+    if (known) {
+      await restored.initialize();
+      expect(old.store.completionPhase('app', old.getBinding(), 'surface-phase', 1)?.status).toBe(
+        'completed',
+      );
+      expect(old.store.read('app', old.getBinding()).threadGeneration).toBe(
+        original.threadGeneration + 1,
+      );
+      expect(old.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+      await restored.acknowledgeRecovery();
+      expect(restored.queue().map(({ status }) => status)).toEqual(['completed', 'running']);
+    } else {
+      await expect(restored.initialize()).rejects.toThrow(/phase|effect/);
+      expect(old.requests.filter(({ method }) => method === 'thread/start')).toHaveLength(
+        startCount,
+      );
+      expect(old.store.read('app', old.getBinding()).threadGeneration).toBe(
+        original.threadGeneration,
+      );
+      expect(old.store.read('app', old.getBinding()).threadId).toBe(original.threadId);
+      finish();
+    }
+    expect(hook).toHaveBeenCalledOnce();
+  },
+);
+
+it('refuses native lineage adoption when the original hook gains custody during replacement RPC', async () => {
+  let finish!: () => void;
+  const old = await setup(
+    undefined,
+    undefined,
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await old.c.send({ id: 'replacement-custody-race', prompt: 'work' });
+  const originalCallbacks = old.getCallbacks();
+  const request = old.rpc.request.getMockImplementation()!;
+  old.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/start')
+      originalCallbacks.onNotification('turn/completed', {
+        threadId: 'provider-thread',
+        turn: { id: 'turn-1', status: 'completed' },
+      });
+    return request(method, params);
+  });
+  const restored = new CodexConversation({
+    ...old.conversationOptions,
+    storedBinding: old.getBinding(),
+    beforeComplete: undefined,
+    verifyBinding: async () => old.getBinding(),
+    tools: [
+      ...old.conversationOptions.tools,
+      { name: 'NewRead', description: 'Offline read', input_schema: { type: 'object' } },
+    ],
+  });
+  cleanup.push(() => restored.close());
+  await expect(restored.initialize()).rejects.toThrow(/phase|custody/);
+  expect(old.store.read('app', old.getBinding())).toMatchObject({
+    threadId: 'provider-thread',
+    threadGeneration: 0,
+  });
+  expect(
+    old.store.completionPhase('app', old.getBinding(), 'replacement-custody-race', 1)?.status,
+  ).toBe('pending');
+  expect(old.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  old.c.close();
+  finish();
+});
+
+it.each([undefined, 'terminal'] as const)(
+  'retains the actual provider completion through raw process loss during a hook (%s)',
+  async (closure) => {
+    vi.useFakeTimers();
+    let stateAtEffect: string | undefined;
+    const hook = vi.fn(() => {
+      stateAtEffect = old.store.commandStatus('app', old.getBinding(), 'raw-hook');
+      return new Promise<void>(() => {});
+    });
+    const terminal = vi.fn();
+    const complete = vi.fn();
+    const args: Parameters<typeof setup> = [];
+    args[2] = hook;
+    args[9] = complete;
+    args[11] = terminal;
+    args[29] = closure;
+    const ownerCleanupIndex = cleanup.length;
+    const old = await setup(...args);
+    await old.c.send({ id: 'raw-hook', prompt: 'work' });
+    old.callbacks.onNotification('turn/completed', {
+      threadId: old.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    expect(stateAtEffect).toBe('completed');
+    expect(terminal).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    const binding = old.getBinding();
+    const path = (old.store as unknown as { db: Database.Database }).db.name;
+    // A dead process cannot run its conversation close/finally path.
+    cleanup.splice(ownerCleanupIndex, 1);
+    old.store.close();
+    const store = new CodexConversationStore(path);
+    store.recoverAtStartup();
+    const restored = new CodexConversation({
+      ...old.conversationOptions,
+      store,
+      storedBinding: binding,
+      beforeComplete: undefined,
+      verifyBinding: async () => binding,
+    });
+    cleanup.push(() => {
+      restored.close();
+      store.close();
+      rmSync(dirname(path), { recursive: true, force: true });
+    });
+    expect(store.commandStatus('app', binding, 'raw-hook')).toBe('completed');
+    expect(store.read('app', binding)).toMatchObject({
+      recovery: 1,
+      lastCompletedTurnId: 'turn-1',
+    });
+    expect(store.commandLifecycle('app', binding, 'raw-hook')).toMatchObject({
+      state: 'completed',
+      effectStatus: 'unknown',
+    });
+    await restored.initialize();
+    await expect(restored.send({ id: 'raw-followup', prompt: 'later' })).rejects.toThrow(
+      /phase|effect/,
+    );
+    expect(restored.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+    expect(old.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    expect(hook).toHaveBeenCalledOnce();
   },
 );

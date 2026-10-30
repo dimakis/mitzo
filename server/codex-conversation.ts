@@ -590,6 +590,7 @@ export class CodexConversation {
         });
       }
     }
+    this.retainEmptyCompletionPhase();
     if (this.opts.transportClosure === 'terminal') {
       try {
         this.opts.onTransportClosed?.({ activeTurn: !!this.active, reason: 'closed', ...failure });
@@ -1587,6 +1588,10 @@ export class CodexConversation {
         throw Error('Automatic recovery was cancelled');
     };
     const recoveryState = this.opts.store.read(this.opts.conversationId, this.binding!);
+    const completionTarget = this.opts.store.completionPhaseRecoveryTarget(
+      this.opts.conversationId,
+      this.binding!,
+    );
     const exactRecovery =
       this.opts.transportClosure === 'terminal' ||
       this.opts.recoveryReconciliation === 'exact-turn';
@@ -1604,7 +1609,7 @@ export class CodexConversation {
         this.opts.assertNativeExecutionCurrent!(this.opts.nativeExecution, nativeTarget.commandId);
       }
     };
-    if (exactRecovery) await assertRecoveryAuthority();
+    await assertRecoveryAuthority();
     let nativeStatus: 'completed' | 'failed' | 'interrupted' | undefined;
     const recoveryThreadId = exactRecovery ? nativeTarget?.threadId : this.threadId;
     if ((automaticEpoch !== undefined || exactRecovery) && recoveryThreadId) {
@@ -1649,19 +1654,6 @@ export class CodexConversation {
     )
       throw new Error('Automatic recovery was cancelled');
     if (nativeTarget && nativeStatus) {
-      const phase = this.opts.store.completionPhase(
-        this.opts.conversationId,
-        this.binding!,
-        nativeTarget.commandId,
-        nativeTarget.attempt,
-      );
-      if (phase && phase.status !== 'completed' && phase.observedOutcome === 'completed')
-        await this.reconcileKnownCompletionPhase(
-          nativeTarget,
-          this.binding!,
-          this.opts.nativeExecution,
-        );
-      assertRecoveryContinuation();
       this.opts.store.reconcileNativeRecovery(
         this.opts.conversationId,
         this.binding!,
@@ -1672,6 +1664,21 @@ export class CodexConversation {
       );
       this.opts.onProviderTerminal?.(nativeTarget.commandId, nativeTarget.turnId, nativeStatus);
       this.opts.onProviderComplete?.(nativeTarget.commandId, nativeStatus);
+    }
+    if (completionTarget) {
+      const phase = this.opts.store.completionPhase(
+        this.opts.conversationId,
+        this.binding!,
+        completionTarget.commandId,
+        completionTarget.attempt,
+      );
+      if (phase && phase.observedOutcome === 'completed')
+        await this.reconcileKnownCompletionPhase(
+          completionTarget,
+          this.binding!,
+          this.opts.nativeExecution,
+        );
+      assertRecoveryContinuation();
     }
     assertRecoveryContinuation();
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!, nativeTarget);
@@ -1944,6 +1951,34 @@ export class CodexConversation {
     return createHash('sha256').update(JSON.stringify(this.dynamicToolsOption())).digest('hex');
   }
 
+  /** Preserve the original phase target until its exact owner has settled.
+   * A new tool surface or attempt home must not retire that recovery lineage. */
+  private async settleCompletionBeforeReplacement() {
+    const binding = this.binding!;
+    const generation = this.transportGeneration;
+    const target = this.opts.store.completionPhaseRecoveryTarget(this.opts.conversationId, binding);
+    if (!target) return;
+    const phase = this.opts.store.completionPhase(
+      this.opts.conversationId,
+      binding,
+      target.commandId,
+      target.attempt,
+    );
+    if (
+      phase?.observedOutcome !== 'completed' ||
+      this.opts.store.commandStatus(this.opts.conversationId, binding, target.commandId) !==
+        'completed'
+    )
+      throw Error('Completion phase effects remain unknown; preserve the original native lineage');
+    await this.reconcileKnownCompletionPhase(target, binding, this.opts.nativeExecution);
+    if (
+      this.closed ||
+      generation !== this.transportGeneration ||
+      this.opts.store.completionPhaseRecoveryTarget(this.opts.conversationId, binding)
+    )
+      throw Error('Completion phase custody changed before native lineage replacement');
+  }
+
   private async replaceAttemptHome(
     client: Rpc,
     state: ReturnType<CodexConversationStore['read']>,
@@ -1951,6 +1986,7 @@ export class CodexConversation {
     toolSurfaceRevision: string,
   ) {
     if (this.closed) throw new Error('Attempt continuity initialization closed');
+    await this.settleCompletionBeforeReplacement();
     if (!state.threadId) throw new Error('Attempt continuity predecessor is unavailable');
     this.savedSourceContext();
     const entries = this.opts.loadConversationHistory?.();
@@ -2010,6 +2046,7 @@ export class CodexConversation {
     threadOptions: ReturnType<CodexConversation['threadOptions']>,
     toolSurfaceRevision: string,
   ) {
+    await this.settleCompletionBeforeReplacement();
     if (!state.threadId) throw new Error('Codex provider thread is unavailable');
     const rolloverContext = this.conversationRolloverContext();
     const result = z
@@ -2104,6 +2141,7 @@ export class CodexConversation {
     state: ReturnType<CodexConversationStore['read']>,
     threadOptions: ReturnType<CodexConversation['threadOptions']>,
   ) {
+    await this.settleCompletionBeforeReplacement();
     if (!state.threadId) throw new Error('Codex provider thread is unavailable');
     const lastCompletedTurnId = await this.latestCompletedProviderTurn(
       client,
@@ -2851,6 +2889,39 @@ export class CodexConversation {
       policy?.policyRevision,
     );
   }
+  /** Only the original live recovery owner knows that no completion callback
+   * existed. Reconstructed/plain owners never manufacture this evidence. */
+  private retainEmptyCompletionPhase(active = this.active) {
+    if (
+      (this.opts.transportClosure !== 'terminal' &&
+        this.opts.recoveryReconciliation !== 'exact-turn') ||
+      this.opts.beforeComplete ||
+      !active ||
+      this.active !== active ||
+      !this.binding ||
+      !this.threadId ||
+      !active.accepted ||
+      !active.turnId ||
+      active.ownershipPending ||
+      active.completionHook !== undefined ||
+      active.interruptRequested ||
+      active.abort.signal.aborted
+    )
+      return;
+    try {
+      this.opts.store.observeEmptyCompletionPhase(
+        this.opts.conversationId,
+        this.binding,
+        active.command,
+        this.threadId,
+        active.turnId,
+        createHash('sha256').update(this.opts.cwd).digest('hex'),
+        active.nativeExecution?.policyRevision,
+      );
+    } catch {
+      // Missing evidence preserves uncertainty; it cannot replace primary cleanup.
+    }
+  }
   /** The provider outcome and downstream completion phase are separate. The
    * existing retirement owner retains only an accepted exact unconflicted ACK. */
   private retainConfirmedProviderCompletion(active?: ActiveCommand): boolean {
@@ -3081,9 +3152,9 @@ export class CodexConversation {
         const active = this.active;
         const phaseBinding = this.binding!;
         const phasePolicy = active.nativeExecution;
-        let phase: ReturnType<CodexConversationStore['beginCompletionPhase']>;
+        let phase: ReturnType<CodexConversationStore['beginCompletedProviderPhase']>;
         try {
-          phase = this.opts.store.beginCompletionPhase(
+          phase = this.opts.store.beginCompletedProviderPhase(
             this.opts.conversationId,
             phaseBinding,
             active.command,
@@ -3944,6 +4015,7 @@ export class CodexConversation {
     finishCommandTimingSpan(this.active?.preparationSpan, 'closed');
     if (this.active) this.active.preparationSpan = undefined;
     if (this.closed) return;
+    this.retainEmptyCompletionPhase();
     this.closed = true;
     this.borrowedSearch?.transportClosed(new Error('Search connection closed'));
     this.paused = true;

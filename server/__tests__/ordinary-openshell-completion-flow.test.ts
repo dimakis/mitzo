@@ -328,11 +328,19 @@ it.each([false, true])(
     expect(turns).toBe(1);
     callbacks.onClose(new Error('Local transport client exited; remote agent may still run'));
     expect(native.commandLifecycle('session', f.account, 'first').state).toBe('ambiguous_effect');
+    expect(native.completionPhase('session', f.account, 'first', 1)).toMatchObject({
+      status: 'unknown',
+      observedOutcome: 'completed',
+    });
     const runtime = getCodexRuntime(session)!;
     await expect(runtime.acknowledgeRecovery()).rejects.toThrow(/active/);
     expect(turns).toBe(1);
     outcome = 'completed';
     await runtime.acknowledgeRecovery();
+    expect(native.completionPhase('session', f.account, 'first', 1)).toMatchObject({
+      status: 'completed',
+      observedOutcome: 'completed',
+    });
     expect(native.commands('session', f.account).map(({ id, status }) => ({ id, status }))).toEqual(
       [
         { id: 'first', status: 'completed' },

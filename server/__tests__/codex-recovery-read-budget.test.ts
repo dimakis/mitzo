@@ -45,7 +45,11 @@ it('bounds exact recovery observations independently of completed history and qu
     reads = 0;
   vi.spyOn(db, 'prepare').mockImplementation((sql: string) => {
     const statement = prepare(sql);
-    if (!/SELECT (?:id,)?status,attempt,native_turns,pre_dispatch_failure/.test(sql))
+    const query = sql.replace(/\bc\./g, '');
+    if (
+      !/SELECT (?:id,)?status,attempt,native_turns,pre_dispatch_failure/.test(query) ||
+      !query.includes('ORDER BY sequence DESC')
+    )
       return statement;
     return new Proxy(statement, {
       get(target, key) {

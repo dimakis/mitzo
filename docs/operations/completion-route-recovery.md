@@ -29,8 +29,13 @@ owners. OpenShell uses its own entry/admission, retained physical sandbox, grant
 lifecycle generation and provider-turn owners. Its local CLI exit does not prove
 remote completion or cancellation. Neither route can copy the other's filesystem
 assertions or transport-close policy. Exact completed provider metadata cannot settle
-unknown downstream writes. Original late hook success can settle only its original
-phase under fresh authority; it cannot automatically release queued commands.
+unknown downstream writes. A modern no-hook command also needs the witness retained
+by its original accepted live owner before transport teardown. A reconstructed owner
+cannot create that witness from provider metadata. Legacy sessions with missing
+completion-phase applicability or effect evidence remain inspection-only; do not
+backfill a receipt to make any historical session below resumable. Original late hook
+success can settle only its original phase under fresh authority; it cannot
+automatically release queued commands.
 
 Claude SDK recovery relies on its exact native input/result and process/history
 custody; Gemini relies on its native response/checkpoint and existing durable attempt

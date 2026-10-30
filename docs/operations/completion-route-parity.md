@@ -1,11 +1,10 @@
 # Completion qualification across accounts, engines and runtimes
 
-This follow-on starts at PR #1158 head `9dd56c1abf5bc01053d7f333a957f1d453fae80a`.
-The dependency remains owned by its implementation session. Its subsequently verified
-open head is `8fa10177b2c2a5ceb3d01bf527206a267cbdabc6`; the changes since the initial
-head are CI/fixture corrections, not a replacement completion implementation.
-An open PR's temporary merge SHA is not acceptance. Integrate its actual accepted
-main result before landing this follow-on and retain only this PR's delta.
+This follow-on uses accepted main `bf6bc428786617feac601834e4f340254d44bd8f`, containing
+PR #1158 merged from verified head `f40bf3c0ad060442ee7e42df4ff559895fc57d94`. The accepted
+source tree matches that reviewed dependency head. This PR preserves its recovery
+proofs and adds only the remaining delta. The dependency now owns both lazy recovery
+iterators; this follow-on retains only the additional queued-row filter.
 
 ## Reachable route matrix
 
@@ -59,7 +58,10 @@ policy. The existing conversation/store owners reconcile the retained command,
 attempt, provider thread/turn and generation under fresh route authority before
 acknowledging recovery. Missing/wrong/active provider evidence remains fenced.
 Provider completion is retained separately from pending tools and completion phases;
-metadata cannot settle unknown downstream writes or release them for replay.
+metadata cannot settle unknown downstream writes or release them for replay. The
+original accepted live owner retains a no-hook witness before transport teardown;
+exact provider completion can then consume that evidence. A cold owner cannot mint
+missing proof, and legacy sessions without applicability/effect evidence stay held.
 
 The OpenShell binding callback now re-enters its genuine admission owner, and that
 owner obtains fresh asynchronous provider authority even when its last command has
@@ -67,11 +69,12 @@ settled. It still uses the original sandbox custody, account, current selection 
 permission owners. No new supervisor, publisher, scheduler, registry or status table
 is introduced. Later explicit commands retain FIFO and their original IDs.
 
-Recovery observations lazily read the existing command rows until the relevant
-witness is found. The old eager materialization of the complete command history is
-removed. Queued/cancelled rows without native receipts are omitted from the probe;
-rows with retained native receipts keep the existing lineage/unknown-acceptance
-rules. Independent calls still read SQLite afresh, including external writers.
+The accepted dependency streams recovery observations lazily and qualifies any
+pre-dispatch exception through its existing coherent proof. This follow-on filters
+queued/cancelled probe rows with null native receipts before materializing them.
+Rows with non-null native evidence retain the canonical parsing and lineage checks;
+the universal effects audit still fences contradictory queued receipts. Independent
+calls read SQLite afresh, including external writers.
 
 Real node-gyp qualification exposed Python bytecode writes inside fingerprinted npm
 sources. Setup now gives Python a fresh cache inside its existing invocation scratch.
@@ -119,25 +122,33 @@ switches, held single-flight maintenance, and exact interrupted recovery with on
 retained FIFO successor per session. It composes actual query-loop, connection/session,
 EventStore and native command owners. Provider terminal effects are synthetic.
 
-| Work per repeated workload                                                 | Before            | After             |
+History/database seeding is outside the timed region. Both active streams, replay,
+tools, held maintenance and interrupted recovery are inside it. Both sides use the
+identical corrected original-owner witness fixture and a 1 GiB heap with one worker.
+
+| Work per measured workflow                                                 | Before            | After             |
 | -------------------------------------------------------------------------- | ----------------- | ----------------- |
-| SQL reads / writes                                                         | 1,794 / 1,118     | 1,794 / 1,118     |
-| Rows materialized                                                          | 33,060            | 31,362            |
-| JSON bytes of observed SQL rows                                            | 5,793,512         | 5,470,266         |
+| SQL reads / writes                                                         | 1,944 / 1,126     | 1,944 / 1,126     |
+| Rows materialized                                                          | 31,460            | 31,458            |
+| JSON bytes of observed SQL rows                                            | 5,550,199         | 5,549,782         |
 | Delivered / history-projected bytes                                        | 118,598 / 408,003 | 118,598 / 408,003 |
 | Synthetic provider turns / peak queued successor depth                     | 50 / 1            | 50 / 1            |
 | Helper processes / credential refreshes / provider RPCs / real model calls | 0 / 0 / 0 / 0     | 0 / 0 / 0 / 0     |
-| Whole-workload median, 11 samples                                          | 150.22 ms         | 148.78 ms         |
-| Observed timer-gap maximum median, 11 samples                              | 11.56 ms          | 9.45 ms           |
+| Whole measured workflow median, 11 samples                                 | 191.70 ms         | 177.08 ms         |
+| Observed timer-gap maximum median, 11 samples                              | 16.16 ms          | 12.79 ms          |
 
 The isolated 44-observation recovery budget reduces materialized command rows from
-9,240 to 44. Whole-workload samples range 132.42–516.34 ms before and
-131.57–514.66 ms after; timer gaps include scheduling/instrumentation noise. These
-small timing differences do not establish a reliable end-to-end speedup. Counts
-establish less materialized work with identical delivery/replay and dispatch counts.
-Zero physical/RPC counters describe absent external transports in this fixture,
-not a claim that real admission needs no physical effects. No nested durations are
-summed and no population p95 is inferred from these samples.
+484 to 44. The accepted dependency already owns the larger lazy-iteration saving;
+this PR's remaining whole-workflow saving is two rows and 417 serialized bytes,
+with identical SQL call counts, delivery/replay and dispatch counts. Applying the
+candidate's 44-row bound to the unchanged accepted store is expected RED at 484;
+the candidate is GREEN at 44, using the same fixture and instrumentation.
+
+Whole-workflow samples range 155.29–256.62 ms before and
+160.58–219.20 ms after. These overlapping samples do not establish an
+end-to-end speedup; timer gaps include scheduling/instrumentation noise. Zero
+physical/RPC counters describe absent external transports in this fixture. No
+nested durations are summed and no population p95 is inferred.
 
 #1158's prepared-owner, topology-helper, credential-RPC and projection budgets remain
 in place. This PR neither reimplements its performance/approval refactor nor combines
@@ -166,7 +177,7 @@ actual five delivery and two publication cases; independent Vitest discovery
 matches every exact name. Combined-result CI and remaining platform qualification
 remain required; local offline tests do not replace their gates.
 
-The broader local run passed 1,794 tests across 83 files in 85.94 seconds. Its two
+The initial `4a2ecf63` local run passed 1,794 tests across 83 files in 85.94 seconds. Its two
 opt-in skips were the component benchmark (separate repeated performance evidence
 is above) and the physical Claude contract. The latter then passed separately in
 its cached, unique, networkless container, checking controller/Landlock isolation
@@ -178,12 +189,24 @@ across mobile WebKit, mobile Chromium and desktop Chromium; representative mobil
 queue and approval captures were inspected. Full lint passed with zero errors
 (22 warnings) and the repository format check passed.
 
-The complete unsharded prepared-consumer owner then passed all seven cases through
-its actual reporter/exit validator: five delivery cases took 185.11 seconds and
-both publication/cold-recovery cases took 332.88 seconds. Fresh-process wall times
-were 187.96 and 335.51 seconds respectively. Both accounts retained the original
-published lineage after the later prompt and cold reopen. The evidence JSON keeps
-the exact case results and log hashes; these offline passes do not release sessions.
+The composition against the final dependency candidate passed 779 distinct tests
+across eleven focused suites. One runtime case initially hit Seatbelt's socket bind
+restriction; its complete 23-case file then passed on the host. Both full OpenShell
+account journeys and the new pre-dispatch/cancellation/Retry fences are included.
+All-source server typecheck and the complete server/frontend build passed again.
+The tested accepted-main integration snapshot, before this evidence refresh, has
+reviewed fingerprint
+`bc2ade211d53d992a4b834aea5efad5d46eb2fc3fe50809fee4c63121b576c74`.
+The JSON records unchanged runtime/store/fixture hashes separately.
+
+The complete unsharded prepared-consumer owner also passed all seven cases against
+that composition through its actual reporter/exit validator: five delivery cases
+took 176.63 seconds and both publication/cold-recovery cases took 332.02 seconds.
+Fresh-process wall times were 179.303 and 334.798 seconds respectively. Both accounts
+retained the original published lineage after the later prompt and cold reopen.
+The evidence JSON separates retained initial coverage from these integration checks,
+and retains the exact case results, source and log hashes. These offline passes do
+not release sessions.
 
 No staging, production mutation/deployment, real provider calls, session resume or
 queue release occurred. Runtime adoption and live account/engine/placement behavior

@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import { EventStore } from '../event-store.js';
 import { CodexSessionEvents } from '../codex-session-events.js';
@@ -167,6 +168,17 @@ it.each(measure ? Array.from({ length: 11 }, (_, i) => i) : [0])(
             isError: false,
           });
           if (i === 12) {
+            // This original live synthetic stream has no completion hook. Keep
+            // its evidence before transport loss; never infer it during restore.
+            const workspaceDigest = createHash('sha256').update(`/offline/${id}`).digest('hex');
+            native.observeEmptyCompletionPhase(
+              id,
+              account,
+              command,
+              `thread-${id}`,
+              turnId,
+              workspaceDigest,
+            );
             native.enqueue(id, account, { id: `${id}-13`, prompt: `${id}-13` });
             counts.peakQueued = Math.max(
               counts.peakQueued,
@@ -195,6 +207,7 @@ it.each(measure ? Array.from({ length: 11 }, (_, i) => i) : [0])(
               state.threadId,
               state.threadGeneration,
             );
+            native.reconcileCompletionPhase(id, account, target, workspaceDigest);
             native.acknowledgeRecovery(id, account, target);
           } else native.finish(id, account, turnId, 'completed', turnId);
           producer.toolResult(toolId, `${id} result ${i}`, false);
