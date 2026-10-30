@@ -143,7 +143,7 @@ export function sessionKnowledgeTools(
             'Invalid Knowledge request. Use exact accepted paths and revision, and a UUID requestId for a draft.',
           );
         if (name === 'RecordMemoryCandidate') {
-          const request = MemoryCandidateSchema.parse(parsed.data);
+          const request = parsed.data as z.infer<typeof MemoryCandidateSchema>;
           if (!selectedCandidateStore || !account?.accountId)
             throw new KnowledgeToolProblem(
               'Memory capture is not available for this session. No candidate was captured.',
@@ -175,7 +175,7 @@ export function sessionKnowledgeTools(
           return { content: JSON.stringify(receipt), isError: false };
         }
         if (name === 'ReadKnowledge' && input.action === 'published') {
-          const request = knowledgeToolSchemas.ReadKnowledge.parse(parsed.data);
+          const request = parsed.data as z.infer<typeof knowledgeToolSchemas.ReadKnowledge>;
           const result = await readHostKnowledge(
             session,
             request.path,
@@ -197,7 +197,7 @@ export function sessionKnowledgeTools(
           );
 
         if (name === 'ReadKnowledge') {
-          const request = knowledgeToolSchemas.ReadKnowledge.parse(parsed.data);
+          const request = parsed.data as z.infer<typeof knowledgeToolSchemas.ReadKnowledge>;
           if (request.action === 'read' && (!request.path || !request.revision))
             throw new KnowledgeToolProblem(
               'Reading Knowledge requires the exact path and revision returned by the Library catalog.',
@@ -226,7 +226,7 @@ export function sessionKnowledgeTools(
           };
         }
 
-        const request = knowledgeToolSchemas.SaveKnowledgeDraft.parse(parsed.data);
+        const request = parsed.data as z.infer<typeof knowledgeToolSchemas.SaveKnowledgeDraft>;
         const owner = assert();
         const decision = await buildPermissionHandler(owner.clientId, registry)(
           prefix + name,

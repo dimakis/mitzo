@@ -3204,6 +3204,8 @@ it.each(['recipe', 'supplied', 'retained'] as const)(
 );
 
 it('keeps scoped adviser context isolated when ordinary local discovery and efficiency are enabled', async () => {
+  const reconcile = vi.fn();
+  const disposeHostMemory = installHostKnowledgeStore({ id: 'mgmt', reconcile });
   mocks.initialize.mockResolvedValue(undefined);
   mocks.send.mockResolvedValue(undefined);
   const integrationExecute = vi.fn(async () => ({ content: 'Ordinary integration output' }));
@@ -3238,6 +3240,8 @@ it('keeps scoped adviser context isolated when ordinary local discovery and effi
     query = await openCodexChat({ ...f.opts, adviserScope: scope });
     const captured = mocks.conversationOptions!;
     expect(captured.tools).toEqual([]);
+    expect(captured.prepareSystemPrompt).toBeUndefined();
+    expect(reconcile).not.toHaveBeenCalled();
     expect(captured.disableWebSearch).toBe(true);
     expect(captured.disableProjectDocuments).toBe(true);
     expect(captured.systemPrompt).toContain(scope.instructions());
@@ -3293,6 +3297,7 @@ it('keeps scoped adviser context isolated when ordinary local discovery and effi
   } finally {
     query?.close();
     f.eventStore.close();
+    disposeHostMemory();
   }
 });
 
@@ -7055,8 +7060,9 @@ it('delivers selected host memory on the retained provider thread and records on
   const publication = hostKnowledgePublication(root, 'a', 'Accepted memory');
   const reconcile = vi.fn().mockResolvedValue(publication);
   const dispose = installHostKnowledgeStore({ id: 'mgmt', reconcile });
-  const opts = options(new AbortController());
-  opts.conversationId = 'host-memory-chat';
+  const fixture = ownedLocalOptions('/tmp');
+  const opts = fixture.opts;
+  vi.spyOn(opts.eventStore, 'append');
   let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
   try {
     chat = await openCodexChat(opts);
@@ -7072,13 +7078,13 @@ it('delivers selected host memory on the retained provider thread and records on
     const context = await prepare(AbortSignal.timeout(5000));
     expect(context).toContain(publication.sourceCommit);
     expect(opts.eventStore.append).not.toHaveBeenCalledWith(
-      'host-memory-chat',
+      opts.conversationId,
       'published_knowledge_adopted',
       expect.anything(),
     );
     acknowledge('command', 'same-provider-thread', 'turn', context);
     expect(opts.eventStore.append).toHaveBeenCalledWith(
-      'host-memory-chat',
+      opts.conversationId,
       'published_knowledge_adopted',
       expect.objectContaining({
         runtime: 'local-mac',
@@ -7091,6 +7097,7 @@ it('delivers selected host memory on the retained provider thread and records on
   } finally {
     chat?.close();
     dispose();
+    fixture.eventStore.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

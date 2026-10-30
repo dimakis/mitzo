@@ -2578,7 +2578,7 @@ async function openCodexChatBound(
             await hooks.run('Stop', { stop_hook_active: false }, signal);
           }
         : undefined,
-    ...(!connectedOpenShell && hasHostKnowledgeStore()
+    ...(options.ownedLocal && !options.adviserScope && hasHostKnowledgeStore()
       ? {
           prepareSystemPrompt: async (signal: AbortSignal) => {
             await options.ownedLocal?.assertCurrent();
