@@ -1321,6 +1321,7 @@ async function setup(
     }),
   };
   const conversationOptions: CodexConversationOptions = {
+    assertRecoveryCurrent: () => {},
     assertSteeringCurrent: () => {},
     ownerKind: nativeTool?.ownerKind,
     conversationId: 'app',
@@ -8230,17 +8231,304 @@ function setupTerminalTransport(
   return setup(...args);
 }
 
-async function nativeRecoveryFixture() {
+async function nativeRecoveryFixture(
+  retirement: 'transport' | 'stop' = 'transport',
+  settledHostTool = false,
+) {
   const old = await setupTerminalTransport();
   await old.c.send({ id: 'uncertain-native', prompt: 'retain completed work' });
   await old.c.send({ id: 'queued-native', prompt: 'next phase' });
-  old.callbacks.onClose(
-    new CodexTransportError('connection', { reason: 'child_exit', exitCode: 1, signal: null }),
-  );
+  if (settledHostTool)
+    await old.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: old.getProviderThread(),
+        turnId: 'turn-1',
+        callId: 'settled-read',
+        tool: 'Read',
+        arguments: {},
+      },
+      new AbortController().signal,
+    );
+  if (retirement === 'stop') old.c.close();
+  else
+    old.callbacks.onClose(
+      new CodexTransportError('connection', { reason: 'child_exit', exitCode: 1, signal: null }),
+    );
   const restored = await setupTerminalTransport(old.store);
   const request = restored.rpc.request.getMockImplementation()!;
   return { old, restored, request };
 }
+
+it.each(
+  (['stop', 'transport'] as const).flatMap((retirement) =>
+    (['none', 'native-command', 'host-tool'] as const).map((effects) => ({ retirement, effects })),
+  ),
+)(
+  'reconciles an interrupted turn with full settled items after $retirement ($effects)',
+  async ({ retirement, effects }) => {
+    const {
+      old,
+      restored: f,
+      request,
+    } = await nativeRecoveryFixture(retirement, effects === 'host-tool');
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list'
+        ? {
+            data: [
+              {
+                id: 'turn-1',
+                status: 'interrupted',
+                error: null,
+                itemsView: 'full',
+                items:
+                  effects === 'native-command'
+                    ? [
+                        {
+                          type: 'commandExecution',
+                          id: 'finished-command',
+                          status: 'completed',
+                          exitCode: 0,
+                        },
+                      ]
+                    : effects === 'host-tool'
+                      ? [
+                          {
+                            type: 'dynamicToolCall',
+                            id: 'settled-read',
+                            tool: 'Read',
+                            arguments: {},
+                            status: 'completed',
+                            success: true,
+                          },
+                        ]
+                      : [],
+              },
+            ],
+            nextCursor: null,
+          }
+        : request(method, params),
+    );
+    await f.c.acknowledgeRecovery();
+    expect(f.c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+      { id: 'uncertain-native', status: 'interrupted' },
+      { id: 'queued-native', status: 'running' },
+    ]);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(0);
+    expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
+      'completed',
+    );
+    expect(old.execute).toHaveBeenCalledTimes(effects === 'host-tool' ? 1 : 0);
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.rpc.request.mock.calls.filter(([method]) => method === 'thread/turns/list')).toEqual([
+      [
+        'thread/turns/list',
+        {
+          threadId: old.getProviderThread(),
+          limit: 1,
+          sortDirection: 'desc',
+          itemsView: 'full',
+        },
+      ],
+    ]);
+  },
+);
+
+it('keeps interrupted effects fenced for incomplete snapshots and unmatched durable host receipts', async () => {
+  const { restored: f, request } = await nativeRecoveryFixture('transport', true);
+  const tool = {
+    type: 'dynamicToolCall',
+    id: 'settled-read',
+    tool: 'Read',
+    arguments: {},
+    status: 'completed',
+    success: true,
+  };
+  const turn = {
+    id: 'turn-1',
+    status: 'interrupted',
+    itemsView: 'full',
+    error: null,
+    items: [tool],
+  };
+  // Reuse the same still-fenced owner: every failed observation leaves custody
+  // unchanged, so these schema/receipt variants need no extra app/DB journey.
+  const invalid = [
+    { ...turn, itemsView: 'summary' },
+    { ...turn, items: undefined },
+    { ...turn, error: { message: 'native error' } },
+    { ...turn, items: [] },
+    { ...turn, items: [tool, tool] },
+    ...[
+      { ...tool, tool: 'Write' },
+      { ...tool, arguments: { changed: true } },
+      { ...tool, id: 'foreign' },
+      { ...tool, namespace: 'foreign' },
+      { ...tool, success: false },
+      { ...tool, status: 'inProgress' },
+      { type: 'commandExecution', id: 'pending', status: 'inProgress', exitCode: null },
+      { type: 'commandExecution', id: 'failed', status: 'completed', exitCode: 1 },
+      { type: 'fileChange', id: 'unproved-write', status: 'completed' },
+      { type: 'collabAgentToolCall', id: 'unknown-agent', status: 'completed' },
+      { type: 'futureEffect', id: 'unknown' },
+    ].map((item) => ({ ...turn, items: [item] })),
+  ];
+  for (const snapshot of invalid) {
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list' ? { data: [snapshot] } : request(method, params),
+    );
+    await expect(f.c.acknowledgeRecovery()).rejects.toThrow();
+    expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
+      'unknown',
+    );
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(f.execute).not.toHaveBeenCalled();
+  }
+  const phase = f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)!;
+  expect(() =>
+    f.store.reconcileCompletionPhase(
+      'app',
+      f.getBinding(),
+      phase.target,
+      phase.workspaceDigest,
+      phase.policyRevision,
+      {} as never,
+    ),
+  ).toThrow(/observation/);
+});
+
+it.each(['stop', 'account', 'receipt'] as const)(
+  'keeps interrupted custody fenced when %s changes at final recovery authority check',
+  async (change) => {
+    const { restored: f, request } = await nativeRecoveryFixture('stop', true);
+    const db = (f.store as unknown as { db: Database.Database }).db;
+    let checks = 0;
+    f.conversationOptions.verifyBinding = async () => {
+      if (++checks === 3) {
+        if (change === 'stop') await f.c.interrupt();
+        if (change === 'account') throw Error('Account revoked during completion qualification');
+        if (change === 'receipt')
+          db.prepare("UPDATE codex_tools SET request_hash=? WHERE call_id='settled-read'").run(
+            'a'.repeat(64),
+          );
+      }
+      return f.getBinding();
+    };
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list'
+        ? {
+            data: [
+              {
+                id: 'turn-1',
+                status: 'interrupted',
+                itemsView: 'full',
+                error: null,
+                items: [
+                  {
+                    type: 'dynamicToolCall',
+                    id: 'settled-read',
+                    tool: 'Read',
+                    arguments: {},
+                    status: 'completed',
+                    success: true,
+                  },
+                ],
+              },
+            ],
+          }
+        : request(method, params),
+    );
+    await expect(f.c.acknowledgeRecovery()).rejects.toThrow();
+    expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
+      'unknown',
+    );
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(f.execute).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['full', 'summary'] as const)(
+  'settles interrupted custody before changed-tool startup only with a %s native snapshot',
+  async (itemsView) => {
+    const { old, restored } = await nativeRecoveryFixture('stop');
+    restored.c.close();
+    const original = old.store.read('app', old.getBinding());
+    const request = old.rpc.request.getMockImplementation()!;
+    old.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list'
+        ? { data: [{ id: 'turn-1', status: 'interrupted', itemsView, error: null, items: [] }] }
+        : request(method, params),
+    );
+    const candidate = new CodexConversation({
+      ...old.conversationOptions,
+      storedBinding: old.getBinding(),
+      tools: [
+        ...old.conversationOptions.tools,
+        { name: 'NewRead', description: 'Offline read', input_schema: { type: 'object' } },
+      ],
+    });
+    cleanup.push(() => candidate.close());
+    if (itemsView === 'full') {
+      await candidate.initialize();
+      expect(
+        old.store.completionPhase('app', old.getBinding(), 'uncertain-native', 1)?.status,
+      ).toBe('completed');
+      expect(old.store.commandStatus('app', old.getBinding(), 'uncertain-native')).toBe(
+        'interrupted',
+      );
+      expect(old.store.read('app', old.getBinding()).threadGeneration).toBe(
+        original.threadGeneration + 1,
+      );
+      await candidate.acknowledgeRecovery();
+      expect(candidate.queue().map(({ status }) => status)).toEqual(['interrupted', 'running']);
+    } else {
+      await expect(candidate.initialize()).rejects.toThrow(/effect/);
+      expect(old.store.read('app', old.getBinding()).threadGeneration).toBe(
+        original.threadGeneration,
+      );
+      expect(
+        old.store.completionPhase('app', old.getBinding(), 'uncertain-native', 1)?.status,
+      ).toBe('unknown');
+    }
+    expect(old.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(
+      itemsView === 'full' ? 2 : 1,
+    );
+  },
+);
+
+it.each(['revoked-under-lock', 'missing-owner', 'async-owner'] as const)(
+  'retains interrupted custody when recovery authority is %s',
+  async (change) => {
+    const { restored: f, request } = await nativeRecoveryFixture('stop');
+    const db = (f.store as unknown as { db: Database.Database }).db;
+    const authority = vi.fn(() => {
+      expect(db.inTransaction).toBe(true);
+      if (change === 'async-owner') return Promise.resolve();
+      throw Error('Original owner revoked after acquiring writer lock');
+    });
+    f.conversationOptions.assertRecoveryCurrent =
+      change === 'missing-owner' ? undefined : authority;
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list'
+        ? {
+            data: [
+              { id: 'turn-1', status: 'interrupted', itemsView: 'full', error: null, items: [] },
+            ],
+          }
+        : request(method, params),
+    );
+    await expect(f.c.acknowledgeRecovery()).rejects.toThrow(/owner|synchronous/);
+    expect(authority).toHaveBeenCalledTimes(change === 'missing-owner' ? 0 : 1);
+    expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
+      'unknown',
+    );
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  },
+);
 
 async function remoteRecoveryFixture(pendingTool = false) {
   const args: Parameters<typeof setup> = [];

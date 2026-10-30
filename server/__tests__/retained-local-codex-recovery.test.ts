@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
@@ -34,7 +34,48 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused', 'accepted-paused-
     cleanups.push(() => native.close());
     native.create(original.sessionId, original.lease.binding, original.workspace.directory!);
     original.admission.persistCustody(native);
-    native.bindThread(original.sessionId, original.lease.binding, 'retained-thread');
+    const interruptedPredecessor = failure === 'accepted-paused';
+    native.bindThread(
+      original.sessionId,
+      original.lease.binding,
+      'retained-thread',
+      interruptedPredecessor ? createHash('sha256').update('{}').digest('hex') : undefined,
+    );
+    if (interruptedPredecessor) {
+      const request = f.rpc.request.getMockImplementation()!;
+      f.rpc.request.mockImplementation(async (method, params) => {
+        if (method === 'thread/resume' || method === 'thread/start')
+          return {
+            thread: { id: 'retained-thread' },
+            model: f.request.selection.model,
+            modelProvider: 'openai',
+          };
+        if (method === 'turn/start') return { turn: { id: 'predecessor-turn' } };
+        return request(method, params);
+      });
+      const predecessor = new CodexConversation({
+        conversationId: original.sessionId,
+        cwd: original.workspace.directory!,
+        profile: original.profile,
+        storedBinding: original.lease.binding,
+        store: native,
+        tools: [],
+        transportClosure: 'terminal',
+        verifyBinding: async () => original.lease.binding,
+        createClient: () => f.rpc,
+        emit: () => {},
+        onError: () => {},
+        executeTool: async () => {
+          throw Error('No host tools');
+        },
+      });
+      await predecessor.initialize();
+      await predecessor.send({ id: f.request.clientMsgId, prompt: 'Original accepted work' });
+      predecessor.close();
+      // Keep this existing consumer journey: recovery must cross real retained
+      // admission and custody before settling an interrupted predecessor.
+      f.rpc.request.mockClear();
+    }
     first.close();
     const request = {
       ...structuredClone(f.request),
@@ -89,12 +130,26 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused', 'accepted-paused-
     f.rpc.request.mockImplementation(async (method) => {
       if (method === 'thread/start' || method === 'thread/resume')
         return {
-          thread: { id: 'recovery-provider-thread' },
+          thread: { id: interruptedPredecessor ? 'retained-thread' : 'recovery-provider-thread' },
           model: f.request.selection.model,
           modelProvider: 'openai',
         };
       if (method === 'turn/start') return { turn: { id: `recovered-turn-${++turns}` } };
-      if (method === 'thread/turns/list') throw Error('Empty replacement has no provider history');
+      if (method === 'thread/turns/list') {
+        if (interruptedPredecessor)
+          return {
+            data: [
+              {
+                id: 'predecessor-turn',
+                status: 'interrupted',
+                itemsView: 'full',
+                error: null,
+                items: [],
+              },
+            ],
+          };
+        throw Error('Empty replacement has no provider history');
+      }
       return rpc(method);
     });
     const recoverDispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {
@@ -139,6 +194,7 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused', 'accepted-paused-
           await value.admission.assertCurrent();
           return value.lease.binding;
         },
+        assertRecoveryCurrent: () => value.admission.assertCurrentSync(),
         beforeEnqueue: (input) => value.admission.assertBeforeEnqueue(input),
         canClaimCommand: (id) => value.admission.canClaimCommand(id),
         beforeThreadInitialization: () => value.admission.persistCustody(native),
@@ -216,14 +272,19 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused', 'accepted-paused-
     await recovered!.resumeAfterExplicitSend();
     expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
     callbacks!.onNotification('turn/completed', {
-      threadId: 'recovery-provider-thread',
+      threadId: interruptedPredecessor ? 'retained-thread' : 'recovery-provider-thread',
       turn: { id: 'recovered-turn-1', status: 'completed' },
     });
     expect(native.commands(original.sessionId, original.lease.binding)).toMatchObject([
+      ...(interruptedPredecessor
+        ? [{ id: f.request.clientMsgId, status: 'interrupted', attempt: 1 }]
+        : []),
       { id: request.clientMsgId, status: 'completed', attempt: 1 },
     ]);
-    // Text variants cover repeated follow-ups; rich recovery also proves one continuation.
-    const lastTurn = failure === 'accepted-paused-rich' ? 2 : 4;
+    // The before/after-enqueue text cases retain repeated-follow-up coverage.
+    // Interrupted/rich recovery needs one continuation across the same owner;
+    // repeating that admission adds setup cost without a distinct boundary.
+    const lastTurn = failure === 'accepted-paused-rich' || interruptedPredecessor ? 2 : 4;
     for (let turn = 2; turn <= lastTurn; turn++) {
       const followup = {
         ...request,
@@ -233,7 +294,7 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused', 'accepted-paused-
       await expect(recovery.admitContinuation(followup)).resolves.toEqual({ dispatched: true });
       await recovered!.resumeAfterExplicitSend();
       callbacks!.onNotification('turn/completed', {
-        threadId: 'recovery-provider-thread',
+        threadId: interruptedPredecessor ? 'retained-thread' : 'recovery-provider-thread',
         turn: { id: `recovered-turn-${turn}`, status: 'completed' },
       });
       expect(native.commands(original.sessionId, original.lease.binding).at(-1)).toMatchObject({

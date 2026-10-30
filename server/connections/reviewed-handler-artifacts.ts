@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.790-telos-chat-retention-integration';
+  'v1.0.791-interrupted-effects-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../codex-interrupted-effects.ts':
+    '1cb8199e79e71ae2565a5ad980163e235d385ed9b47d2e61cc7774e5adfe4ffa',
   '../../frontend/src/components/HomePins.tsx':
     'd5d9194004ef4ea99385b991cedaca34aa187bd15634be93f91915d3f9c6ddad',
   '../../frontend/src/components/PdfPreview.tsx':
@@ -311,7 +313,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-codex-real-start.test.ts':
     '4b6292af61021e16edae43572fc61537da8cc7102590b914e90f326967db6930',
   '../__tests__/retained-local-codex-recovery.test.ts':
-    'ac3f8fd76393d43cd7d72a5c2f2b6a101c2646cfd4188992fbf1b23ef93f335c',
+    '956abad4adfa30069f0399427f2b1b8434caaec73fca1710ecaef8dedcc236c5',
   '../retained-local-codex-recovery.ts':
     '5825421f387a6ff8050f77a564118ae6e9c5fad8ccb4b27ac99d68319fb77c67',
   '../../tests/offline/queue-status.spec.ts':
@@ -600,7 +602,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     'c442b9cde7a00ae1b8071b4433e590d38f37d792bff49705d7ef190efb1dc30d',
   '../__tests__/codex-conversation.test.ts':
-    'cb099478bf78325d033f35e13ce0e996537b5362053e714646f2a5b65056a9fc',
+    'c4fdc25b4a7a4d13f949eff34d644b87e70f5e3371701ae31e598eba0c4e0254',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -1398,9 +1400,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': 'caed7b0d556641904e4d645cf6f75ad77d5cd8a5c6b61b7f7ec7fca8364f5b10',
+  '../codex-conversation.ts': 'd6230353e970ecb0f23e507b583886d0beff049caaa8234588701d4d0c37f09e',
   '../codex-conversation-store.ts':
-    '459849be257206590bc3e7024bd9d3265cb61e716093a67733035fc28cb1e02c',
+    'b717e4a7bdd59bca704657f50a2a55a7d5f906daeb51b56878617a1be19d24ee',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':
@@ -1570,7 +1572,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': 'bd19858b7850821576ca05eae21d3a6f1dd049e3e1394c0dc43997440a60b8da',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '3d266e68526650e15487d26013ab068231808acdfef4426ee58b05e39a2c6f0f',
+  '../codex-chat-session.ts': 'a4aea19cae6fa58acd548ef798abfdfbed05d827a8b3cf24623a94daf28402dc',
   '../connections-runtime.ts': '37226dd3f76b865df8a29b9f0d750f37d92bf89765e17bbd7599c198664d6ea9',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

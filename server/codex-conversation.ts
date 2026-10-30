@@ -12,6 +12,10 @@ import {
   retainedCallbackOutcome,
 } from './turn-callbacks.js';
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
+import {
+  observeNativeRecoveryTurn,
+  type SettledInterruptedEffects,
+} from './codex-interrupted-effects.js';
 import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
 import {
   codexApplicationContextFragments,
@@ -296,6 +300,9 @@ export interface CodexConversationOptions {
    * response write. A later queued command cannot retarget an active grant. */
   assertNativeExecutionCurrent?: (policy: CodexNativeExecutionPolicy, commandId: string) => void;
   verifyBinding?: (client: Rpc, stored?: AccountBinding) => Promise<AccountBinding>;
+  /** Original non-native-policy recovery owner; fresh synchronous authority
+   * after acquiring the reconciliation writer lock, never supplied by JSON. */
+  assertRecoveryCurrent?: () => void;
   onQueueChange?: () => void;
   onActivity?: () => boolean | void;
   onThreadChanged?: (threadId: string) => void | Promise<void>;
@@ -1659,28 +1666,43 @@ export class CodexConversation {
     };
     await assertRecoveryAuthority();
     let nativeStatus: 'completed' | 'failed' | 'interrupted' | undefined;
+    let interruptedEffects: SettledInterruptedEffects | undefined;
     const recoveryThreadId = exactRecovery ? nativeTarget?.threadId : this.threadId;
     if ((automaticEpoch !== undefined || exactRecovery) && recoveryThreadId) {
-      const page = z
-        .object({ data: z.array(z.object({ id: z.string(), status: z.string() })) })
-        .parse(
-          await this.client.request('thread/turns/list', {
-            threadId: recoveryThreadId,
-            limit: 1,
-            sortDirection: 'desc',
-            itemsView: 'notLoaded',
-          }),
-        );
-      if (
-        (exactRecovery && page.data.length === 0) ||
-        page.data.some((turn) => !['completed', 'failed', 'interrupted'].includes(turn.status))
-      )
-        throw new SessionRuntimeError('provider_active');
       if (nativeTarget) {
-        if (page.data.length !== 1 || page.data[0].id !== nativeTarget.turnId)
-          throw new SessionRuntimeError('provider_identity');
-        nativeStatus = z.enum(['completed', 'failed', 'interrupted']).parse(page.data[0].status);
+        const phase =
+          completionTarget &&
+          this.opts.store.completionPhase(
+            this.opts.conversationId,
+            this.binding!,
+            completionTarget.commandId,
+            completionTarget.attempt,
+          );
+        const observed = await observeNativeRecoveryTurn(
+          (method, params) => this.client.request(method, params),
+          this.opts.conversationId,
+          nativeTarget,
+          !!phase && phase.observedOutcome === 'completed' && !phase.priorEffectsUnknown,
+        );
+        nativeStatus = observed.status;
+        interruptedEffects = observed.settledEffects;
         await assertRecoveryAuthority();
+      } else {
+        const page = z
+          .object({ data: z.array(z.object({ id: z.string(), status: z.string() })) })
+          .parse(
+            await this.client.request('thread/turns/list', {
+              threadId: recoveryThreadId,
+              limit: 1,
+              sortDirection: 'desc',
+              itemsView: 'notLoaded',
+            }),
+          );
+        if (
+          (exactRecovery && page.data.length === 0) ||
+          page.data.some((turn) => !['completed', 'failed', 'interrupted'].includes(turn.status))
+        )
+          throw new SessionRuntimeError('provider_active');
       }
     }
     // A provider turn may continue after turn/start returns. Recovery progress
@@ -1699,6 +1721,7 @@ export class CodexConversation {
         !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding!))
     )
       throw new Error('Automatic recovery was cancelled');
+    assertRecoveryContinuation();
     if (nativeTarget && nativeStatus) {
       this.opts.store.reconcileNativeRecovery(
         this.opts.conversationId,
@@ -1723,6 +1746,8 @@ export class CodexConversation {
           completionTarget,
           this.binding!,
           this.opts.nativeExecution,
+          interruptedEffects,
+          assertRecoveryContinuation,
         );
       assertRecoveryContinuation();
     }
@@ -2010,13 +2035,50 @@ export class CodexConversation {
       target.commandId,
       target.attempt,
     );
-    if (
-      phase?.observedOutcome !== 'completed' ||
-      this.opts.store.commandStatus(this.opts.conversationId, binding, target.commandId) !==
-        'completed'
-    )
+    if (phase?.observedOutcome !== 'completed')
       throw Error('Completion phase effects remain unknown; preserve the original native lineage');
-    await this.reconcileKnownCompletionPhase(target, binding, this.opts.nativeExecution);
+    const controlEpoch = this.automaticRecoveryEpoch;
+    const assertCurrent = () => {
+      if (
+        this.closed ||
+        generation !== this.transportGeneration ||
+        controlEpoch !== this.automaticRecoveryEpoch
+      )
+        throw Error('Completion phase recovery owner changed before native lineage replacement');
+    };
+    let interruptedEffects: SettledInterruptedEffects | undefined;
+    const status = this.opts.store.commandStatus(
+      this.opts.conversationId,
+      binding,
+      target.commandId,
+    );
+    if (status === 'interrupted' && !phase.priorEffectsUnknown) {
+      const verified = await this.verifyCurrentBinding(binding);
+      if (!isDeepStrictEqual(verified, binding))
+        throw Error('Completion phase account binding changed');
+      this.assertNativeExecutionOwner();
+      if (this.opts.nativeExecution)
+        this.opts.assertNativeExecutionCurrent!(this.opts.nativeExecution, target.commandId);
+      assertCurrent();
+      const observed = await observeNativeRecoveryTurn(
+        (method, params) => this.client.request(method, params),
+        this.opts.conversationId,
+        target,
+        true,
+      );
+      assertCurrent();
+      if (observed.status !== 'interrupted' || !observed.settledEffects)
+        throw Error('Interrupted native effects changed before lineage replacement');
+      interruptedEffects = observed.settledEffects;
+    } else if (status !== 'completed')
+      throw Error('Completion phase requires a settled native outcome before lineage replacement');
+    await this.reconcileKnownCompletionPhase(
+      target,
+      binding,
+      this.opts.nativeExecution,
+      interruptedEffects,
+      assertCurrent,
+    );
     if (
       this.closed ||
       generation !== this.transportGeneration ||
@@ -2915,24 +2977,41 @@ export class CodexConversation {
     target: CodexNativeTurnTarget,
     binding: AccountBinding,
     policy?: CodexNativeExecutionPolicy,
+    interruptedEffects?: SettledInterruptedEffects,
+    assertCurrent?: () => void,
   ) {
     const verified = await this.verifyCurrentBinding(binding);
     if (!isDeepStrictEqual(verified, binding))
       throw Error('Completion phase account binding changed');
-    if (policy) {
-      this.assertNativeExecutionOwner();
-      const checked: unknown = this.opts.assertNativeExecutionCurrent!(policy, target.commandId);
-      if (checked !== undefined) {
-        void Promise.resolve(checked).catch(() => {});
-        throw Error('Completion phase workspace authority must be synchronous');
-      }
-    }
     this.opts.store.reconcileCompletionPhase(
       this.opts.conversationId,
       binding,
       target,
       createHash('sha256').update(this.opts.cwd).digest('hex'),
       policy?.policyRevision,
+      interruptedEffects,
+      () => {
+        assertCurrent?.();
+        if (policy) {
+          this.assertNativeExecutionOwner();
+          const checked: unknown = this.opts.assertNativeExecutionCurrent!(
+            policy,
+            target.commandId,
+          );
+          if (checked !== undefined) {
+            void Promise.resolve(checked).catch(() => {});
+            throw Error('Completion phase workspace authority must be synchronous');
+          }
+        } else if (interruptedEffects) {
+          if (!this.opts.assertRecoveryCurrent)
+            throw Error('Interrupted effects require a current synchronous recovery owner');
+          const checked: unknown = this.opts.assertRecoveryCurrent();
+          if (checked !== undefined) {
+            void Promise.resolve(checked).catch(() => {});
+            throw Error('Completion phase recovery authority must be synchronous');
+          }
+        }
+      },
     );
   }
   /** Only the original live recovery owner knows that no completion callback

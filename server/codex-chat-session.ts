@@ -2870,6 +2870,15 @@ async function openCodexChatBound(
         }
       : {}),
     emit: (event) => events.push(event),
+    ...(ownedHost
+      ? {
+          assertRecoveryCurrent: () => {
+            ownedHost.assertCurrentSync();
+            options.assertAgentContextAuthorization?.();
+            options.assertWorkTurnAdmission?.();
+          },
+        }
+      : {}),
     assertSteeringCurrent: () => {
       if (!ownedHost || !options.assertAgentContextAuthorization)
         throw Error('Steering owner unavailable');
