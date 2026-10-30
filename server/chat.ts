@@ -1696,20 +1696,23 @@ async function _startChatInner(
   options.adviserScope?.signal.addEventListener('abort', abortAdviser, { once: true });
   if (options.adviserScope?.signal.aborted) abortAdviser();
   options.ordinarySdkAuthority?.bindAbortController(abortController);
-  const resumedSession = options.resume
-    ? registry.findBySessionId(options.resume)?.session
-    : undefined;
-  // Read durable policy after account verification. A stopped runtime's captured
-  // ceiling is valid only until another mode change has been acknowledged.
-  const capturedPermission = options.resumePermission;
-  const mode = options.resume
-    ? ((resumedSession && effectivePermissionMode(resumedSession)) ??
-      (capturedPermission &&
-      capturedPermission.revision === permissionRevision(eventStore, options.resume)
-        ? capturedPermission.mode
-        : eventStore.getSession(options.resume)?.mode) ??
-      'agent')
-    : (options.mode ?? 'agent');
+  // Refresh after asynchronous startup work as well as account verification.
+  // A captured stopped-runtime ceiling is valid only at its current revision.
+  const resolveStartupMode = () => {
+    const resumedSession = options.resume
+      ? registry.findBySessionId(options.resume)?.session
+      : undefined;
+    const capturedPermission = options.resumePermission;
+    return options.resume
+      ? ((resumedSession && effectivePermissionMode(resumedSession)) ??
+          (capturedPermission &&
+          capturedPermission.revision === permissionRevision(eventStore, options.resume)
+            ? capturedPermission.mode
+            : eventStore.getSession(options.resume)?.mode) ??
+          'agent')
+      : (options.mode ?? 'agent');
+  };
+  let mode = resolveStartupMode();
 
   let repositoryWorkspace: RepositoryChatWorkspace | undefined;
   if (options.ordinarySdkAuthority) {
@@ -2041,6 +2044,7 @@ async function _startChatInner(
     });
   }
 
+  mode = resolveStartupMode();
   registry.register(clientId, {
     ...(options.operatorConnectionId ? { ownerConnectionId: options.operatorConnectionId } : {}),
     transport,
@@ -2096,314 +2100,328 @@ async function _startChatInner(
     session.worktreePaths.set(name, info);
   }
 
-  const branch =
-    repositoryWorkspace?.featureBranch ??
-    (await readWorkspaceBranch(cwd, session.abortController.signal));
-  session.branch = branch;
-  send(transport, { type: 'session_info', branch, cwd, worktree: !!worktreePath, wtId });
+  let newSdkSessionId: string | undefined;
+  const assertStartupCurrent = () => {
+    abortController.signal.throwIfAborted();
+    if (registry.get(clientId) !== session) throw Error('Original startup owner changed');
+  };
+  try {
+    const branch =
+      repositoryWorkspace?.featureBranch ??
+      (await readWorkspaceBranch(cwd, session.abortController.signal));
+    assertStartupCurrent();
+    session.branch = branch;
+    send(transport, { type: 'session_info', branch, cwd, worktree: !!worktreePath, wtId });
 
-  // Pre-register resumed sessions in EventStore so they're discoverable
-  // even if the query loop dies before the first assistant event.
-  // Preserve existing updatedAt so server restarts don't reset all timestamps.
-  if (options.resume) {
-    const existingMeta = eventStore.getSession(options.resume);
-    eventStore.upsertSession({
-      sessionId: options.resume,
-      cwd,
-      mode,
-      branch,
-      isActive: true,
-      ...(worktreePath ? { wtId } : {}),
-      ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
-      ...(existingMeta ? { updatedAt: existingMeta.updatedAt } : {}),
-      agentName,
-      ...(options.model ? { selectedModel: options.model } : {}),
-      ...(options.reasoningEffort !== undefined
-        ? { reasoningEffort: options.reasoningEffort || null }
-        : {}),
-    });
-  }
-
-  // OpenShell owns its workspace lifecycle; only host sessions belong in the
-  // host worktree index.
-  if (!openShellSelected) {
-    try {
-      registerSession(BASE_REPO, wtId, repoWorktrees, branch);
-    } catch (err: unknown) {
-      log.warn('session index write failed', {
-        error: err instanceof Error ? err.message : 'unknown',
+    // Pre-register resumed sessions in EventStore so they're discoverable
+    // even if the query loop dies before the first assistant event.
+    // Preserve existing updatedAt so server restarts don't reset all timestamps.
+    if (options.resume) {
+      const existingMeta = eventStore.getSession(options.resume);
+      eventStore.upsertSession({
+        sessionId: options.resume,
+        cwd,
+        mode: session.mode,
+        branch,
+        isActive: true,
+        ...(worktreePath ? { wtId } : {}),
+        ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
+        ...(existingMeta ? { updatedAt: existingMeta.updatedAt } : {}),
+        agentName,
+        ...(options.model ? { selectedModel: options.model } : {}),
+        ...(options.reasoningEffort !== undefined
+          ? { reasoningEffort: options.reasoningEffort || null }
+          : {}),
       });
     }
-  }
 
-  // Build session env with worktree paths for the agent (all repos including primary)
-  const sessionEnv = accountEnv ?? (await buildSdkChildEnvironment(session.abortController.signal));
-  sessionEnv.MITZO_SESSION_ID = wtId;
-  sessionEnv.MITZO_AGENT_NAME = agentName;
-  for (const [name, { path }] of repoWorktrees) {
-    sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
-  }
-
-  // Merge dynamic MCP servers (task board if active)
-  const taskMcp = supportsHostTaskTools(openShellSelected) ? buildTaskMcpServer(clientId) : null;
-  const telosMcp = supportsHostTaskTools(openShellSelected) ? buildTelosMcpServer(clientId) : null;
-  const allMcpServers = { ...mcpServers, ...taskMcp, ...telosMcp };
-
-  const sdkCredentialBoundary =
-    !codexProfile && !apiCredentialRef && !gemini
-      ? credentialSdkBoundary(process.platform, options.ordinarySdkAuthority?.writeRoots())
-      : undefined;
-  options.ordinarySdkAuthority?.assertEnvironment(sessionEnv);
-
-  const sdkCredentialIsolation = sdkCredentialBoundary?.credentialIsolation ?? false;
-  const projectCommandRunner = sdkCredentialIsolation
-    ? undefined
-    : createWorkspaceRuntimeCommandRunner();
-
-  // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
-  const projectHooks =
-    options.adviserScope || sdkCredentialIsolation
-      ? undefined
-      : loadProjectHooks(cwd, sessionEnv, projectCommandRunner);
-  const hooks =
-    agentProfile?.definition.contextRecipe && projectHooks
-      ? (Object.fromEntries(
-          Object.entries(projectHooks).filter(([name]) => name !== 'SessionStart'),
-        ) as typeof projectHooks)
-      : projectHooks;
-
-  // Fetch boot context BEFORE building system prompt so it's part of the
-  // system prompt append and survives SDK context compaction.
-  // fetchBootContext never throws and has a 5s AbortSignal timeout internally.
-  // Await the bounded fetch/fallback before opening any provider. A shorter race
-  // could discard a valid bundle while persisting empty context for the session.
-  let agentContext: AgentContextSnapshot | undefined;
-  let prepareAgentContext: ((signal: AbortSignal) => Promise<void>) | undefined;
-  let assertSandboxContextAuthorization: (() => void) | undefined;
-  try {
-    const stored = options.resume ? eventStore.getSession(options.resume)?.agentContext : undefined;
-    if (agentProfile?.definition.contextRecipe || stored) {
-      const authorization = captureAgentLibraryAuthorization(options.operatorConnectionId);
-      const scope = retainAgentContextAuthority(authorization.auth, abortController);
-      startupGuard.releaseContext = scope.release;
-      const packRecipe = agentProfile?.definition.contextRecipe?.source === 'packs';
-      if (
-        (stored?.sandbox && (!openShellSelected || packRecipe || stored.source === 'packs')) ||
-        (openShellSelected && !packRecipe && stored && !stored.sandbox)
-      )
-        throw Error('Agent context compilation scope differs; start a new chat');
-      const contextRuntime = packRecipe ? await getContextPackRuntime() : undefined;
-      if (packRecipe && !contextRuntime)
-        throw Error('Knowledge Library is not configured for the selected agent context');
-      if (openShellSelected && !packRecipe) {
-        assertSandboxContextAuthorization = () => {
-          authorization.assertCurrent();
-          scope.assertCurrent();
-        };
-      } else {
-        agentContext = await resolveChatAgentContext({
-          profile: agentProfile,
-          stored,
-          workspaceRoot: cwd,
-          signal: abortController.signal,
-          ...(contextRuntime ? { packs: createAcceptedContextPacks(contextRuntime, scope) } : {}),
+    // OpenShell owns its workspace lifecycle; only host sessions belong in the
+    // host worktree index.
+    if (!openShellSelected) {
+      try {
+        registerSession(BASE_REPO, wtId, repoWorktrees, branch);
+      } catch (err: unknown) {
+        log.warn('session index write failed', {
+          error: err instanceof Error ? err.message : 'unknown',
         });
       }
-      authorization.assertCurrent();
-      scope.assertCurrent();
-      prepareAgentContext = async (signal) => {
-        signal.throwIfAborted();
-        scope.assertCurrent();
-        for (const document of agentContext?.provenance?.documents ?? []) {
-          if (
-            !contextRuntime ||
-            document.storeId !== contextRuntime.sourceIdentity ||
-            !contextRuntime.source.allowed(document.path)
-          )
-            throw Error('Agent context source scope changed');
-          await contextRuntime.source.authorize(document.path, document.revision, signal);
-          scope.assertCurrent();
-        }
-      };
-      if (stateSessionId && agentContext)
-        eventStore.upsertSession({ sessionId: stateSessionId, agentProfile, agentContext });
     }
-  } catch (error: unknown) {
-    options.onStartupAdmission?.(error);
-    terminalizeUndispatchedStartup(initialProviderAdmission);
-    if (stateSessionId)
-      eventStore.setSessionState(stateSessionId, 'ENDED', {
-        clientId,
-        reason: 'context_admission_failed',
-      });
-    send(transport, {
-      type: 'error',
-      ...(stateSessionId ? { sessionId: stateSessionId } : {}),
-      error: error instanceof Error ? error.message : 'Agent context could not be compiled',
-    });
-    // Preserve task roots for inspection/retry; compilation has opened no provider.
-    inputQueue.close();
-    registry.abort(clientId);
-    _onSessionChange?.(clientId, 'end', session.sessionId);
-    return;
-  }
-  let bootContextMsg: BootContextMessage =
-    (agentContext
-      ? bootContextWithRetainedReceipt(
-          agentContext,
-          stateSessionId
-            ? (eventStore.getSession(stateSessionId)?.bootContext ?? undefined)
-            : undefined,
+
+    // Build session env with worktree paths for the agent (all repos including primary)
+    const sessionEnv =
+      accountEnv ?? (await buildSdkChildEnvironment(session.abortController.signal));
+    assertStartupCurrent();
+    sessionEnv.MITZO_SESSION_ID = wtId;
+    sessionEnv.MITZO_AGENT_NAME = agentName;
+    for (const [name, { path }] of repoWorktrees) {
+      sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
+    }
+
+    // Merge dynamic MCP servers (task board if active)
+    const taskMcp = supportsHostTaskTools(openShellSelected) ? buildTaskMcpServer(clientId) : null;
+    const telosMcp = supportsHostTaskTools(openShellSelected)
+      ? buildTelosMcpServer(clientId)
+      : null;
+    const allMcpServers = { ...mcpServers, ...taskMcp, ...telosMcp };
+
+    const sdkCredentialBoundary =
+      !codexProfile && !apiCredentialRef && !gemini
+        ? credentialSdkBoundary(process.platform, options.ordinarySdkAuthority?.writeRoots())
+        : undefined;
+    options.ordinarySdkAuthority?.assertEnvironment(sessionEnv);
+
+    const sdkCredentialIsolation = sdkCredentialBoundary?.credentialIsolation ?? false;
+    const projectCommandRunner = sdkCredentialIsolation
+      ? undefined
+      : createWorkspaceRuntimeCommandRunner();
+
+    // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
+    const projectHooks =
+      options.adviserScope || sdkCredentialIsolation
+        ? undefined
+        : loadProjectHooks(cwd, sessionEnv, projectCommandRunner);
+    const hooks =
+      agentProfile?.definition.contextRecipe && projectHooks
+        ? (Object.fromEntries(
+            Object.entries(projectHooks).filter(([name]) => name !== 'SessionStart'),
+          ) as typeof projectHooks)
+        : projectHooks;
+
+    // Fetch boot context BEFORE building system prompt so it's part of the
+    // system prompt append and survives SDK context compaction.
+    // fetchBootContext never throws and has a 5s AbortSignal timeout internally.
+    // Await the bounded fetch/fallback before opening any provider. A shorter race
+    // could discard a valid bundle while persisting empty context for the session.
+    let agentContext: AgentContextSnapshot | undefined;
+    let prepareAgentContext: ((signal: AbortSignal) => Promise<void>) | undefined;
+    let assertSandboxContextAuthorization: (() => void) | undefined;
+    try {
+      const stored = options.resume
+        ? eventStore.getSession(options.resume)?.agentContext
+        : undefined;
+      if (agentProfile?.definition.contextRecipe || stored) {
+        const authorization = captureAgentLibraryAuthorization(options.operatorConnectionId);
+        const scope = retainAgentContextAuthority(authorization.auth, abortController);
+        startupGuard.releaseContext = scope.release;
+        const packRecipe = agentProfile?.definition.contextRecipe?.source === 'packs';
+        if (
+          (stored?.sandbox && (!openShellSelected || packRecipe || stored.source === 'packs')) ||
+          (openShellSelected && !packRecipe && stored && !stored.sandbox)
         )
-      : undefined) ??
-    (options.adviserScope || options.ordinarySdkAuthority
-      ? { ...FALLBACK_BOOT_CONTEXT, fullMarkdown: '' }
-      : openShellSelected
-        ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
-        : await fetchBootContext(
-            agentName,
-            undefined,
-            undefined,
-            !sdkCredentialIsolation,
-            projectCommandRunner,
-          ));
-  const bootContextAppend = bootContextMsg.fullMarkdown
-    ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
-    : '';
+          throw Error('Agent context compilation scope differs; start a new chat');
+        const contextRuntime = packRecipe ? await getContextPackRuntime() : undefined;
+        if (packRecipe && !contextRuntime)
+          throw Error('Knowledge Library is not configured for the selected agent context');
+        if (openShellSelected && !packRecipe) {
+          assertSandboxContextAuthorization = () => {
+            authorization.assertCurrent();
+            scope.assertCurrent();
+          };
+        } else {
+          agentContext = await resolveChatAgentContext({
+            profile: agentProfile,
+            stored,
+            workspaceRoot: cwd,
+            signal: abortController.signal,
+            ...(contextRuntime ? { packs: createAcceptedContextPacks(contextRuntime, scope) } : {}),
+          });
+        }
+        authorization.assertCurrent();
+        scope.assertCurrent();
+        prepareAgentContext = async (signal) => {
+          signal.throwIfAborted();
+          scope.assertCurrent();
+          for (const document of agentContext?.provenance?.documents ?? []) {
+            if (
+              !contextRuntime ||
+              document.storeId !== contextRuntime.sourceIdentity ||
+              !contextRuntime.source.allowed(document.path)
+            )
+              throw Error('Agent context source scope changed');
+            await contextRuntime.source.authorize(document.path, document.revision, signal);
+            scope.assertCurrent();
+          }
+        };
+        if (stateSessionId && agentContext)
+          eventStore.upsertSession({ sessionId: stateSessionId, agentProfile, agentContext });
+      }
+    } catch (error: unknown) {
+      options.onStartupAdmission?.(error);
+      terminalizeUndispatchedStartup(initialProviderAdmission);
+      if (stateSessionId)
+        eventStore.setSessionState(stateSessionId, 'ENDED', {
+          clientId,
+          reason: 'context_admission_failed',
+        });
+      send(transport, {
+        type: 'error',
+        ...(stateSessionId ? { sessionId: stateSessionId } : {}),
+        error: error instanceof Error ? error.message : 'Agent context could not be compiled',
+      });
+      // Preserve task roots for inspection/retry; compilation has opened no provider.
+      inputQueue.close();
+      registry.abort(clientId);
+      return;
+    }
+    let bootContextMsg: BootContextMessage =
+      (agentContext
+        ? bootContextWithRetainedReceipt(
+            agentContext,
+            stateSessionId
+              ? (eventStore.getSession(stateSessionId)?.bootContext ?? undefined)
+              : undefined,
+          )
+        : undefined) ??
+      (options.adviserScope || options.ordinarySdkAuthority
+        ? { ...FALLBACK_BOOT_CONTEXT, fullMarkdown: '' }
+        : openShellSelected
+          ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
+          : await fetchBootContext(
+              agentName,
+              undefined,
+              undefined,
+              !sdkCredentialIsolation,
+              projectCommandRunner,
+            ));
+    const bootContextAppend = bootContextMsg.fullMarkdown
+      ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
+      : '';
 
-  // Send boot context to UI immediately (sessionId may be undefined for new sessions — OK,
-  // it's a display-only hint; the client doesn't key on it for boot context).
-  if (!openShellSelected || agentContext)
-    send(transport, {
-      ...bootContextMsg,
-      ...(stateSessionId ? { sessionId: stateSessionId } : {}),
-    });
-  // Cache in ManagedSession for replay on reconnect/switch
-  session.bootContext = bootContextMsg as unknown as Record<string, unknown>;
-  if (options.adviserScope && stateSessionId) {
-    options.adviserScope.assertCurrent();
-    eventStore.append(stateSessionId, 'adviser_task_scope', {
-      version: 1,
-      contextSha256: options.adviserScope.contextSha256,
-      feature: options.adviserScope.feature(),
-      policy: 'reviewed-context-only',
-    });
-  }
-  // For resumed sessions, persist immediately (sessionId is known).
-  // For new sessions, persist in onSessionResolved once SDK assigns the ID.
-  if (stateSessionId) {
-    eventStore.upsertSession({
-      sessionId: stateSessionId,
-      bootContext: JSON.stringify(bootContextMsg),
-    });
-  }
+    // Send boot context to UI immediately (sessionId may be undefined for new sessions — OK,
+    // it's a display-only hint; the client doesn't key on it for boot context).
+    if (!openShellSelected || agentContext)
+      send(transport, {
+        ...bootContextMsg,
+        ...(stateSessionId ? { sessionId: stateSessionId } : {}),
+      });
+    // Cache in ManagedSession for replay on reconnect/switch
+    session.bootContext = bootContextMsg as unknown as Record<string, unknown>;
+    if (options.adviserScope && stateSessionId) {
+      options.adviserScope.assertCurrent();
+      eventStore.append(stateSessionId, 'adviser_task_scope', {
+        version: 1,
+        contextSha256: options.adviserScope.contextSha256,
+        feature: options.adviserScope.feature(),
+        policy: 'reviewed-context-only',
+      });
+    }
+    // For resumed sessions, persist immediately (sessionId is known).
+    // For new sessions, persist in onSessionResolved once SDK assigns the ID.
+    if (stateSessionId) {
+      eventStore.upsertSession({
+        sessionId: stateSessionId,
+        bootContext: JSON.stringify(bootContextMsg),
+      });
+    }
 
-  const acceptAgentContext = (
-    commandId: string,
-    providerThreadId: string,
-    providerTurnId: string,
-    contextSha256: string,
-  ) => {
-    const sessionId = session.sessionId ?? stateSessionId ?? newSdkSessionId;
-    if (!agentContext || !sessionId) throw Error('Prepared agent context identity is unavailable');
-    const message = recordAgentContextAcceptance({
-      store: eventStore,
-      sessionId,
-      snapshot: agentContext,
-      commandId,
-      providerThreadId,
-      providerTurnId,
-      contextSha256,
-    });
-    session.bootContext = message as unknown as Record<string, unknown>;
-    send(transport, { ...message, sessionId });
-  };
+    const acceptAgentContext = (
+      commandId: string,
+      providerThreadId: string,
+      providerTurnId: string,
+      contextSha256: string,
+    ) => {
+      const sessionId = session.sessionId ?? stateSessionId ?? newSdkSessionId;
+      if (!agentContext || !sessionId)
+        throw Error('Prepared agent context identity is unavailable');
+      const message = recordAgentContextAcceptance({
+        store: eventStore,
+        sessionId,
+        snapshot: agentContext,
+        commandId,
+        providerThreadId,
+        providerTurnId,
+        contextSha256,
+      });
+      session.bootContext = message as unknown as Record<string, unknown>;
+      send(transport, { ...message, sessionId });
+    };
 
-  // Build the system prompt append string (used by both query and comparison)
-  const workspacePrompt = repositoryWorkspace
-    ? `# Repository task workspace
+    // Build the system prompt append string (used by both query and comparison)
+    const workspacePrompt = repositoryWorkspace
+      ? `# Repository task workspace
 This is an independent checkout with its own Git storage, not a linked worktree. Work inside ${cwd} for code edits, dependency setup and tests. Use the dedicated Mitzo integrations for network access and publication. Do not switch to the configured default repository.
 `
-    : openShellWorkdir
-      ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
-      : buildWorktreeSystemPrompt(repoWorktrees);
-  const systemPromptAppend = options.adviserScope
-    ? options.adviserScope.instructions()
-    : repositoryChatContext(repositoryWorkspace) +
-      'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
-      SESSION_PERMISSION_INSTRUCTIONS +
-      PROFILE_TOOL_INSTRUCTIONS +
-      (options.contributorGuidance === undefined ? telosArtifactInstructions(!!agentContext) : '') +
-      '- Read operations are fine without asking.\n' +
-      '- Keep responses concise — small screen.\n' +
-      (agentContext
-        ? ''
-        : '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.') +
-      buildClientCapabilitiesPrompt() +
-      workspacePrompt +
-      (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
-      (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
-      (options.contributorGuidance
-        ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
-        : '') +
-      bootContextAppend;
+      : openShellWorkdir
+        ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
+        : buildWorktreeSystemPrompt(repoWorktrees);
+    const systemPromptAppend = options.adviserScope
+      ? options.adviserScope.instructions()
+      : repositoryChatContext(repositoryWorkspace) +
+        'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
+        SESSION_PERMISSION_INSTRUCTIONS +
+        PROFILE_TOOL_INSTRUCTIONS +
+        (options.contributorGuidance === undefined
+          ? telosArtifactInstructions(!!agentContext)
+          : '') +
+        '- Read operations are fine without asking.\n' +
+        '- Keep responses concise — small screen.\n' +
+        (agentContext
+          ? ''
+          : '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.') +
+        buildClientCapabilitiesPrompt() +
+        workspacePrompt +
+        (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
+        (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
+        (options.contributorGuidance
+          ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
+          : '') +
+        bootContextAppend;
 
-  // Recipe-bound chats already have their exact Library definition and context.
-  // Loading the legacy definition would compile another, unrelated default bundle.
-  if (
-    !options.adviserScope &&
-    !options.ordinarySdkAuthority &&
-    !agentContext &&
-    !agentProfile?.definition.contextRecipe
-  )
-    loadAgentDef(agentName, cwd)
-      .then((loaded) => {
-        const s = registry.get(clientId);
-        if (s) {
-          s.agentDefinition = loaded.definition;
-          s.agentDefinitionSource = loaded.source;
-          log.info('agent definition stored', {
+    // Recipe-bound chats already have their exact Library definition and context.
+    // Loading the legacy definition would compile another, unrelated default bundle.
+    if (
+      !options.adviserScope &&
+      !options.ordinarySdkAuthority &&
+      !agentContext &&
+      !agentProfile?.definition.contextRecipe
+    )
+      loadAgentDef(agentName, cwd)
+        .then((loaded) => {
+          const s = registry.get(clientId);
+          if (s) {
+            s.agentDefinition = loaded.definition;
+            s.agentDefinitionSource = loaded.source;
+            log.info('agent definition stored', {
+              agent: agentName,
+              source: loaded.source,
+              identity: loaded.definition.identity.description,
+            });
+          } else {
+            log.warn('agent definition loaded but session already torn down', {
+              agent: agentName,
+              source: loaded.source,
+            });
+          }
+        })
+        .catch((err: unknown) => {
+          log.warn('agent definition load failed', {
             agent: agentName,
-            source: loaded.source,
-            identity: loaded.definition.identity.description,
+            error: err instanceof Error ? err.message : String(err),
           });
-        } else {
-          log.warn('agent definition loaded but session already torn down', {
-            agent: agentName,
-            source: loaded.source,
-          });
-        }
-      })
-      .catch((err: unknown) => {
-        log.warn('agent definition load failed', {
-          agent: agentName,
-          error: err instanceof Error ? err.message : String(err),
         });
-      });
 
-  if (!openShellSelected) {
-    capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
-  }
-
-  // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
-  let liveOrdinarySdkOwner: OrdinaryLocalVertexCommandOwner | undefined;
-  let resolvedResume: string | undefined;
-  if (options.resume && !codexProfile && !apiKey && !gemini) {
-    if (!BASE_REPO) {
-      log.warn('REPO_PATH unset — resume will use raw worktree ID, SDK may reject it');
+    if (!openShellSelected) {
+      capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
     }
-    resolvedResume =
-      options.ordinarySdkAuthority?.sdkSessionId() ??
-      (BASE_REPO ? getSessionSdkId(BASE_REPO, options.resume) : undefined) ??
-      options.resume;
-  }
 
-  // Bound sessions have durable routing before the SDK can create history or side effects.
-  const newSdkSessionId =
-    !resolvedResume && !options.resume
-      ? (options.ordinarySdkAuthority?.sdkSessionId() ?? options.initialSessionId ?? randomUUID())
-      : undefined;
-  try {
+    // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
+    let liveOrdinarySdkOwner: OrdinaryLocalVertexCommandOwner | undefined;
+    let resolvedResume: string | undefined;
+    if (options.resume && !codexProfile && !apiKey && !gemini) {
+      if (!BASE_REPO) {
+        log.warn('REPO_PATH unset — resume will use raw worktree ID, SDK may reject it');
+      }
+      resolvedResume =
+        options.ordinarySdkAuthority?.sdkSessionId() ??
+        (BASE_REPO ? getSessionSdkId(BASE_REPO, options.resume) : undefined) ??
+        options.resume;
+    }
+
+    // Bound sessions have durable routing before the SDK can create history or side effects.
+    newSdkSessionId =
+      !resolvedResume && !options.resume
+        ? (options.ordinarySdkAuthority?.sdkSessionId() ?? options.initialSessionId ?? randomUUID())
+        : undefined;
     if (newSdkSessionId) {
       eventStore.upsertSession({
         sessionId: newSdkSessionId,
@@ -3105,6 +3123,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         });
       }
     } finally {
+      inputQueue.close();
       const failedSession = registry.get(clientId);
       if (failedSession === session) {
         // A resumed startup also entered CREATED. Retire its driver state while
