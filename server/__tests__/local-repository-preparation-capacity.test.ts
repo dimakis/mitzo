@@ -1,5 +1,6 @@
 import { afterAll, afterEach, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
+import * as fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { EventStore } from '../event-store.js';
@@ -7,6 +8,11 @@ import { setAuthRevocationStore } from '../auth.js';
 import { captureLocalRepositoryPreparationAuthorization } from '../local-repository-preparation-authorization.js';
 import { localPreparationNativeFixture } from './fixtures/local-preparation-native.js';
 import { fixtureQualifiedLocalPreparationSource } from './fixtures/qualified-local-preparation-source.js';
+
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>();
+  return { ...actual, statfs: vi.fn(actual.statfs) };
+});
 
 const cleanups: Array<() => void | Promise<void>> = [];
 const revocations = new EventStore(':memory:');
@@ -20,12 +26,14 @@ afterEach(async () => {
 });
 
 it.each([
-  ['adopted', 'claimed', true, true],
-  ['unfinished', 'ready', false, false],
-  ['unadopted', 'claimed', false, false],
+  ['adopted', 'claimed', true, true, 8, 'preparation_capacity'],
+  ['unfinished', 'ready', false, false, 8, 'preparation_capacity'],
+  ['unadopted', 'claimed', false, false, 8, 'preparation_capacity'],
+  ['disk pressure', 'ready', false, false, 0, 'storage_full'],
+  ['racing reservation', 'ready', false, false, 7, 'preparation_capacity'],
 ] as const)(
   'bounds unfinished preparations independently of eight %s tasks',
-  async (_label, state, allowed, adopted) => {
+  async (label, state, allowed, adopted, count, reason) => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() => {
@@ -52,7 +60,7 @@ it.each([
     const db = new Database(join(f.f.root, 'repositories', 'workspaces.db'));
     cleanups.push(() => db.close());
     // Controlled retained capacity DATA, not authority for any filesystem effect.
-    const seed = Array.from({ length: 8 }, () => {
+    const seed = Array.from({ length: count }, () => {
       const id = randomUUID();
       const record = JSON.stringify({
         id,
@@ -66,6 +74,28 @@ it.each([
       ).run(id, record);
       return { id, record };
     });
+    if (label === 'disk pressure')
+      vi.spyOn(fs, 'statfs').mockResolvedValue({ bavail: 0, bsize: 4096 } as never);
+    if (label === 'racing reservation') {
+      const originalStatfs = (
+        await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+      ).statfs;
+      vi.spyOn(fs, 'statfs').mockImplementation(async (path) => {
+        const capacity = await originalStatfs(path);
+        const id = randomUUID();
+        const record = JSON.stringify({
+          id,
+          state: 'ready',
+          binding: f.a.initial.lease.binding,
+          qualifiedLocalPreparation: { allocationFacts: { layout: 'standalone' } },
+        });
+        db.prepare(
+          'INSERT INTO repository_workspaces(id,record,conversation_id) VALUES(?,?,NULL)',
+        ).run(id, record);
+        seed.push({ id, record });
+        return capacity as never;
+      });
+    }
     const result = await f.a.call({
       path: join(f.f.root, 'source'),
       base: { kind: 'ref', ref: 'HEAD' },
@@ -78,7 +108,7 @@ it.each([
         error: 'resource_exhausted',
         diagnostic: {
           stage: 'repository_preparation',
-          reason: 'preparation_capacity',
+          reason,
           effectStatus: 'not_started',
         },
       });

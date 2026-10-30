@@ -80,7 +80,7 @@
     "id": "mitzo:GitCommit",
     "version": 1,
     "name": "GitCommit",
-    "description": "Stage exactly the approved workspace files and create one local Git commit through Mitzo. Refuses an already-staged index and credential-like files.",
+    "description": "Stage up to 64 approved workspace files and create one local Git commit through Mitzo. Refuses an already-staged index and credential-like files. Use native Git in the admitted task checkout for larger commits and merges.",
     "source": "Workspace",
     "required": false,
     "behavior": "write",

@@ -212,6 +212,19 @@ describe('native tool execution through session permissions', () => {
     }
     expect(sent).toEqual([]);
   });
+  it('explains the narrow commit service limit and routes large commits to native Git', async () => {
+    const value = await executor()(
+      call('GitCommit', {
+        files: Array.from({ length: 218 }, (_, index) => `changed-${index}.txt`),
+        message: 'Merge accepted main',
+      }),
+      abort.signal,
+    );
+    expect(value).toMatchObject({ is_error: true });
+    expect(value.content).toMatch(/64.*native Git/i);
+    expect(sent.some((event) => event.type === 'permission_request')).toBe(false);
+  });
+
   it('commits only canonical approved workspace paths through the trusted operation', async () => {
     await writeFile(join(root, 'worktree/change.txt'), 'change');
     const approved = await lstat(join(root, 'worktree/change.txt'));

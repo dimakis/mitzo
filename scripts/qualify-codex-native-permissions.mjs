@@ -89,7 +89,23 @@ const base = { '/': 'read', [workspace]: 'write', [secrets]: 'deny' };
 const subtreeDenyGlob = (path) => `${path.replace(/[\\*?[\]{}]/g, '\\$&')}{,/**}`;
 const credentialGlob = subtreeDenyGlob(secrets);
 const hardFence = { ...base, [credentialGlob]: 'deny' };
+// Exercise the production profile compiler with the actual pinned process.
+const { codexNativeExecutionPolicy, codexNativePermissionProfiles } =
+  await import('../server/codex-native-execution-policy.ts');
+const productProfiles = codexNativePermissionProfiles(
+  codexNativeExecutionPolicy({
+    bindingRevision: 'offline-native-git',
+    mode: 'agent',
+    cwd: workspace,
+    readableRoots: ['/'],
+    writableRoots: [workspace],
+    deniedRoots: [secrets],
+  }),
+);
 const profiles = {
+  ...Object.fromEntries(
+    Object.entries(productProfiles.permissions).map(([name, value]) => [name, value.filesystem]),
+  ),
   base,
   granted: { ...base, [extra]: 'write' },
   broadPrivateHomeDenyWithoutException: { ...base, [home]: 'deny' },
@@ -122,7 +138,10 @@ const profiles = {
 // JSON string keys and simple access strings are also valid TOML inline tables.
 const table = (entries) =>
   `{ ${Object.entries(entries)
-    .map(([key, value]) => `${JSON.stringify(key)} = ${JSON.stringify(value)}`)
+    .map(
+      ([key, value]) =>
+        `${JSON.stringify(key)} = ${value && typeof value === 'object' ? table(value) : JSON.stringify(value)}`,
+    )
     .join(', ')} }`;
 writeFileSync(
   join(home, 'config.toml'),
@@ -215,6 +234,48 @@ try {
     capabilities: { experimentalApi: true },
   });
   child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
+  // Ordinary Git must work at the actual workspace root, where the native
+  // engine installs its implicit read-only .git rule. A nested repo misses it.
+  const git = (...args) => {
+    const result = spawnSync('/usr/bin/git', ['-C', workspace, ...args], { env, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  git('init', '--template=', '-q', '-b', 'main');
+  git('config', 'user.name', 'Offline fixture');
+  git('config', 'user.email', 'offline@example.invalid');
+  git('config', 'core.hooksPath', '/dev/null');
+  git('config', 'commit.gpgsign', 'false');
+  writeFileSync(join(workspace, 'base.txt'), 'base');
+  git('add', 'base.txt');
+  git('commit', '-qm', 'base');
+  git('checkout', '-qb', 'upstream');
+  for (let index = 0; index < 218; index++)
+    writeFileSync(join(workspace, `upstream-${index}.txt`), 'accepted upstream');
+  git('add', '.');
+  git('commit', '-qm', 'upstream');
+  const upstream = git('rev-parse', 'HEAD');
+  git('checkout', '-qb', 'task', 'main');
+  writeFileSync(join(workspace, 'task.txt'), 'task');
+  writeFileSync(join(workspace, 'unselected.txt'), 'retain dirty work');
+  assert.notEqual(
+    (await command('mitzo-native-ask', ['/usr/bin/touch', join(workspace, '.git', 'ask-write')]))
+      .exitCode,
+    0,
+  );
+  const nativeGit = await command('mitzo-native-agent', [
+    '/bin/sh',
+    '-c',
+    'git add task.txt && git commit -qm "task" && git merge --no-ff --no-edit upstream',
+  ]);
+  assert.equal(nativeGit.exitCode, 0, JSON.stringify(nativeGit));
+  assert.equal(git('rev-parse', 'HEAD^2'), upstream);
+  assert.equal(git('status', '--porcelain', '--', 'unselected.txt'), '?? unselected.txt');
+  assert.notEqual((await command('mitzo-native-agent', ['/bin/cat', secret])).exitCode, 0);
+  assert.notEqual(
+    (await command('mitzo-native-agent', ['/usr/bin/touch', join(extra, 'git-escape')])).exitCode,
+    0,
+  );
   const local = await command('base', ['/usr/bin/touch', join(workspace, 'allowed')]);
   assert.equal(local.exitCode, 0, JSON.stringify(local));
   assert.ok(existsSync(join(workspace, 'allowed')));
@@ -442,6 +503,16 @@ try {
         executableSha256: digest,
         modelCalls: 0,
         nativeThreadOrTurnTested: false,
+        nativeGit: {
+          productionProfile: 'mitzo-native-agent',
+          localCommit: 'passed',
+          mergedFiles: 218,
+          twoParentMerge: 'passed',
+          unselectedFile: 'preserved',
+          askGitWrite: 'denied',
+          credentialRead: 'denied',
+          outsideWrite: 'denied',
+        },
         workspaceWrite: 'allowed',
         outsideWrite: 'denied',
         exactAddedRootWrite: 'allowed',
