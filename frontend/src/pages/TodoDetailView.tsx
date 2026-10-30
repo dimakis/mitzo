@@ -54,12 +54,14 @@ export function TodoDetailView() {
   const prioritySaveState = useMemo(() => createTodoPrioritySaveState(id), [id]);
   const {
     items,
+    records: collectionRecords,
+    recordFailures,
     loading,
     refreshing,
     error,
     refresh,
     setPriority: updatePriority,
-  } = useTodoData(undefined, id, dataView);
+  } = useTodoData(undefined, id, dataView, 'canonical');
   const setPendingSession = useStageChatLaunch();
   const historyKey = 'telos.item.history.' + id;
   const navigationHistory = (location.state as { telosHistory?: unknown } | null)?.telosHistory;
@@ -106,6 +108,7 @@ export function TodoDetailView() {
   const related = useTelosRecords(
     recordIds.filter((value) => value !== id),
     primary.refreshKey,
+    { seed: collectionRecords, loading: refreshing, failures: recordFailures },
   );
   const canonical = {
     records: [...primary.records, ...related.records],
