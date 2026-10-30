@@ -1,10 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { buildSdkChildEnvironment } from '../chat.js';
 afterEach(() => vi.unstubAllEnvs());
-it('keeps controller publishing credentials available to the controller and out of legacy SDK children', () => {
+it('keeps controller publishing credentials available to the controller and out of legacy SDK children', async () => {
   vi.stubEnv('GH_TOKEN', 'controller-publisher');
   vi.stubEnv('GITHUB_TOKEN', 'controller-fallback');
-  const child = buildSdkChildEnvironment();
+  const child = await buildSdkChildEnvironment();
   expect(child.GH_TOKEN).toBeUndefined();
   expect(child.GITHUB_TOKEN).toBeUndefined();
   expect(child.PATH).toBeTruthy();

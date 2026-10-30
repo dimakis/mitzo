@@ -58,6 +58,11 @@ it('retains complete pre-truncation MCP text across restart, isolates accounts/c
     format: 'tool-output-preview',
     complete: false,
     totalBytes: Buffer.byteLength(full),
+    read: {
+      tool: 'ReadToolOutput',
+      arguments: { outputId: preview.outputId, offset: 0, limit: 2048 },
+      maxLimit: 4096,
+    },
   });
   store.close();
   store = new CodexConversationStore(path);

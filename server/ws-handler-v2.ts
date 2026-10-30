@@ -1350,7 +1350,8 @@ export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerC
     )
       return;
     const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
-    if (found) {
+    const cancelledStartup = ctx.sessionRegistry.abortStartup?.(msg.sessionId);
+    if (found && (!cancelledStartup || ctx.sessionRegistry.get(found.clientId) === found.session)) {
       stopChat(found.clientId);
       log.info('stop', { connectionId, sessionId: msg.sessionId });
     }
