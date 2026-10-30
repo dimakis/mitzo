@@ -3,6 +3,18 @@ import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js
 import { credentialConnectionToolDefinitions } from '../credential-connection-tools.js';
 
 const signal = () => new AbortController().signal;
+
+it('gives a rejected discovery call a usable bounded correction without invoking an integration', async () => {
+  const { discovery, execute } = setup();
+  const rejected = await discovery.execute('ListIntegrationTools', { limit: 100 }, signal());
+  expect(rejected.isError).toBe(true);
+  expect(rejected.content).toContain('20');
+  expect(rejected.content).toContain('not executed');
+  expect(execute).not.toHaveBeenCalled();
+  const corrected = await discovery.execute('ListIntegrationTools', { limit: 20 }, signal());
+  expect(corrected.isError).toBe(false);
+  expect(JSON.parse(corrected.content).tools).toHaveLength(20);
+});
 const fixtures = (count = 63) =>
   Array.from({ length: count }, (_, index) => ({
     name: `wire_${index}`,

@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { ToolDefinition } from '@mitzo/harness';
+import {
+  TOOL_OUTPUT_PAGE_MIN_BYTES,
+  TOOL_OUTPUT_PAGE_MAX_BYTES,
+  TOOL_OUTPUT_PAGE_DEFAULT_BYTES,
+} from './tool-output-projection.js';
 
 export const ReadToolOutputInput = z.strictObject({
   outputId: z.uuid(),
@@ -10,7 +15,12 @@ export const ReadToolOutputInput = z.strictObject({
     .min(0)
     .max(4 * 1024 * 1024)
     .default(0),
-  limit: z.number().int().min(128).max(4096).default(2048),
+  limit: z
+    .number()
+    .int()
+    .min(TOOL_OUTPUT_PAGE_MIN_BYTES)
+    .max(TOOL_OUTPUT_PAGE_MAX_BYTES)
+    .default(TOOL_OUTPUT_PAGE_DEFAULT_BYTES),
   query: z.string().min(1).max(256).optional(),
 });
 export const SearchSkillsInput = z.strictObject({

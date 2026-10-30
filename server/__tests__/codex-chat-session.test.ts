@@ -6266,6 +6266,65 @@ it('enforces the current Read skill ceiling before and after native skill discov
   }
 });
 
+it('corrects invalid retained-output limits before asynchronous local credential checks', async () => {
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const f = ownedLocalOptions();
+  const query = await openCodexChat(f.opts);
+  try {
+    vi.mocked(f.lease.assertCurrent).mockClear();
+    mocks.readToolOutput.mockClear();
+    const execute = mocks.conversationOptions!
+      .executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    const result = await execute(
+      'ReadToolOutput',
+      {
+        outputId: '22222222-2222-4222-8222-222222222222',
+        limit: 20000,
+      },
+      new AbortController().signal,
+      { turnId: 'turn', callId: 'invalid-read' },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('4096');
+    expect(result.content).toContain('not executed');
+    expect(f.lease.assertCurrent).not.toHaveBeenCalled();
+    expect(mocks.readToolOutput).not.toHaveBeenCalled();
+  } finally {
+    query.close();
+    f.eventStore.close();
+  }
+});
+
+it('corrects invalid retained-output limits before asynchronous OpenShell credential checks', async () => {
+  const f = await openOwnedOpenShellEfficiencyFixture();
+  try {
+    f.owner.assertCurrent.mockClear();
+    mocks.readToolOutput.mockClear();
+    const execute = f.captured
+      .executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    const result = await execute(
+      'ReadToolOutput',
+      {
+        outputId: '22222222-2222-4222-8222-222222222222',
+        limit: 6500,
+      },
+      new AbortController().signal,
+      { turnId: 'turn', callId: 'invalid-read' },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('4096');
+    expect(result.content).toContain('not executed');
+    expect(f.owner.assertCurrent).not.toHaveBeenCalled();
+    expect(mocks.readToolOutput).not.toHaveBeenCalled();
+  } finally {
+    f.cleanup();
+  }
+});
+
 it('projects large GitHub reads after hooks and refuses output from a former native runtime', async () => {
   const native = await import('../native-tool-executor.js');
   const full = 'github record '.repeat(1500) + 'tail-record';

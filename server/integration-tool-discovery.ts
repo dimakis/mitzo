@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { ToolDefinition } from '@mitzo/harness';
 import type { CodexToolResult } from './codex-tool-result.js';
+import { toolInputError } from './tool-input-error.js';
 
 type Input = Record<string, unknown>;
 // These small host contracts sit on the common connection path. Keep their
@@ -144,7 +145,13 @@ Call tools with full argument schemas directly; use DescribeIntegrationTool only
           return reply(
             {
               error: 'invalid_input',
-              action: 'Use query, offset >= 0 and limit between 1 and 20.',
+              action: toolInputError(
+                'ListIntegrationTools input',
+                schemas.ListIntegrationTools,
+                parsed.error,
+              ).content,
+              effectStatus: 'not_started',
+              retry: 'after_correction',
             },
             true,
           );

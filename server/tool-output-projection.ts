@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 
 export const TOOL_OUTPUT_PREVIEW_BYTES = 8192;
 export const TOOL_OUTPUT_RETAIN_BYTES = 4 * 1024 * 1024;
+export const TOOL_OUTPUT_PAGE_MIN_BYTES = 128;
+export const TOOL_OUTPUT_PAGE_MAX_BYTES = 4096;
+export const TOOL_OUTPUT_PAGE_DEFAULT_BYTES = 2048;
 
 /** UTF-8 boundaries keep excerpts valid even for non-English output. */
 export function utf8Prefix(text: string, bytes: number): string {
@@ -34,7 +37,16 @@ export function projectToolOutput(text: string, retain: (text: string) => string
       totalBytes: bytes,
       ...(retained ? { sha256: createHash('sha256').update(text).digest('hex') } : {}),
       ...(outputId
-        ? { outputId, nextAction: 'Use ReadToolOutput for bounded ranges or literal search.' }
+        ? {
+            outputId,
+            nextAction:
+              'Use ReadToolOutput only for missing evidence; add a literal query or follow nextOffset.',
+            read: {
+              tool: 'ReadToolOutput',
+              arguments: { outputId, offset: 0, limit: TOOL_OUTPUT_PAGE_DEFAULT_BYTES },
+              maxLimit: TOOL_OUTPUT_PAGE_MAX_BYTES,
+            },
+          }
         : {
             retention: retained ? 'unavailable' : 'too_large',
             nextAction:

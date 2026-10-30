@@ -208,8 +208,22 @@ describe('native tool execution through session permissions', () => {
       '/repos/owner/repo/%2Fuser',
     ]) {
       const response = await executor()(call('GitHubRead', { endpoint }), abort.signal);
-      expect(response).toMatchObject({ is_error: true, content: 'Invalid native tool input' });
+      expect(response).toMatchObject({
+        is_error: true,
+        content: expect.stringContaining('Invalid native tool input'),
+      });
     }
+    expect(sent).toEqual([]);
+  });
+  it('explains unsupported GitHub endpoints without requesting approval or exposing submitted values', async () => {
+    const response = await executor()(
+      call('GitHubRead', { endpoint: '/search/issues?q=private-query' }),
+      abort.signal,
+    );
+    expect(response.is_error).toBe(true);
+    expect(response.content).toContain('/repos/');
+    expect(response.content).toContain('not executed');
+    expect(response.content).not.toContain('private-query');
     expect(sent).toEqual([]);
   });
   it('explains the narrow commit service limit and routes large commits to native Git', async () => {
@@ -834,7 +848,10 @@ describe('native tool execution through session permissions', () => {
         }),
         abort.signal,
       ),
-    ).toMatchObject({ is_error: true, content: 'Invalid native tool input' });
+    ).toMatchObject({
+      is_error: true,
+      content: expect.stringContaining('Invalid native tool input'),
+    });
     expect(sent).toHaveLength(0);
     expect(executeSandboxedCommand).not.toHaveBeenCalled();
   });

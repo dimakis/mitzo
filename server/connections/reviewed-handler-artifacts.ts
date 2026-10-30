@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.776-native-git-scratch-integration';
+  'v1.0.777-quarterly-tool-contracts';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -545,7 +545,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     'be08f4bf4223ebd63bdc931187c39fa571d915ad2bb710ef2f9773a72b63b85d',
   '../__tests__/codex-chat-session.test.ts':
-    '7a220d9c5fa976efd6c71e4b84c94ad78a3eb2da0882b48a8200601631f62121',
+    '53ce1953b7d1f8d7c5dd36c5c1ebfbe722dd325ad62ef5115cedb08ae13b8bdd',
   '../__tests__/codex-conversation.test.ts':
     '645bbb4243be35dcdeae1ca82cfcda7a7987bfec27baadde324020e314579f3f',
   '../__tests__/codex-native-approvals.test.ts':
@@ -1484,7 +1484,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../protected-sdk-command.ts': 'e7c59a2ebfd3fde4b0c7c8cdf7f69f9d231e2e5f1819a61e0514cd707bc6c32f',
   '../native-hooks.ts': 'f857e17f9819b4e1e0ab19fb4cd74510f4ff37a307003929c8e5518307864e86',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
-  '../native-tool-executor.ts': 'c55b0456bd24bc7631b2a875c43a2470aa373932502552a28fa78d5530d79f7d',
+  '../native-tool-executor.ts': '9b48a9d9490f2788b14d466eec48c030ddd2008e688874a8526fdff02c14fa68',
   '../repository-workspaces.ts': '3bff574dee2aef86948f4993108af97610795fca910a1f40dd03bd90ed7a0ea2',
   '../../packages/protocol/src/session-metadata-store.ts':
     '9d270987bc47a9a468fdbd6d595d6a90b7297f080ce4c34103b0e7af11303ddf',
@@ -1517,7 +1517,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': 'bd19858b7850821576ca05eae21d3a6f1dd049e3e1394c0dc43997440a60b8da',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '19d61e359bfa902a533ce0fa2df5117e5ffc58a0dc0d5d8efd76b0c265382322',
+  '../codex-chat-session.ts': 'e344c7d710ce43ba0f5c377ccf74105e261974a1c6fb882ea571bbfbefc032f3',
   '../connections-runtime.ts': '52d44895be24ac0c1a112a41ff83cc131725d64fb7d374d554a276c47895e2bf',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
@@ -2133,17 +2133,17 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-agent-efficiency-budget.test.ts':
     '292984de9ccc7ef7a5010d891e4e31662a05ab0bf6cb10b72b69f317d63474c3',
   '../__tests__/local-agent-efficiency.test.ts':
-    'fa29d3de451cd2b335751c7be3427ff3f924dd41b2aceeeb664c106096468cbb',
+    'ac1b3f8c3cc53eb2f837a69a4f8792049a92211616c8d9998051a3b263e117dd',
   '../wait-for-change.ts': '82cfc955560c5494b9453bfc82e1a14004fc8349f2a5731583791323a03f17a0',
   '../local-agent-efficiency.ts':
-    '3ac22a7a94b22eaebc1336866e6dd9ab00319306829cd06f21c8bdf757ce98f0',
+    'ad7734aeecf01d00cb3c96e550b42f89d35ca0a1dad1aa06209bbd2eb0f32dcf',
   '../codex-tool-failure.ts': 'fcf4f7022a58ce0a85e71aad844131cc3ba69b83c6a002478668d4a35accc88c',
   '../tool-output-projection.ts':
-    'cf73a8155b7912eed21960b4a7d4199eb7fd8e2a0ae68421873f673246ed83b1',
+    '8b8f5ba60ebbfab09590625bac56497b59badbe18b5a67013ef4083fc1a6e167',
   '../__tests__/integration-tool-discovery.test.ts':
-    'd9304e47f2782ce4aab6bd17894fd7273110681a729e928a225381a3d180e0a1',
+    '98a9fb2bc5c779eea5946d7aa53ffc8fdf16ab80f65776127dc4bad7d2cc890c',
   '../integration-tool-discovery.ts':
-    'e4c56e645cdf246bed23edfbe18cedf3311a9ed588f7e1988751ef19f671bd12',
+    '76d34536aa2869a0d860f3758a0e3569b0ee1f1b001ed5cac4cce4b0c9f4bda0',
   '../unified-inbox-routes.ts': '3336b45597dd2e6cf209f1a953e90d5e3433b698cb1c686b66a27f7ff0c095d9',
   '../read-only-git.ts': 'b1a5c01474cba24137b3a7eb5bb4dcbd4d593ee0a25230977de6ff272fdbebab',
   '../__tests__/chat-agent-context-startup.test.ts':

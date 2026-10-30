@@ -2944,8 +2944,9 @@ async function openCodexChatBound(
     executeTool: async (name, input, signal, callContext) => {
       if (options.adviserScope) throw new CodexToolFailure('permission_denied');
       if (ownedHost && localEfficiencyDefinitions.some((tool) => tool.name === name)) {
+        signal.throwIfAborted();
         callContext.assertCurrentSync?.();
-        await assertHostCurrent();
+        assertHostCurrentSync();
         if (name === 'SearchSkills') {
           const assertSkillReadCurrent = () => {
             callContext.assertCurrentSync?.();
@@ -2960,14 +2961,19 @@ async function openCodexChatBound(
           };
           assertSkillReadCurrent();
           const request = SearchSkillsInput.safeParse(input);
-          if (!request.success) throw new CodexToolFailure('invalid_input');
+          if (!request.success)
+            return toolInputError('SearchSkills input', SearchSkillsInput, request.error);
+          await assertHostCurrent();
+          assertSkillReadCurrent();
           const result = await runtime.searchSkills(request.data, signal, assertSkillReadCurrent);
           await assertHostCurrent();
           assertSkillReadCurrent();
           return { content: JSON.stringify(result), isError: false };
         }
         const request = ReadToolOutputInput.safeParse(input);
-        if (!request.success) throw new CodexToolFailure('invalid_input');
+        if (!request.success)
+          return toolInputError('ReadToolOutput input', ReadToolOutputInput, request.error);
+        await assertHostCurrent();
         const output = privateStorage.readToolOutput(
           options.conversationId,
           options.binding,
