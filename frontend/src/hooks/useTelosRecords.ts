@@ -21,9 +21,15 @@ interface RecordsResult {
 export function useTelosRecords(
   ids: string[],
   refreshKey: string | number = 0,
-  options: { batch?: boolean } = {},
+  options: {
+    batch?: boolean;
+    seed?: TelosWorkItem[];
+    loading?: boolean;
+    failures?: RecordsResult['failures'];
+  } = {},
 ) {
   const batch = options.batch === true;
+  const seeded = options.seed !== undefined;
   const key = JSON.stringify([...new Set(ids)]);
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState<RecordsResult>();
@@ -32,6 +38,7 @@ export function useTelosRecords(
   const active = useRef<AbortController | null>(null);
   const pending = useRef(new Map(confirmations));
   useEffect(() => {
+    if (seeded) return;
     const invalidate = () => {
       active.current?.abort();
       setRetry((value) => value + 1);
@@ -61,8 +68,9 @@ export function useTelosRecords(
       unsubscribePriority();
       document.removeEventListener('visibilitychange', onResume);
     };
-  }, []);
+  }, [seeded]);
   useEffect(() => {
+    if (seeded) return;
     const controller = new AbortController();
     active.current = controller;
     const queue = JSON.parse(key) as string[];
@@ -155,8 +163,20 @@ export function useTelosRecords(
       },
     );
     return () => controller.abort();
-  }, [key, retry, refreshKey, batch]);
-  const current = result?.key === key ? result : undefined;
+  }, [key, retry, refreshKey, batch, seeded]);
+  const requested = new Set(ids);
+  const seedFailures = options.failures?.filter((failure) => requested.has(failure.itemId)) ?? [];
+  const current = seeded
+    ? {
+        records: options.seed!.filter((record) => requested.has(record.itemId)),
+        loading: options.loading ?? false,
+        settled: !options.loading,
+        failures: seedFailures,
+        unavailable: seedFailures.map((failure) => failure.itemId),
+      }
+    : result?.key === key
+      ? result
+      : undefined;
   return {
     // Conversation controls share this owner’s manual/event/resume invalidation.
     refreshKey: JSON.stringify([key, retry, refreshKey]),

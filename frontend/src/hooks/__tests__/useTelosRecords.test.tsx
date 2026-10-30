@@ -420,3 +420,20 @@ it('retains the fully settled snapshot through interrupted refreshes until the c
   expect(view.result.current.loading).toBe(false);
   expect(view.result.current.initializing).toBe(false);
 });
+
+it('reuses records delivered by the canonical collection without fetching them again', async () => {
+  const records = createTelosWorkFixtures().homeStudio.items;
+  const read = vi.spyOn(TelosWorkApiClient.prototype, 'readRecord');
+  const batch = vi.spyOn(TelosWorkApiClient.prototype, 'readRecords');
+  const hook = renderHook(() =>
+    useTelosRecords(
+      records.map((row) => row.itemId),
+      0,
+      { seed: records },
+    ),
+  );
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  expect(hook.result.current.records).toEqual(records);
+  expect(read).not.toHaveBeenCalled();
+  expect(batch).not.toHaveBeenCalled();
+});
