@@ -3,6 +3,8 @@ import { EventStore } from '../event-store.js';
 import { login, authenticateToken, setAuthRevocationStore, revokeAuthSession } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { retainNativeHostToolOperator } from '../native-host-tool-context.js';
+import Database from 'better-sqlite3';
+import { join } from 'node:path';
 import { localRepositoryNativeToolFixture } from './fixtures/local-repository-native-tools.js';
 
 vi.mock('../openai-account-key-authority.js', () => ({
@@ -63,6 +65,61 @@ it.runIf(process.platform === 'darwin')(
       { separateViewer: true },
     );
     expect((await f.a.call({ query: 'in-flight' })).response.success).toBe(true);
+  },
+);
+
+it.runIf(process.platform === 'darwin')(
+  'observes admission and native host session facts once within each synchronous boundary',
+  async () => {
+    let measured: { sessions: number; routes: number; roles: number } | undefined;
+    const f = await localRepositoryNativeToolFixture(
+      cleanups,
+      async (context) => {
+        const events = f.f.events;
+        const sessionRead = vi.spyOn(events, 'getSession');
+        const routeRead = vi.spyOn(events, 'getSessionRuntimeBinding');
+        const roleRead = vi.spyOn(events, 'getOrdinaryContributorContextEvents');
+        context.assertCurrentSync();
+        // Nested owners still read their own current evidence. The host layer
+        // must consume admission's observation rather than reopening these rows.
+        measured = {
+          sessions: sessionRead.mock.calls.length,
+          routes: routeRead.mock.calls.length,
+          roles: roleRead.mock.calls.length,
+        };
+        return { content: '{}', isError: false };
+      },
+      { nativeBaseReads: false },
+    );
+    const result = await f.a.call({ query: 'observe' });
+    expect(result.response.success, String(result.value)).toBe(true);
+    expect(measured).toEqual({ sessions: 6, routes: 4, roles: 2 });
+  },
+);
+
+it.runIf(process.platform === 'darwin')(
+  'refuses an external SQLite ownership change after an awaited native host effect',
+  async () => {
+    const f = await localRepositoryNativeToolFixture(
+      cleanups,
+      async (context) => {
+        context.assertCurrentSync();
+        await Promise.resolve();
+        // Independent connection represents an external process; no in-process
+        // generation or store mutation hook can observe this write.
+        const writer = new Database(join(f.f.root, 'events.db'));
+        try {
+          writer.prepare('UPDATE sessions SET mode=? WHERE session_id=?').run('ask', f.a.sessionId);
+        } finally {
+          writer.close();
+        }
+        expect(() => context.assertCurrentSync()).toThrow();
+        await context.assertCurrent();
+        return { content: '{}', isError: false };
+      },
+      { nativeBaseReads: false },
+    );
+    expect((await f.a.call({ query: 'external-writer' })).response.success).toBe(false);
   },
 );
 

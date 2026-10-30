@@ -1544,6 +1544,17 @@ export class EventStore {
       throw Error('Explicit command execution selection changed');
     return execution;
   }
+  /** Bounded owner observation for one synchronous admission comparison. No
+   * callback executes inside this read transaction, and no result grants later
+   * authority: every independent effect/await must observe the store again. */
+  observeOrdinaryLocalCommandAuthority(sessionId: string, commandId: string) {
+    return this.db!.transaction(() => ({
+      ...this.sessionMetadata.observeSessionOwnership(sessionId),
+      receipt: this.getOrdinaryLocalCommandExecutionAdmission(commandId),
+      send: this.getSendCommand(commandId),
+      roleEvents: this.getOrdinaryContributorContextEvents(sessionId),
+    }))();
+  }
   /** Read-only routing identity for retained explicit input under an adopted
    * primary. The original wire namespace stays distinct from execution custody.
    * This observation grants neither recovery nor native dispatch authority. */

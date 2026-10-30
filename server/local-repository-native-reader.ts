@@ -40,6 +40,8 @@ import {
   type NativePreparationObservationPlan,
   type NativePreparationObservationScratch,
 } from './native-preparation-observation.js';
+import { preparedTopologyInput } from './native-repository-topology.js';
+import type { RepositoryTaskCheckout } from './repository-task-checkout.js';
 
 const unavailable = () => Error('Local repository native reads unavailable');
 type NativeReaderPathAuthorization = Readonly<{
@@ -51,6 +53,30 @@ type NativeReaderPathAuthorization = Readonly<{
 // starts with the full fresh original-owner fence before any path effect/await.
 const nativePathAuthorizations = new WeakMap<object, NativeReaderPathAuthorization>();
 const repositoryBaseCaptures = new WeakMap<object, object>();
+type NativeTopologyAssertion = (
+  task: Readonly<RepositoryTaskCheckout>,
+  sourceGitDirectory: string,
+) => Promise<void>;
+const nativeTopologyAssertions = new WeakMap<object, NativeTopologyAssertion>();
+/** Factory provenance only. Every call starts a fresh owned physical phase;
+ * an assertion result is never retained or accepted from a caller. */
+export function captureNativeTopologyAssertion(reader: LocalRepositoryReadAuthority) {
+  const assertion = nativeTopologyAssertions.get(reader);
+  if (!assertion) return;
+  const descriptor = Object.getOwnPropertyDescriptor(reader, 'assertPreparedTaskTopology');
+  if (
+    !Object.isFrozen(reader) ||
+    !descriptor ||
+    !('value' in descriptor) ||
+    descriptor.value !== assertion ||
+    descriptor.enumerable ||
+    descriptor.configurable ||
+    descriptor.writable ||
+    !Object.isFrozen(assertion)
+  )
+    throw unavailable();
+  return assertion;
+}
 const nativeObservationReaders = new WeakMap<
   object,
   (capture: Readonly<RepositoryObservationCapture>, path: string) => void
@@ -218,6 +244,25 @@ export async function captureLocalRepositoryReader(
   const repositoryCaptures = new WeakSet<object>();
   const objectStores = new WeakMap<object, Parameters<typeof preparationObjectStoreCommand>[0]>();
   const reader: LocalRepositoryReadAuthority & { dispose(): Promise<void> } = {
+    assertPreparedTaskTopology: Object.freeze(
+      async (task: Readonly<RepositoryTaskCheckout>, sourceGitDirectory: string) => {
+        current();
+        const input = preparedTopologyInput(task, sourceGitDirectory);
+        const plan = freezeRepositoryObservationPlan({
+          ...input,
+          version: 'repository-read-v1',
+          deniedRoots,
+          excludedNames: [...localRepositoryReadDirectoryExclusionNames],
+        });
+        await captureRepositoryObservation(
+          plan,
+          signal,
+          Math.max(1, Math.min(30000, deadline - Date.now())),
+          transport(deniedRoots),
+        );
+        current();
+      },
+    ),
     capturePreparationObjectStore: async (source, objectFormat) => {
       await authorize(source.rootPath);
       await revalidate();
@@ -500,6 +545,7 @@ export async function captureLocalRepositoryReader(
   for (const name of Object.keys(reader))
     Object.defineProperty(reader, name, { enumerable: false });
   Object.freeze(reader);
+  nativeTopologyAssertions.set(reader, reader.assertPreparedTaskTopology!);
   nativePathAuthorizations.set(
     reader,
     Object.freeze({

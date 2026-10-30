@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 const binding = {
@@ -300,9 +300,208 @@ it.each(['intent', 'stop', 'custody', 'unsettled', 'restart'] as const)(
           .all(),
       ).toEqual(ackBefore);
       if (scenario === 'intent') expect(f.store.claimNext('chat', binding)?.id).toBe('later');
-      else expect(() => f.store.claimNext('chat', binding)).toThrow('acknowledgement');
+      else expect(() => f.store.claimNext('chat', binding)).toThrow(/acknowledgement|phase|effect/);
     } finally {
       db.close();
     }
+  },
+);
+
+it.each([
+  'ack-turn',
+  'ack-generation',
+  'attempt',
+  'conflict',
+  'acceptance-conflict',
+  'ownership',
+  'no-episode',
+  'episode-identity',
+  'unrelated',
+  'null-tool',
+  'pending-phase',
+  'completed-unknown',
+  'native-contradiction',
+] as const)('retains effect custody when capacity terminal proof has %s', (hazard) => {
+  const f = setup();
+  const writer = new Database(f.path);
+  if (hazard === 'ack-turn')
+    writer.prepare("UPDATE codex_capacity_native_acks SET turn_id='other'").run();
+  if (hazard === 'ack-generation')
+    writer.prepare('UPDATE codex_capacity_native_acks SET generation=99').run();
+  if (hazard === 'attempt')
+    writer.prepare("UPDATE codex_commands SET attempt=2 WHERE id='source'").run();
+  if (hazard === 'conflict')
+    writer.prepare("UPDATE codex_capacity_continuations SET terminal='conflict'").run();
+  if (hazard === 'acceptance-conflict' || hazard === 'ownership')
+    writer
+      .prepare(
+        `
+      INSERT INTO codex_thread_acceptances(conversation_id,command_id,attempt,thread_id,turn_id,generation,
+        ownership_pending,accepted_at,terminal_conflict) VALUES('chat','source',1,'thread','source-turn',0,?,1,?)
+    `,
+      )
+      .run(hazard === 'ownership' ? 1 : 0, hazard === 'acceptance-conflict' ? 1 : 0);
+  if (hazard === 'no-episode') writer.prepare('DELETE FROM codex_capacity_recoveries').run();
+  if (hazard === 'episode-identity')
+    writer
+      .prepare(
+        `UPDATE codex_capacity_recoveries
+    SET data=json_set(data,'$.id','00000000-0000-4000-8000-000000000001')`,
+      )
+      .run();
+  if (hazard === 'unrelated')
+    writer
+      .prepare(
+        `INSERT INTO codex_commands(conversation_id,id,input,status,ambiguous)
+      VALUES('chat','unrelated',?,'interrupted',1)`,
+      )
+      .run(JSON.stringify({ id: 'unrelated', prompt: 'other' }));
+  if (hazard === 'null-tool')
+    writer
+      .prepare(
+        `INSERT INTO codex_tools(conversation_id,command_id,call_id)
+      VALUES('chat','source','lost-result')`,
+      )
+      .run();
+  if (hazard === 'pending-phase' || hazard === 'native-contradiction') {
+    const target = {
+      commandId: 'source',
+      attempt: 1,
+      threadId: 'thread',
+      turnId: 'source-turn',
+      generation: 0,
+    };
+    writer.prepare("UPDATE codex_commands SET native_turns=? WHERE id='source'").run(
+      JSON.stringify([
+        {
+          attempt: 1,
+          threadId: 'thread',
+          turnId: hazard === 'native-contradiction' ? 'other' : 'source-turn',
+          generation: 0,
+        },
+      ]),
+    );
+    if (hazard === 'pending-phase')
+      writer.prepare("UPDATE codex_commands SET completion_phases=? WHERE id='source'").run(
+        JSON.stringify([
+          {
+            version: 1,
+            target,
+            status: 'pending',
+            observedOutcome: 'unknown',
+            priorEffectsUnknown: false,
+            workspaceDigest: 'a'.repeat(64),
+            startedAt: 1,
+          },
+        ]),
+      );
+  }
+  if (hazard === 'completed-unknown')
+    writer.prepare("UPDATE codex_commands SET status='completed' WHERE id='source'").run();
+  writer.close();
+  expect(() => f.store.acknowledgeRecovery('chat', binding)).toThrow();
+  const bypass = new Database(f.path);
+  bypass.prepare('UPDATE codex_conversations SET recovery=0').run();
+  bypass.close();
+  expect(() => f.store.claimNext('chat', binding)).toThrow();
+});
+
+it('retains exact acknowledged capacity evidence after the stopped episode is consumed', () => {
+  const f = setup();
+  f.store.stopCapacityRecovery('chat', binding, f.episode.id, f.source.id);
+  f.store.acknowledgeRecovery('chat', binding);
+  expect(f.store.capacityRecovery('chat', binding)).toBeUndefined();
+  expect(f.store.claimNext('chat', binding)?.id).toBe('later');
+  expect(f.store.commandStatus('chat', binding, f.source.id)).toBe('failed');
+  const reader = new Database(f.path);
+  expect(reader.prepare("SELECT ambiguous FROM codex_commands WHERE id='source'").get()).toEqual({
+    ambiguous: 1,
+  });
+  reader.close();
+});
+
+it('omits resolved capacity ambiguity from quiet operation metadata after acknowledged FIFO admission', () => {
+  const f = setup();
+  f.store.stopCapacityRecovery('chat', binding, f.episode.id, f.source.id);
+  f.store.acknowledgeRecovery('chat', binding);
+  expect(f.store.claimNext('chat', binding)?.id).toBe('later');
+  const db = (f.store as unknown as { db: Database.Database }).db;
+  const queries = vi.spyOn(db, 'prepare');
+  try {
+    expect(f.store.queueSummary('chat', binding).operation).toBeUndefined();
+    // One candidate selector and one shared full proof, never a query per source.
+    expect(queries.mock.calls.filter(([sql]) => sql.includes('codex_tools'))).toHaveLength(2);
+  } finally {
+    queries.mockRestore();
+  }
+});
+
+it('projects an older actual unknown source instead of a newer qualified capacity receipt', () => {
+  const f = setup();
+  f.store.stopCapacityRecovery('chat', binding, f.episode.id, f.source.id);
+  f.store.acknowledgeRecovery('chat', binding);
+  const writer = new Database(f.path);
+  writer.prepare("UPDATE codex_commands SET sequence=5 WHERE id='source'").run();
+  writer
+    .prepare(
+      `INSERT INTO codex_commands(sequence,conversation_id,id,input,status,ambiguous,recovery_acknowledged)
+    VALUES(1,'chat','older-unknown',?,'interrupted',1,1)`,
+    )
+    .run(JSON.stringify({ id: 'older-unknown', prompt: 'old' }));
+  writer.close();
+  expect(f.store.queueSummary('chat', binding).operation?.commandId).toBe('older-unknown');
+  expect(() => f.store.claimNext('chat', binding)).toThrow(/phase|effect/);
+});
+
+it.each(['acknowledged', 'completed-child'] as const)(
+  'keeps historical %s capacity custody qualified during a distinct later episode',
+  (settlement) => {
+    const f = setup();
+    if (settlement === 'acknowledged') {
+      f.store.stopCapacityRecovery('chat', binding, f.episode.id, f.source.id);
+      f.store.acknowledgeRecovery('chat', binding);
+    } else {
+      const input = f.store.queueCapacityRetry('chat', binding, f.episode.id, f.source.id, 31_000);
+      const child = f.store.claimNext('chat', binding)!;
+      f.store.beginCapacityDispatch('chat', binding, input.id);
+      f.store.acceptCapacityTurn('chat', binding, input.id, 'thread', 'settled-child');
+      f.store.recordCapacityAck('chat', binding, child, 'thread', 'settled-child');
+      f.store.finish('chat', binding, input.id, 'completed', 'settled-child');
+      f.store.completeCapacityTurn('chat', binding, input.id, 'settled-child', 'completed');
+    }
+    // The later owner has a genuinely different native generation and source.
+    f.store.replaceThread(
+      'chat',
+      binding,
+      'thread',
+      'later-thread',
+      'tool_surface_change',
+      undefined,
+      'later-tools',
+    );
+    const sourceB = f.store.claimNext('chat', binding)!;
+    expect(sourceB.id).toBe('later');
+    f.store.recordCapacityAck('chat', binding, sourceB, 'later-thread', 'later-failure');
+    f.store.pauseForRecovery(
+      'chat',
+      binding,
+      sourceB.id,
+      'failed',
+      'resume',
+      undefined,
+      true,
+      true,
+    );
+    const episodeB = f.store.recordCapacityFailure(
+      'chat',
+      binding,
+      sourceB,
+      'later-thread',
+      'later-failure',
+      100_000,
+    );
+    const retryB = f.store.queueCapacityRetry('chat', binding, episodeB.id, sourceB.id, 131_000);
+    expect(f.store.claimNext('chat', binding)?.id).toBe(retryB.id);
+    expect(f.store.commandStatus('chat', binding, f.source.id)).toBe('failed');
   },
 );

@@ -382,12 +382,14 @@ it('traces actual cold, warm and queued HTTP commands through durable custody to
     return command.clientMsgId;
   }
   const nativeStore = (await import('../codex-chat-session.js')).getCodexConversationStore();
-  const settled = () =>
-    vi.waitFor(() => expect(nativeStore.hasRunningCommand(input.sessionId, f.binding)).toBe(false));
-  await send('cold', true);
-  await settled();
-  await send('warm');
-  await settled();
+  // An idle native slot can precede the next queued command's asynchronous
+  // claim. Wait for the exact submitted command, rather than that idle gap.
+  const settled = (commandId: string) =>
+    vi.waitFor(() =>
+      expect(nativeStore.commandStatus(input.sessionId, f.binding, commandId)).toBe('completed'),
+    );
+  await settled(await send('cold', true));
+  await settled(await send('warm'));
   await send('warm');
   await vi.waitFor(() => expect(finishHeld).toBeTypeOf('function'));
   const queuedSend = send('queued');
@@ -399,8 +401,7 @@ it('traces actual cold, warm and queued HTTP commands through durable custody to
   // Hold an actual active predecessor, not a fake performance clock.
   await new Promise((resolve) => setTimeout(resolve, 30));
   finishHeld!();
-  await queuedSend;
-  await settled();
+  await settled(await queuedSend);
   expect(native.CodexAppServerClient.launchIsolated).toHaveBeenCalledOnce();
   expect(frames.filter((f) => f.method === 'initialize')).toHaveLength(1);
   expect(frames.filter((f) => f.method === 'thread/start')).toHaveLength(1);

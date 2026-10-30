@@ -1,8 +1,13 @@
 import { isDeepStrictEqual } from 'node:util';
 import { isAbsolute, resolve } from 'node:path';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
+import { withCodexToolCleanup } from './codex-tool-failure.js';
 import { normalizeCodexToolResult } from './codex-tool-result.js';
-import { PendingHostTaskReceiptSchema, pendingHostTaskDecisionHash } from './pending-host-task.js';
+import {
+  PendingHostTaskReceiptSchema,
+  PendingHostTaskError,
+  pendingHostTaskDecisionHash,
+} from './pending-host-task.js';
 import { inputSchema } from './local-repository-preparation-authorization.js';
 import { localRepositoryPreparationId, repositorySourceIdentity } from './local-repository-base.js';
 import { captureNativeLocalRepositoryReader } from './local-repository-native-read.js';
@@ -83,7 +88,7 @@ export async function executeNativeLocalRepositoryPreparation(
           throw unavailable();
         strict(Reflect.apply(sync, context, []));
       };
-      try {
+      return withCodexToolCleanup(async () => {
         current();
         const input = inputSchema.parse(rawInput);
         const binding = context.session.accountBinding;
@@ -93,21 +98,39 @@ export async function executeNativeLocalRepositoryPreparation(
         if (pendingHostTaskDecisionHash(rawInput) !== context.requestHash) throw unavailable();
         await context.assertCurrent();
         current();
-        const existing = workspaces.findLocalRepositoryPreparation({
-          id: localRepositoryPreparationId({
+        let existing;
+        try {
+          existing = workspaces.findLocalRepositoryPreparation({
+            id: localRepositoryPreparationId({
+              conversationId: context.conversationId,
+              workspaceId: context.workspace.id,
+              path: sourceIdentity,
+              base: input.base,
+              ...(input.newCheckout ? { generation: context.nativeTarget.commandId } : {}),
+            }),
             conversationId: context.conversationId,
-            workspaceId: context.workspace.id,
+            workspace: context.workspace,
             path: sourceIdentity,
             base: input.base,
-            ...(input.newCheckout ? { generation: context.nativeTarget.commandId } : {}),
-          }),
-          conversationId: context.conversationId,
-          workspace: context.workspace,
-          path: sourceIdentity,
-          base: input.base,
-          binding,
-          ...(input.newCheckout ? { newCheckout: true } : {}),
-        });
+            binding,
+            ...(input.newCheckout ? { newCheckout: true } : {}),
+          });
+        } catch (error) {
+          if (
+            !(error instanceof PendingHostTaskError) ||
+            error.code !== 'pending_host_task_base_conflict'
+          )
+            throw error;
+          current();
+          return {
+            error: 'repository_base_conflict' as const,
+            state: 'active' as const,
+            preparationId: context.workspace.id,
+            directory: context.workspace.directory,
+            action:
+              'Continue the admitted task with its directory and base HEAD. Use newCheckout:true only when the user explicitly requests another checkout with the selected base.',
+          };
+        }
         current();
         if (existing) {
           if (
@@ -117,20 +140,21 @@ export async function executeNativeLocalRepositoryPreparation(
             existing.taskIdentity &&
             existing.qualifiedLocalPreparation
           ) {
+            const taskIdentity = existing.taskIdentity;
+            const sourceGitDirectory =
+              existing.qualifiedLocalPreparation.allocationFacts.source.gitDirectory;
             const reader = await captureNativeLocalRepositoryReader(context, {
               deadline: Math.min(envelope.deadline, Date.now() + 30000),
             });
-            try {
+            await withCodexToolCleanup(async () => {
               await assertPreparedRepositoryTaskTopology(
                 new LocalRepositoryReadAccess(reader),
-                existing.taskIdentity,
-                existing.qualifiedLocalPreparation.allocationFacts.source.gitDirectory,
+                taskIdentity,
+                sourceGitDirectory,
               );
               await context.assertCurrent();
               current();
-            } finally {
-              await reader.dispose();
-            }
+            }, [() => reader.dispose()]);
             current();
             return {
               preparationId: existing.id,
@@ -204,17 +228,20 @@ export async function executeNativeLocalRepositoryPreparation(
           directory: receipt.directory,
           state: 'materialized' as const,
         };
-      } finally {
-        // Joining cleanup is part of the callback: never outward-return success
-        // while a disposer is pending, failed, or the total/original lifetime expired.
-        try {
-          for (const source of sources) await source.dispose?.();
-        } finally {
-          strict(await Reflect.apply(dispose, context, []));
-        }
-        envelope.assertCurrentSync();
-      }
+      }, [
+        // Sources are acquired inside action; enumerate them only during cleanup.
+        () =>
+          withCodexToolCleanup(
+            async () => {},
+            sources.map((source) => () => source.dispose?.()),
+          ),
+        async () => strict(await Reflect.apply(dispose, context, [])),
+        () => envelope.assertCurrentSync(),
+      ]);
     },
   );
-  return normalizeCodexToolResult({ content: JSON.stringify(publicReceipt), isError: false });
+  return normalizeCodexToolResult({
+    content: JSON.stringify(publicReceipt),
+    isError: 'error' in publicReceipt,
+  });
 }

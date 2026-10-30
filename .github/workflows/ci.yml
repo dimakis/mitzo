@@ -530,7 +530,7 @@ jobs:
           const result = JSON.parse(readFileSync('test-results/native-host-authorization.json', 'utf8'));
           if (!result.success) throw new Error('Signed native operator qualification failed');
           const required = [
-            ['native-host-operator-lifetime.test.ts', 7],
+            ['native-host-operator-lifetime.test.ts', 9],
             ['native-local-repository-preparation-registration-dispatch.test.ts', 4],
             ['native-local-repository-read-tools.test.ts', 14],
             ['native-reader-path-authorization.test.ts', 13],

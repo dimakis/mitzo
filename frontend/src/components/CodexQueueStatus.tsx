@@ -29,6 +29,30 @@ const Queue = z.object({
   retryable: z.boolean().optional(),
   requiresRetryConfirmation: z.boolean().optional(),
   capacityRecovery: CapacityRecovery.optional(),
+  operation: z
+    .object({
+      commandId: z.string().min(1).max(200),
+      attempt: z.number().int().positive(),
+      state: z.enum([
+        'queued',
+        'executing',
+        'completed',
+        'ambiguous_effect',
+        'pre_effect_failure',
+        'terminal_failure',
+      ]),
+      effectStatus: z.enum(['unknown', 'completed', 'not_established']).optional(),
+      nextAction: z.enum([
+        'reconcile_native_outcome',
+        'reconcile_completion_phase',
+        'retry_admission',
+        'wait_for_admission',
+        'wait_for_native_outcome',
+        'inspect_retained_work',
+      ]),
+    })
+    .optional()
+    .catch(undefined),
 });
 const QueuedCommands = z.object({
   queued: z.array(z.object({ id: z.string(), preview: z.string() })),
@@ -310,7 +334,25 @@ export function CodexQueueStatus({
     <ChatStatusMessage status={deliveryStatus} error={deliveryError} busy={deliveryBusy} />
   );
   if (!queue) return delivery;
+  const needsPhaseInspection =
+    queue.operation?.state === 'completed' &&
+    queue.operation.effectStatus === 'unknown' &&
+    queue.operation.nextAction !== 'reconcile_completion_phase';
+  const operationStatus =
+    queue.operation?.state === 'completed' &&
+    queue.operation.nextAction === 'reconcile_completion_phase'
+      ? 'The response completed. Reconnect to check its follow-up.'
+      : needsPhaseInspection
+        ? 'The response completed. Check unfinished work before continuing.'
+        : queue.operation?.state === 'ambiguous_effect'
+          ? 'Check the interrupted turn before continuing. Saved work is preserved.'
+          : queue.operation?.state === 'pre_effect_failure'
+            ? 'Execution did not start. Check admission before continuing.'
+            : queue.operation?.state === 'terminal_failure'
+              ? 'Inspect saved work before retrying this turn.'
+              : undefined;
   const actionable =
+    !!operationStatus ||
     !!queue.recovering ||
     queue.queued > 0 ||
     queue.failed > 0 ||
@@ -348,28 +390,30 @@ export function CodexQueueStatus({
       ? queue.recoveryPhase === 'starting_workspace'
         ? 'Starting workspace…'
         : 'Reconnecting…'
-      : queue.canContinue === true
-        ? 'Reconnection needed. Your message is saved.'
-        : queue.failed > 0
-          ? queue.retryable === false
-            ? 'This failed turn needs attention and cannot be retried.'
-            : !queue.connected || reattaching
-              ? 'Restarting provider… The failed turn remains saved.'
-              : retryWaitSeconds > 0
-                ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
-                : queue.requiresRetryConfirmation
-                  ? 'Retrying may repeat tool actions that already ran.'
-                  : 'Previous turn failed. Retry when available.'
-          : queue.paused
-            ? 'Reconnection needed. Your message is saved.'
-            : queue.queued > 0
-              ? `${queue.queued} ${queue.queued === 1 ? 'message' : 'messages'} queued`
-              : notice || error || deliveryError || '');
+      : (operationStatus ??
+        (queue.canContinue === true
+          ? 'Reconnection needed. Your message is saved.'
+          : queue.failed > 0
+            ? queue.retryable === false
+              ? 'This failed turn needs attention and cannot be retried.'
+              : !queue.connected || reattaching
+                ? 'Restarting provider… The failed turn remains saved.'
+                : retryWaitSeconds > 0
+                  ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
+                  : queue.requiresRetryConfirmation
+                    ? 'Retrying may repeat tool actions that already ran.'
+                    : 'Previous turn failed. Retry when available.'
+            : queue.paused
+              ? 'Reconnection needed. Your message is saved.'
+              : queue.queued > 0
+                ? `${queue.queued} ${queue.queued === 1 ? 'message' : 'messages'} queued`
+                : notice || error || deliveryError || '')));
 
   const attention = !!(
     error ||
     notice ||
     deliveryError ||
+    (!queue.recovering && !!operationStatus) ||
     (!queue.recovering && queue.failed > 0 && queue.connected) ||
     (capacity && ['stopped', 'exhausted'].includes(capacity.status))
   );
@@ -632,6 +676,7 @@ export function CodexQueueStatus({
             </>
           )}
           {!capacity &&
+            !needsPhaseInspection &&
             (queue.canContinue === true || (queue.paused && queue.connected && queue.queued > 0)) &&
             !queue.recovering && (
               <button
@@ -644,6 +689,7 @@ export function CodexQueueStatus({
               </button>
             )}
           {!capacity &&
+            !needsPhaseInspection &&
             queue.canContinue !== true &&
             queue.failed > 0 &&
             queue.retryable !== false &&

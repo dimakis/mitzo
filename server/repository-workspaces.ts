@@ -2072,40 +2072,41 @@ export class RepositoryWorkspaces {
   }): RepositoryWorkspace | undefined {
     this.assertAvailable();
     const current = !input.newCheckout ? this.getForConversation(input.conversationId) : undefined;
-    const row = this.db.prepare('SELECT id FROM repository_workspaces WHERE id=?').get(input.id) as
-      { id: string } | undefined;
     const identity = (record: RepositoryWorkspace) =>
       record.qualifiedLocalPreparation?.allocationFacts.sourceIntent
         ? repositorySourceIdentity(record.qualifiedLocalPreparation.allocationFacts.sourceIntent)
         : record.localSource?.path;
-    const record =
+    // A continuation names the adopted task, while its immutable preparation
+    // names the original source and base. Never derive operation identity from
+    // mutable HEAD, or start a second acquisition merely to rediscover custody.
+    const continuing =
       current?.id === input.workspace.id &&
-      identity(current) === input.path &&
       current.qualifiedLocalPreparation &&
-      isDeepStrictEqual(
-        current.qualifiedLocalPreparation.allocationFacts.baseIntent ?? {
-          kind: 'ref',
-          ref: 'HEAD',
-        },
-        input.base,
-      )
-        ? current
-        : row
-          ? this.getHostRecord(row.id)
-          : undefined;
+      (identity(current) === input.path || current.directory === input.path);
+    const record = continuing
+      ? current
+      : (() => {
+          const row = this.db
+            .prepare('SELECT id FROM repository_workspaces WHERE id=?')
+            .get(input.id) as { id: string } | undefined;
+          return row ? this.getHostRecord(row.id) : undefined;
+        })();
     if (!record) return;
     const selectedBase = record.qualifiedLocalPreparation?.allocationFacts.baseIntent ?? {
       kind: 'ref',
       ref: 'HEAD',
     };
+    const activeHead =
+      continuing &&
+      record.directory === input.path &&
+      input.base.kind === 'ref' &&
+      input.base.ref === 'HEAD';
     if (
-      identity(record) !== input.path ||
       !record.qualifiedLocalPreparation ||
-      !isDeepStrictEqual(selectedBase, input.base)
-    ) {
-      if (record === current && !row) return;
+      (!continuing &&
+        (identity(record) !== input.path || !isDeepStrictEqual(selectedBase, input.base)))
+    )
       throw new PendingHostTaskError('pending_host_task_ownership_changed');
-    }
     const request = record.qualifiedLocalPreparation.request;
     const account = (binding: AccountBinding) => ({
       accountId: binding.accountId,
@@ -2124,8 +2125,13 @@ export class RepositoryWorkspaces {
     if (record.state === 'claimed' && record.id === input.workspace.id) {
       const adoption = record.preparedRepositoryTransitionAdoption;
       if (!adoption) throw new PendingHostTaskError('pending_host_task_ownership_changed');
-      this.assertPreparedRepositoryTransitionAdopted(adoption.facts, adoption.childCommandId);
+      this.assertPreparedRepositoryTransitionAdopted(
+        freezePendingHostTaskData(structuredClone(adoption.facts)),
+        adoption.childCommandId,
+      );
     }
+    if (continuing && !activeHead && !isDeepStrictEqual(selectedBase, input.base))
+      throw new PendingHostTaskError('pending_host_task_base_conflict');
     return record;
   }
   /** Private original-owner persistence. All source reads belong to the exact
@@ -2785,6 +2791,13 @@ export class RepositoryWorkspaces {
     const expected = this.snapshotHostInput(input);
     this.assertNoOrdinaryPrimary(expected.conversationId);
     const record = this.getReadonlyHostRecord(expected.id);
+    return this.hostReservationFromRecord(expected, record);
+  }
+  /** Pure comparisons over the owning operation's freshly read ledger row. */
+  private hostReservationFromRecord(
+    expected: Omit<HostRepositoryReservationInput, 'signal'>,
+    record: RepositoryWorkspace,
+  ): HostRepositoryReservation {
     if (record.retirement && record.retirement.disposition !== 'restored')
       throw Error('Repository task is archived or retiring');
     if (primaryConversation(record) !== expected.conversationId)
@@ -3081,6 +3094,22 @@ export class RepositoryWorkspaces {
     input: PreparedRepositoryTransitionFacts,
     childCommandId: string,
   ): void {
+    this.observePreparedRepositoryTransitionAdopted(input, childCommandId);
+  }
+  /** One read transaction owns the adopted ledger and competing-primary
+   * observation. Returned data is for immediate comparisons, never a grant. */
+  observePreparedRepositoryTransitionAdopted(
+    input: PreparedRepositoryTransitionFacts,
+    childCommandId: string,
+  ): RepositoryWorkspace {
+    return this.db.transaction(() =>
+      this.readPreparedRepositoryTransitionAdopted(input, childCommandId),
+    )();
+  }
+  private readPreparedRepositoryTransitionAdopted(
+    input: PreparedRepositoryTransitionFacts,
+    childCommandId: string,
+  ): RepositoryWorkspace {
     this.assertAvailable();
     const facts = transitionFacts(input),
       request = facts.request;
@@ -3119,7 +3148,6 @@ export class RepositoryWorkspaces {
       record.state !== 'claimed' ||
       record.sandbox ||
       primaryConversation(record) !== request.conversationId ||
-      this.getForConversation(request.conversationId)?.id !== record.id ||
       record.conversationId !== request.conversationId ||
       !isDeepStrictEqual(record.binding, request.binding) ||
       !isDeepStrictEqual(record.ordinaryPreparation?.runtimeBinding, request.runtimeBinding) ||
@@ -3150,13 +3178,21 @@ export class RepositoryWorkspaces {
       !isDeepStrictEqual(record.hostReservation.rootIdentity, receipt.rootIdentity)
     )
       throw Error('Adopted repository custody witness unavailable');
-    this.getHostReservation({
-      id: record.id,
-      binding: request.binding,
-      conversationId: request.conversationId,
-      taskRoot: request.taskRoot,
-      runtimeBinding: request.runtimeBinding,
-    });
+    // getReadonlyHostRecord verified this row's UNIQUE SQL primary pointer
+    // against the same record. Reopening getForConversation or the reservation
+    // owner would only traverse and parse that identical row again.
+    this.assertNoOrdinaryPrimary(request.conversationId);
+    this.hostReservationFromRecord(
+      this.snapshotHostInput({
+        id: record.id,
+        binding: request.binding,
+        conversationId: request.conversationId,
+        taskRoot: request.taskRoot,
+        runtimeBinding: request.runtimeBinding,
+      }),
+      record,
+    );
+    return record;
   }
   private snapshotPendingInput(input: PendingHostTaskRequest): PendingHostTaskRequest {
     try {

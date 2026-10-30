@@ -90,10 +90,14 @@ export function resolveTelosWorkRoleContext(
   sessionId: string,
   binding: AccountBinding | undefined,
 ): TelosWorkRoleContextSelection | undefined {
-  const selection = readRoleSelection(store, sessionId, binding);
+  // One immutable event prefix supplies both pure comparisons in this
+  // synchronous projection. The next call reads the durable owner afresh.
+  const events = readOrdinaryContributorContextEvents(store, sessionId);
+  const observation = { getSessionEvents: () => events };
+  const selection = readRoleSelection(observation, sessionId, binding);
   if (
     selection &&
-    resolveOrdinaryContributorGuidance(store, sessionId, binding) !==
+    resolveOrdinaryContributorGuidance(observation, sessionId, binding) !==
       renderTelosWorkRoleContext(selection)
   )
     throw new Error('Retained Telos role context requires complete ordinary guidance');

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { CodexTurnUsage, observedCodexUsage } from './codex-turn-usage.js';
+import { CodexTextProjection } from './codex-text-projection.js';
 import type { StreamEvent } from '@mitzo/harness';
 import type { ProviderFailure } from '@mitzo/protocol';
 import { normalizeCodexToolResult, type CodexToolContentItem } from './codex-tool-result.js';
@@ -9,16 +10,7 @@ function object(value: unknown): ObjectValue {
 }
 /** Converts Codex text/host-tool events into the existing query-loop event contract. */
 export class CodexSessionEvents {
-  private texts = new Map<
-    string,
-    {
-      text: string;
-      closed: boolean;
-      messageId: string;
-      kind: 'text' | 'thinking';
-      providerTurnId?: string;
-    }
-  >();
+  private readonly texts: CodexTextProjection;
   private finishedTurns = new Set<string>();
   private startedTurns = new Set<string>();
   private compacted = new Set<string>();
@@ -28,8 +20,6 @@ export class CodexSessionEvents {
   private fileTools = new Map<string, string>();
   private finishedFiles = new Set<string>();
   private runtimeTools = new Map<string, string>();
-  private replayingReasoning = false;
-  private reasoningReplayOffsets = new Map<string, number>();
   private turnFinished = false;
   private activeTurnId?: string;
   private usage: CodexTurnUsage;
@@ -38,7 +28,7 @@ export class CodexSessionEvents {
     private threadId: string,
     private model: string,
     private emit: (event: ObjectValue) => void,
-    private options: {
+    options: {
       freshThread?: boolean;
       /** Owned provenance binds every item observation to one immutable turn and kind. */
       requireExactTurnIdentity?: boolean;
@@ -47,35 +37,63 @@ export class CodexSessionEvents {
     } = {},
   ) {
     this.usage = new CodexTurnUsage(options.freshThread);
+    this.texts = new CodexTextProjection(
+      {
+        start: (kind, providerTurnId) => {
+          const messageId = randomUUID();
+          if (kind === 'text' && providerTurnId)
+            options.onTextMessageStarted?.(messageId, providerTurnId);
+          this.stream(
+            {
+              type: 'message_start',
+              message: {
+                id: messageId,
+                model: this.model,
+                role: 'assistant',
+                usage: { input_tokens: 0, output_tokens: 0 },
+              },
+            },
+            true,
+          );
+          this.stream({
+            type: 'content_block_start',
+            index: 0,
+            content_block:
+              kind === 'thinking' ? { type: 'thinking', thinking: '' } : { type: 'text', text: '' },
+          });
+        },
+        delta: (kind, text) =>
+          this.stream({
+            type: 'content_block_delta',
+            index: 0,
+            delta:
+              kind === 'thinking'
+                ? { type: 'thinking_delta', thinking: text }
+                : { type: 'text_delta', text },
+          }),
+        complete: (kind, text) => {
+          this.stream({ type: 'content_block_stop', index: 0 });
+          this.emit({
+            type: 'assistant',
+            session_id: this.conversationId,
+            parent_tool_use_id: null,
+            message: {
+              content: [
+                kind === 'thinking' ? { type: 'thinking', thinking: text } : { type: 'text', text },
+              ],
+            },
+          });
+        },
+      },
+      options.requireExactTurnIdentity,
+    );
   }
   setModel(model: string) {
     this.model = model;
   }
   beginReconnectReplay() {
     this.usage.invalidate();
-    this.replayingReasoning = true;
-  }
-  private beginReasoningReplay(itemId: string) {
-    if (!this.replayingReasoning) return;
-    const prefix = `reasoning:${itemId}:`;
-    for (const [id, item] of this.texts) {
-      if (id.startsWith(prefix) && !item.closed) this.reasoningReplayOffsets.set(id, 0);
-    }
-  }
-  private replayedReasoningDelta(id: string, item: { text: string }, delta: string) {
-    const offset = this.reasoningReplayOffsets.get(id);
-    if (offset === undefined) return false;
-    if (item.text.slice(offset, offset + delta.length) !== delta) {
-      this.reasoningReplayOffsets.delete(id);
-      return false;
-    }
-    const next = offset + delta.length;
-    if (next >= item.text.length) this.reasoningReplayOffsets.delete(id);
-    else this.reasoningReplayOffsets.set(id, next);
-    return true;
-  }
-  private finalReasoningSuffix(rendered: string, summary: string) {
-    return summary.startsWith(rendered) ? summary.slice(rendered.length) : '';
+    this.texts.beginReconnectReplay();
   }
   private stream(event: StreamEvent, rendererOnly = false) {
     this.emit({
@@ -85,73 +103,8 @@ export class CodexSessionEvents {
       ...(rendererOnly ? { renderer_only: true } : {}),
     });
   }
-  private start(id: string, kind: 'text' | 'thinking' = 'text', providerTurnId?: unknown) {
-    if (
-      this.options.requireExactTurnIdentity &&
-      (typeof providerTurnId !== 'string' || !providerTurnId)
-    )
-      return;
-    let item = this.texts.get(id);
-    if (item) {
-      if (
-        this.options.requireExactTurnIdentity &&
-        (item.kind !== kind || item.providerTurnId !== providerTurnId)
-      )
-        return;
-      return item;
-    }
-    // The existing renderer has one active assistant message. Finish it before another begins.
-    this.flush();
-    item = {
-      text: '',
-      closed: false,
-      messageId: randomUUID(),
-      kind,
-      ...(typeof providerTurnId === 'string' ? { providerTurnId } : {}),
-    };
-    this.texts.set(id, item);
-    if (kind === 'text' && typeof providerTurnId === 'string' && providerTurnId)
-      this.options.onTextMessageStarted?.(item.messageId, providerTurnId);
-    this.stream(
-      {
-        type: 'message_start',
-        message: {
-          id: item.messageId,
-          model: this.model,
-          role: 'assistant',
-          usage: { input_tokens: 0, output_tokens: 0 },
-        },
-      },
-      true,
-    );
-    this.stream({
-      type: 'content_block_start',
-      index: 0,
-      content_block:
-        kind === 'thinking' ? { type: 'thinking', thinking: '' } : { type: 'text', text: '' },
-    });
-    return item;
-  }
-  private complete(id: string) {
-    const item = this.texts.get(id);
-    if (!item || item.closed) return;
-    item.closed = true;
-    this.stream({ type: 'content_block_stop', index: 0 });
-    this.emit({
-      type: 'assistant',
-      session_id: this.conversationId,
-      parent_tool_use_id: null,
-      message: {
-        content: [
-          item.kind === 'thinking'
-            ? { type: 'thinking', thinking: item.text }
-            : { type: 'text', text: item.text },
-        ],
-      },
-    });
-  }
   flush() {
-    for (const [id] of this.texts) this.complete(id);
+    this.texts.flush();
   }
   private compaction(method: string, params: ObjectValue, item?: ObjectValue, started = false) {
     const privateId =
@@ -256,7 +209,7 @@ export class CodexSessionEvents {
       commandItem.type === 'reasoning' &&
       typeof commandItem.id === 'string'
     ) {
-      this.beginReasoningReplay(commandItem.id);
+      this.texts.beginReasoningReplay(commandItem.id);
       return;
     }
     if (
@@ -368,15 +321,7 @@ export class CodexSessionEvents {
       Number.isInteger(params.summaryIndex)
     ) {
       const id = `reasoning:${params.itemId}:${params.summaryIndex}`;
-      const item = this.start(id, 'thinking', params.turnId);
-      if (!item || item.closed) return;
-      if (this.replayedReasoningDelta(id, item, params.delta)) return;
-      item.text += params.delta;
-      this.stream({
-        type: 'content_block_delta',
-        index: 0,
-        delta: { type: 'thinking_delta', thinking: params.delta },
-      });
+      this.texts.delta(id, 'thinking', params.delta, params.turnId);
       return;
     }
     if (method === 'item/completed') {
@@ -389,19 +334,7 @@ export class CodexSessionEvents {
         final.summary.forEach((text, index) => {
           if (typeof text !== 'string' || !text) return;
           const id = `reasoning:${final.id}:${index}`;
-          this.reasoningReplayOffsets.delete(id);
-          const item = this.start(id, 'thinking', params.turnId);
-          if (!item || item.closed) return;
-          const suffix = this.finalReasoningSuffix(item.text, text);
-          if (suffix) {
-            item.text += suffix;
-            this.stream({
-              type: 'content_block_delta',
-              index: 0,
-              delta: { type: 'thinking_delta', thinking: suffix },
-            });
-          }
-          this.complete(id);
+          this.texts.complete(id, 'thinking', text, params.turnId);
         });
         return;
       }
@@ -411,14 +344,7 @@ export class CodexSessionEvents {
       typeof params.itemId === 'string' &&
       typeof params.delta === 'string'
     ) {
-      const item = this.start(params.itemId, 'text', params.turnId);
-      if (!item || item.closed) return;
-      item.text += params.delta;
-      this.stream({
-        type: 'content_block_delta',
-        index: 0,
-        delta: { type: 'text_delta', text: params.delta },
-      });
+      this.texts.delta(params.itemId, 'text', params.delta, params.turnId);
     } else if (method === 'item/completed') {
       const final = object(params.item);
       if (
@@ -427,17 +353,7 @@ export class CodexSessionEvents {
         typeof final.text !== 'string'
       )
         return;
-      const item = this.start(final.id, 'text', params.turnId);
-      if (!item || item.closed) return;
-      if (!item.text && final.text) {
-        item.text = final.text;
-        this.stream({
-          type: 'content_block_delta',
-          index: 0,
-          delta: { type: 'text_delta', text: final.text },
-        });
-      }
-      this.complete(final.id);
+      this.texts.complete(final.id, 'text', final.text, params.turnId);
     } else if (method === 'turn/completed') {
       const turn = object(params.turn);
       if (typeof turn.id !== 'string' || this.finishedTurns.has(turn.id)) return;
@@ -448,9 +364,7 @@ export class CodexSessionEvents {
       this.usage.invalidate();
       this.finishedTurns.add(turn.id);
       this.turnFinished = true;
-      this.replayingReasoning = false;
-      this.reasoningReplayOffsets.clear();
-      this.flush();
+      this.texts.endTurn();
       for (const [id, toolId] of this.fileTools) {
         this.finishedFiles.add(id);
         this.toolResult(toolId, 'File change interrupted before completion.', true);

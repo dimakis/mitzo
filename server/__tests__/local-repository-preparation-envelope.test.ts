@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
 import { withLocalRepositoryPreparationEnvelope } from '../local-repository-preparation-operation.js';
 
@@ -77,4 +80,54 @@ it('rejects already-cancelled entry before invoking genuine context capture', as
     'synthetic closed owner',
   );
   expect(capture).not.toHaveBeenCalled();
+});
+
+it('persists the real envelope deadline phase in the existing exact tool receipt', async () => {
+  vi.useFakeTimers();
+  const { codexToolFailureResult } = await import('../codex-tool-failure.js');
+  const { CodexConversationStore } = await import('../codex-conversation-store.js');
+  const directory = mkdtempSync(join(tmpdir(), 'mitzo-envelope-diagnostic-'));
+  const store = new CodexConversationStore(join(directory, 'native.db'));
+  const binding = {
+    accountId: 'offline',
+    accountLabel: 'Offline',
+    provider: 'openai-codex',
+    model: 'offline',
+    profileRevision: 'p',
+  };
+  const identity = {
+    turnId: 'turn',
+    toolName: 'PrepareLocalRepository',
+    requestHash: 'f'.repeat(64),
+  };
+  store.create('session', binding, '/task');
+  store.enqueue('session', binding, { id: 'command', prompt: 'Prepare the selected repository' });
+  store.claimNext('session', binding);
+  store.claimTool('session', binding, 'command', 'call', identity);
+  try {
+    const pending = withLocalRepositoryPreparationEnvelope(
+      new AbortController().signal,
+      async (envelope) => {
+        await new Promise<void>((resolve) =>
+          envelope.signal.addEventListener('abort', () => resolve(), { once: true }),
+        );
+        envelope.assertCurrentSync();
+      },
+    ).catch((error) => codexToolFailureResult(error, false));
+    await vi.advanceTimersByTimeAsync(300000);
+    const result = await pending;
+    expect(result).toBeDefined();
+    if (!result) throw Error('Expected retained tool failure');
+    store.recordToolResult('session', binding, 'command', 'call', identity, result);
+    const retained = store.replayToolResult('session', binding, 'command', 'call', identity)!;
+    expect(JSON.parse(retained.content).diagnostic).toMatchObject({
+      stage: 'repository_preparation',
+      reason: 'deadline',
+      effectStatus: 'unknown',
+    });
+    expect(retained.isError).toBe(true);
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

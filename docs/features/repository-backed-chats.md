@@ -240,19 +240,48 @@ copying requires another 2 GiB free for dependencies/builds. These are admission
 checks, not reserved disk quotas; concurrent use can still consume the disk.
 
 For Mitzo development, run `npm run setup:dev -- --install` inside the selected
-workspace. The command requires 2 GiB free, verifies Git/Python/make/C++, and
-prepares workspace-local Node 24 and npm 11.18.0 under ignored `.mitzo-devtools/`.
-It installs the root lockfile with development dependencies, then checks the
-dependency tree, native SQLite/PTY modules and test/build entrypoints. Use the
-reported `toolchainPath` at the front of PATH for later commands. Subsequent
-`npm run setup:dev` checks readiness without installing.
+workspace. The existing setup owner requires 2 GiB free and verifies
+Git/Python/make/C++. It prepares Node 24 and npm 11.18.0 in an ignored
+`.mitzo-devtools/toolchains/<platform-and-specification-key>/` scope, installs the
+root lockfile with development dependencies, then checks the dependency tree,
+native SQLite/PTY modules and test/build entrypoints. Use the reported
+`toolchainPath` at the front of PATH for later commands. No other checkout's
+`node_modules` is borrowed.
+
+The setup owner derives HOME, XDG, temporary, npm prefix/cache and node-gyp
+header directories from this task's `.mitzo-devtools/`. No caller-supplied
+TMPDIR or writable host home/cache is required. Setup refuses directory symlinks
+that redirect these paths outside the task. Native builds receive both the
+[current node-gyp environment setting](https://github.com/nodejs/node-gyp#environment-variables),
+`npm_package_config_node_gyp_devdir`, and its npm 11 compatibility setting.
+
+`readiness.json` records only a successful verified installation identity:
+canonical task root, platform, architecture, Node version/ABI, npm/toolchain
+specification, prerequisite versions, manifest and lockfile. Toolchain receipts
+also fingerprint its Node/npm entrypoints and installed toolchain lockfile.
+Another `--install` rechecks those artifacts, the installed dependency lock,
+`npm ls` and the native/entrypoint probes before reusing the installation. A
+changed lockfile, manifest or ABI reinstalls dependencies; changed toolchain
+artifacts reacquire only their toolchain scope. Downloads remain in separate
+platform/toolchain and installation-keyed npm caches, using npm's integrity
+checks; header caches are scoped by platform/toolchain, Node version and ABI.
+Cache retention does not grant readiness or authorization. A failed `npm ci`
+invalidates readiness before its effect and cannot leave a successful receipt.
+`npm run setup:dev` verifies an unchanged receipt without installing; missing or
+stale readiness requires explicit `--install`.
 
 Installation needs public npm registry/GitHub access. Public pinned GitHub
-dependencies use HTTPS without borrowing a host SSH agent or changing the
-lockfile. Subprocesses receive a minimal environment without inference tokens;
-raw package/Git errors are not returned as public diagnostics. The existing
-agent runtime and image are unchanged. A successful dependency check is not
-evidence of model execution, production deployment or OpenShell egress approval.
+dependencies use HTTPS without a host SSH agent or credential helper. Child
+processes inherit only PATH and the Windows system directory; they receive empty
+npm user/global configuration and no inference, hosting or API credential
+environment. This contract does not grant new sandbox access. The CLI reports
+JSON with `ready`, `phase`, `reason` and `effectStatus`, distinguishing filesystem
+denial, insufficient space, network failure, lockfile mismatch and native
+toolchain failure. Raw package/Git stderr is used only for safe classification
+and is never retained or printed. `may_have_changed` means an install was
+attempted, so a failure must not be treated as a clean pre-effect refusal.
+Cleanup failures retain their own safe reason. A successful setup check is not
+evidence of model execution, deployment or OpenShell egress approval.
 
 Size failures return a specific 512 MiB diagnostic (HTTP 413), and low-space
 failures return a capacity diagnostic (HTTP 507), through the existing picker

@@ -1,21 +1,6 @@
-import { afterAll, expect, it, vi } from 'vitest';
+import { expect, it } from 'vitest';
 import type { StoredEvent } from '../event-store.js';
-
-const owner = await vi.hoisted(async () => {
-  const fs = await import('node:fs');
-  const os = await import('node:os');
-  const path = await import('node:path');
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'retained-error-replay-'));
-  vi.stubEnv('REPO_PATH', root);
-  return { remove: () => fs.rmSync(root, { recursive: true, force: true }) };
-});
-vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
-const { eventStore, replayEventsToMessages, replayEventsToTranscript } = await import('../chat.js');
-afterAll(() => {
-  eventStore.close();
-  owner.remove();
-  vi.unstubAllEnvs();
-});
+import { replayEventsToMessages, replayEventsToTranscript } from '../conversation-transcript.js';
 
 const sessionId = 'retained-replay';
 const savedError = {

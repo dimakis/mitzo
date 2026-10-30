@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import type { NativeFileHelperTransport } from './native-file-operation.js';
+import { PreparedTopologySchema, preparedTopologyPython } from './native-repository-topology.js';
 const path = z
   .string()
   .min(1)
@@ -22,6 +23,7 @@ const Plan = z
     sourcePath: path,
     taskRoot: path.optional(),
     workspaceId: z.uuid().optional(),
+    expectedTopology: PreparedTopologySchema.optional(),
     readableRoots: z.array(path).min(1).max(256),
     deniedRoots: z.array(path).max(256),
     excludedNames: z
@@ -40,6 +42,14 @@ const Plan = z
       (!value.taskRoot || !value.workspaceId)
     )
       ctx.addIssue({ code: 'custom', message: 'Allocation identity required' });
+    const expected = value.expectedTopology;
+    if (
+      expected &&
+      (value.mode !== (expected.linked ? 'topology' : 'task-topology') ||
+        value.sourcePath !== (expected.source?.root.path ?? expected.directory) ||
+        (expected.linked && expected.directory !== value.taskRoot + '/repo-' + value.workspaceId))
+    )
+      ctx.addIssue({ code: 'custom', message: 'Exact topology phase required' });
   });
 export type RepositoryObservationPlan = z.infer<typeof Plan>;
 export type RepositoryObservationInput = Pick<
@@ -112,6 +122,11 @@ export function freezeRepositoryObservationPlan(
   Object.freeze(parsed.readableRoots);
   Object.freeze(parsed.deniedRoots);
   Object.freeze(parsed.excludedNames);
+  const freeze = (value: object) => {
+    for (const item of Object.values(value)) if (item && typeof item === 'object') freeze(item);
+    Object.freeze(value);
+  };
+  if (parsed.expectedTopology) freeze(parsed.expectedTopology);
   return Object.freeze(parsed);
 }
 export function projectRepositoryObservationRequest(input: unknown) {
@@ -176,7 +191,8 @@ export async function captureRepositoryObservation(
   if (
     data.mode !== plan.mode ||
     typeof value.digest !== 'string' ||
-    !/^[a-f0-9]{64}$/.test(value.digest)
+    !/^[a-f0-9]{64}$/.test(value.digest) ||
+    (plan.expectedTopology && value.topologyVerified !== true)
   )
     throw fail();
   const canonical = (value: unknown): unknown =>
@@ -254,8 +270,10 @@ export async function verifyRepositoryObservation(
 }
 /** Fixed read-only operation inside the existing descriptor helper and SRT boundary. */
 export const repositoryObservationPython = String.raw`
+${preparedTopologyPython}
 class RepositorySourceMissingError(Exception): pass
 def repository_observation(request):
+    import re
     plan = request['repositoryPlan']
     deadline = time.monotonic() + request['timeoutMs'] / 1000
     exclusions, excluded_names, readable = plan['deniedRoots'], set(plan['excludedNames']), plan['readableRoots']
@@ -397,6 +415,7 @@ def repository_observation(request):
     if plan['mode'] == 'task-topology' and value['kind'] != 'directory': fail()
     if value['kind'] == 'file':
         text = read(marker).decode('utf-8')
+        if plan.get('expectedTopology') is not None and re.fullmatch(r'gitdir: ([^\r\n\x00]+)\r?\n?', text) is None: fail()
         if not text.startswith('gitdir: ') or '\x00' in text: fail()
         pointer = text[8:].rstrip('\r\n')
         if not pointer or '\n' in pointer or '\r' in pointer: fail()
@@ -406,7 +425,9 @@ def repository_observation(request):
     common = git; pointer = read(os.path.join(git, 'commondir'))
     if pointer is not None:
         if plan['mode'] == 'task-topology': fail()
-        pointer = pointer.decode('utf-8').rstrip('\r\n')
+        pointer = pointer.decode('utf-8')
+        if plan.get('expectedTopology') is not None and re.fullmatch(r'[^\r\n\x00]+\r?\n?', pointer) is None: fail()
+        pointer = pointer.rstrip('\r\n')
         if not pointer or '\x00' in pointer or '\n' in pointer or '\r' in pointer: fail()
         common = os.path.normpath(os.path.join(git, pointer))
     for root in sorted(set([git, common])):
@@ -477,6 +498,78 @@ def repository_observation(request):
                 read(os.path.join(admin,name),16*1024*1024 if name=='index' else 65536)
             read(targets[2],128 if plan['mode']=='topology' else 4096)
             if plan['mode'] == 'adoption': read(targets[4],65536)
+    if plan.get('expectedTopology') is not None:
+        assert_prepared_topology(plan['expectedTopology'], source, git, common, entries, files, absent, lambda: deadline - time.monotonic(), check, fail)
+        # The same physical phase owns the parser wait and postconditions. Keep
+        # original descriptors alive, then re-open absolute chains so a retained
+        # descriptor cannot conceal root/gitfile substitution during that wait.
+        fresh = {}
+        def current_directory(path):
+            allowed(path, True)
+            if path in fresh: return fresh[path]
+            fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            prefix = ''
+            try:
+                for part in [part for part in path.split('/') if part]:
+                    prefix += '/' + part; allowed(prefix, True)
+                    child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                    os.close(fd); fd = child
+                if len(fresh) >= 128:
+                    oldest = next(iter(fresh)); os.close(fresh.pop(oldest))
+                fresh[path] = fd
+                return fd
+            except:
+                os.close(fd); raise
+        try:
+            for path, before in list(entries.items()):
+                check()
+                parent = current_directory(os.path.dirname(path))
+                info = os.fstat(parent) if path == '/' else os.stat(os.path.basename(path), dir_fd=parent, follow_symlinks=False)
+                if state(path, info) != before: fail()
+            for path, before in list(directories.items()):
+                if not before['complete']: continue
+                names = bounded_names(current_directory(path)); kept = []; incomplete = False
+                for name in names:
+                    child = os.path.join(path, name)
+                    if name in excluded_names or any(contains(root, child) for root in exclusions): incomplete = True
+                    else: kept.append(name)
+                if sorted(kept) != before['names'] or incomplete != before['incomplete']: fail()
+            for path, captured in list(files.items()):
+                check()
+                if captured['link']: fail()
+                expected = base64.b64decode(captured['bytes'], validate=True)
+                parent = current_directory(os.path.dirname(path)); name = os.path.basename(path)
+                child = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+                try:
+                    if state(path, os.fstat(child)) != entries[path]: fail()
+                    data = bytearray()
+                    while len(data) < len(expected):
+                        check(); chunk = os.read(child, min(65536, len(expected) - len(data)))
+                        if not chunk: fail()
+                        data.extend(chunk)
+                    if bytes(data) != expected or state(path, os.fstat(child)) != entries[path] or state(path, os.stat(name, dir_fd=parent, follow_symlinks=False)) != entries[path]: fail()
+                finally: os.close(child)
+            for path in absent:
+                check()
+                try:
+                    parent = current_directory(os.path.dirname(path))
+                    os.stat(os.path.basename(path), dir_fd=parent, follow_symlinks=False)
+                except FileNotFoundError: continue
+                fail()
+        finally:
+            for fd in fresh.values(): os.close(fd)
+        # Refuse a moved/replaced parent even when every byte above was read
+        # from a still-live original descriptor.
+        for path, original in directory_fds.items():
+            check(); fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            prefix = ''
+            try:
+                for part in [part for part in path.split('/') if part]:
+                    prefix += '/' + part; allowed(prefix, True)
+                    child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                    os.close(fd); fd = child
+                if ident(os.fstat(fd)) != ident(os.fstat(original)): fail()
+            finally: os.close(fd)
     data = {'version': plan['version'], 'mode': plan['mode'], 'entries': [{'path': path, 'entry': entries[path]} for path in sorted(entries)], 'directories': [directories[path] for path in sorted(directories)], 'files': [files[path] for path in sorted(files)], 'absent': sorted(absent)}
     for fd in directory_fds.values(): os.close(fd)
     directory_fds.clear()
@@ -486,7 +579,7 @@ def repository_observation(request):
     if request['operation'] == 'VerifyRepositoryObservation':
         if digest != request['repositoryDigest']: fail()
         return json.dumps({'verified': True})
-    return json.dumps({'data': data, 'digest': digest})
+    return json.dumps({'data': data, 'digest': digest, **({'topologyVerified': True} if plan.get('expectedTopology') is not None else {})})
 `;
 
 /** Standalone fixed reader: pass only JSON over stdin, never through shell source. */

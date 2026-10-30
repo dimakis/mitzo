@@ -184,6 +184,77 @@ export const CodexNativeTurnTargetSchema = z.strictObject({
   generation: z.number().int().nonnegative().safe(),
 });
 export type CodexNativeTurnTarget = z.infer<typeof CodexNativeTurnTargetSchema>;
+const CompletionPhaseReceiptSchema = z.strictObject({
+  version: z.literal(1),
+  target: CodexNativeTurnTargetSchema,
+  status: z.enum(['pending', 'unknown', 'completed']),
+  observedOutcome: z.enum(['unknown', 'completed']),
+  priorEffectsUnknown: z.boolean().default(true),
+  workspaceDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  policyRevision: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  startedAt: z.number().int().nonnegative().safe(),
+  observedAt: z.number().int().nonnegative().safe().optional(),
+  reconciledAt: z.number().int().nonnegative().safe().optional(),
+});
+const CompletionPhaseHistorySchema = z
+  .array(CompletionPhaseReceiptSchema)
+  .max(100)
+  .refine((rows) => new Set(rows.map((row) => row.target.attempt)).size === rows.length);
+export type CompletionPhaseReceipt = z.infer<typeof CompletionPhaseReceiptSchema>;
+const CommandTransportDiagnosticSchema = z.strictObject({
+  stage: z.enum(['native_transport', 'workspace_transition']),
+  reason: z.enum([
+    'child_exit',
+    'process_error',
+    'stream_error',
+    'timeout',
+    'connection',
+    'protocol',
+    'completion_hook_failed',
+    'completion_hook_pending',
+  ]),
+  exitCode: z.number().int().safe().nullable().optional(),
+  signal: z
+    .string()
+    .regex(/^SIG[A-Z0-9]+$/)
+    .max(32)
+    .nullable()
+    .optional(),
+  stream: z.enum(['stdin', 'stdout', 'stderr']).optional(),
+  causeCode: z
+    .string()
+    .regex(/^[A-Z][A-Z0-9_]+$/)
+    .max(40)
+    .optional(),
+  release: z.string().min(1).max(200),
+  releaseRevision: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .optional(),
+  nativeArtifactSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  runtimeBindingRevision: z.string().min(1).max(200).optional(),
+  nativeVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
+  workspaceDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  traceId: z
+    .string()
+    .regex(/^[a-f0-9]{32}$/)
+    .optional(),
+});
+const CommandTransportDiagnosticHistorySchema = z
+  .array(
+    z.strictObject({
+      attempt: z.number().int().positive().safe(),
+      diagnostic: CommandTransportDiagnosticSchema,
+    }),
+  )
+  .max(100);
+export type CommandTransportDiagnostic = z.infer<typeof CommandTransportDiagnosticSchema>;
 const CompletedPreparedRepositorySourceSchema = CodexNativeTurnTargetSchema.extend({
   callId: z.string().min(1).max(200),
   toolName: z.literal('PrepareLocalRepository'),
@@ -429,6 +500,38 @@ type LiveThreadEvent = {
   turn?: string;
   before?: unknown;
 };
+// These existing ledgers contradict a live owner's never-submitted witness.
+// Command-owned evidence includes historical attempts and capacity source use.
+const PreDispatchConflictSql = `EXISTS (
+  SELECT 1 FROM codex_thread_acceptances WHERE conversation_id=c.conversation_id AND command_id=c.id
+  UNION ALL SELECT 1 FROM codex_capacity_native_acks WHERE conversation_id=c.conversation_id AND command_id=c.id
+  UNION ALL SELECT 1 FROM codex_capacity_continuations WHERE conversation_id=c.conversation_id AND (command_id=c.id OR source_command_id=c.id)
+  UNION ALL SELECT 1 FROM codex_tools WHERE conversation_id=c.conversation_id AND command_id=c.id
+  UNION ALL SELECT 1 FROM codex_pending_thread_dispatches WHERE conversation_id=c.conversation_id AND command_id=c.id
+)`;
+const PreDispatchCapacitySql = `(SELECT data FROM codex_capacity_recoveries WHERE conversation_id=c.conversation_id)`;
+const PreDispatchCandidateSql = `(c.pre_dispatch_failure=1 AND (c.status='queued' OR (c.status='failed' AND c.attempt=1)))`;
+const PreDispatchEvidenceSql = `c.id,c.status,c.attempt,c.native_turns,c.native_execution_history,
+  c.pre_dispatch_failure,c.completion_phases,${PreDispatchConflictSql} AS dispatch_conflict,
+  ${PreDispatchCapacitySql} AS capacity_recovery`;
+const PreDispatchCandidateEvidenceSql = `c.id,c.status,c.attempt,c.native_turns,c.pre_dispatch_failure,
+  CASE WHEN ${PreDispatchCandidateSql} THEN c.native_execution_history END AS native_execution_history,
+  CASE WHEN ${PreDispatchCandidateSql} THEN c.completion_phases END AS completion_phases,
+  CASE WHEN ${PreDispatchCandidateSql} THEN c.input END AS input,
+  CASE WHEN ${PreDispatchCandidateSql} THEN ${PreDispatchConflictSql} ELSE 1 END AS dispatch_conflict,
+  CASE WHEN ${PreDispatchCandidateSql} THEN ${PreDispatchCapacitySql} END AS capacity_recovery`;
+type PreDispatchEvidence = {
+  id: string;
+  status: string;
+  attempt: number;
+  pre_dispatch_failure: number;
+  native_turns: string | null;
+  native_execution_history: string | null;
+  completion_phases: string | null;
+  input: string | null;
+  dispatch_conflict: number;
+  capacity_recovery: string | null;
+};
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
   private readonly db: Database.Database;
@@ -643,6 +746,10 @@ export class CodexConversationStore {
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN native_turns TEXT');
       if (!columns.some((column) => column.name === 'native_execution_history'))
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN native_execution_history TEXT');
+      if (!columns.some((column) => column.name === 'transport_diagnostic'))
+        this.db.exec('ALTER TABLE codex_commands ADD COLUMN transport_diagnostic TEXT');
+      if (!columns.some((column) => column.name === 'completion_phases'))
+        this.db.exec('ALTER TABLE codex_commands ADD COLUMN completion_phases TEXT');
       const pendingColumns = this.db
         .prepare('PRAGMA table_info(codex_pending_thread_dispatches)')
         .all() as Array<{ name: string }>;
@@ -1815,6 +1922,8 @@ export class CodexConversationStore {
       const current = this.read(id, b);
       if (!threadId || threadId === expectedThreadId || current.threadId !== expectedThreadId)
         throw new Error('Codex provider thread generation changed');
+      if (this.unsettledCommandEffects(id)?.phase)
+        throw Error('Completion phase custody must settle before replacing its native lineage');
       const generation = current.threadGeneration + 1;
       const now = Date.now();
       this.db
@@ -2015,35 +2124,42 @@ export class CodexConversationStore {
       throw Error('Native recovery has unsettled work');
     const row = this.db
       .prepare(
-        'SELECT input,status,attempt,native_turns,native_execution_history,pre_dispatch_failure FROM codex_commands WHERE conversation_id=? AND id=?',
+        `SELECT ${PreDispatchEvidenceSql},c.input FROM codex_commands c WHERE c.conversation_id=? AND c.id=?`,
       )
-      .get(id, commandId) as
-      | {
-          input: string;
-          status: CodexCommand['status'];
-          attempt: number;
-          native_turns: string | null;
-          native_execution_history: string | null;
-          pre_dispatch_failure: number;
-        }
-      | undefined;
+      .get(id, commandId) as PreDispatchEvidence | undefined;
     if (!row) return undefined;
+    const command = this.undispatchedInput(row);
+    if (!command) throw Error('Native command may already have executed');
+    return { ...command, status: row.status as CodexCommand['status'], attempt: row.attempt };
+  }
+
+  /** Shared read-time proof; never manufacture authority from absent history or
+   * erase retained ambiguity. Only the live owner's marker qualifies a failure. */
+  private undispatchedInput(row: PreDispatchEvidence): CodexCommandInput | undefined {
     if (
       !['queued', 'failed'].includes(row.status) ||
       (row.status === 'failed' && row.pre_dispatch_failure !== 1) ||
-      row.attempt !== 1 ||
-      this.nativeTurns(row.native_turns).length ||
-      this.readNativeExecutionHistory(id, binding, commandId).length
+      row.attempt !== 1
     )
-      throw Error('Native command may already have executed');
-    const command: CodexCommand = {
-      ...CommandInput.parse(JSON.parse(row.input)),
-      status: row.status,
-      attempt: row.attempt,
-    };
-    if (command.id !== commandId) throw Error('Native command identity changed');
-    if (command.allowedTools || command.environmentContinuation)
-      throw Error('Native continuation cannot be replayed');
+      return undefined;
+    const turns = this.nativeTurns(row.native_turns);
+    const executions = this.nativeExecutions(row.native_execution_history);
+    const phases = this.completionPhases(row.completion_phases);
+    const capacity =
+      row.capacity_recovery === null
+        ? undefined
+        : CapacityRecoverySchema.parse(JSON.parse(row.capacity_recovery));
+    if (
+      capacity &&
+      [capacity.sourceCommandId, capacity.latestCommandId, capacity.childCommandId].includes(row.id)
+    )
+      return undefined;
+    if (row.dispatch_conflict || turns.length || executions.length || phases.length)
+      return undefined;
+    if (row.input === null) return undefined;
+    const command = CommandInput.parse(JSON.parse(row.input));
+    if (command.id !== row.id || command.allowedTools || command.environmentContinuation)
+      return undefined;
     return command;
   }
 
@@ -2114,12 +2230,16 @@ export class CodexConversationStore {
         const command = this.assertUndispatchedCommand(id, binding, commandId);
         if (command?.status !== 'failed') return;
         recordRecovery();
-        this.assertUndispatchedCommand(id, binding, commandId);
-        this.db
+        const settled = this.assertUndispatchedCommand(id, binding, commandId);
+        if (settled?.status !== 'failed') throw Error('Pre-dispatch recovery receipt changed');
+        // Consume known never-submitted custody for its first execution only.
+        // New-message acknowledgement leaves the historical failed row untouched.
+        const updated = this.db
           .prepare(
-            "UPDATE codex_commands SET status='queued' WHERE conversation_id=? AND id=? AND status='failed' AND attempt=1",
+            "UPDATE codex_commands SET status='queued',ambiguous=0 WHERE conversation_id=? AND id=? AND status='failed' AND attempt=1 AND pre_dispatch_failure=1",
           )
           .run(id, commandId);
+        if (updated.changes !== 1) throw Error('Pre-dispatch recovery receipt changed');
       })
       .immediate();
   }
@@ -2132,14 +2252,9 @@ export class CodexConversationStore {
     this.assertNoPendingThreadOwnership(id, binding);
     const rows = this.db
       .prepare(
-        'SELECT status,attempt,native_turns,pre_dispatch_failure FROM codex_commands WHERE conversation_id=? ORDER BY sequence DESC',
+        `SELECT ${PreDispatchCandidateEvidenceSql} FROM codex_commands c WHERE c.conversation_id=? ORDER BY c.sequence DESC`,
       )
-      .all(id) as Array<{
-      status: string;
-      attempt: number;
-      native_turns: string | null;
-      pre_dispatch_failure: number;
-    }>;
+      .iterate(id) as Iterable<PreDispatchEvidence>;
     for (const row of rows) {
       const turns = this.nativeTurns(row.native_turns);
       if (turns.length) {
@@ -2153,10 +2268,753 @@ export class CodexConversationStore {
           throw Error('Recovery thread lineage changed');
         return target.threadId;
       }
-      if (row.status === 'failed' && row.attempt === 1 && row.pre_dispatch_failure === 1) continue;
+      if (row.status === 'failed' && this.undispatchedInput(row)) continue;
       if (row.status !== 'queued' && row.status !== 'cancelled') return state.threadId ?? undefined;
     }
     return undefined;
+  }
+
+  /** Exact native target for the existing recovery owner. Missing acceptance
+   * cannot be upgraded into a known pre-effect failure or safe replay. */
+  nativeRecoveryTarget(id: string, binding: AccountBinding): CodexNativeTurnTarget | undefined {
+    const state = this.read(id, binding);
+    this.assertNoPendingThreadDispatch(id, binding);
+    this.assertNoPendingThreadOwnership(id, binding);
+    const rows = this.db
+      .prepare(
+        `SELECT ${PreDispatchCandidateEvidenceSql}
+      FROM codex_commands c WHERE c.conversation_id=? AND c.status NOT IN ('queued','cancelled') ORDER BY c.sequence DESC`,
+      )
+      .iterate(id) as Iterable<PreDispatchEvidence>;
+    for (const row of rows) {
+      if (row.status === 'failed' && this.undispatchedInput(row)) continue;
+      const targets = this.nativeTurns(row.native_turns).filter(
+        (turn) => turn.attempt === row.attempt,
+      );
+      if (targets.length !== 1)
+        throw Error('Native recovery acceptance is unknown; inspect retained work');
+      const target = this.nativeTarget(row.id, targets[0]);
+      const lineage = this.db
+        .prepare(
+          'SELECT thread_id FROM codex_thread_generations WHERE conversation_id=? AND generation=?',
+        )
+        .get(id, target.generation) as { thread_id: string } | undefined;
+      if (lineage?.thread_id !== target.threadId || target.generation > state.threadGeneration)
+        throw Error('Native recovery generation changed');
+      return target;
+    }
+    return undefined;
+  }
+
+  /** Native metadata is evidence only for this exact attempt and observed
+   * lineage. Commit its terminal outcome without replaying its input or tools. */
+  reconcileNativeRecovery(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+    status: 'completed' | 'failed' | 'interrupted',
+    expectedThreadId: string | null,
+    expectedGeneration: number,
+  ) {
+    this.db
+      .transaction(() => {
+        const state = this.read(id, binding);
+        if (
+          state.threadId !== expectedThreadId ||
+          state.threadGeneration !== expectedGeneration ||
+          !isDeepStrictEqual(this.nativeRecoveryTarget(id, binding), target)
+        )
+          throw Error('Native recovery command attempt or generation changed');
+        const row = this.db
+          .prepare(
+            'SELECT status FROM codex_commands WHERE conversation_id=? AND id=? AND attempt=?',
+          )
+          .get(id, target.commandId, target.attempt) as { status: string } | undefined;
+        // A retained completion can never regress because a later phase failed.
+        if (row?.status === 'completed' && status !== 'completed')
+          throw Error('Native recovery terminal outcome conflicts with completed work');
+        this.db
+          .prepare(
+            `UPDATE codex_commands SET status=?,retryable=0
+        WHERE conversation_id=? AND id=? AND attempt=? AND status IN ('interrupted','failed')`,
+          )
+          .run(status, id, target.commandId, target.attempt);
+        if (status === 'completed')
+          this.db
+            .prepare(
+              `UPDATE codex_thread_generations SET last_completed_turn_id=?
+        WHERE conversation_id=? AND generation=? AND thread_id=?`,
+            )
+            .run(target.turnId, id, target.generation, target.threadId);
+      })
+      .immediate();
+  }
+
+  private completionPhases(raw: string | null): CompletionPhaseReceipt[] {
+    if (raw === null) return [];
+    if (Buffer.byteLength(raw) > 65536) throw Error('Completion phase receipt bound exceeded');
+    return CompletionPhaseHistorySchema.parse(JSON.parse(raw));
+  }
+  /** Retained effect custody fences every dispatch/recovery owner, independently
+   * of the queue, transport mode and cached conversation recovery projection. */
+  private unsettledCommandEffects(
+    id: string,
+  ): Readonly<{ commandId: string; phase?: CompletionPhaseReceipt }> | undefined {
+    // One fresh SQL observation streams history through the canonical parser.
+    // CPU is linear in retained history; memory holds one bounded phase history.
+    // NULL tool receipts are read once, not once per historical command.
+    const rows = this.db
+      .prepare(
+        `
+      WITH scope AS (SELECT ? AS id), pending_tools AS MATERIALIZED (
+        SELECT command_id FROM codex_tools WHERE conversation_id=(SELECT id FROM scope)
+          AND result_content IS NULL
+      ), capacity_terminals AS MATERIALIZED (
+        SELECT p.command_id,p.source_command_id,p.recovery_id,p.ordinal,p.terminal,
+          json_object('commandId',c.id,'attempt',c.attempt,'threadId',a.thread_id,
+            'turnId',a.turn_id,'generation',a.generation) AS target,
+          a.thread_id,a.turn_id,a.generation,c.native_turns
+        FROM codex_capacity_continuations p
+        JOIN codex_commands c ON c.conversation_id=p.conversation_id AND c.id=p.command_id
+        JOIN codex_capacity_native_acks a ON a.conversation_id=c.conversation_id
+          AND a.command_id=c.id AND a.attempt=c.attempt
+        JOIN codex_thread_generations g ON g.conversation_id=c.conversation_id
+          AND g.generation=a.generation AND g.thread_id=a.thread_id
+        LEFT JOIN codex_thread_acceptances accepted ON accepted.conversation_id=c.conversation_id
+          AND accepted.command_id=c.id AND accepted.attempt=c.attempt
+        WHERE p.conversation_id=(SELECT id FROM scope) AND p.dispatched=1 AND p.ordinal>=0
+          AND p.thread_id=a.thread_id AND p.turn_id=a.turn_id
+          AND ((p.terminal='capacity' AND c.status='failed') OR
+            (p.terminal='completed' AND c.status='completed' AND coalesce(c.ambiguous,0)<>1))
+          AND (accepted.command_id IS NULL OR (accepted.thread_id=a.thread_id
+            AND accepted.turn_id=a.turn_id AND accepted.generation=a.generation
+            AND accepted.ownership_pending=0 AND accepted.terminal_conflict=0))
+      ), resolved_lineages AS MATERIALIZED (
+        SELECT *,row_number() OVER (PARTITION BY source_command_id,thread_id,generation
+          ORDER BY command_id) AS ordinal_choice FROM capacity_terminals
+        WHERE ordinal>0 AND command_id NOT IN (SELECT command_id FROM pending_tools)
+          AND command_id IN (SELECT id FROM codex_commands WHERE conversation_id=(SELECT id FROM scope)
+            AND status='completed')
+      )
+      SELECT c.id,c.status,c.attempt,c.native_turns,c.completion_phases,c.ambiguous,c.recovery_acknowledged,
+        c.pre_dispatch_failure,
+        CASE WHEN ${PreDispatchCandidateSql} THEN c.native_execution_history END AS native_execution_history,
+        CASE WHEN ${PreDispatchCandidateSql} THEN c.input END AS input,
+        CASE WHEN ${PreDispatchCandidateSql} THEN ${PreDispatchConflictSql} ELSE 1 END AS dispatch_conflict,
+        c.id IN (SELECT command_id FROM pending_tools) AS pending_tool,
+        proof.target AS capacity_target,proof.source_command_id AS capacity_source_id,
+        root.target AS capacity_source_target,root.native_turns AS capacity_source_native_turns,
+        resolved.target AS capacity_resolved_target,resolved.native_turns AS capacity_resolved_native_turns,
+        recovery.data AS capacity_recovery,latest.target AS recovery_latest_target,
+        latest.native_turns AS recovery_latest_native_turns,
+        latest.source_command_id AS recovery_latest_source_id,latest.recovery_id AS recovery_latest_id,
+        reservation.command_id AS reserved_child_id,reservation.source_command_id AS reserved_child_source_id,
+        reservation.recovery_id AS reserved_child_recovery_id,reservation.thread_id AS reserved_child_thread_id,
+        cv.thread_id AS current_thread_id,cv.thread_generation AS current_generation
+      FROM codex_commands c JOIN codex_conversations cv ON cv.id=c.conversation_id
+      LEFT JOIN capacity_terminals proof ON proof.command_id=c.id AND c.status='failed'
+      LEFT JOIN capacity_terminals root ON root.command_id=proof.source_command_id
+        AND root.source_command_id=root.command_id AND root.ordinal=0 AND root.terminal='capacity'
+        AND root.thread_id=proof.thread_id AND root.generation=proof.generation
+      LEFT JOIN resolved_lineages resolved ON resolved.source_command_id=root.command_id
+        AND resolved.thread_id=root.thread_id AND resolved.generation=root.generation
+        AND resolved.ordinal_choice=1
+      LEFT JOIN codex_capacity_recoveries recovery ON recovery.conversation_id=c.conversation_id
+      LEFT JOIN capacity_terminals latest ON latest.command_id=json_extract(recovery.data,'$.latestCommandId') AND latest.terminal='capacity'
+      LEFT JOIN codex_capacity_continuations reservation ON reservation.conversation_id=c.conversation_id
+        AND reservation.command_id=json_extract(recovery.data,'$.childCommandId') AND reservation.ordinal>0
+      WHERE c.conversation_id=(SELECT id FROM scope)
+        AND (c.completion_phases IS NOT NULL OR c.id IN (SELECT command_id FROM pending_tools)
+          OR (c.status IN ('failed','interrupted','completed') AND c.ambiguous=1)
+          OR (c.status='queued' AND c.pre_dispatch_failure=1))
+      ORDER BY c.sequence
+    `,
+      )
+      .iterate(id) as Iterable<{
+      id: string;
+      status: string;
+      attempt: number;
+      native_turns: string | null;
+      completion_phases: string | null;
+      ambiguous: number | null;
+      pending_tool: number;
+      recovery_acknowledged: number;
+      pre_dispatch_failure: number;
+      native_execution_history: string | null;
+      input: string | null;
+      dispatch_conflict: number;
+      capacity_target: string | null;
+      capacity_source_id: string | null;
+      capacity_source_target: string | null;
+      capacity_source_native_turns: string | null;
+      capacity_resolved_target: string | null;
+      capacity_resolved_native_turns: string | null;
+      capacity_recovery: string | null;
+      recovery_latest_target: string | null;
+      recovery_latest_native_turns: string | null;
+      recovery_latest_source_id: string | null;
+      recovery_latest_id: string | null;
+      reserved_child_id: string | null;
+      reserved_child_source_id: string | null;
+      reserved_child_recovery_id: string | null;
+      reserved_child_thread_id: string | null;
+      current_thread_id: string | null;
+      current_generation: number;
+    }>;
+    let firstUnsettled: Readonly<{ commandId: string }> | undefined;
+    for (const row of rows) {
+      const targets = this.nativeTurns(row.native_turns);
+      for (const phase of this.completionPhases(row.completion_phases)) {
+        const accepted = targets.filter((turn) => turn.attempt === phase.target.attempt);
+        if (
+          phase.target.commandId !== row.id ||
+          accepted.length !== 1 ||
+          !isDeepStrictEqual(this.nativeTarget(row.id, accepted[0]), phase.target)
+        )
+          throw Error('Completion phase target changed');
+        if (
+          phase.status !== 'completed' ||
+          phase.observedOutcome !== 'completed' ||
+          row.ambiguous === 1 ||
+          row.pending_tool
+        )
+          return { commandId: row.id, phase };
+      }
+      if (row.pending_tool) {
+        firstUnsettled ??= { commandId: row.id };
+        continue;
+      }
+      if (row.status === 'queued' && row.pre_dispatch_failure === 1) {
+        if (!this.undispatchedInput(row)) firstUnsettled ??= { commandId: row.id };
+        continue;
+      }
+      if (['failed', 'interrupted', 'completed'].includes(row.status) && row.ambiguous === 1) {
+        if (row.status === 'failed' && this.undispatchedInput(row)) continue;
+        const settledCapacity = (() => {
+          // Only the existing exact capacity terminal owner can qualify its failed
+          // source. A generic acknowledgement, diagnostic or native status cannot.
+          if (row.status !== 'failed' || !row.capacity_target || !row.capacity_source_target)
+            return false;
+          const target = CodexNativeTurnTargetSchema.parse(JSON.parse(row.capacity_target));
+          const source = CodexNativeTurnTargetSchema.parse(JSON.parse(row.capacity_source_target));
+          const agrees = (raw: string | null, expected: CodexNativeTurnTarget) => {
+            if (raw === null) return true; // Capacity ACK predates the separate native-turn ledger.
+            const accepted = this.nativeTurns(raw).filter(
+              (turn) => turn.attempt === expected.attempt,
+            );
+            return (
+              accepted.length === 1 &&
+              isDeepStrictEqual(this.nativeTarget(expected.commandId, accepted[0]), expected)
+            );
+          };
+          if (
+            !agrees(row.native_turns, target) ||
+            !agrees(row.capacity_source_native_turns, source)
+          )
+            return false;
+          const recovery = row.capacity_recovery
+            ? CapacityRecoverySchema.parse(JSON.parse(row.capacity_recovery))
+            : undefined;
+          // Another source's newer episode cannot invalidate this source's
+          // completed lineage or exact acknowledged terminal custody.
+          if (recovery?.sourceCommandId === source.commandId) {
+            const latest =
+              row.recovery_latest_target &&
+              CodexNativeTurnTargetSchema.parse(JSON.parse(row.recovery_latest_target));
+            if (
+              !latest ||
+              !agrees(row.recovery_latest_native_turns, latest) ||
+              recovery.sourceCommandId !== source.commandId ||
+              recovery.latestCommandId !== latest.commandId ||
+              recovery.latestAttempt !== latest.attempt ||
+              recovery.latestTurnId !== latest.turnId ||
+              row.recovery_latest_source_id !== source.commandId ||
+              (!recovery.childCommandId && row.recovery_latest_id !== recovery.id) ||
+              recovery.threadId !== target.threadId ||
+              recovery.generation !== target.generation ||
+              recovery.threadId !== latest.threadId ||
+              recovery.generation !== latest.generation ||
+              row.current_thread_id !== recovery.threadId ||
+              row.current_generation !== recovery.generation ||
+              (recovery.childCommandId &&
+                (recovery.childCommandId !== row.reserved_child_id ||
+                  row.reserved_child_source_id !== source.commandId ||
+                  row.reserved_child_recovery_id !== recovery.id ||
+                  row.reserved_child_thread_id !== recovery.threadId))
+            )
+              return false;
+          } else if (row.capacity_resolved_target) {
+            const resolved = CodexNativeTurnTargetSchema.parse(
+              JSON.parse(row.capacity_resolved_target),
+            );
+            if (!agrees(row.capacity_resolved_native_turns, resolved)) return false;
+          } else if (row.recovery_acknowledged !== 1) return false;
+          return true;
+        })();
+        if (!settledCapacity) firstUnsettled ??= { commandId: row.id };
+      }
+    }
+    return firstUnsettled;
+  }
+  /** Retirement can add a fence when historical evidence is unreadable. It
+   * must still retain the authoritative provider outcome. Release paths use
+   * the strict observation above and never convert invalid data into success. */
+  private needsRetirementEffectsFence(id: string): boolean {
+    try {
+      return !!this.unsettledCommandEffects(id);
+    } catch {
+      return true;
+    }
+  }
+  completionPhaseRecoveryTarget(
+    id: string,
+    binding: AccountBinding,
+  ): CodexNativeTurnTarget | undefined {
+    this.read(id, binding);
+    const phase = this.unsettledCommandEffects(id)?.phase;
+    if (!phase) return undefined;
+    this.assertCompletionPhaseTarget(id, binding, phase.target, true);
+    return phase.target;
+  }
+  completionPhase(
+    id: string,
+    binding: AccountBinding,
+    commandId: string,
+    attempt: number,
+  ): CompletionPhaseReceipt | undefined {
+    this.read(id, binding);
+    const row = this.db
+      .prepare('SELECT completion_phases FROM codex_commands WHERE conversation_id=? AND id=?')
+      .get(id, commandId) as { completion_phases: string | null } | undefined;
+    return row
+      ? this.completionPhases(row.completion_phases).find(
+          (phase) => phase.target.attempt === attempt,
+        )
+      : undefined;
+  }
+  private saveCompletionPhases(id: string, commandId: string, phases: CompletionPhaseReceipt[]) {
+    const value = JSON.stringify(CompletionPhaseHistorySchema.parse(phases));
+    if (Buffer.byteLength(value) > 65536) throw Error('Completion phase receipt bound exceeded');
+    this.db
+      .prepare('UPDATE codex_commands SET completion_phases=? WHERE conversation_id=? AND id=?')
+      .run(value, id, commandId);
+  }
+  private assertCompletionPhaseTarget(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+    requireCurrentLineage = false,
+  ) {
+    const state = this.read(id, binding);
+    const row = this.db
+      .prepare('SELECT attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?')
+      .get(id, target.commandId) as { attempt: number; native_turns: string | null } | undefined;
+    const turns = row
+      ? this.nativeTurns(row.native_turns).filter((turn) => turn.attempt === target.attempt)
+      : [];
+    if (
+      !row ||
+      row.attempt !== target.attempt ||
+      turns.length !== 1 ||
+      !isDeepStrictEqual(this.nativeTarget(target.commandId, turns[0]), target) ||
+      (requireCurrentLineage &&
+        (state.threadId !== target.threadId || state.threadGeneration !== target.generation))
+    )
+      throw Error('Completion phase command attempt or generation changed');
+    const phase = this.completionPhase(id, binding, target.commandId, target.attempt);
+    if (phase && !isDeepStrictEqual(phase.target, target))
+      throw Error('Completion phase target changed');
+    return phase;
+  }
+  /** Original hook owner records pending custody before invoking the effect. */
+  beginCompletionPhase(
+    id: string,
+    binding: AccountBinding,
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+    threadId: string,
+    turnId: string,
+    workspaceDigest: string,
+    policyRevision?: string,
+  ): CompletionPhaseReceipt {
+    return this.db
+      .transaction(() => {
+        const state = this.read(id, binding);
+        const target = CodexNativeTurnTargetSchema.parse({
+          commandId: command.id,
+          attempt: command.attempt,
+          threadId,
+          turnId,
+          generation: state.threadGeneration,
+        });
+        const existing = this.assertCompletionPhaseTarget(id, binding, target, true);
+        if (existing) throw Error('Completion phase was already invoked; never replay the hook');
+        const row = this.db
+          .prepare(
+            'SELECT completion_phases,status,ambiguous FROM codex_commands WHERE conversation_id=? AND id=?',
+          )
+          .get(id, command.id) as {
+          completion_phases: string | null;
+          status: string;
+          ambiguous: number | null;
+        };
+        if (row.status !== 'running') throw Error('Completion phase command is no longer running');
+        const phase = CompletionPhaseReceiptSchema.parse({
+          version: 1,
+          target,
+          status: 'pending',
+          observedOutcome: 'unknown',
+          priorEffectsUnknown: row.ambiguous === 1,
+          workspaceDigest,
+          ...(policyRevision ? { policyRevision } : {}),
+          startedAt: Date.now(),
+        });
+        this.saveCompletionPhases(id, command.id, [
+          ...this.completionPhases(row.completion_phases),
+          phase,
+        ]);
+        return phase;
+      })
+      .immediate();
+  }
+  /** The original exact completed notification admits its downstream phase
+   * and retains the provider fact atomically, before invoking the hook. This
+   * records no hook result and grants no recovery or queue release. */
+  beginCompletedProviderPhase(
+    id: string,
+    binding: AccountBinding,
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+    threadId: string,
+    turnId: string,
+    workspaceDigest: string,
+    policyRevision?: string,
+  ): CompletionPhaseReceipt {
+    return this.db
+      .transaction(() => {
+        const phase = this.beginCompletionPhase(
+          id,
+          binding,
+          command,
+          threadId,
+          turnId,
+          workspaceDigest,
+          policyRevision,
+        );
+        const acceptance = this.db
+          .prepare(
+            `SELECT thread_id,turn_id,generation,ownership_pending,terminal_conflict
+        FROM codex_thread_acceptances WHERE conversation_id=? AND command_id=? AND attempt=?`,
+          )
+          .get(id, command.id, command.attempt) as
+          | {
+              thread_id: string;
+              turn_id: string;
+              generation: number;
+              ownership_pending: number;
+              terminal_conflict: number;
+            }
+          | undefined;
+        if (
+          acceptance &&
+          (acceptance.thread_id !== threadId ||
+            acceptance.turn_id !== turnId ||
+            acceptance.generation !== phase.target.generation ||
+            acceptance.ownership_pending !== 0 ||
+            acceptance.terminal_conflict !== 0)
+        )
+          throw Error('Completed provider acceptance changed or conflicted');
+        const updated = this.db
+          .prepare(
+            `UPDATE codex_commands SET status='completed'
+        WHERE conversation_id=? AND id=? AND attempt=? AND status='running'`,
+          )
+          .run(id, command.id, command.attempt);
+        if (updated.changes !== 1) throw Error('Completed provider command attempt changed');
+        const checkpoint = this.db
+          .prepare(
+            `UPDATE codex_thread_generations SET last_completed_turn_id=?
+        WHERE conversation_id=? AND generation=? AND thread_id=?`,
+          )
+          .run(turnId, id, phase.target.generation, threadId);
+        if (checkpoint.changes !== 1) throw Error('Completed provider generation changed');
+        this.db
+          .prepare(
+            'UPDATE codex_conversations SET rollover_context=NULL WHERE id=? AND thread_id=?',
+          )
+          .run(id, threadId);
+        return phase;
+      })
+      .immediate();
+  }
+  /** Original terminal owner observed no configured completion effect. This
+   * is historical phase evidence only, never a native-outcome/release grant. */
+  observeEmptyCompletionPhase(
+    id: string,
+    binding: AccountBinding,
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+    threadId: string,
+    turnId: string,
+    workspaceDigest: string,
+    policyRevision?: string,
+  ) {
+    this.db
+      .transaction(() => {
+        this.read(id, binding);
+        const row = this.db
+          .prepare(
+            `SELECT status,ambiguous,completion_phases,
+        EXISTS (SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=?
+          AND result_content IS NULL) AS pending_tool
+        FROM codex_commands WHERE conversation_id=? AND id=? AND attempt=?`,
+          )
+          .get(id, command.id, id, command.id, command.attempt) as
+          | {
+              status: string;
+              ambiguous: number | null;
+              completion_phases: string | null;
+              pending_tool: number;
+            }
+          | undefined;
+        if (
+          !row ||
+          row.status !== 'running' ||
+          row.ambiguous === 1 ||
+          row.pending_tool ||
+          this.completionPhases(row.completion_phases).length !== 0
+        )
+          return;
+        const phase = this.beginCompletionPhase(
+          id,
+          binding,
+          command,
+          threadId,
+          turnId,
+          workspaceDigest,
+          policyRevision,
+        );
+        this.observeCompletionPhase(id, binding, phase.target, 'completed');
+      })
+      .immediate();
+  }
+  /** Only the original invocation promise supplies effect evidence. This is
+   * historical observation, not authority to release queued work. */
+  observeCompletionPhase(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+    outcome: 'completed' | 'unknown',
+  ) {
+    this.db
+      .transaction(() => {
+        const phase = this.assertCompletionPhaseTarget(id, binding, target);
+        if (!phase) throw Error('Completion phase receipt unavailable');
+        const row = this.db
+          .prepare('SELECT completion_phases FROM codex_commands WHERE conversation_id=? AND id=?')
+          .get(id, target.commandId) as { completion_phases: string | null };
+        const phases = this.completionPhases(row.completion_phases);
+        this.saveCompletionPhases(
+          id,
+          target.commandId,
+          phases.map((current) =>
+            current.target.attempt !== target.attempt
+              ? current
+              : {
+                  ...current,
+                  status: current.status === 'completed' ? 'completed' : 'unknown',
+                  observedOutcome: current.observedOutcome === 'completed' ? 'completed' : outcome,
+                  observedAt: Date.now(),
+                },
+          ),
+        );
+      })
+      .immediate();
+  }
+  /** A fresh account/workspace authority boundary supplies this reconciliation.
+   * It consumes original success evidence and never invokes a hook or tool. */
+  reconcileCompletionPhase(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+    workspaceDigest: string,
+    policyRevision?: string,
+  ) {
+    this.db
+      .transaction(() => {
+        const phase = this.assertCompletionPhaseTarget(id, binding, target, true);
+        this.assertNoPendingThreadDispatch(id, binding);
+        this.assertNoPendingThreadOwnership(id, binding);
+        if (
+          !phase ||
+          phase.observedOutcome !== 'completed' ||
+          phase.workspaceDigest !== workspaceDigest ||
+          phase.policyRevision !== policyRevision
+        )
+          throw Error('Completion phase success or workspace authority remains unknown');
+        const row = this.db
+          .prepare(
+            'SELECT completion_phases,status FROM codex_commands WHERE conversation_id=? AND id=?',
+          )
+          .get(id, target.commandId) as { completion_phases: string | null; status: string };
+        if (!['running', 'completed'].includes(row.status))
+          throw Error('Completion phase requires the exact completed native outcome');
+        this.saveCompletionPhases(
+          id,
+          target.commandId,
+          this.completionPhases(row.completion_phases).map((current) =>
+            current.target.attempt !== target.attempt
+              ? current
+              : { ...current, status: 'completed', reconciledAt: Date.now() },
+          ),
+        );
+        if (!phase.priorEffectsUnknown)
+          this.db
+            .prepare(
+              `UPDATE codex_commands SET ambiguous=CASE WHEN EXISTS (SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? AND result_content IS NULL) THEN 1 ELSE 0 END WHERE conversation_id=? AND id=? AND attempt=?`,
+            )
+            .run(id, target.commandId, id, target.commandId, target.attempt);
+      })
+      .immediate();
+  }
+
+  /** Outcome evidence lives with its existing exact command attempt. Observers
+   * cannot replace the first recorded native cause or rewrite command input. */
+  recordTransportDiagnostic(
+    id: string,
+    binding: AccountBinding,
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+    diagnostic: CommandTransportDiagnostic,
+  ) {
+    const checked = CommandTransportDiagnosticSchema.parse(diagnostic);
+    this.db
+      .transaction(() => {
+        this.read(id, binding);
+        const row = this.db
+          .prepare(
+            'SELECT transport_diagnostic FROM codex_commands WHERE conversation_id=? AND id=? AND attempt=?',
+          )
+          .get(id, command.id, command.attempt) as
+          { transport_diagnostic: string | null } | undefined;
+        if (!row) throw Error('Transport diagnostic command attempt changed');
+        const history = row.transport_diagnostic
+          ? CommandTransportDiagnosticHistorySchema.parse(JSON.parse(row.transport_diagnostic))
+          : [];
+        if (
+          history.some(
+            (entry) =>
+              entry.attempt === command.attempt && entry.diagnostic.stage === checked.stage,
+          )
+        )
+          return;
+        const next = CommandTransportDiagnosticHistorySchema.parse([
+          ...history,
+          { attempt: command.attempt, diagnostic: checked },
+        ]);
+        this.db
+          .prepare(
+            'UPDATE codex_commands SET transport_diagnostic=? WHERE conversation_id=? AND id=? AND attempt=?',
+          )
+          .run(JSON.stringify(next), id, command.id, command.attempt);
+      })
+      .immediate();
+  }
+
+  /** Read-only projection over command/acceptance receipts; no new lifecycle owner. */
+  commandLifecycle(id: string, binding: AccountBinding, commandId: string) {
+    this.read(id, binding);
+    const row = this.db
+      .prepare(
+        `SELECT ${PreDispatchCandidateEvidenceSql},c.completion_phases AS retained_completion_phases,c.ambiguous,c.transport_diagnostic
+      FROM codex_commands c WHERE c.conversation_id=? AND c.id=?`,
+      )
+      .get(id, commandId) as
+      | {
+          id: string;
+          status: CodexCommand['status'];
+          attempt: number;
+          ambiguous: number | null;
+          pre_dispatch_failure: number;
+          native_execution_history: string | null;
+          dispatch_conflict: number;
+          capacity_recovery: string | null;
+          input: string | null;
+          native_turns: string | null;
+          transport_diagnostic: string | null;
+          completion_phases: string | null;
+          retained_completion_phases: string | null;
+        }
+      | undefined;
+    if (!row) throw Error('Command lifecycle unavailable');
+    const completionPhase = this.completionPhases(row.retained_completion_phases).find(
+      (phase) => phase.target.attempt === row.attempt,
+    );
+    const diagnosticHistory = row.transport_diagnostic
+      ? CommandTransportDiagnosticHistorySchema.parse(JSON.parse(row.transport_diagnostic))
+      : [];
+    const diagnostic = diagnosticHistory.find((entry) => entry.attempt === row.attempt)?.diagnostic;
+    const targets = this.nativeTurns(row.native_turns).filter(
+      (turn) => turn.attempt === row.attempt,
+    );
+    const nativeTarget =
+      targets.length === 1 ? this.nativeTarget(commandId, targets[0]) : undefined;
+    if (completionPhase && !isDeepStrictEqual(completionPhase.target, nativeTarget))
+      throw Error('Completion phase target changed');
+    const canReconcilePhase =
+      ['running', 'completed'].includes(row.status) &&
+      completionPhase?.observedOutcome === 'completed' &&
+      !(completionPhase.priorEffectsUnknown && row.ambiguous === 1) &&
+      completionPhase.status !== 'completed' &&
+      !this.db
+        .prepare(
+          'SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? AND result_content IS NULL LIMIT 1',
+        )
+        .get(id, commandId);
+    const undispatched =
+      (row.status === 'failed' || (row.status === 'queued' && row.pre_dispatch_failure === 1)) &&
+      !!this.undispatchedInput(row);
+    const preEffectFailure = row.status === 'failed' && undispatched;
+    const queuedEffectsUnknown =
+      row.status === 'queued' && row.pre_dispatch_failure === 1 && !undispatched;
+    const state =
+      row.status === 'queued'
+        ? 'queued'
+        : row.status === 'running'
+          ? 'executing'
+          : row.status === 'completed'
+            ? 'completed'
+            : preEffectFailure
+              ? 'pre_effect_failure'
+              : row.ambiguous === 1
+                ? 'ambiguous_effect'
+                : 'terminal_failure';
+    return {
+      commandId,
+      attempt: row.attempt,
+      state,
+      ...(completionPhase ? { completionPhase } : {}),
+      effectStatus:
+        queuedEffectsUnknown ||
+        (completionPhase && completionPhase.status !== 'completed') ||
+        (row.ambiguous === 1 && !preEffectFailure)
+          ? 'unknown'
+          : row.status === 'completed'
+            ? 'completed'
+            : 'not_established',
+      nextAction: queuedEffectsUnknown
+        ? 'inspect_retained_work'
+        : canReconcilePhase
+          ? 'reconcile_completion_phase'
+          : state === 'ambiguous_effect'
+            ? 'reconcile_native_outcome'
+            : state === 'pre_effect_failure'
+              ? 'retry_admission'
+              : state === 'queued'
+                ? 'wait_for_admission'
+                : state === 'executing'
+                  ? 'wait_for_native_outcome'
+                  : 'inspect_retained_work',
+      ...(nativeTarget ? { nativeTarget } : {}),
+      ...(diagnostic ? { diagnostic } : {}),
+      ...(diagnosticHistory.length ? { diagnosticHistory } : {}),
+    };
   }
 
   commands(id: string, b: AccountBinding): CodexCommand[] {
@@ -2277,8 +3135,30 @@ export class CodexConversationStore {
           ambiguous: number | null;
         }
       | undefined;
+    const operation = this.db
+      .prepare(
+        `SELECT id,${PreDispatchCandidateSql} AS pre_dispatch_candidate,
+          EXISTS (SELECT 1 FROM codex_capacity_continuations cp WHERE cp.conversation_id=c.conversation_id AND cp.command_id=c.id AND cp.terminal='capacity') AS capacity_candidate
+        FROM codex_commands c WHERE conversation_id=? AND (
+          (status IN ('failed','interrupted','completed') AND (ambiguous=1 OR
+            (recovery_acknowledged=0 AND (transport_diagnostic IS NOT NULL OR completion_phases IS NOT NULL)) OR
+            EXISTS (SELECT 1 FROM codex_tools t WHERE t.conversation_id=c.conversation_id AND t.command_id=c.id AND t.result_content IS NULL)))
+          OR (status='queued' AND pre_dispatch_failure=1)) ORDER BY sequence DESC LIMIT 1`,
+      )
+      .get(id) as
+      { id: string; capacity_candidate: number; pre_dispatch_candidate: number } | undefined;
+    // Possible positive receipt exceptions need the same retained-effects audit.
+    // A newer qualified receipt must not hide older unknown effect custody.
+    const heldOperation =
+      operation?.capacity_candidate || operation?.pre_dispatch_candidate
+        ? this.unsettledCommandEffects(id)?.commandId
+        : undefined;
+    const operationId = operation?.capacity_candidate
+      ? heldOperation
+      : (heldOperation ?? operation?.id);
     const capacity = this.capacityRecovery(id, b);
     return {
+      ...(operationId ? { operation: this.commandLifecycle(id, b, operationId) } : {}),
       ...(capacity
         ? {
             capacityRecovery: {
@@ -2336,6 +3216,19 @@ export class CodexConversationStore {
           .get(id, commandId)
       )
         return 'not_queued';
+      const candidate = this.db
+        .prepare(
+          `SELECT ${PreDispatchCandidateEvidenceSql} FROM codex_commands c WHERE c.conversation_id=? AND c.id=?`,
+        )
+        .get(id, commandId) as PreDispatchEvidence | undefined;
+      if (
+        candidate?.status === 'queued' &&
+        candidate.pre_dispatch_failure === 1 &&
+        !this.undispatchedInput(candidate)
+      )
+        throw Error(
+          'Queued pre-dispatch recovery evidence changed; retained effects require inspection',
+        );
       const update = this.db
         .prepare(
           "UPDATE codex_commands SET status='cancelled' WHERE conversation_id=? AND id=? AND status='queued'",
@@ -2358,7 +3251,7 @@ export class CodexConversationStore {
           "SELECT 1 FROM codex_commands WHERE conversation_id=? AND (status IN ('queued','running') OR (status IN ('interrupted','failed') AND recovery_acknowledged=0)) LIMIT 1",
         )
         .get(id);
-      if (!unresolved)
+      if (!unresolved && !this.unsettledCommandEffects(id))
         this.db.prepare('UPDATE codex_conversations SET recovery=0 WHERE id=?').run(id);
       return 'cancelled';
     })();
@@ -2408,19 +3301,17 @@ export class CodexConversationStore {
       if (this.retryFenced(id)) return 'not_retryable';
       const row = this.db
         .prepare(
-          `SELECT id,attempt,retry_not_before,retryable,ambiguous
-          FROM codex_commands
-          WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0
-          ORDER BY sequence DESC LIMIT 1`,
+          `SELECT ${PreDispatchCandidateEvidenceSql},c.retry_not_before,c.retryable,c.ambiguous
+          FROM codex_commands c
+          WHERE c.conversation_id=? AND c.status='failed' AND c.recovery_acknowledged=0
+          ORDER BY c.sequence DESC LIMIT 1`,
         )
         .get(id) as
-        | {
-            id: string;
-            attempt: number;
+        | (PreDispatchEvidence & {
             retry_not_before: number | null;
             retryable: number | null;
             ambiguous: number | null;
-          }
+          })
         | undefined;
       if (!row) return 'not_found';
       // A durable native ACK is not a failed dispatch, including ledgers written
@@ -2429,12 +3320,16 @@ export class CodexConversationStore {
       if (row.retryable !== 1) return 'not_retryable';
       if (row.retry_not_before && now < row.retry_not_before) return 'too_early';
       if (row.ambiguous === 1 && !confirmAmbiguous) return 'confirmation_required';
-      this.db
+      const preDispatch = row.pre_dispatch_failure === 1;
+      if (preDispatch && !this.undispatchedInput(row)) return 'not_retryable';
+      // This exact retry transition consumes known never-submitted custody for
+      // its new attempt. Generic confirmation cannot qualify a conflicting marker.
+      const update = this.db
         .prepare(
-          "UPDATE codex_commands SET status='queued', recovery_acknowledged=1, retry_not_before=NULL, attempt=attempt+1 WHERE conversation_id=? AND id=? AND status='failed'",
+          "UPDATE codex_commands SET status='queued', recovery_acknowledged=1, retry_not_before=NULL, attempt=attempt+1, pre_dispatch_failure=CASE WHEN ? THEN 0 ELSE pre_dispatch_failure END, ambiguous=CASE WHEN ? THEN 0 ELSE ambiguous END WHERE conversation_id=? AND id=? AND status='failed' AND attempt=?",
         )
-        .run(id, row.id);
-      return 'queued';
+        .run(preDispatch ? 1 : 0, preDispatch ? 1 : 0, id, row.id, row.attempt);
+      return update.changes === 1 ? 'queued' : 'not_retryable';
     })();
   }
   private nativeExecutions(raw: string | null): CodexNativeExecutionReceipt[] {
@@ -3373,8 +4268,10 @@ export class CodexConversationStore {
   }
   claimNext(id: string, b: AccountBinding): CodexCommand | undefined {
     return this.db.transaction(() => {
-      if (this.read(id, b).recovery)
-        throw new Error('Codex recovery requires explicit acknowledgement');
+      const state = this.read(id, b);
+      if (this.unsettledCommandEffects(id))
+        throw Error('Completion phase effects require their existing owner reconciliation');
+      if (state.recovery) throw new Error('Codex recovery requires explicit acknowledgement');
       if (
         this.db
           .prepare(
@@ -3437,14 +4334,15 @@ export class CodexConversationStore {
     commandId: string,
     status: 'completed' | 'interrupted' | 'failed',
     providerTurnId?: string,
+    effectsUnknown = false,
   ) {
     this.db.transaction(() => {
       const current = this.read(id, b);
       const updated = this.db
         .prepare(
-          "UPDATE codex_commands SET status=?, recovery_acknowledged=0 WHERE conversation_id=? AND id=? AND status='running'",
+          `UPDATE codex_commands SET status=?, recovery_acknowledged=0, ambiguous=CASE WHEN ?=1 OR EXISTS (SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? AND result_content IS NULL) THEN 1 ELSE ambiguous END WHERE conversation_id=? AND id=? AND status='running'`,
         )
-        .run(status, id, commandId);
+        .run(status, effectsUnknown ? 1 : 0, id, commandId, id, commandId);
       if (updated.changes === 1 && status === 'completed' && providerTurnId)
         this.db
           .prepare(
@@ -3460,6 +4358,14 @@ export class CodexConversationStore {
             'UPDATE codex_conversations SET rollover_context=NULL WHERE id=? AND thread_id=?',
           )
           .run(id, current.threadId);
+      if (
+        updated.changes === 1 &&
+        status === 'completed' &&
+        (effectsUnknown || this.needsRetirementEffectsFence(id))
+      )
+        this.db
+          .prepare('UPDATE codex_conversations SET recovery=1,automatic_recovery=0 WHERE id=?')
+          .run(id);
     })();
   }
   pauseForRecovery(
@@ -3486,7 +4392,8 @@ export class CodexConversationStore {
             "UPDATE codex_commands SET status=?, recovery_acknowledged=0, retry_not_before=?, retryable=?, ambiguous=? WHERE conversation_id=? AND id=? AND status='running'",
           )
           .run(status, retryNotBefore ?? null, retryable ? 1 : 0, ambiguous ? 1 : 0, id, commandId);
-      if (pending)
+      const phase = this.needsRetirementEffectsFence(id);
+      if (pending || phase)
         this.db
           .prepare(
             `UPDATE codex_conversations SET recovery=1, automatic_recovery=?,
@@ -3496,7 +4403,7 @@ export class CodexConversationStore {
               END
             WHERE id=?`,
           )
-          .run(automaticRecovery ? 1 : 0, recoveryStrategy, id);
+          .run(automaticRecovery && !phase ? 1 : 0, recoveryStrategy, id);
     })();
   }
   claimTool(
@@ -3755,6 +4662,7 @@ export class CodexConversationStore {
       if (
         ![expectedCwd, nextCwd].includes(state.cwd) ||
         this.commands(id, binding).some((command) => command.status === 'running') ||
+        this.unsettledCommandEffects(id) ||
         this.db
           .prepare(
             "SELECT 1 FROM codex_commands WHERE conversation_id=? AND status IN ('interrupted','failed') AND recovery_acknowledged=0",
@@ -3996,8 +4904,19 @@ export class CodexConversationStore {
             "SELECT id FROM codex_commands WHERE conversation_id=? AND status IN ('failed','interrupted') AND recovery_acknowledged=0",
           )
           .all(id) as Array<{ id: string }>;
-        if (!unresolved.length && !revision)
-          throw Error('Prepared repository recovery has no retained turn');
+        if (!unresolved.length && !revision) {
+          const phaseTarget = this.completionPhaseRecoveryTarget(id, binding);
+          const completedPhase = this.completionPhase(id, binding, primary.id, primary.attempt);
+          // A late original success may have settled its phase while retaining
+          // recovery for explicit release. It still supplies exact cold custody.
+          if (
+            !phaseTarget &&
+            completedPhase?.status === 'completed' &&
+            completedPhase.observedOutcome === 'completed'
+          )
+            this.assertCompletionPhaseTarget(id, binding, completedPhase.target, true);
+          else if (!phaseTarget) throw Error('Prepared repository recovery has no retained turn');
+        }
         for (const row of unresolved) {
           const command = commands.find((candidate) => candidate.id === row.id);
           if (!command) throw Error('Prepared repository recovery command unavailable');
@@ -4409,6 +5328,17 @@ export class CodexConversationStore {
               : ' AND conversation_id IN (SELECT id FROM codex_conversations WHERE owner_kind=?)'),
         )
         .run(...(ownerKind === undefined ? [] : [ownerKind]));
+      const phaseOwners = this.db
+        .prepare(
+          `SELECT id AS conversation_id FROM codex_conversations WHERE id IN (SELECT conversation_id FROM codex_commands WHERE completion_phases IS NOT NULL OR (status IN ('failed','interrupted','completed') AND ambiguous=1) UNION SELECT conversation_id FROM codex_tools WHERE result_content IS NULL)` +
+            (ownerKind === undefined ? '' : ' AND owner_kind=?'),
+        )
+        .all(...(ownerKind === undefined ? [] : [ownerKind])) as Array<{ conversation_id: string }>;
+      for (const row of phaseOwners)
+        if (this.needsRetirementEffectsFence(row.conversation_id))
+          this.db
+            .prepare('UPDATE codex_conversations SET recovery=1,automatic_recovery=0 WHERE id=?')
+            .run(row.conversation_id);
     })();
   }
   automaticRecoveryPending(id: string, b: AccountBinding): boolean {
@@ -4423,18 +5353,49 @@ export class CodexConversationStore {
     this.read(id, b);
     this.db.prepare('UPDATE codex_conversations SET automatic_recovery=0 WHERE id=?').run(id);
   }
-  acknowledgeRecovery(id: string, b: AccountBinding) {
+  acknowledgeRecovery(id: string, b: AccountBinding, nativeTarget?: CodexNativeTurnTarget) {
     this.db.transaction(() => {
+      this.read(id, b);
       this.assertNoPendingThreadDispatch(id, b);
       this.assertNoPendingThreadOwnership(id, b);
+      if (this.unsettledCommandEffects(id))
+        throw Error(
+          'Completion phase effects require their existing owner reconciliation; saved work remains queued',
+        );
+      if (nativeTarget) {
+        if (!isDeepStrictEqual(this.nativeRecoveryTarget(id, b), nativeTarget))
+          throw Error('Native recovery phase identity changed');
+        const pendingTool = this.db
+          .prepare(
+            'SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=? AND result_content IS NULL LIMIT 1',
+          )
+          .get(id, nativeTarget.commandId);
+        const phase = this.completionPhase(id, b, nativeTarget.commandId, nativeTarget.attempt);
+        const priorEffects = phase?.priorEffectsUnknown
+          ? (this.db
+              .prepare(
+                'SELECT ambiguous FROM codex_commands WHERE conversation_id=? AND id=? AND attempt=?',
+              )
+              .get(id, nativeTarget.commandId, nativeTarget.attempt) as
+              { ambiguous: number | null } | undefined)
+          : undefined;
+        const pendingPhase =
+          phase && (phase.status !== 'completed' || priorEffects?.ambiguous === 1);
+        if (pendingTool || pendingPhase)
+          throw Error(
+            'Downstream phase effects require their existing owner reconciliation; saved work remains queued',
+          );
+      }
       const capacity = this.capacityRecovery(id, b);
       if (capacity && capacity.status !== 'stopped')
         throw new Error('Capacity recovery must be stopped before continuing queued work');
-      if (capacity)
+      if (capacity) {
+        this.assertCapacityIdentity(id, b, capacity);
         this.db.prepare('DELETE FROM codex_capacity_recoveries WHERE conversation_id=?').run(id);
+      }
       this.db
         .prepare(
-          "UPDATE codex_commands SET recovery_acknowledged=1 WHERE conversation_id=? AND status IN ('interrupted','failed')",
+          "UPDATE codex_commands SET recovery_acknowledged=1 WHERE conversation_id=? AND (status IN ('interrupted','failed') OR (status='completed' AND (transport_diagnostic IS NOT NULL OR completion_phases IS NOT NULL)))",
         )
         .run(id);
       this.db

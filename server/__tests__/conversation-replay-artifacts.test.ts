@@ -7,8 +7,13 @@ import {
 
 it('binds transcript projections and reconnect snapshots to reviewed runtime sources', () => {
   const artifacts: Record<string, string> = reviewedHandlerSourceArtifacts;
-  for (const module of ['conversation-replay-store', 'event-store']) {
-    const relative = `../../packages/protocol/src/${module}.ts`;
+  for (const relative of [
+    '../../packages/protocol/src/conversation-replay-store.ts',
+    '../../packages/protocol/src/event-store.ts',
+    '../conversation-transcript.ts',
+    '../message-stream-state.ts',
+    '../codex-text-projection.ts',
+  ]) {
     const source = readFileSync(
       new URL(relative, new URL('../connections/', import.meta.url)),
       'utf8',

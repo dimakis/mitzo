@@ -1,10 +1,84 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { CodexSessionEvents } from '../codex-session-events.js';
 import {
   extractToolResultImages,
   extractToolResultText,
 } from '../../packages/protocol/src/content-blocks.js';
 import { normalizeMcpToolResult } from '../codex-tool-result.js';
+
+it.each([10, 100, 1000])(
+  'does not traverse completed text history when advancing after %i items',
+  (count) => {
+    const events: Record<string, unknown>[] = [];
+    const mapper = new CodexSessionEvents('app', 'provider', 'model', (e) => events.push(e), {
+      requireExactTurnIdentity: true,
+    });
+    for (let i = 0; i < count; i++) {
+      mapper.notification('turn/started', { threadId: 'provider', turn: { id: `turn-${i}` } });
+      mapper.notification('item/completed', {
+        threadId: 'provider',
+        turnId: `turn-${i}`,
+        item: { type: 'agentMessage', id: `text-${i}`, text: 'finished' },
+      });
+      mapper.notification('turn/completed', {
+        threadId: 'provider',
+        turn: { id: `turn-${i}`, status: 'completed' },
+      });
+    }
+    events.length = 0;
+    let visitedEntries = 0;
+    const iterate = Map.prototype[Symbol.iterator];
+    const traversal = vi.spyOn(Map.prototype, Symbol.iterator).mockImplementation(function* (
+      this: Map<unknown, unknown>,
+    ) {
+      for (const entry of iterate.call(this)) {
+        visitedEntries++;
+        yield entry;
+      }
+      return undefined;
+    });
+    try {
+      mapper.notification('turn/started', { threadId: 'provider', turn: { id: 'next' } });
+      mapper.notification('item/reasoning/summaryTextDelta', {
+        threadId: 'provider',
+        turnId: 'next',
+        itemId: 'reason',
+        summaryIndex: 0,
+        delta: 'prefix',
+      });
+      mapper.beginReconnectReplay();
+      mapper.notification('item/started', {
+        threadId: 'provider',
+        turnId: 'next',
+        item: { id: 'reason', type: 'reasoning' },
+      });
+      mapper.notification('item/reasoning/summaryTextDelta', {
+        threadId: 'provider',
+        turnId: 'next',
+        itemId: 'reason',
+        summaryIndex: 0,
+        delta: 'prefix',
+      });
+      mapper.toolStart('call', 'Read', {});
+      mapper.flush();
+      mapper.notification('item/completed', {
+        threadId: 'provider',
+        turnId: 'turn-0',
+        item: { type: 'agentMessage', id: 'text-0', text: 'must not reopen' },
+      });
+    } finally {
+      traversal.mockRestore();
+    }
+    expect(visitedEntries).toBe(0);
+    expect(events.filter((e) => e.type === 'assistant')).toEqual([
+      expect.objectContaining({ message: { content: [{ type: 'thinking', thinking: 'prefix' }] } }),
+      expect.objectContaining({
+        message: { content: [expect.objectContaining({ type: 'tool_use' })] },
+      }),
+    ]);
+    expect(JSON.stringify(events)).not.toContain('must not reopen');
+  },
+);
 
 it.each([
   ['before', 'after'],
