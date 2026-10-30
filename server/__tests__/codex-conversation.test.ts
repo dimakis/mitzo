@@ -43,6 +43,171 @@ const binding = {
   profileRevision: 'chatgpt:test@example.com:test',
 };
 
+it.each(['terminal', 'exact-turn', 'shared'] as const)(
+  'settles the original host callback before completing a %s turn or releasing its FIFO',
+  async (route) => {
+    const f = await setup();
+    if (route === 'terminal') f.conversationOptions.transportClosure = 'terminal';
+    if (route === 'exact-turn') f.conversationOptions.recoveryReconciliation = 'exact-turn';
+    await f.c.send({ id: 'completed-once', prompt: 'Original work' });
+    await f.c.send({ id: 'queued-once', prompt: 'Next work' });
+    let finish!: () => void;
+    f.execute.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      return { content: 'Original tool outcome', isError: false };
+    });
+    const tool = f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: f.getProviderThread(),
+        turnId: 'turn-1',
+        callId: 'late-tool',
+        tool: 'Read',
+        arguments: {},
+      },
+      new AbortController().signal,
+    );
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    expect(f.c.queue().map(({ status }) => status)).toEqual(['running', 'queued']);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    finish();
+    await tool;
+    await vi.waitFor(() =>
+      expect(f.c.queue().map(({ status }) => status)).toEqual(['completed', 'running']),
+    );
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(0);
+    expect(f.c.queue()[0].ambiguous).not.toBe(true);
+    expect(f.execute).toHaveBeenCalledOnce();
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+    expect(f.onClosed).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['question', 'approval'] as const)(
+  'waits for an original %s callback at provider completion',
+  async (kind) => {
+    const f = await setup();
+    await f.c.send({ id: 'original', prompt: 'work' });
+    let finish!: () => void;
+    const wait = async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    };
+    f.conversationOptions.requestNativeApproval = async () => {
+      await wait();
+      return { decision: 'decline' };
+    };
+    f.conversationOptions.requestUserInput = async () => {
+      await wait();
+      return { answers: {} };
+    };
+    const params = {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      itemId: 'pending',
+      questions: [
+        {
+          id: 'q',
+          header: 'Choice',
+          question: 'Continue?',
+          isSecret: false,
+          isOther: false,
+          options: null,
+        },
+      ],
+    };
+    const pending = f
+      .getCallbacks()
+      .onRequest(
+        kind === 'question'
+          ? 'item/tool/requestUserInput'
+          : 'item/commandExecution/requestApproval',
+        params,
+        new AbortController().signal,
+        { requestId: 'pending' },
+      );
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    expect(f.c.queue()[0].status).toBe('running');
+    await expect(
+      f.callbacks.onRequest(
+        'item/tool/call',
+        { ...params, callId: 'late', tool: 'Read', arguments: {} },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('already finished');
+    finish();
+    await pending;
+    await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  },
+);
+
+it.each(['timeout', 'stop', 'close', 'conflict'] as const)(
+  'retains original pending effects on callback settlement %s without replay',
+  async (reason) => {
+    const f = await setup();
+    f.conversationOptions.transportClosure = 'terminal';
+    f.conversationOptions.callbackSettlementTimeoutMs = 5;
+    await f.c.send({ id: 'original', prompt: 'work' });
+    await f.c.send({ id: 'saved', prompt: 'later' });
+    let finish!: () => void;
+    f.execute.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      return { content: 'late result', isError: false };
+    });
+    const pending = f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: f.getProviderThread(),
+        turnId: 'turn-1',
+        callId: 'pending',
+        tool: 'Read',
+        arguments: {},
+      },
+      new AbortController().signal,
+    );
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    if (reason === 'stop') await f.c.interrupt();
+    if (reason === 'close') f.c.close();
+    if (reason === 'conflict')
+      f.callbacks.onNotification('turn/completed', {
+        threadId: f.getProviderThread(),
+        turn: { id: 'turn-1', status: 'failed' },
+      });
+    if (reason === 'timeout' || reason === 'conflict')
+      await vi.waitFor(() => expect(f.onClosed).toHaveBeenCalledOnce());
+    finish();
+    await pending;
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    expect(f.execute).toHaveBeenCalledOnce();
+    if (reason === 'timeout')
+      expect(f.onError).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'callbacks_pending' }),
+      );
+  },
+);
+
 it('refuses native startup from a configured DTO without the current owner and native approval adapter', async () => {
   const nativeExecution = codexNativeExecutionPolicy({
     bindingRevision: 'owner-v1',

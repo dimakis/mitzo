@@ -1,4 +1,6 @@
 import type { AdviserTaskScope } from './adviser-task-scope.js';
+import { TurnCallbacks } from './turn-callbacks.js';
+import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
 import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
 import {
   codexApplicationContextFragments,
@@ -255,6 +257,8 @@ export interface CodexConversationOptions {
       };
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
   completionHookTimeoutMs?: number;
+  /** Bound original callback settlement after provider completion; trusted construction only. */
+  callbackSettlementTimeoutMs?: number;
   runtimeCwd?: string;
   modelProvider?: string;
   runtimeConfig?: Record<string, unknown>;
@@ -414,6 +418,9 @@ function requiresProviderThreadReplacement(error: unknown): boolean {
 }
 /** Owns one application conversation. The process, private store and public event sink are supplied by the server. */
 type ActiveCommand = {
+  callbacks?: TurnCallbacks;
+  callbackSettlement?: Promise<void>;
+  callbacksSettled?: boolean;
   command: CodexCommand;
   /** Set before invoking turn/start, including synchronous close/rejection. */
   providerSubmitted: boolean;
@@ -546,7 +553,12 @@ export class CodexConversation {
           return Promise.reject(new CodexTransportError('connection'));
         if (this.borrowedSearch?.owns(p))
           return Promise.reject(new Error('Search request has no executable tools'));
-        return this.request(m, p, s, requestContext);
+        const active = this.active;
+        if (!active || p.threadId !== this.threadId || p.turnId !== active.turnId)
+          return this.request(m, p, s, requestContext);
+        return (active.callbacks ??= new TurnCallbacks()).track(() =>
+          this.request(m, p, s, requestContext),
+        );
       },
       onClose: (error) => this.transportClosed(generation, error),
     });
@@ -3143,6 +3155,39 @@ export class CodexConversation {
       }
       // Even turn/started is not an acceptance receipt: wait for turn/start's exact response.
       if (!this.active.accepted || this.active.ownershipPending) return;
+      if (turn.data.status === 'completed' && !this.active.callbacksSettled) {
+        const active = this.active;
+        (active.callbacks ??= new TurnCallbacks()).seal();
+        if (active.callbacks?.size) {
+          if (active.callbackSettlement) return;
+          active.callbackSettlement = active.callbacks
+            .settle(active.abort.signal, this.opts.callbackSettlementTimeoutMs)
+            .then(() => {
+              if (
+                this.closed ||
+                this.active !== active ||
+                active.interruptRequested ||
+                active.abort.signal.aborted
+              )
+                return;
+              active.callbacksSettled = true;
+              this.notification(method, params);
+            })
+            .catch((cause: unknown) => {
+              if (this.closed || this.active !== active) return;
+              try {
+                this.opts.onError?.(
+                  findSessionRuntimeError(cause) ??
+                    new SessionRuntimeError('callbacks_failed', { cause }),
+                );
+              } finally {
+                this.close();
+              }
+            });
+          return;
+        }
+        active.callbacksSettled = true;
+      }
       if (
         this.opts.beforeComplete &&
         turn.data.status === 'completed' &&
@@ -3619,6 +3664,7 @@ export class CodexConversation {
         !this.ready ||
         this.active !== active ||
         active.interruptRequested ||
+        active.completions.has(call.turnId) ||
         this.binding !== callbackBinding ||
         this.threadId !== call.threadId ||
         active.turnId !== call.turnId ||
