@@ -1,3 +1,4 @@
+import { telosDescendants } from '../lib/telos-descendants';
 import { ReadableBrief } from './ReadableBrief';
 import { TelosItemLifecycle } from './TelosItemLifecycle';
 import type { TelosWorkLifecycleView } from '@mitzo/protocol';
@@ -60,10 +61,7 @@ export function TelosItemWorkspace({
   const key = 'telos.item.tab.' + record.itemId;
   const [tab, setTab] = useState<Tab>(() => initialTab(key, location.search));
   const [error, setError] = useState('');
-  const descendants = new Set([record.itemId]);
-  for (let i = 0; i < records.length; i++)
-    for (const r of records)
-      if (r.parentId && descendants.has(r.parentId)) descendants.add(r.itemId);
+  const descendants = telosDescendants(records, record.itemId);
   const children = records.filter((r) => r.itemId !== record.itemId && descendants.has(r.itemId));
   const parent = records.find((r) => r.itemId === record.parentId);
   const parentKind =

@@ -131,3 +131,19 @@ it('keeps ancestry and lifecycle reads bounded as the number of sibling reports 
     prepare.mockRestore();
   }
 });
+
+it('restricts grouped evidence reads to the selected visible identities', () => {
+  const f = fixture();
+  const prepare = vi.spyOn(Database.prototype, 'prepare');
+  try {
+    f.work.readCollection('active', f.actor);
+    for (const table of ['sources', 'links', 'telos_work_kinds']) {
+      const sql = prepare.mock.calls.find(([sql]) =>
+        new RegExp(`FROM ${table}\\b`, 'i').test(sql),
+      )?.[0];
+      expect(sql).toMatch(/WHERE .*item_id IN \(SELECT value FROM json_each\(\?\)\)/);
+    }
+  } finally {
+    prepare.mockRestore();
+  }
+});

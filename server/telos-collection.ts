@@ -50,14 +50,16 @@ export function projectTelosCollection(
     }
     for (const id of selected.keys()) if (!active.has(id)) selected.delete(id);
   }
+  const selection = JSON.stringify([...selected.keys()]);
   const grouped = (table: 'sources' | 'links') => {
     const groups = new Map<string, Row[]>();
-    // The collection is bounded by the owner. Joining items omits detached evidence.
+    // Select evidence for this view in SQLite, avoiding a full evidence scan
+    // and retaining a constant number of reads across sibling items.
     for (const row of db
       .prepare(
-        `SELECT ${table}.* FROM ${table} JOIN items ON items.id=${table}.item_id ORDER BY ${table}.rowid`,
+        `SELECT * FROM ${table} WHERE item_id IN (SELECT value FROM json_each(?)) ORDER BY rowid`,
       )
-      .all() as Array<Row & { item_id: string }>) {
+      .all(selection) as Array<Row & { item_id: string }>) {
       if (!selected.has(row.item_id)) continue;
       const entries = groups.get(row.item_id) ?? [];
       entries.push(row);
@@ -69,7 +71,11 @@ export function projectTelosCollection(
     links = grouped('links');
   const kinds = new Map(
     (
-      db.prepare('SELECT item_id,kind FROM telos_work_kinds').all() as Array<{
+      db
+        .prepare(
+          'SELECT item_id,kind FROM telos_work_kinds WHERE item_id IN (SELECT value FROM json_each(?))',
+        )
+        .all(selection) as Array<{
         item_id: string;
         kind: TelosWorkItem['kind'];
       }>

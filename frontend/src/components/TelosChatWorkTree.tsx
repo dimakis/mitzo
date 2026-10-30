@@ -1,3 +1,4 @@
+import { telosDescendants } from '../lib/telos-descendants';
 import { useEffect, useRef } from 'react';
 import type { TelosChatRoute } from '../hooks/useTelosChatRoute';
 import { useTodoData } from '../hooks/useTodoData';
@@ -42,10 +43,7 @@ export function TelosChatWorkTree({
     root = parent;
     visited.add(root.itemId);
   }
-  const related = new Set([root.itemId]);
-  for (let i = 0; i < records.length; i++)
-    for (const record of records)
-      if (record.parentId && related.has(record.parentId)) related.add(record.itemId);
+  const related = telosDescendants(records, root.itemId);
   const board = useTaskBoard();
   const { refresh: refreshCollection } = collection;
   const { refresh: refreshTasks } = board;
