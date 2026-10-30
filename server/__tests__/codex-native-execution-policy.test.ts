@@ -21,6 +21,15 @@ const input = {
 };
 
 describe('native Mac execution permission profile', () => {
+  it('permits ordinary scratch writes only in the agent profile while retaining credential denials', () => {
+    const profiles = codexNativePermissionProfiles(codexNativeExecutionPolicy(input)).permissions;
+    for (const root of [':tmpdir', ':slash_tmp']) {
+      expect(profiles['mitzo-native-agent'].filesystem[root]).toBe('write');
+      expect(profiles['mitzo-native-ask'].filesystem[root]).toBe('read');
+    }
+    for (const profile of Object.values(profiles))
+      expect(profile.filesystem['/private/provider-auth{,/**}']).toBe('deny');
+  });
   it('rejects generic read exceptions within a credential deny, including canonical aliases', () => {
     const temporary = mkdtempSync(join(tmpdir(), 'mitzo-policy-alias-'));
     try {
@@ -138,6 +147,8 @@ describe('native Mac execution permission profile', () => {
           filesystem: {
             '/': 'read',
             ':workspace_roots': 'read',
+            ':tmpdir': 'read',
+            ':slash_tmp': 'read',
             '/operator/runtime': 'read',
             '/private/provider-auth': 'deny',
             '/private/provider-auth{,/**}': 'deny',
@@ -148,6 +159,8 @@ describe('native Mac execution permission profile', () => {
           filesystem: {
             '/': 'read',
             ':workspace_roots': 'write',
+            ':tmpdir': 'write',
+            ':slash_tmp': 'write',
             '/operator/runtime': 'read',
             '/private/provider-auth': 'deny',
             '/private/provider-auth{,/**}': 'deny',

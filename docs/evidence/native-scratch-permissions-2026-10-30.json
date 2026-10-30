@@ -1,0 +1,64 @@
+{
+  "version": "codex-cli 0.160.0",
+  "executableSha256": "112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b",
+  "modelCalls": 0,
+  "nativeThreadOrTurnTested": false,
+  "workspaceWrite": "allowed",
+  "runtimeScratch": {
+    "heredocWithoutTempAccess": "denied",
+    "heredocWithTempAccess": "allowed",
+    "credentialRead": "denied",
+    "outsideWrite": "denied"
+  },
+  "outsideWrite": "denied",
+  "exactAddedRootWrite": "allowed",
+  "credentialReadAfterGrant": "denied",
+  "helperWithNarrowCredentialFence": "allowed",
+  "helperWithBroadHomeDenyWithoutException": "denied",
+  "helperWithBroadHomeDenyAndReadableChild": "allowed",
+  "credentialReadWithHelperException": "denied",
+  "hostileCredentialChildGrant": "readable: adapter must reject intersecting grants",
+  "globFence": {
+    "exactHostileChildRead": "denied",
+    "nestedHostileChildRead": "denied",
+    "nestedHostileChildWrite": "denied",
+    "credentialSymlinkAliasRead": "denied",
+    "escapedLiteralMetacharRead": "denied",
+    "escapedLiteralMetacharWrite": "denied",
+    "escapedLiteralMetacharNeighborReadWrite": "allowed",
+    "standaloneCredentialFileReadWriteRename": "denied",
+    "retainedSymlinkGrant": {
+      "retainedLiteralGrant": {
+        "sandboxedUnlink": "denied",
+        "afterHostRetarget": "readable"
+      },
+      "retainedGlobGrant": {
+        "sandboxedUnlink": "denied",
+        "afterHostRetarget": "denied"
+      }
+    },
+    "protectedDirectoryRename": "denied",
+    "protectedAncestorRename": "denied",
+    "helperOutsideCredentialGlob": "allowed",
+    "helperInsideHomeGlobDespiteReadException": "denied",
+    "frozenExecutableLiteralException": "allowed",
+    "frozenExecutableInsideHomeGlob": "exec allowed; bytes unreadable",
+    "actualArg0SymlinkExternalExecutable": "denied",
+    "actualArg0SymlinkInternalExecutable": "denied",
+    "actualArg0ControlExternalExecutable": "allowed",
+    "actualArg0ControlInternalExecutable": "allowed",
+    "directCoreApplyPatchInsideDeniedHome": "allowed",
+    "directNativeProcessHelperInsideDeniedHome": "allowed",
+    "directNativeFsHelperWorkspaceReadWrite": "allowed",
+    "directNativeFsHelperCredentialReadWrite": "denied",
+    "directNativeHelperProfile": "whole-home deny glob, no explicit helper exceptions",
+    "selectedFeatures": {
+      "shell_zsh_fork": false,
+      "unified_exec": true,
+      "hooks": false
+    },
+    "legacyNotify": "disabled explicitly",
+    "literalSubtreePatternExample": "/fixture/credential\\[\\*\\]\\?\\{literal\\}\\\\name{,/**}"
+  },
+  "scope": "standalone command/exec profile union and direct pinned helper subprocesses; request_permissions lifecycle remains source/adapter-fixture qualification"
+}

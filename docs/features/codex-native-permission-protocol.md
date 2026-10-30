@@ -180,3 +180,21 @@ images fail. Use validated inline bytes, with an explicit product size cap.
 Native MCP content conversion in `protocol/src/models.rs` preserves image
 `data`/`mimeType` as an inline URL and honors `_meta["codex/imageDetail"]`.
 These are source qualifications, not real-model tests or multimedia implementation.
+
+## Runtime scratch directories
+
+The agent profile explicitly grants `:tmpdir` and `:slash_tmp` write access for
+ordinary shell scratch files, including zsh heredocs. Ask keeps these read-only.
+Workspace roots, disabled networking, runtime read protection and the final
+credential deny globs retain their existing policy. Temporary directories are
+scratch space rather than additional task workspaces.
+
+New native receipts record `temporaryAccess: runtime`, and the profile revision
+includes this scope. The shared revision calculation validates both this profile
+and historical receipts without that field; old receipts are never rewritten to
+claim the new access. Existing in-flight policy refresh rules still apply.
+
+The pinned no-model macOS qualifier exercises a heredoc large enough to require a
+temporary file: the old profile refuses it, the scratch profile succeeds, and
+credential reads and unrelated writes remain denied. This is standalone sandbox
+qualification, not a live provider or browser acceptance result.

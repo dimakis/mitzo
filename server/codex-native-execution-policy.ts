@@ -13,8 +13,10 @@ export interface CodexNativeExecutionPolicy {
   readonly enforcement: 'configured';
   readonly scopeKind: 'base-profile';
   readonly grantState: 'upstream-owned';
+  readonly temporaryAccess?: 'runtime';
   readonly cwd: string;
   readonly readableRoots: readonly string[];
+  /** Admitted task writes; the named profile separately controls runtime scratch. */
   readonly writableRoots: readonly string[];
   readonly workspaceRoots: readonly string[];
   readonly deniedRoots: readonly string[];
@@ -45,6 +47,24 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 /** Pinned macOS emits absolute deny globs as final kernel deny rules. Exact
  * parent path entries alone can be overridden by a more-specific grant. */
 const subtreeDenyGlob = (path: string) => `${path.replace(/[\\*?[\]{}]/g, '\\$&')}{,/**}`;
+
+const NATIVE_TEMPORARY_PATHS = [':tmpdir', ':slash_tmp'] as const;
+
+/** Shared with retained-receipt validation; absent temporaryAccess is historical. */
+export function codexNativeProfileRevision(
+  policy: Pick<
+    CodexNativeExecutionPolicy,
+    'bindingRevision' | 'readableRoots' | 'deniedRoots' | 'writeProtectedRoots' | 'temporaryAccess'
+  >,
+) {
+  return digest([
+    policy.bindingRevision,
+    policy.readableRoots,
+    policy.deniedRoots,
+    policy.writeProtectedRoots,
+    ...(policy.temporaryAccess === 'runtime' ? [NATIVE_TEMPORARY_PATHS] : []),
+  ]);
+}
 
 export function codexNativeExecutionPolicy(input: {
   bindingRevision: string;
@@ -82,12 +102,13 @@ export function codexNativeExecutionPolicy(input: {
     )
   )
     throw Error('Native workspace overlaps protected authority');
-  const profileRevision = digest([
-    input.bindingRevision,
+  const profileRevision = codexNativeProfileRevision({
+    bindingRevision: input.bindingRevision,
     readableRoots,
     deniedRoots,
     writeProtectedRoots,
-  ]);
+    temporaryAccess: 'runtime',
+  });
   const permissions = input.mode === 'ask' ? 'mitzo-native-ask' : 'mitzo-native-agent';
   return Object.freeze({
     version: 'native-mac-permissions-v1',
@@ -97,6 +118,7 @@ export function codexNativeExecutionPolicy(input: {
     enforcement: 'configured',
     scopeKind: 'base-profile',
     grantState: 'upstream-owned',
+    temporaryAccess: 'runtime',
     cwd,
     readableRoots,
     writableRoots: input.mode === 'ask' ? Object.freeze([]) : workspaceRoots,
@@ -120,6 +142,9 @@ export function codexNativePermissionProfiles(policy: CodexNativeExecutionPolicy
     Object.fromEntries([
       ...policy.readableRoots.map((root) => [root, 'read']),
       [':workspace_roots', workspaceAccess],
+      ...(policy.temporaryAccess === 'runtime'
+        ? NATIVE_TEMPORARY_PATHS.map((root) => [root, workspaceAccess])
+        : []),
       ...policy.writeProtectedRoots
         .filter((root) => policy.readableRoots.some((readable) => contains(readable, root)))
         .map((root) => [root, 'read']),
