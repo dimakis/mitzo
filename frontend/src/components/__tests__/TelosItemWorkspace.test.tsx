@@ -294,3 +294,21 @@ it('keeps long instructions in one readable overview and collapses supporting me
   expect(screen.getByText('Full brief').closest('details')?.open).toBe(false);
   expect(screen.getByText('Details & context').closest('details')?.open).toBe(false);
 });
+
+it('retains the original brief on the Materials tab without repeating it in a second column', () => {
+  const record = records[1];
+  render(
+    <MemoryRouter>
+      <TelosItemWorkspace
+        refreshKey={0}
+        record={record}
+        records={[record]}
+        onOpen={vi.fn()}
+        onBack={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Materials' }));
+  fireEvent.click(screen.getByText('Details & context'));
+  expect(screen.getAllByText(record.intent)).toHaveLength(1);
+});

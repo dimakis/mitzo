@@ -264,6 +264,12 @@ export function TelosItemWorkspace({
         <aside className="telos-brief" aria-label="Original brief">
           <details>
             <summary>Details &amp; context</summary>
+            {current !== 'Overview' && (
+              <section>
+                <h2>Original brief</h2>
+                <ReadableBrief text={record.intent} />
+              </section>
+            )}
             <h2>Why this matters</h2>
             <p>{record.rationale || 'Not recorded'}</p>
             <h2>Done when</h2>
