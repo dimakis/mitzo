@@ -534,7 +534,8 @@ it('shares one fresh session ownership projection and sees owner-callback mutati
   try {
     admission.assertCurrentSync();
     expect(projection).toHaveBeenCalledTimes(1);
-    expect(separate).not.toHaveBeenCalled();
+    // The receipt owner retains its independent runtime check; the session pair adds none.
+    expect(separate).toHaveBeenCalledTimes(1);
     f.owner.assertCurrentSync.mockImplementation(() => {
       chat.eventStore.upsertSession({ sessionId: 'ownership-session', mode: 'ask' });
     });
