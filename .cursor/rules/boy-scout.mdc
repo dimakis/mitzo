@@ -1,0 +1,21 @@
+---
+description: Leave the repository cleaner and avoid duplicated work in every session
+alwaysApply: true
+---
+
+# Boy Scout rule
+
+Leave the repository in a better state than you found it in every session.
+
+- Improve the code you touch when a focused cleanup makes it easier to maintain.
+- Prefer small modules with one clear responsibility and shared implementations
+  over copied logic, repeated setup, or parallel code paths for the same behavior.
+- Avoid duplicated API calls, database queries, subprocesses, validation and
+  initialization. Reuse existing results within their valid lifetime; coalesce
+  concurrent identical work when authority, ownership and cancellation permit it.
+- Keep checks at meaningful approval, I/O, mutation and delivery boundaries.
+  Do not remove a necessary authorization/revocation check as an optimization,
+  or cache authority across a boundary that can make it stale.
+- Consolidate repeated test fixtures while retaining real consumer-path coverage.
+- Keep cleanup proportional to the task. Preserve public behavior and required
+  tests, make changes reviewable, and explain any deliberate tradeoff.

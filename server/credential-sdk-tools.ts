@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { TurnCallbackRunner } from './turn-callbacks.js';
+import type { ConnectionBoundary } from './session-connection-tools.js';
 import { knowledgeToolSchemas, knowledgeToolDefinitions } from './session-knowledge-tools.js';
 import { profileToolSchemas, profileToolDefinitions } from './session-profile-tools.js';
 import { repositoryChatSchemas, repositoryChatToolDefinitions } from './repository-chat-tools.js';
@@ -70,6 +71,7 @@ export function createCredentialSdkServer(
   registry: SessionRegistry,
   boundary?: {
     profilesOnly?: boolean;
+    connectionBoundary?: ConnectionBoundary;
     assertCurrent(signal: AbortSignal): Promise<void>;
     assertCurrentSync(signal: AbortSignal): void;
     runCallback?: TurnCallbackRunner;
@@ -108,6 +110,8 @@ export function createCredentialSdkServer(
                   boundary
                     ? () => boundary.assertCurrentSync(session.abortController.signal)
                     : undefined,
+                  false,
+                  { boundary: boundary?.connectionBoundary },
                 ),
               };
             const callSignal =

@@ -110,6 +110,10 @@ export function sessionKnowledgeTools(
         assert();
         await assertRuntimeCurrent?.();
         assert();
+        const assertAsync = async () => {
+          await assertRuntimeCurrent?.();
+          assert();
+        };
         const parsed =
           knowledgeToolSchemas[name as keyof typeof knowledgeToolSchemas].safeParse(input);
         if (!parsed.success)
@@ -131,9 +135,9 @@ export function sessionKnowledgeTools(
             );
           if (request.action === 'list') {
             await runtime.refresh();
-            assert();
+            await assertAsync();
             const catalog = await runtime.source.catalog(signal);
-            assert();
+            await assertAsync();
             const offset = request.offset ?? 0;
             return {
               content: JSON.stringify({
@@ -146,7 +150,7 @@ export function sessionKnowledgeTools(
             };
           }
           const document = await runtime.source.read(request.path!, request.revision!, signal);
-          assert();
+          await assertAsync();
           return {
             content: JSON.stringify({ ...document, sourceIdentity: runtime.sourceIdentity }),
             isError: false,
@@ -161,6 +165,9 @@ export function sessionKnowledgeTools(
           {
             signal,
             toolUseID: randomUUID(),
+            ...(assertRuntimeCurrent
+              ? { forcePrompt: true, allowSessionGrant: false, approvalScope: 'request' as const }
+              : {}),
             title: 'Save a Knowledge Library draft',
             description: request.documents.map((d) => d.path).join(', '),
           },
@@ -216,10 +223,12 @@ export function sessionKnowledgeTools(
               'Accepted knowledge changed while saving. Read the intended document again before retrying.',
             );
           assert();
+          await assertAsync();
+          assert();
           // Synchronous create is idempotent and cannot overwrite later human edits.
           draft = runtime.store.create(request.title, request.baseRevision, documents, draftId);
         }
-        assert();
+        await assertAsync();
         return {
           content: JSON.stringify({
             status: draft.state === 'draft' ? 'draft-saved' : draft.state,

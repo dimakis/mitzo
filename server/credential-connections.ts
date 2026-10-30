@@ -203,6 +203,7 @@ export interface AuthenticatedRequest {
   body?: string;
   allowPrivateNetwork: boolean;
   assertRuntimeCurrent?: () => Promise<void>;
+  check?: () => void;
 }
 export type ConnectionSender = (
   request: AuthenticatedRequest,
@@ -535,6 +536,7 @@ export class CredentialConnections {
     input: unknown,
     signal: AbortSignal,
     stillAllowed: () => boolean = () => true,
+    assertRuntimeCurrent?: () => Promise<void>,
   ) {
     const c = this.connection(id);
     const request = WebSocketRequestSchema.parse(input);
@@ -557,10 +559,14 @@ export class CredentialConnections {
     this.active.set(key, controllers);
     let dispatched = false;
     try {
+      await assertRuntimeCurrent?.();
+      check();
       const secret = await this.vault.read(c.credentialRef);
       check();
       if (!secret || /[\r\n]/.test(secret)) throw new Error('Credential unavailable');
       const headers = credentialHeaders(c.auth, secret);
+      await assertRuntimeCurrent?.();
+      check();
       dispatched = true;
       const body = await this.sendWebSocket(
         {
@@ -568,6 +574,13 @@ export class CredentialConnections {
           token: secret,
           headers,
           allowPrivateNetwork: c.allowPrivateNetwork,
+          assertRuntimeCurrent: assertRuntimeCurrent
+            ? async () => {
+                await assertRuntimeCurrent();
+                combined.throwIfAborted();
+                check();
+              }
+            : undefined,
           config: c.websocket!,
           request,
           check,
@@ -577,6 +590,7 @@ export class CredentialConnections {
       check();
       let redacted = redactCredentialResponse(body, secret, headers);
       redacted = await this.protectResponse(session, id, redacted, combined);
+      await assertRuntimeCurrent?.();
       combined.throwIfAborted();
       check();
       if (Buffer.byteLength(redacted) > MAX_WEBSOCKET_RESPONSE_BYTES)
@@ -623,6 +637,7 @@ export class CredentialConnections {
     input: unknown,
     signal: AbortSignal,
     stillAllowed: () => boolean = () => true,
+    assertRuntimeCurrent?: () => Promise<void>,
   ) {
     const c = this.connection(id);
     const request = validateDashboardRequest(input);
@@ -651,16 +666,27 @@ export class CredentialConnections {
     try {
       combined.throwIfAborted();
       check();
+      await assertRuntimeCurrent?.();
+      check();
       const secret = await this.vault.read(c.credentialRef);
       combined.throwIfAborted();
       check();
       if (!secret || /[\r\n]/.test(secret)) throw new Error('Credential unavailable');
+      await assertRuntimeCurrent?.();
+      check();
       dispatched = true;
       const body = await this.sendDashboard(
         {
           url,
           token: secret,
           allowPrivateNetwork: c.allowPrivateNetwork,
+          assertRuntimeCurrent: assertRuntimeCurrent
+            ? async () => {
+                await assertRuntimeCurrent();
+                combined.throwIfAborted();
+                check();
+              }
+            : undefined,
           request,
           check: () => {
             combined.throwIfAborted();
@@ -675,6 +701,7 @@ export class CredentialConnections {
         Authorization: `Bearer ${secret}`,
       });
       redacted = await this.protectResponse(session, id, redacted, combined);
+      await assertRuntimeCurrent?.();
       combined.throwIfAborted();
       check();
       if (request.operation === 'read' && redacted !== body) {
@@ -780,13 +807,14 @@ export class CredentialConnections {
     const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(30_000)]);
     // The transport performs additional async checks before HTTP dispatch and
     // after DNS. Carry the relay's current consent through each of those awaits.
-    const finalAuthority = relay
-      ? async () => {
-          await assertRuntimeCurrent?.();
-          combined.throwIfAborted();
-          check();
-        }
-      : assertRuntimeCurrent;
+    const finalAuthority =
+      relay || assertRuntimeCurrent
+        ? async () => {
+            await assertRuntimeCurrent?.();
+            combined.throwIfAborted();
+            check();
+          }
+        : assertRuntimeCurrent;
     try {
       const secret = await this.vault.read(c.credentialRef);
       combined.throwIfAborted();
@@ -807,12 +835,17 @@ export class CredentialConnections {
           body: request.body,
           allowPrivateNetwork: c.allowPrivateNetwork,
           assertRuntimeCurrent: finalAuthority,
+          check,
         },
         combined,
       );
       combined.throwIfAborted();
       check();
-      if (relay) return { status: response.status, body: '' };
+      if (relay) {
+        await finalAuthority?.();
+        check();
+        return { status: response.status, body: '' };
+      }
       if (response.status === 401) throw new ConnectionRequestError('authentication_failed');
       if (response.status === 403) throw new ConnectionRequestError('access_denied');
       if (response.status === 429 || response.status >= 500)
@@ -820,6 +853,8 @@ export class CredentialConnections {
       let body = redactCredentialResponse(response.body, secret, headers);
       body = await this.protectResponse(session, id, body, combined);
       combined.throwIfAborted();
+      check();
+      await finalAuthority?.();
       check();
       return { status: response.status, body };
     } catch (error) {

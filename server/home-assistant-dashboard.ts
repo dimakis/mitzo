@@ -93,6 +93,7 @@ export interface DashboardTransportInput {
   request: DashboardRequest;
   /** Recheck exact session ownership, scope and connection revision before every frame. */
   check(): void;
+  assertRuntimeCurrent?: () => Promise<void>;
 }
 export type DashboardSender = (
   input: DashboardTransportInput,
@@ -142,7 +143,7 @@ export function dashboardExchange(
           if (code) {
             failureCode = code;
             channel.fail();
-          } else channel.finish(body!);
+          } else return channel.finish(body!);
         };
         const abort = () => finish(undefined, 'DASHBOARD_REQUEST_FAILED');
         const check = () => {
@@ -160,31 +161,31 @@ export function dashboardExchange(
           if (stage === 'auth-required') {
             if (message.type !== 'auth_required') return abort();
             stage = 'auth-ok';
-            channel.send(JSON.stringify({ type: 'auth', access_token: input.token }), false);
-            return;
+            return channel.send(JSON.stringify({ type: 'auth', access_token: input.token }), false);
           }
           if (stage === 'auth-ok') {
             if (message.type !== 'auth_ok') return abort();
             if (request.operation === 'list') {
               stage = 'list';
-              channel.send(JSON.stringify({ id: ++commandId, type: 'lovelace/dashboards/list' }));
+              return channel.send(
+                JSON.stringify({ id: ++commandId, type: 'lovelace/dashboards/list' }),
+              );
             } else {
               stage = request.operation === 'save' ? 'baseline' : 'read';
-              read();
+              return read();
             }
-            return;
           }
           if (message.type !== 'result' || message.id !== commandId || message.success !== true)
             return abort();
           if (stage === 'list') {
             if (!Array.isArray(message.result)) return abort();
-            finish(JSON.stringify({ operation: 'list', dashboards: message.result }));
+            return finish(JSON.stringify({ operation: 'list', dashboards: message.result }));
           } else if (stage === 'read' || stage === 'baseline' || stage === 'verify') {
             const config = message.result;
             if (!config || Array.isArray(config) || typeof config !== 'object') return abort();
             const configHash = dashboardConfigHash(config);
             if (stage === 'read') {
-              finish(
+              return finish(
                 JSON.stringify({
                   operation: 'read',
                   urlPath: request.urlPath ?? null,
@@ -204,18 +205,21 @@ export function dashboardExchange(
                 return finish(undefined, 'DASHBOARD_CHANGED');
               check();
               stage = 'save';
-              writeSent = true;
-              channel.send(
+              return channel.send(
                 JSON.stringify({
                   id: ++commandId,
                   type: 'lovelace/config/save',
                   config: desired,
                   ...target,
                 }),
+                true,
+                () => {
+                  writeSent = true;
+                },
               );
             } else {
               if (configHash !== dashboardConfigHash(desired)) return abort();
-              finish(
+              return finish(
                 JSON.stringify({
                   operation: 'save',
                   urlPath: request.urlPath ?? null,
@@ -227,7 +231,7 @@ export function dashboardExchange(
           } else if (stage === 'save') {
             check();
             stage = 'verify';
-            read();
+            return read();
           }
         } catch {
           abort();

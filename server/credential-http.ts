@@ -23,6 +23,7 @@ export function isAllowedConnectionAddress(address: string, allowPrivate: boolea
 export function connectionDnsLookup(
   allowPrivateNetwork: boolean,
   assertRuntimeCurrent?: () => Promise<void>,
+  check?: () => void,
 ): NonNullable<RequestOptions['lookup']> {
   return (host, options, callback) => {
     lookup(host, { all: true }, (error, addresses) => {
@@ -42,6 +43,12 @@ export function connectionDnsLookup(
           undefined,
         );
       const complete = () => {
+        try {
+          check?.();
+        } catch (error) {
+          callback(error as Error, [], undefined);
+          return;
+        }
         if (options.all) callback(null, addresses);
         else callback(null, addresses[0].address, addresses[0].family);
       };
@@ -53,6 +60,7 @@ export function connectionDnsLookup(
 }
 const httpsSend: ConnectionSender = (input, signal) =>
   new Promise((resolve, reject) => {
+    input.check?.();
     const hostname = input.url.hostname.replace(/^\[|\]$/g, '');
     if (isIP(hostname) && !isAllowedConnectionAddress(hostname, input.allowPrivateNetwork))
       return reject(new CredentialVerificationError('destination_blocked'));
@@ -70,7 +78,11 @@ const httpsSend: ConnectionSender = (input, signal) =>
           ...input.headers,
         },
         // Resolve and validate every address, then connect to that checked result. No DNS TOCTOU lookup.
-        lookup: connectionDnsLookup(input.allowPrivateNetwork, input.assertRuntimeCurrent),
+        lookup: connectionDnsLookup(
+          input.allowPrivateNetwork,
+          input.assertRuntimeCurrent,
+          input.check,
+        ),
       },
       (response) => {
         const status = response.statusCode ?? 0;
@@ -106,6 +118,8 @@ export async function sendConnectionRequest(
 ) {
   signal.throwIfAborted();
   if (input.assertRuntimeCurrent) await input.assertRuntimeCurrent();
+  signal.throwIfAborted();
+  input.check?.();
   const response = await send(input, signal);
   signal.throwIfAborted();
   if (response.status >= 300 && response.status < 400)
