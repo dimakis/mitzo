@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.777-quarterly-tool-contracts';
+  'v1.0.778-quarterly-tool-discovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -545,7 +545,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     'be08f4bf4223ebd63bdc931187c39fa571d915ad2bb710ef2f9773a72b63b85d',
   '../__tests__/codex-chat-session.test.ts':
-    '53ce1953b7d1f8d7c5dd36c5c1ebfbe722dd325ad62ef5115cedb08ae13b8bdd',
+    '541e427b36a2f179d07c3c70d0586ad791f6fda6fb49cc643f21f9ce9e14e840',
   '../__tests__/codex-conversation.test.ts':
     '645bbb4243be35dcdeae1ca82cfcda7a7987bfec27baadde324020e314579f3f',
   '../__tests__/codex-native-approvals.test.ts':
@@ -1517,7 +1517,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': 'bd19858b7850821576ca05eae21d3a6f1dd049e3e1394c0dc43997440a60b8da',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': 'e344c7d710ce43ba0f5c377ccf74105e261974a1c6fb882ea571bbfbefc032f3',
+  '../codex-chat-session.ts': '9f22db2d42a1e99d0e4b0d3c8f94652246a6303006c60b69a0a6365c571a99c1',
   '../connections-runtime.ts': '52d44895be24ac0c1a112a41ff83cc131725d64fb7d374d554a276c47895e2bf',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
@@ -2136,14 +2136,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ac1b3f8c3cc53eb2f837a69a4f8792049a92211616c8d9998051a3b263e117dd',
   '../wait-for-change.ts': '82cfc955560c5494b9453bfc82e1a14004fc8349f2a5731583791323a03f17a0',
   '../local-agent-efficiency.ts':
-    'ad7734aeecf01d00cb3c96e550b42f89d35ca0a1dad1aa06209bbd2eb0f32dcf',
+    '4553febfe17e98cd1bf7110ec9a9a7391f3bd32808e77c8f97cfc46173be97c4',
   '../codex-tool-failure.ts': 'fcf4f7022a58ce0a85e71aad844131cc3ba69b83c6a002478668d4a35accc88c',
   '../tool-output-projection.ts':
     '8b8f5ba60ebbfab09590625bac56497b59badbe18b5a67013ef4083fc1a6e167',
   '../__tests__/integration-tool-discovery.test.ts':
     '98a9fb2bc5c779eea5946d7aa53ffc8fdf16ab80f65776127dc4bad7d2cc890c',
   '../integration-tool-discovery.ts':
-    '76d34536aa2869a0d860f3758a0e3569b0ee1f1b001ed5cac4cce4b0c9f4bda0',
+    'fc9d67ca233c7b36b14a70b5a41ccc9101f11357db16063c8118175c08d96cd5',
   '../unified-inbox-routes.ts': '3336b45597dd2e6cf209f1a953e90d5e3433b698cb1c686b66a27f7ff0c095d9',
   '../read-only-git.ts': 'b1a5c01474cba24137b3a7eb5bb4dcbd4d593ee0a25230977de6ff272fdbebab',
   '../__tests__/chat-agent-context-startup.test.ts':

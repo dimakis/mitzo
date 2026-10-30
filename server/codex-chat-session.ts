@@ -1921,18 +1921,43 @@ async function openCodexChatBound(
     options.binding?.accountId ?? '',
     managedCapabilityConnection,
   );
+  const selectedGitHubReadDefinitions = options.ownedLocal
+    ? filterAgentTools(
+        options.session,
+        localExecutionTools.filter(({ name }) => name === 'GitHubRead'),
+      )
+    : [];
+  const selectedEfficiencyToolDefinitions = localEfficiencyDefinitions.filter(
+    (tool) =>
+      tool.name !== 'ReadToolOutput' ||
+      filterAgentTools(options.session, mcp.definitions).length > 0 ||
+      selectedGitHubReadDefinitions.length > 0 ||
+      (!!options.ownedOpenShell &&
+        filterAgentTools(options.session, openShellHostTools).some(({ name }) =>
+          openShellReadToolNames.has(name),
+        )),
+  );
+  // The same selected full schemas answer explicit metadata lookups. Execution
+  // remains with the original owner; repository tools are selected after admission.
+  const inlineCoreDefinitions = [
+    ...selectedEfficiencyToolDefinitions.filter(({ name }) => name === 'ReadToolOutput'),
+    ...selectedGitHubReadDefinitions,
+  ];
   const integrationDiscovery = options.adviserScope
     ? undefined
     : options.ownedLocal
       ? createIntegrationToolDiscovery({
           tools: filterAgentTools(options.session, mcp.definitions),
-          directTools: filterAgentTools(options.session, [
-            ...profileToolDefinitions,
-            ...agentTaskToolDefinitions,
-            ...agentCommunicationDefinitions,
-            ...localHistoryDefinitions,
-            webAccessDefinition,
-          ]),
+          directTools: [
+            ...filterAgentTools(options.session, [
+              ...profileToolDefinitions,
+              ...agentTaskToolDefinitions,
+              ...agentCommunicationDefinitions,
+              ...localHistoryDefinitions,
+              webAccessDefinition,
+            ]),
+            ...inlineCoreDefinitions,
+          ],
           displayName: mcp.displayName,
           assertCurrent: assertMcpCurrent,
           execute: executeMcpTool,
@@ -1941,13 +1966,16 @@ async function openCodexChatBound(
         ? createIntegrationToolDiscovery({
             tools: [],
             directOnly: true,
-            directTools: filterAgentTools(options.session, [
-              ...connectionTools.definitions,
-              ...openShellHostTools,
-              ...capabilityTools.definitions,
-              webAccessDefinition,
-              githubPublishingDefinition,
-            ]),
+            directTools: [
+              ...filterAgentTools(options.session, [
+                ...connectionTools.definitions,
+                ...openShellHostTools,
+                ...capabilityTools.definitions,
+                webAccessDefinition,
+                githubPublishingDefinition,
+              ]),
+              ...inlineCoreDefinitions,
+            ],
             displayName: (name) => name,
             assertCurrent: () => {
               signal.throwIfAborted();
@@ -2257,15 +2285,7 @@ async function openCodexChatBound(
             (candidate) => candidate.name === tool.name,
           ) ?? tool,
       ),
-    ...localEfficiencyDefinitions.filter(
-      (tool) =>
-        tool.name !== 'ReadToolOutput' ||
-        filterAgentTools(options.session, mcp.definitions).length > 0 ||
-        selectedDirectToolDefinitions.some(
-          ({ name }) =>
-            name === 'GitHubRead' || (options.ownedOpenShell && openShellReadToolNames.has(name)),
-        ),
-    ),
+    ...selectedEfficiencyToolDefinitions,
     ...(integrationDiscovery?.definitions ?? []),
   ];
   if (ownedHost && !options.adviserScope)

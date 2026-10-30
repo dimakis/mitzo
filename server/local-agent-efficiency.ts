@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { ToolDefinition } from '@mitzo/harness';
+import { INTEGRATION_TOOL_PAGE_MAX } from './integration-tool-discovery.js';
 import {
   TOOL_OUTPUT_PAGE_MIN_BYTES,
   TOOL_OUTPUT_PAGE_MAX_BYTES,
@@ -42,20 +43,18 @@ export const localEfficiencyToolDefinitions: ToolDefinition[] = [
     input_schema: z.toJSONSchema(SearchSkillsInput, { io: 'input' }),
   },
 ];
-export const LOCAL_EFFICIENCY_INSTRUCTIONS = `
-Use SearchSkills when a needed skill is absent from the bounded native skill index. Read its selected SKILL.md before use; explicitly named skills still apply.
-Large integration and GitHubRead text results return a preview and outputId. Use ReadToolOutput only for missing evidence, with a literal query or a narrow range. Do not expand every result automatically.
-Reuse known tool contracts while the catalog revision is unchanged. Use DescribeIntegrationTool for abbreviated Mitzo tool schemas, then call those tools directly by their original name.
-For asynchronous native commands use Codex's process/session handles. For peer-message waits use AgentCommunication wait instead of repeated inbox calls. Report changes rather than unchanged polls.
-Do not retry an unchanged denial. Reconcile uncertain effects before another write. Smaller output never changes permissions or repository custody.
+function efficiencyInstructions(location: 'local' | 'openshell') {
+  return `
+Use SearchSkills when a needed skill is absent from the bounded native skill index. It searches the current ${location === 'openshell' ? 'sandbox' : 'admitted'} workspace. Read the selected SKILL.md with native file tools before use; explicitly named skills still apply.
+Reuse known contracts and discovery results within the same selected catalog revision. ListIntegrationTools limit is at most ${INTEGRATION_TOOL_PAGE_MAX}; follow its nextOffset. Tools with full schemas are directly callable. DescribeIntegrationTool is for abbreviated Mitzo contracts; then call the original direct tool or the indicated integration bridge. ${location === 'openshell' ? 'Sandbox MCP tools remain owned by Codex; use its native discovery when available.' : ''}
+An empty tool search does not establish service availability. When connection tools are available, inspect the connection list and selected guide before choosing a service route. Avoid repeated discovery with synonymous queries, CLI setup attempts after a known access failure, or switching accounts to bypass it. Refresh when the relevant selection or access state changes.
+Large host results return previews and outputId. ReadToolOutput limit is ${TOOL_OUTPUT_PAGE_MIN_BYTES}..${TOOL_OUTPUT_PAGE_MAX_BYTES} bytes (default ${TOOL_OUTPUT_PAGE_DEFAULT_BYTES}); use the supplied read arguments with a literal query for missing evidence, or follow nextOffset. Do not expand every result or guess larger limits. Retrieval rechecks original source and tool authorization.
+For invalid_input, correct the named fields from the schema or validation response; do not repeat unchanged arguments. A pre-execution rejection needs corrected input. An uncertain effect needs reconciliation before another write. Never rerun an effect to recover output.
+For asynchronous native commands use Codex's process/session handles. ${location === 'local' ? 'For peer-message waits use AgentCommunication wait instead of repeated inbox calls. ' : ''}Report changes rather than unchanged polls. Do not retry an unchanged denial. Smaller output never changes permissions or repository custody.
 `;
-
-export const OPENSHELL_EFFICIENCY_INSTRUCTIONS = `
-Use SearchSkills when a needed skill is absent from the bounded native skill index. It searches the current sandbox workspace. Read its selected SKILL.md with native sandbox file tools before use; explicitly named skills still apply.
-Reuse known tool contracts while the catalog revision is unchanged. Use DescribeIntegrationTool for abbreviated Mitzo host tool schemas, then call those tools directly by their original name. Sandbox MCP tools remain owned by Codex; use its native discovery when available.
-Large Telos read results return a preview and outputId. Use ReadToolOutput only for missing evidence, with a literal query or narrow range. Retrieval rechecks the original read permission. Do not expand every result automatically.
-For asynchronous sandbox commands use Codex's process/session handles. Report changes rather than unchanged polls. Do not retry an unchanged denial. Reconcile uncertain effects before another write. Smaller output never changes permissions or repository custody.
-`;
+}
+export const LOCAL_EFFICIENCY_INSTRUCTIONS = efficiencyInstructions('local');
+export const OPENSHELL_EFFICIENCY_INSTRUCTIONS = efficiencyInstructions('openshell');
 
 const Skill = z.object({
   name: z.string(),

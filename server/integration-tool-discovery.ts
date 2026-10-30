@@ -13,13 +13,17 @@ const inlineDirectNames = new Set([
   'RequestConnectionAccess',
   'GetConnectionGuide',
   'ConnectionRequest',
+  'ReadToolOutput',
+  'SearchSkills',
+  'GitHubRead',
 ]);
 const maxInlineDirectBytes = 4096;
+export const INTEGRATION_TOOL_PAGE_MAX = 20;
 const schemas = {
   ListIntegrationTools: z.strictObject({
     query: z.string().trim().max(256).optional(),
     offset: z.number().int().min(0).max(10000).default(0),
-    limit: z.number().int().min(1).max(20).default(10),
+    limit: z.number().int().min(1).max(INTEGRATION_TOOL_PAGE_MAX).default(10),
   }),
   DescribeIntegrationTool: z.strictObject({
     toolId: z.string().min(1).max(64),
@@ -164,6 +168,12 @@ Call tools with full argument schemas directly; use DescribeIntegrationTool only
         return reply({
           catalogRevision: revision,
           total: matches.length,
+          ...(matches.length === 0
+            ? {
+                notice:
+                  'No selected tool matches this metadata search. This does not establish service availability. Use the available connection tools and the selected connection guide; do not repeat unchanged searches or switch credentials.',
+              }
+            : {}),
           tools: matches.slice(offset, offset + limit).map((tool) => {
             const description = tool.description
               .replace(`${tool.name}: `, '')
