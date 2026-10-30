@@ -54,6 +54,18 @@ Native source evidence (paths relative to upstream `codex-rs/`):
   them after broader allow rules. Source qualification alone does not prove a
   particular host executable/home configuration works through the kernel.
 
+Agent/Auto workspace rules explicitly include `.git` as a writable workspace-relative
+subpath: `filesystem[":workspace_roots"] = {".": "write", ".git": "write"}`.
+A scalar workspace write leaves the native engine's implicit `.git` read-only
+carveout in place. This prevents ordinary Git commits and merges even though the
+checkout files are writable. Ask retains a read-only workspace. Credential and
+runtime authority fences remain separate; no common Git directory outside an
+admitted workspace is granted implicitly. Use native Git on the existing task
+branch for normal commits and merges, including changes exceeding the narrow
+64-file `GitCommit` service. The pinned no-model fixture exercises the actual
+production profile compiler with a commit and a two-parent 218-file merge at the
+workspace root, plus Ask, credential and outside-write negative controls.
+
 Named config profiles use `default_permissions`,
 `permissions.<name>.filesystem` (path to `read`/`write`/`deny`), and
 `permissions.<name>.network.enabled`. `thread/start` selects `permissions` instead

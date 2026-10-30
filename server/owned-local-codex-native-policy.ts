@@ -111,5 +111,6 @@ Agent and Auto permit the admitted workspace writes. A grant adds only its displ
 Automatic review is unavailable on this account until its reviewer and billing route are qualified.
 Escalations use explicit human review unless the existing workspace owner proves an already authorized exact task-root grant.
 Denied, cancelled and expired requests do not authorize execution. Never claim execution without a native result.
-GitCommit and authenticated integrations remain separate trusted Mitzo tools where supplied. GitCommit still requires existing current-task workspace custody.
+Use native Git for normal add, commit and merge operations on the admitted task branch in the admitted task checkout; Agent and Auto include its .git metadata writes. Linked worktrees can still require exact permission for external Git administration.
+GitCommit is a separate narrow selected-file service where supplied, limited to 64 files and a clean index. Use native Git for larger commits or merges. Authenticated integrations remain trusted Mitzo tools where supplied.
 `;

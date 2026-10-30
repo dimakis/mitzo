@@ -1,5 +1,9 @@
 import { expectPersistedChatDraft } from '../../../support/persisted-chat-storage';
-import { actToReviewedRoleSetup, actToRoleSetupDraft } from './joined-role-setup-ready';
+import {
+  actToItemChatChooser,
+  actToReviewedRoleSetup,
+  actToRoleSetupDraft,
+} from './joined-role-setup-ready';
 import { it, expect } from 'vitest';
 import { expect as browserExpect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
@@ -92,7 +96,12 @@ it('keeps an additional worker distinct from explicit replacement and retains th
     return { id: new URL(page.url()).pathname.split('/').at(-1)!, submitted, body };
   };
   const chooser = async () => {
-    await page.getByRole('button', { name: /^Chats for this item: / }).click();
+    const conversationId = new URL(page.url()).pathname.split('/').at(-1)!;
+    await actToItemChatChooser(
+      page,
+      { origin: front.origin, itemId: 'recording-slice', conversationId },
+      () => page.getByRole('button', { name: /^Chats for this item: / }).click(),
+    );
     expect(new URL(page.url()).pathname).toBe('/todos/recording-slice');
   };
   try {
