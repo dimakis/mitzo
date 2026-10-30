@@ -3519,7 +3519,8 @@ async function openCodexChatBound(
                 name,
                 input,
               ),
-            name !== 'TelosManageItem' || input.operation === 'read',
+            name !== 'TelosCreateChild' &&
+              (name !== 'TelosManageItem' || input.operation === 'read'),
           );
         } finally {
           dispose();

@@ -83,6 +83,7 @@ it('discovers list, search and maintenance contracts by their exact callable ide
     'TelosListItems',
     'TelosSearchItems',
     'TelosManageItem',
+    'TelosCreateChild',
   ]);
   for (const { toolId } of list.tools) {
     const described = await discovery.execute(

@@ -6453,7 +6453,12 @@ it('offers Telos backlog tools to a default native chat without a retained Telos
   try {
     query = await openCodexChat(f.opts);
     const tools = mocks.conversationOptions!.tools as { name: string }[];
-    for (const name of ['TelosListItems', 'TelosSearchItems', 'TelosManageItem'])
+    for (const name of [
+      'TelosListItems',
+      'TelosSearchItems',
+      'TelosManageItem',
+      'TelosCreateChild',
+    ])
       expect(tools.some((tool) => tool.name === name)).toBe(true);
   } finally {
     query?.close();
@@ -6472,6 +6477,8 @@ it.each([
   'new-login',
   'changed-viewer',
   'foreign-operator',
+  'child-changed-policy',
+  'child-changed-viewer',
 ])(
   'exposes discoverable Telos backlog maintenance in an ordinary OpenShell chat (%s)',
   async (mode) => {
@@ -6501,7 +6508,12 @@ it.each([
     let revokeViewer: (() => void) | undefined;
     try {
       const tools = f.captured.tools as { name: string }[];
-      for (const name of ['TelosListItems', 'TelosSearchItems', 'TelosManageItem'])
+      for (const name of [
+        'TelosListItems',
+        'TelosSearchItems',
+        'TelosManageItem',
+        'TelosCreateChild',
+      ])
         expect(tools.some((tool) => tool.name === name)).toBe(true);
       const execute = f.captured.executeTool as (
         name: string,
@@ -6520,6 +6532,7 @@ it.each([
           ['TelosListItems', {}],
           ['TelosSearchItems', { query: 'studio' }],
           ['TelosManageItem', { operation: 'read', itemId: 'studio' }],
+          ['TelosCreateChild', { parentId: 'studio' }],
         ] as const)
           await expect(run(name, input)).rejects.toThrow(/skill|permission/i);
         return;
@@ -6571,6 +6584,9 @@ it.each([
       expect((await run('DescribeIntegrationTool', { toolId: 'TelosListItems' })).isError).toBe(
         false,
       );
+      expect((await run('DescribeIntegrationTool', { toolId: 'TelosCreateChild' })).isError).toBe(
+        false,
+      );
       expect(
         JSON.parse((await run('TelosSearchItems', { query: 'studio' })).content).items[0].id,
       ).toBe('studio');
@@ -6585,10 +6601,24 @@ it.each([
         summary: 'Choose studio panels',
         note: 'Clarify this outcome.',
       };
-      if (mode === 'changed-policy' || mode === 'changed-viewer') {
-        setSkillPolicy(f.registry, clientId, ['TelosManageItem']);
+      if (mode.includes('changed-policy') || mode.includes('changed-viewer')) {
+        const toolName = mode.startsWith('child-') ? 'TelosCreateChild' : 'TelosManageItem';
+        const exact =
+          toolName === 'TelosCreateChild'
+            ? {
+                parentId: 'studio',
+                expectedParentRevision: read.item.revision,
+                requestId: 'revoked-child',
+                summary: 'Measure the studio',
+                intent: 'Record dimensions',
+                rationale: 'Size panels',
+                acceptanceCriteria: ['Dimensions recorded'],
+                note: 'Plan the next step.',
+              }
+            : edit;
+        setSkillPolicy(f.registry, clientId, [toolName]);
         mocks.permissionHandler.mockImplementationOnce(async (_name, input) => {
-          if (mode === 'changed-policy') setSkillPolicy(f.registry, clientId, []);
+          if (mode.endsWith('changed-policy')) setSkillPolicy(f.registry, clientId, []);
           else {
             f.opts.session.ownerConnectionId = 'new-viewer-connection';
             releaseViewer = bindAgentLibraryTransport('new-viewer-connection', {
@@ -6598,8 +6628,9 @@ it.each([
           }
           return { behavior: 'allow', updatedInput: input };
         });
-        expect((await run('TelosManageItem', edit)).isError).toBe(true);
+        expect((await run(toolName, exact)).isError).toBe(true);
         expect(canonical.work.readRecord('studio', canonical.actor).summary).toBe('Home studio');
+        expect(canonical.work.listItems({ parentId: 'studio' }, canonical.actor).items).toEqual([]);
         return;
       }
       expect((await run('TelosManageItem', edit)).isError).toBe(false);
@@ -6607,6 +6638,36 @@ it.each([
       expect(mocks.permissionHandler).toHaveBeenCalledWith(
         'TelosManageItem',
         edit,
+        expect.objectContaining({
+          forcePrompt: true,
+          allowSessionGrant: false,
+          approvalScope: 'request',
+        }),
+      );
+      const parent = JSON.parse(
+        (await run('TelosManageItem', { operation: 'read', itemId: 'studio' })).content,
+      ).item;
+      const child = {
+        parentId: 'studio',
+        expectedParentRevision: parent.revision,
+        requestId: 'ordinary-child',
+        summary: 'Measure the studio',
+        intent: 'Record the room dimensions',
+        rationale: 'Size the panels',
+        acceptanceCriteria: ['Dimensions recorded'],
+        note: 'Decompose the approved studio plan.',
+      };
+      const created = await run('TelosCreateChild', child);
+      expect(created.isError, created.content).toBe(false);
+      const childId = JSON.parse(created.content).item.id;
+      expect(canonical.work.readRecord(childId, canonical.actor)).toMatchObject({
+        parentId: 'studio',
+        summary: child.summary,
+      });
+      expect(await run('TelosCreateChild', child)).toEqual(created);
+      expect(mocks.permissionHandler).toHaveBeenCalledWith(
+        'TelosCreateChild',
+        child,
         expect.objectContaining({
           forcePrompt: true,
           allowSessionGrant: false,
