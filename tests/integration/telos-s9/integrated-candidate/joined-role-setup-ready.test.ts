@@ -1,7 +1,11 @@
 import { EventEmitter } from 'node:events';
 import type { Page, Request, Response } from '@playwright/test';
 import { afterEach, expect, it, vi } from 'vitest';
-import { actToReviewedRoleSetup, actToRoleSetupDraft } from './joined-role-setup-ready';
+import {
+  actToItemChatChooser,
+  actToReviewedRoleSetup,
+  actToRoleSetupDraft,
+} from './joined-role-setup-ready';
 
 const origin = 'http://127.0.0.1:4321';
 const target = { origin, itemId: 'studio', role: 'lead' as const };
@@ -34,6 +38,7 @@ function review() {
 }
 function fixture() {
   const events = new EventEmitter();
+  Object.assign(events, { url: () => origin + '/todos/studio?view=Chat&chooseChat=1' });
   const page = events as unknown as Page;
   const request = (
     input: unknown = { itemId: 'studio', role: 'lead' },
@@ -99,6 +104,97 @@ it('arms before the real action and awaits complete exact review bytes within th
   expect(f.events.listenerCount('response')).toBe(0);
   expect(f.events.listenerCount('request')).toBe(0);
 });
+function linkedWork() {
+  return {
+    itemId: 'studio',
+    kind: 'work_item',
+    parentId: null,
+    revision: 'a'.repeat(64),
+    links: [
+      {
+        version: 1,
+        linkId: 'retained-link',
+        itemId: 'studio',
+        linkedAt: '2026-10-30T10:00:00Z',
+        linkedBy: 'operator:offline',
+        availability: 'available',
+        attemptId: null,
+        role: 'worker',
+        conversation: { namespace: 'mitzo', conversationId: 'worker-chat' },
+      },
+    ],
+    assignments: [],
+    sources: [],
+    attempts: [],
+  };
+}
+const chooserTarget = { origin, itemId: 'studio', conversationId: 'worker-chat' };
+it('observes fresh exact chooser data before applying the existing DOM assertions', async () => {
+  vi.useFakeTimers();
+  const f = fixture(),
+    url = origin + '/api/telos/work/items/studio';
+  const old = f.request(undefined, url, 'GET');
+  f.start(old);
+  Object.assign(f.page, { url: () => origin + '/chat/worker-chat' });
+  let completed = false;
+  const work = actToItemChatChooser(f.page, chooserTarget, async () => {
+    const departing = f.request(undefined, url, 'GET');
+    f.start(departing);
+    Object.assign(f.page, { url: () => origin + '/todos/studio?view=Chat&chooseChat=1' });
+    f.respond(departing, { body: linkedWork() });
+    f.respond(old, { body: linkedWork() });
+    for (const r of [
+      f.request(undefined, url, 'POST'),
+      f.request(undefined, url.replace(origin, 'https://foreign.invalid'), 'GET'),
+      f.request(undefined, origin + '/api/telos/work/items/other', 'GET'),
+    ]) {
+      f.start(r);
+      f.respond(r, { body: linkedWork() });
+    }
+    setTimeout(() => {
+      const r = f.request(undefined, url, 'GET');
+      f.start(r);
+      f.respond(r, { body: linkedWork() });
+    }, 6000);
+  }).then(() => {
+    completed = true;
+  });
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(completed).toBe(false);
+  await vi.advanceTimersByTimeAsync(1000);
+  await work;
+  expect(f.events.listenerCount('request')).toBe(0);
+  expect(f.events.listenerCount('response')).toBe(0);
+});
+it.each(['status', 'finished', 'schema', 'item', 'conversation', 'destination', 'deadline'])(
+  'refuses invalid chooser readiness: %s',
+  async (failure) => {
+    vi.useFakeTimers();
+    const f = fixture(),
+      body = linkedWork();
+    if (failure === 'item') body.itemId = 'other';
+    if (failure === 'conversation') body.links[0].conversation.conversationId = 'other';
+    if (failure === 'destination')
+      Object.assign(f.page, { url: () => origin + '/todos/other?view=Chat&chooseChat=1' });
+    const work = actToItemChatChooser(f.page, chooserTarget, async () => {
+      const r = f.request(undefined, origin + '/api/telos/work/items/studio', 'GET');
+      f.start(r);
+      f.respond(r, {
+        status: failure === 'status' ? 503 : 200,
+        body: failure === 'schema' ? {} : body,
+        finished:
+          failure === 'deadline'
+            ? new Promise(() => {})
+            : Promise.resolve(failure === 'finished' ? Error('Aborted') : null),
+      });
+    });
+    const refused = expect(work).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(10000);
+    await refused;
+    expect(f.events.listenerCount('request')).toBe(0);
+    expect(f.events.listenerCount('response')).toBe(0);
+  },
+);
 it('ignores old requests, foreign origin/item/role and non-POST responses before the fresh clicked review', async () => {
   const f = fixture();
   const old = f.request();

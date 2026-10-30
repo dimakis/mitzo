@@ -18,6 +18,7 @@ import { localEfficiencyToolDefinitions } from '../../local-agent-efficiency.js'
 
 export const runPublicColdAdmission = async (
   primaryStatus:
+    | 'followup-interrupted'
     | 'completed'
     | 'interrupted'
     | 'partial-adoption'
@@ -71,6 +72,7 @@ export const runPublicColdAdmission = async (
   let completedPrimary: import('../../codex-conversation-store.js').CodexCommand | undefined;
   if (
     primaryStatus === 'completed' ||
+    primaryStatus === 'followup-interrupted' ||
     primaryStatus === 'interrupted' ||
     (toolRollover && !queuedPrimary)
   ) {
@@ -199,6 +201,44 @@ export const runPublicColdAdmission = async (
     expect(
       f.native.commandStatus(f.first.sessionId, f.first.lease.binding, completedPrimary.id),
     ).toBe(retainedPrimaryStatus);
+    if (primaryStatus === 'followup-interrupted') {
+      await f.runtime.admitContinuation({
+        ...structuredClone(f.request),
+        clientMsgId: 'later-interrupted-command',
+        payload: { text: 'Finish the retained implementation' },
+      });
+      const followup = f.native.claimNext(f.first.sessionId, f.first.lease.binding)!;
+      expect(followup.id).toBe('later-interrupted-command');
+      f.admission.assertBeforeDispatch(followup.id);
+      f.native.prepareNativeExecution(
+        f.first.sessionId,
+        f.first.lease.binding,
+        followup,
+        'thread',
+        completedPolicy,
+      );
+      f.native.recordNativeTurnAck(
+        f.first.sessionId,
+        f.first.lease.binding,
+        followup,
+        'thread',
+        'followup-turn',
+      );
+      f.native.acceptNativeExecution(
+        f.first.sessionId,
+        f.first.lease.binding,
+        followup,
+        'thread',
+        'followup-turn',
+      );
+      f.native.finish(
+        f.first.sessionId,
+        f.first.lease.binding,
+        followup.id,
+        'interrupted',
+        'followup-turn',
+      );
+    }
   }
   if (toolRollover)
     f.native.bindThread(f.first.sessionId, f.first.lease.binding, 'thread', 'pre-deploy-tools');
@@ -248,7 +288,13 @@ export const runPublicColdAdmission = async (
   let acknowledge: (() => void) | undefined;
   let replacementGeneration = 1;
   const providerTerminalTurns = new Map([
-    ['thread', { id: 'pre-public-turn', status: 'interrupted' }],
+    [
+      'thread',
+      {
+        id: primaryStatus === 'followup-interrupted' ? 'followup-turn' : 'pre-public-turn',
+        status: 'interrupted',
+      },
+    ],
   ]);
   const recoveryProbes: Array<{
     threadId: unknown;

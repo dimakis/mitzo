@@ -378,4 +378,16 @@ environment before claiming the interruption handoff works end to end.
 
 Observe each navigation or chooser action before it starts. Fresh draft runtime inventory must be consumed before configuring ordinary settings; role review depends on those settings, so its ten-second response phase follows configuration. Retain existing UI assertions and interaction deadlines. Require exact item/role or conversation identity, successful status and completed schema-valid bodies; task-page waits match a valid task tree by exact task ID. Deliberately delayed collection reads remain outside chooser readiness when canonical record/work reads are the tested dependency.
 
+The worker-replacement journey now observes its fresh item-work GET from the
+intended chooser route before asserting chat counts. Two unchanged hosted runs
+expired at the default five-second DOM wait; the retained failure screenshot
+showed the correct linked worker after expiry. Navigation first loads the canonical
+record, then mounts the work read. Readiness requires the exact origin/item,
+completed 200 response, valid work schema and expected linked conversation;
+departing-route and pre-action reads cannot qualify. A ten-second data-readiness
+phase starts before the click, followed by the unchanged five-second DOM checks.
+This extends the permitted navigation-to-assertion sequence within the unchanged
+180-second case bound; it does not change product operation deadlines, assignment
+or history assertions, or wait for unrelated collection hydration.
+
 The complete native non-git journey keeps its 120-second local envelope and uses a finite 180-second CI envelope. Retained hosted-runner evidence completed it in 106–112 seconds and cut off a valid final replay at 120 seconds. This is a composed fixture allowance; production, individual request, helper, approval and handoff deadlines remain unchanged. Timeouts still require diagnosis rather than automatic retry.

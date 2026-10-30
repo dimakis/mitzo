@@ -10,7 +10,7 @@ import { fixtureReadAnchor } from './local-repository-read-owner.js';
  * signed callback tests exercise permission/custody composition; this helper
  * is not the production native reader or evidence of its enforced permissions. */
 export async function fixtureQualifiedLocalPreparationSource(
-  input: { workspaceId: string; sourcePath: string; taskRoot: string },
+  input: Parameters<typeof captureLocalRepositoryAllocationFacts>[1],
   controls: {
     assertCurrentSync(): void;
     assertCurrent(): Promise<void>;
