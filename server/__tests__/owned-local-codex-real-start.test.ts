@@ -79,7 +79,12 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
       return { turn: { id: `real-host-turn-${providerCalls}` } };
     }
     if (method === 'thread/turns/list')
-      return { data: [{ id: 'real-host-turn-1', status: 'completed' }], nextCursor: null };
+      // Recovery must observe the latest exact turn retained by this peer,
+      // including the second turn completed before the saved queue is resumed.
+      return {
+        data: [{ id: `real-host-turn-${providerCalls}`, status: 'completed' }],
+        nextCursor: null,
+      };
     return first(method);
   });
   const launch = vi

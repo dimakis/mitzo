@@ -263,3 +263,26 @@ it.each([
   ).rejects.toThrow();
   expect(f.capture).toHaveBeenCalledOnce();
 });
+
+it('returns an actionable pre-effect base conflict without acquiring or allocating', async () => {
+  const f = fixture();
+  const { PendingHostTaskError } = await import('../pending-host-task.js');
+  vi.mocked(f.owners.workspaces.findLocalRepositoryPreparation).mockImplementation(() => {
+    throw new PendingHostTaskError('pending_host_task_base_conflict');
+  });
+  const result = await executeNativeLocalRepositoryPreparation(
+    f.owners,
+    f.input,
+    f.controller.signal,
+  );
+  expect(result.isError).toBe(true);
+  expect(JSON.parse(result.content)).toMatchObject({
+    error: 'repository_base_conflict',
+    state: 'active',
+    directory: '/fixture/old',
+    action: expect.stringContaining('newCheckout:true'),
+  });
+  expect(executeLocalRepositoryPreparation).not.toHaveBeenCalled();
+  expect(captureNativeLocalRepositoryPreparationSource).not.toHaveBeenCalled();
+  expect(f.closed()).toBe(true);
+});

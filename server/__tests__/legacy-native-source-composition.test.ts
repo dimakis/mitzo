@@ -1,8 +1,18 @@
 import express from 'express';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, expect, it, vi } from 'vitest';
 import type { V2HandlerContext } from '../ws-handler-v2.js';
 import type { SessionSseRegistry } from '../session-sse-registry.js';
 import type { LegacyNativeSource } from '../legacy-native-continuation.js';
+
+const startup = await vi.hoisted(async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-source-composition-'));
+  vi.stubEnv('REPO_PATH', root);
+  return { remove: () => fs.rmSync(root, { recursive: true, force: true }) };
+});
+vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
 
 const mocks = vi.hoisted(() => ({
   source: null as null | ((id: string) => LegacyNativeSource),
@@ -29,7 +39,7 @@ vi.mock('../responses-chat-session.js', () => ({
     queue: mocks.queue,
   }),
 }));
-vi.mock('../chat.js', async (original) => ({
+vi.mock('../conversation-transcript.js', async (original) => ({
   ...(await original<Record<string, unknown>>()),
   replayEventsToMessages: mocks.replay,
 }));
@@ -39,6 +49,13 @@ vi.mock('../ordinary-local-codex-entry.js', () => ({
   createOwnedCodexFirstCommandHandler: () => vi.fn(),
 }));
 import { mountApplicationChatRestTransport } from '../chat-rest-handler.js';
+import { eventStore } from '../chat.js';
+
+afterAll(() => {
+  eventStore.close();
+  startup.remove();
+  vi.unstubAllEnvs();
+});
 
 afterEach(() => vi.resetAllMocks());
 

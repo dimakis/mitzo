@@ -388,11 +388,11 @@ export function captureNativeHostToolContext(owners: {
       authorization.assertCurrent();
       operation.assertCurrent();
       assertSynchronous(assertNativeCallCurrent);
-      assertSynchronous(() => owners.admission.assertCurrentSync());
       assertSynchronous(owners.assertAgentContextAuthorization);
       const current = owners.registry.findBySessionId(owners.conversationId);
-      const meta = owners.events.getSession(owners.conversationId);
-      const route = owners.events.getSessionRuntimeBinding(owners.conversationId);
+      const observation = owners.admission.observeCurrentSync(owners.events, owners.conversationId);
+      const meta = observation.session;
+      const route = observation.runtimeBinding;
 
       if (
         !hasPersistentRevocationAuthority() ||
@@ -433,10 +433,7 @@ export function captureNativeHostToolContext(owners: {
           ),
           pending,
         ) ||
-        !isDeepStrictEqual(
-          resolveTelosWorkRoleContext(owners.events, owners.conversationId, binding),
-          role,
-        )
+        !isDeepStrictEqual(observation.role, role)
       )
         unavailable();
     };

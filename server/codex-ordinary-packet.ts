@@ -126,6 +126,19 @@ export function codexTurnStartParams(input: {
   additionalContext: CodexAdditionalContext;
   nativeExecution?: CodexNativeExecutionPolicy;
 }) {
+  // This is the already admitted per-command policy, freshly selected by the
+  // conversation owner. Projection performs no store/credential/helper reads.
+  const additionalContext: CodexAdditionalContext = {
+    ...input.additionalContext,
+    ...(input.nativeExecution
+      ? {
+          'mitzo.active-workspace': {
+            kind: 'application' as const,
+            value: `Current admitted workspace: ${JSON.stringify({ workingDirectory: input.nativeExecution.cwd })}\nUse native tools directly for work in this directory. PrepareLocalRepository is for selecting another repository or an explicitly requested new checkout. If an existing preparation needs reconciliation, use the current task directory and base {kind:"ref",ref:"HEAD"}; do not allocate a replacement.`,
+          },
+        }
+      : {}),
+  };
   return {
     threadId: input.threadId,
     clientUserMessageId: input.commandId,
@@ -145,8 +158,6 @@ export function codexTurnStartParams(input: {
       ? codexNativeExecutionParams(input.nativeExecution)
       : { approvalPolicy: 'never', sandboxPolicy: input.sandboxPolicy ?? { type: 'readOnly' } }),
     ...(input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
-    ...(Object.keys(input.additionalContext).length
-      ? { additionalContext: input.additionalContext }
-      : {}),
+    ...(Object.keys(additionalContext).length ? { additionalContext } : {}),
   };
 }

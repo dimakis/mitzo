@@ -3848,10 +3848,7 @@ it('ignores trusted project command hooks and SessionStart context for the owned
     expect(existsSync(marker)).toBe(false);
     expect(mocks.conversationOptions?.systemPrompt).not.toContain('UNADMITTED PROJECT CONTEXT');
     expect(mocks.conversationOptions?.systemPrompt).not.toContain('ListConnections');
-    const beforeComplete = mocks.conversationOptions?.beforeComplete as (
-      signal: AbortSignal,
-    ) => Promise<void>;
-    await beforeComplete(new AbortController().signal);
+    expect(mocks.conversationOptions?.beforeComplete).toBeUndefined();
     expect(existsSync(marker)).toBe(false);
   } finally {
     chat?.close();

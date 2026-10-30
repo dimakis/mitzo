@@ -1,7 +1,7 @@
 import { createLegacyNativeContinuationRouter } from './legacy-native-continuation-routes.js';
 import { getNativeResponsesStore } from './responses-chat-session.js';
 import { getCodexConversationStore } from './codex-chat-session.js';
-import { replayEventsToMessages } from './chat.js';
+import { replayEventsToMessages } from './conversation-transcript.js';
 import { mountApplicationChatEventStream } from './chat-event-stream.js';
 import {
   createOwnedLocalCodexEntryRouter,

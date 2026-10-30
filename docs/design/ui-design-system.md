@@ -2336,3 +2336,23 @@ isolated fixtures exercise dark Mint/System and light Teal/Georgia without a
 backend, credentials or models. Actual IndexedDB tests also verify recovery after
 a failed large legacy-draft migration; no source is deleted before its replacement
 commits. Production-bundle acceptance remains a CI check under local memory pressure.
+
+Retained native transport uncertainty uses the existing `CodexQueueStatus` quiet
+status row and explicit reconnect action. Its text comes from the current durable
+command's derived outcome: ambiguous effects require checking the interrupted turn;
+completed commands do not retain an uncertainty warning. Queue previews, drafts,
+focus and reconnect controls retain their existing owners. There is no automatic
+resume or new execution action. The intercepted queue-status fixture covers 320px
+mobile WebKit/Chromium and desktop Chromium in dark Mint/System and light
+Teal/Georgia, retained queued content and wrapping; unit tests verify no recovery
+request occurs merely from displaying this state.
+A completed response with unfinished effects keeps its completion state and shows
+**The response completed. Check unfinished work before continuing.** in that same
+row. The derived effect state can neither mark the response failed nor dispatch a
+retry. The same intercepted fixture verifies this transition with retained queue
+content on all three browser projects.
+When the original follow-up owner has observed success, the same row offers the
+existing explicit reconnect action to verify that receipt under current authority.
+It still sends nothing until the user activates the control. Truly unknown effects
+keep continuation and retry controls withheld; a completed response is never
+relabelled as failed. The fixture covers all three states and retained queued work.

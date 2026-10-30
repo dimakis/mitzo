@@ -22,7 +22,9 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { performance } from 'node:perf_hooks';
 import { SearchSkillsInput, searchNativeSkills } from './local-agent-efficiency.js';
-import { codexToolFailureResult } from './codex-tool-failure.js';
+import { applicationVersion } from './application-version.js';
+import { diagnosticReleaseRevision } from './codex-diagnostic-release.js';
+import { codexToolFailureResult, CodexDiagnosticIdentitySchema } from './codex-tool-failure.js';
 import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
 import type { ToolDefinition } from '@mitzo/harness';
@@ -31,6 +33,7 @@ import {
   CodexRequestError,
   CodexServerRequestResolvedError,
   CodexTransportError,
+  SUPPORTED_CODEX_CLI_VERSION,
   type CodexLifecycleTransport,
   type CodexServerRequestContext,
 } from './codex-app-server-client.js';
@@ -427,6 +430,8 @@ type ActiveCommand = {
   completions: Map<string, { first: ObjectValue; conflict?: ObjectValue }>;
   replySources: Map<string, string>;
   completionHook?: 'pending' | 'done';
+  completionPhaseTarget?: CodexNativeTurnTarget;
+  providerCompletionRetained?: boolean;
   completionOperation?: Promise<void>;
   interruptRequested?: boolean;
   targetedInterruptClaimed?: boolean;
@@ -503,6 +508,28 @@ export class CodexConversation {
     this.disableProjectDocuments = opts.disableProjectDocuments === true;
     this.client = this.createClient();
   }
+  private diagnosticRuntimeIdentity() {
+    const traceId = trace.getSpan(context.active())?.spanContext().traceId;
+    let nativeArtifactSha256: string | undefined;
+    try {
+      nativeArtifactSha256 = this.binding
+        ? this.opts.store.readHostCustody(this.opts.conversationId, this.binding)?.executable.sha256
+        : undefined;
+    } catch {
+      /* Missing diagnostic correlation never changes the original outcome. */
+    }
+    return {
+      release: applicationVersion,
+      ...(diagnosticReleaseRevision ? { releaseRevision: diagnosticReleaseRevision } : {}),
+      ...(nativeArtifactSha256 ? { nativeArtifactSha256 } : {}),
+      ...(this.opts.nativeExecution
+        ? { runtimeBindingRevision: this.opts.nativeExecution.bindingRevision }
+        : {}),
+      nativeVersion: SUPPORTED_CODEX_CLI_VERSION,
+      workspaceDigest: createHash('sha256').update(this.opts.cwd).digest('hex'),
+      ...(traceId && /^[a-f0-9]{32}$/.test(traceId) && !/^0+$/.test(traceId) ? { traceId } : {}),
+    };
+  }
   private createClient() {
     const generation = ++this.transportGeneration;
     return this.opts.createClient({
@@ -527,7 +554,41 @@ export class CodexConversation {
       error instanceof CodexTransportError && error.diagnostic
         ? { failure: codexRuntimeErrorTelemetry(error) }
         : {};
+    if (this.binding && this.active) {
+      try {
+        const diagnostic = error instanceof CodexTransportError ? error.diagnostic : undefined;
+        this.opts.store.recordTransportDiagnostic(
+          this.opts.conversationId,
+          this.binding,
+          this.active.command,
+          {
+            stage: 'native_transport',
+            reason:
+              diagnostic &&
+              ['child_exit', 'process_error', 'stream_error'].includes(diagnostic.reason)
+                ? (diagnostic.reason as 'child_exit' | 'process_error' | 'stream_error')
+                : error instanceof CodexTransportError && error.category === 'timeout'
+                  ? 'timeout'
+                  : error instanceof CodexTransportError && error.category === 'protocol'
+                    ? 'protocol'
+                    : 'connection',
+            ...(diagnostic?.reason === 'child_exit'
+              ? { exitCode: diagnostic.exitCode, signal: diagnostic.signal }
+              : {}),
+            ...(diagnostic?.stream ? { stream: diagnostic.stream } : {}),
+            ...(diagnostic?.causeCode ? { causeCode: diagnostic.causeCode } : {}),
+            ...this.diagnosticRuntimeIdentity(),
+          },
+        );
+      } catch {
+        // Closing and fencing unknown work must survive diagnostic storage failure.
+        log.warn('Native transport diagnostic could not be retained', {
+          conversationId: this.opts.conversationId,
+        });
+      }
+    }
     if (this.opts.transportClosure === 'terminal') {
+      this.retainEmptyCompletionPhase();
       try {
         this.opts.onTransportClosed?.({ activeTurn: !!this.active, reason: 'closed', ...failure });
       } finally {
@@ -537,6 +598,12 @@ export class CodexConversation {
       }
       return;
     }
+    try {
+      this.retainConfirmedProviderCompletion(this.active);
+    } catch {
+      log.warn('Completed provider outcome requires diagnostic reconciliation');
+    }
+    if (this.closed) return;
     // Invalidate every in-flight request owned by this transport. Its rejection
     // is recovery fallout, not a second fatal send failure.
     this.transportGeneration += 1;
@@ -547,12 +614,13 @@ export class CodexConversation {
     const automatic =
       !this.paused && !active?.interruptRequested && !this.automaticTransportRecoveryAttempted;
     const status = active?.accepted ? 'interrupted' : 'failed';
-    this.finishTurnSpan(status, 'transport');
+    this.finishTurnSpan(active?.providerCompletionRetained ? 'completed' : status, 'transport');
     const commandId = active?.command.id;
     // Transport loss occurs after dispatch and has an unknown provider outcome.
     // An accepted command stays interrupted and ambiguous, never a failed
     // dispatch eligible for replay. This does not claim remote cancellation.
-    if (commandId) this.opts.onProviderComplete?.(commandId, status);
+    if (commandId && !active?.providerCompletionRetained)
+      this.opts.onProviderComplete?.(commandId, status);
     this.active?.abort.abort();
     this.active = undefined;
     let recoveryPersistenceFailed = false;
@@ -1500,13 +1568,46 @@ export class CodexConversation {
   }
   private async continueRecovery(automaticEpoch?: number) {
     if (this.closed) throw new Error('Codex conversation unavailable');
+    const recoveryControlEpoch = this.automaticRecoveryEpoch;
     this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding!);
     if (!this.ready) await this.reconnect();
     const recoveryTransportGeneration = this.transportGeneration;
-    const recoveryThreadId =
+    const assertRecoveryContinuation = () => {
+      if (this.closed || !this.ready || recoveryTransportGeneration !== this.transportGeneration)
+        throw Error('Recovery transport is closed or replaced');
+      if (recoveryControlEpoch !== this.automaticRecoveryEpoch)
+        throw Error('Recovery was cancelled by Stop');
+      if (
+        automaticEpoch !== undefined &&
+        (automaticEpoch !== this.automaticRecoveryEpoch ||
+          !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding!))
+      )
+        throw Error('Automatic recovery was cancelled');
+    };
+    const recoveryState = this.opts.store.read(this.opts.conversationId, this.binding!);
+    const completionTarget = this.opts.store.completionPhaseRecoveryTarget(
+      this.opts.conversationId,
+      this.binding!,
+    );
+    const nativeTarget =
       this.opts.transportClosure === 'terminal'
-        ? this.opts.store.recoveryProbeThreadId(this.opts.conversationId, this.binding!)
-        : this.threadId;
+        ? this.opts.store.nativeRecoveryTarget(this.opts.conversationId, this.binding!)
+        : undefined;
+    const assertRecoveryAuthority = async () => {
+      const verified = await this.verifyCurrentBinding(this.binding);
+      if (!isDeepStrictEqual(verified, this.binding))
+        throw Error('Native recovery account binding changed');
+      if (this.closed || !this.ready || recoveryTransportGeneration !== this.transportGeneration)
+        throw Error('Recovery transport is closed or replaced');
+      if (nativeTarget && this.opts.nativeExecution) {
+        this.assertNativeExecutionOwner();
+        this.opts.assertNativeExecutionCurrent!(this.opts.nativeExecution, nativeTarget.commandId);
+      }
+    };
+    await assertRecoveryAuthority();
+    let nativeStatus: 'completed' | 'failed' | 'interrupted' | undefined;
+    const recoveryThreadId =
+      this.opts.transportClosure === 'terminal' ? nativeTarget?.threadId : this.threadId;
     if (
       (automaticEpoch !== undefined || this.opts.transportClosure === 'terminal') &&
       recoveryThreadId
@@ -1526,6 +1627,14 @@ export class CodexConversation {
         page.data.some((turn) => !['completed', 'failed', 'interrupted'].includes(turn.status))
       )
         throw new Error('Provider turn is still active; saved work remains queued');
+      if (nativeTarget) {
+        if (page.data.length !== 1 || page.data[0].id !== nativeTarget.turnId)
+          throw Error(
+            'Native recovery turn does not match the retained command; inspect native outcome',
+          );
+        nativeStatus = z.enum(['completed', 'failed', 'interrupted']).parse(page.data[0].status);
+        await assertRecoveryAuthority();
+      }
     }
     // A provider turn may continue after turn/start returns. Recovery progress
     // is only for workspace startup and transport reattachment, not generation.
@@ -1543,7 +1652,35 @@ export class CodexConversation {
         !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding!))
     )
       throw new Error('Automatic recovery was cancelled');
-    this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!);
+    if (nativeTarget && nativeStatus) {
+      this.opts.store.reconcileNativeRecovery(
+        this.opts.conversationId,
+        this.binding!,
+        nativeTarget,
+        nativeStatus,
+        recoveryState.threadId,
+        recoveryState.threadGeneration,
+      );
+      this.opts.onProviderTerminal?.(nativeTarget.commandId, nativeTarget.turnId, nativeStatus);
+      this.opts.onProviderComplete?.(nativeTarget.commandId, nativeStatus);
+    }
+    if (completionTarget) {
+      const phase = this.opts.store.completionPhase(
+        this.opts.conversationId,
+        this.binding!,
+        completionTarget.commandId,
+        completionTarget.attempt,
+      );
+      if (phase && phase.observedOutcome === 'completed')
+        await this.reconcileKnownCompletionPhase(
+          completionTarget,
+          this.binding!,
+          this.opts.nativeExecution,
+        );
+      assertRecoveryContinuation();
+    }
+    assertRecoveryContinuation();
+    this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!, nativeTarget);
     this.paused = false;
     await this.pump();
   }
@@ -1813,6 +1950,34 @@ export class CodexConversation {
     return createHash('sha256').update(JSON.stringify(this.dynamicToolsOption())).digest('hex');
   }
 
+  /** Preserve the original phase target until its exact owner has settled.
+   * A new tool surface or attempt home must not retire that recovery lineage. */
+  private async settleCompletionBeforeReplacement() {
+    const binding = this.binding!;
+    const generation = this.transportGeneration;
+    const target = this.opts.store.completionPhaseRecoveryTarget(this.opts.conversationId, binding);
+    if (!target) return;
+    const phase = this.opts.store.completionPhase(
+      this.opts.conversationId,
+      binding,
+      target.commandId,
+      target.attempt,
+    );
+    if (
+      phase?.observedOutcome !== 'completed' ||
+      this.opts.store.commandStatus(this.opts.conversationId, binding, target.commandId) !==
+        'completed'
+    )
+      throw Error('Completion phase effects remain unknown; preserve the original native lineage');
+    await this.reconcileKnownCompletionPhase(target, binding, this.opts.nativeExecution);
+    if (
+      this.closed ||
+      generation !== this.transportGeneration ||
+      this.opts.store.completionPhaseRecoveryTarget(this.opts.conversationId, binding)
+    )
+      throw Error('Completion phase custody changed before native lineage replacement');
+  }
+
   private async replaceAttemptHome(
     client: Rpc,
     state: ReturnType<CodexConversationStore['read']>,
@@ -1820,6 +1985,7 @@ export class CodexConversation {
     toolSurfaceRevision: string,
   ) {
     if (this.closed) throw new Error('Attempt continuity initialization closed');
+    await this.settleCompletionBeforeReplacement();
     if (!state.threadId) throw new Error('Attempt continuity predecessor is unavailable');
     this.savedSourceContext();
     const entries = this.opts.loadConversationHistory?.();
@@ -1879,6 +2045,7 @@ export class CodexConversation {
     threadOptions: ReturnType<CodexConversation['threadOptions']>,
     toolSurfaceRevision: string,
   ) {
+    await this.settleCompletionBeforeReplacement();
     if (!state.threadId) throw new Error('Codex provider thread is unavailable');
     const rolloverContext = this.conversationRolloverContext();
     const result = z
@@ -1973,6 +2140,7 @@ export class CodexConversation {
     state: ReturnType<CodexConversationStore['read']>,
     threadOptions: ReturnType<CodexConversation['threadOptions']>,
   ) {
+    await this.settleCompletionBeforeReplacement();
     if (!state.threadId) throw new Error('Codex provider thread is unavailable');
     const lastCompletedTurnId = await this.latestCompletedProviderTurn(
       client,
@@ -2696,6 +2864,114 @@ export class CodexConversation {
       }
     }
   }
+  private async reconcileKnownCompletionPhase(
+    target: CodexNativeTurnTarget,
+    binding: AccountBinding,
+    policy?: CodexNativeExecutionPolicy,
+  ) {
+    const verified = await this.verifyCurrentBinding(binding);
+    if (!isDeepStrictEqual(verified, binding))
+      throw Error('Completion phase account binding changed');
+    if (policy) {
+      this.assertNativeExecutionOwner();
+      const checked: unknown = this.opts.assertNativeExecutionCurrent!(policy, target.commandId);
+      if (checked !== undefined) {
+        void Promise.resolve(checked).catch(() => {});
+        throw Error('Completion phase workspace authority must be synchronous');
+      }
+    }
+    this.opts.store.reconcileCompletionPhase(
+      this.opts.conversationId,
+      binding,
+      target,
+      createHash('sha256').update(this.opts.cwd).digest('hex'),
+      policy?.policyRevision,
+    );
+  }
+  /** Only the original live terminal owner knows that no completion callback
+   * existed. Reconstructed/plain owners never manufacture this evidence. */
+  private retainEmptyCompletionPhase(active = this.active) {
+    if (
+      this.opts.transportClosure !== 'terminal' ||
+      this.opts.beforeComplete ||
+      !active ||
+      this.active !== active ||
+      !this.binding ||
+      !this.threadId ||
+      !active.accepted ||
+      !active.turnId ||
+      active.ownershipPending ||
+      active.completionHook !== undefined ||
+      active.interruptRequested ||
+      active.abort.signal.aborted
+    )
+      return;
+    try {
+      this.opts.store.observeEmptyCompletionPhase(
+        this.opts.conversationId,
+        this.binding,
+        active.command,
+        this.threadId,
+        active.turnId,
+        createHash('sha256').update(this.opts.cwd).digest('hex'),
+        active.nativeExecution?.policyRevision,
+      );
+    } catch {
+      // Missing evidence preserves uncertainty; it cannot replace primary cleanup.
+    }
+  }
+  /** The provider outcome and downstream completion phase are separate. The
+   * existing retirement owner retains only an accepted exact unconflicted ACK. */
+  private retainConfirmedProviderCompletion(active?: ActiveCommand): boolean {
+    if (!active || !this.binding || !active.accepted || !active.turnId) return false;
+    if (active.providerCompletionRetained) return true;
+    const completion = active.completions.get(active.turnId);
+    const terminal = z
+      .object({
+        threadId: z.string(),
+        turn: z.object({ id: z.string(), status: z.literal('completed') }),
+      })
+      .safeParse(completion?.first);
+    if (
+      !terminal.success ||
+      completion?.conflict ||
+      terminal.data.threadId !== this.threadId ||
+      terminal.data.turn.id !== active.turnId
+    )
+      return false;
+    if (active.completionHook === 'pending') {
+      try {
+        this.opts.store.recordTransportDiagnostic(
+          this.opts.conversationId,
+          this.binding,
+          active.command,
+          {
+            stage: 'workspace_transition',
+            reason: 'completion_hook_pending',
+            ...this.diagnosticRuntimeIdentity(),
+          },
+        );
+      } catch {
+        /* Optional diagnostics cannot erase the exact provider completion. */
+      }
+    }
+    this.opts.store.finish(
+      this.opts.conversationId,
+      this.binding,
+      active.command.id,
+      'completed',
+      active.turnId,
+      active.completionHook === 'pending',
+    );
+    active.providerCompletionRetained = true;
+    this.terminalTurns.set(JSON.stringify([this.threadId, active.turnId]), {
+      commandId: active.command.id,
+      status: 'completed',
+    });
+    this.opts.onProviderTerminal?.(active.command.id, active.turnId, 'completed');
+    this.opts.onProviderComplete?.(active.command.id, 'completed');
+    return true;
+  }
   private persistAcceptedTerminalConflict(thread: string, turn: string) {
     if (this.binding)
       this.opts.store.conflictCapacityTurn(this.opts.conversationId, this.binding, thread, turn);
@@ -2872,19 +3148,75 @@ export class CodexConversation {
       ) {
         if (this.active.completionHook === 'pending') return;
         const active = this.active;
+        const phaseBinding = this.binding!;
+        const phasePolicy = active.nativeExecution;
+        let phase: ReturnType<CodexConversationStore['beginCompletedProviderPhase']>;
+        try {
+          phase = this.opts.store.beginCompletedProviderPhase(
+            this.opts.conversationId,
+            phaseBinding,
+            active.command,
+            this.threadId!,
+            active.turnId!,
+            createHash('sha256').update(this.opts.cwd).digest('hex'),
+            phasePolicy?.policyRevision,
+          );
+        } catch {
+          this.opts.onError?.(
+            new Error('Completion phase admission failed; the hook was not replayed.'),
+          );
+          this.close();
+          return;
+        }
+        active.completionPhaseTarget = phase.target;
         active.completionHook = 'pending';
         const hookAbort = new AbortController();
         let timer: ReturnType<typeof setTimeout> | undefined;
+        const observeUnknown = () => {
+          try {
+            this.opts.store.observeCompletionPhase(
+              this.opts.conversationId,
+              phaseBinding,
+              phase.target,
+              'unknown',
+            );
+          } catch {
+            /* Keep the original pending receipt fenced when custody is unavailable. */
+          }
+        };
         const timeout = new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
             hookAbort.abort();
+            observeUnknown();
             reject(new Error('Project completion hook timed out'));
           }, this.opts.completionHookTimeoutMs ?? 30_000);
         });
-        active.completionOperation = Promise.race([
-          this.opts.beforeComplete(AbortSignal.any([active.abort.signal, hookAbort.signal])),
-          timeout,
-        ])
+        let originalEffect: Promise<void>;
+        try {
+          originalEffect = Promise.resolve(
+            this.opts.beforeComplete(AbortSignal.any([active.abort.signal, hookAbort.signal])),
+          );
+        } catch (error) {
+          originalEffect = Promise.reject(error);
+        }
+        // Keep the original owner's settlement observer after timeout/retirement.
+        // It records evidence only; no late continuation can pump queued work.
+        const settled = originalEffect.then(
+          async () => {
+            this.opts.store.observeCompletionPhase(
+              this.opts.conversationId,
+              phaseBinding,
+              phase.target,
+              'completed',
+            );
+            await this.reconcileKnownCompletionPhase(phase.target, phaseBinding, phasePolicy);
+          },
+          (error: unknown) => {
+            observeUnknown();
+            throw error;
+          },
+        );
+        active.completionOperation = Promise.race([settled, timeout])
           .finally(() => {
             if (timer) clearTimeout(timer);
           })
@@ -2894,7 +3226,22 @@ export class CodexConversation {
             this.notification(method, params);
           })
           .catch(() => {
+            observeUnknown();
             if (this.active !== active || this.closed) return;
+            try {
+              this.opts.store.recordTransportDiagnostic(
+                this.opts.conversationId,
+                phaseBinding,
+                active.command,
+                {
+                  stage: 'workspace_transition',
+                  reason: 'completion_hook_failed',
+                  ...this.diagnosticRuntimeIdentity(),
+                },
+              );
+            } catch {
+              /* Retirement still retains the known provider outcome. */
+            }
             this.opts.onError?.(new Error('Project completion hook failed or blocked the turn.'));
             this.close();
           });
@@ -3391,17 +3738,51 @@ export class CodexConversation {
       });
     }
     Object.freeze(invocation);
+    // Correlation is captured before the executor await. A stale/unreadable
+    // owner later must neither relabel this result nor replace its original cause.
+    const diagnosticIdentity = (() => {
+      try {
+        const candidate = {
+          ...this.diagnosticRuntimeIdentity(),
+          commandId: active.command.id,
+          attempt: active.command.attempt,
+          callId: call.callId,
+          threadId: call.threadId,
+          turnId: call.turnId,
+          generation: this.opts.store.read(this.opts.conversationId, callbackBinding)
+            .threadGeneration,
+        };
+        const checked = CodexDiagnosticIdentitySchema.safeParse(candidate);
+        return checked.success ? checked.data : undefined;
+      } catch {
+        return undefined;
+      }
+    })();
     const toolStarted = performance.now();
     try {
       result = normalizeCodexToolResult(
         await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation),
       );
     } catch (error) {
-      result = codexToolFailureResult(error, toolSignal.aborted);
-      const diagnostic = JSON.parse(result.content) as { diagnosticId: string; error: string };
+      result = codexToolFailureResult(
+        error,
+        toolSignal.aborted,
+        diagnosticIdentity,
+        call.tool === 'PrepareLocalRepository'
+          ? 'repository_preparation'
+          : call.tool === 'RequestGithubPublish'
+            ? 'publication'
+            : 'tool_execution',
+      );
+      const diagnostic = JSON.parse(result.content) as {
+        diagnosticId: string;
+        error: string;
+        diagnostic: Record<string, unknown>;
+      };
       log.warn('Dynamic tool failed', {
         diagnosticId: diagnostic.diagnosticId,
         toolFailureCode: diagnostic.error,
+        diagnostic: diagnostic.diagnostic,
         conversationId: this.opts.conversationId,
         callId: call.callId,
       });
@@ -3632,6 +4013,7 @@ export class CodexConversation {
     finishCommandTimingSpan(this.active?.preparationSpan, 'closed');
     if (this.active) this.active.preparationSpan = undefined;
     if (this.closed) return;
+    this.retainEmptyCompletionPhase();
     this.closed = true;
     this.borrowedSearch?.transportClosed(new Error('Search connection closed'));
     this.paused = true;
@@ -3657,9 +4039,13 @@ export class CodexConversation {
       attempt(() =>
         this.startupObserverAbort?.abort(new Error('Startup transport is closed or replaced')),
       );
-      attempt(() => this.finishTurnSpan('failed', 'close'));
+      attempt(() => this.retainConfirmedProviderCompletion(active));
+      attempt(() =>
+        this.finishTurnSpan(active?.providerCompletionRetained ? 'completed' : 'failed', 'close'),
+      );
       attempt(() => {
-        if (active) this.opts.onProviderComplete?.(active.command.id, closeStatus);
+        if (active && !active.providerCompletionRetained)
+          this.opts.onProviderComplete?.(active.command.id, closeStatus);
       });
       attempt(() => {
         try {

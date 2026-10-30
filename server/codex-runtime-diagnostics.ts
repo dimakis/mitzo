@@ -83,6 +83,11 @@ export function codexRuntimeErrorTelemetry(error: Error): Record<string, unknown
     return {
       transportErrorCategory: error.category,
       ...(diagnostic ? { transportFailureReason: diagnostic.reason } : {}),
+      ...(diagnostic?.reason === 'child_exit'
+        ? { nativeExitCode: diagnostic.exitCode, nativeExitSignal: diagnostic.signal }
+        : {}),
+      ...(diagnostic?.stream ? { nativeFailureStream: diagnostic.stream } : {}),
+      ...(diagnostic?.causeCode ? { nativeFailureCode: diagnostic.causeCode } : {}),
       ...(diagnostic?.pendingRequestMethod && requestMethods.has(diagnostic.pendingRequestMethod)
         ? { pendingRequestMethod: diagnostic.pendingRequestMethod }
         : {}),

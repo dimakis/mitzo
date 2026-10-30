@@ -454,7 +454,8 @@ it('records tool claims before execution and never repeats an uncertain effect',
   expect(s.claimTool('c', binding, 'one', 'call-1')).toBe(true);
   expect(s.claimTool('c', binding, 'one', 'call-1')).toBe(false);
   s.recoverAtStartup();
-  s.acknowledgeRecovery('c', binding);
+  expect(() => s.acknowledgeRecovery('c', binding)).toThrow(/phase|effect/);
+  expect(s.read('c', binding).recovery).toBe(1);
   expect(s.claimTool('c', binding, 'one', 'call-1')).toBe(false);
   expect(() => s.claimTool('c', binding, 'one', 'call-2')).toThrow('running');
   s.close();
@@ -1453,4 +1454,73 @@ it('retains numerous screenshots and long messages through queue claim and cold 
   } finally {
     store.close();
   }
+});
+
+it('retains transport diagnostics per attempt and projects the current one into existing queue metadata', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'failure', prompt: 'work' });
+  const command = s.claimNext('c', binding)!;
+  const common = {
+    stage: 'native_transport' as const,
+    reason: 'child_exit' as const,
+    signal: null,
+    release: 'offline-release',
+    nativeVersion: '0.160.0',
+    workspaceDigest: 'a'.repeat(64),
+  };
+  s.recordTransportDiagnostic('c', binding, command, { ...common, exitCode: 1 });
+  s.pauseForRecovery('c', binding, command.id, 'failed', 'resume', undefined, true, false);
+  expect(s.queueSummary('c', binding).operation).toMatchObject({
+    commandId: 'failure',
+    diagnostic: { exitCode: 1 },
+  });
+  const db = new Database(path);
+  db.prepare("UPDATE codex_commands SET attempt=2 WHERE id='failure'").run();
+  db.close();
+  expect(s.commandLifecycle('c', binding, command.id).diagnostic).toBeUndefined();
+  s.recordTransportDiagnostic(
+    'c',
+    binding,
+    { id: command.id, attempt: 2 },
+    { ...common, exitCode: 2 },
+  );
+  expect(s.commandLifecycle('c', binding, command.id)).toMatchObject({
+    attempt: 2,
+    diagnostic: { exitCode: 2 },
+    diagnosticHistory: [
+      { attempt: 1, diagnostic: { exitCode: 1 } },
+      { attempt: 2, diagnostic: { exitCode: 2 } },
+    ],
+  });
+  s.close();
+});
+
+it('retains historical uncertainty as the recovery action despite an acknowledged projection', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'old-loss', prompt: 'retained work' });
+  const command = s.claimNext('c', binding)!;
+  s.recordTransportDiagnostic('c', binding, command, {
+    stage: 'native_transport',
+    reason: 'child_exit',
+    exitCode: 1,
+    signal: null,
+    release: 'offline',
+    nativeVersion: '0.160.0',
+    workspaceDigest: 'b'.repeat(64),
+  });
+  s.pauseForRecovery('c', binding, command.id, 'interrupted', 'resume', undefined, false, true);
+  expect(s.queueSummary('c', binding).operation?.nextAction).toBe('reconcile_native_outcome');
+  expect(() => s.acknowledgeRecovery('c', binding)).toThrow(/phase|effect/);
+  const writer = new Database(path);
+  writer.prepare('UPDATE codex_commands SET recovery_acknowledged=1').run();
+  writer.close();
+  s.enqueue('c', binding, { id: 'new-work', prompt: 'new explicit task' });
+  expect(s.queueSummary('c', binding).operation?.commandId).toBe('old-loss');
+  expect(() => s.claimNext('c', binding)).toThrow(/phase|effect/);
+  expect(s.commandLifecycle('c', binding, command.id).diagnostic).toMatchObject({ exitCode: 1 });
+  s.close();
 });

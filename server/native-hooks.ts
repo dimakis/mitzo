@@ -118,11 +118,19 @@ export class NativeHooks {
       };
     }
   }
+  private matching(event: Event, input: Record<string, unknown>) {
+    const match = String(input.tool_name ?? input.source ?? input.reason ?? '');
+    return (this.hooks[event] ?? []).filter(
+      (group) => !group.matcher || new RegExp(group.matcher).test(match),
+    );
+  }
+  /** Configuration projection only; it never executes or grants a hook. */
+  hasMatching(event: Event, input: Record<string, unknown>): boolean {
+    return this.matching(event, input).some((group) => group.hooks.length > 0);
+  }
   async run(event: Event, input: Record<string, unknown>, signal: AbortSignal): Promise<Result> {
     const result: Result = { context: '', forcePrompt: false };
-    for (const group of this.hooks[event] ?? []) {
-      const match = String(input.tool_name ?? input.source ?? input.reason ?? '');
-      if (group.matcher && !new RegExp(group.matcher).test(match)) continue;
+    for (const group of this.matching(event, input)) {
       for (const hook of group.hooks) {
         signal.throwIfAborted();
         let output: z.infer<typeof Output>;

@@ -3,7 +3,7 @@ import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import { AppliedDelivery } from '../../packages/client/src/applied-delivery.js';
 import { CodexSessionEvents } from '../codex-session-events.js';
 import { EventStore } from '../event-store.js';
-import { replayEventsToTranscript } from '../chat.js';
+import { replayEventsToTranscript } from '../conversation-transcript.js';
 import { runQueryLoop } from '../query-loop.js';
 import { projectToolOutput, readToolOutputPage } from '../tool-output-projection.js';
 

@@ -2,7 +2,10 @@ import { fixture, cleanups, git } from './prepared-repository-native-consumer.js
 import express from 'express';
 import requestHttp from 'supertest';
 import * as nativeFileOperations from '../../native-file-operation.js';
-import { CodexAppServerClient } from '../../codex-app-server-client.js';
+import {
+  CodexAppServerClient,
+  type CodexLifecycleTransport,
+} from '../../codex-app-server-client.js';
 import { CodexConversation } from '../../codex-conversation.js';
 import { expect, vi } from 'vitest';
 import { tmpdir } from 'node:os';
@@ -10,6 +13,8 @@ import { join } from 'node:path';
 import { writeFile, readFile } from 'node:fs/promises';
 import { codexNativeExecutionPolicy } from '../../codex-native-execution-policy.js';
 import { executeTrustedGitCommit } from '../../trusted-native-operation.js';
+import { nativeToolDefinitions } from '../../native-tool-executor.js';
+import { localEfficiencyToolDefinitions } from '../../local-agent-efficiency.js';
 
 export const runPublicColdAdmission = async (
   primaryStatus:
@@ -69,8 +74,6 @@ export const runPublicColdAdmission = async (
     primaryStatus === 'interrupted' ||
     (toolRollover && !queuedPrimary)
   ) {
-    completedPrimary = f.native.claimNext(f.first.sessionId, f.first.lease.binding)!;
-    f.admission.assertBeforeDispatch(completedPrimary.id);
     const completedPolicy = codexNativeExecutionPolicy({
       bindingRevision: f.first.lease.binding.profileRevision!,
       mode: 'agent',
@@ -80,39 +83,111 @@ export const runPublicColdAdmission = async (
       deniedRoots: [join(f.root, 'login'), join(f.root, 'custody')],
       writeProtectedRoots: [],
     });
-    f.native.prepareNativeExecution(
-      f.first.sessionId,
-      f.first.lease.binding,
-      completedPrimary,
-      'thread',
-      completedPolicy,
-    );
-    f.native.recordNativeTurnAck(
-      f.first.sessionId,
-      f.first.lease.binding,
-      completedPrimary,
-      'thread',
-      'pre-public-turn',
-    );
-    f.native.acceptNativeExecution(
-      f.first.sessionId,
-      f.first.lease.binding,
-      completedPrimary,
-      'thread',
-      'pre-public-turn',
-    );
-    if (interruptedPrimary)
-      f.native.pauseForRecovery(
+    if (interruptedPrimary) {
+      const pending = f.native
+        .commands(f.first.sessionId, f.first.lease.binding)
+        .find((command) => command.status === 'queued')!;
+      const { status, attempt, ...input } = pending;
+      expect({ status, attempt }).toEqual({ status: 'queued', attempt: 1 });
+      let originalLifecycle: CodexLifecycleTransport | undefined;
+      // Produce a known native interruption through the original accepted
+      // owner. A transport-loss pause would truthfully retain unknown effects.
+      const original = new CodexConversation({
+        conversationId: f.first.sessionId,
+        cwd: result!.directory,
+        profile: f.first.profile,
+        storedBinding: f.first.lease.binding,
+        store: f.native,
+        systemPrompt: '',
+        getMode: () => 'agent',
+        tools: [
+          ...nativeToolDefinitions.filter((tool) => tool.name === 'AskUserQuestion'),
+          ...localEfficiencyToolDefinitions.filter((tool) => tool.name === 'SearchSkills'),
+        ],
+        nativeExecution: completedPolicy,
+        canClaimCommand: (commandId) => f.admission.canClaimCommand(commandId),
+        onProviderDispatch: (commandId) => f.admission.assertBeforeDispatch(commandId),
+        verifyBinding: async () => {
+          await f.admission.assertCurrent();
+          return f.first.lease.binding;
+        },
+        assertNativeExecutionCurrent: (policy, commandId) => {
+          f.admission.assertCurrentSync();
+          expect(f.admission.nativeExecutionWorkspace(commandId).cwd).toBe(policy.cwd);
+          expect(policy).toEqual(completedPolicy);
+        },
+        requestNativeApproval: async () => {
+          throw Error('No approval requests in the interrupted producer');
+        },
+        executeTool: async () => {
+          throw Error('No tool effects in the interrupted producer');
+        },
+        emit: () => {},
+        createClient: (lifecycle) => {
+          originalLifecycle = lifecycle;
+          return {
+            initialize: async () => {},
+            close: vi.fn(),
+            request: async (method, params) => {
+              if (method === 'thread/resume')
+                return {
+                  thread: { id: 'thread' },
+                  model: f.first.lease.binding.model,
+                  modelProvider: 'openai',
+                };
+              if (method === 'turn/start') return { turn: { id: 'pre-public-turn' } };
+              return f.rpc.request(method, params);
+            },
+          };
+        },
+      });
+      cleanups.push(() => original.close());
+      await original.initialize();
+      await original.send(input);
+      completedPrimary = f.native
+        .commands(f.first.sessionId, f.first.lease.binding)
+        .find((command) => command.id === input.id)!;
+      expect(
+        f.native.readNativeExecution(f.first.sessionId, f.first.lease.binding, completedPrimary),
+      ).toMatchObject({
+        phase: 'accepted',
+        threadId: 'thread',
+        turnId: 'pre-public-turn',
+        generation: 0,
+      });
+      originalLifecycle!.onNotification('turn/completed', {
+        threadId: 'thread',
+        turn: { id: 'pre-public-turn', status: 'interrupted' },
+      });
+      expect(
+        f.native.commandLifecycle(f.first.sessionId, f.first.lease.binding, completedPrimary.id)
+          .effectStatus,
+      ).toBe('not_established');
+      original.close();
+    } else {
+      completedPrimary = f.native.claimNext(f.first.sessionId, f.first.lease.binding)!;
+      f.admission.assertBeforeDispatch(completedPrimary.id);
+      f.native.prepareNativeExecution(
         f.first.sessionId,
         f.first.lease.binding,
-        completedPrimary.id,
-        'interrupted',
-        'resume',
-        undefined,
-        true,
-        true,
+        completedPrimary,
+        'thread',
+        completedPolicy,
       );
-    else
+      f.native.recordNativeTurnAck(
+        f.first.sessionId,
+        f.first.lease.binding,
+        completedPrimary,
+        'thread',
+        'pre-public-turn',
+      );
+      f.native.acceptNativeExecution(
+        f.first.sessionId,
+        f.first.lease.binding,
+        completedPrimary,
+        'thread',
+        'pre-public-turn',
+      );
       f.native.finish(
         f.first.sessionId,
         f.first.lease.binding,
@@ -120,6 +195,7 @@ export const runPublicColdAdmission = async (
         'completed',
         'pre-public-turn',
       );
+    }
     expect(
       f.native.commandStatus(f.first.sessionId, f.first.lease.binding, completedPrimary.id),
     ).toBe(retainedPrimaryStatus);
@@ -171,6 +247,13 @@ export const runPublicColdAdmission = async (
   void nativeTurnStarted.catch(() => {});
   let acknowledge: (() => void) | undefined;
   let replacementGeneration = 1;
+  const providerTerminalTurns = new Map([
+    ['thread', { id: 'pre-public-turn', status: 'interrupted' }],
+  ]);
+  const recoveryProbes: Array<{
+    threadId: unknown;
+    turn: { id: string; status: string } | undefined;
+  }> = [];
   f.rpc.request.mockImplementation(async (method, params?: Record<string, unknown>) => {
     if (method === 'thread/resume')
       return { thread: { id: params?.threadId }, model: 'fixture-model', modelProvider: 'openai' };
@@ -180,8 +263,11 @@ export const runPublicColdAdmission = async (
         model: 'fixture-model',
         modelProvider: 'openai',
       };
-    if (method === 'thread/turns/list')
-      return { data: [{ id: 'pre-public-turn', status: 'interrupted' }], nextCursor: null };
+    if (method === 'thread/turns/list') {
+      const turn = providerTerminalTurns.get(String(params?.threadId));
+      recoveryProbes.push({ threadId: params?.threadId, turn: turn && { ...turn } });
+      return { data: turn ? [{ ...turn }] : [], nextCursor: null };
+    }
     if (method === 'turn/start') {
       if (toolRollover && params?.clientUserMessageId === firstCommandId) {
         // Native events may precede the JSON-RPC response. They must cross the
@@ -436,6 +522,9 @@ export const runPublicColdAdmission = async (
       expect(f.native.commandStatus(sessionId, binding, firstCommandId)).toBe('running');
     }
     if (queuedPrimary) {
+      // The provider history must advance with the accepted child. Returning
+      // the retired parent's terminal identity correctly blocks exact recovery.
+      providerTerminalTurns.set(activeThread, { id: firstTurnId, status: 'interrupted' });
       lifecycle.onNotification('turn/completed', {
         threadId: activeThread,
         turn: { id: firstTurnId, status: 'interrupted' },
@@ -454,6 +543,13 @@ export const runPublicColdAdmission = async (
         phase: 'accepted',
         threadId: activeThread,
         generation: 1,
+      });
+      if (interruptedExecution?.phase !== 'accepted')
+        throw new Error('Expected the interrupted native execution to have been accepted');
+      expect(f.native.nativeRecoveryTarget(sessionId, binding)).toMatchObject({
+        commandId: firstCommandId,
+        threadId: activeThread,
+        turnId: firstTurnId,
       });
       const explicit = {
         ...structuredClone(request),
@@ -476,6 +572,10 @@ export const runPublicColdAdmission = async (
       ]);
       acknowledge!();
       await expect(continuation).resolves.toEqual({ dispatched: true, sessionId });
+      expect(recoveryProbes.at(-1)).toEqual({
+        threadId: activeThread,
+        turn: { id: interruptedExecution!.turnId, status: 'interrupted' },
+      });
       await vi.waitFor(
         () =>
           expect(

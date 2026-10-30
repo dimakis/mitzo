@@ -135,6 +135,31 @@ function fixture() {
   return { store, input, options, lease, runtime, binding, selection, agentProfile };
 }
 
+it('observes exact store-owned admission facts only after mutable lease callbacks', () => {
+  const f = fixture();
+  try {
+    f.store.claimOrdinaryLocalCommandDispatch('command');
+    const admission = OwnedLocalCodexChatAdmission.capture(f.input);
+    admission.assertOptions(f.options);
+    const observation = admission.observeCurrentSync(f.store, 'session');
+    expect(observation.session?.cwd).toBe('/offline/workspace');
+    expect(observation.runtimeBinding).toEqual(f.runtime);
+    const other = new EventStore(':memory:');
+    try {
+      expect(() => admission.observeCurrentSync(other, 'session')).toThrow();
+    } finally {
+      other.close();
+    }
+    expect(() => admission.observeCurrentSync(f.store, 'other')).toThrow();
+    vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => {
+      f.store.upsertSession({ sessionId: 'session', mode: 'ask' });
+    });
+    expect(() => admission.observeCurrentSync(f.store, 'session')).toThrow();
+  } finally {
+    f.store.close();
+  }
+});
+
 function preparedOperationFixture() {
   const f = fixture();
   const root = mkdtempSync(join(tmpdir(), 'mitzo-prepared-operation-'));

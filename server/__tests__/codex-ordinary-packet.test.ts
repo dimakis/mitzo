@@ -209,3 +209,30 @@ it.each(['live', 'disabled'] as const)(
     expect(options.config.web_search).toBe(webSearch);
   },
 );
+
+it('publishes admitted current workspace in each native turn without a preparation/discovery call', () => {
+  const nativeExecution = codexNativeExecutionPolicy({
+    bindingRevision: 'offline',
+    mode: 'agent',
+    cwd: '/adopted-task',
+    readableRoots: ['/'],
+    writableRoots: ['/adopted-task'],
+    deniedRoots: ['/credentials'],
+  });
+  const result = codexTurnStartParams({
+    commandId: 'continue',
+    threadId: 'thread',
+    model: 'offline',
+    prompt: 'Continue',
+    additionalContext: {},
+    nativeExecution,
+  });
+  expect(result.additionalContext?.['mitzo.active-workspace']).toMatchObject({
+    kind: 'application',
+    value: expect.stringContaining('"workingDirectory":"/adopted-task"'),
+  });
+  expect(result.additionalContext?.['mitzo.active-workspace'].value).toContain(
+    'Use native tools directly',
+  );
+  expect(result.input).toEqual([{ type: 'text', text: 'Continue' }]);
+});

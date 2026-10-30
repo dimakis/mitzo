@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import type { AccountBinding } from '@mitzo/protocol';
 import { resolveOrdinaryContributorGuidance } from '../ordinary-contributor-guidance.js';
 
@@ -86,6 +86,17 @@ it('restores the exact host-selected context through ordinary guidance without c
   expect(() =>
     resolveTelosWorkRoleContext(store, 'lead', { ...binding, accountId: 'other' }),
   ).toThrow();
+});
+it('projects role and guidance from one fresh authority prefix per synchronous observation', () => {
+  const store = owner();
+  retainTelosWorkRoleContext(store, 'lead', binding, selected());
+  const read = vi.spyOn(store, 'getSessionEvents');
+  expect(resolveTelosWorkRoleContext(store, 'lead', binding)?.role).toBe('lead');
+  expect(read).toHaveBeenCalledTimes(1);
+  // A completed observation is never reused by the next ownership fence.
+  store.events.push({ type: 'contributor_guidance', payload: {} });
+  expect(() => resolveTelosWorkRoleContext(store, 'lead', binding)).toThrow();
+  expect(read).toHaveBeenCalledTimes(2);
 });
 it('denies task execution by coordination roles and limits workers to their selected task', () => {
   for (const role of ['lead', 'advisor', 'reviewer'] as const) {

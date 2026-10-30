@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { expect, it, vi } from 'vitest';
-import { CodexAppServerClient } from '../codex-app-server-client.js';
+import { CodexAppServerClient, CodexTransportError } from '../codex-app-server-client.js';
 function setup() {
   const child = Object.assign(new EventEmitter(), {
     stdin: new PassThrough(),
@@ -130,4 +130,72 @@ it('allows configuration inspection on the lifecycle connection before creating 
   reply({ id: sent.at(-1)!.id, result: { config: {} } });
   await expect(config).resolves.toEqual({ config: {} });
   client.close();
+});
+
+it.each([
+  ['exit', 23, null, { reason: 'child_exit', exitCode: 23, signal: null }],
+  ['exit', null, 'SIGTERM', { reason: 'child_exit', exitCode: null, signal: 'SIGTERM' }],
+  ['stdin', null, null, { reason: 'stream_error', stream: 'stdin', causeCode: 'EPIPE' }],
+  ['stdout', null, null, { reason: 'stream_error', stream: 'stdout', causeCode: 'EPIPE' }],
+  ['stderr', null, null, { reason: 'stream_error', stream: 'stderr', causeCode: 'EPIPE' }],
+  ['error', null, null, { reason: 'process_error', causeCode: 'EPIPE' }],
+] as const)(
+  'retains the first safe native cause from %s and never repeats pending work',
+  async (event, code, signal, diagnostic) => {
+    const { child, sent, reply } = setup();
+    const closed = vi.fn();
+    const client = new CodexAppServerClient(child, {
+      lifecycle: { onNotification: () => {}, onRequest: async () => ({}), onClose: closed },
+    });
+    const init = client.initialize();
+    reply({ id: sent[0].id, result: {} });
+    await init;
+    const pending = client.request('turn/start', { threadId: 'thread' });
+    const rejected = expect(pending).rejects.toMatchObject({ category: 'connection', diagnostic });
+    if (event === 'exit') child.emit('exit', code, signal);
+    else {
+      const source = event === 'error' ? child : child[event];
+      source.emit(
+        'error',
+        Object.assign(new Error('SECRET provider path /private/token'), { code: 'EPIPE' }),
+      );
+    }
+    await rejected;
+    child.emit('exit', 99, 'SIGKILL');
+    expect(closed).toHaveBeenCalledOnce();
+    const error = closed.mock.calls[0][0];
+    expect(error).toBeInstanceOf(CodexTransportError);
+    expect(error.diagnostic).toEqual(diagnostic);
+    expect(JSON.stringify(error)).not.toContain('SECRET');
+    expect(sent.filter((frame) => frame.method === 'turn/start')).toHaveLength(1);
+  },
+);
+
+it('retains a typed stdin write-callback failure before a subsequent stream error', async () => {
+  const { child, sent, reply } = setup();
+  const closed = vi.fn();
+  const client = new CodexAppServerClient(child, {
+    observeTurnStartWrite: () => {},
+    lifecycle: { onNotification: () => {}, onRequest: async () => ({}), onClose: closed },
+  });
+  const init = client.initialize();
+  reply({ id: sent[0].id, result: {} });
+  await init;
+  vi.spyOn(child.stdin, 'write').mockImplementation((...args: unknown[]) => {
+    const callback = args.find(
+      (value): value is (error?: Error | null) => void => typeof value === 'function',
+    );
+    callback?.(Object.assign(Error('SECRET /private'), { code: 'EPIPE' }));
+    return false;
+  });
+  await expect(
+    client.request('turn/start', {
+      threadId: 'thread',
+      clientUserMessageId: 'command',
+      input: [{ type: 'text', text: 'offline' }],
+    }),
+  ).rejects.toMatchObject({
+    diagnostic: { reason: 'stream_error', stream: 'stdin', causeCode: 'EPIPE' },
+  });
+  expect(closed).toHaveBeenCalledOnce();
 });

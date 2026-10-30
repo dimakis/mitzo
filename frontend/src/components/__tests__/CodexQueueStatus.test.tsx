@@ -1054,3 +1054,114 @@ it('keeps a new delivery failure visible when queue details were previously hidd
   expect(await screen.findByRole('alert')).toBeTruthy();
   expect(screen.getByText('Message delivery needs review')).toBeTruthy();
 });
+
+it('shows exact native reconciliation action while preserving queued work and the existing explicit reconnect control', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    String(path).endsWith('/meta')
+      ? meta({
+          ...idleQueue,
+          paused: true,
+          canContinue: true,
+          queued: 1,
+          interrupted: 1,
+          operation: {
+            commandId: 'interrupted',
+            attempt: 2,
+            state: 'ambiguous_effect',
+            nextAction: 'reconcile_native_outcome',
+          },
+        })
+      : commands([{ id: 'queued', preview: 'Retained next command' }]),
+  );
+  render(<CodexQueueStatus sessionId="native-exact-outcome" />);
+  await act(async () => {});
+  expect(screen.getByRole('status').textContent).toContain(
+    'Check the interrupted turn before continuing. Saved work is preserved.',
+  );
+  expect(screen.getByRole('button', { name: 'Reconnect and continue' })).toBeTruthy();
+  expect(
+    vi.mocked(apiFetch).mock.calls.every(([path]) => !String(path).includes('/continue')),
+  ).toBe(true);
+});
+
+it('clears old native uncertainty when the current command completed', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({
+      ...idleQueue,
+      operation: {
+        commandId: 'done',
+        attempt: 1,
+        state: 'completed',
+        nextAction: 'inspect_retained_work',
+      },
+    }),
+  );
+  render(<CodexQueueStatus sessionId="native-completed" />);
+  await act(async () => {});
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('ignores malformed optional operation diagnostics without hiding the legacy queue', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({ ...idleQueue, queued: 1, operation: { state: 'unsupported', raw: 'not displayable' } }),
+  );
+  render(<CodexQueueStatus sessionId="native-optional-metadata" />);
+  await act(async () => {});
+  expect(screen.getByText('1 message queued')).toBeTruthy();
+  expect(screen.queryByText('not displayable')).toBeNull();
+});
+
+it('keeps completed responses distinct from an unfinished follow-up with unknown effects', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({
+      ...idleQueue,
+      paused: true,
+      canContinue: true,
+      queued: 1,
+      operation: {
+        commandId: 'completed-response',
+        attempt: 1,
+        state: 'completed',
+        effectStatus: 'unknown',
+        nextAction: 'inspect_retained_work',
+      },
+    }),
+  );
+  render(<CodexQueueStatus sessionId="completed-response-unknown-effects" />);
+  await act(async () => {});
+  expect(screen.getByRole('status').textContent).toContain(
+    'The response completed. Check unfinished work before continuing.',
+  );
+  expect(screen.queryByText('Previous turn failed. Retry when available.')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull();
+  expect(
+    vi.mocked(apiFetch).mock.calls.every(([path]) => !String(path).includes('/continue')),
+  ).toBe(true);
+});
+
+it('offers explicit reconciliation when the original completion owner observed success', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({
+      ...idleQueue,
+      paused: true,
+      canContinue: true,
+      queued: 1,
+      operation: {
+        commandId: 'completed-response',
+        attempt: 1,
+        state: 'completed',
+        effectStatus: 'unknown',
+        nextAction: 'reconcile_completion_phase',
+      },
+    }),
+  );
+  render(<CodexQueueStatus sessionId="observed-completion" />);
+  await act(async () => {});
+  expect(screen.getByRole('status').textContent).toContain(
+    'The response completed. Reconnect to check its follow-up.',
+  );
+  expect(screen.getByRole('button', { name: 'Reconnect and continue' })).toBeTruthy();
+  expect(
+    vi.mocked(apiFetch).mock.calls.every(([path]) => !String(path).includes('/continue')),
+  ).toBe(true);
+});

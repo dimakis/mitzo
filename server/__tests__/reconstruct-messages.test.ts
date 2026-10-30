@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { reconstructMessages, replayEventsToMessages, replayEventsToTranscript } from '../chat.js';
-import type { RawSdkMessage } from '../chat.js';
+import {
+  reconstructMessages,
+  replayEventsToMessages,
+  replayEventsToTranscript,
+} from '../conversation-transcript.js';
+import type { RawSdkMessage } from '../conversation-transcript.js';
 import type { StoredEvent } from '../event-store.js';
 import { EventStore } from '../event-store.js';
 import { mkdtempSync, rmSync } from 'node:fs';

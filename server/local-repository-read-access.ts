@@ -20,7 +20,9 @@ import {
 import {
   captureNativeReaderPathAuthorization,
   captureNativeObservationParser,
+  captureNativeTopologyAssertion,
 } from './local-repository-native-reader.js';
+import type { RepositoryTaskCheckout } from './repository-task-checkout.js';
 
 import {
   freezeNativePreparationObservationData,
@@ -41,6 +43,11 @@ export interface LocalRepositoryReadEntry {
   ctimeNs: string;
 }
 export interface LocalRepositoryReadAuthority {
+  /** Private factory-owned complete physical phase; never caller authority. */
+  assertPreparedTaskTopology?(
+    task: Readonly<RepositoryTaskCheckout>,
+    sourceGitDirectory: string,
+  ): Promise<void>;
   capturePreparationObjectStore?(
     source: LocalRepositoryReadAnchor,
     objectFormat: 'sha1' | 'sha256',
@@ -123,6 +130,35 @@ const unavailable = () =>
 /** Private bounded read mechanism. Anchors are retained for this one operation;
  * listing metadata never authorizes a later child byte read. */
 export class LocalRepositoryReadAccess {
+  get canAssertPreparedTaskTopology() {
+    return (
+      !this.ceiling &&
+      !this.anchors.size &&
+      !this.repositoryCapture &&
+      !this.preparationCapture &&
+      !!captureNativeTopologyAssertion(this.authority)
+    );
+  }
+  async assertPreparedTaskTopology(
+    task: Readonly<RepositoryTaskCheckout>,
+    sourceGitDirectory: string,
+  ) {
+    this.check();
+    const assertion = captureNativeTopologyAssertion(this.authority);
+    if (!this.canAssertPreparedTaskTopology || !assertion) throw unavailable();
+    try {
+      const result: unknown = await Reflect.apply(assertion, this.authority, [
+        task,
+        sourceGitDirectory,
+      ]);
+      if (result !== undefined) throw unavailable();
+    } catch (error) {
+      if (error instanceof RepositoryObservationReadAccessError)
+        throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+      throw error;
+    }
+    this.check();
+  }
   private readonly anchors = new Map<string, LocalRepositoryReadAnchor>();
   private readonly directories = new Map<string, Map<string, LocalRepositoryReadEntry>>();
   private readonly entries = new Map<string, LocalRepositoryReadEntry>();
