@@ -12,8 +12,14 @@ import subprocess
 import sys
 import zipfile
 
-ROOTS = ("dist", "packages/protocol/dist", "packages/harness/dist", "packages/client/dist", "frontend/dist")
-REQUIRED = ("dist/index.js", "packages/protocol/dist/index.js", "packages/harness/dist/index.js", "packages/client/dist/index.js", "frontend/dist/index.html")
+ROOTS = {
+    "server": ("dist", "packages/protocol/dist", "packages/harness/dist", "packages/client/dist"),
+    "frontend": ("frontend/dist",),
+}
+REQUIRED = {
+    "server": ("dist/index.js", "packages/protocol/dist/index.js", "packages/harness/dist/index.js", "packages/client/dist/index.js"),
+    "frontend": ("frontend/dist/index.html",),
+}
 MAX_BYTES = 256 * 1024 * 1024
 MAX_FILE = 64 * 1024 * 1024
 MAX_FILES = 25000
@@ -49,11 +55,17 @@ def identity(root):
     }
 
 
-def output_path(name):
+def scope_roots(scope):
+    if scope not in ROOTS:
+        raise ValueError("Explicit server or frontend output scope required")
+    return ROOTS[scope]
+
+
+def output_path(name, scope):
     path = PurePosixPath(name)
     if (not isinstance(name, str) or "\\" in name or path.is_absolute()
             or str(path) != name or any(part in (".", "..") for part in path.parts)
-            or not any(name.startswith(prefix + "/") for prefix in ROOTS)):
+            or not any(name.startswith(prefix + "/") for prefix in scope_roots(scope))):
         raise ValueError("Unexpected compiled output path")
     return path
 
@@ -69,11 +81,12 @@ def regular_parent(root, path):
     raise ValueError("Compiled output escapes checkout")
 
 
-def pack(root, archive):
+def pack(root, scope, archive):
+    roots = scope_roots(scope)
     source = identity(root)
     files = {}
     total = 0
-    for prefix in ROOTS:
+    for prefix in roots:
         directory = root / prefix
         regular_parent(root, directory)
         if not directory.is_dir():
@@ -86,7 +99,7 @@ def pack(root, archive):
             if not path.is_file():
                 raise ValueError("Compiled output is not a regular file")
             name = path.relative_to(root).as_posix()
-            output_path(name)
+            output_path(name, scope)
             size = path.stat().st_size
             total += size
             if size > MAX_FILE or total > MAX_BYTES or len(files) >= MAX_FILES:
@@ -95,17 +108,18 @@ def pack(root, archive):
             if mode not in (0o644, 0o755):
                 raise ValueError("Unexpected compiled output mode")
             files[name] = {"size": size, "sha256": digest(path.read_bytes()), "mode": mode}
-    if not set(REQUIRED) <= files.keys():
+    if not set(REQUIRED[scope]) <= files.keys():
         raise ValueError("Required compiled entry missing")
-    manifest = {"schema": 1, "identity": source, "files": files}
+    manifest = {"schema": 2, "scope": scope, "identity": source, "files": files}
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as bundle:
         bundle.writestr("manifest.json", json.dumps(manifest, sort_keys=True))
         for name in files:
             bundle.write(root / name, name)
-    print(json.dumps({"files": len(files), "bytes": total, "candidate": source["commit"]}))
+    print(json.dumps({"files": len(files), "bytes": total, "candidate": source["commit"], "scope": scope}))
 
 
-def restore(root, archive):
+def restore(root, scope, archive):
+    roots = scope_roots(scope)
     source = identity(root)
     with zipfile.ZipFile(archive) as bundle:
         entries = bundle.infolist()
@@ -116,15 +130,16 @@ def restore(root, archive):
         if manifest_info.file_size > 8 * 1024 * 1024:
             raise ValueError("Oversized compiled output manifest")
         manifest = json.loads(bundle.read("manifest.json"))
-        if manifest.get("schema") != 1 or manifest.get("identity") != source:
-            raise ValueError("Compiled output candidate, run, host or dependencies differ")
+        if (manifest.get("schema") != 2 or manifest.get("scope") != scope
+                or manifest.get("identity") != source):
+            raise ValueError("Compiled output scope, candidate, run, host or dependencies differ")
         files = manifest.get("files")
-        if not isinstance(files, dict) or set(names) != {"manifest.json", *files} or not set(REQUIRED) <= files.keys():
+        if not isinstance(files, dict) or set(names) != {"manifest.json", *files} or not set(REQUIRED[scope]) <= files.keys():
             raise ValueError("Incomplete compiled output inventory")
         total = 0
         # Validate every byte and destination before replacing any build output.
         for name, expected in files.items():
-            output_path(name)
+            output_path(name, scope)
             info = bundle.getinfo(name)
             kind = stat.S_IFMT(info.external_attr >> 16)
             if kind not in (0, stat.S_IFREG) or info.is_dir():
@@ -137,20 +152,21 @@ def restore(root, archive):
                     or digest(bundle.read(name)) != expected.get("sha256")):
                 raise ValueError("Compiled output content or mode differs")
             regular_parent(root, (root / name).parent)
-        for prefix in ROOTS:
+        for prefix in roots:
             path = root / prefix
             regular_parent(root, path)
-        for prefix in ROOTS:
+        for prefix in roots:
             shutil.rmtree(root / prefix, ignore_errors=False) if (root / prefix).exists() else None
         for name, expected in files.items():
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(bundle.read(name))
             path.chmod(expected["mode"])
-    print(json.dumps({"restoredFiles": len(files), "bytes": total, "candidate": source["commit"]}))
+    print(json.dumps({"restoredFiles": len(files), "bytes": total, "candidate": source["commit"], "scope": scope}))
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3 or sys.argv[1] not in ("pack", "restore"):
-        raise SystemExit("Usage: ci-build-output.py pack|restore ARCHIVE")
-    {"pack": pack, "restore": restore}[sys.argv[1]](Path.cwd().resolve(), Path(sys.argv[2]))
+    if (len(sys.argv) != 4 or sys.argv[1] not in ("pack", "restore")
+            or sys.argv[2] not in ROOTS):
+        raise SystemExit("Usage: ci-build-output.py pack|restore server|frontend ARCHIVE")
+    {"pack": pack, "restore": restore}[sys.argv[1]](Path.cwd().resolve(), sys.argv[2], Path(sys.argv[3]))

@@ -181,7 +181,7 @@ const { jobs } = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
   jobs: Record<string, Job>;
 };
 it('runs four complete unit shards after compile preflight and alongside remaining core validation', () => {
-  expect(jobs.unit?.needs).toBe('preflight');
+  expect(jobs.unit?.needs).toEqual(['preflight', 'frontend-build']);
   expect(jobs.unit?.strategy).toEqual({ 'fail-fast': false, matrix: { shard: [1, 2, 3, 4] } });
   const commands = jobs.unit?.steps.map((step) => step.run).join('\n');
   expect(commands).toContain('ci-build-output.py restore');

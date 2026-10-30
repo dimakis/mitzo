@@ -4,6 +4,7 @@ const needs = JSON.parse(process.env.CI_REQUIRED_NEEDS ?? '{}');
 for (const name of [
   'changes',
   'preflight',
+  'frontend-build',
   'core',
   'unit-validation',
   'joined-validation',

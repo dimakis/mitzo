@@ -45,6 +45,7 @@ it('admits expensive owners only after complete preflight, retaining conditional
       expect(
         enabled(job.if, {
           preflight: { result },
+          'frontend-build': { result: 'success' },
           changes: {
             result: 'success',
             outputs: { browser: 'true', native: 'true', prepared: 'true', ordinary: 'true' },
@@ -55,6 +56,7 @@ it('admits expensive owners only after complete preflight, retaining conditional
     }
     const needs = {
       preflight: { result: 'success' },
+      'frontend-build': { result: 'success' },
       changes: {
         result: 'success',
         outputs: { browser: 'true', native: 'true', prepared: 'true', ordinary: 'true' },
@@ -144,5 +146,35 @@ process.exit(7);
     expect(exits.every((exit) => exit === 0)).toBe(false);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('admits Mac and interaction checks as soon as preflight succeeds, with Linux waiting for both producers', () => {
+  const early = [
+    'prepared-consumers',
+    'browser',
+    'native',
+    'ordinary-journey',
+    'ordinary-joined',
+    'ordinary-supplemental',
+  ];
+  const linux = ['core', 'unit', 'offline'];
+  for (const result of ['failure', 'cancelled', 'skipped', '', 'success']) {
+    const needs = {
+      preflight: { result: 'success' },
+      'frontend-build': { result },
+      changes: {
+        result: 'success',
+        outputs: { browser: 'true', native: 'true', prepared: 'true', ordinary: 'true' },
+      },
+    };
+    for (const name of early) {
+      expect([jobs[name].needs].flat(), name).not.toContain('frontend-build');
+      expect(enabled(jobs[name].if, needs), name).toBe(true);
+    }
+    for (const name of linux) {
+      expect([jobs[name].needs].flat(), name).toContain('frontend-build');
+      expect(enabled(jobs[name].if, needs), name).toBe(result === 'success');
+    }
   }
 });

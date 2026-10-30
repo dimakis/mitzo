@@ -9,9 +9,10 @@ const { jobs, concurrency } = load(readFileSync('.github/workflows/ci.yml', 'utf
   concurrency: { group: string; 'cancel-in-progress': string };
 };
 
-function enabled(condition: string | undefined, state: string) {
+function enabled(condition: string | undefined, state: string, compiled = 'success') {
   const expression = condition?.replace(/^\$\{\{\s*|\s*\}\}$/g, '') || 'success()';
   return new Script(expression).runInNewContext({
+    steps: { 'compiled-prerequisites': { outcome: compiled } },
     always: () => true,
     success: () => state === 'success',
     failure: () => state === 'failure',
@@ -94,4 +95,19 @@ it('admits a new candidate without waiting for an older PR run to finish shuttin
 });
 it('preserves main candidate concurrency identity and does not cancel its validation', () => {
   expect(concurrencyFor('push', 'main-sha')).toEqual({ group: 'ci-main-sha', cancel: false });
+});
+
+it('frontend production builds retain failure diagnostics but stop on cancellation', () => {
+  const build = jobs['frontend-build']?.steps.find((step) => step.id === 'build');
+  expect(build).toBeDefined();
+  expect(enabled(build?.if, 'failure')).toBe(true);
+  expect(enabled(build?.if, 'cancelled')).toBe(false);
+});
+
+it('does not execute unit tests after missing or rejected compiled prerequisites', () => {
+  const test = jobs.unit.steps.find((step) => step.id === 'test');
+  for (const outcome of ['', 'failure', 'cancelled', 'skipped']) {
+    expect(enabled(test?.if, 'success', outcome)).toBe(false);
+    expect(enabled(test?.if, 'failure', outcome)).toBe(false);
+  }
 });

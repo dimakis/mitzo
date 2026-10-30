@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.766-ci-candidate-build-reuse';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.767-ci-parallel-candidate-builds';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,11 +24,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-build-output.test.ts':
-    'b4d563090e95e43c8cbc65360050d7ffd82e85ce650f151e0a033f6e17076d90',
+    '2cd5abc869a554e1953f8a66125b0eee73c4023545cf707df5032c4989a9fafa',
   '../../scripts/test-ci-build-output.py':
-    '399f565ed41638513292d05cb6ed770af61209cf8741621cee075e6ccddf69fe',
+    'a4523a747cb462873e961d66c1fa038683ab57eb188883c0813b5f2b5dc40d10',
   '../../scripts/ci-build-output.py':
-    'c97ffb8ea84d9a34d673418cfc9adc8717fda42ca3ab508ad012d66e4ff78f3c',
+    'ddd416def1792b4b51137cd7d52d3e11a10f8e1a4c1df2ce009e5c75a80ed668',
   '../../scripts/__tests__/ci-selection.test.ts':
     '397581a81e2c67d2b6208fd6b357968238ee86228b30eb66a1fcd6c47c502f3a',
   '../../scripts/ci-selection.mjs':
@@ -65,7 +66,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/pr-landing.mjs':
     'b9b053bd41da755db77d8505869f3f15ccdd4e556be5bfed9a355e379b992769',
   '../../scripts/__tests__/ci-compile-preflight.test.ts':
-    '78de93c53fda8edaf5480dc6943968d7dd63d5c01683cdeb1eb6ce4f47b76b14',
+    '43da1b721310e85f0363e54ab1f4d1ffca0603ffc99a97abf3b8eaa247e2678e',
   '../../scripts/__tests__/ci-prepared-consumer-gate.test.ts':
     '3a9f82a8a9aedbb5ebdd8305cee2131704f3e1ec0fa5d665e02ea5a26f76a584',
   '../../scripts/__tests__/pr-landing.test.ts':
@@ -2206,11 +2207,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-sqlite-owners.ts':
     '19ac125030b518a353b2f7dbe51a4a1eca7ff5b30bf719e45dc9d9b5debdb006',
   '../../scripts/__tests__/ci-cancellation.test.ts':
-    '2b1ee92281d4e831a7dad6cee18645b3f552f44cc607a06cdc344ddff5d470cf',
+    '78cefa655d85b2875d95d81d3b78d085e4e47ed2adf352bcff0a97b27a589f9b',
   '../../scripts/__tests__/ci-required-gate.test.ts':
-    '476e64e64e1976616b8df7bfbe33523a753c2f9dbfabc0787c0e227233de86b8',
+    'ec96b768cfe1d5712d06d7b9380472d0bef29bd6d63cdff154461a2852e33aa2',
   '../../scripts/ci-required-gate.mjs':
-    'c8c7b4a7fd90ade08837b2bfcb3e788b37cc7e60e3446165047507bece98b5bc',
+    'd0b7e017c2dfff0584b5b1f195a7fe2eae5c857a95dff426b8ab198cacac72fd',
   '../__tests__/agent-communication-nongit-app.test.ts':
     'da8d6f78621b75c4fcda23b1693065439fe7d106fd83cd1388a240628e30103e',
   '../__tests__/agent-communication-nongit-native.test.ts':
@@ -2588,7 +2589,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-native-authorization.test.ts':
     '531e0931d201fbe56834f56adb2dfea18ca3330de3bab4c5621d234cfe110843',
   '../../scripts/__tests__/ci-unit-gate.test.ts':
-    '357850b18306f9118c8deaeb11eafe19b8a7da2eb48c75f53f30c466ab84bfc2',
+    '384e7d73fa170ac90e231ec815f6fef7244a74af66b5d1df206759a9c320e0e1',
   '../../scripts/ci-unit-gate.mjs':
     'cb2b475bb2dda66c893796fc0ec89d5ad200af1f1e4299df72d4f1f13881ec56',
   '../__tests__/bundled-skills.test.ts':
@@ -2837,7 +2838,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '2c0b14a0714ef985de37d7a565dbf211dda1184458ea6d0ab9e97343d4444822',
+    '31a8d91b190e697589b6e3be6b23e8483ad7f51fd479641e7d8f2fe89608f6bf',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',

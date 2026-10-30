@@ -28,6 +28,7 @@ function fixture(native = 'true', prepared = 'true', ordinary = 'true') {
     [
       'changes',
       'preflight',
+      'frontend-build',
       'core',
       'unit-validation',
       'ordinary-journey',
@@ -56,11 +57,12 @@ function run(needs: unknown) {
   });
 }
 it('waits for preflight and keeps ci required across every selected owner result', () => {
-  expect(workflow.jobs.core.needs).toBe('preflight');
+  expect(workflow.jobs.core.needs).toEqual(['preflight', 'frontend-build']);
   expect(workflow.jobs.ci.if).toBe('always()');
   expect(workflow.jobs.ci.needs).toEqual([
     'changes',
     'preflight',
+    'frontend-build',
     'core',
     'ordinary-journey',
     'joined-validation',
@@ -93,6 +95,7 @@ it.each(['failure', 'cancelled', 'skipped', ''])(
     for (const name of [
       'changes',
       'preflight',
+      'frontend-build',
       'core',
       'unit-validation',
       'ordinary-journey',

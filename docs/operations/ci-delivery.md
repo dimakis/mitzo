@@ -256,20 +256,24 @@ admission of the expensive unit, browser and macOS jobs, while the aggregate CI
 gate remains red. Conservative affected-job selection still applies after a
 successful preflight.
 
-Preflight produces server/workspace JavaScript and the production frontend once
-for the combined candidate, after retaining every compiler and source-pin check.
-Core, all four unit shards and all ten layout shards restore these prerequisites
-from the producer's immutable artifact ID. They verify the exact commit/tree,
-workflow run, Node version, platform/architecture, installed lockfile and every
-output digest before replacing any output. Missing, mismatched, partial,
-corrupted, linked or oversized output fails closed; no cross-run cache is used.
-Failed-only retries retain the successful producer's output ID. A full rerun
-publishes a new immutable artifact under its own attempt. macOS owners continue
-to build their own platform prerequisites; dependency installations are never
-transferred. Production bundle input/output evidence remains retained by preflight.
+Preflight produces server/workspace JavaScript once for the combined candidate,
+retaining every compiler and source-pin check. An independent frontend producer
+builds production web assets in parallel, so macOS admission and early review do
+not wait for Vite. Core, all four unit shards and all ten layout shards require
+both producers to succeed and restore their two immutable artifact IDs. Each
+archive has a fixed explicit server or frontend scope; it cannot replace outputs
+owned by the other scope. Consumers verify the exact commit/tree, workflow run,
+Node version, platform/architecture, installed lockfile and every output digest
+before replacing that archive's outputs. Missing, mismatched, partial, corrupted,
+linked, wrong-scope or oversized output fails closed; no cross-run cache is used.
+Unit execution also requires successful restoration. Failed-only retries retain
+each successful producer's output ID; a full rerun publishes new immutable IDs.
+macOS owners continue to build their own platform prerequisites, and dependencies
+are never transferred. Production frontend input/output evidence remains retained
+by its producer. The final CI gate explicitly requires both producers to succeed.
 Local build commands keep compiling as before; only the verified CI layout path
-uses the prebuilt assets. Measure upload/download and added preflight time before
-claiming an end-to-end speedup.
+uses the prebuilt assets. Measure upload/download, producer completion and queue time before claiming an
+end-to-end speedup.
 
 Collect all known compiler, format, test and review findings before pushing.
 Complete focused offline checks and independent local review on a stable
