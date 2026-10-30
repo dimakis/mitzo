@@ -117,7 +117,9 @@ export function TodoDetailView() {
     refreshKey: related.refreshKey,
     refresh: primary.refresh,
   };
-  const record = primary.records.find((value) => value.itemId === id);
+  const record =
+    primary.records.find((value) => value.itemId === id) ??
+    (primary.loading ? collectionRecords?.find((value) => value.itemId === id) : undefined);
   const recoveryPending = !!id && !record && !item && hasTelosLifecycleRecovery(id);
 
   useEffect(() => {
@@ -184,6 +186,14 @@ export function TodoDetailView() {
             }}
           />
         </div>
+      </div>
+    );
+
+  if (primary.loading)
+    return (
+      <div className="todo-detail-page telos-canonical-page">
+        <PageHeader title={item?.summary ?? 'Telos'} onBack={handleBack} />
+        <p role="status">Loading item…</p>
       </div>
     );
 

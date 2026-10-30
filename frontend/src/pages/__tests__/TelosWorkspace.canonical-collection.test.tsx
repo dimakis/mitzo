@@ -86,3 +86,33 @@ it.each(['/todos', '/todos/qc-parent'])(
     );
   },
 );
+
+it('keeps the canonical desktop frame while its exact item read is pending', async () => {
+  markAuthLost();
+  const record = {
+    ...createTelosWorkFixtures().homeStudio.items[0],
+    itemId: 'pending-item',
+    parentId: null,
+  };
+  let release!: (response: Response) => void;
+  const pending = new Promise<Response>((resolve) => {
+    release = resolve;
+  });
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input);
+    if (url === '/api/telos/work/collection')
+      return Response.json({ records: [record], profiles: ['manual'], failures: [] });
+    if (url.endsWith('/record')) return pending;
+    return Response.json({}, { status: 503 });
+  });
+  const view = render(
+    <MemoryRouter initialEntries={['/todos/pending-item']}>
+      <Routes>
+        <Route path="/todos/:id?" element={<TodoWorkspace />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  await screen.findByRole('heading', { name: record.summary });
+  expect(view.container.querySelector('.todo-detail-page:not(.telos-canonical-page)')).toBeNull();
+  release(Response.json(record));
+});
