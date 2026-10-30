@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/telos-create-child.test.ts':
+    '1bd1b29a3ea70cefca59ed9a87abff7bd67e40fe5c26f43113cfdb5e566aaad9',
   '../../scripts/__tests__/ci-build-output.test.ts':
     '2cd5abc869a554e1953f8a66125b0eee73c4023545cf707df5032c4989a9fafa',
   '../../scripts/test-ci-build-output.py':
