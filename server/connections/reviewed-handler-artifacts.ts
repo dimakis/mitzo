@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.791-shared-memory-capture';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.792-shared-memory-capture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,11 +25,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/memory-candidate-store.ts':
     'b30ce998b3e015effb5c5614fb63154d12f79f0186c6d437a8738c17baa487fd',
   '../__tests__/fixtures/host-knowledge-publication.ts':
-    '617295faca66ede3f260af9fce22ce8af33e650ac523c1ead1818e8bdcde979b',
+    'c0aa65fa082774dba0d76857d1b55518a08ee273eb5e6125d951e6913692cb50',
   '../__tests__/published-host-knowledge.test.ts':
-    '89d3d9f1953b25f12d5e87c7ba6a9d29fad6b6d671155c6775322a7dac36815d',
+    '9140127c9e6b79954233cbc4540032bbe580507de2b357c95569b833acca423c',
   '../published-host-knowledge.ts':
-    '67520f2bca33163f17bc7d3db209d365d48aa3ffc6e7802ef3440d5e9f44a5a9',
+    'fbc18be185eda4e2d8e7c334336901993ad048594793ffd3c27f6084152d4bee',
   '../session-memory-instructions.ts':
     'fb0fdb93b00a25e10f89e510fd83d5c923b19a59540c123615a376cd145c190c',
   '../../packages/protocol/src/memory-candidates.ts':

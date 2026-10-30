@@ -57,7 +57,7 @@ it('does not deliver a selection after enrollment revocation or cancellation', a
 });
 
 it('pins an active turn and refreshes the next one without refetching on tool reads or touching task files', async () => {
-  const first = hostKnowledgePublication(root, 'a', 'First accepted memory');
+  const first = hostKnowledgePublication(root, 'a', 'First accepted memory', '0444');
   const second = hostKnowledgePublication(root, 'b', 'Second accepted memory');
   const reconcile = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
   disposals.push(installHostKnowledgeStore({ id: 'mgmt', reconcile }));

@@ -7,7 +7,7 @@ import type { KnowledgeStore } from './knowledge-store-config.js';
 const sha = z.string().regex(/^[a-f0-9]{64}$/);
 const Baseline = z.object({
   startingCommit: z.string().regex(/^[a-f0-9]{40}$/),
-  files: z.record(z.string(), z.object({ sha256: sha, mode: z.enum(['100644', '100755']) })),
+  files: z.record(z.string(), z.object({ sha256: sha, mode: z.string().regex(/^0[0-7]{3}$/) })),
 });
 type View = {
   store: KnowledgeStore;
@@ -53,7 +53,7 @@ async function read(view: View, path: string) {
   const bytes = await readFile(target);
   if (
     createHash('sha256').update(bytes).digest('hex') !== view.files[path].sha256 ||
-    (metadata.mode & 0o777) !== Number.parseInt(view.files[path].mode.slice(-3), 8)
+    (metadata.mode & 0o7777) !== Number.parseInt(view.files[path].mode, 8)
   )
     throw Error('Published knowledge integrity mismatch');
   return bytes.toString('utf8');
