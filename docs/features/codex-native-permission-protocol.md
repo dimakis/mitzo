@@ -233,6 +233,11 @@ read-back verification, uncertain-write reporting and no automatic replay. The
 existing framed-helper opt-in for other owned runtime routes is unchanged. Secret
 relay adapters retain their separate qualification contract.
 
+Peer close stops further sends but drains already-received native response
+handlers before declaring an unconfirmed exchange. Delivery still requires current
+authority; cancellation, errors and the original exchange deadline remain binding.
+Messages arriving after close cannot supply a late acknowledgement.
+
 The native facade composes the shared connection and Knowledge adapters directly,
 without constructing unrelated repository, profile or task tools per call.
 Concurrent connection-access requests share only an in-flight consent promise

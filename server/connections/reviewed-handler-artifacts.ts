@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.779-native-service-admission';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.780-websocket-close-drain';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/credential-websocket.test.ts':
+    'a2d8bd189d4fd0cebaf311ecdc5713c0074f43ce39b82656c2ce0c5afe983091',
   '../__tests__/ordinary-local-codex-selection-owner.test.ts':
     '65a845c20a35ed4403a3296e5610063f7b11a0ae2cb7db66e3967dbc649e5fdf',
   '../__tests__/fixtures/admitted-mac-service-chat.ts':
@@ -1432,7 +1434,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6882cdc7036ec0c019392a5bf398aca9f196579d013c15f209815d0430cebd41',
   '../github-repository-connections.ts':
     '3917a36a0cc8b3bb73f1f4fa66e93e17be3b0ace58eff2bb3e0470bd67b7c11e',
-  '../credential-websocket.ts': '87f97e548769fd51549ceeea10b119eef6deb7c69130937a589411c7650d9abd',
+  '../credential-websocket.ts': '611ced97e247fb9aaf9d0e8c8dc0f4e1f0108f16183d0c3f2d1bf686755b0349',
   '../home-assistant-dashboard.ts':
     'e8ec438c4288e316773da0c288845fb6a8aeb33b37d804ee9791c8425bdbad43',
   '../credential-connections.ts':

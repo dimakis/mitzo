@@ -17,6 +17,7 @@ class Socket extends EventEmitter {
 function fixture(
   authentication: unknown = { kind: 'headers' },
   request: unknown = { message: '{"op":"update"}' },
+  assertRuntimeCurrent?: () => Promise<void>,
 ) {
   const socket = new Socket();
   const controller = new AbortController();
@@ -31,6 +32,7 @@ function fixture(
       config: WebSocketConfigSchema.parse({ path: '/socket', authentication }),
       request: request as never,
       check,
+      assertRuntimeCurrent,
     },
     controller.signal,
     (_url, o) => {
@@ -39,6 +41,23 @@ function fixture(
     },
   );
   return { socket, pending, check, controller, options: () => options };
+}
+async function nativeFixture(authentication?: unknown, request?: unknown) {
+  const guard = vi.fn(async () => {});
+  const f = fixture(authentication, request, guard);
+  await vi.waitFor(() => expect(f.options()).toBeDefined());
+  f.socket.emit('open');
+  await vi.waitFor(() => expect(f.socket.sent).toHaveLength(1));
+  const outcome = f.pending.then(
+    (body) => ({ body }),
+    (error: unknown) => ({ error }),
+  );
+  let release!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const before = guard.mock.calls.length;
+  return { ...f, guard, outcome, barrier, release, before };
 }
 afterEach(() => vi.useRealTimers());
 it('supports a non-HA service over authenticated WSS and cleans up after its reply', async () => {
@@ -216,4 +235,88 @@ it('waits for final native authority before connecting and before every frame', 
   socket.emit('open');
   expect(await outcome).toMatchObject({ mayHaveApplied: false });
   expect(socket.send).not.toHaveBeenCalled();
+});
+
+it.each(['queued', 'checking'] as const)(
+  'delivers a received reply after peer close while final authority is %s',
+  async (phase) => {
+    const f = await nativeFixture();
+    f.guard.mockImplementationOnce(async () => {
+      await f.barrier;
+    });
+    f.socket.receive('{"ok":true}');
+    if (phase === 'checking')
+      await vi.waitFor(() => expect(f.guard).toHaveBeenCalledTimes(f.before + 1));
+    f.socket.emit('close');
+    f.release();
+    expect(await f.outcome).toEqual({ body: '{"ok":true}' });
+    expect(f.socket.sent).toEqual(['{"op":"update"}']);
+    expect(f.socket.terminate).toHaveBeenCalledOnce();
+  },
+);
+
+it('does not send a queued command after peer close during authentication', async () => {
+  const f = await nativeFixture({
+    kind: 'json',
+    message: '{"type":"login"}',
+    credentialField: 'token',
+    success: { field: 'ok', equals: true },
+  });
+  f.guard.mockImplementationOnce(async () => {
+    await f.barrier;
+  });
+  f.socket.receive('{"ok":true}');
+  await vi.waitFor(() => expect(f.guard).toHaveBeenCalledTimes(f.before + 1));
+  f.socket.emit('close');
+  f.release();
+  expect(await f.outcome).toMatchObject({ error: { mayHaveApplied: false } });
+  expect(f.socket.sent).toHaveLength(1);
+});
+
+it.each(['revocation', 'cancellation'] as const)(
+  'still refuses a received reply during close drain after %s',
+  async (reason) => {
+    const f = await nativeFixture();
+    f.guard.mockImplementationOnce(async () => {
+      await f.barrier;
+      if (reason === 'revocation') throw Error('private retired owner');
+    });
+    f.socket.receive('{"ok":true}');
+    await vi.waitFor(() => expect(f.guard).toHaveBeenCalledTimes(f.before + 1));
+    f.socket.emit('close');
+    if (reason === 'cancellation') f.controller.abort();
+    f.release();
+    expect(await f.outcome).toMatchObject({
+      error: {
+        message: 'WebSocket request failed',
+        mayHaveApplied: true,
+      },
+    });
+    expect(f.socket.sent).toHaveLength(1);
+  },
+);
+
+it('fails an incomplete closed exchange and ignores replies received after close', async () => {
+  const f = await nativeFixture(undefined, {
+    message: '{}',
+    responseMatch: { field: 'id', equals: 2 },
+  });
+  f.socket.receive('{"id":1}');
+  f.socket.emit('close');
+  f.socket.receive('{"id":2}');
+  expect(await f.outcome).toMatchObject({ error: { mayHaveApplied: true } });
+});
+
+it('retains the exchange deadline while a closed reply waits for authority', async () => {
+  vi.useFakeTimers();
+  const f = await nativeFixture();
+  f.guard.mockImplementationOnce(async () => {
+    await f.barrier;
+  });
+  f.socket.receive('{"ok":true}');
+  await vi.waitFor(() => expect(f.guard).toHaveBeenCalledTimes(f.before + 1));
+  f.socket.emit('close');
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(await f.outcome).toMatchObject({ error: { mayHaveApplied: true } });
+  f.release();
 });

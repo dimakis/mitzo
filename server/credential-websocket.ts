@@ -160,6 +160,7 @@ export function connectionWebSocketExchange(
         return;
       }
       let settled = false;
+      let closed = false;
       let applicationSent = false;
       let receivedBytes = 0;
       let frames = 0;
@@ -193,6 +194,7 @@ export function connectionWebSocketExchange(
       const channel: WebSocketExchange = {
         send(text, application = true, beforeSend) {
           return fenced(() => {
+            if (closed) throw new ConnectionWebSocketError(applicationSent);
             if (Buffer.byteLength(text) > 256 * 1024) throw new Error('Frame too large');
             beforeSend?.();
             applicationSent ||= application;
@@ -228,9 +230,18 @@ export function connectionWebSocketExchange(
         }
       };
       socket.on('error', abort);
-      socket.on('close', abort);
-      socket.on('open', () => dispatch(() => handlers.open(channel)));
+      socket.once('close', () => {
+        closed = true;
+        // A received final reply may still be awaiting its delivery fence.
+        // Drain those handlers under the original deadline; sends stay closed.
+        if (input.assertRuntimeCurrent) void pending.then(abort, abort);
+        else abort();
+      });
+      socket.on('open', () => {
+        if (!closed) dispatch(() => handlers.open(channel));
+      });
       socket.on('message', (data, binary) => {
+        if (closed) return;
         try {
           check();
           const text = data.toString();
