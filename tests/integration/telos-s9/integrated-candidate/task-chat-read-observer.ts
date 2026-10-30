@@ -54,31 +54,50 @@ function containsTask(body: unknown, taskId: string): boolean {
 /** Retain real browser reads without attributing old response completions to a new route. */
 export function observeTaskChatReads(page: Page) {
   const reads: Read[] = [];
-  const requests = new WeakMap<Request, number>();
+  const requests = new WeakMap<
+    Request,
+    { path: string; requestOrdinal: number; observed: boolean }
+  >();
   const pending = new Map<number, { path: string; requestOrdinal: number }>();
+  const failed = new Set<number>();
+  const admissions: Array<{ path: string; requestOrdinal: number }> = [];
   let ordinal = 0;
-  const onRequest = (request: Request) => requests.set(request, ++ordinal);
+  const onRequest = (request: Request) => {
+    const path = new URL(request.url()).pathname;
+    const admission = {
+      path,
+      requestOrdinal: ++ordinal,
+      observed:
+        request.method() === 'GET' &&
+        (path === '/api/tasks' ||
+          path.startsWith('/api/telos/work/') ||
+          (path.startsWith('/api/sessions/') && path.endsWith('/meta'))),
+    };
+    requests.set(request, admission);
+    if (admission.observed) {
+      const read = { path, requestOrdinal: admission.requestOrdinal };
+      admissions.push(read);
+      pending.set(admission.requestOrdinal, read);
+    }
+  };
+  const onRequestFailed = (request: Request) => {
+    const admission = requests.get(request);
+    if (admission?.observed) {
+      failed.add(admission.requestOrdinal);
+      pending.delete(admission.requestOrdinal);
+    }
+  };
   const onResponse = (response: Response) => {
-    const request = response.request();
-    const requestOrdinal = requests.get(request);
-    const path = new URL(response.url()).pathname;
-    if (
-      requestOrdinal === undefined ||
-      request.method() !== 'GET' ||
-      !(
-        path === '/api/tasks' ||
-        path.startsWith('/api/telos/work/') ||
-        (path.startsWith('/api/sessions/') && path.endsWith('/meta'))
-      )
-    )
-      return;
-    pending.set(requestOrdinal, { path, requestOrdinal });
+    const admission = requests.get(response.request());
+    if (!admission?.observed) return;
+    const { path, requestOrdinal } = admission;
     void (async () => {
       const read = { path, requestOrdinal, status: response.status() };
       try {
-        reads.push({ ...read, body: await response.json() });
+        const body = await response.json();
+        if (!failed.has(requestOrdinal)) reads.push({ ...read, body });
       } catch (error) {
-        reads.push({ ...read, bodyReadError: String(error) });
+        if (!failed.has(requestOrdinal)) reads.push({ ...read, bodyReadError: String(error) });
       } finally {
         pending.delete(requestOrdinal);
       }
@@ -86,11 +105,14 @@ export function observeTaskChatReads(page: Page) {
   };
   page.on('request', onRequest);
   page.on('response', onResponse);
+  page.on('requestfailed', onRequestFailed);
   const since = (boundary: number) => reads.filter((read) => read.requestOrdinal > boundary);
   return {
     reads,
     since,
     boundary: () => ordinal,
+    requestedSince: (boundary: number) =>
+      admissions.filter((read) => read.requestOrdinal > boundary),
     pending: () => [...pending.values()],
     async waitForCollectionRecords(
       itemIds: string[],
@@ -173,6 +195,7 @@ export function observeTaskChatReads(page: Page) {
     close() {
       page.off('request', onRequest);
       page.off('response', onResponse);
+      page.off('requestfailed', onRequestFailed);
     },
   };
 }

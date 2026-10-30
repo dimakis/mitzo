@@ -248,3 +248,18 @@ it.each(['missing identity', 'malformed record', 'malformed failures', 'unsucces
     f.observer.close();
   },
 );
+
+it('tracks a second admitted collection before headers and clears it on request failure', async () => {
+  const f = fixture();
+  const body = collectionBody();
+  const ids = body.records.map((record) => record.itemId);
+  f.response(f.request('/api/telos/work/collection'), Promise.resolve(body));
+  const later = f.request('/api/telos/work/collection');
+  await f.observer.waitForCollectionRecords(ids, 0);
+  expect(f.observer.pending()).toEqual([{ path: '/api/telos/work/collection', requestOrdinal: 2 }]);
+  f.events.emit('requestfailed', later);
+  expect(f.observer.pending()).toEqual([]);
+  expect(f.observer.requestedSince(0)).toHaveLength(2);
+  f.observer.close();
+  expect(f.events.listenerCount('requestfailed')).toBe(0);
+});

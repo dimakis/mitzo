@@ -1107,14 +1107,14 @@ export class TelosWorkStore {
   }
   /** Canonical collection: one authority check, connection and committed snapshot.
    * Never reconstruct an ID from a mutable title or require a source row. */
-  readCollection(rawView: unknown, actor: TelosWorkActor) {
+  readCollection(rawView: unknown, actor: TelosWorkActor, assertCurrent: () => void = () => {}) {
     this.operator(actor);
     const view = TelosWorkLifecycleListSchema.parse(rawView);
     const read = this.db.transaction(() => {
       const select = this.db.prepare('SELECT * FROM items ORDER BY rowid LIMIT 5001');
       let items = select.all() as Item[];
       if (items.length > 5000) conflict('Telos collection exceeds bounded selection');
-      if (renewDueTelosSnoozes(this.db, items)) items = select.all() as Item[];
+      if (renewDueTelosSnoozes(this.db, items, assertCurrent)) items = select.all() as Item[];
       return projectTelosCollection(
         this.db,
         items,

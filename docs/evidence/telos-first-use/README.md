@@ -11,7 +11,8 @@ they existed beneath the intended parent. No database migration is needed.
   requires a current interactive operator, and returns private/no-store records.
   Initialized databases stay read-only unless the bounded snapshot proves snoozes
   are due. That case rechecks the current operator and uses an owned IMMEDIATE
-  writer transaction to persist status, deadline, timestamp and history together,
+  writer transaction and reasserts authority after the lock before persisting
+  status, deadline, timestamp and history together,
   matching the legacy local-calendar expiry. Only that explicit signal renews a
   reader as a writer; I/O errors never trigger escalation. Genuinely missing
   additive lifecycle tables use the existing narrow schema initializer. It rejects selections above

@@ -33,14 +33,10 @@ export function useTelosRecords(
   const batch = options.batch === true;
   const seeded = options.seed !== undefined;
   const requestedKey = JSON.stringify([...new Set(ids)]);
-  const missing =
-    options.readMissing && seeded
-      ? ids.filter(
-          (id) =>
-            !options.seed!.some((record) => record.itemId === id) &&
-            !options.failures?.some((failure) => failure.itemId === id),
-        )
-      : [];
+  const seededIds =
+    options.readMissing && seeded ? new Set(options.seed!.map((record) => record.itemId)) : null;
+  const failedIds = new Set(options.failures?.map((failure) => failure.itemId));
+  const missing = seededIds ? ids.filter((id) => !seededIds.has(id) && !failedIds.has(id)) : [];
   const reading = !seeded || missing.length > 0;
   const key = JSON.stringify([...new Set(seeded ? missing : ids)]);
   const [retry, setRetry] = useState(0);

@@ -8,10 +8,12 @@ export class TelosCollectionWakeupRequired extends Error {
 }
 
 /** Match MGMT's host-local, inclusive calendar-day expiry. The caller owns an
- * IMMEDIATE writer transaction; history and status commit or roll back together. */
+ * IMMEDIATE writer transaction; current authority is checked once after the lock,
+ * and history and status commit or roll back together. */
 export function renewDueTelosSnoozes(
   db: Database.Database,
   items: Array<Record<string, unknown> & { id: string }>,
+  assertCurrent: () => void,
   now = new Date(),
 ): boolean {
   const pad = (value: number, width = 2) => String(value).padStart(width, '0');
@@ -27,6 +29,11 @@ export function renewDueTelosSnoozes(
   if (!ids.length) return false;
   if (db.readonly) throw new TelosCollectionWakeupRequired();
   if (!db.inTransaction) throw Error('Canonical snooze renewal requires its writer transaction');
+  const authorization: unknown = assertCurrent();
+  if (authorization !== undefined) {
+    void Promise.resolve(authorization).catch(() => {});
+    throw Error('Synchronous current authority required');
+  }
   const timestamp = `${today}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad(now.getMilliseconds(), 3)}`;
   const selected = JSON.stringify(ids);
   const eligible =

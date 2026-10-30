@@ -184,7 +184,9 @@ it('persists expired snoozes including today exactly once, keeping future and in
   expect(f.db.prepare("SELECT status FROM items WHERE id='today'").get()).toEqual({
     status: 'snoozed',
   });
-  const records = f.work.readCollection('active', f.actor).records;
+  const assertCurrent = vi.fn();
+  const records = f.work.readCollection('active', f.actor, assertCurrent).records;
+  expect(assertCurrent).toHaveBeenCalledTimes(1);
   expect(records.map((record) => record.itemId).sort()).toEqual(['past', 'studio', 'today']);
   for (const id of ['past', 'today']) {
     expect(f.work.readRecord(id, f.actor)).toMatchObject({
@@ -198,7 +200,8 @@ it('persists expired snoozes including today exactly once, keeping future and in
       f.db.prepare('SELECT old_status,new_status FROM history WHERE item_id=?').all(id),
     ).toEqual([{ old_status: 'snoozed', new_status: 'active' }]);
   }
-  f.work.readCollection('active', f.actor);
+  f.work.readCollection('active', f.actor, assertCurrent);
+  expect(assertCurrent).toHaveBeenCalledTimes(1);
   expect(
     f.db.prepare("SELECT count(*) AS n FROM history WHERE old_status='snoozed'").get(),
   ).toEqual({ n: 2 });

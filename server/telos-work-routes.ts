@@ -269,7 +269,19 @@ export function createTelosWorkRouter(options: {
       res.status(400).json({ code: 'invalid', error: 'Invalid collection view' });
       return;
     }
-    run(res, (store) => store.readCollection(query.data.view ?? 'active', authority), 'collection');
+    run(
+      res,
+      (store) =>
+        store.readCollection(query.data.view ?? 'active', authority, () => {
+          const auth = res.locals.authSession as AuthSession | undefined;
+          if (!auth || auth.id !== authority.id || !isAuthSessionCurrent(auth))
+            throw new TelosWorkError(
+              'unauthorized',
+              'Current operator required for snooze renewal',
+            );
+        }),
+      'collection',
+    );
   });
   router.get('/api/telos/work/items/:itemId', options.operatorAuth, (req, res) => {
     const authority = actor(res);

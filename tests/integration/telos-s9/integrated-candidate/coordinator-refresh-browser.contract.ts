@@ -208,7 +208,7 @@ it('keeps attached scope usable despite unrelated transport failure and fences o
     expect(pendingRelated).toHaveLength(0);
     expect(
       recordReads
-        .since(reconnectBoundary)
+        .requestedSince(reconnectBoundary)
         .filter((read) =>
           attachedIds.some((id) => read.path === `/api/telos/work/items/${id}/record`),
         ),

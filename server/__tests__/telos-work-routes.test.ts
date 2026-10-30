@@ -63,6 +63,45 @@ async function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>
   return { app: server, read, command, dbPath };
 }
 describe('authorized Telos work API', () => {
+  it('refuses snooze effects when authority expires after writer-lock admission', async () => {
+    const canonical = createTelosCanonicalData();
+    const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 };
+    let admitted = false;
+    const original = Database.prototype.prepare;
+    const prepare = vi.spyOn(Database.prototype, 'prepare').mockImplementation(function (
+      this: Database.Database,
+      sql: string,
+    ) {
+      if (sql === 'SELECT * FROM items ORDER BY rowid LIMIT 5001' && !this.readonly) {
+        expect(this.inTransaction).toBe(true);
+        admitted = true;
+        auth.expiresAt = 0;
+      }
+      return original.call(this, sql);
+    });
+    try {
+      canonical.db.exec(
+        "UPDATE items SET status='snoozed',snoozed_until='2000-01-01' WHERE id='studio'",
+      );
+      const f = await setup({
+        dbPath: () => canonical.dbPath,
+        operatorAuth: (_req, res, next) => {
+          res.locals.authSession = auth;
+          next();
+        },
+      });
+      expect((await request(f.app).get('/api/telos/work/collection')).status).toBe(403);
+      expect(admitted).toBe(true);
+      expect(canonical.work.readRecord('studio', canonical.actor).status).toBe('snoozed');
+      expect(
+        canonical.db.prepare("SELECT * FROM history WHERE old_status='snoozed'").all(),
+      ).toEqual([]);
+    } finally {
+      prepare.mockRestore();
+      canonical.close();
+    }
+  });
+
   it('rechecks the current operator before admitting a snooze-renewal writer', async () => {
     const canonical = createTelosCanonicalData();
     const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 };
