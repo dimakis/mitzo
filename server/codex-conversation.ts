@@ -1639,12 +1639,10 @@ export class CodexConversation {
         (exactRecovery && page.data.length === 0) ||
         page.data.some((turn) => !['completed', 'failed', 'interrupted'].includes(turn.status))
       )
-        throw new Error('Provider turn is still active; saved work remains queued');
+        throw new SessionRuntimeError('provider_active');
       if (nativeTarget) {
         if (page.data.length !== 1 || page.data[0].id !== nativeTarget.turnId)
-          throw Error(
-            'Native recovery turn does not match the retained command; inspect native outcome',
-          );
+          throw new SessionRuntimeError('provider_identity');
         nativeStatus = z.enum(['completed', 'failed', 'interrupted']).parse(page.data[0].status);
         await assertRecoveryAuthority();
       }

@@ -1,4 +1,6 @@
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
+import { findSessionRuntimeError } from './session-runtime-error.js';
 import {
   resolveTelosWorkRoleContext,
   resolveTelosWorkSystemPrompt,
@@ -339,7 +341,15 @@ export async function startOwnedOpenShellCodexCommand(
       },
       close,
     };
-    void prepared.run().catch(() => {
+    void prepared.run().catch((error: unknown) => {
+      reportRetainedRuntimeFailure({
+        store: eventStore,
+        sessionId,
+        commandId: command.clientMsgId,
+        session,
+        transport,
+        error,
+      });
       try {
         prepared?.close();
       } finally {
@@ -347,12 +357,12 @@ export async function startOwnedOpenShellCodexCommand(
       }
     });
     return result;
-  } catch {
+  } catch (error) {
     try {
       prepared?.close();
     } finally {
       close();
     }
-    throw unavailable();
+    throw findSessionRuntimeError(error) ?? unavailable();
   }
 }

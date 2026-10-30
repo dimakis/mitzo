@@ -1,6 +1,8 @@
 import { AdviserTaskScope } from './adviser-task-scope.js';
+import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import type { CodexToolResult } from './codex-tool-result.js';
 import { projectToolOutput, readToolOutputPage } from './tool-output-projection.js';
+import { findSessionRuntimeError } from './session-runtime-error.js';
 import {
   localEfficiencyToolDefinitions,
   OPENSHELL_EFFICIENCY_INSTRUCTIONS,
@@ -379,6 +381,8 @@ function capabilityToolsForConversation(
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  const retained = findSessionRuntimeError(error);
+  if (retained) return retained.publicMessage();
   if (error.message === NATIVE_MAC_ARTIFACT_UNAVAILABLE) return error.message;
   if (error instanceof SandboxAgentContextAdmissionError)
     return error.message + ' No provider turn was started.';
@@ -3856,11 +3860,13 @@ async function openCodexChatBound(
       });
       // Failed provider turns are emitted by the query loop as durable v2 error
       // events. Sending here would race replay and show the same failure twice.
-      if (!(error instanceof ProviderFailureError) && options.session.transport?.isOpen())
-        options.session.transport.send({
-          type: 'error',
+      if (!(error instanceof ProviderFailureError))
+        reportRetainedRuntimeFailure({
+          store: options.eventStore,
           sessionId: options.conversationId,
-          error: publicCodexRuntimeError(error),
+          session: options.session,
+          error,
+          describe: publicCodexRuntimeError,
         });
     },
   };

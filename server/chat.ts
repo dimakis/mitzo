@@ -3,6 +3,8 @@ import {
   resolveTaskWorkerAllocationContext,
 } from './task-worker-authority.js';
 import type { TurnCallbackRunner } from './turn-callbacks.js';
+import { findSessionRuntimeError } from './session-runtime-error.js';
+import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
 import { restoreOwnedVertexInitialPrompt } from './ordinary-local-vertex-replay.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
@@ -3633,13 +3635,15 @@ export async function startOwnedLocalCodexCommand(
     const ownedQuery = prepared;
     // run() is the existing chat task, started only after admit saved consumed.
     // Its normal completion/abort closes the driver through required onEnded.
-    void ownedQuery.run().catch(() => {
-      log.warn('owned local chat task failed', { sessionId });
-      try {
-        send(transport, { type: 'error', sessionId, error: unavailable().message });
-      } catch {
-        /* The receipt remains durable even when the viewer disconnected. */
-      }
+    void ownedQuery.run().catch((error: unknown) => {
+      reportRetainedRuntimeFailure({
+        store: eventStore,
+        sessionId,
+        commandId,
+        session: liveSession,
+        transport,
+        error,
+      });
       try {
         ownedQuery.close();
       } catch {
@@ -3663,7 +3667,9 @@ export async function startOwnedLocalCodexCommand(
     } catch {
       /* No automatic retry or custody cleanup. */
     }
-    throw findNativeMacExecutionUnavailable(error) ?? unavailable();
+    throw (
+      findNativeMacExecutionUnavailable(error) ?? findSessionRuntimeError(error) ?? unavailable()
+    );
   }
 }
 
@@ -3769,8 +3775,8 @@ export async function prepareOwnedCodexChat(
         ? { ordinaryWorkspace: workspace }
         : { repositoryWorkspace: workspace }),
     });
-  } catch {
-    throw unavailable();
+  } catch (error) {
+    throw findSessionRuntimeError(error) ?? unavailable();
   }
 
   const { expected, workspace, payload, profile } = selected;
@@ -3990,7 +3996,9 @@ export async function prepareOwnedCodexChat(
     } catch {
       /* Retain uncertainty even if shutdown cannot finish. */
     }
-    throw findNativeMacExecutionUnavailable(error) ?? unavailable();
+    throw (
+      findNativeMacExecutionUnavailable(error) ?? findSessionRuntimeError(error) ?? unavailable()
+    );
   } finally {
     releaseStartup?.();
   }
@@ -4020,15 +4028,15 @@ export async function prepareOwnedCodexChat(
         if (!ready || ready.session !== session) throw unavailable();
         currentClientId = ready.clientId;
         ownedClientId = currentClientId;
-      } catch {
-        throw unavailable();
+      } catch (error) {
+        throw findSessionRuntimeError(error) ?? unavailable();
       }
       ran = true;
       const safeEvents = async function* () {
         try {
           yield* preparedQuery;
-        } catch {
-          throw unavailable();
+        } catch (error) {
+          throw findSessionRuntimeError(error) ?? unavailable();
         }
       };
       try {
@@ -4060,8 +4068,8 @@ export async function prepareOwnedCodexChat(
             onSuccessfulAccountUse: (binding) => getAccountUseStore().record(binding),
           },
         );
-      } catch {
-        throw unavailable();
+      } catch (error) {
+        throw findSessionRuntimeError(error) ?? unavailable();
       } finally {
         close();
       }
@@ -6185,14 +6193,9 @@ export async function startOwnedLocalResponsesCommand(
           .catch(() => {})
           .finally(close);
       }
-    } catch {
+    } catch (error) {
       owner.interruptQueue();
-      send(session?.transport ?? transport, {
-        type: 'error',
-        sessionId,
-        error:
-          'Saved API work is paused. Check its account, settings and original outcome before continuing.',
-      });
+      reportRetainedRuntimeFailure({ store: eventStore, sessionId, session, transport, error });
     } finally {
       scheduling = false;
       if (pumpRequested) {
