@@ -391,3 +391,13 @@ This extends the permitted navigation-to-assertion sequence within the unchanged
 or history assertions, or wait for unrelated collection hydration.
 
 The complete native non-git journey keeps its 120-second local envelope and uses a finite 180-second CI envelope. Retained hosted-runner evidence completed it in 106–112 seconds and cut off a valid final replay at 120 seconds. This is a composed fixture allowance; production, individual request, helper, approval and handoff deadlines remain unchanged. Timeouts still require diagnosis rather than automatic retry.
+
+## Exact Node version for compiled transfers, 30 October 2026
+
+Run [41127643011](https://github.com/dimakis/mitzo/actions/runs/41127643011)
+produced server artifacts with Node 24.22.1, but a unit consumer selected
+24.22.0 from its runner cache. The exact-host transfer check correctly rejected
+the artifact before running tests. CI now selects 24.22.1 through one shared
+workflow value for every Node setup; the candidate, dependency and host identity
+checks remain unchanged. An ordinary major-version selector can resolve to
+different cached patch versions during runner-image transitions.

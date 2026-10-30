@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.794-compatible-knowledge-admission';
+  'v1.0.795-compatible-knowledge-ci-node';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -83,7 +83,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-capacity.test.ts':
     '7ddf795c179405673d88e10e9dfb54f88aa482d050996dfd6dfb41c52de8fa07',
   '../../scripts/__tests__/ci-build-output.test.ts':
-    '2cd5abc869a554e1953f8a66125b0eee73c4023545cf707df5032c4989a9fafa',
+    'd76d9d25c5de3f53b866a33de8b6ebc5b1d6a2f6566cca1846a0ead8109be0f9',
   '../../scripts/test-ci-build-output.py':
     'a4523a747cb462873e961d66c1fa038683ab57eb188883c0813b5f2b5dc40d10',
   '../../scripts/ci-build-output.py':
@@ -2897,7 +2897,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    'c1c64152f7d2c7459bccfd7d2c12211bb569637a1706e619e238383283c86aa6',
+    'fb0bf3763a009afe54d5fdbc69637018b14a2d3aeec251e60e14d5d9f3f76522',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
