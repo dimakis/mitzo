@@ -63,7 +63,7 @@ it('names queued-message removal and removes only the selected message', async (
     screen.getByRole('button', { name: 'Edit, reorder or remove queued prompt 2' }),
   ).toBeTruthy();
   await openQueuedEditor(0);
-  fireEvent.click(screen.getByRole('button', { name: 'Remove', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
   expect(screen.queryByText('First queued draft')).toBeNull();
   expect(screen.getByText('Second queued draft')).toBeTruthy();
 });
