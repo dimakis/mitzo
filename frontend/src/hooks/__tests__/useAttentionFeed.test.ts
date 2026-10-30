@@ -5,15 +5,11 @@ import { renderHook, waitFor } from '@testing-library/react';
 // ─── Mocks ─────────────────────────────────────────────────────────────────
 
 const mockEventBusOn = vi.hoisted(() =>
-  vi.fn((...args: unknown[]) => {
-    void args;
-    return vi.fn();
-  }),
+  vi.fn<(type: string, handler: (data: unknown) => void) => () => void>(() => vi.fn()),
 );
-
 vi.mock('../../lib/event-bus-singleton', () => ({
   eventBus: {
-    on: (...args: unknown[]) => mockEventBusOn(...args),
+    on: (type: string, handler: (data: unknown) => void) => mockEventBusOn(type, handler),
   },
 }));
 
@@ -254,6 +250,7 @@ describe('useAttentionFeed', () => {
 
     function getSessionActivityHandler(): (data: unknown) => void {
       const call = mockEventBusOn.mock.calls.find((c: unknown[]) => c[0] === 'session_activity');
+      if (!call) throw Error('Expected a session activity subscription');
       return call[1];
     }
 

@@ -2990,7 +2990,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-development-offline.mjs':
     '6adc25351fb807c50092ee080c1dd3417114a35b752cdd1d3891f013ce361fc6',
   '../../frontend/src/hooks/__tests__/useAttentionFeed.test.ts':
-    'dd1174a16ededa397dee748fe85d243c2d95437fa27cc0231b31987a6beab6fd',
+    '1893fd8cfeeb0235fee9ec94ba79110d8e6248dd9965356d948e04a609dac514',
   '../../frontend/src/pages/__tests__/TodoDetailView.hydration.test.tsx':
     '768c6c34e4f076850396f587f23a5d88bedd0f9b7252fda163b1c60ee6cd3fcf',
   '../../frontend/src/pages/__tests__/TodoDetailView.parent-fallback.test.tsx':
