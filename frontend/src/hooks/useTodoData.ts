@@ -113,6 +113,12 @@ export function findInTree(items: TodoItem[], id: string): TodoItem | undefined 
   return undefined;
 }
 
+function filterCanonicalProfile(items: TodoItem[], profile: string): TodoItem[] {
+  return items.flatMap((item) =>
+    item.profile === profile ? [item] : filterCanonicalProfile(item.children, profile),
+  );
+}
+
 export function useTodoData(
   profile?: string,
   resolveItemId?: string,
@@ -328,7 +334,10 @@ export function useTodoData(
     loading: dataScope === url ? loading : !visibleData,
     refreshing: dataScope !== url || refreshing,
     error: dataScope === url ? error : null,
-    items: visibleData?.items ?? [],
+    items:
+      source === 'canonical' && profile
+        ? filterCanonicalProfile(visibleData?.items ?? [], profile)
+        : (visibleData?.items ?? []),
     profiles: visibleData?.profiles ?? [],
     records: visibleData?.records,
     recordFailures: visibleData?.recordFailures,

@@ -17,7 +17,7 @@ export function TelosChatWorkTree({
   data: NonNullable<TelosChatRoute['data']>;
   onOpen: TelosChatRoute['onOpen'];
 }) {
-  const collection = useTodoData();
+  const collection = useTodoData(undefined, undefined, 'active', 'canonical');
   const ids = [data.itemId];
   function collect(items: typeof collection.items) {
     for (const item of items) {
@@ -26,8 +26,14 @@ export function TelosChatWorkTree({
     }
   }
   collect(collection.items);
-  const canonical = useTelosRecords(ids, data.refreshKey);
-  const records = canonical.records.length ? canonical.records : [data.record];
+  const canonical = useTelosRecords(ids, data.refreshKey, {
+    seed: collection.records,
+    loading: collection.loading,
+    failures: collection.recordFailures,
+  });
+  const records = canonical.records.some((record) => record.itemId === data.itemId)
+    ? canonical.records
+    : [...canonical.records, data.record];
   let root = records.find((r) => r.itemId === data.itemId) ?? data.record;
   const visited = new Set([root.itemId]);
   while (root.parentId && !visited.has(root.parentId)) {

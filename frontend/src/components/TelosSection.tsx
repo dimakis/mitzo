@@ -97,8 +97,12 @@ function TelosCard({
 export function TelosSection() {
   const navigate = useNavigate();
   const [activeProfile, setActiveProfile] = useState<string | undefined>(undefined);
-  const { loading, error, items, profiles, ack, done, create, refresh } =
-    useTodoData(activeProfile);
+  const { loading, error, items, profiles, ack, done, create, refresh } = useTodoData(
+    activeProfile,
+    undefined,
+    'active',
+    'canonical',
+  );
   const [creating, setCreating] = useState(false);
   const [newSummary, setNewSummary] = useState('');
 

@@ -7,7 +7,7 @@ import { recordTitle } from '../lib/record-title';
 import { UiIcon } from './UiIcon';
 /** An exact recorded association, never inferred from a repo name or chat text. */
 export function SessionWorkLink({ taskId }: { taskId: string }) {
-  const todos = useTodoData();
+  const todos = useTodoData(undefined, undefined, 'active', 'canonical');
   const item = findInTree(todos.items, taskId);
   return (
     <Link
