@@ -330,7 +330,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/qualified-private-staging.test.ts':
     '2f04123dd6278c4926c739365555a36828e8836076a12ec7a7f91f2a599f4203',
   '../__tests__/ordinary-openshell-login-continuation.test.ts':
-    '93d3023e2a6180d6ee2e634c876bd0d1b241b83a722f152cd496b29299d78f72',
+    'c41c01fa298dd64e31b63baf589a07d785b873f9d633d6ca6dc22da0fd5eba80',
   '../__tests__/fixtures/native-repository-registered-workflow.ts':
     'cbce22154a1a60a3ddf538ddf8e5f9b7100bb6c76bbe5009998469b26f08f369',
   '../__tests__/native-local-repository-read-registration-api.test.ts':
