@@ -1,3 +1,4 @@
+import { MessageReplyContextSchema, type MessageReplyContext } from '@mitzo/protocol';
 import { isDeepStrictEqual } from 'node:util';
 import {
   interruptUnansweredToolBlocks,
@@ -17,6 +18,11 @@ import {
 // Pure projection of a caller-owned immutable event prefix. Source authorization,
 // cursor capture and database reads remain with the calling operation.
 export interface RestoredMessage {
+  inReplyTo?: MessageReplyContext;
+  replyToMessageId?: string;
+  commandState?: import('@mitzo/protocol').CommandState;
+  commandStateSeq?: number;
+  steersMessageId?: string;
   messageId: string;
   symposiumProvenance?: SymposiumProvenance;
   role: string;
@@ -52,10 +58,97 @@ export interface RestoredSubagentState {
 }
 
 export interface RestoredCurrentMessage {
+  replyToMessageId?: string;
   messageId: string;
   symposiumProvenance?: SymposiumProvenance;
   startedSeq?: number;
   blocks: Array<RestoredMessage['blocks'][number] & { done: boolean }>;
+}
+
+function attributeCommands(
+  events: StoredEvent[],
+  messages: RestoredMessage[],
+  currents: RestoredCurrentMessage[] = [],
+) {
+  const userReplies = new Map<string, MessageReplyContext>();
+  const replies = new Map<string, string>(),
+    corrections = new Map<string, string>();
+  const states = new Map<string, { state: import('@mitzo/protocol').CommandState; seq: number }>();
+  let active: string | undefined;
+  for (const event of events) {
+    if (event.seatId || event.symposiumProvenance) continue;
+    const p = event.payload;
+    if (event.type === 'message_reply_context' && typeof p.messageId === 'string') {
+      const context = MessageReplyContextSchema.safeParse(p.context);
+      if (context.success) userReplies.set(p.messageId, context.data);
+    }
+    if (
+      event.type === 'user_message' &&
+      typeof p.messageId === 'string' &&
+      typeof p.steersMessageId === 'string'
+    ) {
+      corrections.set(p.messageId, p.steersMessageId);
+      if (!states.has(p.messageId)) states.set(p.messageId, { state: 'steering', seq: event.seq });
+    }
+    if (
+      event.type === 'ordinary_command_state' &&
+      typeof p.messageId === 'string' &&
+      ['queued', 'steering', 'steered', 'failed', 'uncertain', 'cancelled'].includes(
+        String(p.commandState),
+      )
+    )
+      states.set(p.messageId, {
+        state: p.commandState as import('@mitzo/protocol').CommandState,
+        seq: event.seq,
+      });
+    if (event.type === 'ordinary_provider_dispatch_started' && typeof p.messageId === 'string') {
+      active = p.messageId;
+      states.set(active, { state: 'running', seq: event.seq });
+    }
+    if (
+      event.type === 'ordinary_reply_source' &&
+      p.version === 1 &&
+      typeof p.messageId === 'string' &&
+      typeof p.commandId === 'string'
+    ) {
+      replies.set(p.messageId, p.commandId);
+      if (!states.has(p.commandId)) {
+        active = p.commandId;
+        states.set(active, { state: 'running', seq: event.seq });
+      }
+    }
+    if (
+      event.type === 'ordinary_command_completed' &&
+      typeof p.messageId === 'string' &&
+      ['completed', 'interrupted', 'failed'].includes(String(p.status))
+    )
+      states.set(p.messageId, {
+        state: p.status as 'completed' | 'interrupted' | 'failed',
+        seq: event.seq,
+      });
+    if (event.type === 'session_end' && active) {
+      if (states.get(active)?.state === 'running')
+        states.set(active, { state: 'ended', seq: event.seq });
+      active = undefined;
+    }
+  }
+  for (const message of messages) {
+    if (message.symposiumProvenance) continue;
+    if (message.role === 'user' && userReplies.has(message.messageId))
+      message.inReplyTo = userReplies.get(message.messageId);
+    const status = states.get(message.messageId);
+    if (message.role === 'user' && status) {
+      message.commandState = status.state;
+      message.commandStateSeq = status.seq;
+    }
+    if (corrections.has(message.messageId))
+      message.steersMessageId = corrections.get(message.messageId);
+    if (message.role === 'assistant' && replies.has(message.messageId))
+      message.replyToMessageId = replies.get(message.messageId);
+  }
+  for (const message of currents)
+    if (!message.symposiumProvenance && replies.has(message.messageId))
+      message.replyToMessageId = replies.get(message.messageId);
 }
 
 /** Finished messages are append-only during replay. Results/subagents have
@@ -649,6 +742,7 @@ export function replayEventsToTranscript(
       throw new Error('Ambiguous duplicate Symposium message identity in stored transcript');
     ids.add(id);
   }
+  attributeCommands(ordinary, messages, base.current ? [base.current] : []);
   return { messages, current: base.current, currents };
 }
 
@@ -919,6 +1013,7 @@ export function replayEventsToMessages(
   }
 
   groupRetainedReplayErrors(messages, events);
+  attributeCommands(events, messages);
   return messages;
 }
 

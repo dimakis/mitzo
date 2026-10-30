@@ -1,3 +1,4 @@
+import { queueDraft, openQueuedEditor } from '../../test-utils/queued-draft-controls';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi, beforeEach } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -175,7 +176,7 @@ it.each(['Cancel preview', 'Save preview'])(
       <ChatInput {...props} running onSend={onSend} onInterrupt={onInterrupt} />,
     );
     fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'Queued' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+    await queueDraft();
     await attach(container, ['one.png']);
     fireEvent.change(screen.getByLabelText('Message Mitzo'), {
       target: { value: 'Current draft' },
@@ -187,6 +188,7 @@ it.each(['Cancel preview', 'Save preview'])(
     expect(onSend).not.toHaveBeenCalled();
     fireEvent.keyDown(window, { key: 'Escape' });
     fireEvent.click(screen.getByRole('button', { name: close }));
+    await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
     expect(onSend).toHaveBeenCalledExactlyOnceWith(
       'Queued',
       undefined,
@@ -194,6 +196,8 @@ it.each(['Cancel preview', 'Save preview'])(
       expect.any(Function),
       expect.any(Function),
       undefined,
+      undefined,
+      expect.any(String),
     );
     expect(onInterrupt).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Current draft');
@@ -227,8 +231,9 @@ it.each(['accepted', 'failed'] as const)(
         text: 'Exact request',
         requiresRetry: true,
       });
-      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-      expect(screen.getByAltText('Attachment 1').getAttribute('src')).toContain('one.png');
+      await openQueuedEditor();
+      expect(screen.getByAltText('Queued attachment 1').getAttribute('src')).toContain('one.png');
+      expect(screen.getByAltText('Attachment 1').getAttribute('src')).toContain('edited');
     }
   },
 );
@@ -240,7 +245,7 @@ it.each(['session', 'generation', 'storage'] as const)(
     const oldProps = { ...props, onSend, composerGeneration: 0, draftStorageKey: 'old-draft' };
     const { container, rerender } = render(<ChatInput {...oldProps} running />);
     fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'Old queued' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+    await queueDraft();
     await attach(container, ['one.png']);
     fireEvent.click(screen.getByRole('button', { name: 'Preview attachment 1' }));
     rerender(<ChatInput {...oldProps} running={false} />);
@@ -263,6 +268,7 @@ it.each(['session', 'generation', 'storage'] as const)(
     // A real completion in the destination scope can still drain its own queue.
     rerender(<ChatInput {...destinationProps} running />);
     rerender(<ChatInput {...destinationProps} running={false} />);
+    await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
     expect(onSend).toHaveBeenCalledExactlyOnceWith(
       pending,
       undefined,
@@ -270,6 +276,8 @@ it.each(['session', 'generation', 'storage'] as const)(
       expect.any(Function),
       expect.any(Function),
       undefined,
+      undefined,
+      expect.any(String),
     );
   },
 );

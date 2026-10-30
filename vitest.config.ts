@@ -5,6 +5,10 @@ import CiUnitSequencer from './scripts/ci-unit-sequencer';
 export default defineConfig({
   resolve: {
     alias: {
+      'vitest-environment-node-compatible-dom': resolve(
+        __dirname,
+        'tests/support/node-compatible-dom.ts',
+      ),
       // Resolve workspace packages to local source (worktree-safe)
       '@mitzo/protocol/database-backup': resolve(
         __dirname,

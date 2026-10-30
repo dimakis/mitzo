@@ -1,4 +1,9 @@
 import {
+  assembleCommandPrompt,
+  assembleReplyText,
+  captureMessageReply,
+} from './message-reply-context.js';
+import {
   TASK_WORKER_ALLOCATION_EVENT,
   resolveTaskWorkerAllocationContext,
 } from './task-worker-authority.js';
@@ -1262,6 +1267,7 @@ export async function startChat(
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
     sourceSnapshots?: SourceSnapshot[];
+    replyToMessageId?: string;
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     onStartupAdmission?: (error?: unknown) => void;
@@ -1459,6 +1465,7 @@ async function _startChatInner(
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
     sourceSnapshots?: SourceSnapshot[];
+    replyToMessageId?: string;
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     onStartupAdmission?: (error?: unknown) => void;
@@ -2039,10 +2046,24 @@ async function _startChatInner(
     }
   }
 
+  if (options.replyToMessageId && (!options.resume || !options.clientMsgId))
+    throw Error('Replies require an existing conversation and a message identity');
+  const repliedPrompt =
+    options.replyToMessageId && options.resume && options.clientMsgId
+      ? assembleReplyText(
+          prompt,
+          captureMessageReply(
+            eventStore,
+            options.resume,
+            options.clientMsgId,
+            options.replyToMessageId,
+          ),
+        )
+      : prompt;
   const fullPrompt = options.adviserScope
-    ? prompt
+    ? repliedPrompt
     : assemblePrompt(
-        prompt,
+        repliedPrompt,
         cwd,
         codexProfile || nativeProviderSelected ? undefined : options.images,
         options.contextBlocks,
@@ -2077,7 +2098,9 @@ async function _startChatInner(
       cwd,
       mode,
       initialPrompt:
-        options.ordinarySdkAuthority || options.sourceSnapshots?.length ? prompt : fullPrompt,
+        options.ordinarySdkAuthority || options.sourceSnapshots?.length || options.replyToMessageId
+          ? prompt
+          : fullPrompt,
       ...(accountBinding ? { accountBinding } : {}),
       selectedModel: options.model ?? accountBinding?.model ?? null,
       reasoningEffort: options.reasoningEffort ?? null,
@@ -2470,7 +2493,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         storeAndEchoIfNew(
           conversationId,
           messageId,
-          options.sourceSnapshots?.length ? prompt : fullPrompt,
+          options.sourceSnapshots?.length || options.replyToMessageId ? prompt : fullPrompt,
           clientId,
           transport,
           session.observers,
@@ -2592,7 +2615,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       storeAndEchoIfNew(
         conversationId,
         initialMessageId,
-        options.sourceSnapshots?.length ? prompt : fullPrompt,
+        options.sourceSnapshots?.length || options.replyToMessageId ? prompt : fullPrompt,
         clientId,
         transport,
         session.observers,
@@ -2944,7 +2967,18 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               id === initialMessageId
                 ? fullPrompt
                 : assemblePrompt(
-                    repositoryChatContext(repositoryWorkspace) + frozenPayload.text,
+                    repositoryChatContext(repositoryWorkspace) +
+                      assembleReplyText(
+                        frozenPayload.text,
+                        frozenPayload.replyToMessageId
+                          ? captureMessageReply(
+                              eventStore,
+                              session.sessionId!,
+                              id,
+                              frozenPayload.replyToMessageId,
+                            )
+                          : undefined,
+                      ),
                     cwd,
                     frozenPayload.images,
                     undefined,
@@ -3058,7 +3092,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       storeAndEchoIfNew(
         options.resume,
         messageId,
-        options.sourceSnapshots?.length ? prompt : fullPrompt,
+        options.sourceSnapshots?.length || options.replyToMessageId ? prompt : fullPrompt,
         clientId,
         transport,
         session.observers,
@@ -3586,9 +3620,11 @@ export async function startOwnedLocalCodexCommand(
         await native.admitExplicitSend(
           {
             id: dispatch.commandId,
-            prompt: assembleSourceSnapshots(
-              dispatch.payload.text,
-              dispatch.payload.sourceSnapshots,
+            prompt: assembleCommandPrompt(
+              eventStore,
+              sessionId,
+              dispatch.commandId,
+              dispatch.payload,
             ),
             intent: dispatch.payload.intent ?? dispatch.payload.text,
             images: dispatch.payload.images,
@@ -3820,7 +3856,7 @@ export async function prepareOwnedCodexChat(
     input.admission.assertPreparedOptions({
       ...selected.payload,
       intent: selected.payload.intent ?? selected.payload.text,
-      prompt: assembleSourceSnapshots(selected.payload.text, selected.payload.sourceSnapshots),
+      prompt: assembleCommandPrompt(eventStore, input.sessionId, input.commandId, selected.payload),
       conversationId: input.sessionId,
       messageId: input.commandId,
       resume,
@@ -4018,7 +4054,7 @@ export async function prepareOwnedCodexChat(
         });
         send(transport, { ...context, sessionId });
       },
-      prompt: assembleSourceSnapshots(payload.text, payload.sourceSnapshots),
+      prompt: assembleCommandPrompt(eventStore, sessionId, commandId, payload),
       intent: payload.intent ?? payload.text,
       systemPrompt: payload.systemPrompt,
       adviserScope: options.adviserScope,
@@ -4146,6 +4182,7 @@ export function echoOwnedCodexCommand(
   payload: {
     text: string;
     sourceSnapshots?: SourceSnapshot[];
+    replyToMessageId?: string;
     images?: Array<{ data: string; mediaType: string }>;
   },
 ): void {
@@ -4241,12 +4278,14 @@ function storeAndEchoIfNew(
   if (eventStore.hasUserMessage(sessionId, messageId)) {
     return true;
   }
+  const inReplyTo = eventStore.getMessageReplyContext(sessionId, messageId);
   const seq = eventStore.append(sessionId, 'user_message', {
     v: 2,
     type: 'user_message',
     ts: Date.now(),
     messageId,
     text,
+    ...(inReplyTo ? { inReplyTo } : {}),
     ...(source === 'closeout' ? { source } : {}),
     ...(images?.length ? { images } : {}),
     ...(contextBlocks?.length ? { contextBlocks } : {}),
@@ -4259,6 +4298,7 @@ function storeAndEchoIfNew(
     v: 2,
     messageId,
     text,
+    ...(inReplyTo ? { inReplyTo } : {}),
     ...(source === 'closeout' ? { source } : {}),
     sessionId,
     seq,
@@ -4357,6 +4397,7 @@ export function preflightStartupProviderCommand(
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
     sourceSnapshots?: SourceSnapshot[];
+    replyToMessageId?: string;
     model?: string;
     reasoningEffort?: string | null;
   },
@@ -4368,7 +4409,17 @@ export function preflightStartupProviderCommand(
   if (!binding) return false;
   const existingAdmission = store.getExecutionAdmission(request.sessionId, request.clientMsgId);
   const stablePrompt = assemblePrompt(
-    request.prompt,
+    request.replyToMessageId
+      ? assembleReplyText(
+          request.prompt,
+          captureMessageReply(
+            store,
+            request.sessionId,
+            request.clientMsgId,
+            request.replyToMessageId,
+          ),
+        )
+      : request.prompt,
     request.cwd,
     undefined,
     request.contextBlocks,
@@ -4435,6 +4486,7 @@ export async function sendToChat(
   userIntent?: string,
   sourceSnapshots?: SourceSnapshot[],
   onRetained?: () => void,
+  replyToMessageId?: string,
 ): Promise<boolean> {
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
@@ -4502,14 +4554,20 @@ export async function sendToChat(
         return false;
       }
     }
+    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
+    if (replyToMessageId && !session.sessionId) throw Error('Reply conversation is unavailable');
     const fullPrompt = assemblePrompt(
-      prompt,
+      replyToMessageId
+        ? assembleReplyText(
+            prompt,
+            captureMessageReply(eventStore, session.sessionId!, messageId, replyToMessageId),
+          )
+        : prompt,
       session.cwd ?? '.',
       codex || responses ? undefined : images,
       contextBlocks,
       sourceSnapshots,
     );
-    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
     const previews = imagePreviews(images);
     let selectionReasoningEffort =
       model && model !== session.model && reasoningEffort === undefined ? null : reasoningEffort;
@@ -4602,7 +4660,7 @@ export async function sendToChat(
         const isDup = storeAndEchoIfNew(
           session.sessionId,
           messageId,
-          sourceSnapshots?.length ? prompt : fullPrompt,
+          sourceSnapshots?.length || replyToMessageId ? prompt : fullPrompt,
           clientId,
           session.transport,
           session.observers,
@@ -4630,7 +4688,7 @@ export async function sendToChat(
           type: 'user_message',
           v: 2,
           messageId,
-          text: sourceSnapshots?.length ? prompt : fullPrompt,
+          text: sourceSnapshots?.length || replyToMessageId ? prompt : fullPrompt,
           ...(previews?.length ? { images: previews } : {}),
           ...(contextBlocks?.length ? { contextBlocks } : {}),
           ...(sourceSnapshots?.length ? { sourceSnapshots } : {}),
@@ -4769,13 +4827,19 @@ export function preflightChatCommand(
   model?: string,
   reasoningEffort?: string | null,
   sourceSnapshots?: SourceSnapshot[],
+  replyToMessageId?: string,
 ): boolean {
   const session = registry.get(clientId);
   if (session?.sessionId && eventStore.getSessionRuntimeBinding(session.sessionId))
     throw new Error('Runtime-bound commands require guarded admission');
   if (!session?.sessionId || !clientMsgId || !getResponsesRuntime(session)) return false;
   const stablePrompt = assemblePrompt(
-    prompt,
+    replyToMessageId
+      ? assembleReplyText(
+          prompt,
+          captureMessageReply(eventStore, session.sessionId, clientMsgId, replyToMessageId),
+        )
+      : prompt,
     session.cwd ?? '.',
     undefined,
     contextBlocks,
@@ -4802,6 +4866,7 @@ export async function interruptChat(
   model?: string,
   reasoningEffort?: string | null,
   sourceSnapshots?: SourceSnapshot[],
+  replyToMessageId?: string,
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
@@ -4819,6 +4884,7 @@ export async function interruptChat(
         images?.length ||
         contextBlocks?.length ||
         sourceSnapshots?.length ||
+        replyToMessageId ||
         model !== undefined ||
         reasoningEffort !== undefined
       ) {
@@ -4870,8 +4936,15 @@ export async function interruptChat(
         return false;
       }
     }
+    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
+    if (replyToMessageId && !session.sessionId) throw Error('Reply conversation is unavailable');
     const fullPrompt = assemblePrompt(
-      prompt,
+      replyToMessageId
+        ? assembleReplyText(
+            prompt,
+            captureMessageReply(eventStore, session.sessionId!, messageId, replyToMessageId),
+          )
+        : prompt,
       session.cwd ?? '.',
       codex || responses ? undefined : images,
       contextBlocks,
@@ -4953,7 +5026,6 @@ export async function interruptChat(
         ...(reasoningEffort !== undefined ? { reasoningEffort: reasoningEffort || null } : {}),
       });
     }
-    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
     const previews = imagePreviews(images);
     // Store and echo the user message. A retried interrupt must still stop
     // the agent — only the echo/store is skipped on duplicate.
@@ -4962,7 +5034,7 @@ export async function interruptChat(
       isDup = storeAndEchoIfNew(
         session.sessionId,
         messageId,
-        sourceSnapshots?.length ? prompt : fullPrompt,
+        sourceSnapshots?.length || replyToMessageId ? prompt : fullPrompt,
         clientId,
         session.transport,
         session.observers,
@@ -4976,7 +5048,7 @@ export async function interruptChat(
         type: 'user_message',
         v: 2,
         messageId,
-        text: sourceSnapshots?.length ? prompt : fullPrompt,
+        text: sourceSnapshots?.length || replyToMessageId ? prompt : fullPrompt,
         ...(previews?.length ? { images: previews } : {}),
         ...(contextBlocks?.length ? { contextBlocks } : {}),
         ...(sourceSnapshots?.length ? { sourceSnapshots } : {}),
@@ -6211,9 +6283,11 @@ export async function startOwnedLocalResponsesCommand(
       const commandId = await owner.claimNextCommand();
       if (!commandId || closed) return;
       const selected = owner.snapshot(commandId);
-      const providerPrompt = assembleSourceSnapshots(
-        selected.payload.text,
-        selected.payload.sourceSnapshots,
+      const providerPrompt = assembleCommandPrompt(
+        eventStore,
+        sessionId,
+        commandId,
+        selected.payload,
       );
       const provider = admitProviderDispatch({
         store: eventStore,

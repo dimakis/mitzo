@@ -2382,3 +2382,84 @@ Open chats without fetching relationship history to rediscover that kind. Item
 Overview explicitly says when no dedicated conversation is linked and exposes
 ordinary New chat setup; this prepares an unsent contextual draft and grants no
 worker assignment or model execution. The original conversation stays provenance.
+
+## Queued messages and corrections
+
+Ordinary chat preserves its existing header, model/account controls, toolbar icons
+and dispatch/error/retry notices. Queue, lightning (steer) and Stop use icon-only
+buttons with accessible names and tooltips. Expand grows the composer inline and
+uses the existing composer tools menu on narrow screens. Expanding or shrinking
+returns focus to the input and preserves its draft and reply selection.
+
+Enter or Queue during a response saves an unsent draft in **Up next**. The tray
+supports multiple prompts, editing, reordering, removal and pause/resume. It sends
+one prompt after each response; Stop pauses the tray. Reload and navigation never
+automatically dispatch saved drafts. Attachments and reply references persist in
+the existing IndexedDB-backed chat storage. Admission is durable before clearing
+the edited composer; a late save cannot clear a newer draft or another chat.
+Each queued draft keeps one stable command identity across views. Its dispatch
+retry fence commits before any send or correction; the existing backend admission
+guard coalesces duplicate views under that identity. Definite refusals stay editable
+behind explicit review, while uncertain delivery stays fenced. Cold fenced rows
+expose an explicit delivery check using the same command identity; native corrections
+retain their original target command and cannot steer a successor. Authoritative
+request progress clears a recovered fence without a new dispatch. Generic auth or
+storage denials preserve its original identity; only a matching native refusal
+releases recovered steering for editing. Legacy interrupts use a read-only
+same-chat receipt check, so recovery cannot interrupt a successor turn. Releasing a
+definite refusal preserves dirty local work and fresh peer edits. The brief
+queue/correction hint sits between the tray and text input.
+
+Phone swipe-right, touch-hold, desktop right-click and keyboard context menu offer
+Reply, Copy and Read aloud on complete ordinary messages. Existing copy/voice
+controls stay in each bubble. Each message shows a date and time, with full local
+date/seconds/timezone in its menu. A selected reply appears above the input with
+Cancel; queued drafts retain that selection. Transcript quotes scroll to and focus
+the exact source. Routine request lifecycle state collapses into Activity; existing
+delivery, retry, failure and uncertain notices remain available.
+
+The server resolves the reply ID from completed visible text in the same chat and
+freezes that reference for recovery. The model continues with its native history;
+only the selected ID, role and a bounded 1,200-character head/tail excerpt are
+added to the new user prompt. It does not replay the transcript or duplicate a long
+answer. Excerpts are explicitly reference data, not new instructions or permission;
+compacted or omitted text is not claimed to be available. Private reasoning, tool
+output, contributor seats, incomplete messages and cross-chat references cannot
+be selected as reply context.
+
+Corrections retain exact text, reply ID, request ID and active-command ID before
+dispatch. Uncertain acknowledgements permit only checking the same correction;
+a changed target cannot silently replay it. The active turn keeps its settings.
+Viewing, reloading and metadata refresh never send a correction.
+
+The intercepted `chat-queue-steering` fixture exercises the actual composer,
+transcript, parser/reducer, correction storage and HTTP delivery at 320px on WebKit
+and Chromium phones and desktop Chromium, dark Mint/System and light Teal/Georgia.
+It covers durable unsent queue admission, editing/reordering, pause/Stop, reply
+selection and exact-source delivery, inline expansion, icon-only 44px controls,
+reply navigation, focus and horizontal bounds without backend/model calls.
+Inspected captures: [phone](assets/chat-queue-steering-mobile-dark.png) and
+[desktop](assets/chat-queue-steering-desktop-light.png). Full builds and the complete
+offline suite remain CI gates under local memory pressure.
+
+## Context compaction details
+
+The existing `CompactionMarker` and `HomeDialog` show lifecycle status, start/end
+and elapsed/duration, request number, model and context limit. Nearby usage uses
+**Last observed before** and **First observed after**, with observation times;
+explicit runtime compaction sizes keep **Reported before/after** labels. The
+readings are not described as exact compaction sizes. Waiting has no invented
+percentage or timeout failure. Missing summary content has one quiet explanation
+rather than an empty disclosure.
+
+The details reuse semantic text/muted roles, shared type/spacing scales, the
+existing dialog focus/Close behavior and native disclosures. The two-column
+metadata grid wraps long model names at 320px and supports larger text. A local
+one-second elapsed timer runs only while active details are mounted; it does not
+poll the backend or animate progress. The intercepted `compaction-dialog` fixture
+covers waiting, completion and interruption, mobile WebKit/Chromium and desktop
+Chromium, dark Mint/System and light Teal/Georgia, wrapping, 44px Close geometry,
+Escape/focus restoration and draft preservation without a backend or model calls.
+
+Inspected captures: [mobile completion](assets/compaction-mobile-dark.png) and
+[desktop completion with larger text](assets/compaction-desktop-light.png).

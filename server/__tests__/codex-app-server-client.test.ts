@@ -174,6 +174,7 @@ describe('Codex app-server transport', () => {
     await ready;
     for (const method of [
       'turn/start',
+      'turn/steer',
       'thread/start',
       'thread/resume',
       'thread/unsubscribe',
@@ -1073,11 +1074,30 @@ it('permits only login/account RPCs in a dedicated login process even with a lif
   const ready = client.initialize();
   reply({ id: sent[0].id, result: {} });
   await ready;
-  for (const method of ['turn/start', 'thread/start', 'model/list', 'account/logout'])
+  for (const method of ['turn/start', 'turn/steer', 'thread/start', 'model/list', 'account/logout'])
     await expect(client.request(method, {})).rejects.toThrow();
   expect(sent).toHaveLength(2);
   const login = client.request('account/login/start', { type: 'chatgptDeviceCode' });
   reply({ id: sent.at(-1)!.id, result: { type: 'chatgptDeviceCode' } });
   await expect(login).resolves.toMatchObject({ type: 'chatgptDeviceCode' });
+  client.close();
+});
+it('sends turn/steer through the real lifecycle transport with its exact expected turn and text', async () => {
+  const { child, sent, reply } = processStub();
+  const client = new CodexAppServerClient(child, {
+    lifecycle: { onNotification: vi.fn(), onRequest: vi.fn(async () => ({})), onClose: vi.fn() },
+  });
+  const ready = client.initialize();
+  reply({ id: sent[0].id, result: {} });
+  await ready;
+  const params = {
+    threadId: 'original-thread',
+    expectedTurnId: 'original-turn',
+    input: [{ type: 'text', text: 'Keep the current priorities.' }],
+  };
+  const steering = client.request('turn/steer', params);
+  expect(sent.at(-1)).toMatchObject({ method: 'turn/steer', params });
+  reply({ id: sent.at(-1)!.id, result: { turnId: 'original-turn' } });
+  await expect(steering).resolves.toEqual({ turnId: 'original-turn' });
   client.close();
 });
