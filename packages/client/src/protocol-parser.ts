@@ -1,3 +1,4 @@
+import { MessageReplyContextSchema } from '@mitzo/protocol';
 import { AgentContextReceiptSchema, SourceSnapshotsSchema } from '@mitzo/protocol';
 /**
  * Protocol parser — maps ServerMessage → store actions.
@@ -370,6 +371,67 @@ export function parseServerMessage(
       break;
     }
 
+    case 'message_reply_context': {
+      const context = MessageReplyContextSchema.safeParse(msg.context);
+      if (typeof msg.messageId === 'string' && context.success)
+        result.messagesActions.push({
+          type: 'MESSAGE_REPLY',
+          messageId: msg.messageId,
+          context: context.data,
+        });
+      break;
+    }
+    case 'ordinary_reply_source':
+      if (typeof msg.messageId === 'string' && typeof msg.replyToMessageId === 'string')
+        result.messagesActions.push({
+          type: 'REPLY_SOURCE',
+          messageId: msg.messageId,
+          replyToMessageId: msg.replyToMessageId,
+        });
+      break;
+    case 'ordinary_provider_dispatch_started':
+      if (typeof msg.messageId === 'string')
+        result.messagesActions.push({
+          type: 'COMMAND_STATE',
+          seq: typeof msg.seq === 'number' ? msg.seq : undefined,
+          messageId: msg.messageId,
+          commandState: 'running',
+        });
+      break;
+    case 'ordinary_command_state':
+      if (
+        typeof msg.messageId === 'string' &&
+        [
+          'queued',
+          'running',
+          'completed',
+          'interrupted',
+          'failed',
+          'cancelled',
+          'steering',
+          'steered',
+          'uncertain',
+        ].includes(String(msg.commandState))
+      )
+        result.messagesActions.push({
+          type: 'COMMAND_STATE',
+          seq: typeof msg.seq === 'number' ? msg.seq : undefined,
+          messageId: msg.messageId,
+          commandState: msg.commandState as import('@mitzo/protocol').CommandState,
+        });
+      break;
+    case 'ordinary_command_completed':
+      if (
+        typeof msg.messageId === 'string' &&
+        ['completed', 'interrupted', 'failed'].includes(String(msg.status))
+      )
+        result.messagesActions.push({
+          type: 'COMMAND_STATE',
+          seq: typeof msg.seq === 'number' ? msg.seq : undefined,
+          messageId: msg.messageId,
+          commandState: msg.status as 'completed' | 'interrupted' | 'failed',
+        });
+      break;
     case 'message_start':
       result.messagesActions.push({
         type: 'MESSAGE_START',
@@ -439,6 +501,9 @@ export function parseServerMessage(
         result.messagesActions.push({
           type: 'MESSAGE_SNAPSHOT',
           messageId: msg.messageId as string,
+          ...(typeof msg.replyToMessageId === 'string'
+            ? { replyToMessageId: msg.replyToMessageId }
+            : {}),
           ...(typeof msg.startedSeq === 'number' && Number.isSafeInteger(msg.startedSeq)
             ? { startedSeq: msg.startedSeq }
             : {}),
@@ -546,9 +611,18 @@ export function parseServerMessage(
       break;
 
     case 'user_message':
+      if (MessageReplyContextSchema.safeParse(msg.inReplyTo).success)
+        result.messagesActions.push({
+          type: 'MESSAGE_REPLY',
+          messageId: msg.messageId as string,
+          context: MessageReplyContextSchema.parse(msg.inReplyTo),
+        });
       result.messagesActions.push({
         type: 'USER_MESSAGE_RECEIVED',
         messageId: msg.messageId as string,
+        ...(typeof msg.steersMessageId === 'string'
+          ? { steersMessageId: msg.steersMessageId }
+          : {}),
         ...(typeof msg.seq === 'number' && Number.isSafeInteger(msg.seq)
           ? { startedSeq: msg.seq }
           : {}),
@@ -559,6 +633,12 @@ export function parseServerMessage(
           ? (msg.contextBlocks as string[])
           : undefined,
       });
+      if (msg.commandState === 'steering')
+        result.messagesActions.push({
+          type: 'COMMAND_STATE',
+          messageId: msg.messageId as string,
+          commandState: 'steering',
+        });
       break;
 
     case 'session_control_rejected': {

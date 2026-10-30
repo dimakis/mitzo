@@ -23,6 +23,7 @@ export type {
   StreamingMessage,
   FinishedBlock,
   FinishedMessage,
+  CommandState,
   PermissionRequest,
   UserQuestion,
   QuestionAnswers,
@@ -400,3 +401,9 @@ export {
 
 export * from './chat-input-limits.js';
 export { MemoryCandidateSchema } from './memory-candidates.js';
+
+export {
+  MessageReplyIdSchema,
+  MessageReplyContextSchema,
+  type MessageReplyContext,
+} from './message-reply.js';

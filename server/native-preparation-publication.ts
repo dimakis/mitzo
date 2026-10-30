@@ -943,7 +943,7 @@ def publish_prepared_repository(request):
             results.append({'directory': path, 'identity': identities[path]})
         tree['targetIdentity'] = identities[task]
         state = {}
-        tree_result = json.loads(publish_tree(tree, deadline=deadline, target_fd=descriptors[task], phase_state=state))
+        tree_result = json.loads(publish_tree(tree, deadline=deadline, target_fd=descriptors[task], phase_state=state, phase_preflighted=True))
         for index in range(6):
             check(); verify_bindings()
             item = file_request(index)
@@ -993,11 +993,11 @@ def publish_standalone_repository(request):
         verify_roots(); check(); os.mkdir(os.path.basename(task), 0o700, dir_fd=parent)
         task_fd = os.open(os.path.basename(task), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent); descriptors.append(task_fd)
         task_id = ident(os.fstat(task_fd)); work['targetIdentity'] = task_id
-        work_state = {}; result = json.loads(publish_tree(work, deadline=deadline, target_fd=task_fd, phase_state=work_state))
+        work_state = {}; result = json.loads(publish_tree(work, deadline=deadline, target_fd=task_fd, phase_state=work_state, phase_preflighted=True))
         verify_roots(); os.mkdir('.git', 0o700, dir_fd=task_fd)
         git_fd = os.open('.git', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=task_fd); descriptors.append(git_fd)
         git_id = ident(os.fstat(git_fd)); git['targetIdentity'] = git_id; git['parentIdentity'] = task_id
-        git_state = {}; publish_tree(git, deadline=deadline, target_fd=git_fd, phase_state=git_state, repository_git_containers=True)
+        git_state = {}; publish_tree(git, deadline=deadline, target_fd=git_fd, phase_state=git_state, repository_git_containers=True, phase_preflighted=True)
         verify_roots(); publish_tree(work, deadline=deadline, target_fd=task_fd, phase_state=work_state, verify_only=True, extra_target_names={'.git'})
         publish_tree(git, deadline=deadline, target_fd=git_fd, phase_state=git_state, verify_only=True, repository_git_containers=True); verify_roots(); check()
         return json.dumps({'directories': [{'directory': task, 'identity': task_id}, {'directory': admin, 'identity': git_id}], 'files': [], 'tree': result}, ensure_ascii=True)

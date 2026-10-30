@@ -1915,12 +1915,22 @@
   color: var(--color-muted);
 }
 .compaction-details dl {
+  margin-block: var(--space-3);
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--space-2);
+}
+.compaction-details :is(dt, dd) {
+  overflow-wrap: anywhere;
+}
+.compaction-details dd small {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
 }
 .compaction-details dd {
   margin: 0;
+  text-align: end;
 }
 .compaction-details :is(summary, button) {
   min-height: var(--control-height);

@@ -858,7 +858,13 @@ describe('session routes', () => {
     const res = await request(app).get('/api/sessions/s1/events?after=3').set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual([
-      { type: 'ordinary_reply_source', sessionId: 's1', seq: 7 },
+      {
+        type: 'ordinary_reply_source',
+        sessionId: 's1',
+        seq: 7,
+        messageId: 'message',
+        replyToMessageId: 'command',
+      },
       { type: 'message_end', sessionId: 's1', seq: 9, messageId: 'message' },
     ]);
     expect(eventStore.getEventsAfter).toHaveBeenLastCalledWith('s1', 3);
@@ -2604,3 +2610,50 @@ describe('repository links to session worktree artifacts', () => {
     expect(res.status).toBe(404);
   });
 });
+
+it.each(['responses', 'claude-sdk', 'gemini', 'codex'])(
+  'does not require Codex-only output attribution after cancelling a %s command',
+  async (harness) => {
+    const [queueAuthority, responsesQueue, vertexQueue, codex, responses] = await Promise.all([
+      import('../owned-codex-queue-control.js'),
+      import('../ordinary-local-responses-queue.js'),
+      import('../ordinary-local-vertex-queue.js'),
+      import('../codex-chat-session.js'),
+      import('../responses-chat-session.js'),
+    ]);
+    const spies = [
+      vi.spyOn(queueAuthority, 'assertOwnedCodexQueueControl').mockImplementation(() => {}),
+      vi.spyOn(responsesQueue, 'cancelOwnedResponsesQueuedCommand').mockReturnValue('cancelled'),
+      vi.spyOn(vertexQueue, 'cancelOwnedVertexQueuedCommand').mockReturnValue('cancelled'),
+      vi.spyOn(codex, 'cancelCodexQueuedCommand').mockReturnValue('cancelled'),
+      vi.spyOn(responses, 'getNativeResponsesStore').mockReturnValue({} as never),
+      vi
+        .spyOn(eventStore, 'getSessionRuntimeBinding')
+        .mockReturnValue({ harness: { implementation: harness } } as never),
+      vi.spyOn(eventStore, 'getSession').mockReturnValue({
+        sessionId: 's1',
+        accountBinding: { provider: harness === 'codex' ? 'openai-codex' : 'openai' },
+      } as never),
+    ];
+    vi.mocked(eventStore.append).mockClear();
+    try {
+      await request(app)
+        .post('/api/sessions/s1/codex-queue/waiting/cancel')
+        .set('Cookie', authCookie)
+        .expect(200);
+      if (harness === 'codex')
+        expect(eventStore.append).toHaveBeenCalledWith('s1', 'ordinary_command_state', {
+          messageId: 'waiting',
+          commandState: 'cancelled',
+        });
+      else
+        expect(eventStore.append).not.toHaveBeenCalledWith(
+          's1',
+          'ordinary_command_state',
+          expect.anything(),
+        );
+    } finally {
+      for (const spy of spies.reverse()) spy.mockRestore();
+    }
+  },
+);

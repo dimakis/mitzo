@@ -248,7 +248,7 @@ def create_file(request, preflight_only=False, deadline=None, expected_receipt=N
         for file in [source_file, target_file, source_parent, target_parent]:
             if file is not None: os.close(file)
 
-def publish_tree(request, preflight_only=False, deadline=None, target_fd=None, phase_state=None, verify_only=False, extra_target_names=None, repository_git_containers=False):
+def publish_tree(request, preflight_only=False, deadline=None, target_fd=None, phase_state=None, verify_only=False, extra_target_names=None, repository_git_containers=False, phase_preflighted=False):
     # Entire tree is preflighted before the first target mutation. Never run Git,
     # traverse a symlink, overwrite/adopt an entry or remove uncertain effects.
     deadline = time.monotonic() + request['timeoutMs'] / 1000 if deadline is None else deadline
@@ -388,21 +388,26 @@ def publish_tree(request, preflight_only=False, deadline=None, target_fd=None, p
         target_names = {key: set(value) for key, value in names.items()}
         if extra_target_names: target_names.setdefault('', set()).update(extra_target_names)
         if not preflight_only: verify_shape(target_root, target_dirs if verify_only else {}, target_names if verify_only else {})
-        total = 0
-        for entry in entries:
-            check()
-            if entry['mode'] == '040000':
-                directory = descend(source_root, entry['path'], source_dirs)
-                os.close(directory)
-            else:
-                directory, name = parent(source_root, entry['path'], source_dirs)
-                try:
-                    content(directory, name, entry, entry['identity'])
-                finally:
+        total = sum(entry['size'] for entry in entries if entry['mode'] != '040000')
+        if total > 128 * 1024 * 1024:
+            raise RuntimeError('Exclusive tree unavailable')
+        # The fixed repository wrapper preflights this exact manifest before ANY
+        # target mutation. Its copy still validates each source immediately before
+        # use; final verification below rereads both source and target. Repeating
+        # a full preflight here or at verify-only entry adds no independent fence.
+        # This flag is code-only, never selected by a request or generic PublishTree.
+        if preflight_only or not (phase_preflighted or verify_only):
+            for entry in entries:
+                check()
+                if entry['mode'] == '040000':
+                    directory = descend(source_root, entry['path'], source_dirs)
                     os.close(directory)
-                total += entry['size']
-                if total > 128 * 1024 * 1024:
-                    raise RuntimeError('Exclusive tree unavailable')
+                else:
+                    directory, name = parent(source_root, entry['path'], source_dirs)
+                    try:
+                        content(directory, name, entry, entry['identity'])
+                    finally:
+                        os.close(directory)
         if preflight_only: return None
         if not verify_only:
             # Only now publish, in parent-first order. No foreign directory is ever

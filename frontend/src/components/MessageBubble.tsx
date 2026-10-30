@@ -15,7 +15,7 @@ import {
   remarkLocalMarkdownLinks,
   isTelosArtifactUrl,
 } from '../lib/file-paths';
-import { formatTime } from '../lib/formatTime';
+import { formatMessageDate, formatFullMessageDate } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
 import { ShareButton, FileShareLink } from './ShareButton';
 import { ReadAloudButton } from './ReadAloudButton';
@@ -62,7 +62,7 @@ export function UserBubble({
   const context = text && splitContextPrompt(text);
   const displayText = context ? context.text : text;
   const injections = contextInjections ?? (context ? context.injections : undefined);
-  const time = formatTime(timestamp);
+  const time = formatMessageDate(timestamp);
   return (
     <div
       className="msg-bubble-group msg-bubble-group--user"
@@ -85,7 +85,15 @@ export function UserBubble({
         {displayText && <div className="msg-bubble-content">{displayText}</div>}
         {(time || displayText) && (
           <div className="msg-bubble-footer msg-bubble-footer--user">
-            {time && <span className="msg-timestamp msg-timestamp--user">{time}</span>}
+            {time && (
+              <time
+                className="msg-timestamp msg-timestamp--user"
+                dateTime={new Date(timestamp!).toISOString()}
+                title={formatFullMessageDate(timestamp) ?? undefined}
+              >
+                {time}
+              </time>
+            )}
             {displayText && readAloud && (
               <ReadAloudButton
                 text={displayText}
@@ -304,7 +312,15 @@ export function TextBubble({
               {collapsed ? 'Show more' : 'Show less'}
             </button>
           )}
-          {timestamp && <span className="msg-timestamp">{formatTime(timestamp)}</span>}
+          {timestamp && (
+            <time
+              className="msg-timestamp"
+              dateTime={new Date(timestamp).toISOString()}
+              title={formatFullMessageDate(timestamp) ?? undefined}
+            >
+              {formatMessageDate(timestamp)}
+            </time>
+          )}
           {readAloud && (
             <ReadAloudButton
               text={content}

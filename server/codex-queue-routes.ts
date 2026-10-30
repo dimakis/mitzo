@@ -1,3 +1,8 @@
+import {
+  CodexSteerInputSchema,
+  type CodexSteerInput,
+  type CodexSteerResult,
+} from './codex-steering.js';
 import { Router } from 'express';
 import type { AuthSession } from './auth.js';
 import { z } from 'zod';
@@ -5,6 +10,13 @@ import type { AccountBinding } from '@mitzo/protocol';
 import type { CodexConversationStore } from './codex-conversation-store.js';
 
 interface Dependencies {
+  steer?(
+    sessionId: string,
+    binding: AccountBinding,
+    input: CodexSteerInput,
+    authorization?: AuthSession,
+  ): Promise<CodexSteerResult>;
+
   authorizeMutation?(sessionId: string, authorization?: AuthSession): void;
   binding(sessionId: string): AccountBinding | undefined;
   overview(
@@ -111,6 +123,37 @@ export function createCodexQueueRouter(deps: Dependencies) {
       }
     });
   }
+  router.post('/:id/codex-queue/steer', async (req, res) => {
+    const binding = deps.binding(req.params.id);
+    if (!binding) {
+      res.status(404).json({ error: 'Codex conversation not found' });
+      return;
+    }
+    const input = CodexSteerInputSchema.safeParse(req.body);
+    if (!input.success) {
+      res.status(400).json({ error: 'A correction and its original active message are required.' });
+      return;
+    }
+    try {
+      if (!deps.steer) {
+        res.status(409).json({ error: 'Steering is unavailable for this conversation.' });
+        return;
+      }
+      const result = await deps.steer(
+        req.params.id,
+        binding,
+        input.data,
+        res.locals.authSession as AuthSession | undefined,
+      );
+      res
+        .status(result.status === 'accepted' ? 200 : result.status === 'uncertain' ? 202 : 409)
+        .json({ requestId: input.data.requestId, status: result.status });
+    } catch {
+      res.status(409).json({
+        error: 'The correction could not be confirmed. Keep the text and check the active turn.',
+      });
+    }
+  });
   router.post('/:id/codex-queue/retry', async (req, res) => {
     const binding = deps.binding(req.params.id);
     if (!binding) {

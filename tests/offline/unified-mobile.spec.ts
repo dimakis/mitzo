@@ -4038,7 +4038,7 @@ test('rejected ordinary Stop preserves the live reply and queued image until ser
   ).toBeVisible();
   await expect(stop).toBeVisible();
   await expect(draft).toHaveValue('Next untouched draft');
-  await expect(page.locator('.chat-input-queued')).toContainText('Queued child follow-up');
+  await expect(page.locator('.queued-draft-row')).toContainText('Queued child follow-up');
   expect(sent).toHaveLength(0);
   for (const theme of ['dark', 'light']) {
     await page.evaluate((value) => {
@@ -4054,6 +4054,9 @@ test('rejected ordinary Stop preserves the live reply and queued image until ser
     });
   }
   confirmIdle();
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeVisible();
+  expect(sent).toHaveLength(0);
+  await page.getByRole('button', { name: 'Resume queue', exact: true }).click();
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]).toMatchObject({
     sessionId,
@@ -4061,7 +4064,7 @@ test('rejected ordinary Stop preserves the live reply and queued image until ser
     images: [expect.objectContaining({ mediaType: 'image/png' })],
   });
   await expect(draft).toHaveValue('Next untouched draft');
-  await expect(page.locator('.chat-input-queued')).toHaveCount(0);
+  await expect(page.locator('.queued-draft-row')).toHaveCount(0);
 });
 
 test('rejected running Enter recovers exact input without overwriting newer draft or automatically replaying', async ({
@@ -4175,8 +4178,8 @@ test('rejected running Enter recovers exact input without overwriting newer draf
     page.getByText('An active child reply continues after interrupt refusal.', { exact: true }),
   ).toBeVisible();
   await expect(input).toHaveValue('Newer untouched draft');
-  await expect(page.locator('.chat-input-queued')).toHaveCount(2);
-  await expect(page.locator('.chat-input-queued').nth(1)).toContainText('Exact refused interrupt');
+  await expect(page.locator('.queued-draft-row')).toHaveCount(2);
+  await expect(page.locator('.queued-draft-row').nth(1)).toContainText('Exact refused interrupt');
   await expect(
     page.getByText('Use contributor controls for this input.', { exact: false }),
   ).toBeVisible();
@@ -4191,9 +4194,12 @@ test('rejected running Enter recovers exact input without overwriting newer draf
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeVisible();
   expect(sent.filter((message) => message.type === 'send')).toHaveLength(1);
   await expect(input).toHaveValue('Newer untouched draft');
-  await page.getByRole('button', { name: 'Edit', exact: true }).click();
-  await expect(input).toHaveValue('Exact refused interrupt');
-  await expect(page.locator('.chat-input').getByAltText('Attachment 1')).toBeVisible();
+  await page.getByRole('button', { name: 'Edit, reorder or remove queued prompt 1' }).click();
+  await expect(page.getByRole('textbox', { name: 'Prompt', exact: true })).toHaveValue(
+    'Exact refused interrupt',
+  );
+  await expect(page.getByAltText('Queued attachment 1')).toBeVisible();
+  await expect(input).toHaveValue('Newer untouched draft');
   for (const theme of ['dark', 'light']) {
     await page.evaluate((theme) => {
       document.documentElement.dataset.theme = theme;
@@ -4280,11 +4286,12 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
     error: 'Use contributor controls to send to this conversation.',
   });
   await expect(draft).toHaveValue('Newer untouched ordinary draft');
-  await expect(page.locator('.chat-input-queued')).toContainText('Exact refused ordinary input');
-  expect(
-    await page.evaluate(() => localStorage.getItem('mitzo-queue-idle-owned-child')),
-  ).not.toContain('data:image');
-  const retry = page.getByRole('button', { name: 'Send Now', exact: true });
+  await expect(page.locator('.queued-draft-row')).toContainText('Exact refused ordinary input');
+  const retainedQueue = () =>
+    readChatStorage(page, (storage) => storage.getItem('mitzo-queue-idle-owned-child'));
+  await expect.poll(retainedQueue).not.toBeNull();
+  expect(await retainedQueue()).not.toContain('data:image');
+  const retry = page.getByRole('button', { name: 'Send queued prompt 1', exact: true });
   await expect(retry).toBeVisible();
   expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   for (const theme of ['dark', 'light']) {
@@ -4309,7 +4316,7 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
   });
   expect(sent[1].clientMsgId).not.toBe(sent[0].clientMsgId);
   emit({ type: 'user_message', sessionId, messageId: sent[1].clientMsgId, text: sent[1].prompt });
-  await expect(page.locator('.chat-input-queued')).toHaveCount(0);
+  await expect(page.locator('.queued-draft-row')).toHaveCount(0);
   await expect(draft).toHaveValue('Newer untouched ordinary draft');
 });
 
