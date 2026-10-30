@@ -23,7 +23,11 @@ import {
 } from '../openshell-runtime-migration.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { AccountBinding } from '@mitzo/protocol';
-import { CodexRequestError, CodexTransportError } from '../codex-app-server-client.js';
+import {
+  CodexHostToolRequestError,
+  CodexRequestError,
+  CodexTransportError,
+} from '../codex-app-server-client.js';
 import { tracer } from '../tracing.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 import {
@@ -2882,38 +2886,147 @@ it.each(['functions', '', null, undefined])(
   },
 );
 
-it('classifies invalid, stale, unavailable, and ledger failures before execution', async () => {
-  const { c, callbacks, execute, store } = await setup();
-  await c.send({ id: 'rejections', prompt: 'read' });
-  const signal = new AbortController().signal;
-  const input = {
-    threadId: 'provider-thread',
-    turnId: 'turn-1',
-    callId: 'failed',
-    tool: 'Read',
-    arguments: {},
-  };
-  for (const [params, category] of [
-    [{ ...input, arguments: 'SECRET' }, 'invalid_tool_request'],
-    [{ ...input, turnId: 'stale' }, 'tool_identity_mismatch'],
-    [{ ...input, tool: 'Unknown' }, 'tool_unavailable'],
-  ] as const) {
-    await expect(callbacks.onRequest('item/tool/call', params, signal)).rejects.toMatchObject({
-      category,
+it.each(
+  [false, true].flatMap((authorize) =>
+    [false, true].map((ledgerFailure) => ({ authorize, ledgerFailure })),
+  ),
+)(
+  'settles pre-execution refusals while retaining ledger uncertainty (authorization=$authorize, ledgerFailure=$ledgerFailure)',
+  async ({ authorize, ledgerFailure }) => {
+    const args: Parameters<typeof setup> = [];
+    if (authorize) args[25] = async () => {};
+    const { c, callbacks, execute, store, requests, onClosed, getBinding } = await setup(...args);
+    await c.send({ id: 'rejections', prompt: 'read' });
+    await c.send({ id: 'after-rejections', prompt: 'continue' });
+    const signal = new AbortController().signal;
+    const input = {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'failed',
+      tool: 'Read',
+      arguments: {},
+    };
+    if (ledgerFailure) {
+      const claim = vi.spyOn(store, 'claimTool').mockImplementation(() => {
+        throw new Error('SECRET');
+      });
+      await expect(callbacks.onRequest('item/tool/call', input, signal)).rejects.toMatchObject({
+        category: 'tool_ledger_unavailable',
+      });
+      claim.mockRestore();
+    }
+    for (const [params, category] of [
+      [{ ...input, arguments: 'SECRET' }, 'invalid_tool_request'],
+      [{ ...input, turnId: 'stale' }, 'tool_identity_mismatch'],
+      [{ ...input, tool: 'Unknown' }, 'tool_unavailable'],
+    ] as const) {
+      await expect(callbacks.onRequest('item/tool/call', params, signal)).rejects.toMatchObject({
+        category,
+      });
+    }
+    expect(execute).not.toHaveBeenCalled();
+    expect(await callbacks.onRequest('item/tool/call', input, signal)).toMatchObject({
+      success: true,
     });
-  }
-  const claim = vi.spyOn(store, 'claimTool').mockImplementation(() => {
-    throw new Error('SECRET');
-  });
-  await expect(callbacks.onRequest('item/tool/call', input, signal)).rejects.toMatchObject({
-    category: 'tool_ledger_unavailable',
-  });
+    expect(execute).toHaveBeenCalledOnce();
+    callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() =>
+      expect(c.queue().map(({ status }) => status)).toEqual([
+        'completed',
+        ledgerFailure ? 'queued' : 'running',
+      ]),
+    );
+    expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(
+      ledgerFailure ? 1 : 2,
+    );
+    expect(store.read('app', getBinding()).recovery).toBe(ledgerFailure ? 1 : 0);
+    expect(store.commandLifecycle('app', getBinding(), 'rejections').effectStatus).toBe(
+      ledgerFailure ? 'unknown' : 'completed',
+    );
+    expect(onClosed).toHaveBeenCalledTimes(ledgerFailure ? 1 : 0);
+  },
+);
+
+it.each([false, true])(
+  'retains uncertainty when a host-tool request error occurs after execution (reused=%s)',
+  async (reuse) => {
+    const { c, callbacks, execute, store, requests, onClosed, getBinding } = await setup();
+    await c.send({ id: 'executed', prompt: 'read' });
+    await c.send({ id: 'after-execution', prompt: 'continue' });
+    let failure: unknown = new CodexHostToolRequestError('tool_ledger_unavailable');
+    if (reuse) {
+      failure = await callbacks
+        .onRequest(
+          'item/tool/call',
+          {
+            threadId: 'provider-thread',
+            turnId: 'turn-1',
+            callId: 'refused',
+            tool: 'Unknown',
+            arguments: {},
+          },
+          new AbortController().signal,
+        )
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(CodexHostToolRequestError);
+    }
+    vi.spyOn(store, 'recordToolResult').mockImplementation(() => {
+      throw failure;
+    });
+    await expect(
+      callbacks.onRequest(
+        'item/tool/call',
+        {
+          threadId: 'provider-thread',
+          turnId: 'turn-1',
+          callId: 'executed',
+          tool: 'Read',
+          arguments: {},
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toBe(failure);
+    callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() => expect(onClosed).toHaveBeenCalledOnce());
+    expect(c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+    expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    expect(store.read('app', getBinding()).recovery).toBe(1);
+    expect(execute).toHaveBeenCalledOnce();
+  },
+);
+
+it('keeps authority revocation fenced after a proven pre-execution refusal', async () => {
+  const authorize = vi.fn(async () => {});
+  const args: Parameters<typeof setup> = [];
+  args[25] = authorize;
+  const { c, callbacks, execute, requests, onClosed } = await setup(...args);
+  await c.send({ id: 'refused', prompt: 'read' });
+  await c.send({ id: 'after-revocation', prompt: 'continue' });
+  const revoked = new Error('Retained authorization revoked');
+  authorize.mockResolvedValueOnce(undefined).mockRejectedValueOnce(revoked);
+  await expect(
+    callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: 'provider-thread',
+        turnId: 'turn-1',
+        callId: 'refused',
+        tool: 'Unknown',
+        arguments: {},
+      },
+      new AbortController().signal,
+    ),
+  ).rejects.toBe(revoked);
+  expect(onClosed).toHaveBeenCalledOnce();
+  expect(c.queue().find(({ id }) => id === 'after-revocation')?.status).toBe('queued');
+  expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
   expect(execute).not.toHaveBeenCalled();
-  claim.mockRestore();
-  expect(await callbacks.onRequest('item/tool/call', input, signal)).toMatchObject({
-    success: true,
-  });
-  expect(execute).toHaveBeenCalledOnce();
 });
 
 it('interrupts the current turn, keeps queued follow-ups paused, and cancels a pending host tool', async () => {

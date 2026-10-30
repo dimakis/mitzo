@@ -142,7 +142,7 @@ function PinEditor({
 }) {
   const [pins, setPins] = useState(initialPins);
   const [revision, setRevision] = useState(home.preferences!.revision);
-  const todos = useTodoData();
+  const todos = useTodoData(undefined, undefined, 'active', 'canonical');
   const search = useSessionSearch();
   const [kind, setKind] = useState<'session' | 'telos'>('session');
   const [workQuery, setWorkQuery] = useState('');

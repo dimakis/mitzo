@@ -109,6 +109,16 @@ export function createUiData() {
     record,
     work: (id: string) => work.read(id, actor),
     old,
+    canonicalCollection: () => {
+      const collection = work.readCollection('active', actor);
+      return {
+        ...collection,
+        records: collection.records.map((row) => ({
+          ...row,
+          categories: [generation ? 'Updated category' : 'Original category'],
+        })),
+      };
+    },
     collection: () => ({ profiles: ['manual'], items: [legacy('outcome'), legacy('legacy')] }),
     update() {
       generation++;

@@ -62,10 +62,14 @@ function BoundControls({ data, conversationId }: { data: Data; conversationId: s
         value.conversation.conversationId === conversationId,
     );
   const canOperate = coordinator && data.workCurrent;
-  const collection = useTodoData(undefined, data.itemId);
+  const collection = useTodoData(undefined, data.itemId, 'active', 'canonical');
   const scopeNode = coordinator ? findInTree(collection.items, data.itemId) : undefined;
   const attachedIds = scopeNode?.children.map((value) => value.id) ?? [];
-  const attached = useTelosRecords(coordinator ? attachedIds : [], data.refreshKey);
+  const attached = useTelosRecords(coordinator ? attachedIds : [], data.refreshKey, {
+    seed: collection.records,
+    loading: collection.loading,
+    failures: collection.recordFailures,
+  });
   const ids = new Set<string>();
   for (const value of state.controls) {
     ids.add(value.coordinatorItemId);

@@ -1,3 +1,4 @@
+import type { TelosWorkItem } from '@mitzo/protocol';
 export interface TodoSource {
   type: string;
   url: string;
@@ -48,6 +49,8 @@ export interface TodoItem {
 }
 
 export interface TodoData {
+  records?: TelosWorkItem[];
+  recordFailures?: Array<{ itemId: string; code: string }>;
   profiles: string[];
   items: TodoItem[];
 }

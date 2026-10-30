@@ -1,7 +1,8 @@
 import { expect } from 'vitest';
 import { expect as browserExpect, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
-import { TodoListResponse } from '../../../../server/api-schemas.js';
+import { z } from 'zod';
+import { TelosWorkItemSchema } from '@mitzo/protocol';
 
 /** Called once at the coherent journey's natural entry. It does not retry,
  * replace a failing list response or infer a cause for a Protected command failure. */
@@ -14,7 +15,9 @@ export async function observeActualAllOutcomesEntry(
     page.waitForResponse((value) => {
       const url = new URL(value.url());
       return (
-        url.origin === origin && url.pathname === '/api/todos' && value.request().method() === 'GET'
+        url.origin === origin &&
+        url.pathname === '/api/telos/work/collection' &&
+        value.request().method() === 'GET'
       );
     }),
     page.goto(origin + '/todos'),
@@ -36,7 +39,13 @@ export async function observeActualAllOutcomesEntry(
   expect(response.status()).toBe(200);
   expect(bodyReadError).toBeUndefined();
   expect(body).toBeDefined();
-  const collection = TodoListResponse.parse(JSON.parse(body!));
+  const collection = z
+    .object({
+      records: z.array(TelosWorkItemSchema),
+      profiles: z.array(z.string()),
+      failures: z.array(z.object({ itemId: z.string(), code: z.string() })),
+    })
+    .parse(JSON.parse(body!));
   const all = page.getByRole('button', { name: 'All outcomes', exact: true });
   await browserExpect(all).toBeVisible();
   await all.click();

@@ -288,7 +288,9 @@ for (const mode of ['pending', 'unavailable'] as const)
     });
     expect(childRead).toHaveBeenCalledOnce();
     expect(path()).toBe('/todos/fixture-studio-slice');
-    expect(screen.getByRole('heading', { name: 'Task' })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: mode === 'pending' ? records[1].summary : 'Task' }),
+    ).toBeTruthy();
     expect(state()).toEqual({
       ...parentState,
       telosHistory: ['fixture-studio'],
@@ -340,18 +342,29 @@ for (const mode of ['pending', 'unavailable'] as const)
     });
     expect(parentRead).toHaveBeenCalledOnce();
     expect(path()).toBe('/todos/fixture-studio');
-    expect(screen.getByRole('heading', { name: 'Task' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /^Milestones/ })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: mode === 'pending' ? records[0].summary : 'Task' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: mode === 'pending' ? 'Child work' : /^Milestones/ }),
+    ).toBeTruthy();
     const retained = state();
-    const milestone = screen.getByText(records[1].summary).closest('.todo-detail-child-row')!;
+    const milestone =
+      mode === 'pending'
+        ? screen.getByRole('button', { name: records[1].summary })
+        : screen.getByText(records[1].summary).closest('.todo-detail-child-row')!;
     expect(milestone).toBeTruthy();
     fireEvent.click(milestone);
     await screen.findByRole('heading', { name: records[1].summary });
     expect(path()).toBe('/todos/fixture-studio-slice');
     await back();
     await waitFor(() => expect(path()).toBe('/todos/fixture-studio'));
-    expect(screen.getByRole('heading', { name: 'Task' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /^Milestones/ })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: mode === 'pending' ? records[0].summary : 'Task' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: mode === 'pending' ? 'Child work' : /^Milestones/ }),
+    ).toBeTruthy();
     expect(state().telosHistory).toEqual([]);
     expect(state().telosItemReturn).toEqual(retained.telosItemReturn);
     expect(JSON.parse(sessionStorage.getItem('telos.item.history.fixture-studio-slice')!)).toEqual([

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import type { TodoOutput } from '../types/todo';
@@ -21,6 +21,10 @@ import { HtmlPreview } from './HtmlPreview';
 import { useMotionPresence } from '../hooks/useMotionPresence';
 import { artifactViewerUrl } from '../lib/file-paths';
 import './SavedArtifactDialog.css';
+
+const PdfPreview = lazy(() =>
+  import('./PdfPreview').then((module) => ({ default: module.PdfPreview })),
+);
 
 /** One modal owns loading, selected revision inspection and return focus. Files
  * remains the full editing surface, reached at this exact revision via File options.
@@ -57,6 +61,7 @@ export function SavedArtifactDialog({
       >
         {artifact ? (
           <SavedArtifactDetails
+            key={`${artifact.itemId}:${artifact.id}`}
             artifact={artifact}
             open={open}
             onClose={onClose}
@@ -110,23 +115,40 @@ function SavedArtifactDetails({
   const [pageBefore, setPageBefore] = useState<number>();
   const [historyRetry, setHistoryRetry] = useState(0);
   const [previewRetry, setPreviewRetry] = useState(0);
+  const loadedPreview = useRef<string | null>(null);
   const [document, setDocument] = useState<{
     revision: number;
     document: SavedArtifactDocument | null;
     error: string | null;
   } | null>(null);
+  const historyTarget = useRef(artifact);
+  historyTarget.current = artifact;
   const navigate = useNavigate();
   const location = useLocation();
   const version = versions.find((row) => row.revision === selected)!;
   const url = savedArtifactUrl(version);
+  const previewTarget = useRef(version);
+  previewTarget.current = version;
+  const previewIdentity = JSON.stringify([
+    version.itemId,
+    version.id,
+    selected,
+    version.sha256,
+    previewRetry,
+  ]);
+  const isPdf = version.filename.toLocaleLowerCase().endsWith('.pdf');
   useEffect(() => {
     if (!open) {
       setPageBefore(undefined);
       return;
     }
     const controller = new AbortController();
-    setHistory((previous) => ({ ...previous, loaded: false, error: null }));
-    readSavedArtifactVersions(artifact, controller.signal, pageBefore)
+    setHistory((previous) => ({
+      ...previous,
+      loaded: pageBefore !== undefined && previous.loaded,
+      error: null,
+    }));
+    readSavedArtifactVersions(historyTarget.current, controller.signal, pageBefore)
       .then((page) => {
         if (controller.signal.aborted) return;
         setVersions((previous) => {
@@ -145,26 +167,34 @@ function SavedArtifactDetails({
           });
       });
     return () => controller.abort();
-  }, [artifact, pageBefore, historyRetry, open]);
+  }, [artifact.id, artifact.itemId, pageBefore, historyRetry, open]);
   useEffect(() => {
-    if (!history.loaded || !open) return;
+    if (!open) {
+      loadedPreview.current = null;
+      return;
+    }
+    const identity = previewIdentity;
+    const target = previewTarget.current;
+    if (!history.loaded || isPdf || loadedPreview.current === identity) return;
     const controller = new AbortController();
     setDocument(null);
-    readSavedArtifactDocument(version, controller.signal)
+    readSavedArtifactDocument(target, controller.signal)
       .then((value) => {
-        if (!controller.signal.aborted)
-          setDocument({ revision: selected, document: value, error: null });
+        if (!controller.signal.aborted) {
+          loadedPreview.current = identity;
+          setDocument({ revision: target.revision, document: value, error: null });
+        }
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted)
           setDocument({
-            revision: selected,
+            revision: target.revision,
             document: null,
             error: error instanceof Error ? error.message : 'Saved preview unavailable.',
           });
       });
     return () => controller.abort();
-  }, [version, selected, history.loaded, previewRetry, open]);
+  }, [previewIdentity, history.loaded, open, isPdf]);
   const current = document?.revision === selected ? document : null;
   const preview = history.loaded && !history.error ? current?.document : null;
   const provenance = version as SavedArtifactVersion;
@@ -217,7 +247,7 @@ function SavedArtifactDetails({
             Earlier versions
           </button>
         )}
-        {!history.error && (!history.loaded || !current) && (
+        {!history.error && (!history.loaded || (!isPdf && !current)) && (
           <p role="status">Loading saved version…</p>
         )}
         {current?.error && (
@@ -231,6 +261,11 @@ function SavedArtifactDetails({
               Retry preview
             </button>
           </div>
+        )}
+        {isPdf && history.loaded && !history.error && (
+          <Suspense fallback={<p role="status">Opening PDF reader…</p>}>
+            <PdfPreview key={url} url={url} title={version.title} />
+          </Suspense>
         )}
         {preview && (
           <div className="saved-artifact-preview">
@@ -298,7 +333,7 @@ function SavedArtifactDetails({
         </details>
       </div>
       <footer>
-        {preview && (
+        {(preview || (isPdf && history.loaded && !history.error)) && (
           <ShareButton
             key={url}
             filePath={url}

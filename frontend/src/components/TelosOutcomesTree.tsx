@@ -233,6 +233,7 @@ export function TelosOutcomesTree({
                     <span className="telos-node-status">{record.status}</span>
                     <TelosTreeConversationEntry
                       itemId={record.itemId}
+                      kind={record.kind}
                       refreshKey={refreshKey}
                       onOpenChat={() => onOpen(record.itemId, 'Chat')}
                     />

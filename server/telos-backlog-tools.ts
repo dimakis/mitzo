@@ -31,7 +31,7 @@ export const telosBacklogDefinitions: ToolDefinition[] = Object.entries(telosBac
       name === 'TelosManageItem'
         ? 'Inspect a Telos item and its lifecycle (operation read); edit its title (summary), intent, rationale or acceptance criteria; archive, unarchive, or restore from trash. Read first: edit uses item.revision; archive/unarchive/restore use lifecycle.revision. Large reads return json-fragment: follow nextOffset, require unchanged snapshotHash, and concatenate contentFragment. Mutations require exact request approval and requestId; retry the exact input after uncertainty. Archive preserves status, evidence and descendants. No lead assignment needed; no completion or deletion.'
         : name === 'TelosCreateChild'
-          ? 'Create one child under an existing Telos parent with a title, intent, rationale and acceptance criteria. Read the parent with TelosManageItem first. Supply item.revision or the previous creation parentRevision as expectedParentRevision, a unique requestId and an audit note. Requires exact approval. Retry uncertain creation with identical input and requestId; the receipt returns the child and new parentRevision. Completed, archived or trashed parents cannot receive new children. Creates manual backlog work with a session link; no lead assignment, source capture or execution.'
+          ? 'Create one child under an existing Telos parent with a title, intent, rationale and acceptance criteria. Read the parent with TelosManageItem first. Supply item.revision or the previous creation parentRevision as expectedParentRevision, a unique requestId and an audit note. Requires exact approval. Retry uncertain creation with identical input and requestId; the receipt returns the child and new parentRevision. Completed, archived or trashed parents cannot receive new children. Creates manual backlog work and records the existing originating conversation only. It does not create a dedicated conversation, attach source files, assign a lead or start execution.'
           : 'List or search canonical Telos items by title and brief text, status, parent and lifecycle view. Returns concise IDs/titles without loading every detail. Default view active excludes archived/trashed subtrees. Follow nextCursor even after an empty page; keep filters unchanged. Use TelosManageItem read for full content and fresh edit/lifecycle revisions. No lead assignment needed.',
   }),
 );
@@ -41,7 +41,14 @@ Use TelosCreateChild for authorized work under an existing parent. Read the pare
 TelosManageItem and pass item.revision as expectedParentRevision. Supply a complete brief, criteria,
 audit note and unique requestId. Each successful creation returns the child and new parentRevision;
 reuse that revision for the next child under the same parent, and reread after a revision conflict.
-Creation does not start execution or capture source materials.
+Creation does not create a dedicated conversation, start execution or attach source files.
+For one session per person, verify a distinct retained conversation for every named child; the shared
+originating conversation is provenance, not those individual sessions. Use the supported ordinary
+chat setup or exact lead delegation path. If that path is unavailable, report sessions not created.
+Keep titles and briefs readable: describe the outcome and next action briefly; save detailed evidence
+and handoffs as named artifacts instead of filling the brief with paths and hashes.
+When asked for review-ready child work, separately report which children exist, which source documents
+are saved and which dedicated conversations are ready. Never treat creation alone as all three.
 Use TelosManageItem read for the full brief and lifecycle, edit to clarify titles/content, and archive
 for work the user no longer wants in the active backlog. Archive does not mean completed; it preserves
 history and hides descendants through the existing lifecycle. Unarchive reverses archive; restore
@@ -102,9 +109,17 @@ export async function executeTelosBacklogOperation(
     if (name === 'TelosCreateChild') {
       const input = TelosCreateChildInputSchema.parse(structuredClone(raw));
       await approve(input);
-      value = items.createChildGuarded(input, ctx.conversationId, current, () =>
+      const receipt = items.createChildGuarded(input, ctx.conversationId, current, () =>
         work.assertLifecycleActive(input.parentId),
       );
+      value = {
+        ...receipt,
+        preparation: {
+          dedicatedConversationCreated: false,
+          sourceFilesSaved: false,
+          originatingConversationId: ctx.conversationId,
+        },
+      };
     } else if (name !== 'TelosManageItem') {
       const input = telosBacklogSchemas[name].parse(structuredClone(raw));
       value = work.readBacklogGuarded(() => work.listItems(input, actor), current);

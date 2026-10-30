@@ -146,13 +146,19 @@ beforeEach(() => {
       return telosRecordBatchFixture(init, (id) =>
         globalThis.fetch('/api/telos/work/items/' + encodeURIComponent(id) + '/record'),
       );
-    if (url.pathname === '/api/todos') {
+    if (url.pathname === '/api/todos' || url.pathname === '/api/telos/work/collection') {
       const disposition =
         lifecycle.effectiveDisposition === 'active'
           ? 'active'
           : lifecycle.effectiveDisposition === 'archived'
             ? 'archive'
             : 'trash';
+      if (url.pathname === '/api/telos/work/collection')
+        return Response.json({
+          profiles: ['manual'],
+          records: (url.searchParams.get('view') ?? 'active') === disposition ? records : [],
+          failures: [],
+        });
       return Response.json({
         profiles: ['manual'],
         items:
@@ -239,7 +245,7 @@ it('selects actual archive/trash collections and preserves the original collecti
   await screen.findByRole('button', { name: records[0].summary });
   await viewMenu('Trash');
   expect(route()).toBe('/todos?view=trash');
-  await waitFor(() => expect(requests).toContain('/api/todos?view=trash'));
+  await waitFor(() => expect(requests).toContain('/api/telos/work/collection?view=trash'));
   expect(screen.queryByRole('button', { name: records[0].summary })).toBeNull();
   expect(writes).toEqual([]);
 });
@@ -259,7 +265,7 @@ it('archives only after review, keeps the selected workspace and archived child 
   expect(route()).toBe('/todos/selected');
   expect(writes).toHaveLength(1);
   expect(writes[0].operation).toBe('archive');
-  await waitFor(() => expect(requests).toContain('/api/todos?view=archive'));
+  await waitFor(() => expect(requests).toContain('/api/telos/work/collection?view=archive'));
   fireEvent.click(screen.getByRole('button', { name: 'Work' }));
   await screen.findByRole('button', { name: 'Original child work' });
   expect(navState().telosCollectionView).toBe('active');

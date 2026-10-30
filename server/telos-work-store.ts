@@ -1,3 +1,4 @@
+import { renewDueTelosSnoozes } from './telos-snooze.js';
 import type { EventStore } from './event-store.js';
 import type { TaskStore } from './task-store.js';
 import {
@@ -67,6 +68,8 @@ import {
 import { initializeTelosWorkSchema } from './telos-work-schema.js';
 import { TelosMainPublicationRecords } from './telos-main-publication-records.js';
 import type { MainPublicationPins } from './telos-main-publication-contract.js';
+import { projectTelosCollection } from './telos-collection.js';
+import { TelosWorkLifecycleListSchema } from '@mitzo/protocol';
 import { projectTelosWorkRecord } from './telos-work-record.js';
 import {
   TelosListItemsInputSchema,
@@ -1101,6 +1104,27 @@ export class TelosWorkStore {
       this.authorizeRead(itemId, actor);
       return this.projectRecord(itemId);
     })();
+  }
+  /** Canonical collection: one authority check, connection and committed snapshot.
+   * Never reconstruct an ID from a mutable title or require a source row. */
+  readCollection(rawView: unknown, actor: TelosWorkActor, assertCurrent: () => void = () => {}) {
+    this.operator(actor);
+    const view = TelosWorkLifecycleListSchema.parse(rawView);
+    const read = this.db.transaction(() => {
+      const select = this.db.prepare('SELECT * FROM items ORDER BY rowid LIMIT 5001');
+      let items = select.all() as Item[];
+      if (items.length > 5000) conflict('Telos collection exceeds bounded selection');
+      if (renewDueTelosSnoozes(this.db, items, assertCurrent)) items = select.all() as Item[];
+      return projectTelosCollection(
+        this.db,
+        items,
+        this.lifecycleVisibilityForCanonicalList(items.map((row) => row.id)),
+        view,
+      );
+    });
+    // A writable retry rechecks the due set under a single writer lock. The
+    // ordinary initialized/no-due path remains a read-only snapshot.
+    return this.db.readonly ? read() : read.immediate();
   }
   readBacklogGuarded<T>(read: () => T, assertion: () => void): T {
     const check = () => {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
-  render,
+  render as renderNow,
   renderHook,
   screen,
   fireEvent,
@@ -32,6 +32,22 @@ import type { TodoItem } from '../../types/todo';
 import { getChatDraft } from '../../lib/chat-drafts';
 import { useTodoData } from '../../hooks/useTodoData';
 
+// Exercise retained legacy presentation using the real list owner. The native
+// collection/identity contract is covered by TelosWorkspace canonical tests.
+vi.mock('../../hooks/useTodoData', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../hooks/useTodoData')>();
+  return {
+    ...actual,
+    useTodoData: (profile?: string, resolveId?: string) => actual.useTodoData(profile, resolveId),
+  };
+});
+async function render(...args: Parameters<typeof renderNow>) {
+  let result!: ReturnType<typeof renderNow>;
+  await act(async () => {
+    result = renderNow(...args);
+  });
+  return result;
+}
 const mockPendingSession = vi.fn();
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (selector: (s: unknown) => unknown) =>
@@ -102,6 +118,7 @@ const fullItem: TodoItem = {
 
 beforeEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   window.dispatchEvent(new Event('mitzo:auth-lost'));
   vi.clearAllMocks();
   mockLocation.mockReturnValue({ state: { item: fullItem } });
@@ -137,7 +154,7 @@ it('keeps a source-only outcome unassigned and chooses its lead through an empty
     attempts: [],
   };
   vi.spyOn(TelosWorkApiClient.prototype, 'read').mockResolvedValue(work as never);
-  render(
+  await render(
     <MemoryRouter>
       <TodoDetailView />
     </MemoryRouter>,
@@ -169,7 +186,7 @@ it('does not invent an originating discussion when a new outcome has no recorded
     sources: [],
     attempts: [],
   } as never);
-  render(
+  await render(
     <MemoryRouter>
       <TodoDetailView />
     </MemoryRouter>,
@@ -180,10 +197,10 @@ it('does not invent an originating discussion when a new outcome has no recorded
 });
 
 describe('TodoDetailView', () => {
-  it('offers a Today pin without changing the TELOS item or hiding its saved summary', () => {
+  it('offers a Today pin without changing the TELOS item or hiding its saved summary', async () => {
     const item = { ...fullItem, summary: '# Canonical recovery\n\nFull handover details' };
     mockLocation.mockReturnValue({ state: { item } });
-    render(
+    await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -196,8 +213,8 @@ describe('TodoDetailView', () => {
     expect(item.starred).toBe(false);
     expect(item.status).toBe('active');
   });
-  it('renders the item summary', () => {
-    render(
+  it('renders the item summary', async () => {
+    await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -205,7 +222,7 @@ describe('TodoDetailView', () => {
     expect(screen.getByText('Fix authentication middleware')).toBeTruthy();
   });
 
-  it('renders the outcome contract separately from activity', () => {
+  it('renders the outcome contract separately from activity', async () => {
     mockLocation.mockReturnValue({
       state: {
         item: {
@@ -216,7 +233,7 @@ describe('TodoDetailView', () => {
         },
       },
     });
-    render(
+    await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -229,8 +246,8 @@ describe('TodoDetailView', () => {
     expect(screen.getByText('Regression test passes')).toBeTruthy();
   });
 
-  it('renders status, urgency, age, and profile', () => {
-    const { container } = render(
+  it('renders status, urgency, age, and profile', async () => {
+    const { container } = await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -241,8 +258,8 @@ describe('TodoDetailView', () => {
     expect(container.querySelector('.todo-detail-profile')?.textContent).toBe('centaur');
   });
 
-  it('renders all sources with type badges and titles', () => {
-    const { container } = render(
+  it('renders all sources with type badges and titles', async () => {
+    const { container } = await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -256,8 +273,8 @@ describe('TodoDetailView', () => {
     expect(titles[1]?.textContent).toBe('Fix auth flow in session handler');
   });
 
-  it('renders source authors and snippets', () => {
-    const { container } = render(
+  it('renders source authors and snippets', async () => {
+    const { container } = await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -271,13 +288,13 @@ describe('TodoDetailView', () => {
     expect(snippets[1]?.textContent).toContain('Related Jira ticket');
   });
 
-  it('downloads Telos artifact links without resolving them as workspace paths', () => {
+  it('downloads Telos artifact links without resolving them as workspace paths', async () => {
     const url = '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=1';
     const open = vi.spyOn(window, 'open').mockImplementation(() => null);
     mockLocation.mockReturnValue({
       state: { item: { ...fullItem, links: [{ type: 'artifact', url, title: 'Recovery spec' }] } },
     });
-    render(
+    await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -307,7 +324,7 @@ describe('TodoDetailView', () => {
         },
       },
     });
-    render(
+    await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -320,8 +337,8 @@ describe('TodoDetailView', () => {
     );
   });
 
-  it('renders durable links and opens repo-relative links in the file viewer', () => {
-    render(
+  it('renders durable links and opens repo-relative links in the file viewer', async () => {
+    await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -332,8 +349,8 @@ describe('TodoDetailView', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/files?path=docs%2Fauth-design.md');
   });
 
-  it('renders context hints — repos, paths, issues, jira keys, keywords', () => {
-    render(
+  it('renders context hints — repos, paths, issues, jira keys, keywords', async () => {
+    await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -353,8 +370,8 @@ describe('TodoDetailView', () => {
     expect(screen.getByText('jwt')).toBeTruthy();
   });
 
-  it('renders the task hint', () => {
-    render(
+  it('renders the task hint', async () => {
+    await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -364,12 +381,12 @@ describe('TodoDetailView', () => {
     ).toBeTruthy();
   });
 
-  it('renders a back button that navigates to /todos with preserved state', () => {
+  it('renders a back button that navigates to /todos with preserved state', async () => {
     mockLocation.mockReturnValue({
       state: { item: fullItem, activeProfile: 'centaur', scrollTop: 150 },
     });
 
-    const { container } = render(
+    const { container } = await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -383,8 +400,8 @@ describe('TodoDetailView', () => {
     });
   });
 
-  it('navigates to chat with a reviewable draft on "Open in Chat" click', () => {
-    const { container } = render(
+  it('navigates to chat with a reviewable draft on "Open in Chat" click', async () => {
+    const { container } = await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -399,8 +416,8 @@ describe('TodoDetailView', () => {
     expect(call).toContain('extraTools=Bash');
   });
 
-  it('navigates to file viewer with encoded path when a path chip is clicked', () => {
-    render(
+  it('navigates to file viewer with encoded path when a path chip is clicked', async () => {
+    await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -411,9 +428,9 @@ describe('TodoDetailView', () => {
     expect(call).toContain('path=server%2Fauth.ts');
   });
 
-  it('opens source URL externally when source row is tapped', () => {
+  it('opens source URL externally when source row is tapped', async () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
-    const { container } = render(
+    const { container } = await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -428,7 +445,7 @@ describe('TodoDetailView', () => {
     openSpy.mockRestore();
   });
 
-  it('renders children as sub-tasks with progress count', () => {
+  it('renders children as sub-tasks with progress count', async () => {
     const childItem: TodoItem = {
       ...fullItem,
       id: 'child1',
@@ -454,7 +471,7 @@ describe('TodoDetailView', () => {
 
     mockLocation.mockReturnValue({ state: { item: parentWithChildren } });
 
-    const { container } = render(
+    const { container } = await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -471,7 +488,7 @@ describe('TodoDetailView', () => {
     expect(doneRow?.className).toContain('todo-detail-child-row--done');
   });
 
-  it('navigates to child detail view when child row is tapped', () => {
+  it('navigates to child detail view when child row is tapped', async () => {
     const childItem: TodoItem = {
       ...fullItem,
       id: 'child1',
@@ -492,7 +509,7 @@ describe('TodoDetailView', () => {
       state: { item: parentWithChildren, activeProfile: 'centaur', scrollTop: 50 },
     });
 
-    render(
+    await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -531,7 +548,7 @@ describe('TodoDetailView', () => {
 
     mockLocation.mockReturnValue({ state: { item: emptyItem } });
 
-    const { container } = render(
+    const { container } = await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -557,7 +574,7 @@ describe('TodoDetailView', () => {
         async () => new Response(JSON.stringify({ profiles: ['centaur'], items: [fullItem] })),
       );
 
-    render(
+    await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -597,7 +614,7 @@ describe('TodoDetailView', () => {
       const filteredList = renderHook(() => useTodoData('centaur'));
       await waitFor(() => expect(filteredList.result.current.loading).toBe(false));
       mockLocation.mockReturnValue({ state: { item: navigationItem } });
-      render(
+      await render(
         <MemoryRouter>
           <TodoDetailView />
         </MemoryRouter>,
@@ -607,6 +624,7 @@ describe('TodoDetailView', () => {
       await waitFor(() => expect(select.value).toBe('7'));
       await waitFor(() => expect(filteredList.result.current.items[0].priority).toBe(7));
       expect(navigationItem.priority).toBe(5);
+      await waitFor(() => expect(select.disabled).toBe(false));
       fireEvent.change(select, { target: { value: '9' } });
       expect(
         await screen.findByText('Couldn’t confirm this priority. Refresh to check its status.'),
@@ -629,7 +647,7 @@ describe('TodoDetailView', () => {
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => new Response(JSON.stringify({ profiles: [], items: [] })));
 
-    render(
+    await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -658,7 +676,7 @@ describe('TodoDetailView', () => {
           ? new Promise<Response>((resolve) => (finish = resolve))
           : Promise.resolve(Response.json({ artifacts: [], limit: 100 })),
       );
-      render(
+      await render(
         <MemoryRouter>
           <TodoDetailView />
         </MemoryRouter>,
@@ -705,7 +723,7 @@ describe('TodoDetailView', () => {
     const previous = renderHook(() => useTodoData());
     mockLocation.mockReturnValue({ state: null });
     mockParams.mockReturnValue({ id: 'abc123' });
-    render(
+    await render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
@@ -724,8 +742,8 @@ describe('TodoDetailView', () => {
   });
 
   describe('promote functionality', () => {
-    it('shows promote button when goalId is null', () => {
-      const { container } = render(
+    it('shows promote button when goalId is null', async () => {
+      const { container } = await render(
         <MemoryRouter>
           <TodoDetailView />
         </MemoryRouter>,
@@ -736,11 +754,11 @@ describe('TodoDetailView', () => {
       );
     });
 
-    it('hides promote button when goalId exists', () => {
+    it('hides promote button when goalId exists', async () => {
       const promotedItem: TodoItem = { ...fullItem, goalId: 'goal-abc' };
       mockLocation.mockReturnValue({ state: { item: promotedItem } });
 
-      const { container } = render(
+      const { container } = await render(
         <MemoryRouter>
           <TodoDetailView />
         </MemoryRouter>,
@@ -748,11 +766,11 @@ describe('TodoDetailView', () => {
       expect(container.querySelector('.todo-detail-promote-btn')).toBeNull();
     });
 
-    it('shows promoted badge when goalId exists', () => {
+    it('shows promoted badge when goalId exists', async () => {
       const promotedItem: TodoItem = { ...fullItem, goalId: 'goal-abc' };
       mockLocation.mockReturnValue({ state: { item: promotedItem } });
 
-      const { container } = render(
+      const { container } = await render(
         <MemoryRouter>
           <TodoDetailView />
         </MemoryRouter>,
@@ -762,11 +780,11 @@ describe('TodoDetailView', () => {
       expect(badge?.textContent).toContain('Task Board');
     });
 
-    it('navigates to tasks when promoted badge is clicked', () => {
+    it('navigates to tasks when promoted badge is clicked', async () => {
       const promotedItem: TodoItem = { ...fullItem, goalId: 'goal-abc' };
       mockLocation.mockReturnValue({ state: { item: promotedItem } });
 
-      const { container } = render(
+      const { container } = await render(
         <MemoryRouter>
           <TodoDetailView />
         </MemoryRouter>,
@@ -781,7 +799,7 @@ describe('TodoDetailView', () => {
         json: () => Promise.resolve({ task: { id: 'new-task-id' } }),
       } as Response);
 
-      const { container } = render(
+      const { container } = await render(
         <MemoryRouter>
           <TodoDetailView />
         </MemoryRouter>,
@@ -805,7 +823,7 @@ describe('TodoDetailView', () => {
         json: () => Promise.resolve({ error: 'Server error' }),
       } as Response);
 
-      const { container } = render(
+      const { container } = await render(
         <MemoryRouter>
           <TodoDetailView />
         </MemoryRouter>,
@@ -826,9 +844,11 @@ describe('TodoDetailView', () => {
       const pending = new Promise<Response>((r) => {
         resolvePromise = r;
       });
-      vi.spyOn(globalThis, 'fetch').mockReturnValue(pending);
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) =>
+        String(url).endsWith('/promote') ? pending : Response.json({}, { status: 503 }),
+      );
 
-      const { container } = render(
+      const { container } = await render(
         <MemoryRouter>
           <TodoDetailView />
         </MemoryRouter>,
@@ -841,17 +861,19 @@ describe('TodoDetailView', () => {
         expect(btn.textContent).toBe('Promoting...');
       });
 
-      resolvePromise!({
-        ok: true,
-        json: () => Promise.resolve({ task: { id: 'x' } }),
-      } as Response);
+      await act(async () =>
+        resolvePromise!({
+          ok: true,
+          json: () => Promise.resolve({ task: { id: 'x' } }),
+        } as Response),
+      );
       vi.restoreAllMocks();
     });
   });
 });
 
-it('opens Telos as a reviewable launch with the task identity and context', () => {
-  render(
+it('opens Telos as a reviewable launch with the task identity and context', async () => {
+  await render(
     <MemoryRouter>
       <TodoDetailView />
     </MemoryRouter>,
@@ -869,8 +891,8 @@ it('opens Telos as a reviewable launch with the task identity and context', () =
   );
 });
 
-it('places saved outputs ahead of milestones, sources and reference links', () => {
-  const { container } = render(
+it('places saved outputs ahead of milestones, sources and reference links', async () => {
+  const { container } = await render(
     <MemoryRouter>
       <TodoDetailView />
     </MemoryRouter>,

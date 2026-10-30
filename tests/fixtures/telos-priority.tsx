@@ -6,7 +6,10 @@ import { DesktopShell } from '../../frontend/src/components/DesktopShell';
 import { MobileShell } from '../../frontend/src/components/MobileShell';
 import { useIsDesktop } from '../../frontend/src/hooks/useMediaQuery';
 import { TodoWorkspace } from '../../frontend/src/pages/TodoWorkspace';
-import { telosRecordBatchFixture } from '../../frontend/src/test-utils/telos-record-batch';
+import {
+  telosRecordBatchFixture,
+  telosCollectionFixture,
+} from '../../frontend/src/test-utils/telos-record-batch';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/desktop.css';
@@ -22,13 +25,18 @@ import '../../frontend/src/styles/motion.css';
 // to the batch response contract while exercising the real client and data owner.
 const fixtureFetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = (input, init) =>
-  input === '/api/telos/work/records' && init?.method === 'POST'
-    ? telosRecordBatchFixture(init, (id) =>
-        fixtureFetch('/api/telos/work/items/' + encodeURIComponent(id) + '/record', {
-          signal: init.signal,
-        }),
+  input === '/api/telos/work/collection'
+    ? telosCollectionFixture(
+        () => fixtureFetch('/api/todos', init),
+        (id) => fixtureFetch('/api/telos/work/items/' + encodeURIComponent(id) + '/record', init),
       )
-    : fixtureFetch(input, init);
+    : input === '/api/telos/work/records' && init?.method === 'POST'
+      ? telosRecordBatchFixture(init, (id) =>
+          fixtureFetch('/api/telos/work/items/' + encodeURIComponent(id) + '/record', {
+            signal: init.signal,
+          }),
+        )
+      : fixtureFetch(input, init);
 const store = createMitzoStore({
   transport: { fetch: (url, init) => fetch(url, init) },
   wsConfig: {

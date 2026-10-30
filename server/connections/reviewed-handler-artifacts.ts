@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.789-native-publication-read-budget';
+  'v1.0.790-telos-chat-retention-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,63 +23,57 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../__tests__/sdk-query-usage.test.ts':
-    'a0a6f4c0f0627dbf38e03894d7be75915ac95176b7701b0ab71fa50c21fb69d8',
-  '../sdk-query-usage.ts': '1ad2216cc6bb6ec92ecd05a508f6abbe9af0ee86a52fceafaca2d91347d55af2',
-  '../__tests__/credential-websocket.test.ts':
-    'a2d8bd189d4fd0cebaf311ecdc5713c0074f43ce39b82656c2ce0c5afe983091',
-  '../__tests__/ordinary-local-codex-selection-owner.test.ts':
-    '65a845c20a35ed4403a3296e5610063f7b11a0ae2cb7db66e3967dbc649e5fdf',
-  '../__tests__/fixtures/admitted-mac-service-chat.ts':
-    '3c78069cc024b0fa2c86f09cc0d11825850fd418a20f9cfa66c7f07e475a7e8b',
-  '../session-local-service-tools.ts':
-    '90f04366b248ef927e5662c9fc1f2d2e267144e511c5dd6d720124d22b76e987',
-  '../session-connection-tools.ts':
-    'b3d6736d8968dfba851028e2fb7e49cc10b4382e356d4d3c7b39b287f5560186',
-  '../__tests__/fixtures/local-mac-tool-services.ts':
-    'f58b1d738cd39261b5550ab265e1173d5dc83040935ce4e9240c30abd3f78d08',
-  '../__tests__/owned-local-codex-service-tools-ask.test.ts':
-    '0808abe8e1e367440dd103e6302349d02e6ee7ef1596debda99f160a528d7fc9',
-  '../__tests__/owned-local-codex-service-tools.test.ts':
-    '3eb928f19f97165cae4c50910139636f3a2a940c17709a64110df4bf77ca83c9',
-  '../__tests__/fixtures/google-workspace-chat.ts':
-    '89e44b45102e9b3d994751517a7fd37d1e6097ffb3c4a3c5193f120b11849672',
-  '../__tests__/fixtures/google-workspace-read.ts':
-    'b4787b2268a81d254cf34764de903f958780556bee71de6fcefba1d782c5c923',
-  '../__tests__/google-workspace-read.test.ts':
-    '8e895932678529f13d8d7f0c7101c33f2f7a2c14f95c9ca9d34c720f5f275786',
-  '../google-workspace-management.ts':
-    'a779bd5c9793ecd908a60c86a09c142d43b16fe52dc1f9c13def640fbc61ce31',
-  '../session-google-workspace-tools.ts':
-    '1e095013b42ded26e659f3ee2b03e53b73cfdee789b7f30a294fd8e9c402b657',
-  '../google-workspace-read.ts': '8dfb9e65bb02918522637363fcb5a9430f1633437a9b0b2d87fcc8c1a6655b31',
-
-  '../../frontend/src/components/__tests__/ChatInputInterruptReceipt.test.tsx':
-    'fc9d3a374f9486b6f7fc4ff5cf31fab8ff662294b2ad03307926c2f6d989c995',
-  '../../frontend/src/hooks/__tests__/useQueuedMessages.test.ts':
-    '74d835a984b7fb490a2a23cef25d93dc9f7600adefbaf46abbaf5e7e7bb65e70',
-  '../../frontend/src/hooks/useQueuedMessages.ts':
-    '77fe51c827ba76b39809c6424093e0b68521ede0249238d90d6c374031904d08',
-  '../../tests/support/node-compatible-dom.ts':
-    '9632c4df897b9c0aa0056c173a58b803e78812615e1db96d2384658139bd2e3d',
-  '../queued-message-receipt.ts':
-    '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
-  '../../frontend/src/components/QueuedDraftTray.tsx':
-    'a8721de63086cd332a3952004527493dbc920c173e41da732a746b337f11a1ca',
-  '../../frontend/src/components/QueuedDraftTray.css':
-    '016f51f306b7aee9d6f9322425f6192b2c0fa70aabcd5473adea565460f89807',
-  '../../frontend/src/components/MessageActions.tsx':
-    '6c35e335425b7205601d170d580cc53ac0da1bc3b1136ede1b30b630984abcd5',
-  '../../frontend/src/components/MessageActions.css':
-    'fd733d55f1051d6579110eb28ad96eae9b7b728747f9c76bd9e6d54dc8110d26',
-  '../message-reply-context.ts': '4fd3233cbd57b166f1b04c574f06d7ddc58e8c53c1d8761e42f34ef5f8faf34a',
-  '../../packages/protocol/src/message-reply.ts':
-    '6d1821e1dc1d65dfd966b6b15215743b713d4d9ce7042839bfee23e4dd74ce2f',
-  '../codex-steering.ts': '730cecf46f30574cc129c30f7c9c83a372c03aa0d41eadb5ae5df91c64cd043b',
-  '../../frontend/src/hooks/useTurnSteering.ts':
-    '9360edc424a40fd603cb75af8b839ed3ca8a5de556df8adb4c8417b62ff28f88',
-  '../../frontend/src/components/ChatCommandMetadata.css':
-    '4bef9db5f91077e9669cc5c0ff4ade8342a040f5c97160401a94508bf415384d',
+  '../../frontend/src/components/HomePins.tsx':
+    'd5d9194004ef4ea99385b991cedaca34aa187bd15634be93f91915d3f9c6ddad',
+  '../../frontend/src/components/PdfPreview.tsx':
+    '70b075dd56e42eb4f16c31170460912e94eaab9da3cb563f1bb1daaa5dfbf0b2',
+  '../../frontend/src/components/ReadableBrief.tsx':
+    '0db69e34762da3bd37104b7cd156bf4fc256cc7bafa012d0e608c704d2b5d241',
+  '../../frontend/src/components/TelosChatWorkTree.tsx':
+    'b3f4e2244c77eabd2cca8b055b93a9d43e83aebac73a87931e565c5efba3db4a',
+  '../../frontend/src/components/TelosSection.tsx':
+    'ba26f750498945857151134bc7ea1c2caa7f6c3424f132e4792af57479c7a015',
+  '../../frontend/src/components/__tests__/PdfPreview.test.tsx':
+    '562983c238a0ea219d9bd2bec359531bcf35073405a362fe0e2a5ade4f2f9485',
+  '../../frontend/src/components/__tests__/ReadableBrief.test.tsx':
+    'b1f095432e1af6bfae9e0d7a4ec853e3811bf3649460b3253e5dc063c655ad84',
+  '../../frontend/src/components/__tests__/SavedArtifactDialog.test.tsx':
+    'e21fa4f90e41e87dae6946f11724d54a44b9ac73f57370ed7a11423fb27171fb',
+  '../../frontend/src/components/__tests__/SessionWorkLink.test.tsx':
+    '618e04c012ee4288714cfe297156eb7a459384757f36938905469a535447a96b',
+  '../../frontend/src/components/__tests__/TelosItemRoleEntries.test.tsx':
+    '5ef847800735fb13dc4d579543011c78755ca3cb64b780a60b9136599da63068',
+  '../../frontend/src/components/__tests__/TelosItemWorkspace.test.tsx':
+    '1e78a780b589b043de3277e8ceb7e5944c7a268552d1fc962e4438d7dbe06601',
+  '../../frontend/src/components/__tests__/TelosTreeConversationEntry.test.tsx':
+    '5a2d24a14363dc2c24fc1c992bb09463d4b3d95395c957d4b8375a4b2347c09b',
+  '../../frontend/src/hooks/__tests__/useTodoData.canonical.test.tsx':
+    '5c58a2c1f2e5e49badb4425254d195ef50eba5d312179d6840f218c324675e2e',
+  '../../frontend/src/lib/__tests__/api-fetch.test.ts':
+    '5b48dc9079eb3bb85e566d88c066416299be7fad68f661a4cf71e9ccd67f139d',
+  '../../frontend/src/lib/__tests__/telos-descendants.test.ts':
+    '3f8d59a2b368b4780b4cb44e930edef1d8e7c5ad6e519ba9024f54a166b2d441',
+  '../../frontend/src/lib/canonical-todo-data.ts':
+    'a5d0f8c6f6d5615e48ebf1fd9840d25da95ee655053c2c94f8f96b12e4ede48f',
+  '../../frontend/src/lib/pdf-document.ts':
+    '506879819c22a8e2928ac979142ec1e13098909d2d4c36608fa5a0f235f7388e',
+  '../../frontend/src/lib/shared-read-requests.ts':
+    '73db41d878c37a5ab76e37e9f1d1406d5708715852af37d5ed27e5db8340d24a',
+  '../../frontend/src/lib/telos-descendants.ts':
+    'bc5f76c66fb620520ac67b5b2eb3cbe70e34b352f9f00b95d7127af1aa3549d9',
+  '../../frontend/src/pages/__tests__/TelosWorkspace.canonical-collection.test.tsx':
+    'e337b9fd577a7d02ea2a320a58607ec9ff6dbd504172d0c24e83600ce373ee49',
+  '../../frontend/src/pages/__tests__/TodoView.test.tsx':
+    '5200a57b447b294573b965aad4a972e042d353cbc15b62dfa6fb4ee53e528ace',
+  '../__tests__/telos-collection.test.ts':
+    'b92845a1c736c94956269b3203cc773e3132046b37613ff4633be51fddd56ea5',
+  '../telos-collection.ts': '27f60ef7ad156623b9357bc2ac74c11df79030e1dab1703829de8f51576d4748',
+  '../../tests/fixtures/telos-priority.tsx':
+    '43bbbf84aeac8206f7fb7331e79bc7f29809f59e3eccfc62956d08ad0c7892e7',
+  '../../tests/offline/telos-first-use.spec.ts':
+    'd549b279c3752f850ec02a8d47d451bb9c2980cc0f4fe84a09824a4a16863f45',
+  '../__tests__/telos-create-child.test.ts':
+    '410806b35335d8800470e16fcc5d235cd9f50881f9baad7d43b31771828a06eb',
   '../__tests__/reconnect-delivery.integration.test.ts':
     '9389533c98de0b69d84ae84ac5accf51824a796916e0e20a7a542aa9700141f8',
   '../../frontend/src/hooks/__tests__/useExplicitLocalChat.recovery.test.tsx':
@@ -88,8 +82,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '0018c2d7bf04ada97dc7ac978dbe1c2e9b6e670169163764862da96d43a28d4f',
   '../__tests__/local-repository-preparation-capacity.test.ts':
     '7ddf795c179405673d88e10e9dfb54f88aa482d050996dfd6dfb41c52de8fa07',
-  '../__tests__/telos-create-child.test.ts':
-    '1bd1b29a3ea70cefca59ed9a87abff7bd67e40fe5c26f43113cfdb5e566aaad9',
   '../../scripts/__tests__/ci-build-output.test.ts':
     '2cd5abc869a554e1953f8a66125b0eee73c4023545cf707df5032c4989a9fafa',
   '../../scripts/test-ci-build-output.py':
@@ -165,11 +157,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/support/persisted-chat-storage.ts':
     'a0d19a04b0ce54d0c79271793658cde1f7cc0cff4a396c607939aeb374345630',
   '../../tests/offline/telos-source-navigation.spec.ts':
-    '82b3a9e6a4c298be4d609c0282c2c507a7a6e4009dd19087a27145440959c912',
+    '918a6e1e35a3776cba0d8a2d0f54480a8dd7ddf9c87d0c1d9e7c039a7380f8f4',
   '../../tests/offline/telos-source-approval.spec.ts':
-    'f7bb9c0016bb534aa18198cf246c61d910f75ecee701435c97482b2f2849fcb5',
+    'ee24e3ece653ecefb4806c5ea717f1e821cc2290cf97f8734234c09f7d158784',
   '../../tests/offline/telos-role-setup.spec.ts':
-    '96335ba8791b5c63993fd5aa7b124edba7f03d62e3d6d8e70abc549aca62960e',
+    'c7e41393a8cfaef1778b2d4cdf4fad1679160b97ed65ab3b120107c0748d1ee8',
   '../../tests/offline/telos-role-recovery.spec.ts':
     '1e417e0e14337ced024f12fd10572115c6fa4843f9bebb5bf85a2b5f279594a7',
   '../../tests/offline/telos-reviewed-context.spec.ts':
@@ -183,13 +175,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/telos-ordinary-chat.spec.ts':
     '25240cff6fc36927eb7d145fd7b7457ef63109faae1cd8dbd5c303640898ffca',
   '../../tests/offline/telos-coordinator-controls.spec.ts':
-    'f0d759f8a493f966f1d10795e45ad9d394248f95e91ab5f137b3a0fb45175f3f',
+    'e08343ea3afdc4f7108895c9f2569682c59c14a1969f5f037a19dfc37b0ddf54',
   '../../tests/offline/telos-chooser-hydration.spec.ts':
-    '13915c0cd1bc81ab036bc205f826b2ca6fedb8a02372f0ecf14468feaf6aed2a',
+    '96c19b79da556cb4265757da1bcfed162e48bf350b72e8e994429f74c5256caa',
   '../../tests/offline/telos-chat-selection.spec.ts':
     'b4f3c6455ab0c33f346382388e7234b5b2c4afd5079d2227a06da2cfcc4a6ca0',
   '../../tests/offline/telos-chat-routes.spec.ts':
-    '5ce8d6070d170d00922dfaa2889785331b7166b4597b34a265626aa77a7192d5',
+    'f93d3200b8903e36b8a8e867df5b3d97aa3ed93ec763076fe87246d46c3d08c8',
   '../../tests/offline/symposium-shared-conversation.spec.ts':
     'e4b13e34f4e6d097569c8d4cd7cf6ececa12e78c2dbe4eea6adef0099f571de6',
   '../../tests/offline/first-command-feedback.spec.ts':
@@ -608,7 +600,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     'c442b9cde7a00ae1b8071b4433e590d38f37d792bff49705d7ef190efb1dc30d',
   '../__tests__/codex-conversation.test.ts':
-    'f6483bff66ef882e7d9ebe6366dce15ae8a50b05896f6c9f9eb575eb2715b758',
+    'cb099478bf78325d033f35e13ce0e996537b5362053e714646f2a5b65056a9fc',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -658,7 +650,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/constants.ts':
     '61da528e3e3db3f6f94ee9700ccca55836d56eded4700f410c44adc84cbf7897',
   '../../frontend/src/lib/pdf-to-images.ts':
-    '0f1a719b8fb8512999e24493d8818159a0b1c5ed385de807354992befdb8435b',
+    'b14b7bdcd24e6c3e9059c2be1ad8cce4ca5456430332dabcb6eaa1f3f028a08c',
   '../host-codex-continuity.ts': 'e35d7bb97c14d57b152630741dd8576d914799e974f50e06d5c54a2eeb614e88',
   '../../packages/protocol/src/ordinary-command-timeouts.ts':
     'ff8b5788ce0d3504d4b0ec497f027a2e1b8e4a1cc0b4f8eb0b5ed8cf9454498a',
@@ -680,7 +672,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '8a6b88fbca7d480a01a99880b375abf181d0bac4360c25c4753b586694348c29',
   '../../frontend/src/lib/todo-lifecycle-events.ts':
     '7ab6ec51e8b4653f58f21f05c50018fc6e0b9bead8285f5931cb20addad24999',
-  '../telos-work-lifecycle.ts': '4584c747b5845f4c67bbd7690cc0738772adc849e59a4d79eb0a0e6a72425d8f',
+  '../telos-work-lifecycle.ts': '7ceac48880b2771aadbf4e5a85669b8d68a4bb7b4713deed9a06c724ca29e582',
   '../telos-lifecycle-tree.ts': '4ab02f364793bdfe4dfb64ac66c152d390584c1ce6cd7630cab3af76ed4f6215',
   '../telos-lifecycle-list.ts': 'f2386f34c0c71ae5190458416c8fe056044eb941ab9b2a5a66a43c1407901835',
   '../../packages/protocol/src/telos-work-lifecycle.ts':
@@ -863,13 +855,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TodoPrioritySelect.tsx':
     '44f5256063273e7fa9a061be6bf81a497bc268f45c87d36bcffbea7bf1dcf032',
   '../../frontend/src/lib/list-cache.ts':
-    'aab8fb64d2ba643e5dc69eb53b9fddadc7680589ad2e7b5b05e3cc71672e0037',
+    '85aa0c54c0ff8bb8644e36a400d413351b52359993af4e2321ce1c3a39db4f0b',
   '../../frontend/src/lib/todo-priority.ts':
     '0d94d14b2ebef076eef35811513afcde789c6f9f95f0f18d14515200ba439ad9',
   '../../frontend/src/lib/todo-utils.ts':
     'ac071496fb4986ec4b4395384ed7777b96a01a2706ec31ef5766464362363bd4',
   '../../frontend/src/pages/TodoView.tsx':
-    '6824995e2cea2cf25f1fe22d5b76af21ade5f4284e01c4cef0ac06828a607c5e',
+    'dba840d68b7274ace66b299ecb7e8ed5703932e49d7802427721eb0d96b9a2fa',
   '../../tsconfig.build.json': 'c83304ab66e7691fcf1af562f226581eddfec5765deb9cac309bc9c8c33cfba4',
   '../../tsconfig.json': '2b7603a43a235aed2cc210c66994d96aa356aaa64232fcb896b5338f206d3c43',
   '../tool-builder-test-runner.ts':
@@ -893,9 +885,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/retained-artifact-api.ts':
     '4db9e055e7b8162399233c010387066a189ce94cb8e8396ef11134f6a2ec6e9c',
   '../../frontend/src/components/SavedArtifactDialog.css':
-    'd42d2f0316e0c3f2e3828cc73bfad511e2bd7dab44dd826566fa39efca0fe982',
+    'cc2438d4a05ea6459df058d6ba1daffd1faa1eae46a433b943c9a846cd26c4bf',
   '../../frontend/src/components/SavedArtifactDialog.tsx':
-    '4f3cb5204c11db0ce409eb7469e359cbbd5440c63a09b0ab9ad91b3e99a70ce8',
+    'e7807275f8e29cf408a9d70099de60de024a435699706494bc1a20bbdd6f7351',
   '../collaboration-retained-artifact-source.ts':
     'e0f9accb6ebbd1e7f8b7447e6fb42fcde021af4f6af634f63d6a2613ccd1c470',
   '../collaboration-forwarding.ts':
@@ -953,9 +945,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'b2a461e208923889e0286efdd3faa41705af58693de41446aa6021eaa4b73fd8',
   '../telos-outcome-handler.ts': 'fd01a401e79d08b8330aac5da419d11c49e07d767edf2bab34bea990cf04168f',
   '../../frontend/src/types/todo.ts':
-    '40ce25d2ee7d5bb6f235d440cf3b5f6baa8f5760c92d4f0856276c6748468cbf',
+    '2ed6946b5aecee51a11ef6105296ecaf0f84bb5f066fa9696db6d9a4db7d7d79',
   '../../frontend/src/pages/TodoDetailView.tsx':
-    'd3ac477bdb5261ff0b1e22a8f3a7fd073d06064016188c207c24c7697b9b41b2',
+    '32f3679b73be5e6e852d3de6eb366afd314f487ccece8f59223a759e680bf049',
   '../../frontend/src/hooks/TelosSourceNavigation.tsx':
     'dac7bb547165c32a1c14f023a34ed371de281c9fab1c9ab41a93f522f6d60598',
   '../../frontend/src/components/WorkOutputs.tsx':
@@ -965,7 +957,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosItemSources.tsx':
     '03abba949c3cc42c377a136c268f049d74fc2a858821af07fb7ef26f59271ebc',
   '../../frontend/src/components/SessionWorkLink.tsx':
-    '2f8f334d977d32d40d2226831cfef7ecd2f06a755b3240c2f0cf4e27095f28e4',
+    '0c6faa7b7e614e1ab58468c6056ead9945baae8814132caedf18dfe6eef6517b',
   '../../frontend/src/components/MessageBubble.tsx':
     'a7943ca510b8260747c3979cbe78d04e185b1474f5ebc5f72ba10321004ccbc4',
   '../telos-outcome-owner.ts': '7e11bca759dcda14dbc766fd7a02d1a05165a7333d8b78368555145854740161',
@@ -990,11 +982,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '8747b800cf069cad636dc5ae6e92a347e55b59c9f01fe64af84587e047af1567',
   '../telos-work-conversation.ts':
     '6abc340f3236812d9e9875e8a60944590575d991e95ccaf3f2b61aff323c5175',
-  '../telos-work-routes.ts': '2efe385b562cdd89e8fc4895c4ea5d62f2056cddf1ef97bccb575472a0ac115b',
+  '../telos-work-routes.ts': 'dcf65f66778264c9baf5b815ea05f8c12ab478e26bbe514907fcccda1f0f4f38',
   '../../packages/client/src/telos-work-api.ts':
     'a056db2f52a0ccff2271263cb188723a308e73a8131bfbc087244ca5b3ae1351',
   '../telos-work-schema.ts': '99334ce746b53a8c7e79bcd710e94ae0db7df912ab2a7256513cb2679eaacf83',
-  '../telos-work-store.ts': '66b70cad95e5954cd301468d294b8a48dae0faaac79b8ce18b6e00e7cd65d249',
+  '../telos-work-store.ts': '2de5a806170571445795395fab96d9c30fe4760e6593a837a1ee47a48e50c320',
   '../../packages/protocol/src/telos-work-api.ts':
     'dfed9673113e8f532a253b57ea1696508e339bbfdd83ab98fb2e791a69daf27f',
   '../tool-input-error.ts': '3fa8bc111278d03dd33014cadc8535069c49a12ce636cbbc33126b76190bd3dd',
@@ -1406,7 +1398,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '65dddacbf87c83c467b4794854d3e98c67c1b7dad6bfd7de582eb6f97c298a1b',
+  '../codex-conversation.ts': 'caed7b0d556641904e4d645cf6f75ad77d5cd8a5c6b61b7f7ec7fca8364f5b10',
   '../codex-conversation-store.ts':
     '459849be257206590bc3e7024bd9d3265cb61e716093a67733035fc28cb1e02c',
   '../symposium-custodian-ipc.ts':
@@ -1644,7 +1636,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-seat-prompt.ts': '1f29774555808c5db22e0458f9767c2b498e99430dbd13da6ab94e607291bf4f',
   '../symposium-session-runtime.ts':
     'c60fc54ab05cd6fbcdbf1f549ac59664df9684df31d8a426e1441afce7fec788',
-  '../telos-artifact-tools.ts': '66400ed107aaf030de5cfade45a87428d883e7a6897a7acd7ff8c959f3a16179',
+  '../telos-artifact-tools.ts': '9ca7e54816d8adfd0aedc011c3f65fd000081b804ae3d161065ddccaf91c9784',
   '../symposium-agent-context-authorization.ts':
     '497a2c4bbb4ca61892e392b11fe554bb88d5302921eef7305f88e74d03c206cc',
   '../../packages/protocol/src/ordinary-openshell-admission.ts':
@@ -1749,7 +1741,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TodoCard.tsx':
     'b325fd32ed13963c3b2f2b15c9b11e234ccaa561b512b09c6223598323e8cfc5',
   '../../frontend/src/hooks/useAttentionFeed.ts':
-    '8f10be65de76cf721b6533c336428e3144c324cec9129a6b437b054b07cd1a22',
+    '3d3a90f8afc97918e09f46da831b21444d70f712879a15c5a7e5691530bf2f73',
   '../../frontend/src/hooks/useCalendarData.ts':
     '0755998ba06d85a187eb248a9a9e34e925790c10c69b3905f6f7eb2e52e7f79a',
   '../../frontend/src/hooks/useOutputContributors.ts':
@@ -1759,9 +1751,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useSessionList.ts':
     '8da1fb05d820785afec8e7ab671b10ed83b84c67ffff1317d5fd5ce677f2a4c7',
   '../../frontend/src/hooks/useTodoData.ts':
-    'a5361395b1267276ae7b2352c46d24263a42029c5df7b507674249ddaf1f1ed8',
+    '54312cbf0f5503c5c252b2a4cf5105fb5c3d784df79ea3b55161929471885b1a',
   '../../frontend/src/lib/api-fetch.ts':
-    '711a0346069b965504c3140611dac64443ea82a6dc457d147e243a005b3eb46d',
+    '98a410a5f8d5001ebf6983db9b9afe05ce67f81da2d9d08b0f48b376481cf845',
   '../../frontend/src/lib/api-json-read.ts':
     '60c11f4263ea1e73478e4ff54542968d65c455b36ab9eb3dbb718d02abb94d18',
   '../../frontend/src/lib/auth-check-tracing.ts':
@@ -1852,7 +1844,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosLinkedContext.tsx':
     '56770d51e35ff86f92876d5542749f399235e6a6ba6cd2a7fd046929f58f575a',
   '../../frontend/src/components/TelosItemRoleEntries.tsx':
-    'd19a53f26f66a44a47520475e2c9f3ff69c1ae8801253767f0ad88045bb7a819',
+    '6be93ab1189afa5ac930f72183cc45b69fe5c15de4956228bf53e9cac5cae104',
   '../../frontend/src/components/TelosAdvisorDraft.tsx':
     '091127d326a458cecab4514ecfe4f9b3244998acc571fccf887479d4afa4dffe',
   '../../frontend/src/hooks/useTelosRoleSetup.ts':
@@ -1888,17 +1880,17 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '2e140e2951102ec82f2c5919b8db8132d4e29b5363fc2b5b1a37926942f2452a',
   '../task-mcp-server.ts': '79180e917cd7acd3680df90607c8e480e7349297bf7fb890418d650b79d46b9a',
   '../../frontend/src/components/TelosTreeConversationEntry.tsx':
-    'f5f6128d4539e61d7fc3e18144a8826f34949dee7d91b43bf6a3e06d07d015bf',
+    '75c34dfabd93395760d46142e9a615a4abc62a3cd8b7ae848848436db467d918',
   '../../frontend/src/lib/telos-kind-label.ts':
     'a89a6bff28e8ac2fed83ac9bd19305185f6ee6d7a4f7efad196e3e5571a114b8',
   '../../frontend/src/hooks/useTelosRecords.ts':
-    '134b07dcc4f0bb0682974adfa6fc9865d39bdfd300a4e07090a719e30eba271e',
+    '7ecf2317cbecc721e351047dc4c2ab30991f83a30bd3d2896b04e3f1594186f9',
   '../../frontend/src/components/TelosWorkspace.css':
-    '91941ae1629095e25c622fe1ca42dd8f41e46a6be1d3fd56a7fa427b40997b34',
+    '3c8dae9efe59296f7d8f0142343f4ae5002748bd7df8d234ea0aaa7bed72bb60',
   '../../frontend/src/components/TelosItemWorkspace.tsx':
-    'c2117a64646a5e141366e75e64a39209254588f7749911f6dbe950085d10018f',
+    '366d4474e2ce98fe308b831c57cf19b904e542389fc9815c05d7e313ca575fc3',
   '../../frontend/src/components/TelosOutcomesTree.tsx':
-    'f70577094f74e2e5076c4dafa5ee3b8737d7d5f3181b37d810a3d4772291f1e2',
+    '7431f8d69530cfe9ab1ae7269a6547d9053fea6aa7f3b9e47bedcdf19dbe0eaf',
   '../../frontend/src/pages/TodoWorkspace.tsx':
     '4ef4ba56945500aa99e4cfb550b7c059a33406f532a1e6ad89a006fadae618d3',
   '../../frontend/src/pages/FileViewer.tsx':
@@ -1908,7 +1900,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosChatList.tsx':
     '488b027baa3f9fe8dd8ca6126966004ff2a560b1a8a06a570b685e476e93defe',
   '../../frontend/src/components/TelosWorkControls.tsx':
-    '4caf0cc099bd2a29dcf0b6e3a6e17c55823e0e5765b738a5306c859686641d44',
+    '290ef204509c9412b46f5f683d61f50b8d17f80f340e75ffe60d393da0866425',
   '../../frontend/src/hooks/useTelosChatDetails.ts':
     'f1b2e94eb37468ed215e2c4f9045f67c8d6acda4e8814c66d7938b38e51232d3',
   '../../frontend/src/hooks/useTelosChatRoute.ts':
@@ -2258,7 +2250,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     '15d3a88708e22b72e498dbc924555d4c1eb0b562de8dc43554b8f382d406b440',
   '../../tests/fixtures/agent-tool-catalog.json':
-    '1e90e23e9c9765665897ab6baedd64dc20d4db630daddf63ac7c490268a93922',
+    '40e3cac9939d458d08a94884cbe1886dfacca2a9906517dfbdbbd04fa8b5a2fc',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     '5e8b2f0829cbd05ecfead981b3f74b1edef9de7e005eb7344e04c909304206b3',
   '../../packages/sqlite-file-owner/package.json':
@@ -2342,7 +2334,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/coherent-final-preparation/cold-readback.ts':
     '3c13821c02774153c7dfb7a33fff711b30e82d737a667df6f351655cef24c1ee',
   '../../tests/integration/telos-s9/coherent-final-preparation/collection-entry.ts':
-    '2c98f0f56fef3ae631022f8503773e08a8f8a6fb29dba7417acba9bcfd9d9c44',
+    '19fc67649042648dd458d07e750b797140b9ebc4b1382613a9a616d17a7c4b4e',
   '../../tests/integration/telos-s9/coherent-final-preparation/execute-case.ts':
     '031cafa3ff8afbe8a1e324480392a2e01114c119d3661609bac970f236835bb8',
   '../../tests/integration/telos-s9/coherent-final-preparation/fixtures/mgmt-read-cli-3077.manifest.json':
@@ -2386,7 +2378,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/advisor-refine-browser.contract.ts':
     '5467b86a0a8b7a64063e92acc2807f6caf758ed6f884cf56de815ceb9e9b6832',
   '../../tests/integration/telos-s9/integrated-candidate/chooser-hydration-browser.contract.ts':
-    '4b339a31adc44ea3a116cf11d4082ab04c7db7a2e616e5f5ff8d50c2f6e6a5fe',
+    '84a96896cb06dbf9c4c82aa5553989b2b39e62510c30faba1e4cb0ffd8a98cb2',
   '../../tests/integration/telos-s9/integrated-candidate/closed-supplemental-selection.json':
     '9c31914b2f4de2d76ac0b2cce569fe80e8e7bc2e01fc14826edc3a00e00a0e12',
   '../../tests/integration/telos-s9/integrated-candidate/coordinator-controls-browser.contract.ts':
@@ -2394,7 +2386,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/coordinator-controls.acceptance-plan.json':
     'df5a9e25d3c067c56bf7cd511ff074dbb5146889099413f0d82a808c3fc79543',
   '../../tests/integration/telos-s9/integrated-candidate/coordinator-refresh-browser.contract.ts':
-    'e2a1f1f62bfa419f69decf151ddc19dca0c21dae129e7e2172c45563cd751eae',
+    '6ba2606164fba89b223aaeb4f7f7627d31fbeb67d939ea5fcf1056d8090edf31',
   '../../tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-cli-3077.manifest.json':
     '4b3ffbd04971720a8b6648d5266b688466e47dafa8b5128e5f562c855a5bbebf',
   '../../tests/integration/telos-s9/integrated-candidate/joined-browser-target.ts':
@@ -2412,7 +2404,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/legacy-backup-child-app.mjs':
     '9efa99e0b3064bc21b2550e89d6e9f804597f9b0097bcde9096628bf463d485e',
   '../../tests/integration/telos-s9/integrated-candidate/legacy-backup-process-browser.contract.ts':
-    'e28d56adc9d1859e8d80e104307df0b33367c7ad860bfba361c02ebb311678ed',
+    '57e18b938354656da9dc8e16d6e2c4cd85fdbcf353df9bfc0a13b432edb57d23',
   '../../tests/integration/telos-s9/integrated-candidate/legacy-backup-process-fixture.ts':
     '63a732b558162c30702fc51f5ece2f6760ee7738a4e1a626bcfff34ffa19ec18',
   '../../tests/integration/telos-s9/integrated-candidate/legacy-backup-seed.ts':
@@ -2458,9 +2450,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/supplemental-shards.mjs':
     '8c8d58ddbf0c2049b8b54ec64bfb1198afdfe57744cc913f7ff2c2876a7999b0',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-read-observer.test.ts':
-    '3af872372389383ae9414375c8c9ec8e7a049360ee6de39c04bdc76ba2226de2',
+    'b35ca4e371b01a1e05d94153be971a3dda2ae7051ef8450f448a20ee9d3befdf',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-read-observer.ts':
-    'c582b113b1fe4c69bd0037f2c995adaeea677c3f2487f8167a71e497c84de1cb',
+    'c3d72168186d72be40eb2bda9cf4d7422b5a0c814a2c2a5c5879aea3bd857917',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-tree-app.contract.ts':
     'bc5e67dabcec6cf4aa9ef4c58fa6279cc1ecf18b7056f5bb61a02ca396eaad89',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-tree-geometry.ts':
@@ -2472,7 +2464,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/task-review-process-fixture.ts':
     'cdaad1e41973508c1267afb530dcf9c2441a0687e35d6f6734de33b4b2cec7ec',
   '../../tests/integration/telos-s9/integrated-candidate/tree-priority-browser.contract.ts':
-    '5504545933b8c565ac1bfb7418aa6694b0ac83b8cde9bc82415040cc56620bb4',
+    '938a4a1e6ed8f9c8ab4b36fd791c9bf42e25c5063323af8ea65e1cc0165dc679',
   '../../tests/integration/telos-s9/integrated-candidate/ux-composition-browser.contract.ts':
     'aa8a3240437d4034dbc65fddf0bcaf2faf4808a7c237b3bc06801383c2d47ab2',
   '../../tests/integration/telos-s9/integrated-candidate/vitest.advisor-child.config.ts':
@@ -2694,7 +2686,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/pdf-import.spec.ts':
     'fca0f68e8d457f57b897df557de98147bc72a376340ff48ac88f9721aa17abe1',
   '../../tests/offline/unified-mobile.spec.ts':
-    '7c24294800064a9a48a1b01b4a6fdf50e653a7fd8a1c982b14332cd74b8bcd12',
+    '6c9991ed77b77c4c154c41be42eece971ab41219f37d50fc7db16c0dcd2dd06b',
   '../openshell-operator-transport.ts':
     '35d10b780021b5e29ec24c3834864978ddf4a17dbe807c07aa7327a7511a6939',
   '../openshell-secret-protocol.ts':
@@ -2799,23 +2791,23 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/navigated-control-inbox.test.ts':
     'e090588097a3a84efab09124b0db98cac0347c665aeded61e1f3bff094c1a698',
   '../../frontend/src/hooks/__tests__/useTelosRecords.test.tsx':
-    '13f91833189a96da99bc93694700c83bb127550e279679dd1ba40558d512a086',
+    '3bc01312c761b62b6d214fc79a0e99f44e962eccf941295f5ce34671cecd780c',
   '../../frontend/src/pages/__tests__/TelosLifecycleNavigation.test.tsx':
-    'a444a8ab06c0ee30e9b77b1c56dea980cfb08c3aec68b8ffcfea457d3ce7fabf',
+    '1f6c7451ecf452b57ff70b29d8e87ccbd016214b2c67178f32c6d695a0490537',
   '../../frontend/src/pages/__tests__/TelosWorkspace.discovery.test.tsx':
-    'cb51ab9145da477c1cd5e54369fce10220574f6e7c308b5e759f894375c53195',
+    '7fb92b26e96533313d0122e9d6a9691d8ccc8e9e646594f04990794a9e2e3276',
   '../../frontend/src/pages/__tests__/TelosWorkspace.home-return.test.tsx':
-    'fd34f7d78173a7a903dec4ad12bc01205ddb2a192207d03973846510db45bb20',
+    '42d7c27586a91e2fea8c173887be510c328a1264256c15bd0a880d3b6472940f',
   '../../frontend/src/pages/__tests__/TelosWorkspace.output-return.test.tsx':
-    'fb8a95bd99c7ce991652123ff79f2113553f950b7406377199437b4ab0c65439',
+    'cf2a703f9465a6c56f1c4eaebbceae4ede5304e63cd0c19cf01aa11dd187b954',
   '../../frontend/src/pages/__tests__/TelosWorkspace.priority-handoff.test.tsx':
-    'b5e046b28f31fc3eea2db9e1fd7ea4c59f6d6a26bc49b58c2a7a7964ed55abfb',
+    'd89ba56cae14f42cb087d5113037438ad9a2f9242817fb4f2fe62f95dcce8229',
   '../../frontend/src/pages/__tests__/TelosWorkspace.routes.test.tsx':
     'e62c644286c27ccd56f2345214169de73c2a128114466eefc9c818d3f5dd28d5',
   '../../frontend/src/pages/__tests__/TelosWorkspace.scroll.test.tsx':
-    '3a3b3fbcacb55bafe628705b25f299ce159b99d7b55759cae265acfd566ce3eb',
+    '8720d9d18358ff490779791ac874c24fac4a465a911f295973aefefdbeb7fe2e',
   '../../frontend/src/test-utils/telos-record-batch.ts':
-    '2acd922fd522c693599434abd75e403036f65fecb63debe07f29111fea54a05e',
+    '9397ff659aa0057cfa4c606e98277ddae7a40f66d321d4afe93d44180b2ee6c0',
   '../../packages/client/src/__tests__/telos-work-api.test.ts':
     '909af02fc3e7fb9517cdb744b1902bf7175676eb33a68a9ce35f91f6ef95cf95',
   '../../packages/protocol/src/telos-backlog.ts':
@@ -2827,10 +2819,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-backlog.test.ts':
     'e682d8e975298dd997b05183e6b676cefe9fd9944f229cee1f2f6f235237f32e',
   '../__tests__/telos-work-routes.test.ts':
-    '1845d02f97a5015e9ad02222b102fffc3fe6d82729f7e555b8e8804665fdf5dd',
-  '../telos-backlog-tools.ts': '03e10ff4d223fd183bdafc93bde12e2ee4340eb122521eba433d9c1291e1cee0',
+    '42db839f3847185e7e666e84a9afc1e6a6d038d7b325e9888eb1e51fffabd59b',
+  '../telos-backlog-tools.ts': '2a556071ad9f64da138a855e24fc6ff9a244f3e727b9a41c991a4c9a68ca6464',
   '../../tests/offline/telos-outcomes-workspace.spec.ts':
-    'e419fb523ccf2049900f962333deb4b19e543ba28f8e33db1c36952391d90b2a',
+    '5abd133a09203692eccbae8545ac455c61179304e7e91a832c332264ebc99578',
   '../../tests/integration/telos-s9/integrated-candidate/surface-control-inbox.ts':
     '5f3eac2c87dbd3ef090cc97867533b4848a1b450140f93e347fd3b7d87390a64',
   '../../tests/integration/telos-s9/integrated-candidate/surface-control-inbox.test.ts':
@@ -2996,6 +2988,29 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '17e32710c49b20021db361c13f0062b270c78f2500a37e819f47fbe5ac601f49',
   '../../scripts/qualify-development-offline.mjs':
     '6adc25351fb807c50092ee080c1dd3417114a35b752cdd1d3891f013ce361fc6',
+  '../../frontend/src/hooks/__tests__/useAttentionFeed.test.ts':
+    '1893fd8cfeeb0235fee9ec94ba79110d8e6248dd9965356d948e04a609dac514',
+  '../../frontend/src/pages/__tests__/TodoDetailView.hydration.test.tsx':
+    '768c6c34e4f076850396f587f23a5d88bedd0f9b7252fda163b1c60ee6cd3fcf',
+  '../../frontend/src/pages/__tests__/TodoDetailView.parent-fallback.test.tsx':
+    '35f1809986c0914adf9ceaa33e67f6251938aabbe33153d7cfc70e62a53b47dd',
+  '../../frontend/src/pages/__tests__/TodoDetailView.test.tsx':
+    '6d3b4a844331bfa8414ca4bd4bddf1faafa07ce75649de25793f6294d251a826',
+  '../../frontend/src/pages/__tests__/TodoView.readiness.test.tsx':
+    '55cb83ab0a26f8f3a4b3ce3f048debd1691df170d0db97d55b043db0db3f700b',
+  '../../frontend/src/pages/__tests__/TodoWorkspace.test.tsx':
+    '6da5dfa21630d242bb7d070c6487772106a81b31eccfb015f5ea999025d89427',
+  '../../tests/offline/session-library.spec.ts':
+    'b413e56f3c1d67c0aba182cafbada0b69c25e97f715711c89263b0026f41e78c',
+  '../../frontend/src/hooks/__tests__/useAttentionFeed.canonical.test.tsx':
+    'cac18f7dcd86924d644f88afcaaf886f0a01e39ca090d9dd9c882b4e70e9c6af',
+  '../../frontend/src/components/__tests__/TelosTreeConversationEntry.refresh.test.tsx':
+    '9306bcf09125209c2145c5b394f7305a469f4e240fbc40c215943532bd6a69d8',
+  '../../tests/integration/telos-s9/ui-data.ts':
+    '1a16b0959a29736da873f35f8d725d2e43335df82e9761c975c6c7d5772160b7',
+  '../../tests/integration/telos-s9/ui.contract.ts':
+    'f81b43c65d9aa74425337d944ac158b1650a5ea5561d13e220908a3062f06e93',
+  '../telos-snooze.ts': '405ad3f4938ca67d5032631b267880db929eaaac174d86f6c615e10a7cb14b1b',
   '../__tests__/fixtures/sdk-query-peer.ts':
     '0b5d7ca45552e412d1289cfe8b33a53d37c9545aac8ece2dce44dd528b37cded',
   '../__tests__/callback-incident-evidence.test.ts':
@@ -3028,4 +3043,60 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-runtime-error.ts': '1477ec81fec0cf4109e4ca5f5a145c91f58df55ada97070a7a3265ee7f0f30d2',
   '../turn-callbacks.ts': 'ca33287acb8321549f6dfb940573da86bdf6a3b72ff0dc5943b1e311fe7b8599',
   '../web-access-sdk.ts': 'da22f3e4d52c19b9167739c1e0c37b2aad3aa5cbd6ae45c6ccb2ee3077b13e17',
+  '../__tests__/sdk-query-usage.test.ts':
+    'a0a6f4c0f0627dbf38e03894d7be75915ac95176b7701b0ab71fa50c21fb69d8',
+  '../sdk-query-usage.ts': '1ad2216cc6bb6ec92ecd05a508f6abbe9af0ee86a52fceafaca2d91347d55af2',
+  '../__tests__/credential-websocket.test.ts':
+    'a2d8bd189d4fd0cebaf311ecdc5713c0074f43ce39b82656c2ce0c5afe983091',
+  '../__tests__/ordinary-local-codex-selection-owner.test.ts':
+    '65a845c20a35ed4403a3296e5610063f7b11a0ae2cb7db66e3967dbc649e5fdf',
+  '../__tests__/fixtures/admitted-mac-service-chat.ts':
+    '3c78069cc024b0fa2c86f09cc0d11825850fd418a20f9cfa66c7f07e475a7e8b',
+  '../session-local-service-tools.ts':
+    '90f04366b248ef927e5662c9fc1f2d2e267144e511c5dd6d720124d22b76e987',
+  '../session-connection-tools.ts':
+    'b3d6736d8968dfba851028e2fb7e49cc10b4382e356d4d3c7b39b287f5560186',
+  '../__tests__/fixtures/local-mac-tool-services.ts':
+    'f58b1d738cd39261b5550ab265e1173d5dc83040935ce4e9240c30abd3f78d08',
+  '../__tests__/owned-local-codex-service-tools-ask.test.ts':
+    '0808abe8e1e367440dd103e6302349d02e6ee7ef1596debda99f160a528d7fc9',
+  '../__tests__/owned-local-codex-service-tools.test.ts':
+    '3eb928f19f97165cae4c50910139636f3a2a940c17709a64110df4bf77ca83c9',
+  '../__tests__/fixtures/google-workspace-chat.ts':
+    '89e44b45102e9b3d994751517a7fd37d1e6097ffb3c4a3c5193f120b11849672',
+  '../__tests__/fixtures/google-workspace-read.ts':
+    'b4787b2268a81d254cf34764de903f958780556bee71de6fcefba1d782c5c923',
+  '../__tests__/google-workspace-read.test.ts':
+    '8e895932678529f13d8d7f0c7101c33f2f7a2c14f95c9ca9d34c720f5f275786',
+  '../google-workspace-management.ts':
+    'a779bd5c9793ecd908a60c86a09c142d43b16fe52dc1f9c13def640fbc61ce31',
+  '../session-google-workspace-tools.ts':
+    '1e095013b42ded26e659f3ee2b03e53b73cfdee789b7f30a294fd8e9c402b657',
+  '../google-workspace-read.ts': '8dfb9e65bb02918522637363fcb5a9430f1633437a9b0b2d87fcc8c1a6655b31',
+  '../../frontend/src/components/__tests__/ChatInputInterruptReceipt.test.tsx':
+    'fc9d3a374f9486b6f7fc4ff5cf31fab8ff662294b2ad03307926c2f6d989c995',
+  '../../frontend/src/hooks/__tests__/useQueuedMessages.test.ts':
+    '74d835a984b7fb490a2a23cef25d93dc9f7600adefbaf46abbaf5e7e7bb65e70',
+  '../../frontend/src/hooks/useQueuedMessages.ts':
+    '77fe51c827ba76b39809c6424093e0b68521ede0249238d90d6c374031904d08',
+  '../../tests/support/node-compatible-dom.ts':
+    '9632c4df897b9c0aa0056c173a58b803e78812615e1db96d2384658139bd2e3d',
+  '../queued-message-receipt.ts':
+    '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
+  '../../frontend/src/components/QueuedDraftTray.tsx':
+    'a8721de63086cd332a3952004527493dbc920c173e41da732a746b337f11a1ca',
+  '../../frontend/src/components/QueuedDraftTray.css':
+    '016f51f306b7aee9d6f9322425f6192b2c0fa70aabcd5473adea565460f89807',
+  '../../frontend/src/components/MessageActions.tsx':
+    '6c35e335425b7205601d170d580cc53ac0da1bc3b1136ede1b30b630984abcd5',
+  '../../frontend/src/components/MessageActions.css':
+    'fd733d55f1051d6579110eb28ad96eae9b7b728747f9c76bd9e6d54dc8110d26',
+  '../message-reply-context.ts': '4fd3233cbd57b166f1b04c574f06d7ddc58e8c53c1d8761e42f34ef5f8faf34a',
+  '../../packages/protocol/src/message-reply.ts':
+    '6d1821e1dc1d65dfd966b6b15215743b713d4d9ce7042839bfee23e4dd74ce2f',
+  '../codex-steering.ts': '730cecf46f30574cc129c30f7c9c83a372c03aa0d41eadb5ae5df91c64cd043b',
+  '../../frontend/src/hooks/useTurnSteering.ts':
+    '9360edc424a40fd603cb75af8b839ed3ca8a5de556df8adb4c8417b62ff28f88',
+  '../../frontend/src/components/ChatCommandMetadata.css':
+    '4bef9db5f91077e9669cc5c0ff4ade8342a040f5c97160401a94508bf415384d',
 });

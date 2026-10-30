@@ -132,6 +132,9 @@ beforeEach(() => {
       return telosRecordBatchFixture(init, (id) =>
         globalThis.fetch('/api/telos/work/items/' + encodeURIComponent(id) + '/record'),
       );
+    if (url.pathname === '/api/telos/work/collection') {
+      return Response.json({ records, failures: [], profiles: ['manual'] });
+    }
     if (url.pathname === '/api/todos')
       return Response.json({
         profiles: ['manual'],

@@ -54,12 +54,14 @@ export function TodoDetailView() {
   const prioritySaveState = useMemo(() => createTodoPrioritySaveState(id), [id]);
   const {
     items,
+    records: collectionRecords,
+    recordFailures,
     loading,
     refreshing,
     error,
     refresh,
     setPriority: updatePriority,
-  } = useTodoData(undefined, id, dataView);
+  } = useTodoData(undefined, id, dataView, 'canonical');
   const setPendingSession = useStageChatLaunch();
   const historyKey = 'telos.item.history.' + id;
   const navigationHistory = (location.state as { telosHistory?: unknown } | null)?.telosHistory;
@@ -104,17 +106,26 @@ export function TodoDetailView() {
   // workspace's lifetime. Keep its accepted read keyed only to the route item.
   const primary = useTelosRecords(id ? [id] : []);
   const related = useTelosRecords(
-    recordIds.filter((value) => value !== id),
+    [
+      ...recordIds.filter((value) => value !== id),
+      ...(recordFailures ?? []).map((failure) => failure.itemId),
+    ],
     primary.refreshKey,
+    { seed: collectionRecords, loading: refreshing, failures: recordFailures, readMissing: true },
   );
   const canonical = {
     records: [...primary.records, ...related.records],
     unavailable: [...primary.unavailable, ...related.unavailable],
     loading: primary.loading,
     refreshKey: related.refreshKey,
-    refresh: primary.refresh,
+    refresh: () => {
+      refresh();
+      primary.refresh();
+    },
   };
-  const record = primary.records.find((value) => value.itemId === id);
+  const record =
+    primary.records.find((value) => value.itemId === id) ??
+    (primary.initializing ? collectionRecords?.find((value) => value.itemId === id) : undefined);
   const recoveryPending = !!id && !record && !item && hasTelosLifecycleRecovery(id);
 
   useEffect(() => {
@@ -130,6 +141,17 @@ export function TodoDetailView() {
     )
       navigate('/todos', { replace: true });
   }, [loading, refreshing, error, item, navigate, canonical.loading, record, recoveryPending]);
+
+  async function handlePriority(priority: number) {
+    const selectedItem = item;
+    if (!selectedItem) return;
+    await updatePriority(selectedItem.id, priority);
+    // The navigation snapshot can still be displayed after a failed list read.
+    // Retain acknowledged edits there until canonical list data is available.
+    setStateItem((previous) =>
+      previous?.id === selectedItem.id ? { ...previous, priority } : previous,
+    );
+  }
 
   if (record)
     return (
@@ -157,10 +179,7 @@ export function TodoDetailView() {
                     ? 'unavailable'
                     : 'ready'
             }
-            onRefresh={() => {
-              refresh();
-              canonical.refresh();
-            }}
+            onRefresh={canonical.refresh}
             records={canonical.records}
             onBack={handleBack}
             onLifecycleCurrent={onLifecycleCurrent}
@@ -180,6 +199,55 @@ export function TodoDetailView() {
               });
             }}
           />
+        </div>
+      </div>
+    );
+
+  // A failed primary read already established the fallback. Keep that accepted
+  // view mounted during retries rather than replacing its controls and drafts.
+  if (primary.initializing)
+    return (
+      <div className="todo-detail-page telos-canonical-page">
+        <div className="todo-detail-scroll">
+          <article className="telos-item-workspace">
+            <header className="telos-item-heading">
+              <button aria-label="Back" onClick={handleBack}>
+                <UiIcon name="back" size={20} />
+              </button>
+              <div className="telos-item-title">
+                <h1>{item?.summary ?? 'Telos'}</h1>
+              </div>
+              {item && (
+                <TodoPrioritySelect
+                  saveState={prioritySaveState}
+                  priority={todoPriority(item)}
+                  onChange={handlePriority}
+                />
+              )}
+            </header>
+            <p role="status">Loading item…</p>
+            {!!item?.children.length && (
+              <section>
+                <h2>Child work</h2>
+                {item.children.map((child) => (
+                  <button
+                    key={child.id}
+                    className="telos-node-title"
+                    onClick={() =>
+                      navigate(`/todos/${encodeURIComponent(child.id)}`, {
+                        state: {
+                          ...appendTelosItemHistory(location.state, itemHistory(), item.id, item),
+                          item: child,
+                        },
+                      })
+                    }
+                  >
+                    {child.summary}
+                  </button>
+                ))}
+              </section>
+            )}
+          </article>
         </div>
       </div>
     );
@@ -231,14 +299,6 @@ export function TodoDetailView() {
 
   // Capture narrowed item for use in nested functions (TS doesn't narrow across closures)
   const currentItem: TodoItem = item;
-  async function handlePriority(priority: number) {
-    await updatePriority(currentItem.id, priority);
-    // The navigation snapshot can still be displayed after a failed list read.
-    // Retain acknowledged edits there until canonical list data is available.
-    setStateItem((previous) =>
-      previous?.id === currentItem.id ? { ...previous, priority } : previous,
-    );
-  }
   const hints = currentItem.contextHints;
   const ageLabel = item.ageDays === 0 ? 'new' : `${item.ageDays}d`;
   const hasContext =
@@ -370,7 +430,7 @@ export function TodoDetailView() {
 
       <div className="todo-detail-scroll">
         <TelosItemLifecycle
-          key={item.id}
+          key={'lifecycle:' + item.id}
           itemId={item.id}
           title={item.summary}
           kind={null}
@@ -412,7 +472,11 @@ export function TodoDetailView() {
           )}
         </div>
 
-        <TelosItemRoleEntries key={item.id} itemId={item.id} onOrdinaryRoles={onOrdinaryRoles} />
+        <TelosItemRoleEntries
+          key={'roles:' + item.id}
+          itemId={item.id}
+          onOrdinaryRoles={onOrdinaryRoles}
+        />
 
         {item.intent && (
           <section className="todo-detail-contract todo-detail-outcome">

@@ -1,3 +1,4 @@
+import { telosDescendants } from '../lib/telos-descendants';
 import { useEffect, useRef } from 'react';
 import type { TelosChatRoute } from '../hooks/useTelosChatRoute';
 import { useTodoData } from '../hooks/useTodoData';
@@ -17,7 +18,7 @@ export function TelosChatWorkTree({
   data: NonNullable<TelosChatRoute['data']>;
   onOpen: TelosChatRoute['onOpen'];
 }) {
-  const collection = useTodoData();
+  const collection = useTodoData(undefined, undefined, 'active', 'canonical');
   const ids = [data.itemId];
   function collect(items: typeof collection.items) {
     for (const item of items) {
@@ -26,8 +27,14 @@ export function TelosChatWorkTree({
     }
   }
   collect(collection.items);
-  const canonical = useTelosRecords(ids, data.refreshKey);
-  const records = canonical.records.length ? canonical.records : [data.record];
+  const canonical = useTelosRecords(ids, data.refreshKey, {
+    seed: collection.records,
+    loading: collection.loading,
+    failures: collection.recordFailures,
+  });
+  const records = canonical.records.some((record) => record.itemId === data.itemId)
+    ? canonical.records
+    : [...canonical.records, data.record];
   let root = records.find((r) => r.itemId === data.itemId) ?? data.record;
   const visited = new Set([root.itemId]);
   while (root.parentId && !visited.has(root.parentId)) {
@@ -36,20 +43,15 @@ export function TelosChatWorkTree({
     root = parent;
     visited.add(root.itemId);
   }
-  const related = new Set([root.itemId]);
-  for (let i = 0; i < records.length; i++)
-    for (const record of records)
-      if (record.parentId && related.has(record.parentId)) related.add(record.itemId);
+  const related = telosDescendants(records, root.itemId);
   const board = useTaskBoard();
-  const { refresh: refreshCollection } = collection;
   const { refresh: refreshTasks } = board;
   const previousRefreshKey = useRef(data.refreshKey);
   useEffect(() => {
     if (previousRefreshKey.current === data.refreshKey) return;
     previousRefreshKey.current = data.refreshKey;
-    refreshCollection();
     refreshTasks();
-  }, [data.refreshKey, refreshCollection, refreshTasks]);
+  }, [data.refreshKey, refreshTasks]);
   const taskIds = new Set(
     data.work.attempts
       .filter(

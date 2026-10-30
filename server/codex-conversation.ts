@@ -86,6 +86,7 @@ import {
 import type { ConversationHistoryEntry } from './codex-rollover-context.js';
 type ObjectValue = Record<string, unknown>;
 type NativeRequestContext = CodexServerRequestContext;
+type HostToolRefusal = (error: CodexHostToolRequestError) => void;
 const ROLLOVER_CONTEXT_MAX_CHARS = 64 * 1024;
 const ROLLOVER_CONTEXT_MAX_TURNS = 64;
 const ATTEMPT_CONTEXT_PREFIX = [
@@ -574,19 +575,24 @@ export class CodexConversation {
         const active = this.active;
         if (!active || p.threadId !== this.threadId || p.turnId !== active.turnId)
           return this.request(m, p, s, requestContext);
+        let preExecutionRefusal: CodexHostToolRequestError | undefined;
         return (active.callbacks ??= new TurnCallbacks()).track(
-          () => this.request(m, p, s, requestContext),
+          () =>
+            this.request(m, p, s, requestContext, (error) => {
+              preExecutionRefusal = error;
+            }),
           (error) =>
-            s.aborted &&
-            error === s.reason &&
-            ((error instanceof CodexTurnCompletedError &&
-              error.threadId === p.threadId &&
-              error.turnId === p.turnId) ||
-              error instanceof CodexServerRequestResolvedError) &&
-            error.requestId === requestContext?.requestId &&
-            (m !== 'item/tool/call' ||
-              (typeof p.callId === 'string' &&
-                active.settledToolCallbacks?.has(p.callId) === true)),
+            (preExecutionRefusal !== undefined && error === preExecutionRefusal) ||
+            (s.aborted &&
+              error === s.reason &&
+              ((error instanceof CodexTurnCompletedError &&
+                error.threadId === p.threadId &&
+                error.turnId === p.turnId) ||
+                error instanceof CodexServerRequestResolvedError) &&
+              error.requestId === requestContext?.requestId &&
+              (m !== 'item/tool/call' ||
+                (typeof p.callId === 'string' &&
+                  active.settledToolCallbacks?.has(p.callId) === true))),
         );
       },
       onClose: (error) => this.transportClosed(generation, error),
@@ -3436,9 +3442,11 @@ export class CodexConversation {
     params: ObjectValue,
     signal: AbortSignal,
     requestContext?: NativeRequestContext,
+    onToolRefusal?: HostToolRefusal,
   ): Promise<ObjectValue> {
     const prepareAgentContext = this.opts.prepareAgentContext;
-    if (!prepareAgentContext) return this.hostRequest(method, params, signal, requestContext);
+    if (!prepareAgentContext)
+      return this.hostRequest(method, params, signal, requestContext, onToolRefusal);
     const active = this.active;
     const activeAbort = active?.abort;
     const command = active?.command;
@@ -3536,7 +3544,13 @@ export class CodexConversation {
     };
     await authorize();
     try {
-      return await this.hostRequest(method, params, continuationSignal, requestContext);
+      return await this.hostRequest(
+        method,
+        params,
+        continuationSignal,
+        requestContext,
+        onToolRefusal,
+      );
     } finally {
       // Covers questions, tool failures, duplicate uncertainty and durable
       // replay/result observers, including authority changes while they await.
@@ -3548,6 +3562,7 @@ export class CodexConversation {
     params: ObjectValue,
     signal: AbortSignal,
     requestContext?: NativeRequestContext,
+    onToolRefusal?: HostToolRefusal,
   ): Promise<ObjectValue> {
     if (
       [
@@ -3626,14 +3641,20 @@ export class CodexConversation {
       return this.opts.requestUserInput(params, questionSignal);
     }
     if (method !== 'item/tool/call') throw new Error('Unsupported Codex host request');
+    const refuse = (category: 'invalid_tool_request' | 'tool_unavailable'): never => {
+      const error = new CodexHostToolRequestError(category);
+      // This exact request failed before claim access or executor entry. An
+      // error's class alone cannot prove settlement in another callback.
+      onToolRefusal?.(error);
+      throw error;
+    };
     const parsedCall = ToolCall.safeParse(params);
-    if (!parsedCall.success) throw new CodexHostToolRequestError('invalid_tool_request');
+    if (!parsedCall.success) return refuse('invalid_tool_request');
     const call = parsedCall.data;
     const active = this.active;
     if (this.closed || !active || call.threadId !== this.threadId || call.turnId !== active.turnId)
       throw new CodexHostToolRequestError('tool_identity_mismatch');
-    if (!this.opts.tools.some((t) => t.name === call.tool))
-      throw new CodexHostToolRequestError('tool_unavailable');
+    if (!this.opts.tools.some((t) => t.name === call.tool)) return refuse('tool_unavailable');
     const toolSignal = AbortSignal.any([signal, active.abort.signal]);
     toolSignal.throwIfAborted();
     const toolIdentity = {

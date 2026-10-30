@@ -136,7 +136,7 @@ for (const theme of ['dark', 'light'])
     });
 
     let recordReadGate: Promise<void> | undefined;
-    const recordBatches: string[][] = [];
+    const collectionReads: string[][] = [];
     let failRecords = false;
     let failConversations = true;
     let failChildConversations = false;
@@ -177,6 +177,18 @@ for (const theme of ['dark', 'light'])
           contentType: 'text/html',
           body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>html{font-size:${theme === 'light' ? '125%' : '100%'}}</style><div id="root"></div><script src="/fixture.js"></script></html>`,
         });
+      if (url.pathname === '/api/telos/work/collection') {
+        collectionReads.push(records.map((record) => record.itemId));
+        return collectionMode === 'error' || failRecords
+          ? route.fulfill({ status: 503, json: { error: 'Unavailable' } })
+          : route.fulfill({
+              json: {
+                profiles: ['manual', 'work'],
+                records: collectionMode === 'empty' ? [] : records,
+                failures: [],
+              },
+            });
+      }
       if (url.pathname === '/api/todos')
         return collectionMode === 'error'
           ? route.fulfill({ status: 503, json: { error: 'Unavailable' } })
@@ -210,7 +222,7 @@ for (const theme of ['dark', 'light'])
       if (url.pathname === '/api/telos/work/records') {
         const { itemIds } = route.request().postDataJSON() as { itemIds: string[] };
         expect(itemIds.length).toBeLessThanOrEqual(100);
-        recordBatches.push(itemIds);
+
         if (recordReadGate) await recordReadGate;
         return failRecords
           ? route.fulfill({ status: 503, json: { error: 'Unavailable' } })
@@ -467,6 +479,7 @@ for (const theme of ['dark', 'light'])
     await expect(
       page.getByRole('heading', { name: 'Latest recording setup', exact: true }),
     ).toBeVisible();
+    await page.getByText('Details & context', { exact: true }).click();
     await expect(
       page.getByText('Updated without leaving this item.', { exact: true }),
     ).toBeVisible();
@@ -540,7 +553,8 @@ for (const theme of ['dark', 'light'])
       releasePriorityHandoff = resolve;
     });
     await reload();
-    await expect(page.getByRole('heading', { name: 'Task', exact: true })).toBeVisible();
+    await expect(page.locator('.telos-item-workspace')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Task', exact: true })).toHaveCount(0);
     await expect(priority).toHaveValue('10');
     rejectPriority = true;
     priorityGate = new Promise<void>((resolve) => {
@@ -550,7 +564,8 @@ for (const theme of ['dark', 'light'])
     await expect(priority).toBeDisabled();
     await expect.poll(() => priorityWrites.at(-1)).toBe(2);
     // Cover both actual response orderings. No canonical-ready wait before the
-    // write: the rejected request must start in the legacy fallback header.
+    // write: the rejected request starts from the accepted collection record
+    // while the independent focused record read is still pending.
     if (theme === 'light') {
       releasePriorityHandoff();
       recordReadGate = undefined;
@@ -730,6 +745,7 @@ for (const theme of ['dark', 'light'])
     await search.fill('frontend/src/pages/TodoView.tsx');
     await page.getByRole('button', { name: 'Nested outcome', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Nested outcome', exact: true })).toBeVisible();
+    await page.getByText('Details & context', { exact: true }).click();
     const context = page.locator('summary').filter({ hasText: /^Context$/ });
     await expect(context.locator('..')).not.toHaveAttribute('open');
     await context.focus();
@@ -864,12 +880,12 @@ for (const theme of ['dark', 'light'])
         fullPage: true,
       });
       denyArtifact = true;
-      // Reload first renders the legacy fallback, then joins the outcome's
-      // canonical child records. Keep denial until that workspace owns the dialog.
+      // Reload reads the native collection; retained-file denial must remain
+      // visible after that accepted workspace owns the dialog.
       const childRecordLoaded = page.waitForResponse(
         (response) =>
-          new URL(response.url()).pathname ===
-            '/api/telos/work/items/fixture-studio-slice/record' && response.status() === 200,
+          new URL(response.url()).pathname === '/api/telos/work/collection' &&
+          response.status() === 200,
       );
       await reload();
       await childRecordLoaded;
@@ -936,15 +952,12 @@ for (const theme of ['dark', 'light'])
     records.push(...scrollItems);
     const scrollRecordsLoaded = page.waitForResponse(
       (response) =>
-        new URL(response.url()).pathname === '/api/telos/work/records' &&
-        (response.request().postDataJSON() as { itemIds: string[] }).itemIds.includes(
-          'fixture-scroll-40',
-        ) &&
+        new URL(response.url()).pathname === '/api/telos/work/collection' &&
         response.status() === 200,
     );
     await page.getByRole('button', { name: 'Refresh Telos', exact: true }).click();
     await scrollRecordsLoaded;
-    expect(recordBatches.some((ids) => ids.includes('fixture-scroll-40') && ids.length > 1)).toBe(
+    expect(collectionReads.some((ids) => ids.includes('fixture-scroll-40') && ids.length > 1)).toBe(
       true,
     );
     await expect(page.getByRole('region', { name: 'Outcomes tree', exact: true })).toBeVisible();
@@ -982,9 +995,18 @@ for (const theme of ['dark', 'light'])
     try {
       await page.getByRole('button', { name: 'Back', exact: true }).click();
       await expect(page.locator('.todo-page.telos-canonical-page')).toBeVisible();
-      await expect(page.getByText('Loading outcomes…', { exact: true })).toBeVisible();
+      // Cached native rows restore immediately while independent record reads
+      // are delayed. Neither a legacy frame nor a loading flash should appear.
+      await expect(page.getByText('Loading outcomes…', { exact: true })).toBeHidden();
       await expect(page.locator('.telos-legacy-page')).toBeHidden();
-      await expect(page.locator('.todo-scroll')).toHaveJSProperty('scrollTop', 0);
+      await expect
+        .poll(async () =>
+          Math.abs(
+            (await page.locator('.todo-scroll').evaluate((element) => element.scrollTop)) -
+              savedScroll,
+          ),
+        )
+        .toBeLessThanOrEqual(2);
     } finally {
       recordReadGate = undefined;
       releaseScrollRecords?.();

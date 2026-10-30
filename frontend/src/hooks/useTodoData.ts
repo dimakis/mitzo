@@ -1,3 +1,4 @@
+import { canonicalTodoData } from '../lib/canonical-todo-data';
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import type { TodoItem, TodoData, TodoOutcomeDraft } from '../types/todo';
 import { apiFetch, invalidateTodoReads } from '../lib/api-fetch';
@@ -36,11 +37,45 @@ export function useLatestTodoPriority(item: TodoItem | undefined): TodoItem | un
 }
 subscribeTodoPriorityUpdates(({ id, priority }) => {
   prioritySnapshots.set(id, priority);
-  todoCache.update((data) => ({ ...data, items: setPriorityInTree(data.items, id, priority) }));
+  todoCache.update((data) => ({
+    ...data,
+    items: setPriorityInTree(data.items, id, priority),
+    records: data.records?.map((record) =>
+      record.itemId === id ? { ...record, priority } : record,
+    ),
+  }));
 });
 function invalidateTodos(): void {
   invalidateTodoReads();
   todoCache.invalidate();
+}
+// One invalidation boundary for all mounted canonical consumers. Subscribers
+// renew together and ListCache coalesces their reads after retiring older work.
+const collectionListeners = new Set<() => void>();
+let stopCollectionEvents: (() => void) | undefined;
+function subscribeCollectionEvents(listener: () => void) {
+  collectionListeners.add(listener);
+  if (!stopCollectionEvents) {
+    const refresh = () => {
+      invalidateTodos();
+      collectionListeners.forEach((listener) => listener());
+    };
+    const offConnection = eventBus.onConnectionChange((connected) => {
+      if (connected) refresh();
+    });
+    const offSessions = eventBus.on('sessions_changed', refresh);
+    stopCollectionEvents = () => {
+      offConnection();
+      offSessions();
+    };
+  }
+  return () => {
+    collectionListeners.delete(listener);
+    if (!collectionListeners.size) {
+      stopCollectionEvents?.();
+      stopCollectionEvents = undefined;
+    }
+  };
 }
 eventBus.on('todo_update', invalidateTodos);
 subscribeTodoLifecycleUpdates(() => todoCache.clear());
@@ -51,6 +86,9 @@ export interface UseTodoDataResult {
   error: string | null;
   items: TodoItem[];
   profiles: string[];
+  records?: TodoData['records'];
+  recordFailures?: TodoData['recordFailures'];
+  refreshKey: number;
   ack: (id: string) => Promise<void>;
   snooze: (id: string, days?: number) => Promise<void>;
   done: (id: string) => Promise<void>;
@@ -103,16 +141,26 @@ export function findInTree(items: TodoItem[], id: string): TodoItem | undefined 
   return undefined;
 }
 
+function filterCanonicalProfile(items: TodoItem[], profile: string): TodoItem[] {
+  return items.flatMap((item) =>
+    item.profile === profile ? [item] : filterCanonicalProfile(item.children, profile),
+  );
+}
+
 export function useTodoData(
   profile?: string,
   resolveItemId?: string,
   view: TelosCollectionView = 'active',
+  source: 'legacy' | 'canonical' = 'legacy',
+  enabled = true,
 ): UseTodoDataResult {
   const params = new URLSearchParams();
-  if (profile) params.set('profile', profile);
+  if (profile && source === 'legacy') params.set('profile', profile);
   if (view !== 'active') params.set('view', view);
   const query = params.toString();
-  const url = '/api/todos' + (query ? '?' + query : '');
+  const url =
+    (source === 'canonical' ? '/api/telos/work/collection' : '/api/todos') +
+    (query ? '?' + query : '');
   const [data, setData] = useState<TodoData | null>(() => todoCache.get(url) ?? null);
   const [dataScope, setDataScope] = useState(url);
   const visibleData = dataScope === url ? data : (todoCache.get(url) ?? null);
@@ -122,6 +170,7 @@ export function useTodoData(
   const [refreshKey, setRefreshKey] = useState(0);
   const dataRef = useRef<TodoData | null>(null);
   dataRef.current = visibleData;
+  const errorScope = useRef(url);
   const urlRef = useRef(url);
   urlRef.current = url;
 
@@ -135,16 +184,19 @@ export function useTodoData(
   );
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     const cached = todoCache.get(url);
-    // A direct route to a new item must not join a read admitted before its save.
-    // Keep retained rows, but resolve missing identities with a newly admitted read.
-    if (resolveItemId && !findInTree(cached?.items ?? [], resolveItemId)) invalidateTodos();
     setDataScope(url);
     setData(cached ?? null);
     setLoading(!cached);
     setRefreshing(true);
-    setError(null);
+    // Keep the visible fallback and its error while a retry is pending. Only
+    // an accepted read proves recovery; switching query scopes starts fresh.
+    if (errorScope.current !== url) {
+      errorScope.current = url;
+      setError(null);
+    }
 
     todoCache
       .load(
@@ -152,9 +204,17 @@ export function useTodoData(
         async () => {
           const response = await apiFetch(url);
           if (!response.ok) throw new Error(`Todo API returned ${response.status}`);
-          return response.json();
+          const data: unknown = await response.json();
+          return source === 'canonical' ? canonicalTodoData(data) : (data as TodoData);
         },
         rememberPriorities,
+        resolveItemId
+          ? {
+              id: resolveItemId,
+              present: (snapshot) => !!findInTree(snapshot?.items ?? [], resolveItemId),
+              retire: invalidateTodoReads,
+            }
+          : undefined,
       )
       .then(() => {
         if (!cancelled) {
@@ -182,7 +242,12 @@ export function useTodoData(
     return () => {
       cancelled = true;
     };
-  }, [url, refreshKey, resolveItemId]);
+  }, [url, refreshKey, resolveItemId, source, enabled]);
+
+  useEffect(() => {
+    if (source !== 'canonical' || !enabled) return;
+    return subscribeCollectionEvents(() => setRefreshKey((key) => key + 1));
+  }, [source, enabled]);
 
   // Live update: SSE todo_update signals a refetch
   useEffect(() => {
@@ -312,8 +377,14 @@ export function useTodoData(
     loading: dataScope === url ? loading : !visibleData,
     refreshing: dataScope !== url || refreshing,
     error: dataScope === url ? error : null,
-    items: visibleData?.items ?? [],
+    items:
+      source === 'canonical' && profile
+        ? filterCanonicalProfile(visibleData?.items ?? [], profile)
+        : (visibleData?.items ?? []),
     profiles: visibleData?.profiles ?? [],
+    records: visibleData?.records,
+    recordFailures: visibleData?.recordFailures,
+    refreshKey,
     ack,
     snooze,
     done,
