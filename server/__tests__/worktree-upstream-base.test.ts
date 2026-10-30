@@ -1,6 +1,13 @@
 import { afterEach, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createWorktree, createWorktreeAsync } from '../worktree.js';
@@ -67,16 +74,16 @@ for (const [name, create] of [
   });
 }
 
-it('refuses an aborted ordinary allocation before creating directories or a branch', async () => {
-  const f = fixture();
+it('refuses an aborted ordinary allocation before touching its repository', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'aborted-worktree-')));
+  roots.push(root);
+  writeFileSync(join(root, 'unfinished.txt'), 'preserve');
   const controller = new AbortController();
-  controller.abort(Error('startup stopped'));
+  const reason = Error('startup stopped');
+  controller.abort(reason);
   await expect(
-    createWorktreeAsync('cancelled', f.repo, { abortSignal: controller.signal }),
-  ).rejects.toThrow('startup stopped');
-  expect(existsSync(join(f.repo, '.claude', 'worktrees'))).toBe(false);
-  expect(git(f.repo, 'for-each-ref', '--format=%(refname)', 'refs/heads/session/cancelled')).toBe(
-    '',
-  );
-  expect(git(f.repo, 'status', '--short')).toContain('unfinished.txt');
+    createWorktreeAsync('cancelled', root, { abortSignal: controller.signal }),
+  ).rejects.toBe(reason);
+  expect(readdirSync(root)).toEqual(['unfinished.txt']);
+  expect(readFileSync(join(root, 'unfinished.txt'), 'utf8')).toBe('preserve');
 });
