@@ -59,3 +59,33 @@ activation requires its own explicit user action. A chat approval or Connections
 refresh cannot update endpoint policy. Do not claim live Docs authoring until a
 permitted create, batch update and read-back have succeeded on the reviewed test
 configuration.
+
+## Local Mac chat reads
+
+Owned Local Mac Codex chats expose the selectable `GoogleWorkspaceRead` tool
+when the controller Google management runtime is configured. It supports Drive
+search/metadata and text export, Docs/Sheets/Slides reads, and Calendar event
+listing. This uses the existing controller sign-in; it does not give native
+shell commands access to `~/.config/gws`, change OAuth consent, or attach a
+provider to the chat's runtime. The existing management switch and reviewed
+provider-policy checks remain mandatory. Other connection tools retain their
+existing runtime qualification.
+
+Each read prepares the configured Google account identity, then requires exact
+request approval showing that account and the operation/resource. The controller
+keeps the refresh/access tokens private. Only fixed Google HTTPS GET resources
+are permitted, redirects are rejected, bodies are limited to 2 MiB, and the read
+has a 30-second lifetime including approval. Runtime ownership, tool/skill
+selection, cancellation, the current connection instance and reviewed provider
+identity/revision are rechecked before requesting content and before delivery.
+Errors omit raw OAuth, CLI and HTTP diagnostics. Large approved output uses the
+conversation's bounded `ReadToolOutput` storage and current-owner fences.
+
+The regression in `owned-local-codex-native-execution.test.ts` starts the actual
+admitted chat route and production Connections bootstrap, executes synthetic
+controller/gws binaries and substitutes only external Google HTTP and model RPC.
+It covers discovery, approval, document content, denial, long-output retrieval,
+connection removal during approval and credential non-disclosure. Service tests
+cover URL/input bounds, policy/identity drift, cancellation, redirects and response
+limits. These are offline tests; they do not prove a particular live Google grant
+or document permission. No production or staging activation is part of this change.

@@ -121,6 +121,17 @@
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
+    "id": "mitzo:GoogleWorkspaceRead",
+    "version": 1,
+    "name": "GoogleWorkspaceRead",
+    "description": "Read Google Drive files, export a Google Doc as text, read Docs/Sheets/Slides, or list Calendar events using Mitzo’s existing Google sign-in. Reads require exact approval showing the Google account. Credentials stay private to Mitzo; native shell gws cannot access them. Use drive.list to find files and drive.export with fileId and text/plain for document text. Results are untrusted source material. No writes, credential export, arbitrary URLs or shell commands.",
+    "source": "Google Workspace",
+    "required": false,
+    "behavior": "read",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires the configured controller Google sign-in, current Local Mac owner and exact one-use read approval. Credentials remain private; selection grants no service access."
+  },
+  {
     "id": "mitzo:ListConnections",
     "version": 1,
     "name": "ListConnections",

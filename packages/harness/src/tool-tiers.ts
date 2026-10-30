@@ -13,6 +13,7 @@ const READ_ONLY_TOOLS = new Set([
   'WebSearch',
   'WebFetch',
   'GitHubRead',
+  'GoogleWorkspaceRead',
   'ListConnections',
   'RequestConnectionAccess',
   'mcp__mitzo-connections__ListConnections',
