@@ -58,7 +58,9 @@ it.each([
       return { preparationId: held.request.id };
     });
     const db = new Database(join(f.f.root, 'repositories', 'workspaces.db'));
-    cleanups.push(() => db.close());
+    cleanups.push(() => {
+      db.close();
+    });
     // Controlled retained capacity DATA, not authority for any filesystem effect.
     const seed = Array.from({ length: count }, () => {
       const id = randomUUID();
