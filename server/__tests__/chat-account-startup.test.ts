@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,9 +24,15 @@ vi.mock('../hook-bridge.js', async (original) => ({
   ...(await original<object>()),
   loadProjectHooks: vi.fn(),
 }));
-afterEach(() => {
+let privateDirectory: string;
+beforeEach(async () => {
+  privateDirectory = await mkdtemp(join(tmpdir(), 'mitzo-account-startup-private-'));
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', privateDirectory);
+});
+afterEach(async () => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  await rm(privateDirectory, { recursive: true, force: true });
 });
 it('delivers the exact dated briefing snapshot to the mocked Codex provider and durable user history', async () => {
   vi.resetModules();

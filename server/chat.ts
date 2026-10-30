@@ -178,13 +178,13 @@ import type {
   CloseoutEpisode,
 } from '@mitzo/harness';
 import { getTransportAttachmentIdentity } from '@mitzo/harness';
-import { execFileSync } from 'child_process';
+import { isGitDirectory, readWorkspaceBranch, readSshAuthSock } from './chat-metadata.js';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveBundledMcpEntrypoint } from './mcp-entrypoint.js';
 import { createHash, randomUUID } from 'crypto';
-import { homedir, platform } from 'os';
+import { homedir } from 'os';
 import {
   createWorktree,
   createWorktreeAsync,
@@ -210,7 +210,6 @@ import { runQueryLoop, broadcastToObservers } from './query-loop.js';
 import { clearSessionImages } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
 import {
-  GIT_BRANCH_TIMEOUT_MS,
   SESSION_PAGE_SIZE,
   SESSION_MESSAGES_LIMIT,
   USER_CLOSEOUT_TIMEOUT_MS,
@@ -701,26 +700,16 @@ export function resolveResumeCwd(
  * Check if a resume CWD is a valid git directory (worktree or repo).
  * If invalid and the path looks like a worktree, attempt recreation.
  */
-export function validateResumable(
+export async function validateResumable(
   cwd: string,
   _resumeId: string,
   deps?: {
-    isGitDir: (path: string) => boolean;
-    recreateWorktree: (wtId: string, repoRoot: string) => string;
+    isGitDir: (path: string) => boolean | Promise<boolean>;
+    recreateWorktree: (wtId: string, repoRoot: string) => string | Promise<string>;
   },
-): { valid: boolean; recreated?: boolean } {
-  const isGitDir =
-    deps?.isGitDir ??
-    ((p: string) => {
-      try {
-        execFileSync('git', ['-C', p, 'rev-parse', '--git-dir'], { stdio: 'pipe', timeout: 5000 });
-        return true;
-      } catch {
-        return false;
-      }
-    });
-
-  if (isGitDir(cwd)) return { valid: true };
+): Promise<{ valid: boolean; recreated?: boolean }> {
+  const isGitDir = deps?.isGitDir ?? isGitDirectory;
+  if (await isGitDir(cwd)) return { valid: true };
 
   const wtMatch = cwd.match(/\/(\.claude|\.cursor)\/worktrees\/([^/]+)$/);
   if (!wtMatch) return { valid: false };
@@ -730,10 +719,10 @@ export function validateResumable(
   const recreate =
     deps?.recreateWorktree ??
     ((id: string, repo: string) =>
-      createWorktree(id, repo, { prefix: prefix as '.claude' | '.cursor' }));
+      createWorktreeAsync(id, repo, { prefix: prefix as '.claude' | '.cursor' }));
 
   try {
-    recreate(wtId, repoRoot);
+    await recreate(wtId, repoRoot);
     return { valid: true, recreated: true };
   } catch {
     return { valid: false };
@@ -791,21 +780,11 @@ function send(transport: SessionTransport, data: Record<string, unknown> | BootC
 
 const IPV4_PRELOAD = join(dirname(fileURLToPath(import.meta.url)), 'ipv4-preload.cjs');
 
-// launchctl resolves the live socket — the inherited one goes stale after sleep/wake.
-export function resolveSshAuthSock(): string | null {
-  if (platform() !== 'darwin') return null;
-  try {
-    const sock = execFileSync('launchctl', ['getenv', 'SSH_AUTH_SOCK'], {
-      encoding: 'utf8',
-      timeout: 500,
-    }).trim();
-    return sock || null;
-  } catch {
-    return null;
-  }
-}
+export { readSshAuthSock as resolveSshAuthSock } from './chat-metadata.js';
 
-export function buildSdkChildEnvironment(): Record<string, string> {
+export async function buildSdkChildEnvironment(
+  signal?: AbortSignal,
+): Promise<Record<string, string>> {
   const env = { ...process.env } as Record<string, string>;
   env.CLAUDE_CODE_USE_VERTEX = process.env.CLAUDE_CODE_USE_VERTEX || '1';
   env.ANTHROPIC_VERTEX_PROJECT_ID = process.env.ANTHROPIC_VERTEX_PROJECT_ID || '';
@@ -823,7 +802,7 @@ export function buildSdkChildEnvironment(): Record<string, string> {
 
   prependConfiguredVenvPaths(env);
 
-  const sock = resolveSshAuthSock();
+  const sock = await readSshAuthSock(signal);
   if (sock) env.SSH_AUTH_SOCK = sock;
 
   delete env.AUTH_PASSPHRASE;
@@ -887,20 +866,6 @@ export function resolveClaudeEffort(
   )
     return effort;
   return undefined;
-}
-
-function getBranch(cwd: string): string {
-  try {
-    return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-      cwd,
-      stdio: 'pipe',
-      timeout: GIT_BRANCH_TIMEOUT_MS,
-    })
-      .toString()
-      .trim();
-  } catch {
-    return 'unknown';
-  }
 }
 
 function buildMcpAllowedTools(clientId?: string): string[] {
@@ -1700,7 +1665,7 @@ async function _startChatInner(
           };
         } else apiCredentialRef = profile.credentialRef;
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
-      } else accountEnv = profiles!.sdkEnv(accountBinding, buildSdkChildEnvironment());
+      } else accountEnv = profiles!.sdkEnv(accountBinding, await buildSdkChildEnvironment());
     }
     if (options.adviserScope) {
       if (!accountBinding || accountBinding.provider !== 'anthropic-vertex')
@@ -1978,7 +1943,7 @@ async function _startChatInner(
     const validation =
       codexProfile || apiKey || gemini
         ? { valid: true }
-        : validateResumable(baseCwd, options.resume);
+        : await validateResumable(baseCwd, options.resume);
     if (!validation.valid) {
       log.warn('session not resumable, starting fresh', {
         sessionId: options.resume,
@@ -2135,7 +2100,9 @@ async function _startChatInner(
     session.worktreePaths.set(name, info);
   }
 
-  const branch = repositoryWorkspace?.featureBranch ?? getBranch(cwd);
+  const branch =
+    repositoryWorkspace?.featureBranch ??
+    (await readWorkspaceBranch(cwd, session.abortController.signal));
   session.branch = branch;
   send(transport, { type: 'session_info', branch, cwd, worktree: !!worktreePath, wtId });
 
@@ -2174,7 +2141,7 @@ async function _startChatInner(
   }
 
   // Build session env with worktree paths for the agent (all repos including primary)
-  const sessionEnv = accountEnv ?? buildSdkChildEnvironment();
+  const sessionEnv = accountEnv ?? (await buildSdkChildEnvironment(session.abortController.signal));
   sessionEnv.MITZO_SESSION_ID = wtId;
   sessionEnv.MITZO_AGENT_NAME = agentName;
   for (const [name, { path }] of repoWorktrees) {
@@ -3893,7 +3860,8 @@ export async function prepareOwnedCodexChat(
       eventStore.upsertSession({ sessionId, bootContext: JSON.stringify(context) });
       send(transport, { ...context, sessionId });
     }
-    const env = buildSdkChildEnvironment();
+    const env = await buildSdkChildEnvironment(session.abortController.signal);
+    admission.assertCurrentSync();
     env.MITZO_SESSION_ID = sessionId;
     env.MITZO_AGENT_NAME = expected.agentProfile?.definition.name ?? '';
     queryInstance = await openCodexChat({

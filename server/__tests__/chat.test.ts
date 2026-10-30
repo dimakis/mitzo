@@ -532,7 +532,7 @@ describe('discoverSessionWorktrees integration', () => {
 describe('validateResumable', () => {
   it('returns valid for a CWD that passes git check', async () => {
     const { validateResumable } = await import('../chat.js');
-    const result = validateResumable('/some/cwd', 'sess-1', {
+    const result = await validateResumable('/some/cwd', 'sess-1', {
       isGitDir: () => true,
       recreateWorktree: () => '',
     });
@@ -541,7 +541,7 @@ describe('validateResumable', () => {
 
   it('returns valid with recreated flag when worktree is rebuilt', async () => {
     const { validateResumable } = await import('../chat.js');
-    const result = validateResumable('/repo/.claude/worktrees/2026-04-22-abc123', 'sess-1', {
+    const result = await validateResumable('/repo/.claude/worktrees/2026-04-22-abc123', 'sess-1', {
       isGitDir: () => false,
       recreateWorktree: () => '/repo/.claude/worktrees/2026-04-22-abc123',
     });
@@ -550,7 +550,7 @@ describe('validateResumable', () => {
 
   it('returns invalid when CWD is not a git dir and not a worktree path', async () => {
     const { validateResumable } = await import('../chat.js');
-    const result = validateResumable('/some/random/path', 'sess-1', {
+    const result = await validateResumable('/some/random/path', 'sess-1', {
       isGitDir: () => false,
       recreateWorktree: () => '',
     });
@@ -559,7 +559,7 @@ describe('validateResumable', () => {
 
   it('returns invalid when worktree recreation fails', async () => {
     const { validateResumable } = await import('../chat.js');
-    const result = validateResumable('/repo/.claude/worktrees/2026-04-22-abc123', 'sess-1', {
+    const result = await validateResumable('/repo/.claude/worktrees/2026-04-22-abc123', 'sess-1', {
       isGitDir: () => false,
       recreateWorktree: () => {
         throw new Error('git failed');
@@ -576,62 +576,64 @@ describe('resolveSshAuthSock', () => {
 
   it('returns trimmed socket path on macOS', async () => {
     vi.resetModules();
-    vi.doMock('os', async (importOriginal) => {
+    vi.doMock('node:os', async (importOriginal) => {
       const actual = (await importOriginal()) as Record<string, unknown>;
       return { ...actual, platform: () => 'darwin' };
     });
-    vi.doMock('child_process', async (importOriginal) => {
+    vi.doMock('node:child_process', async (importOriginal) => {
       const actual = (await importOriginal()) as Record<string, unknown>;
       return {
         ...actual,
-        execFileSync: vi.fn().mockReturnValue('  /private/tmp/com.apple.launchd.xxx/Listeners  \n'),
+        execFile: vi.fn((_p, _a, _o, cb) =>
+          cb(null, '  /private/tmp/com.apple.launchd.xxx/Listeners  \n'),
+        ),
       };
     });
     const { resolveSshAuthSock } = await import('../chat.js');
-    expect(resolveSshAuthSock()).toBe('/private/tmp/com.apple.launchd.xxx/Listeners');
+    expect(await resolveSshAuthSock()).toBe('/private/tmp/com.apple.launchd.xxx/Listeners');
   });
 
   it('returns null when launchctl returns empty string', async () => {
     vi.resetModules();
-    vi.doMock('os', async (importOriginal) => {
+    vi.doMock('node:os', async (importOriginal) => {
       const actual = (await importOriginal()) as Record<string, unknown>;
       return { ...actual, platform: () => 'darwin' };
     });
-    vi.doMock('child_process', async (importOriginal) => {
+    vi.doMock('node:child_process', async (importOriginal) => {
       const actual = (await importOriginal()) as Record<string, unknown>;
-      return { ...actual, execFileSync: vi.fn().mockReturnValue('  \n') };
+      return { ...actual, execFile: vi.fn((_p, _a, _o, cb) => cb(null, '  \n')) };
     });
     const { resolveSshAuthSock } = await import('../chat.js');
-    expect(resolveSshAuthSock()).toBeNull();
+    expect(await resolveSshAuthSock()).toBeNull();
   });
 
-  it('returns null when execFileSync throws', async () => {
+  it('returns null when launchctl fails', async () => {
     vi.resetModules();
-    vi.doMock('os', async (importOriginal) => {
+    vi.doMock('node:os', async (importOriginal) => {
       const actual = (await importOriginal()) as Record<string, unknown>;
       return { ...actual, platform: () => 'darwin' };
     });
-    vi.doMock('child_process', async (importOriginal) => {
+    vi.doMock('node:child_process', async (importOriginal) => {
       const actual = (await importOriginal()) as Record<string, unknown>;
       return {
         ...actual,
-        execFileSync: vi.fn().mockImplementation(() => {
-          throw new Error('launchctl not found');
+        execFile: vi.fn().mockImplementation((_p, _a, _o, cb) => {
+          cb(new Error('launchctl not found'), '');
         }),
       };
     });
     const { resolveSshAuthSock } = await import('../chat.js');
-    expect(resolveSshAuthSock()).toBeNull();
+    expect(await resolveSshAuthSock()).toBeNull();
   });
 
   it('returns null on non-macOS platforms', async () => {
     vi.resetModules();
-    vi.doMock('os', async (importOriginal) => {
+    vi.doMock('node:os', async (importOriginal) => {
       const actual = (await importOriginal()) as Record<string, unknown>;
       return { ...actual, platform: () => 'linux' };
     });
     const { resolveSshAuthSock } = await import('../chat.js');
-    expect(resolveSshAuthSock()).toBeNull();
+    expect(await resolveSshAuthSock()).toBeNull();
   });
 });
 

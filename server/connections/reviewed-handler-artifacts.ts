@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/chat-metadata.test.ts': '0b718160237d3b6f40142edbb1aae927d0cd5dc8ee1816b1dc414b15dd35b4e2',
+  '../chat-metadata.ts': 'fe42df43ff00658fb3a118a7b0be44c32907d59e4b7d026a3cf7613600e1068d',
   '../__tests__/github-native-read-projection.test.ts':
     '53747969b5a59c7393c3758e3e28d8e646966962646e0d5f973113b640a8bff6',
   '../__tests__/prepared-repository-native-public-followup-interrupted.test.ts':
@@ -1309,7 +1311,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': 'c3b4979f8e3caadcd18d6c72c93d938953d4699ca82faf5381704547c8877e4a',
+  '../chat.ts': '0507bee5a6b4cff99a5aa10e139f1801661344bfe574b4e42c717d4336d34af2',
   '../../packages/harness/src/session-registry.ts':
     '0ae1713bc617b37f773aa50f36868b69e10b5c985b2419318c2b2168108b8b39',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -2775,7 +2777,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '5f3eac2c87dbd3ef090cc97867533b4848a1b450140f93e347fd3b7d87390a64',
   '../../tests/integration/telos-s9/integrated-candidate/surface-control-inbox.test.ts':
     '424dff5941daafdc29252739d8a7c183d412f0d73de8fa62bf9ca8cd886d7caa',
-  '../__tests__/chat.test.ts': 'f26a7670f0089dc35068e9ff2df8cb809aa1458db46caa3bb95c8ef1799bb873',
+  '../__tests__/chat.test.ts': '6b09ad872312498dd4be5bbb08d0d59c412dd63adc55f7b68400a4e9f327589c',
   '../__tests__/fixtures/owned-local-codex-runtime.ts':
     '3a611b28b2d1a6fe5a75e7964b4e151b62dc174e35c10aa861f54726d8f2af8d',
   '../__tests__/local-repository-base.test.ts':
