@@ -266,3 +266,36 @@ it('settles an original active interrupt RPC before retiring its transport', asy
   f.controller.abort();
   await output.return?.();
 });
+
+it('accepts interrupt and settings during callback settlement without borrowing the sealed owner', async () => {
+  const f = fixture();
+  f.message('first');
+  const callback = f.runs[0].options.canUseTool!('Read', {}, {
+    signal: f.controller.signal,
+    toolUseID: 'pending',
+  } as never);
+  await vi.waitFor(() => expect(f.permission).toHaveBeenCalledOnce());
+  const output = f.q[Symbol.asyncIterator]();
+  f.runs[0].events.push({ type: 'result', session_id: 'retained' });
+  const terminal = output.next();
+  await new Promise((resolve) => setImmediate(resolve));
+  const controls = f.q as unknown as {
+    interrupt(): Promise<void>;
+    setModel(value: string): Promise<void>;
+  };
+  await expect(controls.interrupt()).resolves.toBeUndefined();
+  await controls.setModel('next-model');
+  f.message('replacement');
+  expect(f.runs[0].interrupt).not.toHaveBeenCalled();
+  expect(f.create).toHaveBeenCalledOnce();
+  f.finish();
+  await callback;
+  await terminal;
+  const successor = output.next();
+  await vi.waitFor(() => expect(f.runs[0].close).toHaveBeenCalledOnce());
+  f.runs[0].child.emit('close');
+  await vi.waitFor(() => expect(f.create).toHaveBeenCalledTimes(2));
+  expect(f.runs[1].options).toMatchObject({ resume: 'retained', model: 'next-model' });
+  f.controller.abort();
+  await expect(successor).resolves.toMatchObject({ done: true });
+});

@@ -196,7 +196,7 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
         return async () => {
           signal.throwIfAborted();
           if (closed) throw new SessionRuntimeError('turn_completed');
-          if (!idle) {
+          if (!idle && !current.state.completing) {
             const run = current;
             await run.state.runCallback(() => run.native.interrupt());
           }
@@ -206,7 +206,7 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
           signal.throwIfAborted();
           if (closed) throw new SessionRuntimeError('turn_completed');
           const apply = async () => {
-            if (!idle) {
+            if (!idle && !current.state.completing) {
               const adapted = owners.adapt(current.native);
               const control: unknown = Reflect.get(adapted, property, adapted);
               if (typeof control !== 'function')
@@ -221,7 +221,7 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
               settings.thinking = undefined;
             }
           };
-          if (idle) await apply();
+          if (idle || current.state.completing) await apply();
           else await current.state.runCallback(apply);
         };
       const adapted = owners.adapt(current.native);

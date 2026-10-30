@@ -2933,6 +2933,8 @@ export class CodexConversation {
       !active.turnId ||
       active.ownershipPending ||
       active.completionHook !== undefined ||
+      active.callbacks?.needsSettlement ||
+      active.callbackEffectsUnknown === true ||
       active.interruptRequested ||
       active.abort.signal.aborted
     )
@@ -2992,7 +2994,9 @@ export class CodexConversation {
       active.command.id,
       'completed',
       active.turnId,
-      active.completionHook === 'pending' || active.callbackEffectsUnknown === true,
+      active.completionHook === 'pending' ||
+        active.callbackEffectsUnknown === true ||
+        active.callbacks?.needsSettlement === true,
     );
     active.providerCompletionRetained = true;
     this.terminalTurns.set(JSON.stringify([this.threadId, active.turnId]), {
@@ -3192,6 +3196,7 @@ export class CodexConversation {
             })
             .catch((cause: unknown) => {
               if (this.closed || this.active !== active) return;
+              active.callbackEffectsUnknown = true;
               try {
                 this.opts.onError?.(
                   findSessionRuntimeError(cause) ??

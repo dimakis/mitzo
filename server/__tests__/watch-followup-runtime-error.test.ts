@@ -96,6 +96,126 @@ function watchHarness(connectionId: string) {
   return { events, transport, connections, context };
 }
 
+it.each(['completed', 'failed'] as const)(
+  'retains an exact interrupt replacement when the original callback is %s',
+  async (outcome) => {
+    vi.mocked(query).mockReset();
+    const sessionId = randomUUID();
+    const initialId = randomUUID();
+    const { events, transport, connections, context } = watchHarness('interrupt-settling');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const permissions = await import('../permission-handler.js');
+    const permission = vi
+      .spyOn(permissions, 'buildPermissionHandler')
+      .mockReturnValue(async (_name, input) => {
+        await gate;
+        if (outcome === 'failed') throw Error('private callback failure');
+        return { behavior: 'allow', updatedInput: input };
+      });
+    const consumed: unknown[] = [];
+    let callback: Promise<unknown> | undefined;
+    let completing = false;
+    vi.mocked(query).mockImplementation((args) => {
+      const first = vi.mocked(query).mock.calls.length === 1;
+      return sdkQueryPeer(
+        args,
+        (async function* () {
+          consumed.push(
+            (await (args.prompt as AsyncIterable<unknown>)[Symbol.asyncIterator]().next()).value,
+          );
+          yield { type: 'assistant', session_id: sessionId, message: { content: [] } };
+          if (first) {
+            callback = args.options!.canUseTool!(
+              'Read',
+              {},
+              { signal: new AbortController().signal, toolUseID: 'original' },
+            ).catch(() => {});
+            completing = true;
+          }
+          yield { type: 'result', session_id: sessionId, is_error: false, usage: {} };
+        })(),
+      );
+    });
+    try {
+      await ws.handleSendV2(
+        'interrupt-settling',
+        transport,
+        V2SendMessage.parse({
+          type: 'send',
+          sessionId: null,
+          clientMsgId: initialId,
+          prompt: 'Initial',
+          cwd: root,
+          isolation: false,
+        }),
+        context,
+        { initialSessionId: sessionId },
+      );
+      await vi.waitFor(() => expect(completing).toBe(true));
+      await new Promise((resolve) => setImmediate(resolve));
+      const driver = chat.registry.findBySessionId(sessionId)!;
+      const replacementId = randomUUID();
+      await expect(
+        chat.interruptChat(driver.clientId, 'Replacement', undefined, undefined, replacementId),
+      ).resolves.toBe(true);
+      await expect(
+        chat.interruptChat(driver.clientId, 'Replacement', undefined, undefined, replacementId),
+      ).resolves.toBe(true);
+      expect(chat.eventStore.hasUserMessage(sessionId, replacementId)).toBe(true);
+      expect(consumed).toHaveLength(1);
+      release();
+      await callback;
+      if (outcome === 'completed') {
+        await vi.waitFor(() => expect(consumed).toHaveLength(2));
+        expect(consumed[1]).toMatchObject({ mitzoMessageId: replacementId });
+        await vi.waitFor(() =>
+          expect(events.filter((event) => event.type === 'session_end')).toHaveLength(2),
+        );
+        expect(query).toHaveBeenCalledTimes(2);
+        expect(events.filter((event) => event.type === 'error')).toHaveLength(0);
+      } else {
+        await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+        const errors = events.filter((event) => event.type === 'error');
+        expect(errors).toHaveLength(1);
+        const telemetry = errors[0].runtimeFailure as {
+          runtimeFailureCode: string;
+          diagnosticId: string;
+        };
+        expect(telemetry).toMatchObject({
+          runtimeFailureCode: 'callbacks_failed',
+          diagnosticId: expect.any(String),
+        });
+        expect(errors[0].error).toContain(telemetry.diagnosticId);
+        expect(errors[0].error).not.toContain('private callback failure');
+        expect(consumed).toHaveLength(1);
+        expect(query).toHaveBeenCalledOnce();
+        await assertRestoredFailure(sessionId, errors[0].error as string, 'history', [
+          initialId,
+          replacementId,
+        ]);
+        await assertRestoredFailure(sessionId, errors[0].error as string, 'reconnect', [
+          initialId,
+          replacementId,
+        ]);
+      }
+      expect(
+        events.filter(
+          (event) => event.type === 'user_message' && event.messageId === replacementId,
+        ),
+      ).toHaveLength(1);
+    } finally {
+      release();
+      permission.mockRestore();
+      const owner = chat.registry.findBySessionId(sessionId);
+      if (owner) chat.registry.abort(owner.clientId);
+      connections.remove('interrupt-settling');
+    }
+  },
+);
+
 const restorationCaptures: unknown[] = [];
 it.each(['attached', 'detached', 'suspended'] as const)(
   'retains and delivers one exact saved-input failure with driver %s before successor native dispatch',

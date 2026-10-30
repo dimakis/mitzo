@@ -251,6 +251,83 @@ it.each(['timeout', 'stop', 'close', 'conflict'] as const)(
   },
 );
 
+it.each(
+  (['question', 'approval'] as const).flatMap((kind) =>
+    (['failure', 'timeout', 'close'] as const).map((reason) => ({ kind, reason })),
+  ),
+)(
+  'retains $kind callback uncertainty after $reason through cold recovery without tool rows',
+  async ({ kind, reason }) => {
+    const f = await setup();
+    Object.assign(f.conversationOptions, {
+      transportClosure: 'terminal',
+      callbackSettlementTimeoutMs: 10,
+    });
+    await f.c.send({ id: 'original', prompt: 'work' });
+    await f.c.send({ id: 'saved', prompt: 'later' });
+    let finish!: () => void;
+    let reject!: (error: Error) => void;
+    const wait = () =>
+      new Promise<void>((yes, no) => {
+        finish = yes;
+        reject = no;
+      });
+    f.conversationOptions.requestUserInput = async () => {
+      await wait();
+      return { answers: {} };
+    };
+    f.conversationOptions.requestNativeApproval = async () => {
+      await wait();
+      return { decision: 'decline' };
+    };
+    const pending = f
+      .getCallbacks()
+      .onRequest(
+        kind === 'question'
+          ? 'item/tool/requestUserInput'
+          : 'item/commandExecution/requestApproval',
+        {
+          threadId: f.getProviderThread(),
+          turnId: 'turn-1',
+          itemId: 'pending',
+          questions: [
+            {
+              id: 'q',
+              header: 'Choice',
+              question: 'Continue?',
+              isSecret: false,
+              isOther: false,
+              options: null,
+            },
+          ],
+        },
+        new AbortController().signal,
+        { requestId: 'pending' },
+      )
+      .catch(() => {});
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    if (reason === 'failure') reject(Error('Original callback outcome unavailable'));
+    if (reason === 'close') f.c.close();
+    await vi.waitFor(() => expect(f.onClosed).toHaveBeenCalledOnce());
+    finish();
+    await pending;
+    expect(f.c.queue().map(({ status }) => status)).toEqual(['completed', 'queued']);
+    expect(f.store.continuationBlocker('app', f.getBinding())).toMatchObject({
+      commandId: 'original',
+    });
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    f.store.recoverAtStartup();
+    const resumed = await setup(f.store);
+    await expect(resumed.c.acknowledgeRecovery()).rejects.toThrow(/phase|effect/);
+    expect(resumed.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(f.execute).not.toHaveBeenCalled();
+  },
+);
+
 it('refuses native startup from a configured DTO without the current owner and native approval adapter', async () => {
   const nativeExecution = codexNativeExecutionPolicy({
     bindingRevision: 'owner-v1',
