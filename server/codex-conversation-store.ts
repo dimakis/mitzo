@@ -1,4 +1,6 @@
 import { codexNativeProfileRevision } from './codex-native-execution-policy.js';
+import { SessionRuntimeError } from './session-runtime-error.js';
+import { CallbackIncidentStore } from './callback-incident-store.js';
 import {
   CHAT_MAX_PREPARED_PROMPT_CHARS,
   ChatMessageTextSchema,
@@ -2565,6 +2567,27 @@ export class CodexConversationStore {
       return true;
     }
   }
+  /** Negative readiness observation only; never reconciles effects or releases a queue. */
+  continuationBlocker(id: string, binding: AccountBinding) {
+    this.read(id, binding);
+    const pending = this.unsettledCommandEffects(id);
+    return pending
+      ? { commandId: pending.commandId, kind: pending.phase ? 'completion_phase' : 'tool_effects' }
+      : undefined;
+  }
+  inspectCallbackIncident(binding: AccountBinding) {
+    return new CallbackIncidentStore(this.db, this).inspectCallbackIncident(binding);
+  }
+  callbackIncidentToolReceipts(binding: AccountBinding) {
+    return new CallbackIncidentStore(this.db, this).callbackIncidentToolReceipts(binding);
+  }
+  applyCallbackIncident(
+    binding: AccountBinding,
+    planHash: string,
+    audit: { evidenceHash: string; operatorHash: string },
+  ) {
+    return new CallbackIncidentStore(this.db, this).applyCallbackIncident(binding, planHash, audit);
+  }
   completionPhaseRecoveryTarget(
     id: string,
     binding: AccountBinding,
@@ -4268,8 +4291,7 @@ export class CodexConversationStore {
   claimNext(id: string, b: AccountBinding): CodexCommand | undefined {
     return this.db.transaction(() => {
       const state = this.read(id, b);
-      if (this.unsettledCommandEffects(id))
-        throw Error('Completion phase effects require their existing owner reconciliation');
+      if (this.unsettledCommandEffects(id)) throw new SessionRuntimeError('unsettled_effects');
       if (state.recovery) throw new Error('Codex recovery requires explicit acknowledgement');
       if (
         this.db
@@ -5357,10 +5379,7 @@ export class CodexConversationStore {
       this.read(id, b);
       this.assertNoPendingThreadDispatch(id, b);
       this.assertNoPendingThreadOwnership(id, b);
-      if (this.unsettledCommandEffects(id))
-        throw Error(
-          'Completion phase effects require their existing owner reconciliation; saved work remains queued',
-        );
+      if (this.unsettledCommandEffects(id)) throw new SessionRuntimeError('unsettled_effects');
       if (nativeTarget) {
         if (!isDeepStrictEqual(this.nativeRecoveryTarget(id, b), nativeTarget))
           throw Error('Native recovery phase identity changed');
@@ -5380,10 +5399,7 @@ export class CodexConversationStore {
           : undefined;
         const pendingPhase =
           phase && (phase.status !== 'completed' || priorEffects?.ambiguous === 1);
-        if (pendingTool || pendingPhase)
-          throw Error(
-            'Downstream phase effects require their existing owner reconciliation; saved work remains queued',
-          );
+        if (pendingTool || pendingPhase) throw new SessionRuntimeError('unsettled_effects');
       }
       const capacity = this.capacityRecovery(id, b);
       if (capacity && capacity.status !== 'stopped')

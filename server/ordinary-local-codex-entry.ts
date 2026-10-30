@@ -1,3 +1,4 @@
+import { findSessionRuntimeError } from './session-runtime-error.js';
 import {
   capturePostAdoptionWire,
   observePostAdoptionWire,
@@ -1245,7 +1246,8 @@ function createOwnedCodexEntryRouter(
           dispatched: resultCommand.dispatched,
           state: receipt.state,
         });
-      } catch {
+      } catch (error) {
+        const retainedFailure = findSessionRuntimeError(error);
         let state: string | undefined;
         try {
           if (ctx.eventStore.getSendCommand(input.clientMsgId)?.sessionId === sessionId)
@@ -1260,7 +1262,8 @@ function createOwnedCodexEntryRouter(
         return res.status(409).json({
           ok: false,
           code: state ? 'retained_command' : 'entry_unavailable',
-          error: unavailable,
+          error: retainedFailure?.publicMessage() ?? unavailable,
+          ...(retainedFailure ? { runtimeFailure: retainedFailure.telemetry() } : {}),
           clientMsgId: input.clientMsgId,
           sessionId,
           ...(state ? { state } : {}),

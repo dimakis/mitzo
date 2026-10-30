@@ -91,6 +91,18 @@ export class CodexServerRequestResolvedError extends Error {
     this.name = 'CodexServerRequestResolvedError';
   }
 }
+/** Exact native terminal cancellation, scoped to this client's original RPC. */
+export class CodexTurnCompletedError extends Error {
+  constructor(
+    readonly requestId: string | number,
+    readonly threadId: string,
+    readonly turnId: string,
+  ) {
+    super('Codex request belongs to a completed provider turn');
+    this.name = 'CodexTurnCompletedError';
+    Object.freeze(this);
+  }
+}
 
 export interface CodexServerRequestContext {
   readonly requestId: string | number;
@@ -448,7 +460,7 @@ export class CodexAppServerClient {
   private readonly hostRequests = new Set<string | number>();
   private readonly activeHostRequests = new Map<
     string | number,
-    { abort: AbortController; threadId: unknown }
+    { abort: AbortController; threadId: unknown; turnId: unknown }
   >();
   private readonly lifecycle?: CodexLifecycleTransport;
   private pending = new Map<number, Pending>();
@@ -968,7 +980,7 @@ export class CodexAppServerClient {
     this.hostRequests.add(id);
     const abort = new AbortController();
     const signal = AbortSignal.any([this.hostAbort.signal, abort.signal]);
-    this.activeHostRequests.set(id, { abort, threadId: params.threadId });
+    this.activeHostRequests.set(id, { abort, threadId: params.threadId, turnId: params.turnId });
     const responseFences: Array<() => void> = [];
     const context: CodexServerRequestContext = Object.freeze({
       requestId: id,
@@ -1089,6 +1101,20 @@ export class CodexAppServerClient {
       const params = message.params ?? {};
       if (!params || typeof params !== 'object' || Array.isArray(params)) return invalid();
       if (message.id === undefined) {
+        if (message.method === 'turn/completed') {
+          const terminal = params as JsonObject;
+          const turn = terminal.turn as JsonObject | undefined;
+          if (
+            typeof terminal.threadId === 'string' &&
+            typeof turn?.id === 'string' &&
+            ['completed', 'failed', 'interrupted'].includes(String(turn.status))
+          ) {
+            for (const [id, request] of this.activeHostRequests) {
+              if (request.threadId === terminal.threadId && request.turnId === turn.id)
+                request.abort.abort(new CodexTurnCompletedError(id, terminal.threadId, turn.id));
+            }
+          }
+        }
         if (message.method === 'serverRequest/resolved') {
           const resolved = params as JsonObject;
           if (typeof resolved.requestId === 'string' || typeof resolved.requestId === 'number') {

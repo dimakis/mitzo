@@ -32,6 +32,8 @@ import {
 } from './model-token-limits.js';
 import type { AccountUseBinding } from './account-use-store.js';
 import { providerFailureTelemetry } from './provider-failure.js';
+import { findSessionRuntimeError } from './session-runtime-error.js';
+import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 const log = createLogger('query-loop');
 
 /** Truncate text for trace/log payloads, returning a truncated flag when clipped. */
@@ -92,7 +94,11 @@ function endSubagentSpans(
 
 /** Send data via transport, guarding on isOpen(). */
 function send(transport: SessionTransport, data: Record<string, unknown>) {
-  if (transport.isOpen()) transport.send(data);
+  try {
+    if (transport.isOpen()) transport.send(data);
+  } catch {
+    // A closed driver must not prevent delivery to healthy observers.
+  }
 }
 
 /** Shape of the SDK result event — fields we extract for usage tracking. */
@@ -190,6 +196,18 @@ function sendOrBuffer(
     broadcastToObservers(session.observers, enriched);
   }
   return persistedSeq;
+}
+
+/** Deliver an already durable diagnostic through the normal live session path. */
+export function deliverRetainedSessionEvent(
+  event: Record<string, unknown>,
+  clientId: string,
+  registry: SessionRegistry,
+  connRegistry?: ConnectionRegistry,
+): void {
+  const sessionId = event.sessionId as string;
+  const ownerClientId = registry.findBySessionId(sessionId)?.clientId ?? clientId;
+  sendOrBuffer(event, ownerClientId, registry, undefined, sessionId, connRegistry);
 }
 
 function v2(type: string, rest: Record<string, unknown> = {}): Record<string, unknown> {
@@ -1834,9 +1852,21 @@ async function _runQueryLoopInner(
           log.warn('query loop timed out waiting for first event', { clientId, seconds });
           sendFailure(message);
         } else if (!abortController.signal.aborted) {
-          const message = err instanceof Error ? err.message : 'Unknown error';
+          const runtimeFailure = findSessionRuntimeError(err);
+          const message =
+            runtimeFailure?.publicMessage() ??
+            (err instanceof Error ? err.message : 'Unknown error');
           log.warn('query loop error', { clientId, error: message });
-          sendFailure(message);
+          if (runtimeFailure && initialPromptAccepted && failureSessionId && store)
+            reportRetainedRuntimeFailure({
+              store,
+              sessionId: failureSessionId,
+              session: currentSession,
+              error: runtimeFailure,
+              deliver: (event) =>
+                deliverRetainedSessionEvent(event, clientId, registry, connRegistry),
+            });
+          else sendFailure(message);
         }
       }
     } finally {

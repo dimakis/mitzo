@@ -16,6 +16,13 @@ const f = vi.hoisted(() => ({
   openshell: undefined as unknown,
   openshellResume: vi.fn(),
   continuationTarget: vi.fn(),
+  blocker: undefined as undefined | { commandId: string; kind: string },
+}));
+vi.mock('../codex-chat-session.js', () => ({
+  getCodexConversationStore: () => ({
+    readHostCustody: () => ({ authSessionId: 'original' }),
+    continuationBlocker: () => f.blocker,
+  }),
 }));
 vi.mock('../chat.js', () => ({
   eventStore: {
@@ -49,6 +56,7 @@ import { ordinaryOpenShellCodexTarget } from '../ordinary-openshell-codex-route.
 import { ordinaryCodexContinuationStatus } from '../ordinary-codex-continuation-status.js';
 afterEach(() => vi.unstubAllEnvs());
 function setup() {
+  f.blocker = undefined;
   f.uncertain = false;
   vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
   f.profiles = new AccountProfiles(
@@ -103,6 +111,16 @@ it('requires retained custody for cold execution while preserving saved metadata
   });
   f.resume.mockReturnValue(true);
   expect(ordinaryCodexContinuationStatus('conversation', 'original')).toEqual({ available: true });
+});
+it('explains original callback effects before expensive runtime qualification or a speculative resume', () => {
+  setup();
+  (f.session as Record<string, unknown>).accountBinding = { accountId: 'original' };
+  f.blocker = { commandId: 'completed-once', kind: 'tool_effects' };
+  expect(ordinaryCodexContinuationStatus('conversation', 'original')).toMatchObject({
+    available: false,
+    reason: expect.stringContaining('unresolved tool or completion effects'),
+  });
+  expect(f.resume).not.toHaveBeenCalled();
 });
 it('refuses disabled, changed and foreign routes before execution support', () => {
   setup();
