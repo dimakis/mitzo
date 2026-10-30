@@ -28,7 +28,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/__tests__/session-registry.test.ts':
     '6e591b4bdd01533af3c5efd8d826dd91651c7ebccf17ed6b918ccf89f1339d93',
   '../__tests__/github-native-read-projection.test.ts':
-    '53747969b5a59c7393c3758e3e28d8e646966962646e0d5f973113b640a8bff6',
+    '45a9df455bf32d99487cdc268dbdbc4d206e9155290c7bf47c608c56d41145c7',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../__tests__/chat-metadata.test.ts':
     'a990461605a67ae715379ab6691b08dbc0d917d5f8432b01fcfeac971f240fac',

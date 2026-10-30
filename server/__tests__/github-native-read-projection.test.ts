@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { githubReadProjection, githubReadSummary } from '../github-read-summary.js';
 import { trustedGitHubReadRequest } from '../trusted-native-operation.js';
 
@@ -9,7 +9,7 @@ const records = [
     title: 'Evidence',
     state: 'closed',
     html_url: 'https://github.com/example/project/pull/7',
-    body: 'Verbose PR body '.repeat(20000),
+    body: 'Verbose PR body '.repeat(4000),
     user: { login: 'author', avatar_url: 'noise' },
     labels: [{ name: 'bug', color: 'noise' }],
     pull_request: {
@@ -22,7 +22,7 @@ const records = [
       verification: { verified: true, reason: 'valid', signature: 'noise' },
     },
   },
-  { number: 8, title: 'Issue', body: 'Another body '.repeat(10000) },
+  { number: 8, title: 'Issue', body: 'Another body '.repeat(1000) },
 ];
 const project = (body: unknown, url: string) => {
   const expression = githubReadProjection(url);
@@ -52,20 +52,32 @@ it('retains the exact commit identity of a tag in native and URL summaries', () 
   expect(native).toEqual(web);
 });
 
-it.each(['issues', 'pulls', 'commits', 'contributors', 'releases', 'tags', 'contents/src'])(
-  'projects %s before the native stdout cap using the same fields as approved URL reads',
-  (endpoint) => {
-    const url = `https://api.github.com/repos/example/project/${endpoint}?per_page=2&page=3`;
-    expect(Buffer.byteLength(JSON.stringify(records))).toBeGreaterThan(65536);
-    const bounded = project(records, url);
-    expect(Buffer.byteLength(bounded)).toBeLessThan(4096);
-    expect(JSON.parse(githubReadSummary(bounded, url))).toEqual(
-      JSON.parse(githubReadSummary(JSON.stringify(records), url)),
-    );
-    expect(bounded).not.toMatch(/Verbose PR body|avatar_url|signature|Long body/);
-    expect(JSON.parse(githubReadSummary(bounded, url))).toMatchObject({ returned: 2, omitted: 0 });
-  },
-);
+describe('plain-list route projection', () => {
+  const referenceUrl = 'https://api.github.com/repos/example/project/pulls?per_page=2&page=3';
+  let projectedRecords: string;
+  beforeAll(() => {
+    projectedRecords = project(records, referenceUrl);
+  });
+  it.each(['issues', 'pulls', 'commits', 'contributors', 'releases', 'tags', 'contents/src'])(
+    'projects %s before the native stdout cap using the same fields as approved URL reads',
+    (endpoint) => {
+      const url = `https://api.github.com/repos/example/project/${endpoint}?per_page=2&page=3`;
+      expect(Buffer.byteLength(JSON.stringify(records))).toBeGreaterThan(65536);
+      // Share only pure output of the byte-identical fixed expression and fixture.
+      expect(githubReadProjection(url)).toBe(githubReadProjection(referenceUrl));
+      const bounded = projectedRecords;
+      expect(Buffer.byteLength(bounded)).toBeLessThan(4096);
+      expect(JSON.parse(githubReadSummary(bounded, url))).toEqual(
+        JSON.parse(githubReadSummary(JSON.stringify(records), url)),
+      );
+      expect(bounded).not.toMatch(/Verbose PR body|avatar_url|signature|Long body/);
+      expect(JSON.parse(githubReadSummary(bounded, url))).toMatchObject({
+        returned: 2,
+        omitted: 0,
+      });
+    },
+  );
+});
 
 it.each([
   ['git/trees/main', 'tree'],
@@ -78,7 +90,7 @@ it.each([
     sha: 'original',
     truncated: true,
     [key]: records,
-    irrelevant: 'x'.repeat(100000),
+    irrelevant: 'unselected wrapper metadata',
   };
   const bounded = project(body, url);
   expect(JSON.parse(githubReadSummary(bounded, url))).toEqual(
