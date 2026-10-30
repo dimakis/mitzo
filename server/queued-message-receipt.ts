@@ -3,7 +3,7 @@ import type { RequestHandler } from 'express';
 export function createQueuedMessageReceiptHandler(store: {
   getSession(
     sessionId: string,
-  ): { symposiumConfig?: unknown; sessionType?: string | null } | undefined;
+  ): { symposiumConfig?: unknown; sessionType?: string | null } | null | undefined;
   hasUserMessage(sessionId: string, messageId: string): boolean;
 }): RequestHandler {
   return (req, res) => {

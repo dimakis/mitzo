@@ -25,6 +25,7 @@ it('does not disclose receipt evidence for missing or Symposium conversations', 
   res.status.mockReturnValue(res);
   for (const session of [
     undefined,
+    null,
     { sessionId: 'symposium', symposiumConfig: {} },
     { sessionId: 'symposium', sessionType: 'symposium' },
   ]) {

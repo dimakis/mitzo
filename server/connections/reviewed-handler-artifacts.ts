@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../queued-message-receipt.ts':
-    'a33d18a9a2d8ecbc2f8f27c176bf6938339a8c5a217e8371b4df5f7f7767f2b5',
+    '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
   '../../frontend/src/components/QueuedDraftTray.tsx':
     'a8721de63086cd332a3952004527493dbc920c173e41da732a746b337f11a1ca',
   '../../frontend/src/components/QueuedDraftTray.css':
