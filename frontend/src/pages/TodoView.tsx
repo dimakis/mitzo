@@ -291,8 +291,13 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   // Canonical discovery covers every profile; the legacy selection remains a
   // fallback preference, including when restored through item navigation.
   const discovery = useTodoData(undefined, undefined, collectionView, 'canonical');
-  const { loading, error, items, profiles, ack, done, create, createOutcome, refresh } =
-    useTodoData(activeProfile, undefined, collectionView, 'legacy', Boolean(discovery.error));
+  const { loading, error, items, profiles, ack, done, create, createOutcome } = useTodoData(
+    activeProfile,
+    undefined,
+    collectionView,
+    'legacy',
+    Boolean(discovery.error),
+  );
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<TodoSort>('priority');
@@ -380,8 +385,6 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   );
   function refreshWorkspace() {
     discovery.refresh();
-    if (discovery.error) refresh();
-    canonical.refresh();
   }
 
   // A short fallback or rows still growing cannot yet hold the saved offset.

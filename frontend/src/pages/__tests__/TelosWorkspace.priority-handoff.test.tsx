@@ -65,7 +65,7 @@ function open() {
       </Routes>
     </MemoryRouter>,
   );
-  expect(screen.getByRole('heading', { name: 'Task' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: records[0].summary })).toBeTruthy();
   expect(select().value).toBe('10');
 }
 async function hydrate() {
@@ -108,6 +108,10 @@ beforeEach(() => {
       return telosRecordBatchFixture(init, (id) =>
         globalThis.fetch('/api/telos/work/items/' + encodeURIComponent(id) + '/record'),
       );
+    if (url.pathname === '/api/telos/work/collection') {
+      await canonical.promise;
+      return Response.json({ profiles: ['manual'], records, failures: [] });
+    }
     if (url.pathname === '/api/todos')
       return Response.json({ profiles: ['manual'], items: records.map(legacy) });
     const record = url.pathname.match(/^\/api\/telos\/work\/items\/([^/]+)\/record$/);

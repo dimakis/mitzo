@@ -71,6 +71,11 @@ beforeEach(() => {
       return telosRecordBatchFixture(init, (id) =>
         globalThis.fetch('/api/telos/work/items/' + encodeURIComponent(id) + '/record'),
       );
+    if (url.pathname === '/api/telos/work/collection') {
+      return unavailable || unavailableCollection
+        ? Response.json({}, { status: 503 })
+        : Response.json({ records, failures: [], profiles: ['manual', 'work'] });
+    }
     if (url.pathname === '/api/todos') {
       const profile = url.searchParams.get('profile');
       if (!profile && unavailableCollection) return Response.json({}, { status: 503 });
@@ -137,8 +142,8 @@ it('recovers every profile after a mounted legacy profile selection and retains 
   unavailable = false;
   fireEvent.click(screen.getByRole('button', { name: 'Refresh Telos' }));
   await expectAllOutcomes();
-  expect(reads.filter((path) => path === '/api/todos')).toHaveLength(2);
-  expect(reads.filter((path) => path === '/api/todos?profile=work')).toHaveLength(2);
+  expect(reads.filter((path) => path === '/api/todos')).toHaveLength(1);
+  expect(reads.filter((path) => path === '/api/todos?profile=work')).toHaveLength(1);
   fireEvent.click(screen.getByRole('button', { name: home.summary }));
   await screen.findByRole('heading', { name: home.summary });
   fireEvent.click(screen.getByRole('button', { name: 'Back' }));
@@ -148,8 +153,8 @@ it('discovers every profile when a legacy profile is restored in navigation stat
   unavailable = false;
   mount('work');
   await expectAllOutcomes();
-  expect(reads).toContain('/api/todos');
-  expect(reads).toContain('/api/todos?profile=work');
+  expect(reads).toContain('/api/telos/work/collection');
+  expect(reads.some((path) => path.startsWith('/api/todos'))).toBe(false);
 });
 it('keeps the selected legacy fallback available while full discovery is unavailable, then recovers the full tree', async () => {
   unavailableCollection = true;
@@ -166,8 +171,10 @@ it('shares the unfiltered read and refresh instead of duplicating identical HTTP
   unavailable = false;
   mount();
   await expectAllOutcomes();
-  expect(reads.filter((path) => path === '/api/todos')).toHaveLength(1);
+  expect(reads.filter((path) => path === '/api/telos/work/collection')).toHaveLength(1);
   fireEvent.click(screen.getByRole('button', { name: 'Refresh Telos' }));
-  await waitFor(() => expect(reads.filter((path) => path === '/api/todos')).toHaveLength(2));
+  await waitFor(() =>
+    expect(reads.filter((path) => path === '/api/telos/work/collection')).toHaveLength(2),
+  );
   await expectAllOutcomes();
 });

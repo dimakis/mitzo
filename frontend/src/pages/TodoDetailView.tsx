@@ -136,6 +136,17 @@ export function TodoDetailView() {
       navigate('/todos', { replace: true });
   }, [loading, refreshing, error, item, navigate, canonical.loading, record, recoveryPending]);
 
+  async function handlePriority(priority: number) {
+    const selectedItem = item;
+    if (!selectedItem) return;
+    await updatePriority(selectedItem.id, priority);
+    // The navigation snapshot can still be displayed after a failed list read.
+    // Retain acknowledged edits there until canonical list data is available.
+    setStateItem((previous) =>
+      previous?.id === selectedItem.id ? { ...previous, priority } : previous,
+    );
+  }
+
   if (record)
     return (
       <div className="todo-detail-page telos-canonical-page">
@@ -192,8 +203,47 @@ export function TodoDetailView() {
   if (primary.loading)
     return (
       <div className="todo-detail-page telos-canonical-page">
-        <PageHeader title={item?.summary ?? 'Telos'} onBack={handleBack} />
-        <p role="status">Loading item…</p>
+        <div className="todo-detail-scroll">
+          <article className="telos-item-workspace">
+            <header className="telos-item-heading">
+              <button aria-label="Back" onClick={handleBack}>
+                <UiIcon name="back" size={20} />
+              </button>
+              <div className="telos-item-title">
+                <h1>{item?.summary ?? 'Telos'}</h1>
+              </div>
+              {item && (
+                <TodoPrioritySelect
+                  saveState={prioritySaveState}
+                  priority={todoPriority(item)}
+                  onChange={handlePriority}
+                />
+              )}
+            </header>
+            <p role="status">Loading item…</p>
+            {!!item?.children.length && (
+              <section>
+                <h2>Child work</h2>
+                {item.children.map((child) => (
+                  <button
+                    key={child.id}
+                    className="telos-node-title"
+                    onClick={() =>
+                      navigate(`/todos/${encodeURIComponent(child.id)}`, {
+                        state: {
+                          ...appendTelosItemHistory(location.state, itemHistory(), item.id, item),
+                          item: child,
+                        },
+                      })
+                    }
+                  >
+                    {child.summary}
+                  </button>
+                ))}
+              </section>
+            )}
+          </article>
+        </div>
       </div>
     );
 
@@ -244,14 +294,6 @@ export function TodoDetailView() {
 
   // Capture narrowed item for use in nested functions (TS doesn't narrow across closures)
   const currentItem: TodoItem = item;
-  async function handlePriority(priority: number) {
-    await updatePriority(currentItem.id, priority);
-    // The navigation snapshot can still be displayed after a failed list read.
-    // Retain acknowledged edits there until canonical list data is available.
-    setStateItem((previous) =>
-      previous?.id === currentItem.id ? { ...previous, priority } : previous,
-    );
-  }
   const hints = currentItem.contextHints;
   const ageLabel = item.ageDays === 0 ? 'new' : `${item.ageDays}d`;
   const hasContext =
