@@ -111,7 +111,10 @@ import {
 import { createGithubPublicationOperatorRouter } from './github-publication-operator-router.js';
 import { createKnowledgeLibraryRouter } from './knowledge-library-router.js';
 import { knowledgeLibraryFromEnvironment } from './knowledge-library-runtime.js';
-import { installKnowledgeDraftRuntime } from './session-knowledge-tools.js';
+import {
+  installKnowledgeDraftRuntime,
+  installMemoryCandidateStore,
+} from './session-knowledge-tools.js';
 import { createKnowledgeLibraryLoader } from './knowledge-library-loader.js';
 import { requestOperatorGithubPublication } from './github-publishing-tool.js';
 import { createCredentialConnectionsRouter } from './credential-connections-router.js';
@@ -788,6 +791,7 @@ const getKnowledgeLibraryRuntime = createKnowledgeLibraryLoader(() =>
 );
 installContextPackRuntime(getKnowledgeLibraryRuntime);
 installKnowledgeDraftRuntime(getKnowledgeLibraryRuntime);
+installMemoryCandidateStore(eventStore);
 mountObservedRouter(
   app,
   '/api/knowledge',

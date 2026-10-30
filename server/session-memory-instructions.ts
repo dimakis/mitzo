@@ -1,0 +1,2 @@
+export const MEMORY_CAPTURE_INSTRUCTIONS =
+  'At meaningful milestones and closeout, use RecordMemoryCandidate for sourced corrections, decisions and reusable lessons. Cite exact conversation quotes. Zero candidates is normal. A capture receipt is not accepted, published or shared MGMT knowledge. If capture is unavailable, preserve the candidate in your final summary for enrolled transcript backfill; do not create a separate routine memory commit or PR. Profile and Pattern changes require discussion.';

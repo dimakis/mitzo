@@ -151,6 +151,8 @@ import { AccountProfiles } from '../account-profiles.js';
 import { EventStore } from '../event-store.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
+import { installHostKnowledgeStore } from '../published-host-knowledge.js';
+import { hostKnowledgePublication } from './fixtures/host-knowledge-publication.js';
 
 beforeEach(() => {
   vi.spyOn(OpenShellRuntimeManager.prototype, 'inspectTaskCapabilities').mockResolvedValue({
@@ -781,6 +783,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'GetRepositoryChatPreparation' }),
     expect.objectContaining({ name: 'SymposiumProposeProfile' }),
     expect.objectContaining({ name: 'SymposiumReadProfiles' }),
+    expect.objectContaining({ name: 'RecordMemoryCandidate' }),
     expect.objectContaining({ name: 'ReadKnowledge' }),
     expect.objectContaining({ name: 'SaveKnowledgeDraft' }),
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
@@ -1082,6 +1085,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({ name: 'GetRepositoryChatPreparation' }),
       expect.objectContaining({ name: 'SymposiumProposeProfile' }),
       expect.objectContaining({ name: 'SymposiumReadProfiles' }),
+      expect.objectContaining({ name: 'RecordMemoryCandidate' }),
       expect.objectContaining({ name: 'ReadKnowledge' }),
       expect.objectContaining({ name: 'SaveKnowledgeDraft' }),
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
@@ -3200,6 +3204,8 @@ it.each(['recipe', 'supplied', 'retained'] as const)(
 );
 
 it('keeps scoped adviser context isolated when ordinary local discovery and efficiency are enabled', async () => {
+  const reconcile = vi.fn();
+  const disposeHostMemory = installHostKnowledgeStore({ id: 'mgmt', reconcile });
   mocks.initialize.mockResolvedValue(undefined);
   mocks.send.mockResolvedValue(undefined);
   const integrationExecute = vi.fn(async () => ({ content: 'Ordinary integration output' }));
@@ -3234,6 +3240,8 @@ it('keeps scoped adviser context isolated when ordinary local discovery and effi
     query = await openCodexChat({ ...f.opts, adviserScope: scope });
     const captured = mocks.conversationOptions!;
     expect(captured.tools).toEqual([]);
+    expect(captured.prepareSystemPrompt).toBeUndefined();
+    expect(reconcile).not.toHaveBeenCalled();
     expect(captured.disableWebSearch).toBe(true);
     expect(captured.disableProjectDocuments).toBe(true);
     expect(captured.systemPrompt).toContain(scope.instructions());
@@ -3289,6 +3297,7 @@ it('keeps scoped adviser context isolated when ordinary local discovery and effi
   } finally {
     query?.close();
     f.eventStore.close();
+    disposeHostMemory();
   }
 });
 
@@ -7146,5 +7155,54 @@ it('exposes approved web access in owned local chat and integration discovery', 
   } finally {
     chat?.close();
     f.eventStore.close();
+  }
+});
+
+it('delivers selected host memory on the retained provider thread and records only its acknowledgement', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'host-memory-context-')));
+  const publication = hostKnowledgePublication(root, 'a', 'Accepted memory');
+  const reconcile = vi.fn().mockResolvedValue(publication);
+  const dispose = installHostKnowledgeStore({ id: 'mgmt', reconcile });
+  const fixture = ownedLocalOptions('/tmp');
+  const opts = fixture.opts;
+  vi.spyOn(opts.eventStore, 'append');
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    chat = await openCodexChat(opts);
+    const prepare = mocks.conversationOptions?.prepareSystemPrompt as (
+      signal: AbortSignal,
+    ) => Promise<string>;
+    const acknowledge = mocks.conversationOptions?.onApplicationContextAccepted as (
+      command: string,
+      thread: string,
+      turn: string,
+      context: string,
+    ) => void;
+    const context = await prepare(AbortSignal.timeout(5000));
+    expect(context).toContain(publication.sourceCommit);
+    expect(opts.eventStore.append).not.toHaveBeenCalledWith(
+      opts.conversationId,
+      'published_knowledge_adopted',
+      expect.anything(),
+    );
+    acknowledge('command', 'same-provider-thread', 'turn', context);
+    expect(opts.eventStore.append).toHaveBeenCalledWith(
+      opts.conversationId,
+      'published_knowledge_adopted',
+      expect.objectContaining({
+        runtime: 'local-mac',
+        sourceCommit: publication.sourceCommit,
+        threadId: 'same-provider-thread',
+        turnId: 'turn',
+      }),
+    );
+    expect(reconcile).toHaveBeenCalledOnce();
+  } finally {
+    chat?.close();
+    dispose();
+    fixture.eventStore.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });

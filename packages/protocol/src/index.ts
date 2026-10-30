@@ -400,6 +400,7 @@ export {
 } from './paid-reasoning-selection.js';
 
 export * from './chat-input-limits.js';
+export { MemoryCandidateSchema } from './memory-candidates.js';
 
 export {
   MessageReplyIdSchema,

@@ -36,6 +36,8 @@ const DEFAULT_TOOL_TIERS: Record<string, ToolTier> = {
   ReadKnowledge: 'safe',
   'mcp__mitzo-connections__ReadKnowledge': 'safe',
   SaveKnowledgeDraft: 'standard',
+  RecordMemoryCandidate: 'standard',
+  'mcp__mitzo-connections__RecordMemoryCandidate': 'standard',
   'mcp__mitzo-connections__SaveKnowledgeDraft': 'standard',
   Glob: 'safe',
   Grep: 'safe',

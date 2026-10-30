@@ -181,3 +181,20 @@ remain separate, with their existing source/runtime verification and receipts. T
 Library cannot fabricate publication or adoption receipts. There is no staging or
 production deployment action in this workflow. Production activation always requires
 a separate explicit operator action.
+
+## Conversation memory candidates
+
+`RecordMemoryCandidate` records sourced corrections, decisions and reusable
+lessons in the existing conversation event store. It requires exact quotes from
+recent ordinary conversation text and preserves their sequence references. Its
+idempotent receipt means captured, not accepted or shared. It does not load or
+refresh the Library, create a second database, invoke a model, or open a PR.
+The enrolled MGMT worker captures Local Mac and OpenShell controller events in
+one bounded batch through the existing extraction and review pipeline.
+
+Shared milestone and closeout guidance prompts the agent to capture worthwhile
+lessons; zero candidates is normal. Missed tool calls remain recoverable through
+enrolled transcript/event backfill. The existing closeout scheduler remains the
+only idle-closeout mechanism. Explicit edits to existing accepted documents still
+use `ReadKnowledge` followed by `SaveKnowledgeDraft` and retain the Library's
+existing review and scope rules. Profiles and Patterns require discussion.

@@ -9,7 +9,10 @@ import { KnowledgeDraftStore } from '../knowledge-draft-store.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import { sessionCredentialTools } from '../session-credential-tools.js';
-import { installKnowledgeDraftRuntime } from '../session-knowledge-tools.js';
+import {
+  installKnowledgeDraftRuntime,
+  installMemoryCandidateStore,
+} from '../session-knowledge-tools.js';
 import {
   reviewedHandlerSourceArtifacts,
   reviewedHandlerSourceFingerprint,
@@ -36,6 +39,49 @@ function git(...args: string[]) {
 function tools() {
   return sessionCredentialTools('chat', registry.get('client')!, registry);
 }
+
+it('captures a candidate through the existing permission boundary without refreshing the Library', async () => {
+  const recordMemoryCandidate = vi.fn(() => ({
+    status: 'captured' as const,
+    seq: 7,
+    requestId: input().requestId,
+    accepted: false,
+  }));
+  const dispose = installMemoryCandidateStore({ recordMemoryCandidate });
+  try {
+    const result = await tools().execute(
+      'RecordMemoryCandidate',
+      {
+        requestId: input().requestId,
+        summary: 'Keep knowledge dated.',
+        quotes: ['Keep knowledge dated.'],
+      },
+      new AbortController().signal,
+      identity,
+    );
+    expect(result?.isError).toBe(false);
+    expect(recordMemoryCandidate).toHaveBeenCalledOnce();
+    expect(refresh).not.toHaveBeenCalled();
+    registry.get('client')!.mode = 'ask';
+    expect(
+      (
+        await tools().execute(
+          'RecordMemoryCandidate',
+          {
+            requestId: input().requestId,
+            summary: 'Keep knowledge dated.',
+            quotes: ['Keep knowledge dated.'],
+          },
+          new AbortController().signal,
+          identity,
+        )
+      )?.isError,
+    ).toBe(true);
+    expect(recordMemoryCandidate).toHaveBeenCalledOnce();
+  } finally {
+    dispose();
+  }
+});
 
 it('includes Knowledge draft execution and its registrations in the reviewed runtime integrity check', () => {
   const artifacts: Readonly<Record<string, string>> = reviewedHandlerSourceArtifacts;
