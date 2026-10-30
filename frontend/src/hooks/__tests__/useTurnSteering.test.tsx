@@ -29,7 +29,7 @@ it('retains and explicitly retries the same correction after response loss, even
     Response.json({ requestId: first.requestId, status: 'accepted' }),
   );
   await act(async () => {
-    hook.result.current.retry();
+    hook.result.current.retry!();
   });
   const second = JSON.parse(vi.mocked(apiFetch).mock.calls[1][1]!.body as string);
   expect(second).toEqual(first);
@@ -98,7 +98,7 @@ it('a late original receipt cannot remove a newer correction saved after returni
     Response.json({ requestId: first.requestId, status: 'accepted' }),
   );
   await act(async () => {
-    hook.result.current.retry();
+    hook.result.current.retry!();
   });
   vi.mocked(apiFetch).mockRejectedValueOnce(Error('lost'));
   await act(async () => {

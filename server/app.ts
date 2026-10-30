@@ -1,3 +1,4 @@
+import { assertOrdinaryContributorControlAllowed } from './ordinary-contributor-execution.js';
 import { installChatCommandJson } from './chat-command-json.js';
 import { sessionModelSettingsReason } from './session-model-settings.js';
 import { adviserExecutionProjection } from './adviser-harness-runtime.js';
