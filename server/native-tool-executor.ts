@@ -59,6 +59,12 @@ const schemas = {
         .max(1000)
         .regex(/^\/(?:user|repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_./?=&%+-]*)?)$/)
         .refine(isTrustedGitHubEndpoint, 'Invalid GitHub path'),
+      view: z
+        .enum(['summary', 'full'])
+        .optional()
+        .describe(
+          'Known list endpoints default to concise fields before the output bound. Use full only when missing record detail is required; the existing output bound still applies.',
+        ),
     })
     .strict()
     .describe(
@@ -198,7 +204,10 @@ export function createNativeToolExecutor(
           : result(permission.message, true);
       }
       if (block.name === 'GitHubRead' && 'endpoint' in parsed.data) {
-        const input = { endpoint: parsed.data.endpoint };
+        const input = {
+          endpoint: parsed.data.endpoint,
+          ...('view' in parsed.data && parsed.data.view ? { view: parsed.data.view } : {}),
+        };
         const permission = await canUseTool(block.name, input, {
           signal,
           toolUseID: block.id,
@@ -222,6 +231,7 @@ export function createNativeToolExecutor(
             signal,
             options.timeoutMs,
             options.maxOutputBytes,
+            input.view,
           ),
         );
       }

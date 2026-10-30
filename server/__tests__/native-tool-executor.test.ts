@@ -182,6 +182,7 @@ describe('native tool execution through session permissions', () => {
       abort.signal,
       undefined,
       undefined,
+      undefined,
     );
   });
   it('retains an authenticated GitHub read approval for the session', async () => {
@@ -200,6 +201,24 @@ describe('native tool execution through session permissions', () => {
     expect(second).toMatchObject({ is_error: false });
     expect(sent).toEqual([]);
     expect(registry.get('client')!.sessionAllowList).toContain('GitHubRead');
+  });
+  it('includes an explicit full GitHub view in the original approved request', async () => {
+    const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+    const pending = executor()(
+      call('GitHubRead', { endpoint: '/repos/example/project/pulls', view: 'full' }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(before);
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    expect(await pending).toMatchObject({ is_error: false });
+    expect(executeTrustedGitHubRead).toHaveBeenLastCalledWith(
+      '/repos/example/project/pulls',
+      abort.signal,
+      undefined,
+      undefined,
+      'full',
+    );
   });
   it('rejects GitHub traversal before requesting approval', async () => {
     for (const endpoint of [

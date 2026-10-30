@@ -10,62 +10,74 @@ const fields = (value: unknown, names: readonly string[]) =>
       .map((name) => [name, record(value)[name]]),
   );
 
+const ITEM_FIELDS = [
+  'id',
+  'number',
+  'title',
+  'name',
+  'path',
+  'type',
+  'sha',
+  'size',
+  'state',
+  'draft',
+  'status',
+  'conclusion',
+  'created_at',
+  'updated_at',
+  'closed_at',
+  'merged_at',
+  'started_at',
+  'completed_at',
+  'html_url',
+  'url',
+  'download_url',
+  'tag_name',
+  'published_at',
+  'prerelease',
+  'contributions',
+  'login',
+] as const;
+
+const DETAIL_FIELDS = {
+  user: ['login'],
+  labels: ['name'],
+  pull_request: ['url', 'html_url', 'merged_at'],
+  author: ['name', 'date'],
+  verification: ['verified', 'reason'],
+} as const;
+
 function itemSummary(value: unknown) {
   const item = record(value);
-  const result = fields(item, [
-    'id',
-    'number',
-    'title',
-    'name',
-    'path',
-    'type',
-    'sha',
-    'size',
-    'state',
-    'draft',
-    'status',
-    'conclusion',
-    'created_at',
-    'updated_at',
-    'closed_at',
-    'merged_at',
-    'started_at',
-    'completed_at',
-    'html_url',
-    'url',
-    'download_url',
-    'tag_name',
-    'published_at',
-    'prerelease',
-    'contributions',
-    'login',
-  ]);
-  if (item.user) result.user = fields(item.user, ['login']);
+  const result = fields(item, ITEM_FIELDS);
+  if (item.user) result.user = fields(item.user, DETAIL_FIELDS.user);
   if (Array.isArray(item.labels))
-    result.labels = item.labels.map((label) => fields(label, ['name']));
+    result.labels = item.labels.map((label) => fields(label, DETAIL_FIELDS.labels));
   if (item.pull_request)
-    result.pull_request = fields(item.pull_request, ['url', 'html_url', 'merged_at']);
+    result.pull_request = fields(item.pull_request, DETAIL_FIELDS.pull_request);
   if (item.commit) {
     const commit = record(item.commit);
     result.commit = {
       ...(typeof commit.message === 'string'
         ? { message: commit.message.split(/\r?\n/, 1)[0] }
         : {}),
-      author: fields(commit.author, ['name', 'date']),
-      verification: fields(commit.verification, ['verified', 'reason']),
+      author: fields(commit.author, DETAIL_FIELDS.author),
+      verification: fields(commit.verification, DETAIL_FIELDS.verification),
     };
   }
   return result;
 }
 
-/** A readable view of known GitHub list endpoints. Individual records stay intact.
- * Projection changes no URL, headers, credential scope or network permissions.
- */
-export function githubReadSummary(body: string, sourceUrl: string, linkHeader?: string): string {
-  const url = new URL(sourceUrl);
-  if (url.origin !== 'https://api.github.com') return body;
+function listEndpoint(sourceUrl: string) {
+  let url: URL;
+  try {
+    url = new URL(sourceUrl);
+  } catch {
+    return;
+  }
+  if (url.origin !== 'https://api.github.com' || url.username || url.password) return;
   const endpoint = url.pathname.match(/^\/repos\/[^/]+\/[^/]+\/(.+?)\/?$/)?.[1];
-  if (!endpoint) return body;
+  if (!endpoint) return;
   const list = /^(issues|pulls|commits|contributors|releases|tags)$/.test(endpoint);
   const wrapper = /^git\/trees\/[^/]+$/.test(endpoint)
     ? 'tree'
@@ -75,7 +87,43 @@ export function githubReadSummary(body: string, sourceUrl: string, linkHeader?: 
         ? 'workflows'
         : undefined;
   const contents = /^contents(?:\/.*)?$/.test(endpoint);
-  if (!list && !wrapper && !contents) return body;
+  return list || wrapper || contents ? { url, endpoint, wrapper, contents } : undefined;
+}
+
+/** Fixed gh/gojq projection before the existing trusted stdout bound. No user
+ * expression, URL change, extra request or credential choice is introduced.
+ * The same field lists drive the transport-independent summary below. */
+export function githubReadProjection(sourceUrl: string): string | undefined {
+  const source = listEndpoint(sourceUrl);
+  if (!source) return;
+  const pick = (names: readonly string[]) => `pick(${JSON.stringify(names)})`;
+  const item = `. as $item | ${pick(ITEM_FIELDS)}
+    | if $item.user then .user = ($item.user | ${pick(DETAIL_FIELDS.user)}) else . end
+    | if ($item.labels | type) == "array" then .labels = ($item.labels | map(${pick(DETAIL_FIELDS.labels)})) else . end
+    | if $item.pull_request then .pull_request = ($item.pull_request | ${pick(DETAIL_FIELDS.pull_request)}) else . end
+    | if $item.commit then .commit = {
+        author: ($item.commit.author | ${pick(DETAIL_FIELDS.author)}),
+        verification: ($item.commit.verification | ${pick(DETAIL_FIELDS.verification)})
+      } + (if ($item.commit.message | type) == "string" then {message: ($item.commit.message | split("\\n") | if length > 1 then .[0] | rtrimstr("\\r") else .[0] end)} else {} end)
+      else . end`;
+  const records = `if type == "array" and all(.[]; type == "object") then map(${item}) else . end`;
+  const prefix =
+    'def pick($keys): (if type == "object" then . else {} end) | with_entries(select(.key as $key | $keys | index($key))); ';
+  if (!source.wrapper) return prefix + records;
+  const key = JSON.stringify(source.wrapper);
+  return (
+    prefix +
+    `if type == "object" and (.${source.wrapper} | type) == "array" and all(.${source.wrapper}[]; type == "object") then ${pick(['total_count', 'sha', 'truncated', source.wrapper])} | .[${key}] |= (${records}) else . end`
+  );
+}
+
+/** A readable view of known GitHub list endpoints. Individual records stay intact.
+ * Projection changes no URL, headers, credential scope or network permissions.
+ */
+export function githubReadSummary(body: string, sourceUrl: string, linkHeader?: string): string {
+  const source = listEndpoint(sourceUrl);
+  if (!source) return body;
+  const { url, endpoint, wrapper, contents } = source;
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);

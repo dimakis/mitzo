@@ -1,3 +1,4 @@
+import { githubReadProjection, githubReadSummary } from './github-read-summary.js';
 import {
   validateRepositoryTaskCheckout,
   type RepositoryTaskCheckout,
@@ -78,16 +79,18 @@ export async function executeTrustedGitHubRead(
   signal: AbortSignal,
   timeoutMs = 30_000,
   maxOutputBytes = 64 * 1024,
+  view: 'summary' | 'full' = 'summary',
 ): Promise<string> {
   const home = process.env.HOME;
   if (!home) throw new Error('Trusted GitHub credentials are unavailable');
-  const request = trustedGitHubReadRequest(endpoint);
-  return run(request.file, request.args, {
+  const request = trustedGitHubReadRequest(endpoint, view);
+  const body = await run(request.file, request.args, {
     signal,
     timeoutMs,
     maxOutputBytes,
     env: { HOME: home, GH_HOST: 'github.com' },
   });
+  return view === 'full' ? body : githubReadSummary(body, `https://api.github.com${endpoint}`);
 }
 
 export function isTrustedGitHubEndpoint(endpoint: string) {
@@ -108,11 +111,21 @@ export function isTrustedGitHubEndpoint(endpoint: string) {
   }
 }
 
-export function trustedGitHubReadRequest(endpoint: string) {
+export function trustedGitHubReadRequest(endpoint: string, view: 'summary' | 'full' = 'summary') {
   if (!isTrustedGitHubEndpoint(endpoint)) throw new Error('Invalid trusted GitHub endpoint');
+  const projection =
+    view === 'full' ? undefined : githubReadProjection(`https://api.github.com${endpoint}`);
   return {
     file: 'gh',
-    args: ['api', '--hostname', 'github.com', '--method', 'GET', endpoint],
+    args: [
+      'api',
+      '--hostname',
+      'github.com',
+      '--method',
+      'GET',
+      endpoint,
+      ...(projection ? ['--jq', projection] : []),
+    ],
   } as const;
 }
 

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.779-tool-outcome-observation';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.780-native-github-summary';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/github-native-read-projection.test.ts':
+    '7d2de224ac884021117bab0fb28d4e30bdc516b964de9c1756d4af1a17db2cde',
   '../__tests__/prepared-repository-native-public-followup-interrupted.test.ts':
     '0018c2d7bf04ada97dc7ac978dbe1c2e9b6e670169163764862da96d43a28d4f',
   '../__tests__/local-repository-preparation-capacity.test.ts':
@@ -1483,7 +1485,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../protected-sdk-command.ts': 'e7c59a2ebfd3fde4b0c7c8cdf7f69f9d231e2e5f1819a61e0514cd707bc6c32f',
   '../native-hooks.ts': 'f857e17f9819b4e1e0ab19fb4cd74510f4ff37a307003929c8e5518307864e86',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
-  '../native-tool-executor.ts': '9b48a9d9490f2788b14d466eec48c030ddd2008e688874a8526fdff02c14fa68',
+  '../native-tool-executor.ts': '0bb9f3e712049b9e491729409b2c5bf0635dbdae57680b5d944e53e17be512d7',
   '../repository-workspaces.ts': '3bff574dee2aef86948f4993108af97610795fca910a1f40dd03bd90ed7a0ea2',
   '../../packages/protocol/src/session-metadata-store.ts':
     '9d270987bc47a9a468fdbd6d595d6a90b7297f080ce4c34103b0e7af11303ddf',
@@ -1504,7 +1506,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../repository-workspace-router.ts':
     'e45f262a62ec0cc81a7b7c00d419baed77bdb70e77bde32ff4e13c68377a0757',
   '../trusted-native-operation.ts':
-    '99f2940ea463efce883e07f3fcb56634f6294d5b5190f263a5490e0b5d64d6ca',
+    '4e460e134bebe0584ab372a01dd2ab7a2e2151a3147603f4f03173b385c83536',
   '../repository-chat-startup.ts':
     'd1558d4bac7c350a952939b4933450674d5480fd23c78071b755aa97f7e253d6',
   'runtime-profiles.ts': '3632545ca52fbfad7442de08c03d5f9808b50b5bfdef92f9cd72b8fa8ab5140b',
@@ -1796,7 +1798,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useTelosRoleSetup.ts':
     'cbded6cb6136a45627de2b563b433cfc4b9f80c248035dcdbbfb05c79d9810d8',
   '../research-instructions.ts': '43b6b28df80b4b1e306619c7089c5e3e1326cfc97253f810a1732ce67bf9c082',
-  '../github-read-summary.ts': 'a0484745af976ccee6b840e3955824509669d0fedb1561d6a6ce35c31ebadc2d',
+  '../github-read-summary.ts': '01f2af4a9523e073c413a4b4dfe7652dc79f5a726424b615f97b8fdc5659fcfa',
   '../../frontend/src/components/AgentActivity.tsx':
     '6dace0ce097e4c7647a14134f3d75e0d2e76650da4a222ea1e117c7bf04178a0',
   '../../frontend/src/lib/web-access-outcome.ts':
