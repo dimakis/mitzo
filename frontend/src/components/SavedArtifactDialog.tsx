@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import type { TodoOutput } from '../types/todo';
@@ -61,6 +61,7 @@ export function SavedArtifactDialog({
       >
         {artifact ? (
           <SavedArtifactDetails
+            key={`${artifact.itemId}:${artifact.id}`}
             artifact={artifact}
             open={open}
             onClose={onClose}
@@ -114,11 +115,14 @@ function SavedArtifactDetails({
   const [pageBefore, setPageBefore] = useState<number>();
   const [historyRetry, setHistoryRetry] = useState(0);
   const [previewRetry, setPreviewRetry] = useState(0);
+  const loadedPreview = useRef<string | null>(null);
   const [document, setDocument] = useState<{
     revision: number;
     document: SavedArtifactDocument | null;
     error: string | null;
   } | null>(null);
+  const historyTarget = useRef(artifact);
+  historyTarget.current = artifact;
   const navigate = useNavigate();
   const location = useLocation();
   const version = versions.find((row) => row.revision === selected)!;
@@ -131,7 +135,7 @@ function SavedArtifactDetails({
     }
     const controller = new AbortController();
     setHistory((previous) => ({ ...previous, loaded: false, error: null }));
-    readSavedArtifactVersions(artifact, controller.signal, pageBefore)
+    readSavedArtifactVersions(historyTarget.current, controller.signal, pageBefore)
       .then((page) => {
         if (controller.signal.aborted) return;
         setVersions((previous) => {
@@ -150,15 +154,22 @@ function SavedArtifactDetails({
           });
       });
     return () => controller.abort();
-  }, [artifact, pageBefore, historyRetry, open]);
+  }, [artifact.id, artifact.itemId, pageBefore, historyRetry, open]);
   useEffect(() => {
-    if (!history.loaded || !open || isPdf) return;
+    if (!open) {
+      loadedPreview.current = null;
+      return;
+    }
+    const identity = JSON.stringify([version.id, selected, version.sha256, previewRetry]);
+    if (!history.loaded || isPdf || loadedPreview.current === identity) return;
     const controller = new AbortController();
     setDocument(null);
     readSavedArtifactDocument(version, controller.signal)
       .then((value) => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
+          loadedPreview.current = identity;
           setDocument({ revision: selected, document: value, error: null });
+        }
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted)
