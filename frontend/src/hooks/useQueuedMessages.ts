@@ -3,7 +3,7 @@ import { chatStorage } from '../lib/large-chat-storage';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ImageAttachment } from '../types/chat';
 import type { DraftSessionAssignment } from './useDraft';
-import { createBrowserId } from '../lib/browser-crypto';
+import { createBrowserId, sha256Hex } from '../lib/browser-crypto';
 
 const KEY_PREFIX = 'mitzo-queue-';
 const QUEUE_CHANGED_EVENT = 'mitzo-queue-changed';
@@ -13,6 +13,7 @@ export interface QueuedMessage {
   queueEntryId?: string;
   /** Submitted or refused input must never resume automatic queue drain. */
   requiresRetry?: boolean;
+  dispatchPending?: boolean;
   text: string;
   replyTo?: MessageReplyContext;
   /** Only the new durable draft flow retains attachment bytes. */
@@ -27,6 +28,7 @@ interface StoredMessage {
   images?: Array<Omit<ImageAttachment, 'preview'>>;
   queueEntryId?: string;
   requiresRetry?: boolean;
+  dispatchPending?: boolean;
   text: string;
   contextBlocks: string[];
 }
@@ -37,7 +39,16 @@ function queueKey(sessionId: string | undefined): string {
 
 function toStored(msgs: QueuedMessage[]): StoredMessage[] {
   return msgs.map(
-    ({ text, contextBlocks, requiresRetry, queueEntryId, replyTo, images, retainAttachments }) => ({
+    ({
+      text,
+      contextBlocks,
+      requiresRetry,
+      dispatchPending,
+      queueEntryId,
+      replyTo,
+      images,
+      retainAttachments,
+    }) => ({
       text,
       contextBlocks,
       ...(replyTo ? { replyTo } : {}),
@@ -45,24 +56,28 @@ function toStored(msgs: QueuedMessage[]): StoredMessage[] {
         ? { images: images.map(({ preview: _preview, ...image }) => image) }
         : {}),
       ...(requiresRetry ? { requiresRetry: true } : {}),
+      ...(dispatchPending ? { dispatchPending: true } : {}),
       ...(queueEntryId ? { queueEntryId } : {}),
     }),
   );
 }
 
 function fromStored(msgs: StoredMessage[]): QueuedMessage[] {
-  return msgs.map(({ text, contextBlocks, requiresRetry, queueEntryId, replyTo, images }) => ({
-    text,
-    contextBlocks,
-    ...(replyTo ? { replyTo } : {}),
-    ...(images?.length ? { retainAttachments: true } : {}),
-    images: (images ?? []).map((image) => ({
-      ...image,
-      preview: `data:${image.mediaType};base64,${image.data}`,
-    })),
-    ...(requiresRetry ? { requiresRetry: true } : {}),
-    ...(typeof queueEntryId === 'string' ? { queueEntryId } : {}),
-  }));
+  return msgs.map(
+    ({ text, contextBlocks, requiresRetry, dispatchPending, queueEntryId, replyTo, images }) => ({
+      text,
+      contextBlocks,
+      ...(replyTo ? { replyTo } : {}),
+      ...(images?.length ? { retainAttachments: true } : {}),
+      images: (images ?? []).map((image) => ({
+        ...image,
+        preview: `data:${image.mediaType};base64,${image.data}`,
+      })),
+      ...(requiresRetry ? { requiresRetry: true } : {}),
+      ...(dispatchPending ? { dispatchPending: true } : {}),
+      ...(typeof queueEntryId === 'string' ? { queueEntryId } : {}),
+    }),
+  );
 }
 
 function readQueue(sessionId: string | undefined): QueuedMessage[] {
@@ -166,6 +181,9 @@ export function useQueuedMessages(
   queue: QueuedMessage[];
   enqueue: (msg: QueuedMessage) => boolean;
   enqueuePersisted: (msg: QueuedMessage) => Promise<boolean>;
+  ensureDispatchIds: () => void;
+  prepareSubmission: (msg: QueuedMessage) => Promise<QueuedMessage | undefined>;
+  releaseSubmission: (retained: QueuedMessage, original: QueuedMessage) => void;
   update: (index: number, msg: QueuedMessage, position: number) => boolean;
   dequeue: () => QueuedMessage | undefined;
   restoreRejected: (msg: QueuedMessage) => QueuedMessage;
@@ -384,7 +402,7 @@ export function useQueuedMessages(
       const original = queueRef.current[index];
       if (
         !original ||
-        original.requiresRetry ||
+        original.dispatchPending ||
         position < 0 ||
         position >= queueRef.current.length
       )
@@ -411,10 +429,21 @@ export function useQueuedMessages(
 
   // Return already-submitted input without discarding it when the ordinary queue is full.
   const restoreRejected = useCallback(
-    (msg: QueuedMessage) => {
-      const retained = { ...msg, requiresRetry: true, queueEntryId: createBrowserId() };
+    (msg: QueuedMessage, preserveIdentity = false) => {
+      const retained = {
+        ...msg,
+        requiresRetry: true,
+        queueEntryId: preserveIdentity
+          ? (msg.queueEntryId ?? createBrowserId())
+          : createBrowserId(),
+      };
       submittedOwners.current.set(retained.queueEntryId, sessionRef.current);
-      const next = [...queueRef.current.filter((item) => item !== msg), retained];
+      const next = [
+        ...queueRef.current.filter(
+          (item) => item !== msg && item.queueEntryId !== retained.queueEntryId,
+        ),
+        retained,
+      ];
       queueRef.current = next;
       // The fence must exist before the caller dispatches its command, even if
       // the page disappears before React's persistence effect can commit.
@@ -424,6 +453,70 @@ export function useQueuedMessages(
       return retained;
     },
     [persist],
+  );
+
+  const ensureDispatchIds = useCallback(() => {
+    if (queueRef.current.every((entry) => entry.queueEntryId)) return;
+    const owner = sessionRef.current;
+    const next = queueRef.current.map((entry, index) => {
+      if (entry.queueEntryId) return entry;
+      const hash = sha256Hex(JSON.stringify([owner ?? null, index, toStored([entry])[0]]));
+      return {
+        ...entry,
+        queueEntryId: `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`,
+      };
+    });
+    const saved = persist(owner, next);
+    queueRef.current = saved.queue;
+    setQueueRaw(saved.queue);
+  }, [persist]);
+  const releaseSubmission = useCallback((retained: QueuedMessage, original: QueuedMessage) => {
+    const id = retained.queueEntryId;
+    if (!id || !submittedOwners.current.has(id)) return;
+    const owner = submittedOwners.current.get(id),
+      active = mounted.current && sessionRef.current === owner;
+    const nextOriginal = {
+      ...original,
+      requiresRetry: true,
+      dispatchPending: false,
+      queueEntryId: createBrowserId(),
+    };
+    let entries: QueuedMessage[];
+    try {
+      entries = readQueue(owner);
+    } catch {
+      entries = active ? queueRef.current : [];
+    }
+    const next = entries.map((entry) => (entry.queueEntryId === id ? nextOriginal : entry));
+    submittedOwners.current.delete(id);
+    saveQueue(owner, next);
+    if (active) {
+      queueRef.current = mergeLiveImages(next, [...queueRef.current, nextOriginal]);
+      setQueueRaw(queueRef.current);
+    }
+  }, []);
+  const prepareSubmission = useCallback(
+    async (msg: QueuedMessage) => {
+      const owner = sessionRef.current;
+      const retained = restoreRejected({ ...msg, dispatchPending: true }, true);
+      try {
+        await chatStorage.flush();
+        if (chatStorage.failed) throw Error('storage');
+        const stored = readQueue(owner).find(
+          (entry) => entry.queueEntryId === retained.queueEntryId,
+        );
+        if (
+          !stored?.requiresRetry ||
+          JSON.stringify(toStored([stored])) !== JSON.stringify(toStored([retained]))
+        )
+          throw Error('claim changed');
+        return retained;
+      } catch {
+        releaseSubmission(retained, msg);
+        return undefined;
+      }
+    },
+    [restoreRejected, releaseSubmission],
   );
 
   const removeSubmitted = useCallback(
@@ -501,6 +594,9 @@ export function useQueuedMessages(
     queue,
     enqueue,
     enqueuePersisted,
+    ensureDispatchIds,
+    prepareSubmission,
+    releaseSubmission,
     update,
     dequeue,
     restoreRejected,

@@ -56,3 +56,16 @@ it('supports phone swipe and hold without treating vertical scrolling as a reply
   act(() => vi.advanceTimersByTime(600));
   expect(screen.getByRole('menu', { name: 'Message actions' })).toBeDefined();
 });
+it('keeps desktop drag-to-select native instead of selecting a reply', () => {
+  const reply = vi.fn();
+  render(
+    <MessageActions message={message} onReply={reply}>
+      <p>Selectable text</p>
+    </MessageActions>,
+  );
+  const source = screen.getByText('Selectable text');
+  fireEvent.pointerDown(source, { button: 0, pointerType: 'mouse', clientX: 10, clientY: 10 });
+  fireEvent.pointerMove(source, { pointerType: 'mouse', clientX: 110, clientY: 10 });
+  fireEvent.pointerUp(source, { pointerType: 'mouse', clientX: 110, clientY: 10 });
+  expect(reply).not.toHaveBeenCalled();
+});

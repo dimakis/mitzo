@@ -1,3 +1,9 @@
+import {
+  queueDraft,
+  sendQueued,
+  openQueuedEditor,
+  saveQueuedEditor,
+} from '../../test-utils/queued-draft-controls';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -201,7 +207,7 @@ it('preserves running Enter text, image and internal context until an exact rece
 it('recovers a late rejected payload separately from newer draft and queued input without idle replay', async () => {
   const f = await fixture();
   await f.compose('Independent queued draft', 'queued.png');
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  await queueDraft();
   await f.compose('Rejected exact draft', 'rejected.png');
   fireEvent.click(screen.getByText('Select context'));
   fireEvent.keyDown(f.input(), { key: 'Enter' });
@@ -216,6 +222,7 @@ it('recovers a late rejected payload separately from newer draft and queued inpu
   );
   expect(screen.getByText('Rejected exact draft')).toBeTruthy();
   f.receive({ type: 'session_state_changed', sessionId: 'child', state: 'idle' });
+  await waitFor(() => expect(f.onSend).toHaveBeenCalledOnce());
   expect(f.onSend).toHaveBeenCalledExactlyOnceWith(
     'Independent queued draft',
     [{ data: 'queued.png', mediaType: 'image/png', preview: 'data:image/png;base64,queued.png' }],
@@ -223,13 +230,19 @@ it('recovers a late rejected payload separately from newer draft and queued inpu
     expect.any(Function),
     expect.any(Function),
     undefined,
+    undefined,
+    expect.any(String),
   );
   f.receive({ type: 'session_state_changed', sessionId: 'child', state: 'running' });
   f.receive({ type: 'session_state_changed', sessionId: 'child', state: 'idle' });
   expect(f.onSend).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-  expect(f.input()).toHaveProperty('value', 'Rejected exact draft');
-  expect(screen.getByAltText('Attachment 1').getAttribute('src')).toBe(
+  await openQueuedEditor();
+  expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveProperty(
+    'value',
+    'Rejected exact draft',
+  );
+  expect(f.input()).toHaveProperty('value', 'Newer untouched draft');
+  expect(screen.getByAltText('Queued attachment 1').getAttribute('src')).toBe(
     'data:image/png;base64,rejected.png',
   );
   expect(screen.getByText('exact context')).toBeTruthy();
@@ -261,8 +274,8 @@ it('retains a refused queued interrupt for explicit editing and never automatica
   const f = await fixture();
   await f.compose('Queued explicit retry', 'queued.png');
   fireEvent.click(screen.getByText('Select context'));
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
-  fireEvent.click(screen.getByText('Send Now'));
+  await queueDraft();
+  await sendQueued();
   f.reject();
   expect(screen.getByText('Queued explicit retry')).toBeTruthy();
   f.receive({ type: 'session_state_changed', sessionId: 'child', state: 'idle' });
@@ -270,12 +283,16 @@ it('retains a refused queued interrupt for explicit editing and never automatica
   expect(JSON.parse(localStorage.getItem('mitzo-queue-child')!)).toMatchObject([
     { text: 'Queued explicit retry', contextBlocks: ['exact context'], requiresRetry: true },
   ]);
-  fireEvent.click(screen.getByText('Edit'));
-  expect(f.input()).toHaveProperty('value', 'Queued explicit retry');
-  expect(screen.getByAltText('Attachment 1').getAttribute('src')).toBe(
+  await openQueuedEditor();
+  expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveProperty(
+    'value',
+    'Queued explicit retry',
+  );
+  expect(f.input()).toHaveProperty('value', '');
+  expect(screen.getByAltText('Queued attachment 1').getAttribute('src')).toBe(
     'data:image/png;base64,queued.png',
   );
-  expect(screen.getByText('exact context')).toBeTruthy();
+  expect(screen.getByText('Context: exact context')).toBeTruthy();
 });
 
 it('invalidates old composer receipt ownership across navigation and cannot release a newer interrupt', async () => {
@@ -351,12 +368,16 @@ it.each(['Send Now', 'Edit'])(
       { text: 'Exact refused input', contextBlocks: ['exact context'], requiresRetry: true },
     ]);
     f.receive({ type: 'session_state_changed', sessionId: 'child', state: 'running' });
-    fireEvent.click(screen.getByText(action));
     if (action === 'Edit') {
-      expect(f.input()).toHaveProperty('value', 'Exact refused input');
-      expect(screen.getByText('exact context')).toBeTruthy();
-      fireEvent.keyDown(f.input(), { key: 'Enter' });
+      await openQueuedEditor();
+      expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveProperty(
+        'value',
+        'Exact refused input',
+      );
+      expect(screen.getByText('Context: exact context')).toBeTruthy();
+      await saveQueuedEditor();
     }
+    await sendQueued();
     const retried = f.command();
     expect(retried.clientMsgId).not.toBe(original.clientMsgId);
     expect(retried).toMatchObject({
@@ -372,6 +393,6 @@ it.each(['Send Now', 'Edit'])(
       text: 'Exact refused input',
     });
     expect(localStorage.getItem('mitzo-queue-child')).toBeNull();
-    expect(f.input()).toHaveProperty('value', action === 'Edit' ? '' : 'Newer untouched draft');
+    expect(f.input()).toHaveProperty('value', 'Newer untouched draft');
   },
 );

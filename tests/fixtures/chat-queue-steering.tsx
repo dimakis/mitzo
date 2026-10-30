@@ -79,10 +79,23 @@ function Fixture() {
           guardedConversation
           running={messages.running}
           interruptLabel="Steer current turn"
-          onSend={(text, _images, _context, receipt, _assignment, _draft, replyTo) => {
+          onSend={(
+            text,
+            _images,
+            _context,
+            receipt,
+            _assignment,
+            _draft,
+            replyTo,
+            queuedCommandId,
+          ) => {
             void fetch('/fixture/queue', {
               method: 'POST',
-              body: JSON.stringify({ text, replyToMessageId: replyTo?.messageId }),
+              body: JSON.stringify({
+                text,
+                replyToMessageId: replyTo?.messageId,
+                clientMsgId: queuedCommandId,
+              }),
             });
             emit({
               type: 'user_message',
@@ -93,8 +106,8 @@ function Fixture() {
             receipt?.('accepted');
             return true;
           }}
-          onInterrupt={(text, _images, _context, receipt, replyTo) =>
-            steering.submit(text, receipt, replyTo?.messageId)
+          onInterrupt={(text, _images, _context, receipt, replyTo, queuedCommandId) =>
+            steering.submit(text, receipt, replyTo?.messageId, queuedCommandId)
           }
           onStop={() => {
             void fetch('/fixture/stop', { method: 'POST' });

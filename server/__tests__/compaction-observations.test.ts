@@ -124,3 +124,16 @@ it('does not call a later reading the first after-observation when bounded usage
   const records = projectCompactions([start, done, usage(7, 403152, 28549)]);
   expect(records[0].usageAfter).toBeNull();
 });
+
+it('expires the after-observation on a different turn rather than accepting a later reused turn index', () => {
+  const laterTurn = usage(7, 403152, 28549);
+  laterTurn.payload.turnIndex = 16;
+  const [record] = projectCompactions([
+    usage(2, 1996, 189054),
+    start,
+    done,
+    laterTurn,
+    usage(8, 410000, 30566),
+  ]);
+  expect(record.usageAfter).toBeNull();
+});

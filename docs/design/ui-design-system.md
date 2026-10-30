@@ -2369,7 +2369,11 @@ one prompt after each response; Stop pauses the tray. Reload and navigation neve
 automatically dispatch saved drafts. Attachments and reply references persist in
 the existing IndexedDB-backed chat storage. Admission is durable before clearing
 the edited composer; a late save cannot clear a newer draft or another chat.
-The brief queue/correction hint sits between the tray and text input.
+Each queued draft keeps one stable command identity across views. Its dispatch
+retry fence commits before any send or correction; the existing backend admission
+guard coalesces duplicate views under that identity. Definite refusals stay editable
+behind explicit review, while uncertain delivery stays fenced. The brief
+queue/correction hint sits between the tray and text input.
 
 Phone swipe-right, touch-hold, desktop right-click and keyboard context menu offer
 Reply, Copy and Read aloud on complete ordinary messages. Existing copy/voice

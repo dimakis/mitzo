@@ -2094,7 +2094,9 @@ async function _startChatInner(
       cwd,
       mode,
       initialPrompt:
-        options.ordinarySdkAuthority || options.sourceSnapshots?.length ? prompt : fullPrompt,
+        options.ordinarySdkAuthority || options.sourceSnapshots?.length || options.replyToMessageId
+          ? prompt
+          : fullPrompt,
       ...(accountBinding ? { accountBinding } : {}),
       selectedModel: options.model ?? accountBinding?.model ?? null,
       reasoningEffort: options.reasoningEffort ?? null,
@@ -2487,7 +2489,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         storeAndEchoIfNew(
           conversationId,
           messageId,
-          options.sourceSnapshots?.length ? prompt : fullPrompt,
+          options.sourceSnapshots?.length || options.replyToMessageId ? prompt : fullPrompt,
           clientId,
           transport,
           session.observers,
@@ -2607,7 +2609,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       storeAndEchoIfNew(
         conversationId,
         initialMessageId,
-        options.sourceSnapshots?.length ? prompt : fullPrompt,
+        options.sourceSnapshots?.length || options.replyToMessageId ? prompt : fullPrompt,
         clientId,
         transport,
         session.observers,
@@ -3025,7 +3027,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       storeAndEchoIfNew(
         options.resume,
         messageId,
-        options.sourceSnapshots?.length ? prompt : fullPrompt,
+        options.sourceSnapshots?.length || options.replyToMessageId ? prompt : fullPrompt,
         clientId,
         transport,
         session.observers,
@@ -4582,7 +4584,7 @@ export async function sendToChat(
         const isDup = storeAndEchoIfNew(
           session.sessionId,
           messageId,
-          sourceSnapshots?.length ? prompt : fullPrompt,
+          sourceSnapshots?.length || replyToMessageId ? prompt : fullPrompt,
           clientId,
           session.transport,
           session.observers,
@@ -4610,7 +4612,7 @@ export async function sendToChat(
           type: 'user_message',
           v: 2,
           messageId,
-          text: sourceSnapshots?.length ? prompt : fullPrompt,
+          text: sourceSnapshots?.length || replyToMessageId ? prompt : fullPrompt,
           ...(previews?.length ? { images: previews } : {}),
           ...(contextBlocks?.length ? { contextBlocks } : {}),
           ...(sourceSnapshots?.length ? { sourceSnapshots } : {}),
@@ -4956,7 +4958,7 @@ export async function interruptChat(
       isDup = storeAndEchoIfNew(
         session.sessionId,
         messageId,
-        sourceSnapshots?.length ? prompt : fullPrompt,
+        sourceSnapshots?.length || replyToMessageId ? prompt : fullPrompt,
         clientId,
         session.transport,
         session.observers,
@@ -4970,7 +4972,7 @@ export async function interruptChat(
         type: 'user_message',
         v: 2,
         messageId,
-        text: sourceSnapshots?.length ? prompt : fullPrompt,
+        text: sourceSnapshots?.length || replyToMessageId ? prompt : fullPrompt,
         ...(previews?.length ? { images: previews } : {}),
         ...(contextBlocks?.length ? { contextBlocks } : {}),
         ...(sourceSnapshots?.length ? { sourceSnapshots } : {}),

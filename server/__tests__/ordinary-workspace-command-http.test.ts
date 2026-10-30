@@ -467,7 +467,10 @@ it('delivers a queued reply with the exact server-captured source text through a
     clientMsgId: randomUUID(),
     payload: { text: 'The current priorities are fine.', replyToMessageId: input.clientMsgId },
   };
-  const pending = api.continueCommand(next);
+  const pending = Promise.all([
+    api.continueCommand(next),
+    api.continueCommand(structuredClone(next)),
+  ]);
   await vi.waitFor(() =>
     expect(chat.eventStore.getOrdinaryCommandAdmission(next.clientMsgId)).toBeDefined(),
   );

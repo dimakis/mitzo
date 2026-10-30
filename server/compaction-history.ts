@@ -46,13 +46,18 @@ export function projectCompactions(events: StoredEvent[]): ContextCompaction[] {
         pending &&
         observation.fresh &&
         pending.endedAt != null &&
-        observation.usage.observedAt > pending.endedAt &&
-        pending.turnIndex !== null &&
-        pending.turnIndex === observation.turn &&
-        (!pending.usageBefore?.model || pending.usageBefore.model === observation.usage.model)
+        observation.usage.observedAt > pending.endedAt
       ) {
-        pending.usageAfter = observation.usage;
+        // The first fresh reading either belongs to this turn/model or closes
+        // the observation window. Never match a reused index after a later turn.
         awaitingUsage.delete(event.sessionId);
+        if (
+          pending.turnIndex !== null &&
+          pending.turnIndex === observation.turn &&
+          (!pending.usageBefore?.model || pending.usageBefore.model === observation.usage.model)
+        ) {
+          pending.usageAfter = observation.usage;
+        }
       }
       continue;
     }

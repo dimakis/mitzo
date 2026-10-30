@@ -1,3 +1,4 @@
+import { readChatStorage } from '../support/persisted-chat-storage';
 import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
@@ -67,6 +68,11 @@ for (const theme of ['dark', 'light'])
     });
     await page.goto('/');
     const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+    await page
+      .locator('[data-reply-source="first"]')
+      .getByText('Review Akram’s accomplishments and current priorities.', { exact: true })
+      .click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Reply', exact: true }).click();
     await input.fill('Please also check the previous quarter.');
     await input.press('Enter');
     await expect(input).toHaveValue('');
@@ -131,6 +137,21 @@ for (const theme of ['dark', 'light'])
       replyToMessageId: 'first',
     });
     expect(stopped).toHaveLength(0);
+    const savedQueue = JSON.parse(
+      (await readChatStorage(page, (storage) => storage.getItem('mitzo-queue-queue-fixture')))!,
+    );
+    await page.getByRole('button', { name: 'Steer with queued prompt 1' }).click();
+    await expect.poll(() => steered.length).toBe(2);
+    expect(steered[1]).toMatchObject({
+      requestId: savedQueue[0].queueEntryId,
+      targetCommandId: 'first',
+      replyToMessageId: 'first',
+      text: 'Please also check the previous quarter.',
+    });
+    await expect(page.getByRole('region', { name: 'Up next' })).not.toBeVisible();
+    await input.fill('Check dates next.');
+    await input.press('Enter');
+    await expect(input).toHaveValue('');
     status = 'stale_target';
     await input.fill('A later correction');
     await page.getByRole('button', { name: 'Steer current turn', exact: true }).click();

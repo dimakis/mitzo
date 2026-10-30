@@ -1,7 +1,8 @@
+import { chatStorage } from '../../lib/large-chat-storage';
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ChatInput } from '../ChatInput';
 import { createChatDraft } from '../../lib/chat-drafts';
 import { prepareLocalFirstCommand } from '../../lib/explicit-local-chat';
@@ -12,6 +13,7 @@ vi.mock('../MicButton', () => ({ MicButton: () => null }));
 vi.mock('../SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   localStorage.clear();
 });
 it('keeps one short failure with Retry while preserving the edited draft and blocking replacement sends', async () => {
@@ -215,4 +217,149 @@ it('allows a distinct queued draft after uncertain steering without resending th
   await waitFor(() => expect(input).toHaveValue(''));
   expect(send).not.toHaveBeenCalled();
   expect(steer).toHaveBeenCalledOnce();
+});
+function seedQueued(sessionId: string, texts: string[]) {
+  localStorage.setItem(
+    `mitzo-queue-${sessionId}`,
+    JSON.stringify(
+      texts.map((text, index) => ({ text, contextBlocks: [], queueEntryId: `entry-${index}` })),
+    ),
+  );
+}
+it('drains the next queued draft after completion precedes its delivery receipt', async () => {
+  seedQueued('late-receipt', ['First', 'Second']);
+  let receipt: ((status: 'accepted') => void) | undefined;
+  const send = vi.fn((...args: unknown[]) => {
+    receipt = args[3] as typeof receipt;
+    return true;
+  });
+  const props = {
+    sessionId: 'late-receipt',
+    guardedConversation: true,
+    onSend: send,
+    onStop: vi.fn(),
+  };
+  const view = render(<ChatInput {...props} running />);
+  fireEvent.click(screen.getByRole('button', { name: 'Steer with queued prompt 1' }));
+  // No onInterrupt means this control is disabled; finish the current turn instead.
+  view.rerender(<ChatInput {...props} running={false} />);
+  await waitFor(() => expect(send).toHaveBeenCalledOnce());
+  // The first command starts and finishes before its HTTP receipt arrives.
+  view.rerender(<ChatInput {...props} running />);
+  view.rerender(<ChatInput {...props} running={false} />);
+  expect(send).toHaveBeenCalledOnce();
+  await act(async () => receipt?.('accepted'));
+  await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+});
+it('uses the same command identity when two views drain one saved draft', async () => {
+  seedQueued('two-views', ['One shared draft']);
+  const first = vi.fn((..._args: unknown[]) => true),
+    second = vi.fn((..._args: unknown[]) => true);
+  const a = render(
+    <ChatInput sessionId="two-views" guardedConversation onSend={first} onStop={vi.fn()} running />,
+  );
+  const b = render(
+    <ChatInput
+      sessionId="two-views"
+      guardedConversation
+      onSend={second}
+      onStop={vi.fn()}
+      running
+    />,
+  );
+  a.rerender(
+    <ChatInput
+      sessionId="two-views"
+      guardedConversation
+      onSend={first}
+      onStop={vi.fn()}
+      running={false}
+    />,
+  );
+  b.rerender(
+    <ChatInput
+      sessionId="two-views"
+      guardedConversation
+      onSend={second}
+      onStop={vi.fn()}
+      running={false}
+    />,
+  );
+  await waitFor(() => expect(first).toHaveBeenCalledOnce());
+  await waitFor(() => expect(second).toHaveBeenCalledOnce());
+  expect(first.mock.calls[0][7]).toBe('entry-0');
+  expect(second.mock.calls[0][7]).toBe('entry-0');
+});
+it('keeps a definitely rejected queued correction editable and pauses automatic dispatch', async () => {
+  seedQueued('stale-queued', ['Correct that']);
+  const send = vi.fn(() => true),
+    steer = vi.fn((_text, _images, _ctx, receipt) => receipt('failed'));
+  render(
+    <ChatInput
+      sessionId="stale-queued"
+      guardedConversation
+      onSend={send}
+      onInterrupt={steer}
+      onStop={vi.fn()}
+      running
+      interruptLabel="Steer current turn"
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Steer with queued prompt 1' }));
+  await waitFor(() => expect(steer).toHaveBeenCalledOnce());
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Edit, reorder or remove queued prompt 1' }),
+    ).toBeEnabled(),
+  );
+  expect(screen.getByRole('button', { name: 'Resume queue' })).toBeDefined();
+  expect(send).not.toHaveBeenCalled();
+});
+it('waits for the queued dispatch fence to commit before sending and keeps a refused write editable', async () => {
+  seedQueued('flush-fence', ['Do this once']);
+  let reject!: () => void;
+  const flush = vi.spyOn(chatStorage, 'flush').mockImplementationOnce(
+    () =>
+      new Promise<void>((_resolve, fail) => {
+        reject = () => fail(Error('quota'));
+      }),
+  );
+  const send = vi.fn(() => true);
+  const props = {
+    sessionId: 'flush-fence',
+    guardedConversation: true,
+    onSend: send,
+    onStop: vi.fn(),
+  };
+  const view = render(<ChatInput {...props} running />);
+  view.rerender(<ChatInput {...props} running={false} />);
+  await waitFor(() => expect(flush).toHaveBeenCalledOnce());
+  expect(send).not.toHaveBeenCalled();
+  await act(async () => reject());
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Edit, reorder or remove queued prompt 1' }),
+    ).toBeEnabled(),
+  );
+  expect(send).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Resume queue' })).toBeDefined();
+});
+it('does not drain another prompt merely because admission is accepted before the next turn starts', async () => {
+  seedQueued('one-per-response', ['First', 'Second']);
+  const send = vi.fn((_text, _images, _context, receipt) => {
+    receipt('accepted');
+    return true;
+  });
+  const props = {
+    sessionId: 'one-per-response',
+    guardedConversation: true,
+    onSend: send,
+    onStop: vi.fn(),
+  };
+  const view = render(<ChatInput {...props} running />);
+  view.rerender(<ChatInput {...props} running={false} />);
+  await waitFor(() => expect(send).toHaveBeenCalledOnce());
+  await act(async () => {});
+  expect(send).toHaveBeenCalledOnce();
+  expect(screen.getByRole('region', { name: 'Up next' })).toHaveTextContent('Second');
 });

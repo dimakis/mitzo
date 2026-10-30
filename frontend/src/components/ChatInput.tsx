@@ -1,3 +1,4 @@
+import type { QueuedMessage } from '../hooks/useQueuedMessages';
 import { QueuedDraftTray } from './QueuedDraftTray';
 import type { MessageReplyContext } from '@mitzo/protocol';
 import { chatStorage, CHAT_STORAGE_CHANGED } from '../lib/large-chat-storage';
@@ -85,6 +86,7 @@ interface Props {
     onSessionAssigned?: SendMessageOptions['onSessionAssigned'],
     composerDraft?: SendMessageOptions['composerDraft'],
     replyTo?: MessageReplyContext,
+    queuedCommandId?: string,
   ) => boolean;
   onStop: () => void;
   onInterrupt?: (
@@ -93,6 +95,7 @@ interface Props {
     contextBlocks?: string[],
     onDelivery?: SendMessageOptions['onDelivery'],
     replyTo?: MessageReplyContext,
+    queuedCommandId?: string,
   ) => void;
   running: boolean;
   initialText?: string;
@@ -242,12 +245,16 @@ export function ChatInput({
   const {
     queue: queuedMessages,
     enqueuePersisted,
+    ensureDispatchIds,
+    prepareSubmission,
+    releaseSubmission,
     update: updateQueued,
     dequeue,
     restoreRejected,
     removeSubmitted,
     remove: removeQueued,
   } = useQueuedMessages(sessionId, 32, assignment);
+  useEffect(() => ensureDispatchIds(), [sessionId, queuedMessages, ensureDispatchIds]);
   useEffect(() => {
     if (
       assignment &&
@@ -492,6 +499,7 @@ export function ChatInput({
   replyRef.current = replyTarget;
   const [expanded, setExpanded] = useState(false);
   const [queueEditorOpen, setQueueEditorOpen] = useState(false);
+  const [deliveryRevision, settleDelivery] = useState(0);
   const [queueBusy, setQueueBusy] = useState(false);
   const queueOperation = useRef<object | null>(null);
   const [queueError, setQueueError] = useState<{ scope: number; text: string } | null>(null);
@@ -512,18 +520,36 @@ export function ChatInput({
     }
     setPauseState({ key: pauseKey, paused: queuePaused });
   }
-  function setQueuePaused(paused: boolean) {
-    setPauseState({ key: pauseKey, paused });
-    try {
-      chatStorage.setItem(pauseKey, String(paused));
-    } catch {
-      setPauseState({ key: pauseKey, paused: true });
-      setQueueError({
-        scope: composerScope,
-        text: 'Could not save the queue setting. Your queue is paused.',
-      });
-    }
-  }
+  useEffect(() => {
+    const changed = () => {
+      try {
+        setPauseState({ key: pauseKey, paused: chatStorage.getItem(pauseKey) === 'true' });
+      } catch {
+        setPauseState({ key: pauseKey, paused: true });
+      }
+    };
+    window.addEventListener(CHAT_STORAGE_CHANGED, changed);
+    window.addEventListener('storage', changed);
+    return () => {
+      window.removeEventListener(CHAT_STORAGE_CHANGED, changed);
+      window.removeEventListener('storage', changed);
+    };
+  }, [pauseKey]);
+  const setQueuePaused = useCallback(
+    (paused: boolean) => {
+      setPauseState({ key: pauseKey, paused });
+      try {
+        chatStorage.setItem(pauseKey, String(paused));
+      } catch {
+        setPauseState({ key: pauseKey, paused: true });
+        setQueueError({
+          scope: composerScope,
+          text: 'Could not save the queue setting. Your queue is paused.',
+        });
+      }
+    },
+    [pauseKey, composerScope],
+  );
 
   const pendingAssignment =
     pendingText !== null &&
@@ -611,15 +637,7 @@ export function ChatInput({
   }, [displayedText, autoResize]);
 
   const sendOrdinary = useCallback(
-    (
-      payload: {
-        text: string;
-        images: ImageAttachment[];
-        contextBlocks: string[];
-        replyTo?: MessageReplyContext;
-      },
-      queued = false,
-    ): boolean => {
+    async (payload: QueuedMessage, queued = false): Promise<boolean> => {
       if (queued && (boundedFirstCommand || sendDisabledReason)) return false;
       const submitted = latestDraft.current;
       const submittedSavedDraft = savedChatDraft ? getChatDraft(savedChatDraft.id) : null;
@@ -636,7 +654,23 @@ export function ChatInput({
         });
       // Keep dequeued input under the existing explicit-retry fence until a
       // definitive receipt. A missing receipt must never resume automatic drain.
-      const retained = queued ? restoreRejected(payload) : undefined;
+      const retained = queued ? await prepareSubmission(payload) : undefined;
+      if (
+        queued &&
+        (!retained || !mounted.current || latestDraft.current.scope !== submitted.scope)
+      ) {
+        if (retained) releaseSubmission(retained, payload);
+        if (sendPending.current === pending) sendPending.current = null;
+        if (mounted.current && latestDraft.current.scope === submitted.scope) {
+          setQueuePaused(true);
+          setQueueError({
+            scope: submitted.scope,
+            text: 'Could not retain this queued dispatch. Your prompt is kept; review it before sending.',
+          });
+          settleDelivery((n) => n + 1);
+        }
+        return false;
+      }
       let settled = false;
       const onDelivery: NonNullable<SendMessageOptions['onDelivery']> = (status) => {
         if (settled) return;
@@ -646,8 +680,14 @@ export function ChatInput({
         if (status === 'uncertain') return;
         settled = true;
         if (sendPending.current === pending) sendPending.current = null;
+        if (mounted.current) settleDelivery((n) => n + 1);
         if (queued) {
           if (status === 'accepted' && retained) removeSubmitted(retained);
+          else if (retained) {
+            releaseSubmission(retained, payload);
+            if (mounted.current && latestDraft.current.scope === submitted.scope)
+              setQueuePaused(true);
+          }
           return;
         }
         const latest = latestDraft.current;
@@ -747,7 +787,11 @@ export function ChatInput({
           }
         },
         composerDraft,
-        payload.replyTo,
+        ...(queued
+          ? ([payload.replyTo, payload.queueEntryId ?? retained?.queueEntryId] as const)
+          : payload.replyTo
+            ? ([payload.replyTo] as const)
+            : ([] as const)),
       );
       if (!sent) onDelivery('failed');
       return sent;
@@ -756,6 +800,9 @@ export function ChatInput({
       onSend,
       onClearReply,
       restoreRejected,
+      prepareSubmission,
+      releaseSubmission,
+      setQueuePaused,
       removeSubmitted,
       setText,
       draftStorageKey,
@@ -790,12 +837,20 @@ export function ChatInput({
     ) {
       const q = dequeue();
       if (q) {
-        sendOrdinary(q, true);
+        prevRunning.current.running = false;
+        void sendOrdinary(q, true);
       }
     }
     // Keep a completed turn pending while the editor is modal. Its already
     // queued message may drain once editing closes, without sending this draft.
-    if ((!previewOpen && !queueEditorOpen && !queueBusy) || running)
+    if (
+      (!previewOpen &&
+        !queueEditorOpen &&
+        !queueBusy &&
+        !sendPending.current &&
+        !interruptPending.current) ||
+      running
+    )
       prevRunning.current.running = running;
   }, [
     running,
@@ -804,6 +859,7 @@ export function ChatInput({
     dequeue,
     previewOpen,
     boundedFirstCommand,
+    deliveryRevision,
     queuePaused,
     queueBusy,
     queueEditorOpen,
@@ -831,7 +887,7 @@ export function ChatInput({
     textareaRef.current?.focus();
   }
 
-  function handleSend() {
+  async function handleSend() {
     if (importPending.current?.scope === composerScope) return;
     if (
       previewOpen ||
@@ -846,7 +902,7 @@ export function ChatInput({
     if (!trimmed && images.length === 0) return;
     sendGuard.current = true;
     if (draftStorageKey !== undefined) flushDraft();
-    const sent = sendOrdinary({
+    const sent = await sendOrdinary({
       text:
         trimmed ||
         (images.some((image) => image.name)
@@ -1107,7 +1163,7 @@ export function ChatInput({
     }
   }
 
-  function fireQueuedAsInterrupt(index: number) {
+  async function fireQueuedAsInterrupt(index: number) {
     if (
       boundedFirstCommand ||
       sendDisabledReason ||
@@ -1119,7 +1175,7 @@ export function ChatInput({
     const q = queuedMessages[index];
     if (
       !q ||
-      q.requiresRetry ||
+      q.dispatchPending ||
       sendPending.current ||
       interruptPending.current ||
       sendDisabledReason
@@ -1138,7 +1194,21 @@ export function ChatInput({
     const pending = {};
     interruptPending.current = pending;
     removeQueued(index);
-    const retained = restoreRejected(q);
+    const submitted = latestDraft.current;
+    const retained = await prepareSubmission(q);
+    if (!retained || !mounted.current || latestDraft.current.scope !== submitted.scope) {
+      if (retained) releaseSubmission(retained, q);
+      if (interruptPending.current === pending) interruptPending.current = null;
+      if (mounted.current && latestDraft.current.scope === submitted.scope) {
+        setQueuePaused(true);
+        setQueueError({
+          scope: submitted.scope,
+          text: 'Could not retain this correction. Your queued prompt is kept.',
+        });
+        settleDelivery((n) => n + 1);
+      }
+      return;
+    }
     let settled = false;
     onInterrupt(
       attachmentPrompt(q.text, q.images),
@@ -1154,8 +1224,15 @@ export function ChatInput({
         settled = true;
         if (interruptPending.current === pending) interruptPending.current = null;
         if (status === 'accepted') removeSubmitted(retained);
+        else {
+          releaseSubmission(retained, q);
+          if (mounted.current && latestDraft.current.scope === submitted.scope)
+            setQueuePaused(true);
+        }
+        if (mounted.current) settleDelivery((n) => n + 1);
       },
       q.replyTo,
+      q.queueEntryId ?? retained.queueEntryId,
     );
   }
 
@@ -1196,6 +1273,7 @@ export function ChatInput({
           return;
         }
         if (interruptPending.current === pending) interruptPending.current = null;
+        if (mounted.current) settleDelivery((n) => n + 1);
         if (!mounted.current || latestDraft.current.scope !== submitted.scope) return;
         if (latestDraft.current.revision !== submitted.revision) {
           if (status === 'failed')
@@ -1209,7 +1287,7 @@ export function ChatInput({
           if (!useExternal) setContextBlocks([]);
         }
       },
-      replyTarget,
+      ...(replyTarget ? ([replyTarget] as const) : ([] as const)),
     );
     // Local transport acceptance cannot confirm an interrupt. Keep its exact input
     // until an authoritative receipt, and protect edits made while it is pending.

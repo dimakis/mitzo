@@ -69,6 +69,8 @@ import { messageIdentity } from './message-identity.js';
 // ─── Store state ─────────────────────────────────────────────────────────────
 
 export interface SendMessageOptions {
+  /** Stable local queue identity; normal edits still create a fresh command. */
+  clientMsgId?: string;
   replyToMessageId?: string;
   /** Exact local edited revision; retained by the outbox and never sent to the server. */
   composerDraft?: ComposerDraftReceipt;
@@ -1473,7 +1475,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       );
     },
     sendMessage(text: string, opts?: SendMessageOptions) {
-      const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const clientMsgId =
+        opts?.clientMsgId ?? `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       pendingOptimisticMessageIds.add(clientMsgId);
       observePreparation(clientMsgId, parserState.currentSessionId);
       observeDelivery(clientMsgId, opts ?? {}, 'send');
@@ -1578,7 +1581,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         return;
       }
 
-      const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const clientMsgId =
+        opts?.clientMsgId ?? `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
       const msg: Record<string, unknown> = {
         type: 'interrupt',

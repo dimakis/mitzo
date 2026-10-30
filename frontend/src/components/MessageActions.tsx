@@ -81,7 +81,12 @@ export function MessageActions({
         }
       }}
       onPointerDown={(event) => {
-        if (event.button !== 0 || interactive(event.target)) return;
+        if (
+          event.button !== 0 ||
+          !['touch', 'pen'].includes(event.pointerType) ||
+          interactive(event.target)
+        )
+          return;
         clearPress();
         const current = {
           x: event.clientX,

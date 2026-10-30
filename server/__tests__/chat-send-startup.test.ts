@@ -139,3 +139,64 @@ it('counts native messages once for naming and ignores retried message IDs', asy
     await rm(root, { recursive: true, force: true });
   }
 });
+it('keeps reply anchors in provider input while the legacy transcript echoes only the new user text', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-legacy-reply-'));
+  vi.stubEnv('REPO_PATH', root);
+  const chat = await import('../chat.js');
+  const { AsyncQueue } = await import('../async-queue.js');
+  const sessionId = 'legacy-reply';
+  const events: Record<string, unknown>[] = [];
+  chat.eventStore.upsertSession({ sessionId });
+  chat.eventStore.append(sessionId, 'user_message', {
+    messageId: 'source',
+    text: 'Earlier source',
+  });
+  chat.registry.register('legacy-reply-client', {
+    transport: { send: (event) => events.push(event), isOpen: () => true },
+    abortController: new AbortController(),
+    mode: 'auto',
+    cwd: root,
+    sessionId,
+    sessionAllowList: new Set(),
+    agentName: 'fixture',
+  });
+  const queue = new AsyncQueue<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>();
+  chat.registry.get('legacy-reply-client')!.inputQueue = queue;
+  try {
+    expect(
+      await chat.sendToChat(
+        'legacy-reply-client',
+        'New reply',
+        undefined,
+        undefined,
+        'new',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'source',
+      ),
+    ).toBe(true);
+    const provider = await queue[Symbol.asyncIterator]().next();
+    expect(JSON.stringify(provider.value)).toContain('Earlier source');
+    expect(JSON.stringify(provider.value)).toContain('mitzo_message_reply');
+    const echo = events.find((event) => event.type === 'user_message');
+    expect(echo).toMatchObject({
+      text: 'New reply',
+      inReplyTo: { messageId: 'source', text: 'Earlier source' },
+    });
+    expect(
+      chat.eventStore
+        .getSessionEvents(sessionId)
+        .filter((event) => event.type === 'user_message')
+        .at(-1)?.payload.text,
+    ).toBe('New reply');
+  } finally {
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -1,7 +1,7 @@
 import { createChatDraft } from '../../lib/chat-drafts';
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, act, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { INITIAL_MESSAGES_STATE, messagesReducer, parseServerMessage } from '@mitzo/client';
 import { ChatInput } from '../ChatInput';
@@ -314,6 +314,9 @@ it('retains a queued image/context and active composer through rejected Stop unt
   ]);
   expect(onSend).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Confirm idle' }));
+  expect(onSend).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Resume queue' }));
+  await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
   expect(onSend).toHaveBeenCalledExactlyOnceWith(
     'Queued exact draft',
     [{ data: 'resized', mediaType: 'image/png', preview: 'data:image/png;base64,resized' }],
@@ -321,6 +324,8 @@ it('retains a queued image/context and active composer through rejected Stop unt
     expect.any(Function),
     expect.any(Function),
     undefined,
+    undefined,
+    expect.any(String),
   );
   expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Next untouched draft');
   expect(screen.getByAltText('Attachment 1')).toBeTruthy();

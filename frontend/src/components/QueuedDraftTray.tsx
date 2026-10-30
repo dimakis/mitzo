@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { QueuedMessage } from '../hooks/useQueuedMessages';
 import { chatStorage } from '../lib/large-chat-storage';
 import { HomeDialog } from './HomeDialog';
@@ -39,6 +39,8 @@ export function QueuedDraftTray({
       position: number;
     } | null>(null),
     [error, setError] = useState('');
+  const activeEditor = useRef(editor);
+  activeEditor.current = editor;
   const id = useId();
   const editing = !!editor;
   useEffect(() => {
@@ -107,7 +109,9 @@ export function QueuedDraftTray({
                   )}
                   <small>
                     {message.requiresRetry
-                      ? 'Check the existing dispatch notice'
+                      ? message.dispatchPending
+                        ? 'Check the existing dispatch notice'
+                        : 'Review before sending again'
                       : index === 0
                         ? paused
                           ? 'Paused'
@@ -130,7 +134,7 @@ export function QueuedDraftTray({
                     disabled={
                       blocked ||
                       busy ||
-                      !!message.requiresRetry ||
+                      !!message.dispatchPending ||
                       (running && textOnlySteer && message.images.length > 0)
                     }
                     onClick={() => onSend(index)}
@@ -142,7 +146,7 @@ export function QueuedDraftTray({
                     type="button"
                     aria-label={`Edit, reorder or remove queued prompt ${index + 1}`}
                     title="Edit, reorder or remove"
-                    disabled={busy || !!message.requiresRetry}
+                    disabled={busy || !!message.dispatchPending}
                     onClick={() => {
                       setEditor({
                         id: message.queueEntryId,
@@ -177,6 +181,22 @@ export function QueuedDraftTray({
             }
           />
         </label>
+        {editor?.message.images.length ? (
+          <div className="chat-input-previews">
+            {editor.message.images.map((image, index) => (
+              <img
+                key={index}
+                src={image.preview}
+                alt={`Queued attachment ${index + 1}`}
+                width={64}
+                height={64}
+              />
+            ))}
+          </div>
+        ) : null}
+        {editor?.message.contextBlocks.length ? (
+          <p>Context: {editor.message.contextBlocks.join(', ')}</p>
+        ) : null}
         <p>Your composer draft stays separate.</p>
         <div className="queued-draft-position">
           <span>
@@ -242,12 +262,14 @@ export function QueuedDraftTray({
                 setError('Could not save this queued prompt. Your edits are kept.');
                 return;
               }
+              const submittedEditor = editor;
               try {
                 await chatStorage.flush();
                 if (chatStorage.failed) throw Error('storage');
-                close();
+                if (activeEditor.current === submittedEditor) close();
               } catch {
-                setError('Could not save this queued prompt. Your edits are kept.');
+                if (activeEditor.current === submittedEditor)
+                  setError('Could not save this queued prompt. Your edits are kept.');
               }
             }}
           >

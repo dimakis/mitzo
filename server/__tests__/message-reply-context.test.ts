@@ -113,3 +113,18 @@ it('accepts identical historical user echoes while refusing ambiguous or seat-sc
   store.append('chat', 'user_message', { messageId: 'seat', text: 'Same', seatId: 'hidden' });
   expect(() => captureMessageReply(store, 'chat', 'private', 'seat')).toThrow();
 });
+it('preserves visible boundaries between completed assistant text blocks', () => {
+  const store = fixture();
+  store.append('chat', 'message_start', { messageId: 'answer' });
+  for (const [blockId, delta] of [
+    ['one', 'First paragraph'],
+    ['two', 'Second paragraph'],
+  ]) {
+    store.append('chat', 'block_start', { messageId: 'answer', blockId, blockType: 'text' });
+    store.append('chat', 'block_delta', { messageId: 'answer', blockId, delta });
+  }
+  store.append('chat', 'message_end', { messageId: 'answer' });
+  expect(captureMessageReply(store, 'chat', 'new', 'answer').text).toBe(
+    'First paragraph\n\nSecond paragraph',
+  );
+});

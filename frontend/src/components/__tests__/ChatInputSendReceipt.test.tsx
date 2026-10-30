@@ -1,3 +1,9 @@
+import {
+  queueDraft,
+  sendQueued,
+  openQueuedEditor,
+  saveQueuedEditor,
+} from '../../test-utils/queued-draft-controls';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -36,7 +42,7 @@ afterEach(() => {
   localStorage.clear();
 });
 
-it('explains and preserves current-choice model selection for an unsent legacy queue entry', () => {
+it('explains and preserves current-choice model selection for an unsent legacy queue entry', async () => {
   const sent = vi.fn();
   function Harness() {
     const [model, setModel] = useState('luna');
@@ -77,13 +83,15 @@ it('explains and preserves current-choice model selection for an unsent legacy q
   fireEvent.change(screen.getByLabelText('Message Mitzo'), {
     target: { value: 'Queued before choosing another model' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  await queueDraft();
   fireEvent.click(screen.getByRole('button', { name: 'Choose next model' }));
   expect(sent).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Finish response' }));
-  expect(sent).toHaveBeenCalledExactlyOnceWith('Queued before choosing another model', {
-    model: 'luna-next',
-  });
+  await waitFor(() =>
+    expect(sent).toHaveBeenCalledExactlyOnceWith('Queued before choosing another model', {
+      model: 'luna-next',
+    }),
+  );
   expect(screen.getByText(/Queued messages use your current choices when sent/)).toBeTruthy();
 });
 
@@ -143,18 +151,30 @@ async function fixture(initialSession: string | null = 'child') {
   const stream = store.getState().messages.current;
   const permission = store.getState().messages.permission;
   const delivery = vi.fn();
-  const onSend = vi.fn((text, images, contextBlocks, onDelivery, onSessionAssigned) => {
-    store.getState().sendMessage(text, {
+  const onSend = vi.fn(
+    (
+      text,
       images,
       contextBlocks,
-      onDelivery: (status) => {
-        delivery(status);
-        onDelivery?.(status);
-      },
+      onDelivery,
       onSessionAssigned,
-    });
-    return true;
-  });
+      _draft,
+      _reply,
+      queuedCommandId,
+    ) => {
+      store.getState().sendMessage(text, {
+        images,
+        clientMsgId: queuedCommandId,
+        contextBlocks,
+        onDelivery: (status) => {
+          delivery(status);
+          onDelivery?.(status);
+        },
+        onSessionAssigned,
+      });
+      return true;
+    },
+  );
   function Harness({ sessionId = initialSession ?? undefined }: { sessionId?: string }) {
     const messages = useStore(store, (state) => state.messages);
     const composerGeneration = useStore(store, (state) => state.chatDraftRevision);
@@ -215,12 +235,14 @@ async function fixture(initialSession: string | null = 'child') {
     },
     stream,
     permission,
-    running: (running: boolean) =>
-      receive({
-        type: 'session_state_changed',
-        sessionId: 'child',
-        state: running ? 'running' : 'idle',
-      }),
+    running: async (running: boolean) =>
+      act(async () =>
+        receive({
+          type: 'session_state_changed',
+          sessionId: 'child',
+          state: running ? 'running' : 'idle',
+        }),
+      ),
   };
 }
 
@@ -304,13 +326,17 @@ it('retains a refused ordinary payload in the explicit retry queue without overw
     { text: 'Refused payload', contextBlocks: ['exact context'], requiresRetry: true },
   ]);
   expect(localStorage.getItem('mitzo-queue-child')).not.toContain('refused.png');
-  f.running(false);
-  f.running(true);
-  f.running(false);
+  await f.running(false);
+  await f.running(true);
+  await f.running(false);
   expect(f.onSend).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByText('Edit'));
-  expect(f.input()).toHaveProperty('value', 'Refused payload');
-  expect(screen.getByAltText('Attachment 1')).toBeTruthy();
+  await openQueuedEditor();
+  expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveProperty(
+    'value',
+    'Refused payload',
+  );
+  expect(f.input()).toHaveProperty('value', 'Newer draft');
+  expect(screen.getByAltText('Queued attachment 1')).toBeTruthy();
 });
 
 it('preserves an identical next draft pasted while the original send is pending', async () => {
@@ -369,14 +395,14 @@ it.each(['auto', 'Send Now'] as const)(
   'recovers %s queued ordinary refusal and never automatically replays the refused payload',
   async (action) => {
     const f = await fixture();
-    f.running(true);
+    await f.running(true);
     await f.compose('Queued payload', 'queue.png');
     fireEvent.click(screen.getByText('Select context'));
-    fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
-    f.running(false);
+    await queueDraft();
+    await f.running(false);
     if (action === 'Send Now') {
       f.reject();
-      fireEvent.click(screen.getByText('Send Now'));
+      await sendQueued();
     }
     const command = f.command();
     expect(command).toMatchObject({
@@ -390,8 +416,8 @@ it.each(['auto', 'Send Now'] as const)(
       { text: 'Queued payload', contextBlocks: ['exact context'], requiresRetry: true },
     ]);
     const calls = f.onSend.mock.calls.length;
-    f.running(true);
-    f.running(false);
+    await f.running(true);
+    await f.running(false);
     expect(f.onSend).toHaveBeenCalledTimes(calls);
   },
 );
@@ -512,13 +538,13 @@ it('retires old receipts when genuine New resets an unassigned chat to another u
 
 it('removes only an accepted automatic queue record from its original conversation after navigation', async () => {
   const f = await fixture();
-  f.running(true);
+  await f.running(true);
   await f.compose('Accepted A', 'accepted.png');
   fireEvent.click(screen.getByText('Select context'));
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  await queueDraft();
   await f.compose('Other A');
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
-  f.running(false);
+  await queueDraft();
+  await f.running(false);
   const c = f.command();
   expect(c.prompt).toBe('Accepted A');
   localStorage.setItem('mitzo-queue-b', JSON.stringify([{ text: 'B queue', contextBlocks: [] }]));
@@ -546,11 +572,11 @@ it('removes only an accepted automatic queue record from its original conversati
 
 it('keeps a known refused queued running interrupt under its original retry fence after navigation', async () => {
   const f = await fixture();
-  f.running(true);
+  await f.running(true);
   await f.compose('Interrupted A', 'interrupt.png');
   fireEvent.click(screen.getByText('Select context'));
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
-  fireEvent.click(screen.getByText('Send Now'));
+  await queueDraft();
+  await sendQueued();
   const c = f.command('interrupt');
   await act(() => f.store.getState().switchSession('b'));
   f.renderScope('b');
@@ -565,7 +591,7 @@ it('keeps a known refused queued running interrupt under its original retry fenc
   expect(JSON.parse(localStorage.getItem('mitzo-queue-child')!)).toMatchObject([
     { text: 'Interrupted A', contextBlocks: ['exact context'], requiresRetry: true },
   ]);
-  expect(localStorage.getItem('mitzo-queue-child')).not.toContain('interrupt.png');
+  expect(localStorage.getItem('mitzo-queue-child')).toContain('interrupt.png');
   expect(f.input()).toHaveProperty('value', 'B draft');
   await act(() => f.store.getState().switchSession('child'));
   f.renderScope('child');
@@ -575,12 +601,12 @@ it('keeps a known refused queued running interrupt under its original retry fenc
 
 it('reconciles an accepted automatic queue entry in reopened A without removing its other work', async () => {
   const f = await fixture();
-  f.running(true);
+  await f.running(true);
   await f.compose('Accepted across reload');
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  await queueDraft();
   await f.compose('Other A');
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
-  f.running(false);
+  await queueDraft();
+  await f.running(false);
   const c = f.command();
   f.unmount();
   f.remount();
@@ -600,12 +626,12 @@ it('reconciles an accepted automatic queue entry in reopened A without removing 
 
 it('carries remaining work through an exact fork whose acceptance precedes the assigned render', async () => {
   const f = await fixture();
-  f.running(true);
+  await f.running(true);
   await f.compose('Forked first');
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  await queueDraft();
   await f.compose('Remaining work');
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
-  f.running(false);
+  await queueDraft();
+  await f.running(false);
   const c = f.command();
   f.receive({
     type: '_send_accepted',
@@ -623,12 +649,12 @@ it('carries remaining work through an exact fork whose acceptance precedes the a
 
 it('locks queued and direct ordinary sends while an interrupt remains uncertain after running becomes idle', async () => {
   const f = await fixture();
-  f.running(true);
+  await f.running(true);
   await f.compose('Queued interrupt');
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  await queueDraft();
   await f.compose('Other queued input');
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
-  fireEvent.click(screen.getAllByText('Send Now')[0]);
+  await queueDraft();
+  await sendQueued();
   const c = f.command('interrupt');
   f.receive({
     type: '_send_uncertain',
@@ -636,7 +662,7 @@ it('locks queued and direct ordinary sends while an interrupt remains uncertain 
     clientMsgId: c.clientMsgId,
     error: 'Receipt unavailable',
   });
-  f.running(false);
+  await f.running(false);
   await f.compose('Later direct draft');
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
   expect(f.onSend).not.toHaveBeenCalled();
@@ -649,8 +675,9 @@ it('locks queued and direct ordinary sends while an interrupt remains uncertain 
     text: 'Queued interrupt',
   });
   expect(screen.queryByText('Queued interrupt')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-  expect(f.onSend).toHaveBeenCalledOnce();
+  await waitFor(() => expect(f.onSend).toHaveBeenCalledOnce());
+  expect(f.onSend.mock.calls[0][0]).toBe('Other queued input');
+  expect(f.input()).toHaveProperty('value', 'Later direct draft');
 });
 it('accepts a native command only from its correlated result, leaving later input untouched', async () => {
   const f = await fixture();
@@ -712,10 +739,10 @@ it('retains uncertain delivery without another send, then consumes only its auth
 });
 it('returns a locally refused automatic queue send to explicit retry with original images and context', async () => {
   const f = await fixture();
-  f.running(true);
+  await f.running(true);
   await f.compose('Local refusal', 'local.png');
   fireEvent.click(screen.getByText('Select context'));
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  await queueDraft();
   f.onSend.mockImplementationOnce(() => {
     const beforeDispatch = JSON.parse(localStorage.getItem('mitzo-queue-child')!);
     expect(beforeDispatch).toMatchObject([
@@ -724,35 +751,38 @@ it('returns a locally refused automatic queue send to explicit retry with origin
     expect(beforeDispatch[0].queueEntryId).toMatch(/^[a-f0-9-]{36}$/);
     return false;
   });
-  f.running(false);
+  await f.running(false);
   expect(screen.getByText('Local refusal')).toBeTruthy();
   expect(f.command()).toBeUndefined();
   expect(JSON.parse(localStorage.getItem('mitzo-queue-child')!)).toMatchObject([
     { text: 'Local refusal', contextBlocks: ['exact context'], requiresRetry: true },
   ]);
-  fireEvent.click(screen.getByText('Edit'));
-  expect(f.input()).toHaveProperty('value', 'Local refusal');
-  expect(screen.getByAltText('Attachment 1')).toBeTruthy();
+  await openQueuedEditor();
+  expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveProperty('value', 'Local refusal');
+  expect(f.input()).toHaveProperty('value', '');
+  expect(screen.getByAltText('Queued attachment 1')).toBeTruthy();
 });
 it('preserves the newer queue and draft on successful ordinary drain, with explicit idle Edit retry acceptance', async () => {
   const f = await fixture();
-  f.running(true);
+  await f.running(true);
   await f.compose('First');
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  await queueDraft();
   await f.compose('Second');
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  await queueDraft();
   await f.compose('Newer draft');
-  f.running(false);
+  await f.running(false);
   const c = f.command();
   f.receive({ type: 'user_message', sessionId: 'child', messageId: c.clientMsgId, text: 'First' });
   expect(screen.queryByText('First')).toBeNull();
   expect(screen.getByText('Second')).toBeTruthy();
   expect(f.input()).toHaveProperty('value', 'Newer draft');
-  f.running(true);
-  f.running(false);
+  await f.running(true);
+  await f.running(false);
   f.reject();
-  fireEvent.click(screen.getByText('Edit'));
-  fireEvent.keyDown(f.input(), { key: 'Enter' });
+  await openQueuedEditor();
+  expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveProperty('value', 'Second');
+  await saveQueuedEditor();
+  await sendQueued();
   const retry = f.command();
   expect(retry.clientMsgId).not.toBe(c.clientMsgId);
   expect(retry.prompt).toBe('Second');
@@ -762,7 +792,7 @@ it('preserves the newer queue and draft on successful ordinary drain, with expli
     messageId: retry.clientMsgId,
     text: 'Second',
   });
-  await waitFor(() => expect(f.input()).toHaveProperty('value', ''));
+  await waitFor(() => expect(f.input()).toHaveProperty('value', 'Newer draft'));
   expect(localStorage.getItem('mitzo-queue-child')).toBeNull();
 });
 
@@ -790,10 +820,10 @@ it('does not settle a foreign transcript but settles the original offscreen tran
 
 it('retains queued uncertainty under the persisted retry fence without automatic replay', async () => {
   const f = await fixture();
-  f.running(true);
+  await f.running(true);
   await f.compose('Uncertain queue', 'private.png');
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
-  f.running(false);
+  await queueDraft();
+  await f.running(false);
   const c = f.command();
   f.receive({
     type: '_send_uncertain',
@@ -802,9 +832,9 @@ it('retains queued uncertainty under the persisted retry fence without automatic
     error: 'Receipt unavailable',
   });
   expect(screen.getByText('Uncertain queue')).toBeTruthy();
-  expect(localStorage.getItem('mitzo-queue-child')).not.toContain('private.png');
-  f.running(true);
-  f.running(false);
+  expect(localStorage.getItem('mitzo-queue-child')).toContain('private.png');
+  await f.running(true);
+  await f.running(false);
   expect(f.onSend).toHaveBeenCalledOnce();
   f.receive({
     type: 'user_message',
@@ -845,12 +875,12 @@ it.each(['send', 'interrupt', 'automatic queue'] as const)(
   async (control) => {
     vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });
     const f = await fixture();
-    if (control !== 'send') f.running(true);
+    if (control !== 'send') await f.running(true);
     fireEvent.click(screen.getByText('Select context'));
     await f.compose('Exact HTTP input', 'private-http.png');
     if (control === 'automatic queue') {
-      fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
-      f.running(false);
+      await queueDraft();
+      await f.running(false);
     } else fireEvent.keyDown(f.input(), { key: 'Enter' });
     const c = f.command(control === 'interrupt' ? 'interrupt' : 'send');
     expect(c).toMatchObject({
@@ -865,8 +895,9 @@ it.each(['send', 'interrupt', 'automatic queue'] as const)(
     expect(f.input()).toHaveProperty('value', 'Newer HTTP draft');
     expect(screen.getByText('Exact HTTP input')).toBeTruthy();
     const stored = localStorage.getItem('mitzo-queue-child')!;
-    expect(stored).not.toContain('private-http.png');
-    expect(JSON.parse(stored)).toEqual([
+    if (control === 'automatic queue') expect(stored).toContain('private-http.png');
+    else expect(stored).not.toContain('private-http.png');
+    expect(JSON.parse(stored)).toMatchObject([
       {
         text: 'Exact HTTP input',
         contextBlocks: ['exact context'],
@@ -875,33 +906,37 @@ it.each(['send', 'interrupt', 'automatic queue'] as const)(
       },
     ]);
     expect(f.store.getState().messages.permission).toBe(f.permission);
-    f.running(false);
-    f.running(true);
-    f.running(false);
+    await f.running(false);
+    await f.running(true);
+    await f.running(false);
     expect(f.onSend).toHaveBeenCalledTimes(control === 'interrupt' ? 0 : 1);
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    expect(f.input()).toHaveProperty('value', 'Exact HTTP input');
-    expect(screen.getByAltText('Attachment 1')).toBeTruthy();
-    expect(screen.getByText('exact context')).toBeTruthy();
+    await openQueuedEditor();
+    expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveProperty(
+      'value',
+      'Exact HTTP input',
+    );
+    expect(f.input()).toHaveProperty('value', 'Newer HTTP draft');
+    expect(screen.getByAltText('Queued attachment 1')).toBeTruthy();
+    expect(screen.getByText('Context: exact context')).toBeTruthy();
   },
 );
 
 it('keeps unrelated queued images and context after exact acceptance when queue storage quota is full', async () => {
   const f = await fixture();
+  await f.running(true);
+  await f.compose('Accepted queued input');
+  await queueDraft();
+  await f.compose('Unsent image input', 'unsent.png');
+  fireEvent.click(screen.getByText('Select context'));
+  await queueDraft();
+  await f.compose('Newer composer input');
+  await f.running(false);
+  const command = f.command();
   const setItem = Storage.prototype.setItem;
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
     if (key.startsWith('mitzo-queue-')) throw new DOMException('Quota', 'QuotaExceededError');
     setItem.call(this, key, value);
   });
-  f.running(true);
-  await f.compose('Accepted queued input');
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
-  await f.compose('Unsent image input', 'unsent.png');
-  fireEvent.click(screen.getByText('Select context'));
-  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
-  await f.compose('Newer composer input');
-  f.running(false);
-  const command = f.command();
   f.receive({
     type: 'user_message',
     sessionId: 'foreign',
@@ -921,9 +956,17 @@ it('keeps unrelated queued images and context after exact acceptance when queue 
   expect(f.onSend).toHaveBeenCalledOnce();
   expect(f.store.getState().messages.permission).toBe(f.permission);
   // Explicit Edit recovers the complete surviving in-memory payload.
-  fireEvent.click(screen.getByText('Edit'));
-  expect(f.input()).toHaveProperty('value', 'Unsent image input');
-  expect(screen.getByAltText('Attachment 1')).toBeTruthy();
-  expect(screen.getByText('exact context')).toBeTruthy();
-  expect(localStorage.getItem('mitzo-queue-child')).toBeNull();
+  await openQueuedEditor();
+  expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveProperty(
+    'value',
+    'Unsent image input',
+  );
+  expect(f.input()).toHaveProperty('value', 'Newer composer input');
+  expect(screen.getByAltText('Queued attachment 1')).toBeTruthy();
+  expect(screen.getByText('Context: exact context')).toBeTruthy();
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-child')!)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ text: 'Accepted queued input', dispatchPending: true }),
+    ]),
+  );
 });

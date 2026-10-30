@@ -775,13 +775,14 @@ export function DesktopChatView() {
     text: string,
     images?: ImageAttachment[],
     replyTo?: MessageReplyContext,
+    queuedCommandId?: string,
   ) {
     if (!activeSessionId || !localRuntime.ordinaryWorkspaceId)
       return { request: null, reason: 'Conversation workspace settings are unavailable.' };
     return prepareOrdinaryWorkspaceCommand(localRuntime.intent, localRuntime.inventory, {
       sessionId: activeSessionId,
       ordinaryWorkspaceId: localRuntime.ordinaryWorkspaceId,
-      clientMsgId: createBrowserId(),
+      clientMsgId: queuedCommandId ?? createBrowserId(),
       mode: localRuntime.mode ?? 'agent',
       retainedAgentProfile: localRuntime.agentProfile,
       retainedAgentContext: localRuntime.agentContext,
@@ -800,6 +801,7 @@ export function DesktopChatView() {
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
     composerDraft?: import('@mitzo/client').SendMessageOptions['composerDraft'],
     replyTo?: MessageReplyContext,
+    queuedCommandId?: string,
   ): boolean {
     if (
       (activeSessionId && !isSessionMetadataCurrent(activeSessionId, sessionMetadataRevision)) ||
@@ -819,7 +821,7 @@ export function DesktopChatView() {
     }
     if (localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable && activeSessionId) {
       if (ctxBlocks?.length || launching || localRuntime.reason) return false;
-      const command = prepareOrdinaryCommand(text, images, replyTo);
+      const command = prepareOrdinaryCommand(text, images, replyTo, queuedCommandId);
       return (
         !!command.request &&
         sendOrdinaryWorkspaceCommand(
@@ -838,7 +840,7 @@ export function DesktopChatView() {
     if (localRuntime.preparedFirst && localRuntime.repositoryWorkspaceId && activeSessionId) {
       if (ctxBlocks?.length || launching || localRuntime.reason) return false;
       const command = prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
-        clientMsgId: createBrowserId(),
+        clientMsgId: queuedCommandId ?? createBrowserId(),
         repositoryWorkspaceId: localRuntime.repositoryWorkspaceId,
         mode: localRuntime.mode ?? 'agent',
         retainedAgentProfile: localRuntime.agentProfile,
@@ -865,7 +867,7 @@ export function DesktopChatView() {
         return false;
       const command = prepareLocalContinuationCommand(localRuntime.intent, localRuntime.inventory, {
         sessionId: activeSessionId,
-        clientMsgId: createBrowserId(),
+        clientMsgId: queuedCommandId ?? createBrowserId(),
         repositoryWorkspaceId: localRuntime.repositoryWorkspaceId,
         mode: localRuntime.mode ?? 'agent',
         retainedAgentProfile: localRuntime.agentProfile,
@@ -895,7 +897,7 @@ export function DesktopChatView() {
       )
         return false;
       const command = buildLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
-        clientMsgId: createBrowserId(),
+        clientMsgId: queuedCommandId ?? createBrowserId(),
         repositoryWorkspaceId: repositorySelection?.repositoryWorkspaceId,
         mode,
         text,
@@ -944,6 +946,7 @@ export function DesktopChatView() {
     const options = {
       images,
       replyToMessageId: replyTo?.messageId,
+      clientMsgId: queuedCommandId,
       contextBlocks: ctxBlocks,
       ...(!activeSessionId ? { sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots } : {}),
       ...(onDelivery ? { onDelivery } : {}),
@@ -1013,6 +1016,7 @@ export function DesktopChatView() {
     ctxBlocks?: string[],
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
     replyTo?: MessageReplyContext,
+    queuedCommandId?: string,
   ): void {
     if (controlsBlocked || explicitNew) {
       onDelivery?.('failed');
@@ -1024,7 +1028,7 @@ export function DesktopChatView() {
         return;
       }
       voice.stopSpeaking();
-      turnSteering.submit(text, onDelivery, replyTo?.messageId);
+      turnSteering.submit(text, onDelivery, replyTo?.messageId, queuedCommandId);
       return;
     }
     if (repositoryHandoff.present) return;
@@ -1032,6 +1036,7 @@ export function DesktopChatView() {
     storeInterruptMessage(text, {
       images,
       replyToMessageId: replyTo?.messageId,
+      clientMsgId: queuedCommandId,
       contextBlocks: ctxBlocks,
       onDelivery,
       ...(accountSelection ?? {}),
@@ -1996,6 +2001,7 @@ export function DesktopChatView() {
                       onSessionAssigned,
                       composerDraft,
                       replyTo,
+                      queuedCommandId,
                     ) =>
                       handleSend(
                         text,
@@ -2006,6 +2012,7 @@ export function DesktopChatView() {
                         onSessionAssigned,
                         composerDraft,
                         replyTo,
+                        queuedCommandId,
                       )
                     }
                     onStop={handleStop}

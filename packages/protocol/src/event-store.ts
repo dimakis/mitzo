@@ -4025,7 +4025,7 @@ export class EventStore {
     return rows.map(rowToEvent);
   }
 
-  /** Exact ordinary source lookup without loading the conversation or private tool blocks. */
+  /** Exact ordinary source identity; only completed visible text is returned. */
   getOrdinaryMessageReplySource(
     sessionId: string,
     messageId: string,
@@ -4076,7 +4076,10 @@ export class EventStore {
                 : '',
               provenance: null,
             }
-          : this.getSymposiumSourceMessage(sessionId, messageId, { seatId: null });
+          : this.getSymposiumSourceMessage(sessionId, messageId, {
+              seatId: null,
+              blockSeparator: '\n\n',
+            });
     if (!source || source.provenance) return undefined;
     const role =
       event.type === 'user_message'
@@ -4109,7 +4112,11 @@ export class EventStore {
   getSymposiumSourceMessage(
     sessionId: string,
     messageId: string,
-    identity?: { seatId: string | null; membershipGeneration?: number | null },
+    identity?: {
+      seatId: string | null;
+      membershipGeneration?: number | null;
+      blockSeparator?: string;
+    },
   ):
     | {
         messageId: string;
@@ -4166,6 +4173,7 @@ export class EventStore {
        FROM events WHERE session_id = ? AND seq > ? AND seq < ? ORDER BY seq`,
     ).all(sessionId, start.seq, end.seq) as EventRow[];
     const textBlocks = new Set<string>();
+    const chunks = new Map<string, string>();
     let content = '';
     for (const row of events) {
       const event = rowToEvent(row);
@@ -4183,13 +4191,18 @@ export class EventStore {
         event.type === 'block_delta' &&
         textBlocks.has(blockId) &&
         typeof event.payload.delta === 'string'
-      )
+      ) {
         content += event.payload.delta;
+        chunks.set(blockId, (chunks.get(blockId) ?? '') + event.payload.delta);
+      }
     }
     return {
       messageId,
       seatId: start.seatId ?? null,
-      content,
+      content:
+        identity?.blockSeparator !== undefined
+          ? [...chunks.values()].join(identity.blockSeparator)
+          : content,
       provenance: start.symposiumProvenance ?? null,
     };
   }
