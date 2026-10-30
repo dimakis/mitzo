@@ -182,6 +182,7 @@ describe('native tool execution through session permissions', () => {
       abort.signal,
       undefined,
       undefined,
+      undefined,
     );
   });
   it('retains an authenticated GitHub read approval for the session', async () => {
@@ -201,6 +202,24 @@ describe('native tool execution through session permissions', () => {
     expect(sent).toEqual([]);
     expect(registry.get('client')!.sessionAllowList).toContain('GitHubRead');
   });
+  it('includes an explicit full GitHub view in the original approved request', async () => {
+    const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+    const pending = executor()(
+      call('GitHubRead', { endpoint: '/repos/example/project/pulls', view: 'full' }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(before);
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    expect(await pending).toMatchObject({ is_error: false });
+    expect(executeTrustedGitHubRead).toHaveBeenLastCalledWith(
+      '/repos/example/project/pulls',
+      abort.signal,
+      undefined,
+      undefined,
+      'full',
+    );
+  });
   it('rejects GitHub traversal before requesting approval', async () => {
     for (const endpoint of [
       '/repos/owner/repo/../../user',
@@ -208,8 +227,22 @@ describe('native tool execution through session permissions', () => {
       '/repos/owner/repo/%2Fuser',
     ]) {
       const response = await executor()(call('GitHubRead', { endpoint }), abort.signal);
-      expect(response).toMatchObject({ is_error: true, content: 'Invalid native tool input' });
+      expect(response).toMatchObject({
+        is_error: true,
+        content: expect.stringContaining('Invalid native tool input'),
+      });
     }
+    expect(sent).toEqual([]);
+  });
+  it('explains unsupported GitHub endpoints without requesting approval or exposing submitted values', async () => {
+    const response = await executor()(
+      call('GitHubRead', { endpoint: '/search/issues?q=private-query' }),
+      abort.signal,
+    );
+    expect(response.is_error).toBe(true);
+    expect(response.content).toContain('/repos/');
+    expect(response.content).toContain('not executed');
+    expect(response.content).not.toContain('private-query');
     expect(sent).toEqual([]);
   });
   it('explains the narrow commit service limit and routes large commits to native Git', async () => {
@@ -834,7 +867,10 @@ describe('native tool execution through session permissions', () => {
         }),
         abort.signal,
       ),
-    ).toMatchObject({ is_error: true, content: 'Invalid native tool input' });
+    ).toMatchObject({
+      is_error: true,
+      content: expect.stringContaining('Invalid native tool input'),
+    });
     expect(sent).toHaveLength(0);
     expect(executeSandboxedCommand).not.toHaveBeenCalled();
   });

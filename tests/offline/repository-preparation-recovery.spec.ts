@@ -13,6 +13,7 @@ import {
   DEFAULT_MITZO_PROFILE_ID,
   DEFAULT_MITZO_PROFILE_REVISION,
   defaultMitzoProfileDefinition,
+  KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE,
 } from '../../packages/protocol/src/index';
 import { sha256Hex } from '../../frontend/src/lib/browser-crypto';
 import { readFile } from 'node:fs/promises';
@@ -361,6 +362,10 @@ for (const workspaceChoice of ['select', 'default'] as const) {
                 ok: false,
                 code: 'retained_command',
                 error: 'Conversation runtime unavailable',
+                runtimeFailure: {
+                  runtimeFailureCode: 'knowledge_unavailable',
+                  diagnosticId: '22222222-2222-4222-8222-222222222222',
+                },
                 clientMsgId: request.clientMsgId,
                 sessionId: 'retained-api',
                 state: 'uncertain',
@@ -490,6 +495,14 @@ for (const workspaceChoice of ['select', 'default'] as const) {
           const recover = page.getByRole('button', { name: 'Retry', exact: true });
           await expect(recover).toBeVisible();
           await expect(page.getByText('Delivery not confirmed.', { exact: true })).toHaveCount(1);
+          if (accountId === 'api')
+            await expect(
+              page.getByText(
+                KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE +
+                  ' Reference: 22222222-2222-4222-8222-222222222222',
+                { exact: true },
+              ),
+            ).toBeVisible();
           await expect(
             page.getByText(
               /command retained|Review retained|Review the retained|Delivery was not confirmed/,

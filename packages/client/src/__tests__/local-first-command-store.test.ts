@@ -152,6 +152,61 @@ it('explains lost authentication without sending through a stale live connection
   expect(readStorage()).toEqual([]);
 });
 
+it.each(['reviewed', 'wrong-command', 'unknown-diagnostic', 'invalid-reference'])(
+  'retains failed first-command delivery and displays only its %s diagnostic',
+  async (variant) => {
+    const { store, fetch, readStorage } = setup();
+    channel.id = 'live';
+    channel.listener({ type: '_open' });
+    const delivered = vi.fn();
+    const diagnosticId = '22222222-2222-4222-8222-222222222222';
+    fetch.mockResolvedValue(
+      Response.json(
+        {
+          ok: false,
+          code: 'retained_command',
+          clientMsgId: variant === 'wrong-command' ? 'foreign' : request.clientMsgId,
+          sessionId: 'owned-session',
+          state: 'uncertain',
+          error: 'private-path secret-token',
+          runtimeFailure: {
+            runtimeFailureCode:
+              variant === 'unknown-diagnostic' ? 'forged' : 'knowledge_unavailable',
+            diagnosticId: variant === 'invalid-reference' ? 'invalid' : diagnosticId,
+          },
+        },
+        { status: 409 },
+      ),
+    );
+    expect(
+      store.getState().sendLocalFirstCommand(request, {
+        draftId: 'kept',
+        onDelivery: delivered,
+      }),
+    ).toBe(true);
+    await vi.waitFor(() =>
+      expect(store.getState().localCommand?.state).toBe(
+        variant === 'reviewed' ? 'retained' : 'uncertain',
+      ),
+    );
+    if (variant === 'reviewed') {
+      expect(store.getState().sendError).toContain('compatible runtime');
+      expect(store.getState().sendError).toContain(diagnosticId);
+      expect(readStorage()[0].localReceipt).toEqual({
+        sessionId: 'owned-session',
+        state: 'uncertain',
+      });
+    } else {
+      expect(store.getState().sendError ?? '').not.toContain('compatible runtime');
+      expect(readStorage()[0].localReceipt).toBeUndefined();
+    }
+    expect(store.getState().sendError ?? '').not.toMatch(/private-path|secret-token/);
+    expect(store.getState().localCommand?.request).toEqual(request);
+    expect(delivered).not.toHaveBeenCalledWith('accepted');
+    expect(fetch).toHaveBeenCalledOnce();
+  },
+);
+
 it('keeps the original uncertain command when a replacement is refused for its draft', async () => {
   const { store, fetch, readStorage } = setup();
   channel.id = 'live';

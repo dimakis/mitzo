@@ -239,6 +239,18 @@ it('reads Google documents through an admitted Local Mac chat while credentials 
     outputId: expect.any(String),
   });
   expect(names).toContain('ReadToolOutput');
+  for (const toolId of ['GoogleWorkspaceRead', 'ReadToolOutput']) {
+    const detail = await call('DescribeIntegrationTool', { toolId }, 'describe-' + toolId);
+    expect(detail).toMatchObject({ success: true });
+    expect(JSON.parse((detail.contentItems as Array<{ text: string }>)[0]!.text)).toMatchObject({
+      toolId,
+      invocation: 'direct',
+      inputSchema:
+        toolId === 'GoogleWorkspaceRead'
+          ? { oneOf: expect.any(Array) }
+          : { properties: { outputId: { type: 'string' }, limit: { maximum: 4096 } } },
+    });
+  }
   const retained = await call(
     'ReadToolOutput',
     { outputId: preview.outputId, offset: 0, limit: 1000 },

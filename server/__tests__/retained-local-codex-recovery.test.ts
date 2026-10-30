@@ -56,6 +56,7 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused', 'accepted-paused-
       const predecessor = new CodexConversation({
         conversationId: original.sessionId,
         cwd: original.workspace.directory!,
+        systemPrompt: original.payload.systemPrompt,
         profile: original.profile,
         storedBinding: original.lease.binding,
         store: native,

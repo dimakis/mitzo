@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 vi.mock('../worktree.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../worktree.js')>()),
-  createWorktree: vi.fn(() => {
+  createWorktreeAsync: vi.fn(async () => {
     throw Error('Upstream main is unavailable');
   }),
 }));
@@ -18,9 +18,9 @@ it('refuses startup when the shared worktree cannot fetch upstream instead of ru
   vi.stubEnv('REPO_PATH', root);
   const { createSessionWorktrees } = await import('../chat.js');
   const transport = { send: vi.fn(), isOpen: () => true };
-  expect(() =>
+  await expect(
     createSessionWorktrees(transport as never, root!, 'offline-session', { isolation: true }),
-  ).toThrow('Upstream main is unavailable');
+  ).rejects.toThrow('Upstream main is unavailable');
   expect(transport.send).toHaveBeenCalledWith(
     expect.objectContaining({
       type: 'error',

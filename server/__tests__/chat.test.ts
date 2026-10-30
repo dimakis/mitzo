@@ -14,7 +14,7 @@ vi.mock('../worktree.js', async (importOriginal) => {
     ...actual,
     removeWorktree: vi.fn(),
     hasUncommittedWork: vi.fn().mockReturnValue(null),
-    createWorktree: vi.fn(actual.createWorktree as (...args: unknown[]) => unknown),
+    createWorktreeAsync: vi.fn(actual.createWorktreeAsync as (...args: unknown[]) => unknown),
   };
 });
 
@@ -277,9 +277,9 @@ describe('createSessionWorktrees — lazy secondary creation', () => {
 
   beforeEach(async () => {
     const worktreeMod = await import('../worktree.js');
-    createWorktreeMock = worktreeMod.createWorktree as ReturnType<typeof vi.fn>;
+    createWorktreeMock = worktreeMod.createWorktreeAsync as ReturnType<typeof vi.fn>;
     createWorktreeMock.mockReset();
-    createWorktreeMock.mockReturnValue('/repo/.claude/worktrees/test-id');
+    createWorktreeMock.mockResolvedValue('/repo/.claude/worktrees/test-id');
 
     const { loadRepoConfig } = await import('../repo-config.js');
     (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -309,7 +309,7 @@ describe('createSessionWorktrees — lazy secondary creation', () => {
     // checks `!BASE_REPO` (from env), so if REPO_PATH isn't set the early return
     // fires and createWorktree is never called — that's the "disabled" path.
     const mockTransport = { send: vi.fn(), isOpen: () => true };
-    const result = createSessionWorktrees(mockTransport as never, '/repo', 'test-id', {});
+    const result = await createSessionWorktrees(mockTransport as never, '/repo', 'test-id', {});
 
     if (createWorktreeMock.mock.calls.length === 0) {
       // Isolation disabled (no REPO_PATH) — verify we got the passthrough result
@@ -535,7 +535,7 @@ describe('discoverSessionWorktrees integration', () => {
 describe('validateResumable', () => {
   it('returns valid for a CWD that passes git check', async () => {
     const { validateResumable } = await import('../chat.js');
-    const result = validateResumable('/some/cwd', 'sess-1', {
+    const result = await validateResumable('/some/cwd', 'sess-1', {
       isGitDir: () => true,
       recreateWorktree: () => '',
     });
@@ -544,7 +544,7 @@ describe('validateResumable', () => {
 
   it('returns valid with recreated flag when worktree is rebuilt', async () => {
     const { validateResumable } = await import('../chat.js');
-    const result = validateResumable('/repo/.claude/worktrees/2026-04-22-abc123', 'sess-1', {
+    const result = await validateResumable('/repo/.claude/worktrees/2026-04-22-abc123', 'sess-1', {
       isGitDir: () => false,
       recreateWorktree: () => '/repo/.claude/worktrees/2026-04-22-abc123',
     });
@@ -553,7 +553,7 @@ describe('validateResumable', () => {
 
   it('returns invalid when CWD is not a git dir and not a worktree path', async () => {
     const { validateResumable } = await import('../chat.js');
-    const result = validateResumable('/some/random/path', 'sess-1', {
+    const result = await validateResumable('/some/random/path', 'sess-1', {
       isGitDir: () => false,
       recreateWorktree: () => '',
     });
@@ -562,7 +562,7 @@ describe('validateResumable', () => {
 
   it('returns invalid when worktree recreation fails', async () => {
     const { validateResumable } = await import('../chat.js');
-    const result = validateResumable('/repo/.claude/worktrees/2026-04-22-abc123', 'sess-1', {
+    const result = await validateResumable('/repo/.claude/worktrees/2026-04-22-abc123', 'sess-1', {
       isGitDir: () => false,
       recreateWorktree: () => {
         throw new Error('git failed');
@@ -579,62 +579,64 @@ describe('resolveSshAuthSock', () => {
 
   it('returns trimmed socket path on macOS', async () => {
     vi.resetModules();
-    vi.doMock('os', async (importOriginal) => {
+    vi.doMock('node:os', async (importOriginal) => {
       const actual = (await importOriginal()) as Record<string, unknown>;
       return { ...actual, platform: () => 'darwin' };
     });
-    vi.doMock('child_process', async (importOriginal) => {
+    vi.doMock('node:child_process', async (importOriginal) => {
       const actual = (await importOriginal()) as Record<string, unknown>;
       return {
         ...actual,
-        execFileSync: vi.fn().mockReturnValue('  /private/tmp/com.apple.launchd.xxx/Listeners  \n'),
+        execFile: vi.fn((_p, _a, _o, cb) =>
+          cb(null, '  /private/tmp/com.apple.launchd.xxx/Listeners  \n'),
+        ),
       };
     });
     const { resolveSshAuthSock } = await import('../chat.js');
-    expect(resolveSshAuthSock()).toBe('/private/tmp/com.apple.launchd.xxx/Listeners');
+    expect(await resolveSshAuthSock()).toBe('/private/tmp/com.apple.launchd.xxx/Listeners');
   });
 
   it('returns null when launchctl returns empty string', async () => {
     vi.resetModules();
-    vi.doMock('os', async (importOriginal) => {
+    vi.doMock('node:os', async (importOriginal) => {
       const actual = (await importOriginal()) as Record<string, unknown>;
       return { ...actual, platform: () => 'darwin' };
     });
-    vi.doMock('child_process', async (importOriginal) => {
+    vi.doMock('node:child_process', async (importOriginal) => {
       const actual = (await importOriginal()) as Record<string, unknown>;
-      return { ...actual, execFileSync: vi.fn().mockReturnValue('  \n') };
+      return { ...actual, execFile: vi.fn((_p, _a, _o, cb) => cb(null, '  \n')) };
     });
     const { resolveSshAuthSock } = await import('../chat.js');
-    expect(resolveSshAuthSock()).toBeNull();
+    expect(await resolveSshAuthSock()).toBeNull();
   });
 
-  it('returns null when execFileSync throws', async () => {
+  it('returns null when launchctl fails', async () => {
     vi.resetModules();
-    vi.doMock('os', async (importOriginal) => {
+    vi.doMock('node:os', async (importOriginal) => {
       const actual = (await importOriginal()) as Record<string, unknown>;
       return { ...actual, platform: () => 'darwin' };
     });
-    vi.doMock('child_process', async (importOriginal) => {
+    vi.doMock('node:child_process', async (importOriginal) => {
       const actual = (await importOriginal()) as Record<string, unknown>;
       return {
         ...actual,
-        execFileSync: vi.fn().mockImplementation(() => {
-          throw new Error('launchctl not found');
+        execFile: vi.fn().mockImplementation((_p, _a, _o, cb) => {
+          cb(new Error('launchctl not found'), '');
         }),
       };
     });
     const { resolveSshAuthSock } = await import('../chat.js');
-    expect(resolveSshAuthSock()).toBeNull();
+    expect(await resolveSshAuthSock()).toBeNull();
   });
 
   it('returns null on non-macOS platforms', async () => {
     vi.resetModules();
-    vi.doMock('os', async (importOriginal) => {
+    vi.doMock('node:os', async (importOriginal) => {
       const actual = (await importOriginal()) as Record<string, unknown>;
       return { ...actual, platform: () => 'linux' };
     });
     const { resolveSshAuthSock } = await import('../chat.js');
-    expect(resolveSshAuthSock()).toBeNull();
+    expect(await resolveSshAuthSock()).toBeNull();
   });
 });
 

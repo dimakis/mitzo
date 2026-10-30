@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as filesystem from 'node:fs/promises';
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>();
+  return { ...actual, readdir: vi.fn(actual.readdir) };
+});
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -45,13 +50,13 @@ afterEach(() => {
   mockLoadRepoConfig.mockReset();
 });
 
-describe('getSessionDirs', () => {
-  it('always includes BASE_REPO as first entry', () => {
-    const dirs = getSessionDirs();
+describe('getSessionDirs', async () => {
+  it('always includes BASE_REPO as first entry', async () => {
+    const dirs = await getSessionDirs();
     expect(dirs[0]).toBe(BASE_REPO);
   });
 
-  it('includes explicitly configured repos', () => {
+  it('includes explicitly configured repos', async () => {
     const repoA = join(TEST_BASE, 'repo-a');
     mkdirSync(repoA, { recursive: true });
 
@@ -60,11 +65,11 @@ describe('getSessionDirs', () => {
       repos: { 'repo-a': repoA },
     });
 
-    const dirs = getSessionDirs();
+    const dirs = await getSessionDirs();
     expect(dirs).toContain(repoA);
   });
 
-  it('discovers sibling dirs with .git from roots parents', () => {
+  it('discovers sibling dirs with .git from roots parents', async () => {
     const projA = join(TEST_PROJECTS, 'proj-a');
     mkdirSync(join(projA, '.git'), { recursive: true });
 
@@ -73,11 +78,11 @@ describe('getSessionDirs', () => {
       roots: [{ label: 'ProjA', path: projA }],
     });
 
-    const dirs = getSessionDirs();
+    const dirs = await getSessionDirs();
     expect(dirs).toContain(projA);
   });
 
-  it('discovers sibling dirs with .claude (no .git)', () => {
+  it('discovers sibling dirs with .claude (no .git)', async () => {
     const projB = join(TEST_PROJECTS, 'proj-b');
     mkdirSync(join(projB, '.claude'), { recursive: true });
 
@@ -89,11 +94,11 @@ describe('getSessionDirs', () => {
       roots: [{ label: 'Other', path: otherProj }],
     });
 
-    const dirs = getSessionDirs();
+    const dirs = await getSessionDirs();
     expect(dirs).toContain(projB);
   });
 
-  it('skips non-directory entries in parent dirs', () => {
+  it('skips non-directory entries in parent dirs', async () => {
     writeFileSync(join(TEST_PROJECTS, 'not-a-dir'), 'hello');
 
     const projDir = join(TEST_PROJECTS, 'proj');
@@ -104,11 +109,11 @@ describe('getSessionDirs', () => {
       roots: [{ label: 'Proj', path: projDir }],
     });
 
-    const dirs = getSessionDirs();
+    const dirs = await getSessionDirs();
     expect(dirs).not.toContain(join(TEST_PROJECTS, 'not-a-dir'));
   });
 
-  it('skips directories without .git or .claude', () => {
+  it('skips directories without .git or .claude', async () => {
     const plainDir = join(TEST_PROJECTS, 'no-markers');
     mkdirSync(plainDir, { recursive: true });
 
@@ -120,11 +125,11 @@ describe('getSessionDirs', () => {
       roots: [{ label: 'Root', path: rootDir }],
     });
 
-    const dirs = getSessionDirs();
+    const dirs = await getSessionDirs();
     expect(dirs).not.toContain(plainDir);
   });
 
-  it('deduplicates repos that appear in both repos and root siblings', () => {
+  it('deduplicates repos that appear in both repos and root siblings', async () => {
     const projA = join(TEST_PROJECTS, 'proj-a');
     mkdirSync(join(projA, '.git'), { recursive: true });
 
@@ -134,39 +139,39 @@ describe('getSessionDirs', () => {
       repos: { 'proj-a': projA },
     });
 
-    const dirs = getSessionDirs();
+    const dirs = await getSessionDirs();
     const count = dirs.filter((d) => d === projA).length;
     expect(count).toBe(1);
   });
 
-  it('handles missing parent dirs gracefully', () => {
+  it('handles missing parent dirs gracefully', async () => {
     mockLoadRepoConfig.mockReturnValue({
       ...mockConfig,
       roots: [{ label: 'Missing', path: '/nonexistent/path/xyz/child' }],
     });
 
-    const dirs = getSessionDirs();
+    const dirs = await getSessionDirs();
     expect(dirs[0]).toBe(BASE_REPO);
   });
 
-  it('handles config load failure gracefully', () => {
+  it('handles config load failure gracefully', async () => {
     mockLoadRepoConfig.mockImplementation(() => {
       throw new Error('config not loaded');
     });
 
-    const dirs = getSessionDirs();
+    const dirs = await getSessionDirs();
     expect(dirs[0]).toBe(BASE_REPO);
     expect(dirs.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('includes legacy session dirs (<BASE_REPO>-sessions/session-*)', () => {
+  it('includes legacy session dirs (<BASE_REPO>-sessions/session-*)', async () => {
     const legacyDir = `${BASE_REPO}-sessions`;
     mkdirSync(join(legacyDir, 'session-abc'), { recursive: true });
     mkdirSync(join(legacyDir, 'session-def'), { recursive: true });
     mkdirSync(join(legacyDir, 'other'), { recursive: true });
 
     try {
-      const dirs = getSessionDirs();
+      const dirs = await getSessionDirs();
       expect(dirs).toContain(join(legacyDir, 'session-abc'));
       expect(dirs).toContain(join(legacyDir, 'session-def'));
       expect(dirs).not.toContain(join(legacyDir, 'other'));
@@ -175,7 +180,7 @@ describe('getSessionDirs', () => {
     }
   });
 
-  it('multiple roots sharing the same parent only scan parent once', () => {
+  it('multiple roots sharing the same parent only scan parent once', async () => {
     const projA = join(TEST_PROJECTS, 'proj-a');
     const projB = join(TEST_PROJECTS, 'proj-b');
     const projC = join(TEST_PROJECTS, 'proj-c');
@@ -191,7 +196,7 @@ describe('getSessionDirs', () => {
       ],
     });
 
-    const dirs = getSessionDirs();
+    const dirs = await getSessionDirs();
     expect(dirs).toContain(projA);
     expect(dirs).toContain(projB);
     expect(dirs).toContain(projC);
@@ -200,41 +205,66 @@ describe('getSessionDirs', () => {
     expect(dirs.filter((d) => d === projC).length).toBe(1);
   });
 
-  it('discovers worktree sessions from ~/.claude/projects/', () => {
+  it('discovers worktree sessions from ~/.claude/projects/', async () => {
     const encoded = BASE_REPO.replace(/\//g, '-');
     const wtDir1 = `${encoded}--claude-worktrees-2026-04-15-abc123`;
     const wtDir2 = `${encoded}--claude-worktrees-2026-04-14-def456`;
     mkdirSync(join(TEST_CLAUDE_PROJECTS, wtDir1), { recursive: true });
     mkdirSync(join(TEST_CLAUDE_PROJECTS, wtDir2), { recursive: true });
 
-    const dirs = getSessionDirs({ claudeProjectsRoot: TEST_CLAUDE_PROJECTS });
+    const dirs = await getSessionDirs({ claudeProjectsRoot: TEST_CLAUDE_PROJECTS });
     expect(dirs).toContain(`${BASE_REPO}/.claude/worktrees/2026-04-15-abc123`);
     expect(dirs).toContain(`${BASE_REPO}/.claude/worktrees/2026-04-14-def456`);
   });
 
-  it('does not include non-worktree dirs from ~/.claude/projects/', () => {
+  it('does not include non-worktree dirs from ~/.claude/projects/', async () => {
     const encoded = BASE_REPO.replace(/\//g, '-');
     // Base repo dir and unrelated repo — neither should add entries
     mkdirSync(join(TEST_CLAUDE_PROJECTS, encoded), { recursive: true });
     mkdirSync(join(TEST_CLAUDE_PROJECTS, '-Users-someone-other-repo'), { recursive: true });
 
-    const dirs = getSessionDirs({ claudeProjectsRoot: TEST_CLAUDE_PROJECTS });
+    const dirs = await getSessionDirs({ claudeProjectsRoot: TEST_CLAUDE_PROJECTS });
     const dirsWithoutBaseAndLegacy = dirs.filter((d) => d !== BASE_REPO);
     expect(dirsWithoutBaseAndLegacy).toHaveLength(0);
   });
 
-  it('deduplicates worktree dirs already found via other methods', () => {
+  it('deduplicates worktree dirs already found via other methods', async () => {
     const encoded = BASE_REPO.replace(/\//g, '-');
     const wtDir = `${encoded}--claude-worktrees-2026-04-15-abc123`;
     mkdirSync(join(TEST_CLAUDE_PROJECTS, wtDir), { recursive: true });
 
-    const dirs = getSessionDirs({ claudeProjectsRoot: TEST_CLAUDE_PROJECTS });
+    const dirs = await getSessionDirs({ claudeProjectsRoot: TEST_CLAUDE_PROJECTS });
     const wtPath = `${BASE_REPO}/.claude/worktrees/2026-04-15-abc123`;
     expect(dirs.filter((d) => d === wtPath)).toHaveLength(1);
   });
 
-  it('handles missing ~/.claude/projects/ gracefully', () => {
-    const dirs = getSessionDirs({ claudeProjectsRoot: '/nonexistent/path' });
+  it('handles missing ~/.claude/projects/ gracefully', async () => {
+    const dirs = await getSessionDirs({ claudeProjectsRoot: '/nonexistent/path' });
     expect(dirs[0]).toBe(BASE_REPO);
   });
+});
+
+it('yields while directory discovery waits on filesystem metadata', async () => {
+  const readdir = vi.spyOn(filesystem, 'readdir');
+  let release!: () => void;
+  const held = new Promise<never[]>((resolve) => {
+    release = () => resolve([]);
+  });
+  readdir.mockReturnValue(held as never);
+  try {
+    let completed = false;
+    const result = getSessionDirs({ claudeProjectsRoot: TEST_CLAUDE_PROJECTS });
+    expect(result).toBeInstanceOf(Promise);
+    const discovered = result.then((dirs) => {
+      completed = true;
+      return dirs;
+    });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    release();
+    expect(await discovered).toContain(BASE_REPO);
+  } finally {
+    release();
+    readdir.mockRestore();
+  }
 });
