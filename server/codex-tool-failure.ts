@@ -253,13 +253,19 @@ export function codexToolFailureResult(
     internal_failure:
       'The outcome is uncertain. Inspect current state and the diagnostic reference before retrying; do not repeat a write blindly.',
   };
+  const correctRepositoryInput =
+    code === 'invalid_input' &&
+    diagnostic.stage === 'repository_preparation' &&
+    diagnostic.effectStatus === 'not_started';
   return {
     content: JSON.stringify({
       error: code,
-      action: actions[code],
+      action: correctRepositoryInput
+        ? 'Choose exactly one selector: path for an existing absolute checkout OR source for existing/clone/new, never both. For a new project use {"source":{"kind":"new","name":"my-project"}} without path. path is not a destination; Mitzo assigns the task directory and custom destinations are unsupported. Use only documented fields. Correct the arguments and retry; this call did not start repository preparation. Do not reconcile an unrelated repository.'
+        : actions[code],
       diagnosticId: randomUUID(),
       diagnostic,
-      retry: 'after_reconciliation',
+      retry: correctRepositoryInput ? 'after_correction' : 'after_reconciliation',
     }),
     isError: true,
   };
