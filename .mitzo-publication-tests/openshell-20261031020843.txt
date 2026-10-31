@@ -1,0 +1,3 @@
+Disposable draft pull-request publication verification.
+This file contains no runtime configuration or credentials.
+Do not merge this test pull request.
