@@ -36,6 +36,7 @@ import { searchCodex } from './codex-approved-search.js';
 import { BorrowedCodexSearch } from './codex-borrowed-search.js';
 import { context, trace, SpanStatusCode, type Span, type Context } from '@opentelemetry/api';
 import { createHash } from 'node:crypto';
+import { CodexNativeFileChange } from './codex-native-file-change.js';
 import { isDeepStrictEqual } from 'node:util';
 import { performance } from 'node:perf_hooks';
 import { SearchSkillsInput, searchNativeSkills } from './local-agent-efficiency.js';
@@ -3013,36 +3014,52 @@ export class CodexConversation {
     const verified = await this.verifyCurrentBinding(binding);
     if (!isDeepStrictEqual(verified, binding))
       throw Error('Completion phase account binding changed');
-    this.opts.store.reconcileCompletionPhase(
+    const current = () => {
+      assertCurrent?.();
+      if (policy) {
+        this.assertNativeExecutionOwner();
+        const checked: unknown = this.opts.assertNativeExecutionCurrent!(policy, target.commandId);
+        if (checked !== undefined) {
+          void Promise.resolve(checked).catch(() => {});
+          throw Error('Completion phase workspace authority must be synchronous');
+        }
+      } else if (interruptedEffects) {
+        if (!this.opts.assertRecoveryCurrent)
+          throw Error('Interrupted effects require a current synchronous recovery owner');
+        const checked: unknown = this.opts.assertRecoveryCurrent();
+        if (checked !== undefined) {
+          void Promise.resolve(checked).catch(() => {});
+          throw Error('Completion phase recovery authority must be synchronous');
+        }
+      }
+    };
+    const phase = this.opts.store.completionPhase(
       this.opts.conversationId,
       binding,
-      target,
-      createHash('sha256').update(this.opts.cwd).digest('hex'),
-      policy?.policyRevision,
-      interruptedEffects,
-      () => {
-        assertCurrent?.();
-        if (policy) {
-          this.assertNativeExecutionOwner();
-          const checked: unknown = this.opts.assertNativeExecutionCurrent!(
-            policy,
-            target.commandId,
-          );
-          if (checked !== undefined) {
-            void Promise.resolve(checked).catch(() => {});
-            throw Error('Completion phase workspace authority must be synchronous');
-          }
-        } else if (interruptedEffects) {
-          if (!this.opts.assertRecoveryCurrent)
-            throw Error('Interrupted effects require a current synchronous recovery owner');
-          const checked: unknown = this.opts.assertRecoveryCurrent();
-          if (checked !== undefined) {
-            void Promise.resolve(checked).catch(() => {});
-            throw Error('Completion phase recovery authority must be synchronous');
-          }
-        }
-      },
+      target.commandId,
+      target.attempt,
     );
+    const workspaceDigest = createHash('sha256').update(this.opts.cwd).digest('hex');
+    if (policy && phase && phase.policyRevision !== policy.policyRevision)
+      this.opts.store.reconcileHistoricalNativeCompletionPhase(
+        this.opts.conversationId,
+        binding,
+        target,
+        workspaceDigest,
+        policy,
+        interruptedEffects,
+        current,
+      );
+    else
+      this.opts.store.reconcileCompletionPhase(
+        this.opts.conversationId,
+        binding,
+        target,
+        workspaceDigest,
+        policy?.policyRevision,
+        interruptedEffects,
+        current,
+      );
   }
   /** Only the original live recovery owner knows that no completion callback
    * existed. Reconstructed/plain owners never manufacture this evidence. */
@@ -3160,19 +3177,7 @@ export class CodexConversation {
         .object({
           type: z.literal('fileChange'),
           id: z.string().min(1),
-          changes: z.array(
-            z.object({
-              path: z.string().min(1),
-              kind: z.discriminatedUnion('type', [
-                z.object({ type: z.literal('add') }).strict(),
-                z.object({ type: z.literal('delete') }).strict(),
-                z
-                  .object({ type: z.literal('update'), move_path: z.string().min(1).nullable() })
-                  .strict(),
-              ]),
-              diff: z.string(),
-            }),
-          ),
+          changes: z.array(CodexNativeFileChange),
         })
         .safeParse(params.item);
       if (identity.success) {

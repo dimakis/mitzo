@@ -2956,6 +2956,73 @@ export class CodexConversationStore {
       .immediate();
   }
 
+  /** Settle historical effects after an owning admission selects a new policy.
+   * The accepted receipt proves the ORIGINAL scope; it is never permission to
+   * execute under that scope again. Fresh current authority remains mandatory
+   * under the writer lock, and the normal phase/hash/receipt checks still run. */
+  reconcileHistoricalNativeCompletionPhase(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+    workspaceDigest: string,
+    currentPolicy: CodexNativeExecutionPolicy,
+    interruptedEffects: SettledInterruptedEffects | undefined,
+    assertCurrent: () => void,
+  ) {
+    const current = () => {
+      if (typeof assertCurrent !== 'function')
+        throw Error('Historical settlement owner unavailable');
+      const result: unknown = assertCurrent();
+      if (result !== undefined) {
+        void Promise.resolve(result).catch(() => {});
+        throw Error('Historical settlement owner must be synchronous');
+      }
+    };
+    this.db
+      .transaction(() => {
+        current();
+        const policy = NativeExecutionPolicySnapshotSchema.parse(currentPolicy);
+        const receipt = this.readNativeExecution(id, binding, {
+          id: target.commandId,
+          attempt: target.attempt,
+        });
+        if (
+          !receipt ||
+          receipt.phase !== 'accepted' ||
+          receipt.threadId !== target.threadId ||
+          receipt.turnId !== target.turnId ||
+          receipt.generation !== target.generation ||
+          receipt.policy.cwd !== policy.cwd ||
+          receipt.policy.bindingRevision !== policy.bindingRevision
+        )
+          throw Error('Historical native execution receipt changed');
+        this.reconcileCompletionPhase(
+          id,
+          binding,
+          target,
+          workspaceDigest,
+          receipt.policy.policyRevision,
+          interruptedEffects,
+          () => {
+            current();
+            // A synchronous owner may reenter the store. Its final boundary must
+            // not revoke/replace the historical receipt between observation and use.
+            if (
+              !isDeepStrictEqual(
+                this.readNativeExecution(id, binding, {
+                  id: target.commandId,
+                  attempt: target.attempt,
+                }),
+                receipt,
+              )
+            )
+              throw Error('Historical native execution receipt changed');
+          },
+        );
+      })
+      .immediate();
+  }
+
   /** Outcome evidence lives with its existing exact command attempt. Observers
    * cannot replace the first recorded native cause or rewrite command input. */
   recordTransportDiagnostic(

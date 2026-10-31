@@ -95,6 +95,17 @@ observe an existing PR; it cannot create a missing one. A positively proved fail
 before push permits a fresh reviewed request. A possibly dispatched write retains
 its uncertainty for verification.
 
+Interrupted native recovery preserves known terminal command failures and completed
+file patches. An observed nonzero exit settles a failed shell command; it does not
+mark that command successful or rerun it. Applied patches retain their original
+files. Missing exit results, active commands, partial patches, unsupported effects
+and unmatched host-tool receipts remain fenced. Fresh account, task, policy and
+terminal-turn checks still precede release of queued work. After a deployment
+changes the current policy, the original accepted native execution receipt may
+prove the historical phase's exact policy. Its identity is rechecked under the
+writer lock after the current owner check. This settles past effects only; every
+subsequent turn uses freshly admitted current permissions.
+
 ## Effects to verify
 
 | Order | Required consequence                                                                                                   |

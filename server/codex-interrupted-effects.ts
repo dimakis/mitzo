@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import type { CodexNativeTurnTarget } from './codex-conversation-store.js';
 import { SessionRuntimeError } from './session-runtime-error.js';
+import { CodexNativeFileChange } from './codex-native-file-change.js';
 
 type HostCall = Readonly<{ callId: string; toolName: string; requestHash: string }>;
 /** Process-local evidence from a fresh native RPC, never a JSON recovery grant. */
@@ -28,6 +29,10 @@ const ItemPage = z.object({
 // Bound work independently of retained history. Oversized individual items still
 // fail closed at the transport frame limit; never retry with full-turn hydration.
 const MAX_INTERRUPTED_ITEMS = 128;
+const AppliedFileChanges = z.object({
+  status: z.literal('completed'),
+  changes: z.array(CodexNativeFileChange).min(1),
+});
 
 /** Completed recovery never hydrates items. Eligible interrupted recovery reads
  * one item per frame and rechecks terminal identity after the final page.
@@ -92,8 +97,22 @@ export async function observeNativeRecoveryTurn(
         case 'plan':
           break;
         case 'commandExecution':
-          if (item.status !== 'completed' || item.exitCode !== 0)
+          // A failed shell command with an observed exit code has a known
+          // terminal result. This settles its effects; it does not mark the
+          // command successful, rerun it, or erase its failure from history.
+          if (
+            !(item.status === 'completed' && item.exitCode === 0) &&
+            !(
+              item.status === 'failed' &&
+              z.number().int().min(1).max(255).safeParse(item.exitCode).success
+            )
+          )
             throw Error('Interrupted native command effects remain unknown');
+          break;
+        case 'fileChange':
+          // Native completed patches are already applied. Failed/in-progress
+          // patches can be partial and must retain their original uncertainty.
+          AppliedFileChanges.parse(item);
           break;
         case 'dynamicToolCall': {
           if (item.status !== 'completed' || item.success !== true || item.namespace != null)
@@ -108,7 +127,7 @@ export async function observeNativeRecoveryTurn(
           break;
         }
         default:
-          // File changes, MCP/collaboration and future native item types need
+          // MCP/collaboration and future native item types need
           // their own settlement contract. Never infer success from terminal turn metadata.
           throw Error('Interrupted native item effects are unsupported');
       }

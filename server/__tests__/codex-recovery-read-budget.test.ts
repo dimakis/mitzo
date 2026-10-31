@@ -209,3 +209,69 @@ it('pages interrupted results within frames and rejects incomplete or changing n
     ).toBe(false);
   }
 });
+
+it('settles observed terminal command failures and applied patches without replaying their effects', async () => {
+  const target = {
+    commandId: 'original',
+    attempt: 1,
+    threadId: 'thread',
+    turnId: 'turn',
+    generation: 0,
+  };
+  const metadata = { data: [{ id: 'turn', status: 'interrupted', error: null }] };
+  const valid = [
+    { type: 'commandExecution', id: 'not-found', status: 'failed', exitCode: 127 },
+    { type: 'commandExecution', id: 'cancelled-shell', status: 'failed', exitCode: 130 },
+    {
+      type: 'fileChange',
+      id: 'patch',
+      status: 'completed',
+      changes: [
+        { path: '/task/fix.ts', kind: { type: 'update', move_path: null }, diff: '-old\n+new' },
+      ],
+    },
+  ];
+  const request = (item: unknown) =>
+    vi.fn(async (method: string) =>
+      method === 'thread/turns/list'
+        ? metadata
+        : { data: [{ turnId: 'turn', item }], nextCursor: null },
+    );
+  for (const item of valid) {
+    const read = request(item);
+    const result = await observeNativeRecoveryTurn(read, 'app', target, true, async () => {});
+    expect(interruptedEffectCalls(result.settledEffects!, 'app', target)).toEqual([]);
+    expect(read.mock.calls.map(([method]) => method)).toEqual([
+      'thread/turns/list',
+      'thread/items/list',
+      'thread/turns/list',
+    ]);
+  }
+  for (const item of [
+    { ...valid[0], exitCode: null },
+    { ...valid[0], exitCode: 0 },
+    { ...valid[0], exitCode: 1.5 },
+    { ...valid[0], exitCode: -1 },
+    { ...valid[0], status: 'inProgress' },
+    { ...valid[2], status: 'failed' },
+    { ...valid[2], status: 'inProgress' },
+    { ...valid[2], changes: [] },
+    { ...valid[2], changes: [{ path: '/task/fix.ts', kind: { type: 'update' }, diff: '' }] },
+    {
+      ...valid[2],
+      changes: [{ path: '/task/fix.ts', kind: { type: 'update', move_path: 42 }, diff: '' }],
+    },
+    {
+      ...valid[2],
+      changes: [{ path: '/task/fix.ts', kind: { type: 'update', movePath: null }, diff: '' }],
+    },
+    {
+      ...valid[2],
+      changes: [{ path: '/task/fix.ts', kind: { type: 'add', move_path: '/other' }, diff: '' }],
+    },
+    { ...valid[2], changes: [{ path: '/task/fix.ts', kind: { type: 'future' }, diff: '' }] },
+  ])
+    await expect(
+      observeNativeRecoveryTurn(request(item), 'app', target, true, async () => {}),
+    ).rejects.toThrow();
+});
