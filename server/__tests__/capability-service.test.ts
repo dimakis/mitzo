@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import type { CapabilityExecutor } from '../connections/capabilities/types.js';
 import {
   GithubPublicationReviewError,
+  type GithubPublicationReviewFailureCode,
   markGithubPublicationNotDispatched,
 } from '../github-publication-review-failure.js';
 
@@ -142,7 +143,7 @@ describe('CapabilityService', () => {
       expect(f.recover).not.toHaveBeenCalled();
     },
   );
-  it.each([
+  it.each<{ code: GithubPublicationReviewFailureCode; details: JsonValue }>([
     {
       code: 'PUBLICATION_REVIEW_BLOCKED' as const,
       details: { findings: [{ severity: 'high', path: 'changed.ts', message: 'Missing guard' }] },

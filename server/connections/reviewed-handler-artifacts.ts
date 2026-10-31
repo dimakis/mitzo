@@ -292,7 +292,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/prepared-repository/composer-delivery.test.tsx':
     'b44a35837387a89df15f21292ebda7d4ae69411293a3c3dbc7790930fbe8e089',
   '../__tests__/capability-service.test.ts':
-    '4e621bf39a5e5a6b46e5b89e64a6aa9b415638b4fc655c6ad9010daae16fe05a',
+    'd688512d76ce05a72794e725574ff83d988013b83a4ca51b7b380a1bb3ce6b68',
   '../__tests__/fixtures/prepared-repository-browser.ts':
     'aafba388d9f3a5df3475bd28415433c3088196868c44df520831c11e197e9bb7',
   '../__tests__/fixtures/prepared-repository-delivery-flow.ts':
