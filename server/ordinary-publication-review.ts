@@ -12,6 +12,7 @@ import {
   capturePublicationReviewEvidence,
   PUBLICATION_REVIEW_MAX_EVIDENCE_BYTES,
   publicationReviewUnavailable as unavailable,
+  publicationSearchPrefix,
   type PublicationContextRead,
   type PublicationContextSearch,
 } from './ordinary-publication-review-context.js';
@@ -30,7 +31,7 @@ const ContextRequest = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('search'),
     query: z.string().min(2).max(120),
-    pathPrefix: z.string().min(1).max(400).optional(),
+    pathPrefix: z.string().max(400).optional().transform(publicationSearchPrefix),
   }),
 ]);
 const ReviewResult = z.strictObject({

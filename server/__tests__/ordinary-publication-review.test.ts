@@ -330,6 +330,8 @@ it('serves bounded Git context requests independently for each pass and reports 
                   : [
                       { kind: 'read', path: 'large-caller.ts', startLine: 1, endLine: 2 },
                       { kind: 'search', query: './route.js' },
+                      { kind: 'search', query: './route.js', pathPrefix: '' },
+                      { kind: 'search', query: './route.js', pathPrefix: '.' },
                     ],
                 unresolvedNeeds: [],
               }),
@@ -345,6 +347,12 @@ it('serves bounded Git context requests independently for each pass and reports 
   expect(rounds[3]).toContain('export const requiredBoundary = answer;');
   expect(rounds[1]).toContain('"remainingAfter":2500');
   expect(rounds[2]).not.toContain('"contextResponse"');
+  expect(receipt.reports?.[0].coverage.searches).toEqual([
+    { query: './route.js', matchedPathCount: 1 },
+    { query: './route.js', matchedPathCount: 1 },
+    { query: './route.js', matchedPathCount: 1 },
+  ]);
+
   expect(receipt.reports?.[0].coverage.contextReads).toContainEqual(
     expect.objectContaining({ path: 'large-caller.ts', startLine: 1, endLine: 2, complete: false }),
   );
@@ -352,6 +360,16 @@ it('serves bounded Git context requests independently for each pass and reports 
 
 it('refuses unresolved needed context and invalid Git paths', async () => {
   const f = await fixture();
+  const captured = await capturePublicationReviewEvidence(f.input);
+  for (const pathPrefix of ['..', '../outside', '/tmp', 'src/../']) {
+    await expect(
+      captured.context([{ kind: 'search', query: 'answer', pathPrefix }]),
+    ).rejects.toMatchObject({
+      code: 'PUBLICATION_REVIEW_UNAVAILABLE',
+      details: { reason: 'context_search_unavailable' },
+    });
+  }
+
   f.session.mockImplementation(
     async () =>
       ({

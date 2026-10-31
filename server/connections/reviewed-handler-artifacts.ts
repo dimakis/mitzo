@@ -7,11 +7,11 @@ import { createHash } from 'node:crypto';
  */
 export const reviewedHandlerImplementationRevision = 'v1.0.2';
 
-export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
+export const reviewedGithubPublicationImplementationRevision = 'v1.0.12';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.801-recovery-reply-provenance';
+  'v1.0.802-publication-recovery-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../github-publication-preflight.ts':
+    '14c9b9e4982f751289e3c56ce80caba6ac61866b6d9c769ca401328764bd1192',
+  '../__tests__/github-publication-preflight.test.ts':
+    'b1419cb2f49a2b21840338cc91603222113737daa802ee207030769028b8c390',
   '../ordinary-codex-command-execution.ts':
     '9c4e94d03908cf6895f6cf290186a1403b758392fe44e293d2a8f17dde6fb31f',
   '../__tests__/fixtures/ordinary-repository-transition.ts':
@@ -288,29 +292,29 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/prepared-repository/composer-delivery.test.tsx':
     'b44a35837387a89df15f21292ebda7d4ae69411293a3c3dbc7790930fbe8e089',
   '../__tests__/capability-service.test.ts':
-    '52d69523ad9b7b090ec4d17b2a8315957d7a8f3ec3c3a1ebaf14e15f88cdfc9d',
+    '4e621bf39a5e5a6b46e5b89e64a6aa9b415638b4fc655c6ad9010daae16fe05a',
   '../__tests__/fixtures/prepared-repository-browser.ts':
     'aafba388d9f3a5df3475bd28415433c3088196868c44df520831c11e197e9bb7',
   '../__tests__/fixtures/prepared-repository-delivery-flow.ts':
     '90bc4310ca5b2d4c10f0bbc69747982f2d405ad7fbbe0359b0a1656fd7448a73',
   '../__tests__/github-publication-review-gate.test.ts':
-    'a3420102e73761a717f1d1dd10d0386905db03957eb75d46d8e08eeeb7df238b',
+    '875149cb9b93595f3e8d9a76aa563783b8351be591f9ed02a983871ac307bf24',
   '../__tests__/github-publishing-tool.test.ts':
     '2b8024c05507a80b11ae278d3c87ef0e84333305ac11ca8c8e23fb8fcbb8c00f',
   '../__tests__/ordinary-publication-review-composition.test.ts':
     '337160d4bd9333362511814d8caef8ea883e111e1f36e1bf1befda4911fab6f6',
   '../__tests__/ordinary-publication-review.test.ts':
-    '2d032cb591b2a757c9aa923e807033fa754605a35b9d086f035e57836f09ea55',
+    '7b111b75af6e8cb25aea6e595032a64359cdd0a8c86e12db7c1c5f9653bbbb1e',
   '../__tests__/prepared-repository-delivery-flow.test.ts':
     'f259503bb6fa7ae581791f269c11d7ec573e3f3781a4ded4fc1f183c812b3d0a',
   '../__tests__/prepared-repository-publication-flow.test.ts':
     '3a47a1e15fbef113d10f9dc74d0c42f34c797dc403dfefc07fcc073d90c8f4ea',
   '../github-publication-review-failure.ts':
-    '32772ac35e4b846e589fd26fe6cdf2ecaa1ab0e58488cbd6e6662fb089bd52b0',
+    'ca19b3e58380dfed0e00474829c9b958de1ace79ddf5680ca35b453ec3497f42',
   '../ordinary-publication-review-context.ts':
-    'd49d3588de025f8641fc4a8ae3b95cda25ce1afe29c1665bea9e83d9c2e83b0b',
+    '8a24b89f47af402accfc6063d426cdbb9721925b755fbee52070a2c8f76284f2',
   '../ordinary-publication-review.ts':
-    '6ebf4b133a15cdc7ba1bdb924f82435abba61615ec791645c2a6b869bb5ed79f',
+    'f07533860605591c075883bfdee2525cf7e95558175c4e9faa37008572055262',
   '../__tests__/prepared-repository-native-public-tool-rollover.test.ts':
     '3f37ba34c311207689c552a04ef016d74f611e21b7f5b970d398d1b0c57000e1',
   '../__tests__/prepared-repository-native-public-tool-rollover-queued.test.ts':
@@ -1522,12 +1526,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-credential-tools.ts':
     '64f298b06072fa8486b424b91f5e3c6dd4f5bd01a8501fc69817901e5b2f27ef',
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
-  'registry.ts': 'e44b89542fb988cb06af11bf7fd16a487427afbf590550fc7207c259cf7ddcae',
+  'registry.ts': '065c437dfa92ef60984e918b642fd6124feb5cfaed5d415b624876d73cb6efe3',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',
   'capabilities/github-publish-pr.ts':
-    '12579c9c7522ebb1dd43b544b581dab4c79cec6dcbc39098049915f747107ec7',
+    'bd9029a007777ef0a5e1d064f0a6cd4125f9c888ca4cdd490773e6b455081b79',
   'capabilities/github-publish-pr-transport.ts':
     '434d2c56164bc372b9168fba26acb806f509a759eb2f8c24ba8eaff5c8c9f5f8',
   '../github-host-source.ts': '2720dd0fedf081780ebd64a485164ec5abc6dee7920de925d35e3e6aa647e084',
