@@ -8182,42 +8182,68 @@ it('retains a safe tool diagnostic with its exact durable call identity across r
   expect(resumed.execute).not.toHaveBeenCalled();
 });
 
-it('retains native process outcome on the existing command across transport shutdown and restart', async () => {
-  const f = await setup();
-  await f.c.send({ id: 'native-diagnostic', prompt: 'work' });
-  await f.c.send({ id: 'next-after-native', prompt: 'queued' });
-  f.callbacks.onClose(
-    new CodexTransportError('connection', {
-      reason: 'child_exit',
-      exitCode: null,
-      signal: 'SIGKILL',
-    }),
-  );
-  const projection = f.store.commandLifecycle('app', f.getBinding(), 'native-diagnostic');
-  expect(projection).toMatchObject({
-    state: 'ambiguous_effect',
-    nextAction: 'reconcile_native_outcome',
-    nativeTarget: {
-      commandId: 'native-diagnostic',
-      attempt: 1,
-      threadId: 'provider-thread',
-      turnId: 'turn-1',
-      generation: 0,
-    },
-    diagnostic: {
-      stage: 'native_transport',
-      reason: 'child_exit',
-      exitCode: null,
-      signal: 'SIGKILL',
-      release: expect.any(String),
-    },
-  });
-  f.c.close();
-  const resumed = await setup(f.store);
-  expect(f.store.commandLifecycle('app', f.getBinding(), 'native-diagnostic')).toEqual(projection);
-  expect(resumed.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
-  expect(resumed.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
-});
+it.each([
+  { phase: 'transport', diagnostic: { reason: 'child_exit', exitCode: null, signal: 'SIGKILL' } },
+  { phase: 'transport', diagnostic: { reason: 'reply_provenance_failed' } },
+  { phase: 'transport', diagnostic: { reason: 'notification_handler_failed' } },
+  { phase: 'ack', diagnostic: { reason: 'reply_provenance_failed' } },
+  { phase: 'buffered', diagnostic: { reason: 'reply_provenance_failed' } },
+] as const)(
+  'retains $diagnostic.reason at $phase on the existing command across shutdown and restart',
+  async ({ diagnostic, phase }) => {
+    const f = await setup();
+    const failure = new CodexTransportError('connection', diagnostic);
+    const fail = () => {
+      throw failure;
+    };
+    if (phase === 'ack') f.conversationOptions.onProviderAccepted = fail;
+    if (phase === 'buffered') {
+      f.conversationOptions.onProviderMessageSource = fail;
+      const request = f.rpc.request.getMockImplementation()!;
+      f.rpc.request.mockImplementation(async (...args) => {
+        const result = await request(...args);
+        if (args[0] === 'turn/start')
+          f.callbacks.onNotification('item/agentMessage/delta', {
+            threadId: f.getProviderThread(),
+            turnId: 'turn-1',
+            itemId: 'early-reply',
+            delta: 'Early output',
+          });
+        return result;
+      });
+    }
+    const sending = f.c.send({ id: 'native-diagnostic', prompt: 'work' }, () => {
+      f.c.enqueue({ id: 'next-after-native', prompt: 'queued' });
+    });
+    if (phase === 'transport') await sending;
+    else await expect(sending).rejects.toBe(failure);
+    if (phase === 'transport') f.callbacks.onClose(failure);
+    const projection = f.store.commandLifecycle('app', f.getBinding(), 'native-diagnostic');
+    expect(projection).toMatchObject({
+      state: 'ambiguous_effect',
+      nextAction: 'reconcile_native_outcome',
+      nativeTarget: {
+        commandId: 'native-diagnostic',
+        attempt: 1,
+        threadId: 'provider-thread',
+        turnId: 'turn-1',
+        generation: 0,
+      },
+      diagnostic: {
+        stage: 'native_transport',
+        ...diagnostic,
+        release: expect.any(String),
+      },
+    });
+    f.c.close();
+    const resumed = await setup(f.store);
+    expect(f.store.commandLifecycle('app', f.getBinding(), 'native-diagnostic')).toEqual(
+      projection,
+    );
+    expect(resumed.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(resumed.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
+  },
+);
 
 function setupTerminalTransport(
   existingStore?: CodexConversationStore,

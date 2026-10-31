@@ -6,6 +6,7 @@ import { TelosWorkStore } from '../../../server/telos-work-store.js';
 import { OrdinaryCollaborationDelivery } from '../../../server/collaboration-ordinary-delivery.js';
 import {
   recordOrdinaryReplySource,
+  captureOrdinaryReplyExecution,
   OrdinaryCollaborationReplies,
 } from '../../../server/collaboration-ordinary-replies.js';
 import { CodexConversation } from '../../../server/codex-conversation.js';
@@ -148,8 +149,9 @@ it('CT18 partial: ordinary admission, delivery ACKs, reply mappings and output r
     providerThreadId: 'private-thread',
     providerTurnId: 'private-turn',
   };
-  expect(() => recordOrdinaryReplySource(f.events, leadId, mapping)).toThrow();
-  recordOrdinaryReplySource(f.events, memberId, mapping);
+  const execution = captureOrdinaryReplyExecution(f.events, memberId, mapping);
+  expect(() => recordOrdinaryReplySource(f.events, leadId, mapping, execution)).toThrow();
+  recordOrdinaryReplySource(f.events, memberId, mapping, execution);
   const replyInput = {
     requestId: randomUUID(),
     messageId: message.messageId,

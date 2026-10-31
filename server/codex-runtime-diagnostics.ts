@@ -30,6 +30,8 @@ export function codexRuntimeDiagnostic(error: Error): string | undefined {
   if (error.message === 'Codex conversation binding unavailable or changed')
     return 'This chat has no matching native conversation binding. Its saved messages are preserved. Inspect startup recovery before continuing.';
   if (error instanceof CodexTransportError) {
+    if (error.diagnostic?.reason === 'reply_provenance_failed')
+      return 'Mitzo could not verify the reply’s execution identity. Saved work is preserved; reconcile this conversation before continuing.';
     if (error.diagnostic?.reason === 'frame_too_large')
       return 'A Codex response exceeded Mitzo’s bounded transport limit. Saved work is preserved; inspect runtime diagnostics before retrying.';
     if (error.diagnostic?.reason === 'notification_handler_failed')

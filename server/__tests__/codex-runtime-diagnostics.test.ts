@@ -26,6 +26,13 @@ it('retains safe transport failure classes', () => {
   expect(codexRuntimeDiagnostic(error)).toMatch(/timed out/);
   expect(codexRuntimeErrorTelemetry(error)).toEqual({ transportErrorCategory: 'timeout' });
 });
+it('explains reply provenance failure without hiding it behind a generic disconnection', () => {
+  const error = new CodexTransportError('connection', { reason: 'reply_provenance_failed' });
+  expect(codexRuntimeDiagnostic(error)).toMatch(/reply.*execution identity/i);
+  expect(codexRuntimeErrorTelemetry(error)).toMatchObject({
+    transportFailureReason: 'reply_provenance_failed',
+  });
+});
 
 it('explains a rejected OpenShell subscription grant without relaying arbitrary exception text', () => {
   const reason = 'OpenShell ChatGPT grant is expired, revoked, or requires sign-in';

@@ -93,7 +93,10 @@ import {
   TELOS_START_SLICE_TOOL,
   telosWorkDefinitions,
 } from './telos-work-tools.js';
-import { recordOrdinaryReplySource } from './collaboration-ordinary-replies.js';
+import {
+  captureOrdinaryReplyExecution,
+  recordOrdinaryReplySource,
+} from './collaboration-ordinary-replies.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { OwnedOpenShellCodexChatAdmission } from './owned-openshell-codex-chat-admission.js';
 import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
@@ -191,6 +194,7 @@ import type { ConfiguredCatalogOptions } from './configured-tool-catalog.js';
 import { AsyncQueue } from './async-queue.js';
 import {
   CodexAppServerClient,
+  CodexTransportError,
   SUPPORTED_CODEX_CLI_VERSION,
   type OpenShellCodexOptions,
 } from './codex-app-server-client.js';
@@ -2413,6 +2417,7 @@ async function openCodexChatBound(
     });
     return { ...result, content };
   };
+  let acceptedReplyExecution: ReturnType<typeof captureOrdinaryReplyExecution> | undefined;
   const runtimeOptions: CodexConversationOptions = {
     conversationId: options.conversationId,
     cwd: options.session.cwd!,
@@ -2985,11 +2990,37 @@ async function openCodexChatBound(
           suppliedContextHash(pendingAdditionalContext),
         );
       options.ordinaryTurnLifecycle?.accepted(messageId, threadId, turnId);
+      if (options.ownedLocal || options.ownedOpenShell) {
+        try {
+          acceptedReplyExecution = captureOrdinaryReplyExecution(
+            options.eventStore,
+            options.conversationId,
+            {
+              commandId: messageId,
+              providerThreadId: threadId,
+              providerTurnId: turnId,
+            },
+          );
+        } catch {
+          throw new CodexTransportError('connection', { reason: 'reply_provenance_failed' });
+        }
+      }
     },
     ...(options.ownedLocal || options.ownedOpenShell
       ? {
-          onProviderMessageSource: (source: unknown) =>
-            recordOrdinaryReplySource(options.eventStore, options.conversationId, source),
+          onProviderMessageSource: (source: unknown) => {
+            try {
+              if (!acceptedReplyExecution) throw Error('Accepted reply execution is unavailable');
+              recordOrdinaryReplySource(
+                options.eventStore,
+                options.conversationId,
+                source,
+                acceptedReplyExecution,
+              );
+            } catch {
+              throw new CodexTransportError('connection', { reason: 'reply_provenance_failed' });
+            }
+          },
         }
       : {}),
     onProviderTerminal: (messageId, turnId, status) =>

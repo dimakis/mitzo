@@ -598,45 +598,56 @@ export class CodexConversation {
       onClose: (error) => this.transportClosed(generation, error),
     });
   }
+  private retainNativeTransportDiagnostic(
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+    error: unknown,
+  ) {
+    if (!this.binding) return;
+    try {
+      const diagnostic = error instanceof CodexTransportError ? error.diagnostic : undefined;
+      this.opts.store.recordTransportDiagnostic(this.opts.conversationId, this.binding, command, {
+        stage: 'native_transport',
+        reason:
+          diagnostic &&
+          [
+            'child_exit',
+            'process_error',
+            'stream_error',
+            'reply_provenance_failed',
+            'notification_handler_failed',
+          ].includes(diagnostic.reason)
+            ? (diagnostic.reason as
+                | 'child_exit'
+                | 'process_error'
+                | 'stream_error'
+                | 'reply_provenance_failed'
+                | 'notification_handler_failed')
+            : error instanceof CodexTransportError && error.category === 'timeout'
+              ? 'timeout'
+              : error instanceof CodexTransportError && error.category === 'protocol'
+                ? 'protocol'
+                : 'connection',
+        ...(diagnostic?.reason === 'child_exit'
+          ? { exitCode: diagnostic.exitCode, signal: diagnostic.signal }
+          : {}),
+        ...(diagnostic?.stream ? { stream: diagnostic.stream } : {}),
+        ...(diagnostic?.causeCode ? { causeCode: diagnostic.causeCode } : {}),
+        ...this.diagnosticRuntimeIdentity(),
+      });
+    } catch {
+      // Closing and fencing unknown work must survive diagnostic storage failure.
+      log.warn('Native transport diagnostic could not be retained', {
+        conversationId: this.opts.conversationId,
+      });
+    }
+  }
   private transportClosed(generation: number, error: Error, requireRecoveryPersistence = false) {
     if (this.closed || generation !== this.transportGeneration) return;
     const failure =
       error instanceof CodexTransportError && error.diagnostic
         ? { failure: codexRuntimeErrorTelemetry(error) }
         : {};
-    if (this.binding && this.active) {
-      try {
-        const diagnostic = error instanceof CodexTransportError ? error.diagnostic : undefined;
-        this.opts.store.recordTransportDiagnostic(
-          this.opts.conversationId,
-          this.binding,
-          this.active.command,
-          {
-            stage: 'native_transport',
-            reason:
-              diagnostic &&
-              ['child_exit', 'process_error', 'stream_error'].includes(diagnostic.reason)
-                ? (diagnostic.reason as 'child_exit' | 'process_error' | 'stream_error')
-                : error instanceof CodexTransportError && error.category === 'timeout'
-                  ? 'timeout'
-                  : error instanceof CodexTransportError && error.category === 'protocol'
-                    ? 'protocol'
-                    : 'connection',
-            ...(diagnostic?.reason === 'child_exit'
-              ? { exitCode: diagnostic.exitCode, signal: diagnostic.signal }
-              : {}),
-            ...(diagnostic?.stream ? { stream: diagnostic.stream } : {}),
-            ...(diagnostic?.causeCode ? { causeCode: diagnostic.causeCode } : {}),
-            ...this.diagnosticRuntimeIdentity(),
-          },
-        );
-      } catch {
-        // Closing and fencing unknown work must survive diagnostic storage failure.
-        log.warn('Native transport diagnostic could not be retained', {
-          conversationId: this.opts.conversationId,
-        });
-      }
-    }
+    if (this.active) this.retainNativeTransportDiagnostic(this.active.command, error);
     this.retainEmptyCompletionPhase();
     if (this.opts.transportClosure === 'terminal') {
       try {
@@ -2813,6 +2824,10 @@ export class CodexConversation {
       // transportClosed() already paused and persisted this command. Do not
       // propagate the old RPC rejection into the adapter's close path.
       if (transportGeneration !== this.transportGeneration) return;
+      // ACK observers and buffered first replies run on this awaited dispatch
+      // path. Retain their bounded cause before recovery clears the active owner.
+      if (this.active === active && error instanceof CodexTransportError)
+        this.retainNativeTransportDiagnostic(active.command, error);
       // An exact, definitive rejection with no competing native turn identity
       // proves this request did not start a turn. Transport errors/lost responses
       // remain fenced, including a contradictory turn/started notification.
