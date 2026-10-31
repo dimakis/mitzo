@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.797-interrupted-effects-current-base';
+  'v1.0.798-interrupted-recovery-metadata-burst';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/__tests__/TelosWorkControls.freshness.test.tsx':
+    '0de7dceda4ebeffeb1cc3629c8f5bbc3b62b84f5f53609c30825bd003daedb0d',
+  '../../frontend/src/components/__tests__/TelosChatRouteLayout.test.tsx':
+    '73f406fc84425cb81cd86760a708b68e0b732673bf1fba603d32d2fa0b9c2045',
+  '../../frontend/src/components/__tests__/TelosChatRouteLayout.source.test.tsx':
+    'af65704accb313d8b70a9267175983fb7a12e882bbccaa34ce19149b14a15a30',
   '../codex-interrupted-effects.ts':
     '1cb8199e79e71ae2565a5ad980163e235d385ed9b47d2e61cc7774e5adfe4ffa',
   '../__tests__/symposium-personal-connection-router.test.ts':
@@ -83,7 +89,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useTodoData.canonical.test.tsx':
     '5c58a2c1f2e5e49badb4425254d195ef50eba5d312179d6840f218c324675e2e',
   '../../frontend/src/lib/__tests__/api-fetch.test.ts':
-    '5b48dc9079eb3bb85e566d88c066416299be7fad68f661a4cf71e9ccd67f139d',
+    '50d9c6b107f868db96c13e29963879f11052d0c7ad5ed02846f13ea371e51646',
   '../../frontend/src/lib/__tests__/telos-descendants.test.ts':
     '3f8d59a2b368b4780b4cb44e930edef1d8e7c5ad6e519ba9024f54a166b2d441',
   '../../frontend/src/lib/canonical-todo-data.ts':
@@ -110,7 +116,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/reconnect-delivery.integration.test.ts':
     '9389533c98de0b69d84ae84ac5accf51824a796916e0e20a7a542aa9700141f8',
   '../../frontend/src/hooks/__tests__/useExplicitLocalChat.recovery.test.tsx':
-    'e035cdcc7e7d75796073d09b4b69fb23d14b1e26a4e9ce9e890a3c2bc1c2c304',
+    'bbc3a1eceb2f570cd4ec602c413f57dd61deb4d4a1b0545d0f4b4faeeca05e00',
   '../__tests__/prepared-repository-native-public-followup-interrupted.test.ts':
     '0018c2d7bf04ada97dc7ac978dbe1c2e9b6e670169163764862da96d43a28d4f',
   '../__tests__/local-repository-preparation-capacity.test.ts':
@@ -1245,7 +1251,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':
     '32660ff240dd5f62c2a8ab976941553a84b7f3809ed3455ffe4e64ccfcd2613d',
   '../../frontend/src/hooks/useExplicitLocalChat.ts':
-    '0dbd9f01b5cd03d8f15ba96feb9e142274f68a5945a8ad1da7cf9fa3a537c570',
+    'deba4a9da220a23efa62cceaf95bc185477dfabfc57994c1f0a321837eb098bb',
   '../../frontend/src/hooks/useNewChatDraft.ts':
     'cb388ea417deb8c9a637e618e0679fb5548762fb4e72dc2cbc6ad505b5287fa4',
   '../../frontend/src/lib/launch-draft-delivery.ts':
@@ -1787,7 +1793,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useTodoData.ts':
     '54312cbf0f5503c5c252b2a4cf5105fb5c3d784df79ea3b55161929471885b1a',
   '../../frontend/src/lib/api-fetch.ts':
-    '98a410a5f8d5001ebf6983db9b9afe05ce67f81da2d9d08b0f48b376481cf845',
+    'f79d6f859a9f10e4d4c406e9eb57ca866bae9f877de90ac4c180a2e3543511fa',
   '../../frontend/src/lib/api-json-read.ts':
     '60c11f4263ea1e73478e4ff54542968d65c455b36ab9eb3dbb718d02abb94d18',
   '../../frontend/src/lib/auth-check-tracing.ts':
@@ -1938,7 +1944,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useTelosChatDetails.ts':
     'f1b2e94eb37468ed215e2c4f9045f67c8d6acda4e8814c66d7938b38e51232d3',
   '../../frontend/src/hooks/useTelosChatRoute.ts':
-    'ec6615ec65d49692c418be6ef5ec7249290dc11f72ccf61a7768bd35b83bde36',
+    '46cb167c22d4e8bc5530e50b2a20dde69b0bb302580aaab358c3c441afaf8840',
   '../../frontend/src/hooks/useTelosChatWork.ts':
     '1daa58043c0b6f2bd837378b9c120de884381683dd9e4e680d5003c46d6ee62c',
   '../../frontend/src/hooks/useTelosWorkControls.ts':
