@@ -5,6 +5,11 @@ import { isAbsolute, join, posix } from 'node:path';
 import { promisify } from 'node:util';
 import type { GithubPublicationReviewInput } from './connections/capabilities/github-publish-pr.js';
 import { GithubPublicationReviewError } from './github-publication-review-failure.js';
+import {
+  publicationReviewDependencies,
+  publicationReviewImports,
+  boundedReviewDependencyCandidates,
+} from './ordinary-publication-review-dependencies.js';
 import { isGitBranchName } from './git-branch.js';
 
 const exec = promisify(execFile);
@@ -12,6 +17,7 @@ export const PUBLICATION_REVIEW_MAX_EVIDENCE_BYTES = 800000;
 const MAX_AUTOMATIC_CONTEXT_BYTES = 48000;
 const MAX_AUTOMATIC_FILE_BYTES = 12000;
 const MAX_DISCOVERY_PATHS = 128;
+const MAX_REQUEST_DEPENDENCY_FILES = 8;
 const oid = /^[a-f0-9]{40,64}$/;
 export function publicationReviewUnavailable(reason: string): never {
   throw new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE', { reason });
@@ -100,33 +106,6 @@ function linkedPaths(path: string, content: string, all: Set<string>) {
   }
   return result;
 }
-function importTargets(path: string, content: string, all: Set<string>) {
-  const targets = new Set<string>();
-  for (const match of content.matchAll(
-    /(?:\bfrom\s*|\bimport\s*\(|\brequire\s*\(|\bimport\s*)['"]([^'"\n]+)['"]/g,
-  )) {
-    if (!match[1].startsWith('.')) continue;
-    const target = posix.normalize(posix.join(posix.dirname(path), match[1]));
-    const stem = target.replace(/\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$/, '');
-    for (const candidate of [
-      target,
-      ...[
-        '.ts',
-        '.tsx',
-        '.js',
-        '.mts',
-        '.mjs',
-        '.cts',
-        '.cjs',
-        '/index.ts',
-        '/index.tsx',
-        '/index.js',
-      ].map((extension) => stem + extension),
-    ])
-      if (all.has(candidate)) targets.add(candidate);
-  }
-  return targets;
-}
 export interface PublicationContextRead {
   path: string;
   startLine: number;
@@ -135,6 +114,50 @@ export interface PublicationContextRead {
   remainingBefore: number;
   remainingAfter: number;
   complete: boolean;
+}
+function contextReadCoverage(
+  path: string,
+  content: string,
+  range: { startLine?: number; endLine?: number } = {},
+) {
+  const lines = content.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  const totalLines = lines.length;
+  const emptyFull = !totalLines && range.startLine === undefined && range.endLine === undefined;
+  const startLine = emptyFull ? 0 : (range.startLine ?? 1);
+  const endLine = emptyFull ? 0 : (range.endLine ?? totalLines);
+  if (
+    !emptyFull &&
+    (!Number.isSafeInteger(startLine) ||
+      !Number.isSafeInteger(endLine) ||
+      startLine < 1 ||
+      endLine < startLine ||
+      endLine > totalLines ||
+      ((range.startLine !== undefined || range.endLine !== undefined) &&
+        endLine - startLine >= 400))
+  )
+    publicationReviewUnavailable('context_range_unavailable');
+  return {
+    coverage: {
+      path,
+      startLine,
+      endLine,
+      totalLines,
+      remainingBefore: Math.max(0, startLine - 1),
+      remainingAfter: totalLines - endLine,
+      complete: emptyFull || (startLine === 1 && endLine === totalLines),
+    },
+    text: emptyFull ? '' : lines.slice(startLine - 1, endLine).join('\n'),
+  };
+}
+function nonTextEvidence(error: unknown) {
+  return (
+    error instanceof GithubPublicationReviewError &&
+    error.details &&
+    typeof error.details === 'object' &&
+    !Array.isArray(error.details) &&
+    error.details.reason === 'non_text_evidence'
+  );
 }
 export type PublicationContextRequest =
   | { kind: 'read'; path: string; startLine?: number; endLine?: number }
@@ -232,7 +255,8 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
     }
   };
   for (const file of contents) {
-    for (const path of importTargets(file.path, file.content, all)) candidate(path, 'dependency');
+    for (const path of publicationReviewImports(file.path, file.content, all))
+      candidate(path, 'dependency');
     if (/(?:^|\/)(?:AGENTS|CLAUDE)\.md$|(?:^|\/)SKILL\.md$/.test(file.path))
       for (const path of linkedPaths(file.path, file.content, all))
         candidate(path, 'instruction_link', file.path);
@@ -349,53 +373,129 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
     fullContextPaths: [...files].sort(),
     async context(
       requests: PublicationContextRequest[],
-      knownInstructions: ReadonlySet<string> = new Set(),
+      knownFullPaths: ReadonlySet<string> = new Set(),
     ) {
       await assertBatchCurrent();
       const reads: PublicationContextRead[] = [],
         searches: PublicationContextSearch[] = [];
       const response: Array<unknown> = [];
       const instructionPaths = new Set<string>();
+      const fullPaths = new Set(knownFullPaths);
+      const explicitReads = new Set(requests.filter((r) => r.kind === 'read').map((r) => r.path));
+      let dependencyBytes = 0;
+      let dependencyFiles = 0;
+      let dependencyMetadataCount = 0;
+      const dependencyCandidates = new Set<string>();
+      const sizes = new Map<string, number>();
+      const objectSize = async (path: string) => {
+        if (!sizes.has(path)) {
+          const size = Number((await git(input, ['cat-file', '-s', `${source}:${path}`])).trim());
+          if (!Number.isSafeInteger(size) || size < 0)
+            publicationReviewUnavailable('committed_evidence_unavailable');
+          sizes.set(path, size);
+        }
+        return sizes.get(path)!;
+      };
+      const instructionsFor = async (file: string) => {
+        const instructions = [];
+        for (const path of ancestors(file, all))
+          if (!fullPaths.has(path)) instructions.push({ path, content: await read(path) });
+        return instructions;
+      };
+      const rememberInstructions = (instructions: Array<{ path: string; content: string }>) => {
+        for (const { path } of instructions) {
+          instructionPaths.add(path);
+          fullPaths.add(path);
+        }
+      };
       for (const request of requests) {
         if (request.kind === 'read') {
           if (!pathAllowed(request.path)) publicationReviewUnavailable('context_path_unavailable');
           const content = await read(request.path);
-          const lines = content.split('\n');
-          if (lines.at(-1) === '') lines.pop();
-          const totalLines = lines.length;
-          const startLine = request.startLine ?? 1,
-            endLine = request.endLine ?? totalLines;
-          if (
-            !Number.isSafeInteger(startLine) ||
-            !Number.isSafeInteger(endLine) ||
-            startLine < 1 ||
-            endLine < startLine ||
-            endLine > totalLines ||
-            ((request.startLine !== undefined || request.endLine !== undefined) &&
-              endLine - startLine >= 400)
-          )
-            publicationReviewUnavailable('context_range_unavailable');
-          const coverage = {
-            path: request.path,
-            startLine,
-            endLine,
-            totalLines,
-            remainingBefore: startLine - 1,
-            remainingAfter: totalLines - endLine,
-            complete: startLine === 1 && endLine === totalLines,
-          };
+          const { coverage, text } = contextReadCoverage(request.path, content, request);
           reads.push(coverage);
-          const instructions = [];
-          for (const path of ancestors(request.path, all))
-            if (!knownInstructions.has(path) && !instructionPaths.has(path)) {
-              instructions.push({ path, content: await read(path) });
-              instructionPaths.add(path);
+          if (coverage.complete) fullPaths.add(request.path);
+          const instructions = await instructionsFor(request.path);
+          rememberInstructions(instructions);
+          const dependencies = [];
+          const discovered = coverage.complete
+            ? publicationReviewDependencies(request.path, content, all)
+            : new Set<string>();
+          const { paths: dependencyPaths, omittedCount } = boundedReviewDependencyCandidates(
+            discovered,
+            MAX_DISCOVERY_PATHS - dependencyMetadataCount,
+          );
+          dependencyMetadataCount += dependencyPaths.length;
+          for (const path of dependencyPaths) {
+            if (fullPaths.has(path) || explicitReads.has(path)) {
+              dependencies.push({
+                path,
+                included: false,
+                reason: 'already_supplied_or_requested',
+              });
+              continue;
             }
+            if (dependencyCandidates.has(path)) {
+              dependencies.push({
+                path,
+                included: false,
+                reason: 'already_discovered',
+              });
+              continue;
+            }
+            dependencyCandidates.add(path);
+            const additional = [
+              ...new Set([path, ...ancestors(path, all).filter((file) => !fullPaths.has(file))]),
+            ];
+            if (dependencyFiles + additional.length > MAX_REQUEST_DEPENDENCY_FILES) {
+              dependencies.push({ path, included: false, reason: 'automatic_file_budget' });
+              continue;
+            }
+            let size = 0;
+            for (const file of additional) size += await objectSize(file);
+            if (dependencyBytes + size > MAX_AUTOMATIC_CONTEXT_BYTES) {
+              dependencies.push({
+                path,
+                included: false,
+                reason: 'automatic_context_budget',
+                bytesIncludingInstructions: size,
+              });
+              continue;
+            }
+            let dependency: string;
+            let dependencyInstructions: Array<{ path: string; content: string }>;
+            try {
+              dependency = await read(path);
+              dependencyInstructions = await instructionsFor(path);
+            } catch (error) {
+              if (!nonTextEvidence(error)) throw error;
+              dependencies.push({
+                path,
+                included: false,
+                reason: 'non_text_dependency_or_instruction',
+              });
+              continue;
+            }
+            dependencyBytes += size;
+            dependencyFiles += additional.length;
+            const { coverage } = contextReadCoverage(path, dependency);
+            reads.push(coverage);
+            fullPaths.add(path);
+            rememberInstructions(dependencyInstructions);
+            dependencies.push({
+              ...coverage,
+              included: true,
+              content: dependency,
+              instructions: dependencyInstructions,
+            });
+          }
           response.push({
             kind: 'read',
             ...coverage,
-            content: lines.slice(startLine - 1, endLine).join('\n'),
+            content: text,
             instructions,
+            dependencies,
+            dependencyDiscovery: { candidateCount: discovered.size, omittedCount },
           });
         } else {
           const prefix = publicationSearchPrefix(request.pathPrefix);
@@ -450,8 +550,18 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
           });
         }
       }
+      if (
+        Buffer.byteLength(JSON.stringify(response), 'utf8') > PUBLICATION_REVIEW_MAX_EVIDENCE_BYTES
+      )
+        publicationReviewUnavailable('context_evidence_limit');
       await assertBatchCurrent();
-      return { response, reads, searches, instructionPaths: [...instructionPaths] };
+      return {
+        response,
+        reads,
+        searches,
+        instructionPaths: [...instructionPaths],
+        fullPaths: [...fullPaths],
+      };
     },
   };
 }
