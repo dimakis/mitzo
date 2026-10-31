@@ -227,7 +227,7 @@ it('settles observed terminal command failures and applied patches without repla
       id: 'patch',
       status: 'completed',
       changes: [
-        { path: '/task/fix.ts', kind: { type: 'update', movePath: null }, diff: '-old\n+new' },
+        { path: '/task/fix.ts', kind: { type: 'update', move_path: null }, diff: '-old\n+new' },
       ],
     },
   ];
@@ -256,6 +256,19 @@ it('settles observed terminal command failures and applied patches without repla
     { ...valid[2], status: 'failed' },
     { ...valid[2], status: 'inProgress' },
     { ...valid[2], changes: [] },
+    { ...valid[2], changes: [{ path: '/task/fix.ts', kind: { type: 'update' }, diff: '' }] },
+    {
+      ...valid[2],
+      changes: [{ path: '/task/fix.ts', kind: { type: 'update', move_path: 42 }, diff: '' }],
+    },
+    {
+      ...valid[2],
+      changes: [{ path: '/task/fix.ts', kind: { type: 'update', movePath: null }, diff: '' }],
+    },
+    {
+      ...valid[2],
+      changes: [{ path: '/task/fix.ts', kind: { type: 'add', move_path: '/other' }, diff: '' }],
+    },
     { ...valid[2], changes: [{ path: '/task/fix.ts', kind: { type: 'future' }, diff: '' }] },
   ])
     await expect(

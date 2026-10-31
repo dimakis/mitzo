@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import type { CodexNativeTurnTarget } from './codex-conversation-store.js';
 import { SessionRuntimeError } from './session-runtime-error.js';
+import { CodexNativeFileChange } from './codex-native-file-change.js';
 
 type HostCall = Readonly<{ callId: string; toolName: string; requestHash: string }>;
 /** Process-local evidence from a fresh native RPC, never a JSON recovery grant. */
@@ -30,21 +31,7 @@ const ItemPage = z.object({
 const MAX_INTERRUPTED_ITEMS = 128;
 const AppliedFileChanges = z.object({
   status: z.literal('completed'),
-  changes: z
-    .array(
-      z.object({
-        path: z
-          .string()
-          .min(1)
-          .refine((path) => !path.includes('\0')),
-        kind: z.object({
-          type: z.enum(['add', 'delete', 'update']),
-          movePath: z.string().min(1).nullable().optional(),
-        }),
-        diff: z.string(),
-      }),
-    )
-    .min(1),
+  changes: z.array(CodexNativeFileChange).min(1),
 });
 
 /** Completed recovery never hydrates items. Eligible interrupted recovery reads

@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../codex-native-file-change.ts':
+    'd0e33490a60219baafbcad0bb58e013a7fedfc63deb8a0d3c6daa96ab17bc0f9',
   '../local-repository-preparation-input.ts':
     '7fe2779506daff059c0f0a53b94804e3228469dec3c416492a7344e5be7065d5',
   '../../tests/integration/telos-s9/integrated-candidate/joined-child-proxy.ts':
@@ -60,7 +62,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/TelosChatRouteLayout.source.test.tsx':
     'af65704accb313d8b70a9267175983fb7a12e882bbccaa34ce19149b14a15a30',
   '../codex-interrupted-effects.ts':
-    '2d110eaf8780e45cddcca4432eb8efc7fd384423bbaafea5c428f4c9b89da392',
+    '39c95e2ed2c304c5bdb24ff7ecc885b8b8077bb237160734ce695ff751234f2a',
   '../__tests__/symposium-personal-connection-router.test.ts':
     '672b6da994f8e1d233b6c39efe477d10fb4344131b06c240826ccd4cbf16cd14',
   '../__tests__/chat-startup-metadata.test.ts':
@@ -1482,7 +1484,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '01a064e933f3925993fa813467e4da689802264f0d01d6a1ea310551684bee30',
+  '../codex-conversation.ts': '8d8b6f662f62fccaae298f8054c16989ecdc074ee627501374e26c4419265816',
   '../codex-conversation-store.ts':
     'f8bb8e0cb104161c7bf4bdfd6282234776d30d312ce29fa89a676e57db46a0db',
   '../symposium-custodian-ipc.ts':
@@ -3065,7 +3067,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-source-route-diagnostics.test.ts':
     'c86ae1b37bcfaaee96a8e5e5059915ced33d87cc2b52a1c88b4707586d5e82a2',
   '../__tests__/codex-recovery-read-budget.test.ts':
-    '2be57c1eadb925acd0fc43a64d754209bb8cc3b9ee9fb64e8c0bd9ed76e33dab',
+    'e81a7cb2eb6ff2dbfb749a99b2428d2e5df1bffefe7de330036a7422df392660',
   '../__tests__/ordinary-openshell-completion-flow.test.ts':
     '67905a9bdf16b82ef7ffd79329600002091460d2d24ed00218c8464bde679e2b',
   '../__tests__/fixtures/openshell-publication-effects.ts':

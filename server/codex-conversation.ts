@@ -36,6 +36,7 @@ import { searchCodex } from './codex-approved-search.js';
 import { BorrowedCodexSearch } from './codex-borrowed-search.js';
 import { context, trace, SpanStatusCode, type Span, type Context } from '@opentelemetry/api';
 import { createHash } from 'node:crypto';
+import { CodexNativeFileChange } from './codex-native-file-change.js';
 import { isDeepStrictEqual } from 'node:util';
 import { performance } from 'node:perf_hooks';
 import { SearchSkillsInput, searchNativeSkills } from './local-agent-efficiency.js';
@@ -3160,19 +3161,7 @@ export class CodexConversation {
         .object({
           type: z.literal('fileChange'),
           id: z.string().min(1),
-          changes: z.array(
-            z.object({
-              path: z.string().min(1),
-              kind: z.discriminatedUnion('type', [
-                z.object({ type: z.literal('add') }).strict(),
-                z.object({ type: z.literal('delete') }).strict(),
-                z
-                  .object({ type: z.literal('update'), move_path: z.string().min(1).nullable() })
-                  .strict(),
-              ]),
-              diff: z.string(),
-            }),
-          ),
+          changes: z.array(CodexNativeFileChange),
         })
         .safeParse(params.item);
       if (identity.success) {
