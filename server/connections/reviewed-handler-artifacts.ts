@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.12';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.802-publication-recovery-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.803-native-adviser-api';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1842,7 +1841,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../configured-tool-admission.ts':
     '9e57700bb40318954b0c2efbb0ee8f81541e22146b8dbfbbae422b6e2503e0d2',
   '../../packages/protocol/src/ordinary-prepared-session.ts':
-    'fc4d953515c7df9cf7594b4fc502c39d891cdf53c667a3db6839c390effa20e3',
+    'f78c35ef98404bf5389f6bbaa866d288be567d41d6dbaeb5425b8a591713a4d8',
   '../codex-ordinary-packet.ts': '255de91ea3b5a8dcb49cc04f2d1d00de587f424498c7acf5d967a51ab3f9bb21',
   '../collaboration-ordinary-delivery.ts':
     '6927e4e4dfe6fcfe2b8d7bbdc67083db2b36bcc638ee5416c16a012a19710a3a',
@@ -2139,7 +2138,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/account-profiles.test.ts':
     'ca3640f47663c32d49f3f4b90bf5cc27b56440fcf7ca96655d5da7acd3b5fda7',
   '../__tests__/adviser-harness-composition.test.ts':
-    '5e2d2b0998aff3eaebf5b0c21b27106567f1befdc4989fe74e93cc46da0af333',
+    'ec5337be3c5070fd0c6396d944457961a77ed52742405f6566fc3647770bc753',
   '../__tests__/adviser-harness-runtime.test.ts':
     'c222356834e1377f55b141789fcc05c9839dd2a5d5501ca78308c739024da86f',
   '../__tests__/adviser-native-policy.test.ts':

@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
+import { OrdinarySessionPreparationReceiptV2Schema } from '@mitzo/protocol';
 const mocks = vi.hoisted(() => ({
   authorization: vi.fn(),
   prepare: vi.fn(),
@@ -91,15 +92,30 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.resolve.mockReturnValue(mocks.binding);
   mocks.live = undefined;
-  mocks.prepare.mockResolvedValue({ preparationId: 'preparation', runtimeBinding: mocks.runtime });
+  mocks.prepare.mockResolvedValue({
+    preparationId: '50000000-0000-4000-8000-000000000001',
+    runtimeBinding: mocks.runtime,
+  });
   mocks.reserve.mockImplementation(async (input) => ({
-    id: 'workspace',
+    id: '50000000-0000-4000-8000-000000000002',
     conversationId: 'task',
     directory: '/task-root/empty-task',
     hostReservation: { taskRoot: '/task-root' },
-    preparationFingerprint: 'fingerprint',
+    preparationFingerprint: 'a'.repeat(64),
     settings: input.settings,
   }));
+  // Exercise the real receipt contract at the composition boundary. A no-op
+  // preparation mock concealed rejection of the selected local API account.
+  mocks.prepareSession.mockImplementation((meta, input) =>
+    OrdinarySessionPreparationReceiptV2Schema.parse({
+      version: 2,
+      ...input,
+      sessionId: meta.sessionId,
+      workspaceKind: 'ordinary',
+      workspaceId: meta.ordinaryWorkspaceId,
+      firstCommandId: null,
+    }),
+  );
   mocks.dispatch.mockImplementation(async (input) => {
     mocks.live = {
       session: {

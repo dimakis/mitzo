@@ -46,9 +46,7 @@ export const OrdinarySessionPreparationReceiptV2Schema = z
     (receipt) =>
       receipt.workspaceId !== receipt.sessionId &&
       receipt.workspaceId !== receipt.settings.workspace.preparationId &&
-      (receipt.settings.binding.execution.location === 'local'
-        ? receipt.settings.binding.account.provider === 'openai-codex'
-        : ['openai', 'openai-codex'].includes(receipt.settings.binding.account.provider)) &&
+      ['openai', 'openai-codex'].includes(receipt.settings.binding.account.provider) &&
       receipt.settings.binding.harness.implementation === 'codex' &&
       receipt.settings.selection.context.source === 'none' &&
       receipt.settings.selection.permission.revision === 0,
