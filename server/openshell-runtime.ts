@@ -7,6 +7,11 @@ import {
   warmPoolCreateResources,
 } from './openshell-warm-pool-binding.js';
 import { SpanStatusCode } from '@opentelemetry/api';
+import {
+  repositoryMaterializationScript,
+  RepositoryMaterializationReceiptSchema,
+  type RepositoryMaterialization,
+} from './repository-materialization.js';
 import { tracer } from './tracing.js';
 import { TASK_CAPABILITY_PROBE, TaskCapabilities } from './task-runtime-guidance.js';
 import { atSymposiumReconciliationStageAsync } from './symposium-reconciliation-error.js';
@@ -59,7 +64,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshArgvProcessSpec, openShellSshProcessSpec } from './codex-app-server-client.js';
@@ -3001,6 +3006,76 @@ export class OpenShellRuntimeManager {
     } finally {
       prepared?.cleanup();
     }
+  }
+
+  /** Both cold and warm ensure paths meet here before a repository command.
+   * Physical readiness is not proof that task Git survived file transport. */
+  async materializeRepository(
+    conversationId: string,
+    runtime: OpenShellRuntime,
+    plan: { seed: string; manifest: RepositoryMaterialization },
+    allowInitialReplacement: boolean,
+    signal: AbortSignal,
+    assertCurrent: () => void,
+  ) {
+    const bounded = AbortSignal.any([signal, AbortSignal.timeout(30000)]);
+    const qualify = async () => {
+      assertCurrent();
+      bounded.throwIfAborted();
+      if (!runtime.sandboxId || runtime.workdir !== this.config.workdir)
+        throw Error('Repository target identity unavailable');
+      const physical = await this.inspect(
+        conversationId,
+        runtime.sandboxId,
+        bounded,
+        runtime.sandboxName,
+      );
+      if (!physical || physical.phase !== 'Ready')
+        throw Error('Repository target identity changed');
+      assertCurrent();
+    };
+    await qualify();
+    const spec = openShellSshArgvProcessSpec(runtime, [
+      '/usr/bin/node',
+      '-e',
+      repositoryMaterializationScript,
+      join('/sandbox/workspaces', basename(plan.seed)),
+      runtime.workdir,
+      JSON.stringify(plan.manifest),
+      String(allowInitialReplacement),
+    ]);
+    let output = JSON.parse(await this.runSsh(spec.args, bounded));
+    await qualify();
+    if (output?.needsUpload === true) {
+      // Retrying an existing Ready allocation does not pass through ensure's
+      // creation upload. Only a fresh admission may supply this opaque envelope.
+      if (!allowInitialReplacement)
+        throw Error('Repository import requires its original admission');
+      await this.run(
+        [
+          'sandbox',
+          ...this.base(),
+          'upload',
+          runtime.sandboxName,
+          plan.seed,
+          '/sandbox/workspaces',
+        ],
+        bounded,
+      );
+      await qualify();
+      output = JSON.parse(await this.runSsh(spec.args, bounded));
+      await qualify();
+    }
+    const receipt = RepositoryMaterializationReceiptSchema.parse({
+      ...output,
+      sandboxName: runtime.sandboxName,
+      sandboxId: runtime.sandboxId,
+    });
+    for (const [key, value] of Object.entries(plan.manifest))
+      if (receipt[key as keyof typeof receipt] !== value)
+        throw Error('Repository target receipt differs');
+    if (receipt.directory !== runtime.workdir) throw Error('Repository target root differs');
+    return receipt;
   }
 
   async inspectTaskCapabilities(runtime: OpenShellRuntime, signal: AbortSignal) {

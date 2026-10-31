@@ -350,8 +350,14 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
     async context(
       requests: PublicationContextRequest[],
       knownInstructions: ReadonlySet<string> = new Set(),
+      signal: AbortSignal = input.signal,
     ) {
+      signal.throwIfAborted();
       await assertBatchCurrent();
+      signal.throwIfAborted();
+      const contextInput = { ...input, signal };
+      const read = (path: string) =>
+        git(contextInput, ['show', '--no-ext-diff', '--no-textconv', `${source}:${path}`]);
       const reads: PublicationContextRead[] = [],
         searches: PublicationContextSearch[] = [];
       const response: Array<unknown> = [];
@@ -412,7 +418,7 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
           )
             publicationReviewUnavailable('context_search_unavailable');
           const found = await git(
-            input,
+            contextInput,
             [
               'grep',
               '-l',
@@ -451,6 +457,7 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
         }
       }
       await assertBatchCurrent();
+      signal.throwIfAborted();
       return { response, reads, searches, instructionPaths: [...instructionPaths] };
     },
   };

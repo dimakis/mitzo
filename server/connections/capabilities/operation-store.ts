@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { JsonValue } from '../types.js';
 import { assertSafeExternalResultId } from './external-result-id.js';
 import type { CapabilityGrant, CapabilityOperation, CapabilityOperationStatus } from './types.js';
+import { CAPABILITY_OPERATION_PHASES, type CapabilityOperationPhase } from './types.js';
 
 function parseStringArray(value: string): string[] {
   const parsed: unknown = JSON.parse(value);
@@ -33,6 +34,7 @@ function operation(row: Record<string, unknown>): CapabilityOperation {
     approvalHash: (row.approval_hash as string | null) ?? null,
     recoveryIntent: parseJsonValue((row.recovery_intent_json as string | null) ?? null),
     status: row.status as CapabilityOperationStatus,
+    ...(row.phase ? { phase: row.phase as CapabilityOperationPhase } : {}),
     externalResultId,
     result: parseJsonValue(row.result_json as string | null),
     failureCode: row.failure_code as string | null,
@@ -96,6 +98,7 @@ export class CapabilityOperationStore {
       'ALTER TABLE capability_operations ADD COLUMN approval_input_json TEXT',
       'ALTER TABLE capability_operations ADD COLUMN approval_hash TEXT',
       'ALTER TABLE capability_operations ADD COLUMN recovery_intent_json TEXT',
+      'ALTER TABLE capability_operations ADD COLUMN phase TEXT',
     ]) {
       try {
         this.db.exec(statement);
@@ -327,6 +330,18 @@ export class CapabilityOperationStore {
     const row = this.db.prepare('SELECT * FROM capability_operations WHERE id=?').get(id) as
       Record<string, unknown> | undefined;
     return row ? operation(row) : undefined;
+  }
+  recordPhase(id: string, phase: CapabilityOperationPhase): void {
+    if (!CAPABILITY_OPERATION_PHASES.includes(phase)) throw Error('Capability phase is invalid');
+    const changed = this.db
+      .prepare(
+        "UPDATE capability_operations SET phase=?, updated_at=? WHERE id=? AND status IN ('pending_approval','running','verification_pending')",
+      )
+      .run(phase, Date.now(), id);
+    if (changed.changes !== 1) throw Error('Capability phase owner is no longer active');
+  }
+  recordCleanupFailure(id: string): void {
+    this.audit(id, 'preflight_cleanup', 'failed', 'CLEANUP_FAILED', Date.now());
   }
   pendingRecovery(): CapabilityOperation[] {
     return (

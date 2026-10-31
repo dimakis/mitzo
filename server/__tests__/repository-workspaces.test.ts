@@ -78,6 +78,7 @@ async function fixture() {
   const prepare = vi.fn(async (_preview, directory: string, featureBranch: string) => {
     await cp(source, directory, { recursive: true });
     git(directory, 'checkout', '-qb', featureBranch);
+    git(directory, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
     return { ...(await inspect()), directory, featureBranch };
   });
   const verify = vi.fn(async () => {});
@@ -252,6 +253,101 @@ it('rechecks the exact frozen sandbox seed before upload and rejects changed sou
   expect(await f.service.startupSeed(preview.id, binding, 'conversation', signal)).toBe(
     claimed.seed,
   );
+  const plan = await f.service.startupMaterialization(preview.id, binding, 'conversation', signal);
+  try {
+    expect(plan.manifest).toMatchObject({
+      workspaceId: preview.id,
+      baseOid: preview.baseOid,
+      featureBranch: claimed.featureBranch,
+    });
+    await expect(f.service.releaseSource(preview.id, binding, 'conversation')).rejects.toThrow(
+      'verified target',
+    );
+    await expect(
+      f.service.recordSandboxMaterialization(
+        preview.id,
+        binding,
+        'conversation',
+        {
+          ...plan.manifest,
+          head: '0'.repeat(40),
+          directory: '/sandbox/workspaces/mgmt',
+          sandboxId: 'physical',
+          sandboxName: 'sandbox',
+        },
+        signal,
+      ),
+    ).rejects.toThrow('original claim');
+    await f.service.recordSandboxMaterialization(
+      preview.id,
+      binding,
+      'conversation',
+      {
+        ...plan.manifest,
+        head: preview.baseOid,
+        directory: '/sandbox/workspaces/mgmt',
+        sandboxId: 'physical',
+        sandboxName: 'sandbox',
+      },
+      signal,
+    );
+    const next = {
+      ...plan.manifest,
+      head: 'd'.repeat(40),
+      directory: '/sandbox/workspaces/mgmt',
+      sandboxId: 'migrated-physical',
+      sandboxName: 'migrated-sandbox',
+    };
+    const migration = {
+      phase: 'committed',
+      identity: {
+        conversation: 'conversation',
+        accountId: binding.accountId,
+        sandboxId: 'physical',
+      },
+      source: {
+        runtime: { sandboxId: 'physical', sandboxName: 'sandbox', workdir: next.directory },
+      },
+      candidateName: next.sandboxName,
+      candidate: {
+        runtime: {
+          sandboxId: next.sandboxId,
+          sandboxName: next.sandboxName,
+          workdir: next.directory,
+        },
+      },
+    } as unknown as import('../openshell-runtime-migration.js').RuntimeMigration;
+    await expect(
+      f.service.recordSandboxMaterialization(preview.id, binding, 'conversation', next, signal),
+    ).rejects.toThrow('changed');
+    await expect(
+      f.service.recordSandboxMaterialization(preview.id, binding, 'conversation', next, signal, {
+        ...migration,
+        phase: 'restored',
+      }),
+    ).rejects.toThrow('changed');
+    await expect(
+      f.service.recordSandboxMaterialization(
+        preview.id,
+        binding,
+        'conversation',
+        { ...next, tree: '0'.repeat(40) },
+        signal,
+        migration,
+      ),
+    ).rejects.toThrow('changed');
+    await f.service.recordSandboxMaterialization(
+      preview.id,
+      binding,
+      'conversation',
+      next,
+      signal,
+      migration,
+    );
+    expect(f.service.get(preview.id).sandboxMaterialization).toEqual(next);
+  } finally {
+    await plan.cleanup();
+  }
   await writeFile(join(claimed.seed, 'file.txt'), 'tampered source');
   await expect(
     f.service.startupSeed(preview.id, binding, 'conversation', signal),

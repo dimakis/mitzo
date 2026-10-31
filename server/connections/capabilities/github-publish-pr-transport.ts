@@ -523,6 +523,7 @@ function sameGithubPullRequestUrl(left: string, right: string) {
 /** Host adapter: isolated checkout, no hooks/local config, explicit non-force push. */
 export class GitHubCliHostPublisher implements GithubHostPublisher {
   private readonly cleanupParents = new Set<string>();
+  private readonly cleanups = new Map<string, Promise<void>>();
   constructor(private readonly runHost: GithubHostCommandRunner = host) {}
   projectSeedPatch(input: SeededChangeInput) {
     return projectSeededChange(this.runHost, input);
@@ -588,6 +589,38 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       defaultBranch: repo.data.default_branch,
       sourceBranchProtected,
     };
+  }
+  async refreshBase(input: {
+    directory: string;
+    repository: string;
+    baseBranch: string;
+    signal: AbortSignal;
+    assertRuntimeCurrent?: () => Promise<void>;
+  }) {
+    checked(input.repository, safeRepository, 'Repository is invalid');
+    checked(input.baseBranch, safeBranch, 'Base branch is invalid');
+    // Only this publisher's private reconstruction can retain a review artifact.
+    if (
+      !this.cleanupParents.has(join(input.directory, '..')) ||
+      this.cleanups.has(join(input.directory, '..'))
+    )
+      throw Error('Publication artifact owner unavailable');
+    await input.assertRuntimeCurrent?.();
+    input.signal.throwIfAborted();
+    await this.runHost(
+      'git',
+      [
+        '-C',
+        input.directory,
+        'fetch',
+        '--no-tags',
+        `https://github.com/${input.repository}.git`,
+        `refs/heads/${input.baseBranch}:refs/remotes/origin/${input.baseBranch}`,
+      ],
+      input.signal,
+    );
+    await input.assertRuntimeCurrent?.();
+    input.signal.throwIfAborted();
   }
   async reconstruct(input: {
     repository: string;
@@ -948,10 +981,20 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     if (!oid || !/^[a-f0-9]{40,64}$/i.test(oid)) throw new Error('GitHub branch lookup is invalid');
     return oid;
   }
-  async cleanup(directory: string) {
+  cleanup(directory: string): Promise<void> {
+    const current = this.cleanups.get(directory);
+    if (current) return current;
     const root = join(tmpdir(), 'mitzo-github-publish-');
-    if (!directory.startsWith(root) || directory === root || !this.cleanupParents.delete(directory))
-      throw new Error('Host checkout cleanup refused');
-    await rm(directory, { recursive: true, force: true });
+    if (!directory.startsWith(root) || directory === root || !this.cleanupParents.has(directory))
+      return Promise.reject(new Error('Host checkout cleanup refused'));
+    const pending = rm(directory, { recursive: true, force: true })
+      .then(() => {
+        this.cleanupParents.delete(directory);
+      })
+      .finally(() => {
+        this.cleanups.delete(directory);
+      });
+    this.cleanups.set(directory, pending);
+    return pending;
   }
 }

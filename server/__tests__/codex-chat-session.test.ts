@@ -80,6 +80,12 @@ vi.mock('../codex-conversation-store.js', async (original) => ({
     readArtifactRuntime() {
       return null;
     }
+    read() {
+      return { threadId: null };
+    }
+    commands() {
+      return [];
+    }
     readRuntimeMigration() {
       return null;
     }
@@ -141,6 +147,7 @@ import {
 import { CodexStartupError } from '../codex-startup-error.js';
 import { RuntimePolicyAttestationError } from '../openshell-runtime-policy.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
+import * as repositoryWorkspaceRuntime from '../repository-workspace-runtime.js';
 import * as migrationAdapter from '../openshell-runtime-migration-adapter.js';
 import * as lifecycleController from '../openshell-lifecycle-controller.js';
 import * as knowledgeStoreConfig from '../knowledge-store-config.js';
@@ -7168,3 +7175,204 @@ it('exposes approved web access in owned local chat and integration discovery', 
     f.eventStore.close();
   }
 });
+
+it.each([
+  'success',
+  'import_failure',
+  'receipt_failure',
+  'migration_resume',
+  'uncommitted_migration',
+] as const)(
+  'orders repository startup target verification and receipt persistence before native admission: %s',
+  async (outcome) => {
+    vi.clearAllMocks();
+    for (const [key, value] of Object.entries({
+      MITZO_OPENSHELL_ENABLED: '1',
+      MITZO_OPENSHELL_IMAGE: 'mitzo-runtime:1',
+      MITZO_OPENSHELL_POLICY: '/config/policy.yaml',
+      MITZO_OPENSHELL_SEED: '/seed/mgmt',
+    }))
+      vi.stubEnv(key, value);
+    // This fixture proves repository admission ordering. Lifecycle persistence
+    // has separate consumer coverage; earlier cases intentionally close its singleton.
+    const lifecycleSpies = [
+      vi
+        .spyOn(lifecycleController, 'restoreOpenShellLifecycleIfNeeded')
+        .mockResolvedValue(undefined),
+      vi
+        .spyOn(lifecycleController, 'registerOpenShellLifecycleProvisional')
+        .mockImplementation(() => {}),
+      vi.spyOn(lifecycleController, 'registerOpenShellLifecycle').mockImplementation(() => {}),
+      vi
+        .spyOn(lifecycleController, 'registerMigratedOpenShellLifecycle')
+        .mockImplementation(() => {}),
+      vi.spyOn(lifecycleController, 'markOpenShellLifecycleIdle').mockImplementation(() => {}),
+    ];
+    const resuming = outcome === 'migration_resume' || outcome === 'uncommitted_migration';
+    const order: string[] = [];
+    const runtime = {
+      sandboxName: 'sandbox',
+      sandboxId: 'physical',
+      workdir: '/sandbox/workspaces/mgmt',
+      appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+      cli: 'openshell',
+      gateway: 'openshell',
+      workspace: 'default',
+      gatewayInsecure: false,
+    };
+    const manifest = {
+      version: 1 as const,
+      workspaceId: 'repository',
+      repository: 'example/repo',
+      baseBranch: 'main',
+      featureBranch: 'mitzo/task',
+      baseOid: 'a'.repeat(40),
+      tree: 'b'.repeat(40),
+      bundleSha256: 'c'.repeat(64),
+    };
+    const receipt = {
+      ...manifest,
+      head: manifest.baseOid,
+      directory: runtime.workdir,
+      sandboxName: runtime.sandboxName,
+      sandboxId: runtime.sandboxId,
+    };
+    const cleanup = vi.fn(async () => {
+      order.push('cleanup');
+    });
+    const prepare = vi.fn(async () => {
+      order.push('export');
+      return { seed: '/private/opaque-import', manifest, cleanup };
+    });
+    const persist = vi.fn(async () => {
+      order.push('persist');
+      if (outcome === 'receipt_failure') throw Error('receipt failure');
+    });
+    const repositories = vi
+      .spyOn(repositoryWorkspaceRuntime, 'getRepositoryWorkspaces')
+      .mockReturnValue({
+        startupMaterialization: prepare,
+        recordSandboxMaterialization: persist,
+      } as unknown as ReturnType<typeof repositoryWorkspaceRuntime.getRepositoryWorkspaces>);
+    const ensure = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
+      .mockImplementation(async (...args) => {
+        if (!resuming) expect(args[3]?.seed).toBe('/private/opaque-import');
+        order.push('ensure');
+        return runtime;
+      });
+    const materialize = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'materializeRepository')
+      .mockImplementation(async (...args) => {
+        expect(args[2].manifest).toEqual(manifest);
+        expect(args[3]).toBe(!resuming);
+        order.push('import');
+        if (outcome === 'import_failure') throw Error('import failure');
+        return receipt;
+      });
+    const retained = {
+      ...receipt,
+      sandboxName: 'original-sandbox',
+      sandboxId: 'original-physical',
+    };
+    const migration = {
+      phase: outcome === 'uncommitted_migration' ? 'restored' : 'committed',
+      identity: {
+        conversation: 'repository-startup',
+        accountId: 'work',
+        sandboxId: retained.sandboxId,
+      },
+      source: {
+        runtime: { ...runtime, sandboxName: retained.sandboxName, sandboxId: retained.sandboxId },
+      },
+      candidateName: runtime.sandboxName,
+      candidate: { runtime },
+    } as unknown as import('../openshell-runtime-migration.js').RuntimeMigration;
+    const { CodexConversationStore } = await import('../codex-conversation-store.js');
+    const artifact = {
+      runtime,
+      route: { kind: 'api' as const, provider: 'openai-work', model: 'test-model' },
+    };
+    const readArtifact = resuming
+      ? vi.spyOn(CodexConversationStore.prototype, 'readArtifactRuntime').mockReturnValue(artifact)
+      : undefined;
+    const readMigration = resuming
+      ? vi
+          .spyOn(CodexConversationStore.prototype, 'readRuntimeMigration')
+          .mockReturnValue(migration)
+      : undefined;
+    const migrate = resuming
+      ? vi.spyOn(migrationAdapter, 'prepareRetainedRuntimeMigration').mockResolvedValue(artifact)
+      : undefined;
+    mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+    mocks.initialize.mockImplementation(async () => {
+      order.push('initialize');
+    });
+    mocks.send.mockResolvedValue(undefined);
+    try {
+      const opening = openCodexChat({
+        ...options(new AbortController()),
+        conversationId: 'repository-startup',
+        binding: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          provider: 'openai',
+          model: 'test-model',
+          profileRevision: '1',
+        },
+        profile: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          email: 'work@example.invalid',
+          planType: 'api',
+          model: 'test-model',
+          sandboxProvider: 'openai-work',
+        },
+        resume: resuming,
+        repositoryWorkspace: {
+          ...manifest,
+          id: manifest.workspaceId,
+          sandbox: true,
+          ...(resuming ? { sandboxMaterialization: retained } : {}),
+        },
+        env: {},
+      });
+      if (outcome === 'success' || outcome === 'migration_resume') {
+        const query = await opening;
+        expect(order).toEqual(
+          resuming
+            ? ['ensure', 'import', 'persist', 'initialize']
+            : ['export', 'ensure', 'import', 'persist', 'cleanup', 'initialize'],
+        );
+        expect(persist.mock.calls[0]!.slice(0, 5)).toEqual([
+          'repository',
+          expect.any(Object),
+          'repository-startup',
+          receipt,
+          expect.any(AbortSignal),
+        ]);
+        query.close();
+      } else {
+        await expect(opening).rejects.toThrow(
+          outcome === 'import_failure'
+            ? 'import failure'
+            : outcome === 'uncommitted_migration'
+              ? 'physical identity changed'
+              : 'receipt failure',
+        );
+        expect(mocks.initialize).not.toHaveBeenCalled();
+        expect(mocks.send).not.toHaveBeenCalled();
+        if (outcome === 'import_failure') expect(persist).not.toHaveBeenCalled();
+      }
+      expect(cleanup).toHaveBeenCalledTimes(resuming ? 0 : 1);
+    } finally {
+      for (const spy of lifecycleSpies) spy.mockRestore();
+      readArtifact?.mockRestore();
+      readMigration?.mockRestore();
+      migrate?.mockRestore();
+      repositories.mockRestore();
+      ensure.mockRestore();
+      materialize.mockRestore();
+    }
+  },
+);
