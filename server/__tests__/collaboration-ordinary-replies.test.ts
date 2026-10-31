@@ -7,7 +7,9 @@ import { EventStore } from '../event-store.js';
 import {
   OrdinaryCollaborationReplies,
   recordOrdinaryReplySource,
+  captureOrdinaryReplyExecution,
 } from '../collaboration-ordinary-replies.js';
+import { ordinaryRepositoryTransition } from './fixtures/ordinary-repository-transition.js';
 
 let store: EventStore, directory: string, path: string, group: string;
 const binding = {
@@ -48,7 +50,7 @@ beforeEach(() => {
         clientMsgId: `initial-${sessionId}`,
         requestFingerprint: `fp-${sessionId}`,
         selection,
-        payload: { text: 'Fixture' },
+        payload: { text: 'Fixture', systemPrompt: 'Offline fixture' },
       },
     );
     store.claimOrdinaryLocalCommandDispatch(`initial-${sessionId}`);
@@ -69,6 +71,10 @@ function mapping(sessionId = 'two', messageId = 'visible-reply') {
     providerThreadId: `private-thread-${sessionId}`,
     providerTurnId: `private-turn-${sessionId}`,
   };
+}
+function recordSource(events: EventStore, sessionId: string, source: ReturnType<typeof mapping>) {
+  const execution = captureOrdinaryReplyExecution(events, sessionId, source);
+  recordOrdinaryReplySource(events, sessionId, source, execution);
 }
 function visible(messageId = 'visible-reply', sessionId = 'two') {
   store.append(sessionId, 'message_start', { messageId });
@@ -113,7 +119,7 @@ function input(end: number, sessionId = 'two') {
 }
 
 it('persists a private exact command mapping and reads only finalized visible text through EventStore', () => {
-  recordOrdinaryReplySource(store, 'two', mapping());
+  recordSource(store, 'two', mapping());
   const end = visible();
   const request = input(end);
   const result = new OrdinaryCollaborationReplies(store).record(group, request);
@@ -128,19 +134,19 @@ it('persists a private exact command mapping and reads only finalized visible te
 });
 
 it('deduplicates driver source callbacks and never permits another session or command to claim them', () => {
-  recordOrdinaryReplySource(store, 'two', mapping());
-  recordOrdinaryReplySource(store, 'two', mapping());
+  recordSource(store, 'two', mapping());
+  recordSource(store, 'two', mapping());
   expect(store.getSessionEvents('two')).toHaveLength(1);
   for (const changed of [
     { ...mapping(), commandId: 'initial-one' },
     { ...mapping(), providerTurnId: 'other-turn' },
     { ...mapping(), providerThreadId: 'other-thread' },
   ])
-    expect(() => recordOrdinaryReplySource(store, 'two', changed)).toThrow('reply_conflict');
-  expect(() =>
-    recordOrdinaryReplySource(store, 'two', { ...mapping(), commandId: 'absent' }),
-  ).toThrow('reply_conflict');
-  expect(() => recordOrdinaryReplySource(store, 'missing', mapping())).toThrow('reply_conflict');
+    expect(() => recordSource(store, 'two', changed)).toThrow('reply_conflict');
+  expect(() => recordSource(store, 'two', { ...mapping(), commandId: 'absent' })).toThrow(
+    'reply_conflict',
+  );
+  expect(() => recordSource(store, 'missing', mapping())).toThrow('reply_conflict');
 });
 
 it('requires exact durable mapping, completed text blocks and the exact end watermark', () => {
@@ -148,7 +154,7 @@ it('requires exact durable mapping, completed text blocks and the exact end wate
   const request = input(end);
   const replies = new OrdinaryCollaborationReplies(store);
   expect(() => replies.record(group, request)).toThrow('reply_unavailable');
-  recordOrdinaryReplySource(store, 'two', mapping());
+  recordSource(store, 'two', mapping());
   for (const source of [
     { ...request.source, throughSequence: end - 1 },
     { ...request.source, blockIds: ['not-a-text-block'] },
@@ -159,18 +165,18 @@ it('requires exact durable mapping, completed text blocks and the exact end wate
 });
 
 it('keeps independent same-account sessions separate and recovers source and projection receipts after restart', () => {
-  recordOrdinaryReplySource(store, 'one', mapping('one'));
-  recordOrdinaryReplySource(store, 'two', mapping());
+  recordSource(store, 'one', mapping('one'));
+  recordSource(store, 'two', mapping());
   const one = input(visible('visible-reply', 'one'), 'one');
   const two = input(visible());
   const first = new OrdinaryCollaborationReplies(store).record(group, one);
   store.close();
   store = new EventStore(path);
   expect(store.getOrdinaryReplySourceEvents('one', 'visible-reply')).toEqual([
-    { version: 1, ...mapping('one') },
+    { version: 2, ...mapping('one'), executionFingerprint: 'fp-one' },
   ]);
   expect(store.getOrdinaryReplySourceEvents('two', 'visible-reply')).toEqual([
-    { version: 1, ...mapping() },
+    { version: 2, ...mapping(), executionFingerprint: 'fp-two' },
   ]);
   const replies = new OrdinaryCollaborationReplies(store);
   expect(replies.record(group, one)).toEqual(first);
@@ -181,7 +187,7 @@ it('keeps independent same-account sessions separate and recovers source and pro
 });
 
 it('rejects a forged or conflicting durable source record instead of trusting session activity', () => {
-  recordOrdinaryReplySource(store, 'two', mapping());
+  recordSource(store, 'two', mapping());
   const request = input(visible());
   store.append('two', 'ordinary_reply_source', {
     version: 1,
@@ -192,4 +198,71 @@ it('rejects a forged or conflicting durable source record instead of trusting se
     'reply_conflict',
   );
   expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
+});
+
+it('pins a queued command to its execution revision and reads the same evidence after another handoff', () => {
+  store.completeOrdinaryLocalCommand('initial-two');
+  const original = store.getSession('two')!;
+  store.admitOrdinaryLocalContinuation(original, binding, {
+    clientMsgId: 'held',
+    requestFingerprint: 'fp-held',
+    selection,
+    payload: { text: 'Queued before handoff', systemPrompt: 'Offline fixture' },
+  });
+  store.claimOrdinaryLocalCommandDispatch('held');
+  store.completeOrdinaryLocalCommand('held');
+  const primary = ordinaryRepositoryTransition(store, 'two', 'initial-two', ['held']);
+  expect(() => store.getOrdinaryCommandAdmission('held')).toThrow('durable session identity');
+  const earlier = store.getOrdinaryCommandExecutionAdmission('held')!;
+  const nextPrimary = ordinaryRepositoryTransition(store, 'two', primary, ['held'], primary);
+  expect(store.readOrdinaryCommandExecutionEvidence('held', earlier.requestFingerprint)).toEqual(
+    earlier,
+  );
+  expect(() => store.readOrdinaryCommandExecutionEvidence('held')).toThrow(
+    'Exact historical execution',
+  );
+  const source = { ...mapping(), commandId: 'held' };
+  const execution = captureOrdinaryReplyExecution(store, 'two', source);
+  recordOrdinaryReplySource(store, 'two', source, execution);
+  const retained = store.getOrdinaryReplySourceEvents('two', source.messageId)[0] as {
+    executionFingerprint: string;
+  };
+  const evidence = store.readOrdinaryCommandExecutionEvidence(
+    'held',
+    retained.executionFingerprint,
+  );
+  expect(evidence?.workspace.cwd).toBe(store.getSession('two')!.cwd);
+  ordinaryRepositoryTransition(store, 'two', nextPrimary, [], nextPrimary);
+  expect(store.readOrdinaryCommandExecutionEvidence('held', retained.executionFingerprint)).toEqual(
+    evidence,
+  );
+  expect(() => store.getOrdinaryCommandExecutionAdmission('held')).toThrow();
+  expect(() => store.readOrdinaryCommandExecutionEvidence('held', 'forged')).toThrow();
+  expect(() =>
+    recordOrdinaryReplySource(store, 'two', { ...source, messageId: 'late' }, execution),
+  ).toThrow();
+});
+it('reads a legacy reply mapping from unambiguous retained admission evidence', () => {
+  store.append('two', 'ordinary_reply_source', { version: 1, ...mapping() });
+  const request = input(visible());
+  expect(new OrdinaryCollaborationReplies(store).record(group, request).text).toBe(
+    'Exact visible reply',
+  );
+  store.completeOrdinaryLocalCommand('initial-two');
+  ordinaryRepositoryTransition(store, 'two', 'initial-two');
+  expect(store.readOrdinaryCommandExecutionEvidence('initial-two')?.workspace.cwd).toBe('/fixture');
+});
+it('refuses a different native turn or execution reference instead of reassigning a reply', () => {
+  const source = mapping();
+  const execution = captureOrdinaryReplyExecution(store, 'two', source);
+  expect(() =>
+    recordOrdinaryReplySource(store, 'two', { ...source, providerTurnId: 'other' }, execution),
+  ).toThrow();
+  expect(() =>
+    recordOrdinaryReplySource(store, 'two', source, {
+      ...execution,
+      executionFingerprint: 'forged',
+    }),
+  ).toThrow();
+  expect(store.getOrdinaryReplySourceEvents('two', source.messageId)).toEqual([]);
 });

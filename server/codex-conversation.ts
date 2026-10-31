@@ -615,8 +615,19 @@ export class CodexConversation {
             stage: 'native_transport',
             reason:
               diagnostic &&
-              ['child_exit', 'process_error', 'stream_error'].includes(diagnostic.reason)
-                ? (diagnostic.reason as 'child_exit' | 'process_error' | 'stream_error')
+              [
+                'child_exit',
+                'process_error',
+                'stream_error',
+                'reply_provenance_failed',
+                'notification_handler_failed',
+              ].includes(diagnostic.reason)
+                ? (diagnostic.reason as
+                    | 'child_exit'
+                    | 'process_error'
+                    | 'stream_error'
+                    | 'reply_provenance_failed'
+                    | 'notification_handler_failed')
                 : error instanceof CodexTransportError && error.category === 'timeout'
                   ? 'timeout'
                   : error instanceof CodexTransportError && error.category === 'protocol'
