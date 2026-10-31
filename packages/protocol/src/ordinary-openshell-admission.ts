@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { OrdinaryLocalCommandSelectionSchema } from './ordinary-local-admission.js';
-import { SessionRuntimeBindingV2Schema } from './session-runtime-binding.js';
+import {
+  SessionRuntimeBindingV2Schema,
+  isOrdinaryCodexWorkspaceBinding,
+} from './session-runtime-binding.js';
 const reference = SessionRuntimeBindingV2Schema.shape.execution.shape.targetId;
 /** Same frozen per-command selection contract as Local; no second model/profile registry. */
 export const OrdinaryOpenShellCommandSelectionSchema = OrdinaryLocalCommandSelectionSchema;
@@ -8,9 +11,7 @@ export const OrdinaryOpenShellCommandAdmissionSchema = z.strictObject({
   version: z.literal(1),
   binding: SessionRuntimeBindingV2Schema.refine(
     (binding) =>
-      binding.harness.implementation === 'codex' &&
-      binding.execution.location === 'openshell' &&
-      ['openai-codex', 'openai'].includes(binding.account.provider),
+      isOrdinaryCodexWorkspaceBinding(binding) && binding.execution.location === 'openshell',
     'Ordinary OpenShell Codex route required',
   ),
   workspace: z.strictObject({

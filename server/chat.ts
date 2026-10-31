@@ -4112,6 +4112,17 @@ export async function prepareOwnedCodexChat(
     }
     if (registry.findBySessionId(sessionId)?.session !== session) throw unavailable();
     session.queryInstance = queryInstance;
+    if (openShellAdmission && !isOrdinaryWorkspace(workspace)) {
+      // The target proof is durable before native startup. Reclaim only the
+      // controller source; keep the independently materialized task intact.
+      await getRepositoryWorkspaces(true)
+        .releaseSource(workspace.id, boundAccount, sessionId)
+        .catch(() =>
+          log.warn('Repository preparation cleanup remains pending', {
+            repositoryWorkspaceId: workspace.id,
+          }),
+        );
+    }
     eventStore.setSessionState(sessionId, 'STARTING', { clientId });
     options.onSessionResolved?.(sessionId);
   } catch (error) {

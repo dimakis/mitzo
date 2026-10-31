@@ -171,6 +171,9 @@ it('sends selected API identity, target and reviewed context through the existin
   const input = mocks.dispatch.mock.calls[0][0];
   expect(input.reservation.runtimeBinding).toEqual(mocks.runtime);
   expect(input.command.selection.permission).toEqual({ mode: 'ask', revision: 0 });
+  expect(input.command.selection.agent.profileId).toBe('mitzo-feature-text');
+  expect(input.command.selection.context).toEqual({ source: 'none', revision: null });
+  expect(mocks.reserve.mock.calls[0][0].agentProfile.definition.tools).toEqual([]);
   expect(input.command.payload.text).toContain('Reviewed');
   expect(input.adviserScope.instructions()).toBe('Feature instructions');
   expect(mocks.prepareSession).toHaveBeenCalledOnce();

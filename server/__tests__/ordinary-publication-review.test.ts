@@ -12,12 +12,38 @@ import {
   type OrdinaryPublicationReviewOwner,
 } from '../ordinary-publication-review.js';
 import { capturePublicationReviewEvidence } from '../ordinary-publication-review-context.js';
+import { parsePublicationReviewResponse } from '../ordinary-publication-review-response.js';
+
+it('reports invalid review fields without copying the model explanation', () => {
+  const secret = 'sensitive explanation '.repeat(20);
+  let failure: unknown;
+  try {
+    parsePublicationReviewResponse(
+      JSON.stringify({
+        evidenceSha256: 'a'.repeat(64),
+        reviewedAllEvidence: false,
+        verdict: 'incomplete',
+        findings: [],
+        unresolvedNeeds: [secret],
+      }),
+    );
+  } catch (error) {
+    failure = error;
+  }
+  expect(failure).toMatchObject({
+    details: {
+      reason: 'review_response_invalid_schema',
+      phase: 'response_validation',
+      issues: [{ field: 'unresolvedNeeds.0', code: 'too_big', limit: 200 }],
+    },
+  });
+  expect(JSON.stringify(failure)).not.toContain(secret);
+});
 import {
   publicationReviewDependencies,
   publicationReviewImports,
   boundedReviewDependencyCandidates,
 } from '../ordinary-publication-review-dependencies.js';
-import { parsePublicationReviewResponse } from '../ordinary-publication-review-response.js';
 
 it('discovers only pinned literal dependencies without interpreting shell expressions', () => {
   const binding = 'root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n';
@@ -664,14 +690,10 @@ it('returns incomplete when context requests exhaust the bounded rounds instead 
                 reviewedAllEvidence: false,
                 verdict: 'context_required',
                 findings: [],
-                requests: [
-                  {
-                    kind: 'read',
-                    path: round === 5 ? 'unavailable-final-context.ts' : 'route.ts',
-                    startLine: 1,
-                    endLine: 1,
-                  },
-                ],
+                requests:
+                  round === 5
+                    ? [{ kind: 'search', query: 'unavailable-final-context', pathPrefix: '.' }]
+                    : [{ kind: 'read', path: 'route.ts', startLine: 1, endLine: 1 }],
               }),
             },
           };
@@ -680,7 +702,10 @@ it('returns incomplete when context requests exhaust the bounded rounds instead 
   );
   await expect(f.review(f.input)).rejects.toMatchObject({
     code: 'PUBLICATION_REVIEW_UNAVAILABLE',
-    details: { reason: 'context_round_limit' },
+    details: {
+      reason: 'context_round_limit',
+      requests: [{ kind: 'search', query: 'unavailable-final-context' }],
+    },
   });
   expect(f.session).toHaveBeenCalledTimes(5);
 });

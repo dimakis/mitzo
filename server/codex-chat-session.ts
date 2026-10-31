@@ -1,3 +1,7 @@
+import {
+  RepositoryMaterializationSchema,
+  repositoryMaterializationMigrationMatches,
+} from './repository-materialization.js';
 import { assembleReplyText, captureMessageReply } from './message-reply-context.js';
 import { sessionLocalServiceTools } from './session-local-service-tools.js';
 import { sessionGoogleWorkspaceTools } from './session-google-workspace-tools.js';
@@ -1081,6 +1085,62 @@ async function openCodexChatBound(
           : undefined,
       })
     : undefined;
+  const verifyRetainedRepository = async (
+    runtime: OpenShellRuntime,
+    manager: OpenShellRuntimeManager,
+  ) => {
+    const retained = options.repositoryWorkspace?.sandboxMaterialization;
+    if (!retained) return;
+    const changed =
+      runtime.sandboxId !== retained.sandboxId || runtime.sandboxName !== retained.sandboxName;
+    const migration = changed
+      ? store().readRuntimeMigration(options.conversationId, options.binding)
+      : null;
+    if (
+      changed &&
+      !repositoryMaterializationMigrationMatches(
+        retained,
+        {
+          ...retained,
+          sandboxId: runtime.sandboxId ?? '',
+          sandboxName: runtime.sandboxName,
+          directory: runtime.workdir,
+        },
+        migration,
+        options.conversationId,
+        options.binding.accountId,
+      )
+    )
+      throw Error('Retained repository physical identity changed');
+    const receipt = await manager.materializeRepository(
+      options.conversationId,
+      runtime,
+      {
+        seed: '/unused/retained-repository',
+        manifest: RepositoryMaterializationSchema.strip().parse(retained),
+      },
+      false,
+      options.session.abortController.signal,
+      () => {
+        options.ownedOpenShell?.assertCurrentSync();
+        options.assertAgentContextAuthorization?.();
+      },
+    );
+    if (changed) {
+      await getRepositoryWorkspaces(true).recordSandboxMaterialization(
+        options.repositoryWorkspace!.id,
+        options.binding,
+        options.conversationId,
+        receipt,
+        options.session.abortController.signal,
+        migration,
+      );
+      options.repositoryWorkspace = {
+        ...options.repositoryWorkspace!,
+        sandboxMaterialization: receipt,
+      };
+    }
+  };
   const startupReservation = runtimeManager
     ? await sharedOpenShellLifecycleCoordinator.reserve(options.conversationId)
     : undefined;
@@ -1116,39 +1176,76 @@ async function openCodexChatBound(
       )
         throw new Error('Repository sandbox identity is unavailable; preserve the conversation');
     }
-    const repositorySeed =
+    const repositoryPlan =
       runtimeManager && !options.resume && options.repositoryWorkspace
-        ? await getRepositoryWorkspaces(true).startupSeed(
+        ? await getRepositoryWorkspaces(true).startupMaterialization(
             options.repositoryWorkspace.id,
             options.binding,
             options.conversationId,
             options.session.abortController.signal,
           )
         : undefined;
-    managedOpenShell =
-      options.ownedOpenShell && options.resume
-        ? (() => {
-            if (!routedRuntime?.runtime.sandboxId)
-              throw Error('Owned OpenShell retained runtime unavailable');
-            return { ...routedRuntime.runtime };
-          })()
-        : runtimeManager
-          ? await duringCodexStartup('sandbox_preparation', () =>
-              runtimeManager!.ensure(
-                options.conversationId,
-                options.session.abortController.signal,
-                options.resume && options.repositoryWorkspace && routedRuntime
-                  ? {
-                      sandboxName: routedRuntime.runtime.sandboxName,
-                      sandboxId: routedRuntime.runtime.sandboxId,
-                    }
-                  : undefined,
-                repositorySeed ? { seed: repositorySeed, cleanup: () => {} } : undefined,
-                undefined,
-                !options.resume && !options.reattachOnly ? options.messageId : undefined,
-              ),
-            )
-          : undefined;
+    try {
+      managedOpenShell =
+        options.ownedOpenShell && options.resume
+          ? (() => {
+              if (!routedRuntime?.runtime.sandboxId)
+                throw Error('Owned OpenShell retained runtime unavailable');
+              return { ...routedRuntime.runtime };
+            })()
+          : runtimeManager
+            ? await duringCodexStartup('sandbox_preparation', () =>
+                runtimeManager!.ensure(
+                  options.conversationId,
+                  options.session.abortController.signal,
+                  options.resume && options.repositoryWorkspace && routedRuntime
+                    ? {
+                        sandboxName: routedRuntime.runtime.sandboxName,
+                        sandboxId: routedRuntime.runtime.sandboxId,
+                      }
+                    : undefined,
+                  repositoryPlan ? { seed: repositoryPlan.seed, cleanup: () => {} } : undefined,
+                  undefined,
+                  !options.resume && !options.reattachOnly ? options.messageId : undefined,
+                ),
+              )
+            : undefined;
+      if (repositoryPlan && managedOpenShell && runtimeManager) {
+        const assertOwner = () => {
+          options.session.abortController.signal.throwIfAborted();
+          options.ownedOpenShell?.assertCurrentSync();
+          options.assertAgentContextAuthorization?.();
+        };
+        // A replacement is possible only before any provider history exists.
+        const fresh =
+          !store().read(options.conversationId, options.binding).threadId &&
+          store().commands(options.conversationId, options.binding).length === 0;
+        const receipt = await runtimeManager.materializeRepository(
+          options.conversationId,
+          managedOpenShell,
+          repositoryPlan,
+          fresh,
+          options.session.abortController.signal,
+          assertOwner,
+        );
+        assertOwner();
+        await getRepositoryWorkspaces(true).recordSandboxMaterialization(
+          options.repositoryWorkspace!.id,
+          options.binding,
+          options.conversationId,
+          receipt,
+          options.session.abortController.signal,
+        );
+        options.repositoryWorkspace = {
+          ...options.repositoryWorkspace!,
+          sandboxMaterialization: receipt,
+        };
+      }
+    } finally {
+      await repositoryPlan?.cleanup();
+    }
+    if (options.resume && runtimeManager && managedOpenShell)
+      await verifyRetainedRepository(managedOpenShell, runtimeManager);
   } catch (error) {
     startupReservation?.();
     throw error;
@@ -1179,6 +1276,11 @@ async function openCodexChatBound(
           signal,
         }),
       );
+      if (selected.runtime.sandboxId !== managedOpenShell?.sandboxId)
+        await verifyRetainedRepository(
+          selected.runtime,
+          runtimeManager!.forSandbox(selected.runtime.sandboxName),
+        );
       managedOpenShell = selected.runtime;
       runtimeManager = runtimeManager!.forSandbox(selected.runtime.sandboxName);
       const migration = store().readRuntimeMigration(options.conversationId, options.binding);
@@ -2732,6 +2834,11 @@ async function openCodexChatBound(
                   closeOwnedTransport,
                 }),
               );
+              if (selected.runtime.sandboxId !== managedOpenShell!.sandboxId)
+                await verifyRetainedRepository(
+                  selected.runtime,
+                  runtimeManager!.forSandbox(selected.runtime.sandboxName),
+                );
               Object.assign(managedOpenShell!, selected.runtime);
               if (openShellClient) Object.assign(openShellClient, selected.runtime);
               runtimeManager = runtimeManager!.forSandbox(selected.runtime.sandboxName);
@@ -2796,6 +2903,11 @@ async function openCodexChatBound(
                     signal,
                   }),
                 );
+                if (selected.runtime.sandboxId !== recovered.sandboxId)
+                  await verifyRetainedRepository(
+                    selected.runtime,
+                    runtimeManager!.forSandbox(selected.runtime.sandboxName),
+                  );
                 recovered = selected.runtime;
                 runtimeManager = runtimeManager!.forSandbox(selected.runtime.sandboxName);
                 const migration = privateStorage.readRuntimeMigration(

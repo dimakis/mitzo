@@ -55,6 +55,119 @@ const providerList = (sandbox: string, providers: string[]) =>
         .join('\n')}`
     : `No providers attached to sandbox ${sandbox}.`;
 
+it('binds repository materialization to the same physical target and rejects a mismatched receipt', async () => {
+  const manifest = {
+    version: 1 as const,
+    workspaceId: 'workspace',
+    repository: 'example/repo',
+    baseBranch: 'main',
+    featureBranch: 'mitzo/task',
+    baseOid: 'a'.repeat(40),
+    tree: 'b'.repeat(40),
+    bundleSha256: 'c'.repeat(64),
+  };
+  const runtime = {
+    sandboxName: 'sandbox',
+    sandboxId: 'physical',
+    workdir: config.workdir,
+    appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+    cli: config.cli,
+    gateway: config.gateway,
+    workspace: config.workspace,
+    gatewayInsecure: false,
+  };
+  const runSsh = vi.fn(async () =>
+    JSON.stringify({ ...manifest, head: manifest.baseOid, directory: config.workdir }),
+  );
+  const run = vi.fn(async () => '');
+  const manager = new OpenShellRuntimeManager(config, run, undefined, runSsh);
+  const inspect = vi
+    .spyOn(manager, 'inspect')
+    .mockResolvedValue({ id: 'physical', phase: 'Ready' } as never);
+  const current = vi.fn();
+  await expect(
+    manager.materializeRepository(
+      'conversation',
+      runtime,
+      { seed: '/private/import', manifest },
+      true,
+      new AbortController().signal,
+      current,
+    ),
+  ).resolves.toMatchObject({ sandboxId: 'physical', featureBranch: 'mitzo/task' });
+  expect(inspect).toHaveBeenCalledTimes(2);
+  // A retry retains the Ready allocation but exports a new opaque seed name.
+  // Importer asks for that envelope only before initial native admission.
+  runSsh.mockResolvedValueOnce(JSON.stringify({ needsUpload: true }));
+  await expect(
+    manager.materializeRepository(
+      'conversation',
+      runtime,
+      { seed: '/private/new-retry-envelope', manifest },
+      true,
+      new AbortController().signal,
+      current,
+    ),
+  ).resolves.toMatchObject({ sandboxId: 'physical' });
+  expect(run).toHaveBeenCalledWith(
+    expect.arrayContaining([
+      'upload',
+      'sandbox',
+      '/private/new-retry-envelope',
+      '/sandbox/workspaces',
+    ]),
+    expect.any(AbortSignal),
+  );
+  expect(inspect).toHaveBeenCalledTimes(6);
+  const uploads = run.mock.calls.length;
+  runSsh.mockResolvedValueOnce(JSON.stringify({ needsUpload: true }));
+  await expect(
+    manager.materializeRepository(
+      'conversation',
+      runtime,
+      { seed: '/unused/resume', manifest },
+      false,
+      new AbortController().signal,
+      current,
+    ),
+  ).rejects.toThrow('original admission');
+  expect(run).toHaveBeenCalledTimes(uploads);
+
+  runSsh.mockResolvedValueOnce(
+    JSON.stringify({
+      ...manifest,
+      featureBranch: 'master',
+      head: manifest.baseOid,
+      directory: config.workdir,
+    }),
+  );
+  await expect(
+    manager.materializeRepository(
+      'conversation',
+      runtime,
+      { seed: '/private/import', manifest },
+      true,
+      new AbortController().signal,
+      current,
+    ),
+  ).rejects.toThrow('receipt differs');
+  current.mockImplementationOnce(() => {
+    throw Error('revoked');
+  });
+  const calls = runSsh.mock.calls.length;
+  await expect(
+    manager.materializeRepository(
+      'conversation',
+      runtime,
+      { seed: '/private/import', manifest },
+      true,
+      new AbortController().signal,
+      current,
+    ),
+  ).rejects.toThrow('revoked');
+  expect(runSsh).toHaveBeenCalledTimes(calls);
+});
+
 describe('OpenShell runtime lifecycle', () => {
   it('qualifies the existing API provider identity without creating a sandbox or reading a key', async () => {
     const provider = {

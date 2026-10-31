@@ -25,6 +25,10 @@ vi.mock('../codex-chat-session.js', () => ({
   publicCodexStartupError: () => 'Offline native startup failure',
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
+const repositorySource = vi.hoisted(() => ({ release: vi.fn(async () => {}) }));
+vi.mock('../repository-workspace-runtime.js', () => ({
+  getRepositoryWorkspaces: () => ({ releaseSource: repositorySource.release }),
+}));
 vi.mock('../worktree.js', async (original) => ({
   ...(await original<object>()),
   createWorktree: vi.fn(() => {
@@ -416,6 +420,7 @@ it('uses the shared event consumer for first launch and exact cold continuation 
     },
     { ownerAuthSessionId: 'signed-auth', onEnded: vi.fn() },
   );
+  expect(repositorySource.release).toHaveBeenCalledWith(f.workspace.id, f.account, 'session');
   chat.eventStore.completeOrdinaryOpenShellCommand('first');
   await prepared.run();
   expect(closed).toHaveBeenCalled();

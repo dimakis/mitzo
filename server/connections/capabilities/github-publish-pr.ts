@@ -1,4 +1,5 @@
 import { isGitBranchName } from '../../git-branch.js';
+import { createLogger } from '../../logger.js';
 import {
   githubPublicationPreflight,
   GithubPublicationValidationError,
@@ -100,6 +101,14 @@ export interface GithubPullRequest {
  * forbidden from placing them in an argument, result, error, or sandbox call.
  */
 export interface GithubHostPublisher {
+  /** Refresh only upstream base observations in the same private artifact. */
+  refreshBase?(input: {
+    directory: string;
+    repository: string;
+    baseBranch: string;
+    signal: AbortSignal;
+    assertRuntimeCurrent?: () => Promise<void>;
+  }): Promise<void>;
   policy(input: {
     repository: string;
     sourceBranch: string;
@@ -193,6 +202,7 @@ export interface GithubPublicationReviewInput {
   directory: string;
   signal: AbortSignal;
   assertRuntimeCurrent?: () => Promise<void>;
+  observePhase?: CapabilityExecutionContext['observePhase'];
 }
 export interface GithubPublicationReviewReceipt {
   receiptId: string;
@@ -435,8 +445,40 @@ export function createGithubArtifactPublishPrExecutor(
   // uncertain writes continue through the existing read-only recovery path.
   const reviews = new Map<
     string,
-    { binding: string; receipt: GithubPublicationReviewReceipt; expiresAt: number }
+    {
+      binding: string;
+      receipt: GithubPublicationReviewReceipt;
+      expiresAt: number;
+      artifact?: { directory: string; cleanupDirectory: string };
+      timer?: ReturnType<typeof setTimeout>;
+    }
   >();
+  // Deletion custody survives consumption/revocation of review authority.
+  const cleanupArtifacts = new Map<
+    string,
+    { directory: string; inUse?: boolean; pending?: Promise<void> }
+  >();
+  const cleanupArtifact = async (id: string) => {
+    const entry = cleanupArtifacts.get(id);
+    if (!entry) return;
+    if (entry.inUse) throw Error('Publication artifact is in use');
+    if (entry.pending) return entry.pending;
+    entry.pending = Promise.resolve()
+      .then(() => deps.host.cleanup(entry.directory))
+      .then(() => {
+        if (cleanupArtifacts.get(id) === entry) cleanupArtifacts.delete(id);
+      })
+      .finally(() => {
+        entry.pending = undefined;
+      });
+    return entry.pending;
+  };
+  const releasePreflight = async (id: string) => {
+    const entry = reviews.get(id);
+    reviews.delete(id);
+    clearTimeout(entry?.timer);
+    await cleanupArtifact(id);
+  };
   const reviewBinding = (
     context: CapabilityExecutionContext,
     state: Awaited<ReturnType<typeof inspect>>,
@@ -599,141 +641,178 @@ export function createGithubArtifactPublishPrExecutor(
       reject('GitHub repository changed after approval');
   };
   const cleanupReview = async (
-    directory: string,
+    operationId: string,
     phase: (stage: GithubPublicationPreflightStage) => void,
   ) => {
     try {
-      await deps.host.cleanup(directory);
+      await cleanupArtifact(operationId);
     } catch (error) {
       phase('cleanup');
       throw error;
     }
   };
   return {
+    releasePreflight,
     async preflight(context) {
-      return githubPublicationPreflight(context.operation.id, context.signal, async (phase) => {
-        const state = await inspect(context, phase);
-        let receipt: GithubPublicationReviewReceipt | undefined;
-        if (deps.reviewCommittedChange) {
-          reviews.delete(context.operation.id);
-          phase('export');
-          const bundle = await exportedBundle(context, state);
-          let cleanup: string | undefined;
+      return githubPublicationPreflight(
+        context.operation.id,
+        context.signal,
+        async (tracePhase) => {
+          const phase = (stage: GithubPublicationPreflightStage) => {
+            context.observePhase?.(stage);
+            tracePhase(stage);
+          };
+          const state = await inspect(context, phase);
+          let receipt: GithubPublicationReviewReceipt | undefined;
+          if (deps.reviewCommittedChange) {
+            await releasePreflight(context.operation.id);
+            phase('export');
+            const bundle = await exportedBundle(context, state);
+            let cleanup: string | undefined;
+            try {
+              phase('reconstruction');
+              const reconstructed = await deps.host.reconstruct({
+                repository: state.repository,
+                sourceBranch: state.inspection.sourceBranch!,
+                sourceOid: state.inspection.sourceOid,
+                baseBranch: state.input.baseBranch,
+                bundle,
+                operationId: context.operation.id,
+                signal: context.signal,
+                ...(context.assertRuntimeCurrent
+                  ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+                  : {}),
+              });
+              cleanup = reconstructed.cleanupDirectory ?? reconstructed.directory;
+              cleanupArtifacts.set(context.operation.id, { directory: cleanup });
+              if (!reconstructed.directory) reject('Host reconstruction failed');
+              const evidence = reviewInput(context, state, bundle, reconstructed.directory);
+              phase('review');
+              receipt = await deps.reviewCommittedChange({
+                ...evidence,
+                observePhase: context.observePhase,
+              });
+              if (
+                !receipt ||
+                typeof receipt.receiptId !== 'string' ||
+                !/^[A-Za-z0-9._:-]{1,128}$/.test(receipt.receiptId) ||
+                !/^[a-f0-9]{64}$/.test(receipt.evidenceSha256) ||
+                typeof receipt.summary !== 'string' ||
+                !receipt.summary.trim() ||
+                receipt.summary.length > 512 ||
+                typeof receipt.assertCurrent !== 'function'
+              )
+                reject('GitHub independent review receipt is invalid');
+              if (
+                receipt.reports &&
+                (receipt.reports.length !== 2 ||
+                  Buffer.byteLength(JSON.stringify(receipt.reports), 'utf8') > 20000)
+              )
+                reject('GitHub independent review reports are invalid');
+              receipt = Object.freeze({
+                receiptId: receipt.receiptId,
+                evidenceSha256: receipt.evidenceSha256,
+                summary: receipt.summary,
+                ...(receipt.reports ? { reports: structuredClone(receipt.reports) } : {}),
+                assertCurrent: receipt.assertCurrent.bind(receipt),
+              });
+              await receipt.assertCurrent(evidence);
+              if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+              context.signal.throwIfAborted();
+              // Keep the process-local authority bounded even when action approval
+              // is denied or abandoned. Expiration only requires another review.
+              for (const [id, entry] of reviews)
+                if (entry.expiresAt <= Date.now()) await releasePreflight(id);
+              while (reviews.size >= 128) await releasePreflight(reviews.keys().next().value!);
+              const artifact = deps.host.refreshBase
+                ? { directory: reconstructed.directory, cleanupDirectory: cleanup! }
+                : undefined;
+              const timer = setTimeout(() => {
+                void releasePreflight(context.operation.id).catch(() =>
+                  createLogger('github-publication').warn(
+                    'Publication artifact cleanup remains pending',
+                    { operationId: context.operation.id },
+                  ),
+                );
+              }, 15 * 60_000);
+              timer.unref();
+              reviews.set(context.operation.id, {
+                binding: reviewBinding(context, state),
+                receipt,
+                expiresAt: Date.now() + 15 * 60_000,
+                artifact,
+                timer,
+              });
+              if (artifact) cleanup = undefined;
+            } finally {
+              // Preserve the original failure phase when cleanup succeeds.
+              if (cleanup) await cleanupReview(context.operation.id, phase);
+            }
+          }
+          phase('lookup');
+          const existing = await deps.host.findOpen({
+            repository: state.repository,
+            sourceBranch: state.inspection.sourceBranch!,
+            baseBranch: state.input.baseBranch,
+            operationId: context.operation.id,
+            signal: context.signal,
+          });
+          if (existing)
+            assertPullRequest(existing, {
+              repository: state.repository,
+              sourceBranch: state.inspection.sourceBranch!,
+              baseBranch: state.input.baseBranch,
+            });
+          phase('approval_projection');
+          const approvalInput = approval(state, existing, receipt);
+          // The preflight projection is the exact flat action card eventually
+          // presented by the shared permission handler, including JSON escaping.
           try {
-            phase('reconstruction');
-            const reconstructed = await deps.host.reconstruct({
+            capabilityApprovalPayload({
+              capabilityId: context.operation.capabilityId,
+              capabilityVersion: context.operation.capabilityVersion,
+              connectionId: context.operation.connectionId,
+              operationId: context.operation.id,
+              input: approvalInput,
+              forcePrompt: true,
+            });
+          } catch {
+            reject('Capability input cannot fit a complete approval projection');
+          }
+          return {
+            approvalInput,
+            recoveryIntent: {
               repository: state.repository,
               sourceBranch: state.inspection.sourceBranch!,
               sourceOid: state.inspection.sourceOid,
               baseBranch: state.input.baseBranch,
-              bundle,
+              title: state.input.title,
+              body: state.input.body,
+              draft: state.input.draft,
+              existingPullRequestId: existing?.id ?? '',
+              existingPullRequestUrl: existing?.url ?? '',
               operationId: context.operation.id,
-              signal: context.signal,
-              ...(context.assertRuntimeCurrent
-                ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-                : {}),
-            });
-            cleanup = reconstructed.cleanupDirectory ?? reconstructed.directory;
-            if (!reconstructed.directory) reject('Host reconstruction failed');
-            const evidence = reviewInput(context, state, bundle, reconstructed.directory);
-            phase('review');
-            receipt = await deps.reviewCommittedChange(evidence);
-            if (
-              !receipt ||
-              typeof receipt.receiptId !== 'string' ||
-              !/^[A-Za-z0-9._:-]{1,128}$/.test(receipt.receiptId) ||
-              !/^[a-f0-9]{64}$/.test(receipt.evidenceSha256) ||
-              typeof receipt.summary !== 'string' ||
-              !receipt.summary.trim() ||
-              receipt.summary.length > 512 ||
-              typeof receipt.assertCurrent !== 'function'
-            )
-              reject('GitHub independent review receipt is invalid');
-            if (
-              receipt.reports &&
-              (receipt.reports.length !== 2 ||
-                Buffer.byteLength(JSON.stringify(receipt.reports), 'utf8') > 20000)
-            )
-              reject('GitHub independent review reports are invalid');
-            receipt = Object.freeze({
-              receiptId: receipt.receiptId,
-              evidenceSha256: receipt.evidenceSha256,
-              summary: receipt.summary,
-              ...(receipt.reports ? { reports: structuredClone(receipt.reports) } : {}),
-              assertCurrent: receipt.assertCurrent.bind(receipt),
-            });
-            await receipt.assertCurrent(evidence);
-            if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
-            context.signal.throwIfAborted();
-            // Keep the process-local authority bounded even when action approval
-            // is denied or abandoned. Expiration only requires another review.
-            for (const [id, entry] of reviews)
-              if (entry.expiresAt <= Date.now()) reviews.delete(id);
-            while (reviews.size >= 128) reviews.delete(reviews.keys().next().value!);
-            reviews.set(context.operation.id, {
-              binding: reviewBinding(context, state),
-              receipt,
-              expiresAt: Date.now() + 15 * 60_000,
-            });
-          } finally {
-            // Preserve the original failure phase when cleanup succeeds.
-            if (cleanup) await cleanupReview(cleanup, phase);
-          }
-        }
-        phase('lookup');
-        const existing = await deps.host.findOpen({
-          repository: state.repository,
-          sourceBranch: state.inspection.sourceBranch!,
-          baseBranch: state.input.baseBranch,
-          operationId: context.operation.id,
-          signal: context.signal,
-        });
-        if (existing)
-          assertPullRequest(existing, {
-            repository: state.repository,
-            sourceBranch: state.inspection.sourceBranch!,
-            baseBranch: state.input.baseBranch,
-          });
-        phase('approval_projection');
-        const approvalInput = approval(state, existing, receipt);
-        // The preflight projection is the exact flat action card eventually
-        // presented by the shared permission handler, including JSON escaping.
-        try {
-          capabilityApprovalPayload({
-            capabilityId: context.operation.capabilityId,
-            capabilityVersion: context.operation.capabilityVersion,
-            connectionId: context.operation.connectionId,
-            operationId: context.operation.id,
-            input: approvalInput,
-            forcePrompt: true,
-          });
-        } catch {
-          reject('Capability input cannot fit a complete approval projection');
-        }
-        return {
-          approvalInput,
-          recoveryIntent: {
-            repository: state.repository,
-            sourceBranch: state.inspection.sourceBranch!,
-            sourceOid: state.inspection.sourceOid,
-            baseBranch: state.input.baseBranch,
-            title: state.input.title,
-            body: state.input.body,
-            draft: state.input.draft,
-            existingPullRequestId: existing?.id ?? '',
-            existingPullRequestUrl: existing?.url ?? '',
-            operationId: context.operation.id,
-          },
-        };
-      });
+            },
+          };
+        },
+      );
     },
     async execute(context) {
       let publicationAttempted = false;
+      let ownsCleanup = false;
       try {
         const reviewed = reviews.get(context.operation.id);
         // Consume before awaits. A simultaneous executor call cannot reuse a
         // review receipt, and a failed write never authorizes another attempt.
         reviews.delete(context.operation.id);
+        clearTimeout(reviewed?.timer);
+        const artifact = reviewed?.artifact;
+        if (artifact) {
+          const custody = cleanupArtifacts.get(context.operation.id);
+          if (!custody) throw new GithubPublicationReviewError('PUBLICATION_REVIEW_REQUIRED');
+          custody.inUse = true;
+          ownsCleanup = true;
+        }
         if (deps.reviewCommittedChange && (!reviewed || reviewed.expiresAt <= Date.now()))
           throw new GithubPublicationReviewError('PUBLICATION_REVIEW_REQUIRED');
         const state = await inspect(context);
@@ -750,110 +829,132 @@ export function createGithubArtifactPublishPrExecutor(
         if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
         context.signal.throwIfAborted();
         const bundle = await exportedBundle(context, state);
-        let directory: string | undefined;
-        let cleanupDirectory: string | undefined;
-        try {
-          if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
-          context.signal.throwIfAborted();
-          const reconstructed = await deps.host.reconstruct({
-            repository: state.repository,
-            sourceBranch: state.inspection.sourceBranch!,
-            sourceOid: state.inspection.sourceOid,
-            baseBranch: state.input.baseBranch,
-            bundle,
-            operationId: context.operation.id,
-            signal: context.signal,
-            ...(context.assertRuntimeCurrent
-              ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-              : {}),
-          });
-          directory = reconstructed.directory;
-          cleanupDirectory = reconstructed.cleanupDirectory ?? directory;
-          if (!directory) reject('Host reconstruction failed');
-          if (reviewed)
-            await reviewed.receipt.assertCurrent(reviewInput(context, state, bundle, directory));
-          if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
-          context.signal.throwIfAborted();
-          publicationAttempted = true;
-          await deps.host.push({
-            directory,
-            sourceBranch: state.inspection.sourceBranch!,
-            operationId: context.operation.id,
-            signal: context.signal,
-            ...(context.assertRuntimeCurrent
-              ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-              : {}),
-          });
-          context.signal.throwIfAborted();
-          const existing = await deps.host.findOpen({
-            repository: state.repository,
-            sourceBranch: state.inspection.sourceBranch!,
-            baseBranch: state.input.baseBranch,
-            operationId: context.operation.id,
-            signal: context.signal,
-            ...(context.assertRuntimeCurrent
-              ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-              : {}),
-          });
-          // A close/replace race after the branch push must never change an
-          // approved create into an update (or vice versa).
-          assertApproved(context, state, existing, reviewed?.receipt);
-          if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
-          context.signal.throwIfAborted();
-          const pr = assertPullRequest(
-            existing
-              ? await deps.host.update({
-                  repository: state.repository,
-                  sourceBranch: state.inspection.sourceBranch!,
-                  baseBranch: state.input.baseBranch,
-                  pullRequest: existing,
-                  title: state.input.title,
-                  body: state.input.body,
-                  draft: state.input.draft,
-                  operationId: context.operation.id,
-                  signal: context.signal,
-                  ...(context.assertRuntimeCurrent
-                    ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-                    : {}),
-                })
-              : await deps.host.create({
-                  repository: state.repository,
-                  sourceBranch: state.inspection.sourceBranch!,
-                  baseBranch: state.input.baseBranch,
-                  title: state.input.title,
-                  body: state.input.body,
-                  draft: state.input.draft,
-                  operationId: context.operation.id,
-                  signal: context.signal,
-                  ...(context.assertRuntimeCurrent
-                    ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-                    : {}),
-                }),
-            {
-              repository: state.repository,
-              sourceBranch: state.inspection.sourceBranch!,
-              baseBranch: state.input.baseBranch,
-            },
-          );
-          assertRequestedMetadata(pr, state.input);
-          const result = output(pr, state.inspection, !existing) as Record<string, JsonValue>;
-          if (reviewed)
-            result.review = {
-              receiptId: reviewed.receipt.receiptId,
-              evidenceSha256: reviewed.receipt.evidenceSha256,
-              summary: reviewed.receipt.summary,
-              ...(reviewed.receipt.reports
-                ? { reports: JSON.parse(JSON.stringify(reviewed.receipt.reports)) as JsonValue }
-                : {}),
-            };
-          return { output: result, externalResultId: pr.url };
-        } finally {
-          if (cleanupDirectory) await deps.host.cleanup(cleanupDirectory);
+        if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+        context.signal.throwIfAborted();
+        const reconstructionInput = {
+          repository: state.repository,
+          sourceBranch: state.inspection.sourceBranch!,
+          sourceOid: state.inspection.sourceOid,
+          baseBranch: state.input.baseBranch,
+          bundle,
+          operationId: context.operation.id,
+          signal: context.signal,
+          ...(context.assertRuntimeCurrent
+            ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+            : {}),
+        };
+        const reconstructed = artifact ?? (await deps.host.reconstruct(reconstructionInput));
+        const directory = reconstructed.directory;
+        const cleanupDirectory = reconstructed.cleanupDirectory ?? directory;
+        if (cleanupDirectory) {
+          cleanupArtifacts.set(context.operation.id, { directory: cleanupDirectory, inUse: true });
+          ownsCleanup = true;
         }
+        if (artifact)
+          await deps.host.refreshBase!({
+            directory: artifact.directory,
+            repository: state.repository,
+            baseBranch: state.input.baseBranch,
+            signal: context.signal,
+            assertRuntimeCurrent: context.assertRuntimeCurrent,
+          });
+        if (!directory) reject('Host reconstruction failed');
+        if (reviewed)
+          await reviewed.receipt.assertCurrent(reviewInput(context, state, bundle, directory));
+        if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+        context.signal.throwIfAborted();
+        context.observePhase?.('push');
+        publicationAttempted = true;
+        await deps.host.push({
+          directory,
+          sourceBranch: state.inspection.sourceBranch!,
+          operationId: context.operation.id,
+          signal: context.signal,
+          ...(context.assertRuntimeCurrent
+            ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+            : {}),
+        });
+        context.signal.throwIfAborted();
+        const existing = await deps.host.findOpen({
+          repository: state.repository,
+          sourceBranch: state.inspection.sourceBranch!,
+          baseBranch: state.input.baseBranch,
+          operationId: context.operation.id,
+          signal: context.signal,
+          ...(context.assertRuntimeCurrent
+            ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+            : {}),
+        });
+        // A close/replace race after the branch push must never change an
+        // approved create into an update (or vice versa).
+        assertApproved(context, state, existing, reviewed?.receipt);
+        if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+        context.signal.throwIfAborted();
+        context.observePhase?.('pr_mutation');
+        const pr = assertPullRequest(
+          existing
+            ? await deps.host.update({
+                repository: state.repository,
+                sourceBranch: state.inspection.sourceBranch!,
+                baseBranch: state.input.baseBranch,
+                pullRequest: existing,
+                title: state.input.title,
+                body: state.input.body,
+                draft: state.input.draft,
+                operationId: context.operation.id,
+                signal: context.signal,
+                ...(context.assertRuntimeCurrent
+                  ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+                  : {}),
+              })
+            : await deps.host.create({
+                repository: state.repository,
+                sourceBranch: state.inspection.sourceBranch!,
+                baseBranch: state.input.baseBranch,
+                title: state.input.title,
+                body: state.input.body,
+                draft: state.input.draft,
+                operationId: context.operation.id,
+                signal: context.signal,
+                ...(context.assertRuntimeCurrent
+                  ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+                  : {}),
+              }),
+          {
+            repository: state.repository,
+            sourceBranch: state.inspection.sourceBranch!,
+            baseBranch: state.input.baseBranch,
+          },
+        );
+        assertRequestedMetadata(pr, state.input);
+        const result = output(pr, state.inspection, !existing) as Record<string, JsonValue>;
+        if (reviewed)
+          result.review = {
+            receiptId: reviewed.receipt.receiptId,
+            evidenceSha256: reviewed.receipt.evidenceSha256,
+            summary: reviewed.receipt.summary,
+            ...(reviewed.receipt.reports
+              ? { reports: JSON.parse(JSON.stringify(reviewed.receipt.reports)) as JsonValue }
+              : {}),
+          };
+        return { output: result, externalResultId: pr.url };
       } catch (error) {
         if (deps.reviewCommittedChange && !publicationAttempted)
           throw markGithubPublicationNotDispatched(error);
         throw error;
+      } finally {
+        try {
+          if (ownsCleanup) {
+            const custody = cleanupArtifacts.get(context.operation.id);
+            if (custody) custody.inUse = false;
+            await cleanupArtifact(context.operation.id);
+          }
+        } catch {
+          // Cleanup is separately retryable and cannot replace an execution result.
+          createLogger('github-publication').warn('Publication artifact cleanup remains pending', {
+            operationId: context.operation.id,
+          });
+        }
       }
     },
     async verify(context, result) {

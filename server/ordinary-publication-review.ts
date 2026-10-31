@@ -1,11 +1,12 @@
+import type { JsonValue } from './connections/types.js';
+import { AdviserHarnessFailure } from './adviser-harness-failure.js';
+import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import {
   parsePublicationReviewResponse,
   reviewResultSchema,
   type PublicationReviewResponse,
 } from './ordinary-publication-review-response.js';
-import { AdviserHarnessFailure } from './adviser-harness-failure.js';
-import { createHash, randomUUID } from 'node:crypto';
-import { isDeepStrictEqual } from 'node:util';
 import type { AccountBinding } from '@mitzo/protocol';
 import type {
   GithubPublicationReview,
@@ -107,7 +108,7 @@ export function createOrdinaryPublicationReview(deps: {
     const captured = await capturePublicationReviewEvidence(input);
     await assertOwner();
     const reports: GithubPublicationReviewReport[] = [];
-    for (const scope of scopes) {
+    for (const [pass, scope] of scopes.entries()) {
       const history: Array<{ request: PublicationReviewResponse; contextResponse: unknown }> = [];
       const reads: PublicationContextRead[] = [],
         searches: PublicationContextSearch[] = [];
@@ -115,6 +116,8 @@ export function createOrdinaryPublicationReview(deps: {
       const reviewSignal = AbortSignal.any([input.signal, AbortSignal.timeout(120000)]);
       let approved = false;
       for (let round = 0; round < MAX_REVIEW_ROUNDS; round++) {
+        reviewSignal.throwIfAborted();
+        input.observePhase?.(pass === 0 ? 'review_first' : 'review_second');
         await assertOwner();
         const currentDigest = history.length
           ? createHash('sha256')
@@ -159,7 +162,12 @@ export function createOrdinaryPublicationReview(deps: {
             {
               authSessionId: owner.authSessionId,
               operatorConnectionId: owner.operatorConnectionId,
-              feature: { kind: 'github-publication', operationId: input.operation.id },
+              feature: {
+                kind: 'github-publication',
+                operationId: input.operation.id,
+                pass: pass + 1,
+                round: round + 1,
+              },
               ...(owner.assertCurrentSync ? { assertCurrentSync: owner.assertCurrentSync } : {}),
             },
             {
@@ -192,8 +200,29 @@ export function createOrdinaryPublicationReview(deps: {
               verdict: 'incomplete',
               reason: 'context_request_incomplete',
             });
-          if (round + 1 === MAX_REVIEW_ROUNDS) unavailable('context_round_limit');
-          const context = await captured.context(result.requests, knownFullPaths);
+          if (round + 1 === MAX_REVIEW_ROUNDS) {
+            const requests = result.requests.map((request) => {
+              const detail: Record<string, JsonValue> = { kind: request.kind };
+              if (request.kind === 'read') {
+                detail.path = request.path;
+                if (request.startLine !== undefined) detail.startLine = request.startLine;
+                if (request.endLine !== undefined) detail.endLine = request.endLine;
+              } else {
+                detail.query = request.query;
+                if (request.pathPrefix !== undefined) detail.pathPrefix = request.pathPrefix;
+              }
+              return detail;
+            });
+            throw new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE', {
+              reason: 'context_round_limit',
+              verdict: 'incomplete',
+              scope,
+              requests,
+            });
+          }
+          input.observePhase?.('review_context');
+          const context = await captured.context(result.requests, knownFullPaths, reviewSignal);
+          reviewSignal.throwIfAborted();
           for (const path of context.fullPaths) knownFullPaths.add(path);
           reads.push(...context.reads);
           searches.push(...context.searches);

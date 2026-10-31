@@ -11,6 +11,8 @@ const Snapshot = z.strictObject({
     z.strictObject({
       kind: z.literal('github-publication'),
       operationId: z.string().min(1).max(200),
+      pass: z.number().int().min(1).max(2).optional(),
+      round: z.number().int().min(1).max(5).optional(),
     }),
     z.strictObject({ kind: z.literal('paid-reasoning'), phaseId: z.string().min(1).max(200) }),
   ]),

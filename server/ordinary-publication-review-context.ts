@@ -374,8 +374,14 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
     async context(
       requests: PublicationContextRequest[],
       knownFullPaths: ReadonlySet<string> = new Set(),
+      signal: AbortSignal = input.signal,
     ) {
+      signal.throwIfAborted();
       await assertBatchCurrent();
+      signal.throwIfAborted();
+      const contextInput = { ...input, signal };
+      const read = (path: string) =>
+        git(contextInput, ['show', '--no-ext-diff', '--no-textconv', `${source}:${path}`]);
       const reads: PublicationContextRead[] = [],
         searches: PublicationContextSearch[] = [];
       const response: Array<unknown> = [];
@@ -389,7 +395,9 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
       const sizes = new Map<string, number>();
       const objectSize = async (path: string) => {
         if (!sizes.has(path)) {
-          const size = Number((await git(input, ['cat-file', '-s', `${source}:${path}`])).trim());
+          const size = Number(
+            (await git(contextInput, ['cat-file', '-s', `${source}:${path}`])).trim(),
+          );
           if (!Number.isSafeInteger(size) || size < 0)
             publicationReviewUnavailable('committed_evidence_unavailable');
           sizes.set(path, size);
@@ -512,7 +520,7 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
           )
             publicationReviewUnavailable('context_search_unavailable');
           const found = await git(
-            input,
+            contextInput,
             [
               'grep',
               '-l',
@@ -555,6 +563,7 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
       )
         publicationReviewUnavailable('context_evidence_limit');
       await assertBatchCurrent();
+      signal.throwIfAborted();
       return {
         response,
         reads,

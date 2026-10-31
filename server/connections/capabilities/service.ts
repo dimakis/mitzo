@@ -430,6 +430,14 @@ export class CapabilityService {
     }
     let operation = begun.operation;
     this.inFlight.set(operation.id, null);
+    const observePhase: NonNullable<
+      import('./types.js').CapabilityExecutionContext['observePhase']
+    > = (phase) => {
+      signal.throwIfAborted();
+      // Keep the admitted snapshot aligned with our own diagnostic-only write.
+      // No authority fields are refreshed or accepted from a stale caller.
+      Object.assign(operation, this.options.store.recordPhase(operation.id, phase));
+    };
     try {
       const executor = this.options.executorRegistry.resolve(template);
       // An executor may turn the validated request into a narrower, reviewed
@@ -439,10 +447,12 @@ export class CapabilityService {
       if (assertRuntimeCurrent) await assertRuntimeCurrent();
       signal.throwIfAborted();
       if (executor.preflight) {
+        observePhase('preflight');
         const preflight = await executor.preflight({
           operation,
           input,
           signal,
+          observePhase,
           ...(assertRuntimeCurrent ? { assertRuntimeCurrent } : {}),
         });
         if (assertRuntimeCurrent) await assertRuntimeCurrent();
@@ -456,6 +466,7 @@ export class CapabilityService {
         });
       }
       const approvalInput = persistedApprovalProjection(operation.approvalInput) ?? input;
+      observePhase('approval');
       const approved = await approve(
         {
           capabilityId: template.id,
@@ -515,12 +526,14 @@ export class CapabilityService {
       // onward the only safe path is read-after-write recovery.
       if (assertRuntimeCurrent) await assertRuntimeCurrent();
       signal.throwIfAborted();
+      observePhase('execution');
       operation = this.options.store.transition(operation.id, 'running', 'verification_pending');
       const executed = await executor.execute({
         operation,
         input,
         approvalInput: persistedApprovalProjection(operation.approvalInput),
         signal,
+        observePhase,
         ...(assertRuntimeCurrent ? { assertRuntimeCurrent } : {}),
       });
       const sensitive = Object.values(input).filter(
@@ -537,6 +550,7 @@ export class CapabilityService {
         externalResultId: executed.externalResultId,
       });
       signal.throwIfAborted();
+      observePhase('verification');
       await executor.verify(
         {
           operation,
@@ -572,6 +586,17 @@ export class CapabilityService {
           : {}),
       });
     } finally {
+      // Cleanup failure cannot turn a verified write into an apparent failure.
+      // The host publisher retains its own custody if cleanup is unconfirmed.
+      try {
+        await this.options.executorRegistry.resolve(template).releasePreflight?.(operation.id);
+      } catch {
+        try {
+          this.options.store.recordCleanupFailure(operation.id);
+        } catch {
+          // A failed cleanup audit must also preserve the durable operation result.
+        }
+      }
       this.inFlight.delete(operation.id);
     }
   }

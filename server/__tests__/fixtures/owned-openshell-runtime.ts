@@ -77,7 +77,7 @@ export function ownedOpenShellFixture(
     gateway: 'gateway',
     gatewayInsecure: false,
     createDetached: true,
-    sandboxIdLength: 24,
+    sandboxIdLength: 13,
     workdir: '/sandbox/workspaces/task',
     webSearch: 'disabled',
   };
