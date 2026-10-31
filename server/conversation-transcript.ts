@@ -107,7 +107,7 @@ function attributeCommands(
     }
     if (
       event.type === 'ordinary_reply_source' &&
-      p.version === 1 &&
+      (p.version === 1 || p.version === 2) &&
       typeof p.messageId === 'string' &&
       typeof p.commandId === 'string'
     ) {
