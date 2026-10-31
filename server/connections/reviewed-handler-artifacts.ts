@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/github-host-source.test.ts':
+    '69164b9eb87abf2eb5e44ed7c6c31e9b6dd70aefdad8b4057ca4fc11976b47f3',
   '../github-publication-preflight.ts':
     '14c9b9e4982f751289e3c56ce80caba6ac61866b6d9c769ca401328764bd1192',
   '../__tests__/github-publication-preflight.test.ts':
@@ -1534,7 +1536,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'bd9029a007777ef0a5e1d064f0a6cd4125f9c888ca4cdd490773e6b455081b79',
   'capabilities/github-publish-pr-transport.ts':
     '434d2c56164bc372b9168fba26acb806f509a759eb2f8c24ba8eaff5c8c9f5f8',
-  '../github-host-source.ts': '2720dd0fedf081780ebd64a485164ec5abc6dee7920de925d35e3e6aa647e084',
+  '../github-host-source.ts': '048650e54ba225c98199594d2023e5fc4eae923f42e2c578ce2be558ae5f0854',
   '../github-publishing-tool.ts':
     '2e59bb08db284a9f52af2679c73e28b7debbdeebf0199021e7aa76106113a6a2',
   '../capability-conversation-binding.ts':
