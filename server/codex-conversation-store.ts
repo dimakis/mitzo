@@ -228,6 +228,8 @@ const CommandTransportDiagnosticSchema = z.strictObject({
     'protocol',
     'completion_hook_failed',
     'completion_hook_pending',
+    'reply_provenance_failed',
+    'notification_handler_failed',
   ]),
   exitCode: z.number().int().safe().nullable().optional(),
   signal: z

@@ -164,6 +164,29 @@ command evidence. Do not simply remove the recovery/status guards or replay the
 automatic continuation. Record the origin of native closure and exit/disposal
 reason where available; viewer reconnect is not proof of native recovery.
 
+#### Reply provenance across adoption
+
+Original message admission remains immutable. A queued command can acquire a
+new execution revision when the workspace owner adopts a prepared repository.
+The native turn ACK pins that execution fingerprint with its command, thread
+and turn identity. The first renderer message records this reference in the
+existing private reply-source event; it must not re-read original admission as
+if it described the adopted workspace.
+
+Live dispatch and delivery continue to validate current ownership and authority.
+Historical reply reads resolve the pinned execution through retained transition
+lineage, independently of the session's later directory. Version 1 reply events
+remain readable only when retained execution evidence is unambiguous. Missing or
+conflicting evidence fails closed; historical evidence never grants execution or
+source access. Reply failures retain a bounded diagnostic before closing the
+native lease, so synchronous connection shutdown cannot overwrite their cause.
+
+This is compatible with retained admissions and execution revisions from before
+the fix. It does not clear existing recovery flags or replay interrupted turns.
+An affected conversation still requires the existing exact-turn reconciliation
+and current authorization checks after deployment. Preserve preparation results,
+provider history and completed effects throughout recovery.
+
 ### 4. Retirement is an owned operation
 
 Use one lifecycle planner over authoritative records and bounded physical Git

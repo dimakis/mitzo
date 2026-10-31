@@ -1545,6 +1545,48 @@ export class EventStore {
       throw Error('Explicit command execution selection changed');
     return execution;
   }
+  /** Live execution selection. Original input and current execution remain
+   * distinct; non-local adapters retain their existing admission contract. */
+  getOrdinaryCommandExecutionAdmission(
+    commandId: string,
+  ): OrdinaryLocalCommandAdmission | undefined {
+    const send = this.getSendCommand(commandId);
+    const runtime = send?.sessionId && this.getSessionRuntimeBinding(send.sessionId);
+    return runtime &&
+      runtime.harness.implementation === 'codex' &&
+      runtime.execution.location === 'local'
+      ? this.getOrdinaryLocalCommandExecutionAdmission(commandId)
+      : this.getOrdinaryCommandAdmission(commandId);
+  }
+  /** Immutable execution evidence for provenance, never current authority.
+   * A pinned fingerprint selects an exact retained revision, independently of
+   * today's workspace. Legacy unpinned sources require an unambiguous revision. */
+  readOrdinaryCommandExecutionEvidence(
+    commandId: string,
+    fingerprint?: string,
+  ): OrdinaryLocalCommandAdmission | undefined {
+    const row = this.db!.prepare(
+      'SELECT session_id,ordinary_admission FROM send_commands WHERE client_msg_id=?',
+    ).get(commandId) as { session_id: string; ordinary_admission: string | null } | undefined;
+    if (!row?.ordinary_admission) return undefined;
+    const original = this.decodeOrdinaryCommandAdmission(JSON.parse(row.ordinary_admission));
+    if (!isDeepStrictEqual(this.getSessionRuntimeBinding(row.session_id), original.binding))
+      throw Error('Historical command runtime identity changed');
+    if (fingerprint !== undefined && original.requestFingerprint === fingerprint) return original;
+    const revisions = this.db!.prepare(
+      `SELECT transition_id FROM ordinary_execution_admissions WHERE command_id=?
+      AND (? IS NULL OR json_extract(execution_admission,'$.requestFingerprint')=?) ORDER BY revision DESC LIMIT 2`,
+    ).all(commandId, fingerprint ?? null, fingerprint ?? null) as Array<{ transition_id: string }>;
+    if (fingerprint === undefined && revisions.length === 0) return original;
+    if (revisions.length !== 1) throw Error('Exact historical execution revision required');
+    const execution = this.readPreparedRepositoryCommandExecutionEvidence(
+      commandId,
+      revisions[0].transition_id,
+    );
+    if (fingerprint !== undefined && execution.requestFingerprint !== fingerprint)
+      throw Error('Historical execution fingerprint changed');
+    return execution;
+  }
   /** Bounded owner observation for one synchronous admission comparison. No
    * callback executes inside this read transaction, and no result grants later
    * authority: every independent effect/await must observe the store again. */
@@ -2398,16 +2440,7 @@ export class EventStore {
       'SELECT ordinary_admission, session_id FROM send_commands WHERE client_msg_id=?',
     ).get(clientMsgId) as { ordinary_admission: string | null; session_id: string } | undefined;
     if (!row || row.ordinary_admission === null) return undefined;
-    const raw = JSON.parse(row.ordinary_admission);
-    const schema =
-      raw?.binding?.harness?.implementation === 'claude-sdk'
-        ? OrdinaryLocalVertexCommandAdmissionSchema
-        : ['responses', 'gemini'].includes(raw?.binding?.harness?.implementation)
-          ? OrdinaryLocalResponsesCommandAdmissionSchema
-          : raw?.binding?.execution?.location === 'openshell'
-            ? OrdinaryOpenShellCommandAdmissionSchema
-            : OrdinaryLocalCommandAdmissionSchema;
-    const admission = schema.parse(raw);
+    const admission = this.decodeOrdinaryCommandAdmission(JSON.parse(row.ordinary_admission));
     const runtime = this.getSessionRuntimeBinding(row.session_id);
     const session = this.getSession(row.session_id);
     if (
@@ -2418,6 +2451,21 @@ export class EventStore {
     )
       throw new Error('Ordinary command admission does not match durable session identity');
     return admission;
+  }
+
+  private decodeOrdinaryCommandAdmission(raw: unknown): OrdinaryLocalCommandAdmission {
+    const value = raw as {
+      binding?: { harness?: { implementation?: string }; execution?: { location?: string } };
+    };
+    const schema =
+      value?.binding?.harness?.implementation === 'claude-sdk'
+        ? OrdinaryLocalVertexCommandAdmissionSchema
+        : ['responses', 'gemini'].includes(value?.binding?.harness?.implementation ?? '')
+          ? OrdinaryLocalResponsesCommandAdmissionSchema
+          : value?.binding?.execution?.location === 'openshell'
+            ? OrdinaryOpenShellCommandAdmissionSchema
+            : OrdinaryLocalCommandAdmissionSchema;
+    return schema.parse(raw);
   }
 
   /** Read the existing admission fence without loading payloads or historical turns. */

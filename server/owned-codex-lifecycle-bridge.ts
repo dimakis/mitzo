@@ -1,6 +1,7 @@
 import {
   CodexServerRequestResolvedError,
   CodexTurnCompletedError,
+  CodexTransportError,
   type CodexLifecycleTransport,
 } from './codex-app-server-client.js';
 import type { FrozenHostCodexBootstrapLease } from './frozen-host-codex-bootstrap.js';
@@ -54,8 +55,12 @@ export class OwnedCodexLifecycleBridge {
           }
           this.assertCurrentSync();
           this.#owner.onNotification(method, params);
-        } catch {
-          this.close();
+        } catch (error) {
+          this.close(
+            error instanceof CodexTransportError
+              ? error
+              : new CodexTransportError('connection', { reason: 'notification_handler_failed' }),
+          );
           throw unavailable();
         }
       },
@@ -109,7 +114,7 @@ export class OwnedCodexLifecycleBridge {
           throw unavailable();
         }
       },
-      onClose: () => this.close(),
+      onClose: (error) => this.close(error instanceof CodexTransportError ? error : unavailable()),
     } satisfies CodexLifecycleTransport);
   }
 
@@ -148,7 +153,7 @@ export class OwnedCodexLifecycleBridge {
     return lease;
   }
 
-  private close(): void {
+  private close(reason: Error = unavailable()): void {
     const firstClose = !this.#closed;
     this.#closed = true;
     this.#abort.abort(unavailable());
@@ -161,19 +166,21 @@ export class OwnedCodexLifecycleBridge {
         /* Missing authority cannot revive a closed bridge. */
       }
     }
+    // Record the bounded cause before lease.close synchronously reenters the
+    // native onClose callback with its generic connection error.
+    if (firstClose && this.#owner) {
+      try {
+        this.#owner.onClose(reason);
+      } catch {
+        /* An observer cannot revive this transport or expose provider text. */
+      }
+    }
     if (this.#lease && !this.#leaseClosed) {
       this.#leaseClosed = true;
       try {
         this.#lease.close();
       } catch {
         /* Preserve custody even when transport shutdown fails. */
-      }
-    }
-    if (firstClose && this.#owner) {
-      try {
-        this.#owner.onClose(unavailable());
-      } catch {
-        /* An observer cannot revive this transport or expose provider text. */
       }
     }
   }

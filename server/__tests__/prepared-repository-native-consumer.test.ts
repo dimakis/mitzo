@@ -8,6 +8,11 @@ import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js'
 import { reconcilePreparedRepositoryTransitionProjection } from '../owned-prepared-repository-transition.js';
 import { captureAgentLibraryAuthorization } from '../agent-library-transport.js';
 import { RetainedLocalCodexRecovery } from '../retained-local-codex-recovery.js';
+import {
+  captureOrdinaryReplyExecution,
+  recordOrdinaryReplySource,
+} from '../collaboration-ordinary-replies.js';
+import { CodexSessionEvents } from '../codex-session-events.js';
 
 it('adopts through the genuine retained bootstrap selection and actual repository CAS, then validates later add/commit without recursion', async () => {
   const f = await fixture();
@@ -247,6 +252,71 @@ it.each(['already-queued', 'during-capture', 'at-reservation'] as const)(
       followup.clientMsgId,
     );
     f.admission.assertBeforeDispatch(followup.clientMsgId);
+    if (phase === 'already-queued') {
+      // Extend the existing real handoff journey to the missing first-reply
+      // boundary; no second checkout, provider process or fixture is needed.
+      const command = f.native
+        .commands(f.first.sessionId, f.first.lease.binding)
+        .find((entry) => entry.id === followup.clientMsgId)!;
+      const policy = codexNativeExecutionPolicy({
+        bindingRevision: f.first.lease.binding.profileRevision!,
+        mode: 'agent',
+        cwd: result!.directory,
+        readableRoots: ['/'],
+        writableRoots: [result!.directory],
+        deniedRoots: [join(f.root, 'login'), join(f.root, 'custody')],
+        writeProtectedRoots: [],
+      });
+      f.native.prepareNativeExecution(
+        f.first.sessionId,
+        f.first.lease.binding,
+        command,
+        'thread',
+        policy,
+      );
+      f.native.recordNativeTurnAck(
+        f.first.sessionId,
+        f.first.lease.binding,
+        command,
+        'thread',
+        'followup-turn',
+      );
+      f.native.acceptNativeExecution(
+        f.first.sessionId,
+        f.first.lease.binding,
+        command,
+        'thread',
+        'followup-turn',
+      );
+      const source = {
+        commandId: command.id,
+        providerThreadId: 'thread',
+        providerTurnId: 'followup-turn',
+      };
+      const execution = captureOrdinaryReplyExecution(f.events, f.first.sessionId, source);
+      const emitted = vi.fn();
+      const mapper = new CodexSessionEvents(f.first.sessionId, 'thread', command.model!, emitted, {
+        requireExactTurnIdentity: true,
+        onTextMessageStarted: (messageId, providerTurnId) =>
+          recordOrdinaryReplySource(
+            f.events,
+            f.first.sessionId,
+            { ...source, messageId, providerTurnId },
+            execution,
+          ),
+      });
+      expect(() =>
+        mapper.notification('item/agentMessage/delta', {
+          threadId: 'thread',
+          turnId: 'followup-turn',
+          itemId: 'first-reply',
+          delta: 'Continuing here',
+        }),
+      ).not.toThrow();
+      expect(emitted).toHaveBeenCalled();
+      expect(f.native.read(f.first.sessionId, f.first.lease.binding).recovery).toBe(0);
+      expect(f.rpc.close).not.toHaveBeenCalled();
+    }
   },
 );
 

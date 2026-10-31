@@ -133,7 +133,11 @@ import {
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
 import { KnowledgePublicationUnavailableError } from '../knowledge-publication-bridge.js';
-import { CodexAppServerClient, CodexRequestError } from '../codex-app-server-client.js';
+import {
+  CodexAppServerClient,
+  CodexRequestError,
+  CodexTransportError,
+} from '../codex-app-server-client.js';
 import { CodexStartupError } from '../codex-startup-error.js';
 import { RuntimePolicyAttestationError } from '../openshell-runtime-policy.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
@@ -3528,10 +3532,18 @@ it('uses the already verified owned client locally regardless of global OpenShel
       providerThreadId: 'private-owned-thread',
       providerTurnId: 'private-owned-turn',
     };
+    expect(() => (config.onProviderMessageSource as (source: unknown) => void)(source)).toThrow(
+      CodexTransportError,
+    );
+    (config.onProviderAccepted as (id: string, threadId: string, turnId: string) => void)(
+      'owned-command',
+      'private-owned-thread',
+      'private-owned-turn',
+    );
     (config.onProviderMessageSource as (source: unknown) => void)(source);
     expect(
       f.eventStore.getOrdinaryReplySourceEvents('owned-session', 'visible-owned-reply'),
-    ).toEqual([{ version: 1, ...source }]);
+    ).toEqual([{ version: 2, ...source, executionFingerprint: 'owned-fingerprint' }]);
     expect(() => (config.onProviderDispatch as (id: string) => void)('owned-command')).toThrow(
       'Owned local Codex chat unavailable',
     );
