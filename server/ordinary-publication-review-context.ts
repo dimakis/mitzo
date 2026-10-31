@@ -139,6 +139,10 @@ export interface PublicationContextRead {
 export type PublicationContextRequest =
   | { kind: 'read'; path: string; startLine?: number; endLine?: number }
   | { kind: 'search'; query: string; pathPrefix?: string };
+/** Empty and dot denote the same repository-wide search as an omitted prefix. */
+export function publicationSearchPrefix(prefix: string | undefined): string | undefined {
+  return prefix === '' || prefix === '.' ? undefined : prefix;
+}
 export interface PublicationContextSearch {
   query: string;
   pathPrefix?: string;
@@ -383,7 +387,7 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
             instructions,
           });
         } else {
-          const prefix = request.pathPrefix;
+          const prefix = publicationSearchPrefix(request.pathPrefix);
           if (
             !request.query ||
             request.query.length > 120 ||

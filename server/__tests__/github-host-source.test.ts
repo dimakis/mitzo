@@ -1,5 +1,5 @@
-import { afterEach, expect, it } from 'vitest';
-import { mkdtemp, writeFile, symlink, rm, realpath, access } from 'node:fs/promises';
+import { afterEach, expect, it, vi } from 'vitest';
+import { mkdtemp, writeFile, symlink, rm, realpath, access, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -8,6 +8,10 @@ import {
   exportHostGithubBundle,
   resolveHostGithubRepository,
 } from '../github-host-source.js';
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>();
+  return { ...actual, readdir: vi.fn(actual.readdir) };
+});
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -57,7 +61,11 @@ async function fixture() {
 }
 it('inspects and exports committed host work without network or credentials', async () => {
   const f = await fixture();
+  vi.mocked(readdir).mockClear();
   const result = await inspectHostGithubRepository(f.input);
+  expect(
+    vi.mocked(readdir).mock.calls.filter(([path]) => path === join(f.root, '.git')),
+  ).toHaveLength(1);
   expect(result).toMatchObject({
     canonicalRepositoryPath: f.root,
     sourceBranch: 'feature',
@@ -66,12 +74,16 @@ it('inspects and exports committed host work without network or credentials', as
     symlinkFree: true,
     status: '',
   });
+  vi.mocked(readdir).mockClear();
   const bundle = await exportHostGithubBundle({
     ...f.input,
     sourceBranch: 'feature',
     sourceOid: result.sourceOid,
     maxBytes: 1024 * 1024,
   });
+  expect(
+    vi.mocked(readdir).mock.calls.filter(([path]) => path === join(f.root, '.git')),
+  ).toHaveLength(1);
   expect(bundle.toString('utf8', 0, 16)).toContain('git bundle');
   await expect(
     exportHostGithubBundle({

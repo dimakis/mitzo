@@ -15,6 +15,8 @@ export function consumeGithubPublicationNotDispatched(error: unknown): boolean {
 }
 
 const messages = {
+  PUBLICATION_PREFLIGHT_FAILED:
+    'Publication preflight could not complete. Local commits are preserved and no GitHub write was dispatched. Use the reported stage and operation ID to inspect controller logs and traces before retrying.',
   PUBLICATION_REVIEW_REQUIRED:
     'Independent publication review is required. Request publication again to review the current committed change.',
   PUBLICATION_REVIEW_BLOCKED:

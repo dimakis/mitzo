@@ -12,6 +12,7 @@ import {
   capturePublicationReviewEvidence,
   PUBLICATION_REVIEW_MAX_EVIDENCE_BYTES,
   publicationReviewUnavailable as unavailable,
+  publicationSearchPrefix,
   type PublicationContextRead,
   type PublicationContextSearch,
 } from './ordinary-publication-review-context.js';
@@ -30,7 +31,7 @@ const ContextRequest = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('search'),
     query: z.string().min(2).max(120),
-    pathPrefix: z.string().min(1).max(400).optional(),
+    pathPrefix: z.string().max(400).optional().transform(publicationSearchPrefix),
   }),
 ]);
 const ReviewResult = z.strictObject({
@@ -50,6 +51,7 @@ const ReviewResult = z.strictObject({
   unresolvedNeeds: z.array(z.string().min(1).max(200)).max(8).default([]),
   coverageSummary: z.string().max(600).optional(),
 });
+const reviewResultSchema = JSON.stringify(z.toJSONSchema(ReviewResult, { io: 'input' }));
 export interface OrdinaryPublicationReviewOwner {
   authSessionId: string;
   operatorConnectionId: string;
@@ -154,8 +156,9 @@ export function createOrdinaryPublicationReview(deps: {
           'Request further pinned Git context with verdict:context_required and requests:[{kind:read,path,startLine?,endLine?},{kind:search,query,pathPrefix?}]. Reads are Git-index paths only; optional inclusive line ranges have at most 400 lines. Search is a literal (-F) source search returning complete matching paths, optionally within a repository path prefix. Use narrow queries. ' +
           'Partial reads report exact totalLines and remainingBefore/remainingAfter; never treat a partial range as the whole file. Request remaining relevant context, or return incomplete if you cannot complete review. No source content or search result is silently truncated. ' +
           'Context history records only your own earlier structured requests and exact host replies in this pass; no other reviewer output is present. ' +
-          'Return ONLY JSON with evidenceSha256 (echo the current Evidence SHA-256), reviewedAllEvidence:boolean, verdict:approve|changes_requested|incomplete|context_required, findings:[{severity:blocking|non_blocking,path,summary}], requests:[], unresolvedNeeds:[], and optional coverageSummary. ' +
-          'Approval requires reviewedAllEvidence:true, zero blocking findings, no outstanding requests and no unresolved needed context. Do not include secrets or long source excerpts.';
+          'Return ONLY JSON matching the response schema, including every string-length and array-count bound. Echo the current Evidence SHA-256 in evidenceSha256. ' +
+          'Approval requires reviewedAllEvidence:true, zero blocking findings, no outstanding requests and no unresolved needed context. Do not include secrets or long source excerpts. ' +
+          `Response JSON schema: ${reviewResultSchema}`;
         const text = `Evidence SHA-256: ${currentDigest}\nPinned committed review evidence and this pass context history (JSON):\n${JSON.stringify({ initialEvidence: captured.packet, history })}`;
         if (Buffer.byteLength(text, 'utf8') > PUBLICATION_REVIEW_MAX_EVIDENCE_BYTES)
           unavailable('context_evidence_limit');
