@@ -36,6 +36,7 @@ import {
   createContextKey,
   type Context,
   type Span,
+  trace,
 } from '@opentelemetry/api';
 import { AsyncLocalStorage } from 'node:async_hooks';
 const cleanup: (() => void)[] = [];
@@ -737,6 +738,55 @@ it.each(['thread', 'turn', 'request-id'])(
     expect(approve).not.toHaveBeenCalled();
   },
 );
+
+it('retains the exact failed native approval check after the handler without private error text', async () => {
+  const f = await setup();
+  const policy = codexNativeExecutionPolicy({
+    bindingRevision: 'owner-v1',
+    mode: 'agent',
+    cwd: '/workspace',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace'],
+    deniedRoots: ['/private/auth'],
+  });
+  f.conversationOptions.nativeExecution = policy;
+  f.conversationOptions.assertNativeExecutionCurrent = () => {};
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'accept' });
+  await f.c.send({ id: 'native-request', prompt: 'Run' });
+  const failure = new Error('private owner detail');
+  f.conversationOptions.requestNativeApproval = async () => {
+    f.conversationOptions.assertNativeExecutionCurrent = () => {
+      throw failure;
+    };
+    return { decision: 'accept' };
+  };
+  const addEvent = vi.fn();
+  const spy = vi.spyOn(trace, 'getActiveSpan').mockReturnValue({ addEvent } as unknown as Span);
+  try {
+    const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+    await expect(
+      request(
+        'item/commandExecution/requestApproval',
+        {
+          threadId: f.getProviderThread(),
+          turnId: 'turn-1',
+          itemId: 'command-1',
+        },
+        new AbortController().signal,
+        { requestId: 19 },
+      ),
+    ).rejects.toBe(failure);
+    expect(addEvent).toHaveBeenCalledExactlyOnceWith('native_approval.check_failed', {
+      stage: 'after_handler',
+      check: 'execution_policy',
+    });
+    expect(JSON.stringify(addEvent.mock.calls)).not.toContain(failure.message);
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  } finally {
+    spy.mockRestore();
+  }
+});
 
 it('rejects a native grant if Stop arrives while the permission owner is waiting', async () => {
   const f = await setup();

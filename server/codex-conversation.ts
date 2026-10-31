@@ -1,3 +1,4 @@
+import { observeNativeApprovalCheck } from './local-codex-observation.js';
 import {
   CodexSteerInputSchema,
   type CodexSteerInput,
@@ -3698,45 +3699,53 @@ export class CodexConversation {
         ? active?.nativeFileChangeRevisions?.get(fileItemId)
         : undefined;
       const approvalSignal = AbortSignal.any([signal, ...(active ? [active.abort.signal] : [])]);
-      const assertCurrentSync = () => {
-        approvalSignal.throwIfAborted();
-        if (
-          this.closed ||
-          !active ||
-          this.active !== active ||
-          generation !== this.transportGeneration ||
-          !threadId ||
-          !turnId ||
-          this.threadId !== threadId ||
-          active.turnId !== turnId ||
-          active.completions.has(turnId) ||
-          params.threadId !== threadId ||
-          params.turnId !== turnId ||
-          !requestContext ||
-          !['string', 'number'].includes(typeof requestContext.requestId)
-        )
-          throw new Error('Codex native approval identity mismatch');
-        if (
-          fileItemId &&
-          (!isDeepStrictEqual(active.nativeFileChanges?.get(fileItemId), fileChangePaths) ||
-            active.nativeFileChangeRevisions?.get(fileItemId) !== fileChangeRevision)
-        )
-          throw new Error('Codex native file approval changed');
-        if (active.nativeExecution)
-          this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
+      const assertCurrentSync = (
+        stage: Parameters<typeof observeNativeApprovalCheck>[0] = 'handler',
+      ) => {
+        observeNativeApprovalCheck(stage, 'signal', () => approvalSignal.throwIfAborted());
+        observeNativeApprovalCheck(stage, 'identity', () => {
+          if (
+            this.closed ||
+            !active ||
+            this.active !== active ||
+            generation !== this.transportGeneration ||
+            !threadId ||
+            !turnId ||
+            this.threadId !== threadId ||
+            active.turnId !== turnId ||
+            active.completions.has(turnId) ||
+            params.threadId !== threadId ||
+            params.turnId !== turnId ||
+            !requestContext ||
+            !['string', 'number'].includes(typeof requestContext.requestId)
+          )
+            throw new Error('Codex native approval identity mismatch');
+        });
+        observeNativeApprovalCheck(stage, 'file_items', () => {
+          if (
+            fileItemId &&
+            (!isDeepStrictEqual(active?.nativeFileChanges?.get(fileItemId), fileChangePaths) ||
+              active?.nativeFileChangeRevisions?.get(fileItemId) !== fileChangeRevision)
+          )
+            throw new Error('Codex native file approval changed');
+        });
+        if (active?.nativeExecution)
+          observeNativeApprovalCheck(stage, 'execution_policy', () =>
+            this.opts.assertNativeExecutionCurrent?.(active.nativeExecution!, active.command.id),
+          );
       };
-      assertCurrentSync();
+      assertCurrentSync('before_handler');
       if (!this.opts.requestNativeApproval) throw new Error('Codex native approvals unavailable');
-      requestContext!.registerResponseFence?.(assertCurrentSync);
+      requestContext!.registerResponseFence?.(() => assertCurrentSync('reply'));
       const response = await this.opts.requestNativeApproval(method, params, approvalSignal, {
         ...requestContext!,
         commandId: active!.command.id,
         threadId: threadId!,
         turnId: turnId!,
-        assertCurrentSync,
+        assertCurrentSync: () => assertCurrentSync('handler'),
         ...(fileItemId ? { fileChangePaths: fileChangePaths ?? undefined } : {}),
       });
-      assertCurrentSync();
+      assertCurrentSync('after_handler');
       return response;
     }
     if (method === 'item/tool/requestUserInput') {

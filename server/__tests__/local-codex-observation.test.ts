@@ -1,10 +1,15 @@
-import { afterAll, expect, it } from 'vitest';
+import { trace } from '@opentelemetry/api';
+import { afterAll, expect, it, vi } from 'vitest';
 import {
   InMemorySpanExporter,
   NodeTracerProvider,
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-node';
-import { observeLocalCodexPhase, observeLocalCodexSyncPhase } from '../local-codex-observation.js';
+import {
+  observeNativeApprovalCheck,
+  observeLocalCodexPhase,
+  observeLocalCodexSyncPhase,
+} from '../local-codex-observation.js';
 import { FrozenHostCodexExecutable } from '../frozen-host-codex-executable.js';
 import { mkdtempSync, realpathSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -117,5 +122,26 @@ it('times synchronous native capture and launch integrity beneath the active sta
     expect(spans.find((s) => s.name === 'local_codex.native_version_check')?.status.code).toBe(2);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('adds no successful approval telemetry and preserves failures when diagnostics throw', () => {
+  exporter.reset();
+  const work = vi.fn();
+  observeNativeApprovalCheck('reply', 'identity', work);
+  expect(work).toHaveBeenCalledOnce();
+  expect(exporter.getFinishedSpans()).toEqual([]);
+  const error = new Error('private approval error');
+  const getActiveSpan = vi.spyOn(trace, 'getActiveSpan').mockImplementation(() => {
+    throw Error('telemetry unavailable');
+  });
+  try {
+    expect(() =>
+      observeNativeApprovalCheck('reply', 'execution_policy', () => {
+        throw error;
+      }),
+    ).toThrow(error);
+  } finally {
+    getActiveSpan.mockRestore();
   }
 });
