@@ -261,16 +261,23 @@ safe_path() {
 # attributes cannot omit or transform source files. Its object store is a
 # read-only alternate to the selected source; no host administration is copied.
 tracked_paths=()
-while IFS= read -r -d '' path; do
-  safe_path "$path" && tracked_paths+=("$path")
-done < <(git -C "$source_repo" ls-tree --full-tree -r -z --name-only "$starting_commit")
+source_policy_receipt="$build_root/source-policy.json"
+if git -C "$source_repo" cat-file -e "$starting_commit:knowledge-publication-policy.json" 2>/dev/null; then
+  node "$script_root/../../../scripts/select-mgmt-knowledge.mjs" "$source_repo" "$starting_commit" "$source_policy_receipt" > "$build_root/selected-paths"
+  while IFS= read -r -d '' path; do tracked_paths+=("$path"); done < "$build_root/selected-paths"
+else
+  # Historical snapshots keep their existing reviewed selection semantics.
+  while IFS= read -r -d '' path; do
+    safe_path "$path" && tracked_paths+=("$path")
+  done < <(git -C "$source_repo" ls-tree --full-tree -r -z --name-only "$starting_commit")
+fi
 if test "${#tracked_paths[@]}" -gt 0; then
   archive_repo="$build_root/source.git"
   source_object_format="$(git -C "$source_repo" rev-parse --show-object-format)"
   source_objects="$(git -C "$source_repo" rev-parse --path-format=absolute --git-path objects)"
   (
     for variable in ${!GIT_@}; do unset "$variable"; done
-    export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 GIT_ATTR_NOSYSTEM=1
+    export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 GIT_ATTR_NOSYSTEM=1 GIT_LITERAL_PATHSPECS=1
     git -c init.templateDir= init --bare -q --object-format="$source_object_format" "$archive_repo"
     printf '%s\n' "$source_objects" > "$archive_repo/objects/info/alternates"
     git -c core.attributesFile=/dev/null -c tar.umask=0022 --git-dir="$archive_repo" archive "$starting_commit" -- "${tracked_paths[@]}"
@@ -677,7 +684,7 @@ rm -rf "$workspace/.git/logs"
 rm -f "$workspace/.git/COMMIT_EDITMSG" "$workspace/.git/index"
 seed_git -C "$workspace" read-tree HEAD
 
-SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" STARTING_COMMIT="$starting_commit" RUNTIME_BASE_COMMIT="$runtime_base_commit" RUNTIME_PROJECTION_SHA256="$runtime_projection_sha256" RUNTIME_JIRA_INPUTS_SHA256="$runtime_jira_inputs_sha256" IS_DYNAMIC="$([[ "$dynamic_seed" = 1 || "$runtime_base_commit" != "$starting_commit" ]] && printf 1 || printf 0)" python3 - <<'PY'
+SOURCE_POLICY_RECEIPT="$source_policy_receipt" SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" STARTING_COMMIT="$starting_commit" RUNTIME_BASE_COMMIT="$runtime_base_commit" RUNTIME_PROJECTION_SHA256="$runtime_projection_sha256" RUNTIME_JIRA_INPUTS_SHA256="$runtime_jira_inputs_sha256" IS_DYNAMIC="$([[ "$dynamic_seed" = 1 || "$runtime_base_commit" != "$starting_commit" ]] && printf 1 || printf 0)" python3 - <<'PY'
 import hashlib, json, os, pathlib
 
 def canonical(value):
@@ -707,6 +714,9 @@ payload = {
     'files': entries,
     'saveBack': 'not-implemented',
 }
+policy_receipt = pathlib.Path(os.environ['SOURCE_POLICY_RECEIPT'])
+if policy_receipt.exists():
+    payload['spokePolicy'] = json.loads(policy_receipt.read_text())
 if os.environ['IS_DYNAMIC'] == '1':
     payload['knowledgeSchemaVersion'] = int(os.environ['MGMT_KNOWLEDGE_SCHEMA_VERSION'])
     payload['knowledgeCompilerSha256'] = os.environ['MGMT_KNOWLEDGE_COMPILER_SHA256']
@@ -727,6 +737,7 @@ if os.environ['IS_DYNAMIC'] == '1':
         'knowledgeCompilerSha256': payload['knowledgeCompilerSha256'],
         'knowledgeRecipeSha256': payload['knowledgeRecipeSha256'],
         **({'runtimeJiraInputsSha256': payload['runtimeJiraInputsSha256']} if 'runtimeJiraInputsSha256' in payload else {}),
+        **({'spokePolicy': payload['spokePolicy']} if 'spokePolicy' in payload else {}),
         'files': payload['files'],
     }).encode('utf-8')).hexdigest()
 pathlib.Path(os.environ['BASELINE']).write_text(json.dumps(payload, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')

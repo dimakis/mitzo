@@ -6,7 +6,7 @@ Status: selected and implemented for K1 offline publication, 30 September 2026. 
 
 MGMT owns accepted knowledge and publication intent. Initially only an exact commit accepted on canonical `dimakis/mgmt` main is publishable; unsaved drafts and feature branches are excluded. The trusted publication service owns source acquisition, generated-index validation, immutable storage and promotion. K2 will materialize the exact revision in its own snapshot, so publication cannot require a clean personal main checkout. Existing hooks and Centaur events are wakeups; they are not the authority or durable queue.
 
-Mitzo owns the bundle builder and consumer verification. Every invocation extracts the complete builder tool set from one full pinned Mitzo commit: `prepare-mgmt-seed.sh`, delegated `prepare-mgmt-knowledge.sh` and sibling `runtime-resolution-contract.py`. The publisher reads one selected runtime stack lock from that same commit, validates its fields, and passes its runtime inputs explicitly. It does not inherit ambient compatibility settings. Runtime contract releases own image digest, dependency projection, base image, target platform and target Python marker environment. ContexGin remains the context selection/compiler owner; Mitzo owns paths, capabilities, session/task state and adapter delivery. Publication does not introduce another compiler or infer missing context ownership.
+Mitzo owns the bundle builder and consumer verification. Every invocation extracts the complete builder tool set from one full pinned Mitzo commit: `docs/spikes/openshell-codex/prepare-mgmt-seed.sh`, delegated `prepare-mgmt-knowledge.sh` and sibling `runtime-resolution-contract.py`; policy-aware builders additionally require `scripts/select-mgmt-knowledge.mjs`, `scripts/lib/mgmt-knowledge-policy.mjs` and `scripts/lib/portable-spoke-policy.mjs`. Preserve repository-relative paths for the complete extracted bundle. The publisher reads one selected runtime stack lock from that same commit, validates its fields, and passes its runtime inputs explicitly. It does not inherit ambient compatibility settings. Runtime contract releases own image digest, dependency projection, base image, target platform and target Python marker environment. ContexGin remains the context selection/compiler owner; Mitzo owns paths, capabilities, session/task state and adapter delivery. Publication does not introduce another compiler or infer missing context ownership.
 
 ## Bundle identity and compatibility
 
@@ -391,3 +391,39 @@ controls, tokens or approved settings designs change. `knowledge.initial_reconci
 `knowledge.verify_host` and `knowledge.freeze_upload` spans now include initial
 seed preparation; existing turn acknowledgement and first-output spans continue
 to distinguish preparation overhead from model response latency.
+
+## Source-owned portable directory policy
+
+The host can enroll the fixed accepted MGMT file
+`knowledge-publication-policy.json` with required private roots `career`,
+`direct_reports` and `okrs/private_eng_excellence`. Keep fixed hub guidance and
+memory selections in host configuration, and remove legacy per-spoke optional
+paths when migrating them to source declarations. Source policy cannot change
+publisher/source identity, accepted ref, adapter code, credentials or execution.
+
+The ContexGin publisher reads bounded JSON directly from the selected Git blob.
+The pinned host builder selects only permitted Markdown from the same immutable
+tree and includes that policy receipt in the baseline payload digest. Mitzo
+requires exact agreement between publisher and converter policy receipts and
+exported file sets. The runtime seed verifier applies the same policy and its
+mandatory private fences. Historical sources without a policy retain legacy
+selection; an enrolled policy error fails closed before a new command dispatch.
+
+Adding a declared spoke or Markdown directory changes source data, not the
+runtime dependency/image/compiler/recipe contract. Removing declarations revokes
+exports without deleting source files. MGMT CI checks classification using its
+existing Git inventory and validates policy data with the pinned consumer parser.
+Host configuration and adapter/builder release pins require one reviewed rollout;
+subsequent accepted directory/content changes need no per-directory Mitzo update.
+
+`scripts/lib/portable-spoke-policy.mjs` and its declaration are vendored unchanged
+from ContexGin commit `a996c2d` (PR #54). The module SHA-256 is
+`e2ceda6be3db42d9bd1fd6068239756c9bba00fc45b757db4acde9cba09371c3`.
+Keep publisher, builder and verifier parsing aligned when changing this contract.
+
+The initial enrollment is a coordinated publisher/consumer cutover. Prepare and
+verify the new immutable publication and converter configuration before changing
+active selections. Activate publisher policy and adapter/builder pins together:
+a policy-aware manifest and a legacy converter (or the reverse) must not be
+mixed. Retain previous configuration, selected publications and task data for
+rollback. Subsequent accepted directory/content changes need no service restart.
