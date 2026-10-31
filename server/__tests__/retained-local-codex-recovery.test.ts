@@ -143,7 +143,7 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused', 'accepted-paused-
               {
                 id: 'predecessor-turn',
                 status: 'interrupted',
-                itemsView: 'full',
+                itemsView: 'notLoaded',
                 error: null,
                 items: [],
               },
@@ -151,6 +151,8 @@ it.each(['before-enqueue', 'after-enqueue', 'accepted-paused', 'accepted-paused-
           };
         throw Error('Empty replacement has no provider history');
       }
+      if (method === 'thread/items/list' && interruptedPredecessor)
+        return { data: [], nextCursor: null };
       return rpc(method);
     });
     const recoverDispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {

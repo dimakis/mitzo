@@ -838,6 +838,7 @@ export class CodexAppServerClient {
         'thread/fork',
         'thread/read',
         'thread/turns/list',
+        'thread/items/list',
         'turn/start',
         'turn/steer',
         'turn/interrupt',

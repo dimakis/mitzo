@@ -1683,6 +1683,11 @@ export class CodexConversation {
           this.opts.conversationId,
           nativeTarget,
           !!phase && phase.observedOutcome === 'completed' && !phase.priorEffectsUnknown,
+          async () => {
+            assertRecoveryContinuation();
+            await assertRecoveryAuthority();
+            assertRecoveryContinuation();
+          },
         );
         nativeStatus = observed.status;
         interruptedEffects = observed.settledEffects;
@@ -2065,6 +2070,16 @@ export class CodexConversation {
         this.opts.conversationId,
         target,
         true,
+        async () => {
+          assertCurrent();
+          const current = await this.verifyCurrentBinding(binding);
+          if (!isDeepStrictEqual(current, binding))
+            throw Error('Completion phase account binding changed');
+          this.assertNativeExecutionOwner();
+          if (this.opts.nativeExecution)
+            this.opts.assertNativeExecutionCurrent!(this.opts.nativeExecution, target.commandId);
+          assertCurrent();
+        },
       );
       assertCurrent();
       if (observed.status !== 'interrupted' || !observed.settledEffects)

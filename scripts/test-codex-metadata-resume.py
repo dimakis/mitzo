@@ -110,7 +110,7 @@ def probe(binary, version, exclude_turns):
         buffer = bytearray()
 
         def send(message):
-            assert message["method"] in {"initialize", "initialized", "thread/resume", "thread/turns/list"}
+            assert message["method"] in {"initialize", "initialized", "thread/resume", "thread/turns/list", "thread/items/list"}
             child.stdin.write((json.dumps(message) + "\n").encode())
             child.stdin.flush()
 
@@ -162,6 +162,28 @@ def probe(binary, version, exclude_turns):
                 retained, _ = response(3)
                 assert retained["data"][0]["id"] == turn, "Metadata-only resume lost native history"
                 assert retained["data"][0]["status"] == "completed", "Native completion state changed"
+                # Reuse this isolated native lifetime to prove the pinned item
+                # protocol. One full turn exceeds the frame bound; each item fits.
+                cursor = None
+                seen = set()
+                for index in range(16):
+                    params = {"threadId": thread, "turnId": turn, "limit": 1, "sortDirection": "asc"}
+                    if cursor is not None:
+                        params["cursor"] = cursor
+                    send({"id": 4 + index, "method": "thread/items/list", "params": params})
+                    page, item_size = response(4 + index)
+                    assert item_size < FRAME_LIMIT, "Native item page exceeded the frame bound"
+                    assert len(page["data"]) <= 1, "Native item page ignored limit"
+                    for entry in page["data"]:
+                        assert entry["turnId"] == turn, "Native item page crossed turns"
+                        assert entry["item"]["id"] not in seen, "Native item page repeated an item"
+                        seen.add(entry["item"]["id"])
+                    cursor = page["nextCursor"]
+                    if cursor is None:
+                        break
+                else:
+                    raise AssertionError("Native item pagination did not terminate")
+                assert len(seen) >= 3, "Native pagination omitted retained results"
             else:
                 assert size > FRAME_LIMIT, "Fixture did not reproduce a large retained turn"
                 assert result["thread"]["turns"], "Native fixture history was not loaded"

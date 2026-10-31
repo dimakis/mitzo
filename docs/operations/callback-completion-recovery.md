@@ -37,8 +37,14 @@ retain an original, successfully observed downstream completion phase while the
 native command remains interrupted. A later native status of `interrupted`
 alone cannot settle its effects.
 
-Guarded recovery of already saved queued work reads the full exact native turn
-once. It accepts only error-free interrupted snapshots containing recognized
+Guarded recovery of already saved queued work reads exact terminal metadata first.
+Completed and failed turns never hydrate retained results. Eligible interrupted
+turns use `thread/items/list` filtered to the original turn, one item per page,
+with at most 128 item reads and a final metadata identity/status check. Authority
+is revalidated at each additional I/O boundary. Missing/foreign/duplicate items,
+invalid or repeated cursors, budget exhaustion and an oversized individual item
+retain the fence. The 4 MiB frame limit is unchanged; full-turn fallback is forbidden.
+It accepts only error-free interrupted observations containing recognized
 settled items; commands must have completed with exit code zero. Every dynamic
 host call must also match the original command/turn/call/tool/request hash and a
 successful durable result. Receipts are read together under the recovery write

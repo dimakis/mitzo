@@ -249,6 +249,18 @@ describe('Codex app-server transport', () => {
     reply({ id: sent.at(-1)!.id, result: { data: [], nextCursor: null } });
     await expect(turns).resolves.toEqual({ data: [], nextCursor: null });
 
+    const items = client.request('thread/items/list', {
+      threadId: 'old-thread',
+      turnId: 'turn',
+      limit: 1,
+    });
+    expect(sent.at(-1)).toMatchObject({
+      method: 'thread/items/list',
+      params: { threadId: 'old-thread', turnId: 'turn', limit: 1 },
+    });
+    reply({ id: sent.at(-1)!.id, result: { data: [], nextCursor: null } });
+    await expect(items).resolves.toEqual({ data: [], nextCursor: null });
+
     const fork = client.request('thread/fork', {
       threadId: 'old-thread',
       lastTurnId: 'last-good-turn',

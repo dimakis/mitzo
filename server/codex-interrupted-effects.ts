@@ -21,7 +21,16 @@ const Page = z.object({
   data: z.array(z.object({ id: z.string(), status: z.string() }).passthrough()),
 });
 
-/** One native read serves both terminal identity and optional effect inspection.
+const ItemPage = z.object({
+  data: z.array(z.object({ turnId: z.string(), item: Item })).max(1),
+  nextCursor: z.string().min(1).max(4096).nullable(),
+});
+// Bound work independently of retained history. Oversized individual items still
+// fail closed at the transport frame limit; never retry with full-turn hydration.
+const MAX_INTERRUPTED_ITEMS = 128;
+
+/** Completed recovery never hydrates items. Eligible interrupted recovery reads
+ * one item per frame and rechecks terminal identity after the final page.
  * The caller must retain and revalidate its account, transport and control epoch
  * across this await; the store separately checks current durable custody. */
 export async function observeNativeRecoveryTurn(
@@ -29,13 +38,14 @@ export async function observeNativeRecoveryTurn(
   conversationId: string,
   target: CodexNativeTurnTarget,
   inspectInterruptedEffects: boolean,
+  beforeAdditionalRead: () => Promise<void>,
 ) {
   const page = Page.parse(
     await request('thread/turns/list', {
       threadId: target.threadId,
       limit: 1,
       sortDirection: 'desc',
-      itemsView: inspectInterruptedEffects ? 'full' : 'notLoaded',
+      itemsView: 'notLoaded',
     }),
   );
   if (
@@ -48,42 +58,86 @@ export async function observeNativeRecoveryTurn(
   const turn = page.data[0];
   const status = z.enum(['completed', 'failed', 'interrupted']).parse(turn.status);
   if (!inspectInterruptedEffects || status !== 'interrupted') return { status };
-  if (turn.itemsView !== 'full' || turn.error !== null || !Array.isArray(turn.items))
-    throw Error('Interrupted native effects require a full error-free turn observation');
+  if (turn.error !== null)
+    throw Error('Interrupted native effects require an error-free turn observation');
   const calls: HostCall[] = [];
   const ids = new Set<string>();
-  for (const raw of turn.items) {
-    const item = Item.parse(raw);
-    if (ids.has(item.id)) throw Error('Interrupted native item identity is duplicated');
-    ids.add(item.id);
-    switch (item.type) {
-      case 'userMessage':
-      case 'agentMessage':
-      case 'reasoning':
-      case 'plan':
-        break;
-      case 'commandExecution':
-        if (item.status !== 'completed' || item.exitCode !== 0)
-          throw Error('Interrupted native command effects remain unknown');
-        break;
-      case 'dynamicToolCall': {
-        if (item.status !== 'completed' || item.success !== true || item.namespace != null)
-          throw Error('Interrupted host tool effects remain unknown');
-        const toolName = z.string().min(1).parse(item.tool);
-        const args = z.record(z.string(), z.unknown()).parse(item.arguments);
-        calls.push({
-          callId: item.id,
-          toolName,
-          requestHash: createHash('sha256').update(JSON.stringify(args)).digest('hex'),
-        });
-        break;
+  const cursors = new Set<string>();
+  let cursor: string | undefined;
+  let exhausted = false;
+  for (let count = 0; count < MAX_INTERRUPTED_ITEMS; count++) {
+    await beforeAdditionalRead();
+    const page = ItemPage.parse(
+      await request('thread/items/list', {
+        threadId: target.threadId,
+        turnId: target.turnId,
+        limit: 1,
+        sortDirection: 'asc',
+        ...(cursor ? { cursor } : {}),
+      }),
+    );
+    if (!page.data.length && page.nextCursor !== null)
+      throw Error('Interrupted native item page is incomplete');
+    const entry = page.data[0];
+    if (entry && entry.turnId !== target.turnId)
+      throw Error('Interrupted native item belongs to another turn');
+    if (entry) {
+      const item = entry.item;
+      if (ids.has(item.id)) throw Error('Interrupted native item identity is duplicated');
+      ids.add(item.id);
+      switch (item.type) {
+        case 'userMessage':
+        case 'agentMessage':
+        case 'reasoning':
+        case 'plan':
+          break;
+        case 'commandExecution':
+          if (item.status !== 'completed' || item.exitCode !== 0)
+            throw Error('Interrupted native command effects remain unknown');
+          break;
+        case 'dynamicToolCall': {
+          if (item.status !== 'completed' || item.success !== true || item.namespace != null)
+            throw Error('Interrupted host tool effects remain unknown');
+          const toolName = z.string().min(1).parse(item.tool);
+          const args = z.record(z.string(), z.unknown()).parse(item.arguments);
+          calls.push({
+            callId: item.id,
+            toolName,
+            requestHash: createHash('sha256').update(JSON.stringify(args)).digest('hex'),
+          });
+          break;
+        }
+        default:
+          // File changes, MCP/collaboration and future native item types need
+          // their own settlement contract. Never infer success from terminal turn metadata.
+          throw Error('Interrupted native item effects are unsupported');
       }
-      default:
-        // File changes, MCP/collaboration and future native item types need
-        // their own settlement contract. Never infer success from terminal turn metadata.
-        throw Error('Interrupted native item effects are unsupported');
     }
+    if (page.nextCursor === null) {
+      exhausted = true;
+      break;
+    }
+    if (cursors.has(page.nextCursor)) throw Error('Interrupted native item cursor is duplicated');
+    cursors.add(page.nextCursor);
+    cursor = page.nextCursor;
   }
+  if (!exhausted) throw Error('Interrupted native item inspection budget exceeded');
+  await beforeAdditionalRead();
+  const final = Page.parse(
+    await request('thread/turns/list', {
+      threadId: target.threadId,
+      limit: 1,
+      sortDirection: 'desc',
+      itemsView: 'notLoaded',
+    }),
+  );
+  if (
+    final.data.length !== 1 ||
+    final.data[0].id !== target.turnId ||
+    final.data[0].status !== 'interrupted' ||
+    final.data[0].error !== null
+  )
+    throw Error('Interrupted native terminal identity changed during item inspection');
   const proof = Object.freeze({}) as SettledInterruptedEffects;
   observations.set(proof, { conversationId, target: structuredClone(target), hostCalls: calls });
   return { status, settledEffects: proof };

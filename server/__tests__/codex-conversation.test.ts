@@ -8231,6 +8231,22 @@ function setupTerminalTransport(
   return setup(...args);
 }
 
+function recoveryPage(
+  method: string,
+  params: Record<string, unknown>,
+  turn: Record<string, unknown>,
+) {
+  if (method === 'thread/turns/list')
+    return { data: [{ ...turn, items: undefined, itemsView: 'notLoaded' }] };
+  if (turn.itemsView !== 'full' || !Array.isArray(turn.items))
+    return { data: [], nextCursor: undefined };
+  const index = params.cursor ? Number(params.cursor) : 0;
+  return {
+    data: turn.items.slice(index, index + 1).map((item) => ({ turnId: turn.id, item })),
+    nextCursor: index + 1 < turn.items.length ? String(index + 1) : null,
+  };
+}
+
 async function nativeRecoveryFixture(
   retirement: 'transport' | 'stop' = 'transport',
   settledHostTool = false,
@@ -8260,6 +8276,28 @@ async function nativeRecoveryFixture(
   return { old, restored, request };
 }
 
+it('recovers completed retained results without hydrating their oversized native payload', async () => {
+  const { restored: f, request } = await nativeRecoveryFixture();
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (
+      method === 'thread/items/list' ||
+      (method === 'thread/turns/list' && params.itemsView !== 'notLoaded')
+    )
+      throw new CodexTransportError('protocol', {
+        reason: 'frame_too_large',
+        frameBytes: 6_776_609,
+        limitBytes: 4_194_304,
+      });
+    if (method === 'thread/turns/list') return { data: [{ id: 'turn-1', status: 'completed' }] };
+    return request(method, params);
+  });
+  await f.c.acknowledgeRecovery();
+  expect(f.c.queue().map(({ status }) => status)).toEqual(['completed', 'running']);
+  expect(
+    f.rpc.request.mock.calls.filter(([method]) => method === 'thread/items/list'),
+  ).toHaveLength(0);
+});
+
 it.each(
   (['stop', 'transport'] as const).flatMap((retirement) =>
     (['none', 'native-command', 'host-tool'] as const).map((effects) => ({ retirement, effects })),
@@ -8273,40 +8311,35 @@ it.each(
       request,
     } = await nativeRecoveryFixture(retirement, effects === 'host-tool');
     f.rpc.request.mockImplementation(async (method, params) =>
-      method === 'thread/turns/list'
-        ? {
-            data: [
-              {
-                id: 'turn-1',
-                status: 'interrupted',
-                error: null,
-                itemsView: 'full',
-                items:
-                  effects === 'native-command'
-                    ? [
-                        {
-                          type: 'commandExecution',
-                          id: 'finished-command',
-                          status: 'completed',
-                          exitCode: 0,
-                        },
-                      ]
-                    : effects === 'host-tool'
-                      ? [
-                          {
-                            type: 'dynamicToolCall',
-                            id: 'settled-read',
-                            tool: 'Read',
-                            arguments: {},
-                            status: 'completed',
-                            success: true,
-                          },
-                        ]
-                      : [],
-              },
-            ],
-            nextCursor: null,
-          }
+      method === 'thread/turns/list' || method === 'thread/items/list'
+        ? recoveryPage(method, params, {
+            id: 'turn-1',
+            status: 'interrupted',
+            error: null,
+            itemsView: 'full',
+            items:
+              effects === 'native-command'
+                ? [
+                    {
+                      type: 'commandExecution',
+                      id: 'finished-command',
+                      status: 'completed',
+                      exitCode: 0,
+                    },
+                  ]
+                : effects === 'host-tool'
+                  ? [
+                      {
+                        type: 'dynamicToolCall',
+                        id: 'settled-read',
+                        tool: 'Read',
+                        arguments: {},
+                        status: 'completed',
+                        success: true,
+                      },
+                    ]
+                  : [],
+          })
         : request(method, params),
     );
     await f.c.acknowledgeRecovery();
@@ -8328,10 +8361,22 @@ it.each(
           threadId: old.getProviderThread(),
           limit: 1,
           sortDirection: 'desc',
-          itemsView: 'full',
+          itemsView: 'notLoaded',
+        },
+      ],
+      [
+        'thread/turns/list',
+        {
+          threadId: old.getProviderThread(),
+          limit: 1,
+          sortDirection: 'desc',
+          itemsView: 'notLoaded',
         },
       ],
     ]);
+    expect(
+      f.rpc.request.mock.calls.filter(([method]) => method === 'thread/items/list'),
+    ).toHaveLength(1);
   },
 );
 
@@ -8376,7 +8421,9 @@ it('keeps interrupted effects fenced for incomplete snapshots and unmatched dura
   ];
   for (const snapshot of invalid) {
     f.rpc.request.mockImplementation(async (method, params) =>
-      method === 'thread/turns/list' ? { data: [snapshot] } : request(method, params),
+      method === 'thread/turns/list' || method === 'thread/items/list'
+        ? recoveryPage(method, params, snapshot)
+        : request(method, params),
     );
     await expect(f.c.acknowledgeRecovery()).rejects.toThrow();
     expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
@@ -8386,6 +8433,23 @@ it('keeps interrupted effects fenced for incomplete snapshots and unmatched dura
     expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
     expect(f.execute).not.toHaveBeenCalled();
   }
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/items/list')
+      throw new CodexTransportError('protocol', {
+        reason: 'frame_too_large',
+        frameBytes: 4_194_305,
+        limitBytes: 4_194_304,
+      });
+    return method === 'thread/turns/list'
+      ? recoveryPage(method, params, turn)
+      : request(method, params);
+  });
+  await expect(f.c.acknowledgeRecovery()).rejects.toThrow(CodexTransportError);
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+  expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
+    'unknown',
+  );
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
   const phase = f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)!;
   expect(() =>
     f.store.reconcileCompletionPhase(
@@ -8404,9 +8468,12 @@ it.each(['stop', 'account', 'receipt'] as const)(
   async (change) => {
     const { restored: f, request } = await nativeRecoveryFixture('stop', true);
     const db = (f.store as unknown as { db: Database.Database }).db;
-    let checks = 0;
+    let metadataReads = 0;
+    let finalObservation = false;
+    let revoked = false;
     f.conversationOptions.verifyBinding = async () => {
-      if (++checks === 3) {
+      if (finalObservation && !revoked) {
+        revoked = true;
         if (change === 'stop') await f.c.interrupt();
         if (change === 'account') throw Error('Account revoked during completion qualification');
         if (change === 'receipt')
@@ -8416,31 +8483,30 @@ it.each(['stop', 'account', 'receipt'] as const)(
       }
       return f.getBinding();
     };
-    f.rpc.request.mockImplementation(async (method, params) =>
-      method === 'thread/turns/list'
-        ? {
-            data: [
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/turns/list' && ++metadataReads === 2) finalObservation = true;
+      return method === 'thread/turns/list' || method === 'thread/items/list'
+        ? recoveryPage(method, params, {
+            id: 'turn-1',
+            status: 'interrupted',
+            itemsView: 'full',
+            error: null,
+            items: [
               {
-                id: 'turn-1',
-                status: 'interrupted',
-                itemsView: 'full',
-                error: null,
-                items: [
-                  {
-                    type: 'dynamicToolCall',
-                    id: 'settled-read',
-                    tool: 'Read',
-                    arguments: {},
-                    status: 'completed',
-                    success: true,
-                  },
-                ],
+                type: 'dynamicToolCall',
+                id: 'settled-read',
+                tool: 'Read',
+                arguments: {},
+                status: 'completed',
+                success: true,
               },
             ],
-          }
-        : request(method, params),
-    );
+          })
+        : request(method, params);
+    });
     await expect(f.c.acknowledgeRecovery()).rejects.toThrow();
+    expect(finalObservation).toBe(true);
+    expect(revoked).toBe(true);
     expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
       'unknown',
     );
@@ -8458,8 +8524,14 @@ it.each(['full', 'summary'] as const)(
     const original = old.store.read('app', old.getBinding());
     const request = old.rpc.request.getMockImplementation()!;
     old.rpc.request.mockImplementation(async (method, params) =>
-      method === 'thread/turns/list'
-        ? { data: [{ id: 'turn-1', status: 'interrupted', itemsView, error: null, items: [] }] }
+      method === 'thread/turns/list' || method === 'thread/items/list'
+        ? recoveryPage(method, params, {
+            id: 'turn-1',
+            status: 'interrupted',
+            itemsView,
+            error: null,
+            items: [],
+          })
         : request(method, params),
     );
     const candidate = new CodexConversation({
@@ -8485,7 +8557,7 @@ it.each(['full', 'summary'] as const)(
       await candidate.acknowledgeRecovery();
       expect(candidate.queue().map(({ status }) => status)).toEqual(['interrupted', 'running']);
     } else {
-      await expect(candidate.initialize()).rejects.toThrow(/effect/);
+      await expect(candidate.initialize()).rejects.toThrow(/nextCursor/);
       expect(old.store.read('app', old.getBinding()).threadGeneration).toBe(
         original.threadGeneration,
       );
@@ -8512,12 +8584,14 @@ it.each(['revoked-under-lock', 'missing-owner', 'async-owner'] as const)(
     f.conversationOptions.assertRecoveryCurrent =
       change === 'missing-owner' ? undefined : authority;
     f.rpc.request.mockImplementation(async (method, params) =>
-      method === 'thread/turns/list'
-        ? {
-            data: [
-              { id: 'turn-1', status: 'interrupted', itemsView: 'full', error: null, items: [] },
-            ],
-          }
+      method === 'thread/turns/list' || method === 'thread/items/list'
+        ? recoveryPage(method, params, {
+            id: 'turn-1',
+            status: 'interrupted',
+            itemsView: 'full',
+            error: null,
+            items: [],
+          })
         : request(method, params),
     );
     await expect(f.c.acknowledgeRecovery()).rejects.toThrow(/owner|synchronous/);
