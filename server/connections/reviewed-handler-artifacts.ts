@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.14';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.811-development-readiness-current-main';
+  'v1.0.812-terminal-native-effect-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -60,7 +60,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/TelosChatRouteLayout.source.test.tsx':
     'af65704accb313d8b70a9267175983fb7a12e882bbccaa34ce19149b14a15a30',
   '../codex-interrupted-effects.ts':
-    'af957d9eaca172eb793a868411e0bbc1a66f3a7a2187fbc7cfde36a06431ee64',
+    '2d110eaf8780e45cddcca4432eb8efc7fd384423bbaafea5c428f4c9b89da392',
   '../__tests__/symposium-personal-connection-router.test.ts':
     '672b6da994f8e1d233b6c39efe477d10fb4344131b06c240826ccd4cbf16cd14',
   '../__tests__/chat-startup-metadata.test.ts':
@@ -306,7 +306,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../post-adoption-wire-admission.ts':
     '5d3824c6783a2565d4803af8f213c080c96cdad8d18d49537ef125f992f59d3d',
   '../../docs/operations/prepared-repository-chat-flow.md':
-    '322caaa384ed9ef9dc1207cbb0da6ed26ceac1147814f952cf6a07e2fb876327',
+    '06cc373f691f3e7c9d995a95df7fbfa832799d83302c558f63a436d60b035ca1',
   '../../frontend/src/lib/__tests__/reviewed-outbox-storage.test.ts':
     'ea9d8dd311e212e565682f45bda0300114483131306e53d93d7fd9af7a8939e4',
   '../../skills/land-pr/SKILL.md':
@@ -670,7 +670,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '9782b5248fa27563749b82ad312033f119c086a1b0d4a5a3726d4e89fc137db6',
 
   '../__tests__/codex-conversation.test.ts':
-    '42c38d12b71420ebf494b8e6ef374295aea1d5bc9ad06e93b7e6e793a13fed25',
+    '567ff79508de5177842b2ad4b1f8feb8a8712096468e7388bb286ea8452dd6bd',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -3065,7 +3065,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-source-route-diagnostics.test.ts':
     'c86ae1b37bcfaaee96a8e5e5059915ced33d87cc2b52a1c88b4707586d5e82a2',
   '../__tests__/codex-recovery-read-budget.test.ts':
-    '6e2fc81d23f6d3e0d360970d301a2ce4cf444eb5f5e87255db17ab0460c844fd',
+    '2be57c1eadb925acd0fc43a64d754209bb8cc3b9ee9fb64e8c0bd9ed76e33dab',
   '../__tests__/ordinary-openshell-completion-flow.test.ts':
     '67905a9bdf16b82ef7ffd79329600002091460d2d24ed00218c8464bde679e2b',
   '../__tests__/fixtures/openshell-publication-effects.ts':
