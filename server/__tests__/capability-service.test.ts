@@ -42,6 +42,22 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
+it('retains the exact preflight failure phase without changing mutation recovery state', async () => {
+  const f = await fixture({
+    preflight: async (context) => {
+      context.observePhase?.('review_second');
+      throw new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE', {
+        reason: 'context_round_limit',
+      });
+    },
+  });
+  const result = await f.service.invoke(request(), new AbortController().signal);
+  expect(result).toMatchObject({ status: 'failed', phase: 'review_second' });
+  expect(f.store.get(result.id)).toMatchObject({ phase: 'review_second' });
+  expect(f.execute).not.toHaveBeenCalled();
+  f.store.close();
+});
+
 async function fixture(
   options: {
     approved?: boolean;
@@ -833,4 +849,21 @@ it('preserves durable recovery uncertainty when the original runtime revokes dur
   expect(f.store.get(original.id)?.status).toBe('verification_pending');
   expect(f.execute).toHaveBeenCalledTimes(1);
   f.store.close();
+});
+
+it('does not mark dispatch uncertain when recording the execution phase fails', async () => {
+  const f = await fixture();
+  const record = f.store.recordPhase.bind(f.store);
+  vi.spyOn(f.store, 'recordPhase').mockImplementation((id, phase) => {
+    if (phase === 'execution') throw Error('phase storage unavailable');
+    record(id, phase);
+  });
+  try {
+    const result = await f.service.invoke(request(), new AbortController().signal);
+    expect(result.status).toBe('failed');
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.store.pendingRecovery()).toEqual([]);
+  } finally {
+    f.store.close();
+  }
 });

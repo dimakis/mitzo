@@ -1,4 +1,5 @@
 import type { AccountBinding } from '@mitzo/protocol';
+import type { RepositoryMaterializationReceipt } from './repository-materialization.js';
 export interface RepositoryChatWorkspace {
   id: string;
   repository: string;
@@ -9,6 +10,7 @@ export interface RepositoryChatWorkspace {
   seed?: string;
   sandbox?: boolean;
   binding?: AccountBinding;
+  sandboxMaterialization?: RepositoryMaterializationReceipt;
 }
 export async function selectRepositoryChatWorkspace(
   options: {

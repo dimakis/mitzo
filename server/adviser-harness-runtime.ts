@@ -3,6 +3,7 @@ import type { ModelSession, ModelSessionConfig } from '@mitzo/harness';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { AdviserRequest } from './terminal-adviser.js';
 import { AdviserTaskScope, type AdviserTaskSnapshot } from './adviser-task-scope.js';
+import { FEATURE_TEXT_PROFILE } from './builtin-agent-library-profile.js';
 export interface AdviserFeatureOwner {
   authSessionId: string;
   operatorConnectionId: string;
@@ -237,8 +238,6 @@ export async function createNativeAdviserSession(
       let phase: AdviserHarnessPhase = 'workspace_prepare';
       const result = await runScopedAdviser(scope, async (observation) => {
         const { randomUUID } = await import('node:crypto');
-        const { DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION } =
-          await import('@mitzo/protocol');
         const { readBuiltinAgentLibraryProfile } = await import('./agent-library-transport.js');
         const { ordinaryWorkspaceTaskRoot } = await import('./ordinary-workspace-runtime.js');
         const { getOrdinaryWorkspaces } = await import('./repository-workspace-runtime.js');
@@ -253,11 +252,7 @@ export async function createNativeAdviserSession(
           },
           signal: scope.signal,
         });
-        const agent = {
-          kind: 'builtin' as const,
-          profileId: DEFAULT_MITZO_PROFILE_ID,
-          revision: DEFAULT_MITZO_PROFILE_REVISION,
-        };
+        const agent = FEATURE_TEXT_PROFILE;
         const profile = readBuiltinAgentLibraryProfile(agent)!;
         const selection = {
           version: 1 as const,

@@ -1,4 +1,11 @@
+import type { RuntimeMigration } from './openshell-runtime-migration.js';
 import { assertGithubPreparationCapacity } from './repository-preparation-capacity.js';
+import {
+  RepositoryMaterializationReceiptSchema,
+  repositoryMaterializationMigrationMatches,
+  prepareRepositoryMaterialization,
+  type RepositoryMaterializationReceipt,
+} from './repository-materialization.js';
 import {
   restoredRepositoryTaskIdentity,
   type RepositoryWorkspaceRestoration,
@@ -148,6 +155,8 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
   previewIntentFingerprint?: string;
   sourceDigest?: string;
   sourceReleased?: boolean;
+  /** Verified target facts, never a filesystem or provider execution grant. */
+  sandboxMaterialization?: RepositoryMaterializationReceipt;
   /** Same allocation journal, retained after physical removal. A durable lease
    * fences every await and blocks preparation/adoption across restarts. */
   retirement?: {
@@ -1800,6 +1809,76 @@ export class RepositoryWorkspaces {
     if (record.localSource) return record.localSource.path;
     return join(this.directory, record.id, 'mgmt');
   }
+  async recordSandboxMaterialization(
+    id: string,
+    binding: AccountBinding,
+    conversationId: string,
+    value: RepositoryMaterializationReceipt,
+    signal: AbortSignal,
+    migration?: RuntimeMigration | null,
+  ) {
+    return this.runOperation(async () => {
+      const record = this.get(id);
+      const original = JSON.stringify(record);
+      const receipt = RepositoryMaterializationReceiptSchema.parse(value);
+      if (
+        !record.sandbox ||
+        record.state !== 'claimed' ||
+        record.conversationId !== conversationId ||
+        receipt.workspaceId !== record.id ||
+        receipt.repository !== record.repository ||
+        receipt.baseBranch !== record.baseBranch ||
+        receipt.baseOid !== record.baseOid ||
+        (!record.sandboxMaterialization && receipt.head !== record.baseOid) ||
+        receipt.featureBranch !== record.featureBranch
+      )
+        throw Error('Repository materialization does not match its original claim');
+      await this.authorize(record, binding, signal);
+      if (
+        record.sandboxMaterialization &&
+        !isDeepStrictEqual(record.sandboxMaterialization, receipt) &&
+        !repositoryMaterializationMigrationMatches(
+          record.sandboxMaterialization,
+          receipt,
+          migration,
+          conversationId,
+          binding.accountId,
+        )
+      )
+        throw Error('Repository materialization changed');
+      record.sandboxMaterialization = receipt;
+      this.save(record, original);
+    });
+  }
+  async startupMaterialization(
+    id: string,
+    binding: AccountBinding,
+    conversationId: string,
+    signal: AbortSignal,
+  ) {
+    return this.runOperation(async () => {
+      const source = await this.startupSeed(id, binding, conversationId, signal);
+      const record = this.get(id);
+      const prepared = await prepareRepositoryMaterialization({
+        source,
+        workspaceId: id,
+        repository: record.repository,
+        baseBranch: record.baseBranch,
+        baseOid: record.baseOid,
+        featureBranch: record.featureBranch,
+        signal,
+      });
+      try {
+        // Export is asynchronous source I/O. Requalify the original source and owner.
+        if ((await this.startupSeed(id, binding, conversationId, signal)) !== source)
+          throw Error('Repository source changed during export');
+        return prepared;
+      } catch (error) {
+        await prepared.cleanup();
+        throw error;
+      }
+    });
+  }
   async releaseSource(id: string, binding: AccountBinding, conversationId: string) {
     return this.runOperation(async () => {
       const record = this.get(id);
@@ -1814,6 +1893,8 @@ export class RepositoryWorkspaces {
       if (this.getForConversation(conversationId)?.id !== id)
         throw Error('Source release requires its current primary owner');
       if (record.sourceReleased) return;
+      if (record.sandbox && !record.sandboxMaterialization)
+        throw Error('Repository source requires a verified target before release');
       const expectedRecord = JSON.stringify(record);
       await rm(join(this.directory, id), { recursive: true, force: true });
       record.sourceReleased = true;

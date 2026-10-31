@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
-import { GithubPublicationReviewError } from '../github-publication-review-failure.js';
+import {
+  consumeGithubPublicationNotDispatched,
+  GithubPublicationReviewError,
+} from '../github-publication-review-failure.js';
 import {
   createGithubArtifactPublishPrExecutor,
   type GithubArtifactPublishDependencies,
@@ -28,7 +31,7 @@ const input = {
   body: 'Prepared work',
   draft: true,
 };
-function fixture() {
+function fixture(retainArtifact = false) {
   const order: string[] = [];
   const inspection: GithubSandboxInspection = {
     canonicalRepositoryPath: '/task',
@@ -78,6 +81,13 @@ function fixture() {
     inspect: vi.fn(async () => structuredClone(inspection)),
     exportBundle: vi.fn(async () => Buffer.from(bundle)),
     host: {
+      ...(retainArtifact
+        ? {
+            refreshBase: vi.fn(async () => {
+              order.push('refresh-base');
+            }),
+          }
+        : {}),
       policy: vi.fn(async () => ({ defaultBranch: 'main', sourceBranchProtected: false })),
       reconstruct: vi.fn(async () => {
         order.push('reconstruct');
@@ -106,9 +116,9 @@ function fixture() {
 }
 
 it('reviews the frozen host artifact before approval and revalidates the private receipt before push', async () => {
-  const f = fixture();
+  const f = fixture(true);
   const preflight = await f.executor.preflight!(f.context);
-  expect(f.order).toEqual(['reconstruct', 'review', 'review-fence', 'cleanup']);
+  expect(f.order).toEqual(['reconstruct', 'review', 'review-fence']);
   expect(f.review).toHaveBeenCalledWith(
     expect.objectContaining({
       operation,
@@ -136,7 +146,21 @@ it('reviews the frozen host artifact before approval and revalidates the private
   expect(f.review).toHaveBeenCalledTimes(1);
   expect(f.assertCurrent).toHaveBeenCalledTimes(2);
   expect(f.order.indexOf('push')).toBeGreaterThan(f.order.lastIndexOf('review-fence'));
-  expect(f.deps.host.cleanup).toHaveBeenCalledTimes(2);
+  expect(f.deps.host.reconstruct).toHaveBeenCalledOnce();
+  expect(f.deps.host.refreshBase).toHaveBeenCalledOnce();
+  expect(f.deps.host.cleanup).toHaveBeenCalledOnce();
+});
+
+it('releases an abandoned artifact once and cannot reuse its private review authority', async () => {
+  const f = fixture(true);
+  const preflight = await f.executor.preflight!(f.context);
+  await f.executor.releasePreflight!(operation.id);
+  await f.executor.releasePreflight!(operation.id);
+  expect(f.deps.host.cleanup).toHaveBeenCalledOnce();
+  await expect(
+    f.executor.execute({ ...f.context, approvalInput: preflight.approvalInput }),
+  ).rejects.toThrow(/review/i);
+  expect(f.deps.host.push).not.toHaveBeenCalled();
 });
 
 it('stops before approval and publication when independent review fails, preserving host cleanup', async () => {
@@ -265,3 +289,40 @@ it.each([
   expect(f.deps.host.create).not.toHaveBeenCalled();
   expect(f.deps.host.update).not.toHaveBeenCalled();
 });
+
+it('classifies a failed push observation as undispatched and cleans the retained artifact', async () => {
+  const f = fixture(true);
+  const preflight = await f.executor.preflight!(f.context);
+  const failure = Error('phase storage unavailable');
+  const error = await f.executor
+    .execute({
+      ...f.context,
+      approvalInput: preflight.approvalInput,
+      observePhase: (phase) => {
+        if (phase === 'push') throw failure;
+      },
+    })
+    .catch((error: unknown) => error);
+  expect(error).toBe(failure);
+  expect(consumeGithubPublicationNotDispatched(error)).toBe(true);
+  expect(f.deps.host.push).not.toHaveBeenCalled();
+  expect(f.deps.host.cleanup).toHaveBeenCalledOnce();
+});
+
+it.each(['refresh_failure', 'changed_evidence'] as const)(
+  'fences retained artifact %s before push',
+  async (reason) => {
+    const f = fixture(true);
+    const preflight = await f.executor.preflight!(f.context);
+    vi.mocked(f.deps.host.refreshBase!).mockImplementation(async () => {
+      if (reason === 'refresh_failure') throw Error('base refresh failed');
+      f.assertCurrent.mockRejectedValue(Error('base evidence changed'));
+    });
+    await expect(
+      f.executor.execute({ ...f.context, approvalInput: preflight.approvalInput }),
+    ).rejects.toThrow(/base/);
+    expect(f.deps.host.push).not.toHaveBeenCalled();
+    expect(f.deps.host.reconstruct).toHaveBeenCalledOnce();
+    expect(f.deps.host.cleanup).toHaveBeenCalledOnce();
+  },
+);

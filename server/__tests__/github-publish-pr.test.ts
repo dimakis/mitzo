@@ -662,7 +662,31 @@ describe('github.publish-pr capability', () => {
     expect(bundlePath).not.toBe(clone.at(-1));
     expect(JSON.stringify(calls)).not.toContain('SENTINEL_TOKEN');
     await expect(stat(bundlePath)).resolves.toMatchObject({ mode: expect.any(Number) });
-    await publisher.cleanup(rebuilt.cleanupDirectory!);
+    const refresh = {
+      directory: rebuilt.directory,
+      repository: 'acme/widgets',
+      baseBranch: 'main',
+      signal: new AbortController().signal,
+    };
+    const fence = vi.fn(async () => {});
+    await publisher.refreshBase({ ...refresh, assertRuntimeCurrent: fence });
+    expect(fence).toHaveBeenCalledTimes(2);
+    expect(calls.at(-1)).toEqual([
+      '-C',
+      rebuilt.directory,
+      'fetch',
+      '--no-tags',
+      'https://github.com/acme/widgets.git',
+      'refs/heads/main:refs/remotes/origin/main',
+    ]);
+    await expect(
+      publisher.refreshBase({ ...refresh, directory: join(rebuilt.directory, 'unowned') }),
+    ).rejects.toThrow('owner');
+    const cleanup = publisher.cleanup(rebuilt.cleanupDirectory!);
+    expect(publisher.cleanup(rebuilt.cleanupDirectory!)).toBe(cleanup);
+    await expect(publisher.refreshBase(refresh)).rejects.toThrow('owner');
+    await cleanup;
+    await expect(publisher.refreshBase(refresh)).rejects.toThrow('owner');
     await expect(stat(rebuilt.cleanupDirectory!)).rejects.toThrow();
   });
   it('reads only the controller GitHub login for publishing identity verification', async () => {
