@@ -1,6 +1,10 @@
 import { expect, it } from 'vitest';
 import { PendingHostTaskError } from '../pending-host-task.js';
-import { CodexToolFailure, codexToolFailureResult } from '../codex-tool-failure.js';
+import {
+  CodexToolFailure,
+  codexToolFailureResult,
+  withCodexToolCleanup,
+} from '../codex-tool-failure.js';
 
 it.each([
   ['EPERM', 'filesystem_denied'],
@@ -35,6 +39,37 @@ it('retains only explicitly typed pre-effect stage and cause', () => {
     reason: 'custody_changed',
     effectStatus: 'not_started',
   });
+});
+
+it('keeps reconciliation for cancellation or cleanup uncertainty after input rejection', async () => {
+  const invalid = new CodexToolFailure('invalid_input', {
+    stage: 'repository_preparation',
+    reason: 'invalid_input',
+    effectStatus: 'not_started',
+  });
+  expect(JSON.parse(codexToolFailureResult(invalid, true).content)).toMatchObject({
+    error: 'cancelled',
+    retry: 'after_reconciliation',
+  });
+  let uncertain: unknown;
+  try {
+    await withCodexToolCleanup(async () => {
+      throw invalid;
+    }, [
+      () => {
+        throw Error('SECRET cleanup');
+      },
+    ]);
+  } catch (error) {
+    uncertain = error;
+  }
+  const result = codexToolFailureResult(uncertain, false);
+  expect(JSON.parse(result.content)).toMatchObject({
+    diagnostic: { effectStatus: 'unknown' },
+    retry: 'after_reconciliation',
+  });
+  expect(result.content).not.toContain('SECRET');
+  expect(result.content).not.toContain('did not start');
 });
 
 it('preserves a bounded safe causal errno through wrapper errors and terminates cycles', () => {

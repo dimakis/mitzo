@@ -1,6 +1,5 @@
 import { vi, expect, afterEach } from 'vitest';
 import { fork, type ChildProcess } from 'node:child_process';
-import { request as proxyRequest } from 'node:http';
 import { mkdir, writeFile, readFile, realpath, mkdtemp, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -51,7 +50,7 @@ type RestartReady = {
 };
 type RestartMessage =
   RestartReady | { type: 'snapshot'; id: string; value: RestartSnapshot; error?: string };
-import express from 'express';
+import { createJoinedChildProxy } from './joined-child-proxy';
 import { createJoinedFrontend, createJoinedBrowser } from './joined-browser-target';
 import { observePreparedConversations } from './joined-conversation-ready';
 import { installPrivateCanonicalReadCli } from './joined-canonical-cli';
@@ -248,29 +247,7 @@ export async function createWorkerRestartFixture() {
     vi.unstubAllEnvs();
   };
   const initialReady = await start();
-  const proxy = express();
-  proxy.use((req, res) => {
-    if (!target) {
-      req.socket.destroy();
-      return;
-    }
-    const upstream = proxyRequest(
-      {
-        hostname: '127.0.0.1',
-        port: target,
-        method: req.method,
-        path: req.originalUrl,
-        headers: req.headers,
-      },
-      (response) => {
-        res.writeHead(response.statusCode!, response.headers);
-        response.pipe(res);
-        res.on('close', () => upstream.destroy());
-      },
-    );
-    upstream.on('error', () => res.destroy());
-    req.pipe(upstream);
-  });
+  const proxy = createJoinedChildProxy(() => target);
   const front = await createJoinedFrontend(proxy, f.root);
   resources.closeFront = () => front.close();
   const connectOperator = async () => {
