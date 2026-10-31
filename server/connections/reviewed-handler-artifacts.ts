@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.11';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.799-interrupted-recovery-paged-effects';
+  'v1.0.800-completion-fixture-batching';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2999,7 +2999,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-tool-failure-diagnostics.test.ts':
     '0dbcc461862a158250390e69c67de5420c68614c4915cdbfc4421ed9f86cd561',
   '../__tests__/completion-concurrency.test.ts':
-    'dc5f6c669bf879eb2a9a41a945c29d4b2e9f303d920efd04f2e3f297a7fc52b1',
+    'c79b766ae23712787307c910ea7ce3199118c2ebcd93d768b990629939e9a3c8',
   '../__tests__/conversation-transcript.test.ts':
     'e2ded8289d3a7b890fe865cc7e084c52f27f2f42e6ec425fc77c1743f54315b5',
   '../__tests__/local-repository-preparation-continuation.test.ts':
