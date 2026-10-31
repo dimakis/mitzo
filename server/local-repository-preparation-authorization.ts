@@ -1,14 +1,9 @@
 import type { LocalRepositoryPreparationObjectData } from './local-repository-preparation-object-data.js';
-import {
-  RepositoryBaseIntentSchema,
-  RepositorySourceIntentSchema,
-  localRepositoryPreparationId,
-  repositorySourceIdentity,
-} from './local-repository-base.js';
+import { localRepositoryPreparationId, repositorySourceIdentity } from './local-repository-base.js';
 import { retainPreparationPackedRefs } from './local-repository-preparation-packed-refs.js';
 import { buildPermissionHandler, type SessionRegistry } from '@mitzo/harness';
 import { AccountBindingSchema, SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
-import { isAbsolute, join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import type { EventStore } from './event-store.js';
@@ -27,23 +22,8 @@ import {
   type PendingHostTaskDecision,
   type PendingHostTaskDecisionOwner,
 } from './pending-host-task.js';
-
-export const inputSchema = z
-  .strictObject({
-    path: z
-      .string()
-      .min(1)
-      .max(4096)
-      .refine((path) => isAbsolute(path) && resolve(path) === path)
-      .optional(),
-    source: RepositorySourceIntentSchema.optional(),
-    base: RepositoryBaseIntentSchema,
-    newCheckout: z.literal(true).optional(),
-  })
-  .refine(
-    (input) => Boolean(input.path) !== Boolean(input.source),
-    'Choose exactly one existing path or repository source',
-  );
+import { parseLocalRepositoryPreparationInput } from './local-repository-preparation-input.js';
+export { inputSchema } from './local-repository-preparation-input.js';
 interface Identity {
   readonly dev: number;
   readonly ino: number;
@@ -111,9 +91,8 @@ export async function captureLocalRepositoryPreparationAuthorization(
   context.signal.throwIfAborted();
   if (context.toolName !== 'PrepareLocalRepository' || typeof owners.qualifySource !== 'function')
     throw new PendingHostTaskError('pending_host_task_access_required');
-  let input: z.infer<typeof inputSchema>;
+  const input = freezePendingHostTaskData(parseLocalRepositoryPreparationInput(rawInput));
   try {
-    input = freezePendingHostTaskData(inputSchema.parse(structuredClone(rawInput)));
     if (pendingHostTaskDecisionHash(rawInput) !== context.requestHash)
       throw new Error('Original native input changed');
   } catch {

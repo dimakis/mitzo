@@ -63,6 +63,29 @@ stage/reason diagnostics and reproduce with representative synthetic repositorie
 
 ## Decisions
 
+### Agent input and correction contract
+
+`PrepareLocalRepository` accepts exactly one selector. For a new local project,
+use `{"source":{"kind":"new","name":"my-project"}}`. For an existing checkout,
+use `{"path":"/absolute/existing-repo","base":{"kind":"ref","ref":"HEAD"}}`
+when the user selects its current local commit, or omit `base` for the freshly
+acquired remote default branch. To clone, use
+`{"source":{"kind":"clone","url":"https://example.invalid/team/repo.git"}}`.
+
+`path` selects an existing source; it is not a destination. `name` labels the new
+repository. Mitzo assigns the isolated task directory and returns it after
+materialization. Custom destination selection is unsupported; agents must not
+promise creation at a requested filesystem location. Remote hosting remains a
+separate explicitly requested action.
+
+The public JSON Schema expresses the exclusive selectors and supplies examples.
+The shared decoder rejects malformed input before source qualification, approval
+or preparation effects. These failures report `invalid_input`,
+`effectStatus: not_started` and `retry: after_correction` with a fixed safe recipe;
+they do not expose raw validation issues or private input. Correct the arguments
+instead of reconciling an unrelated repository. Cancellation, cleanup uncertainty
+and actual preparation failures retain their reconciliation requirements.
+
 ### 1. Resolve repository identity and base separately
 
 Discovery uses configured repository locations and bounded, authorized search
