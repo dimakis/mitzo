@@ -1,3 +1,4 @@
+import { AdviserHarnessFailure } from '../adviser-harness-failure.js';
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -566,4 +567,14 @@ it('reviews complete large source and generated context without dropping unchang
   expect(f.session).toHaveBeenCalledTimes(2);
   expect(f.contexts[0].match(/retained complete context/g)).toHaveLength(8006);
   expect(f.contexts[0]).toContain('end-of-reviewed-file');
+});
+
+it('delivers only a bounded native failure phase to the publication caller without retrying', async () => {
+  const f = await fixture();
+  f.session.mockRejectedValueOnce(new AdviserHarnessFailure('session_metadata'));
+  await expect(f.review(f.input)).rejects.toMatchObject({
+    code: 'PUBLICATION_REVIEW_UNAVAILABLE',
+    details: { reason: 'review_response_unavailable', phase: 'session_metadata' },
+  });
+  expect(f.session).toHaveBeenCalledOnce();
 });

@@ -1,5 +1,8 @@
-import { beforeEach, expect, it, vi } from 'vitest';
-import { OrdinarySessionPreparationReceiptV2Schema } from '@mitzo/protocol';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { EventStore } from '@mitzo/protocol/event-store';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 const mocks = vi.hoisted(() => ({
   authorization: vi.fn(),
   prepare: vi.fn(),
@@ -33,17 +36,13 @@ const mocks = vi.hoisted(() => ({
     },
   },
 }));
-vi.mock('../agent-library-transport.js', () => ({
+vi.mock('../agent-library-transport.js', async () => ({
   captureAgentLibraryAuthorization: () => ({
     auth: { id: 'operator' },
     assertCurrent: mocks.authorization,
   }),
-  readBuiltinAgentLibraryProfile: () => ({
-    profileId: 'builtin',
-    revision: 1,
-    definition: {},
-    contentHash: 'hash',
-  }),
+  readBuiltinAgentLibraryProfile: (await import('../builtin-agent-library-profile.js'))
+    .readBuiltinAgentLibraryProfile,
 }));
 vi.mock('../account-profiles.js', () => ({
   loadAccountProfiles: () => ({ resolve: mocks.resolve, validateModelSelection: () => {} }),
@@ -88,6 +87,14 @@ const owner = {
   operatorConnectionId: 'feature-operation',
   feature: { kind: 'terminal' as const, terminalId: 'term' },
 };
+let store: EventStore | undefined;
+let storeRoot: string | undefined;
+afterEach(() => {
+  store?.close();
+  store = undefined;
+  if (storeRoot) rmSync(storeRoot, { recursive: true, force: true });
+  storeRoot = undefined;
+});
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.resolve.mockReturnValue(mocks.binding);
@@ -104,18 +111,15 @@ beforeEach(() => {
     preparationFingerprint: 'a'.repeat(64),
     settings: input.settings,
   }));
-  // Exercise the real receipt contract at the composition boundary. A no-op
-  // preparation mock concealed rejection of the selected local API account.
-  mocks.prepareSession.mockImplementation((meta, input) =>
-    OrdinarySessionPreparationReceiptV2Schema.parse({
-      version: 2,
-      ...input,
-      sessionId: meta.sessionId,
-      workspaceKind: 'ordinary',
-      workspaceId: meta.ordinaryWorkspaceId,
-      firstCommandId: null,
-    }),
-  );
+  // Lazily exercise the actual metadata transaction, including its separate
+  // route/read guards. Rejected allocations need no database fixture.
+  mocks.prepareSession.mockImplementation((meta, input) => {
+    if (!store) {
+      storeRoot = realpathSync(mkdtempSync(join(tmpdir(), 'adviser-composition-')));
+      store = new EventStore(join(storeRoot, 'events.db'));
+    }
+    return store.prepareOrdinaryWorkspaceSession(meta, input);
+  });
   mocks.dispatch.mockImplementation(async (input) => {
     mocks.live = {
       session: {
@@ -170,6 +174,8 @@ it('sends selected API identity, target and reviewed context through the existin
   expect(input.command.payload.text).toContain('Reviewed');
   expect(input.adviserScope.instructions()).toBe('Feature instructions');
   expect(mocks.prepareSession).toHaveBeenCalledOnce();
+  expect(store?.getSession('task')?.accountBinding?.provider).toBe('openai');
+  expect(store?.getSessionRuntimeBinding('task')).toEqual(mocks.runtime);
   expect(mocks.close).toHaveBeenCalledOnce();
   expect(events).toContainEqual(
     expect.objectContaining({
@@ -227,7 +233,30 @@ it('rechecks the originating feature authority after deferred allocation before 
       void event; // Drain the independent review stream.
     }
   };
-  await expect(read()).rejects.toThrow('Original publisher changed');
+  await expect(read()).rejects.toMatchObject({ phase: 'workspace_reserve' });
   expect(mocks.dispatch).not.toHaveBeenCalled();
   expect(mocks.prepareSession).not.toHaveBeenCalled();
 });
+
+it.each([
+  ['workspace_prepare', mocks.prepare],
+  ['workspace_reserve', mocks.reserve],
+  ['session_metadata', mocks.prepareSession],
+  ['command_dispatch', mocks.dispatch],
+] as const)(
+  'reports a bounded %s failure without exposing internal errors',
+  async (phase, boundary) => {
+    boundary.mockImplementationOnce(() => {
+      throw Error('secret internal path or credential');
+    });
+    const model = await createNativeAdviserSession(config, request, owner, mocks.binding);
+    const read = async () => {
+      for await (const event of model.turn(request.messages)) void event;
+    };
+    await expect(read()).rejects.toMatchObject({
+      phase,
+      message: 'Adviser harness could not complete',
+    });
+    if (phase !== 'command_dispatch') expect(mocks.dispatch).not.toHaveBeenCalled();
+  },
+);
