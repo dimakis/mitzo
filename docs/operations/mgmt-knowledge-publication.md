@@ -427,3 +427,9 @@ active selections. Activate publisher policy and adapter/builder pins together:
 a policy-aware manifest and a legacy converter (or the reverse) must not be
 mixed. Retain previous configuration, selected publications and task data for
 rollback. Subsequent accepted directory/content changes need no service restart.
+
+The private MGMT adapter must set `portablePolicy: true` when the publisher enrolls
+`spokePolicy`. Mitzo rejects disagreement at enrollment. The adapter controls
+`MGMT_PORTABLE_POLICY=1`; its default `0` retains legacy selection even when a
+policy file exists. Both immutable bundle identity and conversion caches bind
+this mode, so changing enrollment cannot reuse an incompatible cached bundle.

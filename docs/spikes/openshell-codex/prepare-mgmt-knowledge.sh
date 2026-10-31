@@ -262,7 +262,8 @@ safe_path() {
 # read-only alternate to the selected source; no host administration is copied.
 tracked_paths=()
 source_policy_receipt="$build_root/source-policy.json"
-if git -C "$source_repo" cat-file -e "$starting_commit:knowledge-publication-policy.json" 2>/dev/null; then
+case "${MGMT_PORTABLE_POLICY:-0}" in 0|1) ;; *) echo "MGMT_PORTABLE_POLICY must be 0 or 1" >&2; exit 2 ;; esac
+if [[ "${MGMT_PORTABLE_POLICY:-0}" = 1 ]]; then
   node "$script_root/../../../scripts/select-mgmt-knowledge.mjs" "$source_repo" "$starting_commit" "$source_policy_receipt" > "$build_root/selected-paths"
   while IFS= read -r -d '' path; do tracked_paths+=("$path"); done < "$build_root/selected-paths"
 else

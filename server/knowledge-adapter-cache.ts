@@ -14,7 +14,7 @@ const physicalFile = (path: string) => {
 
 export function cachedKnowledgeConversion(
   root: string,
-  identity: { revision: string; builderCommit: string; sourceUrl: string },
+  identity: { revision: string; builderCommit: string; sourceUrl: string; portablePolicy: boolean },
   signal: AbortSignal,
 ): KnowledgeBundleSelection | undefined {
   signal.throwIfAborted();
@@ -25,7 +25,8 @@ export function cachedKnowledgeConversion(
     state.status !== 'current' ||
     state.publishedCommit !== identity.revision ||
     state.builderCommit !== identity.builderCommit ||
-    state.publishedSourceUrl !== identity.sourceUrl
+    state.publishedSourceUrl !== identity.sourceUrl ||
+    (state.portablePolicy ?? false) !== identity.portablePolicy
   )
     return undefined;
   const publications = realpathSync(join(root, 'publications'));
@@ -48,6 +49,7 @@ export function cachedKnowledgeConversion(
     receipt.baselineSha256 !== hash(raw) ||
     receipt.payloadSha256 !== baseline.payloadSha256 ||
     baseline.startingCommit !== identity.revision ||
+    Boolean(baseline.spokePolicy) !== identity.portablePolicy ||
     !isDeepStrictEqual(receipt, state.receipt)
   )
     throw Error('Cached knowledge bundle provenance changed');

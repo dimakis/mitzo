@@ -850,10 +850,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/spikes/openshell-codex/prepared-request-native/native-extension-tool-inventory.patch':
     '4f7da79a4723d70cabdc576bbf34b0bb9c18ba0d933758dda44dc8b228248124',
   '../knowledge-adapter-cache.ts':
-    '72fff2292ec104451c3e18ca896f4eb1648ad8be3d472b9fc5c303bd8be7b199',
+    'a774235351021801a6dbd0a23d53360d6beb510512176a86140ef7977fbf56e5',
   '../knowledge-prewarming.ts': 'd37faec60aa617052fc5db01466aee767e494b3f23ed23529754503d8d33dcdc',
   '../knowledge-store-config.ts':
-    '329b896ece883b389a84cdfef858283fae8c428c24af8b8f76c2a03910218415',
+    '290309db8f58d61551cba33ba4e91db53c4833f0cfd9acc002d189ab92f116ea',
   '../../scripts/lib/portable-spoke-policy.mjs':
     'e2ceda6be3db42d9bd1fd6068239756c9bba00fc45b757db4acde9cba09371c3',
   '../../scripts/lib/portable-spoke-policy.d.mts':
@@ -865,7 +865,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/verify-openshell-production.mjs':
     '9394524b1199fd00a4575115fac2591916a760a485bc64f6213169237c1feb00',
   '../../docs/spikes/openshell-codex/prepare-mgmt-knowledge.sh':
-    'f71f649fc351d6e5ab54cdee690f93ef6c13f13442d83e7f5c22f95be2075007',
+    '05c92ba46277222e5f2735713d7ce7f521bfb189a8c8c775b78ec5b6ced7ac1a',
   '../../scripts/select-mgmt-knowledge.mjs':
     '16902a6cad9ed89368864d85a49f212b272b0b40b40ae911ca96898e065c8b3e',
   '../knowledge-publication-bridge.ts':
@@ -2044,7 +2044,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-references.test.ts':
     '276cbbb4484e789bb449af2b725e338b0dcfd3676d3f9a203a2f4bb22b0c66ce',
   '../local-repository-preparation-source.ts':
-    '6fc6b7ef29ad31b83fceebc5a898afe4032510a149550cc6a644d013ea26092a',
+    '6bbebd6d02973d71c8dd4cb62cf6116d45c1cf3d6b1fe7dbcf7d37f7b863145f',
   '../__tests__/local-repository-preparation-source.test.ts':
     '46657283e4005adf0ee4fc38ea42fd51c29cf0d31f0707006049626e5bb829dc',
   '../__tests__/local-repository-reference-metadata.test.ts':
