@@ -331,14 +331,19 @@ export class CapabilityOperationStore {
       Record<string, unknown> | undefined;
     return row ? operation(row) : undefined;
   }
-  recordPhase(id: string, phase: CapabilityOperationPhase): void {
+  recordPhase(
+    id: string,
+    phase: CapabilityOperationPhase,
+  ): { phase: CapabilityOperationPhase; updatedAt: number } {
     if (!CAPABILITY_OPERATION_PHASES.includes(phase)) throw Error('Capability phase is invalid');
+    const updatedAt = Date.now();
     const changed = this.db
       .prepare(
         "UPDATE capability_operations SET phase=?, updated_at=? WHERE id=? AND status IN ('pending_approval','running','verification_pending')",
       )
-      .run(phase, Date.now(), id);
+      .run(phase, updatedAt, id);
     if (changed.changes !== 1) throw Error('Capability phase owner is no longer active');
+    return { phase, updatedAt };
   }
   recordCleanupFailure(id: string): void {
     this.audit(id, 'preflight_cleanup', 'failed', 'CLEANUP_FAILED', Date.now());

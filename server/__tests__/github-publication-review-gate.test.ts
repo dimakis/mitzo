@@ -136,6 +136,7 @@ it('reviews the frozen host artifact before approval and revalidates the private
     reviewSummary: 'Two independent scopes approved the complete evidence.',
   });
   expect(f.deps.host.push).not.toHaveBeenCalled();
+  vi.mocked(f.deps.host.cleanup).mockRejectedValueOnce(Error('deletion failed'));
   const published = await f.executor.execute({
     ...f.context,
     approvalInput: preflight.approvalInput,
@@ -149,6 +150,8 @@ it('reviews the frozen host artifact before approval and revalidates the private
   expect(f.deps.host.reconstruct).toHaveBeenCalledOnce();
   expect(f.deps.host.refreshBase).toHaveBeenCalledOnce();
   expect(f.deps.host.cleanup).toHaveBeenCalledOnce();
+  await f.executor.releasePreflight!(operation.id);
+  expect(f.deps.host.cleanup).toHaveBeenCalledTimes(2);
 });
 
 it('releases an abandoned artifact once and cannot reuse its private review authority', async () => {
@@ -326,3 +329,70 @@ it.each(['refresh_failure', 'changed_evidence'] as const)(
     expect(f.deps.host.cleanup).toHaveBeenCalledOnce();
   },
 );
+
+it('retries failed artifact deletion without retaining publication authority', async () => {
+  const f = fixture(true);
+  const preflight = await f.executor.preflight!(f.context);
+  vi.mocked(f.deps.host.cleanup).mockRejectedValueOnce(Error('deletion failed'));
+  await expect(f.executor.releasePreflight!(operation.id)).rejects.toThrow('deletion failed');
+  await expect(
+    f.executor.execute({ ...f.context, approvalInput: preflight.approvalInput }),
+  ).rejects.toThrow(/review/i);
+  await f.executor.releasePreflight!(operation.id);
+  await f.executor.releasePreflight!(operation.id);
+  expect(f.deps.host.cleanup).toHaveBeenCalledTimes(2);
+  expect(f.deps.host.push).not.toHaveBeenCalled();
+});
+
+it.each(['inspection', 'approval'] as const)(
+  'preserves the undispatched %s failure when cleanup also fails',
+  async (stage) => {
+    const f = fixture(true);
+    const preflight = await f.executor.preflight!(f.context);
+    const failure = Error('inspection unavailable');
+    if (stage === 'inspection') vi.mocked(f.deps.inspect).mockRejectedValue(failure);
+    const approvalInput = { ...preflight.approvalInput };
+    if (stage === 'approval') approvalInput.reviewReceiptId = 'changed';
+    vi.mocked(f.deps.host.cleanup).mockRejectedValueOnce(Error('deletion failed'));
+    const error = await f.executor
+      .execute({ ...f.context, approvalInput })
+      .catch((error: unknown) => error);
+    if (stage === 'inspection') expect(error).toBe(failure);
+    else expect(error).toHaveProperty('message', 'GitHub repository changed after approval');
+    expect(consumeGithubPublicationNotDispatched(error)).toBe(true);
+    await f.executor.releasePreflight!(operation.id);
+    expect(f.deps.host.cleanup).toHaveBeenCalledTimes(2);
+    expect(f.deps.host.push).not.toHaveBeenCalled();
+  },
+);
+
+it('keeps an executing artifact under its original owner when another execution is refused', async () => {
+  const f = fixture(true);
+  const preflight = await f.executor.preflight!(f.context);
+  let resume!: () => void;
+  let entered!: () => void;
+  const inspecting = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  vi.mocked(f.deps.inspect).mockImplementationOnce(async () => {
+    entered();
+    await gate;
+    return f.inspection;
+  });
+  const publishing = f.executor.execute({ ...f.context, approvalInput: preflight.approvalInput });
+  await inspecting;
+  await expect(f.executor.releasePreflight!(operation.id)).rejects.toThrow(
+    'Publication artifact is in use',
+  );
+  await expect(
+    f.executor.execute({ ...f.context, approvalInput: preflight.approvalInput }),
+  ).rejects.toThrow(/review/i);
+  expect(f.deps.host.cleanup).not.toHaveBeenCalled();
+  resume();
+  await publishing;
+  expect(f.deps.host.cleanup).toHaveBeenCalledOnce();
+  expect(f.deps.host.push).toHaveBeenCalledOnce();
+});

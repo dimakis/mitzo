@@ -183,7 +183,10 @@ it.each([false, true])(
         expect(args[0]).toBe('-C');
         expect(args[1]).toContain('mitzo-github-publish-');
         expect(['fetch', 'rev-parse', 'symbolic-ref']).toContain(args[2]);
-        return localGit(args, signal);
+        return localGit(
+          args.map((arg) => (arg === 'https://github.com/example/repo.git' ? remote : arg)),
+          signal,
+        );
       }
       expect(command).toBe('gh');
       if (args.join(' ') === 'api user')

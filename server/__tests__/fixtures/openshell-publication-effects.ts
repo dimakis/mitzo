@@ -107,7 +107,11 @@ process.stdout.write(execFileSync(call[0],call.slice(1),{env:{PATH:process.env.P
       if (args[0] === 'ls-remote')
         return { stdout: `${publishedHead}\trefs/heads/${input.branch}\n`, stderr: '' };
       expect(args[0]).toBe('-C');
-      return execute('/usr/bin/git', [...args], { env, signal, encoding: 'utf8' });
+      return execute(
+        '/usr/bin/git',
+        args.map((arg) => (arg === 'https://github.com/example/repo.git' ? remote : arg)),
+        { env, signal, encoding: 'utf8' },
+      );
     }
     expect(command).toBe('gh');
     if (args.join(' ') === 'api user')

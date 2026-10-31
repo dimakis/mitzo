@@ -164,9 +164,9 @@ const marker = (root) => path.join(root, '.git', 'mitzo-materialization.json');
 const storage = (root) => {
   const dir = path.join(root, '.git');
   need(fs.lstatSync(dir).isDirectory() && fs.realpathSync(dir) === dir);
-  need(!fs.existsSync(path.join(dir, 'commondir')));
-  const alternate = path.join(dir, 'objects/info/alternates');
-  need(!fs.existsSync(alternate) || (fs.lstatSync(alternate).isFile() && fs.statSync(alternate).size === 0));
+  for (const part of ['commondir', 'objects/info/alternates', 'objects/info/http-alternates', 'info/grafts']) {
+    try { fs.lstatSync(path.join(dir, part)); need(false); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  }
   let entries = 0, bytes = 0;
   const walk = (at) => {
     for (const name of fs.readdirSync(at)) {
@@ -176,12 +176,35 @@ const storage = (root) => {
       else { need(s.isFile() && s.nlink === 1); bytes += s.size; need(bytes <= 512 * 1024 * 1024); }
     }
   };
+  const info = path.join(dir, 'info');
+  if (fs.existsSync(info)) { need(fs.lstatSync(info).isDirectory() && fs.realpathSync(info) === info); walk(info); }
   for (const part of ['objects', 'refs']) {
     const at = path.join(dir, part); need(fs.lstatSync(at).isDirectory() && fs.realpathSync(at) === at); walk(at);
   }
-  for (const part of ['config', 'HEAD', 'mitzo-materialization.json']) {
-    const at = path.join(dir, part), s = fs.lstatSync(at);
+  for (const part of ['config', 'HEAD', 'mitzo-materialization.json', 'packed-refs', 'config.worktree', 'shallow']) {
+    const at = path.join(dir, part);
+    let s; try { s = fs.lstatSync(at); } catch (e) { if (e.code === 'ENOENT' && ['packed-refs', 'config.worktree', 'shallow'].includes(part)) continue; throw e; }
     need(s.isFile() && s.nlink === 1 && fs.realpathSync(at) === at);
+  }
+  // Parse bounded local bytes outside the repository; never follow includes.
+  for (const part of ['config', 'config.worktree']) {
+    const at = path.join(dir, part);
+    if (!fs.existsSync(at)) continue;
+    need(fs.statSync(at).size <= 65536);
+    const settings = cp.execFileSync('/usr/bin/git', ['config', '--no-includes', '--file', '-', '--null', '--list'], { cwd: '/', env, input: fs.readFileSync(at), encoding: 'utf8', timeout: 5000, maxBuffer: 131072 });
+    for (const setting of settings.split('\0').filter(Boolean)) {
+      const separator = setting.indexOf('\n'), key = setting.slice(0, separator === -1 ? undefined : separator).toLowerCase(), value = separator === -1 ? undefined : setting.slice(separator + 1);
+      need(!/^include(if)?\./.test(key));
+      need(!key.startsWith('extensions.') || ['extensions.objectformat', 'extensions.worktreeconfig'].includes(key));
+      need(key !== 'core.worktree' || value === root);
+      need(key !== 'core.bare' || ['false', 'no', 'off', '0'].includes((value || '').toLowerCase()));
+      need(key !== 'extensions.objectformat' || ['sha1', 'sha256'].includes(value));
+    }
+  }
+  const shallow = path.join(dir, 'shallow');
+  if (fs.existsSync(shallow)) {
+    need(fs.statSync(shallow).size <= 65536);
+    need(fs.readFileSync(shallow, 'utf8').split('\n').filter(Boolean).every((oid) => /^[a-f0-9]{40}$/.test(oid)));
   }
 };
 const verify = () => {

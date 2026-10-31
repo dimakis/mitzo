@@ -45,7 +45,9 @@ afterEach(async () => {
 it('retains the exact preflight failure phase without changing mutation recovery state', async () => {
   const f = await fixture({
     preflight: async (context) => {
+      expect(context.operation).toEqual(f.store.get(context.operation.id));
       context.observePhase?.('review_second');
+      expect(context.operation).toEqual(f.store.get(context.operation.id));
       throw new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE', {
         reason: 'context_round_limit',
       });
@@ -856,7 +858,7 @@ it('does not mark dispatch uncertain when recording the execution phase fails', 
   const record = f.store.recordPhase.bind(f.store);
   vi.spyOn(f.store, 'recordPhase').mockImplementation((id, phase) => {
     if (phase === 'execution') throw Error('phase storage unavailable');
-    record(id, phase);
+    return record(id, phase);
   });
   try {
     const result = await f.service.invoke(request(), new AbortController().signal);

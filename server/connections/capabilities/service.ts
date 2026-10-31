@@ -434,7 +434,9 @@ export class CapabilityService {
       import('./types.js').CapabilityExecutionContext['observePhase']
     > = (phase) => {
       signal.throwIfAborted();
-      this.options.store.recordPhase(operation.id, phase);
+      // Keep the admitted snapshot aligned with our own diagnostic-only write.
+      // No authority fields are refreshed or accepted from a stale caller.
+      Object.assign(operation, this.options.store.recordPhase(operation.id, phase));
     };
     try {
       const executor = this.options.executorRegistry.resolve(template);

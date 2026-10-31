@@ -96,6 +96,17 @@ export interface ReviewPublicationDependencies {
   resolveBinding(context: ReviewContext, record: ReviewRecord): ReviewPublicationBinding | null;
 }
 
+// Phase/timestamp writes are observations, not a change of publication authority.
+// Every other field remains bound, and check() still compares fresh durable state.
+function publicationBindingIdentity(binding: ReviewPublicationBinding) {
+  return canonicalReviewJson({
+    ...binding,
+    operation: Object.fromEntries(
+      Object.entries(binding.operation).filter(([key]) => key !== 'phase' && key !== 'updatedAt'),
+    ),
+  });
+}
+
 /** Shared pre/post-approval validation; caller selects the exact durable operation phase. */
 export async function prepareSymposiumReviewPublication(
   deps: ReviewPublicationDependencies,
@@ -109,12 +120,12 @@ export async function prepareSymposiumReviewPublication(
   if (!record) throw new Error('Review record not found');
   const binding = deps.resolveBinding(context, record);
   if (!binding) throw new Error('Publication builder binding unavailable');
-  const fingerprint = canonicalReviewJson(binding);
+  const fingerprint = publicationBindingIdentity(binding);
   let attachmentFingerprint: string | undefined;
   const check = async () => {
     signal.throwIfAborted();
     const current = deps.resolveBinding(context, record);
-    if (!current || canonicalReviewJson(current) !== fingerprint)
+    if (!current || publicationBindingIdentity(current) !== fingerprint)
       throw new Error('Publication builder binding changed');
     const { operation, lease } = current;
     const durable = deps.operations.get(operation.id);

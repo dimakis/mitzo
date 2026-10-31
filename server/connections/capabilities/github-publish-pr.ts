@@ -453,11 +453,31 @@ export function createGithubArtifactPublishPrExecutor(
       timer?: ReturnType<typeof setTimeout>;
     }
   >();
+  // Deletion custody survives consumption/revocation of review authority.
+  const cleanupArtifacts = new Map<
+    string,
+    { directory: string; inUse?: boolean; pending?: Promise<void> }
+  >();
+  const cleanupArtifact = async (id: string) => {
+    const entry = cleanupArtifacts.get(id);
+    if (!entry) return;
+    if (entry.inUse) throw Error('Publication artifact is in use');
+    if (entry.pending) return entry.pending;
+    entry.pending = Promise.resolve()
+      .then(() => deps.host.cleanup(entry.directory))
+      .then(() => {
+        if (cleanupArtifacts.get(id) === entry) cleanupArtifacts.delete(id);
+      })
+      .finally(() => {
+        entry.pending = undefined;
+      });
+    return entry.pending;
+  };
   const releasePreflight = async (id: string) => {
     const entry = reviews.get(id);
     reviews.delete(id);
     clearTimeout(entry?.timer);
-    if (entry?.artifact) await deps.host.cleanup(entry.artifact.cleanupDirectory);
+    await cleanupArtifact(id);
   };
   const reviewBinding = (
     context: CapabilityExecutionContext,
@@ -621,11 +641,11 @@ export function createGithubArtifactPublishPrExecutor(
       reject('GitHub repository changed after approval');
   };
   const cleanupReview = async (
-    directory: string,
+    operationId: string,
     phase: (stage: GithubPublicationPreflightStage) => void,
   ) => {
     try {
-      await deps.host.cleanup(directory);
+      await cleanupArtifact(operationId);
     } catch (error) {
       phase('cleanup');
       throw error;
@@ -664,6 +684,7 @@ export function createGithubArtifactPublishPrExecutor(
                   : {}),
               });
               cleanup = reconstructed.cleanupDirectory ?? reconstructed.directory;
+              cleanupArtifacts.set(context.operation.id, { directory: cleanup });
               if (!reconstructed.directory) reject('Host reconstruction failed');
               const evidence = reviewInput(context, state, bundle, reconstructed.directory);
               phase('review');
@@ -725,7 +746,7 @@ export function createGithubArtifactPublishPrExecutor(
               if (artifact) cleanup = undefined;
             } finally {
               // Preserve the original failure phase when cleanup succeeds.
-              if (cleanup) await cleanupReview(cleanup, phase);
+              if (cleanup) await cleanupReview(context.operation.id, phase);
             }
           }
           phase('lookup');
@@ -778,14 +799,20 @@ export function createGithubArtifactPublishPrExecutor(
     },
     async execute(context) {
       let publicationAttempted = false;
-      let artifact: { directory: string; cleanupDirectory: string } | undefined;
+      let ownsCleanup = false;
       try {
         const reviewed = reviews.get(context.operation.id);
         // Consume before awaits. A simultaneous executor call cannot reuse a
         // review receipt, and a failed write never authorizes another attempt.
         reviews.delete(context.operation.id);
         clearTimeout(reviewed?.timer);
-        artifact = reviewed?.artifact;
+        const artifact = reviewed?.artifact;
+        if (artifact) {
+          const custody = cleanupArtifacts.get(context.operation.id);
+          if (!custody) throw new GithubPublicationReviewError('PUBLICATION_REVIEW_REQUIRED');
+          custody.inUse = true;
+          ownsCleanup = true;
+        }
         if (deps.reviewCommittedChange && (!reviewed || reviewed.expiresAt <= Date.now()))
           throw new GithubPublicationReviewError('PUBLICATION_REVIEW_REQUIRED');
         const state = await inspect(context);
@@ -802,124 +829,132 @@ export function createGithubArtifactPublishPrExecutor(
         if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
         context.signal.throwIfAborted();
         const bundle = await exportedBundle(context, state);
-        let directory: string | undefined;
-        let cleanupDirectory: string | undefined;
-        try {
-          if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
-          context.signal.throwIfAborted();
-          const reconstructionInput = {
+        if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+        context.signal.throwIfAborted();
+        const reconstructionInput = {
+          repository: state.repository,
+          sourceBranch: state.inspection.sourceBranch!,
+          sourceOid: state.inspection.sourceOid,
+          baseBranch: state.input.baseBranch,
+          bundle,
+          operationId: context.operation.id,
+          signal: context.signal,
+          ...(context.assertRuntimeCurrent
+            ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+            : {}),
+        };
+        const reconstructed = artifact ?? (await deps.host.reconstruct(reconstructionInput));
+        const directory = reconstructed.directory;
+        const cleanupDirectory = reconstructed.cleanupDirectory ?? directory;
+        if (cleanupDirectory) {
+          cleanupArtifacts.set(context.operation.id, { directory: cleanupDirectory, inUse: true });
+          ownsCleanup = true;
+        }
+        if (artifact)
+          await deps.host.refreshBase!({
+            directory: artifact.directory,
+            repository: state.repository,
+            baseBranch: state.input.baseBranch,
+            signal: context.signal,
+            assertRuntimeCurrent: context.assertRuntimeCurrent,
+          });
+        if (!directory) reject('Host reconstruction failed');
+        if (reviewed)
+          await reviewed.receipt.assertCurrent(reviewInput(context, state, bundle, directory));
+        if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+        context.signal.throwIfAborted();
+        context.observePhase?.('push');
+        publicationAttempted = true;
+        await deps.host.push({
+          directory,
+          sourceBranch: state.inspection.sourceBranch!,
+          operationId: context.operation.id,
+          signal: context.signal,
+          ...(context.assertRuntimeCurrent
+            ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+            : {}),
+        });
+        context.signal.throwIfAborted();
+        const existing = await deps.host.findOpen({
+          repository: state.repository,
+          sourceBranch: state.inspection.sourceBranch!,
+          baseBranch: state.input.baseBranch,
+          operationId: context.operation.id,
+          signal: context.signal,
+          ...(context.assertRuntimeCurrent
+            ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+            : {}),
+        });
+        // A close/replace race after the branch push must never change an
+        // approved create into an update (or vice versa).
+        assertApproved(context, state, existing, reviewed?.receipt);
+        if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+        context.signal.throwIfAborted();
+        context.observePhase?.('pr_mutation');
+        const pr = assertPullRequest(
+          existing
+            ? await deps.host.update({
+                repository: state.repository,
+                sourceBranch: state.inspection.sourceBranch!,
+                baseBranch: state.input.baseBranch,
+                pullRequest: existing,
+                title: state.input.title,
+                body: state.input.body,
+                draft: state.input.draft,
+                operationId: context.operation.id,
+                signal: context.signal,
+                ...(context.assertRuntimeCurrent
+                  ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+                  : {}),
+              })
+            : await deps.host.create({
+                repository: state.repository,
+                sourceBranch: state.inspection.sourceBranch!,
+                baseBranch: state.input.baseBranch,
+                title: state.input.title,
+                body: state.input.body,
+                draft: state.input.draft,
+                operationId: context.operation.id,
+                signal: context.signal,
+                ...(context.assertRuntimeCurrent
+                  ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+                  : {}),
+              }),
+          {
             repository: state.repository,
             sourceBranch: state.inspection.sourceBranch!,
-            sourceOid: state.inspection.sourceOid,
             baseBranch: state.input.baseBranch,
-            bundle,
-            operationId: context.operation.id,
-            signal: context.signal,
-            ...(context.assertRuntimeCurrent
-              ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+          },
+        );
+        assertRequestedMetadata(pr, state.input);
+        const result = output(pr, state.inspection, !existing) as Record<string, JsonValue>;
+        if (reviewed)
+          result.review = {
+            receiptId: reviewed.receipt.receiptId,
+            evidenceSha256: reviewed.receipt.evidenceSha256,
+            summary: reviewed.receipt.summary,
+            ...(reviewed.receipt.reports
+              ? { reports: JSON.parse(JSON.stringify(reviewed.receipt.reports)) as JsonValue }
               : {}),
           };
-          const reconstructed = artifact ?? (await deps.host.reconstruct(reconstructionInput));
-          directory = reconstructed.directory;
-          cleanupDirectory = reconstructed.cleanupDirectory ?? directory;
-          if (artifact)
-            await deps.host.refreshBase!({
-              directory: artifact.directory,
-              repository: state.repository,
-              baseBranch: state.input.baseBranch,
-              signal: context.signal,
-              assertRuntimeCurrent: context.assertRuntimeCurrent,
-            });
-          if (!directory) reject('Host reconstruction failed');
-          if (reviewed)
-            await reviewed.receipt.assertCurrent(reviewInput(context, state, bundle, directory));
-          if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
-          context.signal.throwIfAborted();
-          context.observePhase?.('push');
-          publicationAttempted = true;
-          await deps.host.push({
-            directory,
-            sourceBranch: state.inspection.sourceBranch!,
-            operationId: context.operation.id,
-            signal: context.signal,
-            ...(context.assertRuntimeCurrent
-              ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-              : {}),
-          });
-          context.signal.throwIfAborted();
-          const existing = await deps.host.findOpen({
-            repository: state.repository,
-            sourceBranch: state.inspection.sourceBranch!,
-            baseBranch: state.input.baseBranch,
-            operationId: context.operation.id,
-            signal: context.signal,
-            ...(context.assertRuntimeCurrent
-              ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-              : {}),
-          });
-          // A close/replace race after the branch push must never change an
-          // approved create into an update (or vice versa).
-          assertApproved(context, state, existing, reviewed?.receipt);
-          if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
-          context.signal.throwIfAborted();
-          context.observePhase?.('pr_mutation');
-          const pr = assertPullRequest(
-            existing
-              ? await deps.host.update({
-                  repository: state.repository,
-                  sourceBranch: state.inspection.sourceBranch!,
-                  baseBranch: state.input.baseBranch,
-                  pullRequest: existing,
-                  title: state.input.title,
-                  body: state.input.body,
-                  draft: state.input.draft,
-                  operationId: context.operation.id,
-                  signal: context.signal,
-                  ...(context.assertRuntimeCurrent
-                    ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-                    : {}),
-                })
-              : await deps.host.create({
-                  repository: state.repository,
-                  sourceBranch: state.inspection.sourceBranch!,
-                  baseBranch: state.input.baseBranch,
-                  title: state.input.title,
-                  body: state.input.body,
-                  draft: state.input.draft,
-                  operationId: context.operation.id,
-                  signal: context.signal,
-                  ...(context.assertRuntimeCurrent
-                    ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
-                    : {}),
-                }),
-            {
-              repository: state.repository,
-              sourceBranch: state.inspection.sourceBranch!,
-              baseBranch: state.input.baseBranch,
-            },
-          );
-          assertRequestedMetadata(pr, state.input);
-          const result = output(pr, state.inspection, !existing) as Record<string, JsonValue>;
-          if (reviewed)
-            result.review = {
-              receiptId: reviewed.receipt.receiptId,
-              evidenceSha256: reviewed.receipt.evidenceSha256,
-              summary: reviewed.receipt.summary,
-              ...(reviewed.receipt.reports
-                ? { reports: JSON.parse(JSON.stringify(reviewed.receipt.reports)) as JsonValue }
-                : {}),
-            };
-          return { output: result, externalResultId: pr.url };
-        } finally {
-          artifact = undefined;
-          if (cleanupDirectory) await deps.host.cleanup(cleanupDirectory);
-        }
+        return { output: result, externalResultId: pr.url };
       } catch (error) {
         if (deps.reviewCommittedChange && !publicationAttempted)
           throw markGithubPublicationNotDispatched(error);
         throw error;
       } finally {
-        if (artifact) await deps.host.cleanup(artifact.cleanupDirectory);
+        try {
+          if (ownsCleanup) {
+            const custody = cleanupArtifacts.get(context.operation.id);
+            if (custody) custody.inUse = false;
+            await cleanupArtifact(context.operation.id);
+          }
+        } catch {
+          // Cleanup is separately retryable and cannot replace an execution result.
+          createLogger('github-publication').warn('Publication artifact cleanup remains pending', {
+            operationId: context.operation.id,
+          });
+        }
       }
     },
     async verify(context, result) {

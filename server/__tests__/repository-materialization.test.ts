@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, realpath, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, readFile, rm, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -77,6 +77,55 @@ it('imports exact Git identity, excludes ignored data and preserves mutable work
     f.git(f.target, '-c', 'commit.gpgsign=false', 'commit', '-qm', 'retained work');
     expect(f.run().head).toBe(f.git(f.target, 'rev-parse', 'HEAD'));
     expect(f.run().head).not.toBe(receipt.head);
+    // Reuse this retained task to qualify every metadata variant before resume.
+    f.git(f.target, 'pack-refs', '--all');
+    const packed = join(f.target, '.git', 'packed-refs');
+    const packedBytes = await readFile(packed);
+    const external = join(f.root, 'external-refs');
+    await writeFile(external, packedBytes);
+    await rm(packed);
+    await symlink(external, packed);
+    expect(() => f.run()).toThrow();
+    await rm(packed);
+    await writeFile(packed, packedBytes);
+    const config = join(f.target, '.git', 'config');
+    const configBytes = await readFile(config);
+    const externalConfig = join(f.root, 'external-config');
+    await writeFile(externalConfig, '[core]\n bare = false\n');
+    for (const section of ['include', 'includeIf "gitdir:**"']) {
+      await writeFile(
+        config,
+        Buffer.concat([
+          configBytes,
+          Buffer.from('\n[' + section + ']\n path = ' + externalConfig + '\n'),
+        ]),
+      );
+      expect(() => f.run()).toThrow();
+    }
+    await writeFile(config, configBytes);
+    const worktreeConfig = join(f.target, '.git', 'config.worktree');
+    await symlink(externalConfig, worktreeConfig);
+    expect(() => f.run()).toThrow();
+    await rm(worktreeConfig);
+    await writeFile(worktreeConfig, '[include]\n path = ' + externalConfig + '\n');
+    expect(() => f.run()).toThrow();
+    await rm(worktreeConfig);
+    const info = join(f.target, '.git', 'info');
+    const externalInfo = join(f.root, 'external-info');
+    await mkdir(externalInfo);
+    await writeFile(join(externalInfo, 'grafts'), f.plan.manifest.baseOid + '\n');
+    await rm(info, { recursive: true, force: true });
+    await symlink(externalInfo, info);
+    expect(() => f.run()).toThrow();
+    await rm(info);
+    await mkdir(info);
+    await symlink(join(externalInfo, 'grafts'), join(info, 'grafts'));
+    expect(() => f.run()).toThrow();
+    await rm(join(info, 'grafts'));
+    await writeFile(join(info, 'grafts'), f.plan.manifest.baseOid + '\n');
+    expect(() => f.run()).toThrow();
+    await rm(join(info, 'grafts'));
+    expect(f.run().head).toBe(f.git(f.target, 'rev-parse', 'HEAD'));
     f.git(f.target, 'switch', '-qc', 'wrong');
     expect(() => f.run()).toThrow();
     expect(f.git(f.target, 'symbolic-ref', 'HEAD')).toBe('refs/heads/wrong');
