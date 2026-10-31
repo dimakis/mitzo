@@ -8276,8 +8276,15 @@ function recoveryPage(
 async function nativeRecoveryFixture(
   retirement: 'transport' | 'stop' = 'transport',
   settledHostTool = false,
+  nativeExecution?: CodexConversationOptions['nativeExecution'],
 ) {
   const old = await setupTerminalTransport();
+  if (nativeExecution)
+    Object.assign(old.conversationOptions, {
+      nativeExecution,
+      assertNativeExecutionCurrent: () => {},
+      requestNativeApproval: async () => ({ decision: 'decline' as const }),
+    });
   await old.c.send({ id: 'uncertain-native', prompt: 'retain completed work' });
   await old.c.send({ id: 'queued-native', prompt: 'next phase' });
   if (settledHostTool)
@@ -8553,7 +8560,18 @@ it.each(['stop', 'account', 'receipt'] as const)(
 it.each(['full', 'summary'] as const)(
   'settles interrupted custody before changed-tool startup only with a %s native snapshot',
   async (itemsView) => {
-    const { old, restored } = await nativeRecoveryFixture('stop');
+    const developmentPolicy = (release: string) =>
+      codexNativeExecutionPolicy({
+        bindingRevision: 'same-original-account-and-operator',
+        mode: 'agent',
+        cwd: '/workspace',
+        readableRoots: ['/'],
+        writableRoots: ['/workspace'],
+        deniedRoots: [`/releases/${release}/.env`, '/private/auth'],
+      });
+    const historicalPolicy = developmentPolicy('old'),
+      currentPolicy = developmentPolicy('new');
+    const { old, restored } = await nativeRecoveryFixture('stop', false, historicalPolicy);
     restored.c.close();
     const original = old.store.read('app', old.getBinding());
     const request = old.rpc.request.getMockImplementation()!;
@@ -8571,6 +8589,10 @@ it.each(['full', 'summary'] as const)(
     const candidate = new CodexConversation({
       ...old.conversationOptions,
       storedBinding: old.getBinding(),
+      nativeExecution: currentPolicy,
+      assertNativeExecutionCurrent: (policy) => {
+        expect(policy).toEqual(currentPolicy);
+      },
       tools: [
         ...old.conversationOptions.tools,
         { name: 'NewRead', description: 'Offline read', input_schema: { type: 'object' } },
@@ -8590,6 +8612,16 @@ it.each(['full', 'summary'] as const)(
       );
       await candidate.acknowledgeRecovery();
       expect(candidate.queue().map(({ status }) => status)).toEqual(['interrupted', 'running']);
+      expect(
+        old.store.readNativeExecution('app', old.getBinding(), {
+          id: 'uncertain-native',
+          attempt: 1,
+        })?.policy,
+      ).toEqual(historicalPolicy);
+      expect(
+        old.store.readNativeExecution('app', old.getBinding(), { id: 'queued-native', attempt: 1 })
+          ?.policy,
+      ).toEqual(currentPolicy);
     } else {
       await expect(candidate.initialize()).rejects.toThrow(/nextCursor/);
       expect(old.store.read('app', old.getBinding()).threadGeneration).toBe(

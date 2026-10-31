@@ -1,3 +1,8 @@
+import { createHash } from 'node:crypto';
+import {
+  codexNativeExecutionPolicy,
+  type CodexNativeExecutionPolicy,
+} from '../codex-native-execution-policy.js';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -1253,14 +1258,16 @@ it('keeps migration source and candidate provenance separate and rejects mismatc
   db.close();
   store.close();
 });
-function acceptedTargetFixture() {
+function acceptedTargetFixture(policy?: CodexNativeExecutionPolicy) {
   const f = setup(),
     store = new CodexConversationStore(f.path);
   store.create('target-chat', binding, '/workspace');
   store.bindThread('target-chat', binding, 'thread-a');
   store.enqueue('target-chat', binding, { id: 'command-a', prompt: 'First' });
   const command = store.claimNext('target-chat', binding)!;
+  if (policy) store.prepareNativeExecution('target-chat', binding, command, 'thread-a', policy);
   store.recordNativeTurnAck('target-chat', binding, command, 'thread-a', 'turn-a');
+  if (policy) store.acceptNativeExecution('target-chat', binding, command, 'thread-a', 'turn-a');
   const target = store.nativeTurnTarget('target-chat', binding, command.id, command.attempt)!;
   return { ...f, store, command, target };
 }
@@ -1523,4 +1530,128 @@ it('retains historical uncertainty as the recovery action despite an acknowledge
   expect(() => s.claimNext('c', binding)).toThrow(/phase|effect/);
   expect(s.commandLifecycle('c', binding, command.id).diagnostic).toMatchObject({ exitCode: 1 });
   s.close();
+});
+
+it('settles historical native policy evidence only for the accepted target under fresh synchronous ownership', () => {
+  const policy = (release: string, owner = 'same-owner', cwd = '/workspace') =>
+    codexNativeExecutionPolicy({
+      bindingRevision: owner,
+      mode: 'agent',
+      cwd,
+      readableRoots: ['/'],
+      writableRoots: [cwd],
+      deniedRoots: [`/releases/${release}/.env`],
+    });
+  const old = policy('old'),
+    current = policy('new');
+  const f = acceptedTargetFixture(old);
+  const db = (f.store as unknown as { db: Database.Database }).db;
+  const workspace = createHash('sha256').update('/workspace').digest('hex');
+  try {
+    const phase = f.store.beginCompletionPhase(
+      'target-chat',
+      binding,
+      f.command,
+      'thread-a',
+      'turn-a',
+      workspace,
+      old.policyRevision,
+    );
+    f.store.observeCompletionPhase('target-chat', binding, phase.target, 'completed');
+    const owner = vi.fn(() => {
+      expect(db.inTransaction).toBe(true);
+    });
+    const settle = (target = f.target, selected = current, authority = owner) =>
+      f.store.reconcileHistoricalNativeCompletionPhase(
+        'target-chat',
+        binding,
+        target,
+        workspace,
+        selected,
+        undefined,
+        authority,
+      );
+    for (const target of [
+      { ...f.target, threadId: 'other' },
+      { ...f.target, turnId: 'other' },
+      { ...f.target, generation: 1 },
+      { ...f.target, attempt: 2 },
+    ])
+      expect(() => settle(target)).toThrow();
+    for (const selected of [policy('new', 'other-owner'), policy('new', 'same-owner', '/other')])
+      expect(() => settle(f.target, selected)).toThrow();
+    expect(() =>
+      f.store.reconcileHistoricalNativeCompletionPhase(
+        'target-chat',
+        binding,
+        f.target,
+        workspace,
+        current,
+        undefined,
+        undefined as never,
+      ),
+    ).toThrow();
+    expect(() => settle(f.target, current, (() => Promise.resolve()) as never)).toThrow(
+      'synchronous',
+    );
+    expect(() =>
+      settle(f.target, current, (() => {
+        expect(db.inTransaction).toBe(true);
+        throw Error('revoked');
+      }) as never),
+    ).toThrow('revoked');
+    const row = db
+      .prepare(
+        'SELECT native_execution_history FROM codex_commands WHERE conversation_id=? AND id=?',
+      )
+      .get('target-chat', 'command-a') as { native_execution_history: string };
+    const original = JSON.parse(row.native_execution_history);
+    const prepared = { ...original[0], phase: 'prepared' };
+    delete prepared.turnId;
+    delete prepared.acceptedAt;
+    for (const history of [[], [prepared], [{ ...original[0], policy: current }]]) {
+      db.prepare(
+        'UPDATE codex_commands SET native_execution_history=? WHERE conversation_id=? AND id=?',
+      ).run(JSON.stringify(history), 'target-chat', 'command-a');
+      expect(() => settle()).toThrow();
+      expect(f.store.completionPhase('target-chat', binding, 'command-a', 1)?.status).toBe(
+        'unknown',
+      );
+    }
+    db.prepare(
+      'UPDATE codex_commands SET native_execution_history=? WHERE conversation_id=? AND id=?',
+    ).run(row.native_execution_history, 'target-chat', 'command-a');
+    let checks = 0;
+    expect(() =>
+      settle(f.target, current, (() => {
+        expect(db.inTransaction).toBe(true);
+        if (++checks === 2)
+          db.prepare(
+            'UPDATE codex_commands SET native_execution_history=? WHERE conversation_id=? AND id=?',
+          ).run('[]', 'target-chat', 'command-a');
+      }) as never),
+    ).toThrow();
+    expect(f.store.readNativeExecution('target-chat', binding, f.command)?.policy).toEqual(old);
+    // The old exact-hash guard remains strict for ordinary reconciliation.
+    expect(() =>
+      f.store.reconcileCompletionPhase(
+        'target-chat',
+        binding,
+        f.target,
+        workspace,
+        current.policyRevision,
+        undefined,
+        owner,
+      ),
+    ).toThrow();
+    settle();
+    expect(owner).toHaveBeenCalled();
+    expect(f.store.completionPhase('target-chat', binding, 'command-a', 1)?.status).toBe(
+      'completed',
+    );
+    expect(f.store.readNativeExecution('target-chat', binding, f.command)?.policy).toEqual(old);
+    expect(f.store.commandStatus('target-chat', binding, 'command-a')).toBe('running');
+  } finally {
+    f.store.close();
+  }
 });

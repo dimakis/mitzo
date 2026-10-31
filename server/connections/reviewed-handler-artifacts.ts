@@ -308,7 +308,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../post-adoption-wire-admission.ts':
     '5d3824c6783a2565d4803af8f213c080c96cdad8d18d49537ef125f992f59d3d',
   '../../docs/operations/prepared-repository-chat-flow.md':
-    '06cc373f691f3e7c9d995a95df7fbfa832799d83302c558f63a436d60b035ca1',
+    '2891869dae4de4f2e03ca19b8bcc3f08c1b5946fa5c09be3caf93bd238827b38',
   '../../frontend/src/lib/__tests__/reviewed-outbox-storage.test.ts':
     'ea9d8dd311e212e565682f45bda0300114483131306e53d93d7fd9af7a8939e4',
   '../../skills/land-pr/SKILL.md':
@@ -672,7 +672,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '9782b5248fa27563749b82ad312033f119c086a1b0d4a5a3726d4e89fc137db6',
 
   '../__tests__/codex-conversation.test.ts':
-    '567ff79508de5177842b2ad4b1f8feb8a8712096468e7388bb286ea8452dd6bd',
+    '9ad5492c8d25ea3c3e83a5fcb807ccafab1007b2cae36ce005d55536811d6d9b',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -1484,9 +1484,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '8d8b6f662f62fccaae298f8054c16989ecdc074ee627501374e26c4419265816',
+  '../codex-conversation.ts': 'f3fc5ee0cfa5c29b51263895d5bae1418e61768c9ad79d8b76b58b861bb227da',
   '../codex-conversation-store.ts':
-    'f8bb8e0cb104161c7bf4bdfd6282234776d30d312ce29fa89a676e57db46a0db',
+    'b63a629a45ed542548ae3ffd2b7d40666ff83a86d3d3a0dfea591403552b8a6a',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':
