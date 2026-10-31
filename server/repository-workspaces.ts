@@ -1,3 +1,4 @@
+import { assertGithubPreparationCapacity } from './repository-preparation-capacity.js';
 import {
   restoredRepositoryTaskIdentity,
   type RepositoryWorkspaceRestoration,
@@ -2612,20 +2613,7 @@ export class RepositoryWorkspaces {
       const preparingRecord = JSON.stringify(record);
       this.db
         .transaction(() => {
-          const retained = this.db
-            .prepare('SELECT record FROM repository_workspaces')
-            .all() as Array<{ record: string }>;
-          if (
-            retained.filter((row) => {
-              const value = JSON.parse(row.record) as RepositoryWorkspace;
-              return (
-                value.binding.accountId === binding.accountId &&
-                ['preparing', 'ready', 'reserved', 'claiming', 'claimed'].includes(value.state) &&
-                !value.sourceReleased
-              );
-            }).length >= 8
-          )
-            throw new Error('This account already has eight prepared or preparing repositories');
+          assertGithubPreparationCapacity(this.db, binding.accountId);
           const changed = this.db
             .prepare(
               'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id IS NULL',

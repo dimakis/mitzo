@@ -150,6 +150,8 @@ it('runs two independent tool-less reviews on complete committed text and pins t
   });
   expect(f.session.mock.calls[0][0].systemPrompt).not.toBe(f.session.mock.calls[1][0].systemPrompt);
   for (const [config] of f.session.mock.calls) {
+    expect(config.systemPrompt).toContain('This is inference round 1 of 5');
+    expect(config.systemPrompt).toContain('Batch all currently known context needs');
     const schema = JSON.parse(config.systemPrompt.split('Response JSON schema: ')[1]);
     expect(schema.properties.unresolvedNeeds.items.maxLength).toBe(200);
     expect(schema.properties.findings.items.properties.summary.maxLength).toBe(600);
@@ -168,6 +170,14 @@ it('runs two independent tool-less reviews on complete committed text and pins t
     expect(context).toContain('Unchanged route test requires status 200');
     expect(context).toContain('The unchanged route must preserve the documented response status.');
   }
+  const packet = JSON.parse(f.contexts[0].split('(JSON):\n')[1]).initialEvidence;
+  expect(packet.contextDiscovery.candidates).toContainEqual(
+    expect.objectContaining({
+      path: 'docs/requirements.md',
+      reason: 'instruction_link',
+      linkedFrom: ['AGENTS.md'],
+    }),
+  );
   expect(f.contexts[0]).not.toContain(f.directory);
   expect(receipt.evidenceSha256).toMatch(/^[a-f0-9]{64}$/);
   expect(receipt.reports).toMatchObject([
@@ -454,11 +464,14 @@ it('rechecks the original publisher at actual adviser dispatch after asynchronou
 
 it('returns incomplete when context requests exhaust the bounded rounds instead of approving a partial pass', async () => {
   const f = await fixture();
+  let round = 0;
   f.session.mockImplementation(
-    async () =>
+    async (config) =>
       ({
         provider: 'codex',
         async *turn(messages: Array<{ role: string; content: string }>) {
+          round++;
+          expect(config.systemPrompt).toContain(`This is inference round ${round} of 5`);
           const digest = /Evidence SHA-256: ([a-f0-9]{64})/.exec(
             messages.map((message) => message.content).join(''),
           )![1];
@@ -472,7 +485,14 @@ it('returns incomplete when context requests exhaust the bounded rounds instead 
                 reviewedAllEvidence: false,
                 verdict: 'context_required',
                 findings: [],
-                requests: [{ kind: 'read', path: 'route.ts', startLine: 1, endLine: 1 }],
+                requests: [
+                  {
+                    kind: 'read',
+                    path: round === 5 ? 'unavailable-final-context.ts' : 'route.ts',
+                    startLine: 1,
+                    endLine: 1,
+                  },
+                ],
               }),
             },
           };

@@ -450,8 +450,8 @@ export async function captureNativeLocalRepositoryPreparationSource(
         current();
         const earlierDeadline = options?.deadline ?? deadline;
         preparationReadDeadline(Math.min(deadline, earlierDeadline), context.signal);
-        await revalidate();
-        current();
+        // baseCurrent captures a fresh reader whose owner gate runs before
+        // scratch allocation or source I/O. Repeating it here adds no boundary.
         await baseCurrent(earlierDeadline);
         current();
         preparationReadDeadline(Math.min(deadline, earlierDeadline), context.signal);

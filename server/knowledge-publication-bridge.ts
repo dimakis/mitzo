@@ -4,6 +4,14 @@ import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { SessionRuntimeError } from './session-runtime-error.js';
+import { isDeepStrictEqual } from 'node:util';
+import {
+  parsePortableSpokePolicy,
+  parsePortableSpokePolicyText,
+  portableSpokePaths,
+  portableSpokePathSelected,
+  portableSpokePathPermitted,
+} from '../scripts/lib/portable-spoke-policy.mjs';
 
 const sha = z.string().regex(/^[a-f0-9]{64}$/);
 const revision = z.string().regex(/^[a-f0-9]{40}$/);
@@ -16,6 +24,19 @@ const safePath = (path: string) =>
 const policyPath = z
   .string()
   .refine((path) => safePath(path.endsWith('/') ? path.slice(0, -1) : path));
+const policyFile = z
+  .string()
+  .max(200)
+  .refine((path) => safePath(path) && path.endsWith('.json'));
+const PolicyEnrollment = z
+  .object({
+    path: policyFile,
+    requiredPrivateRoots: z.array(z.string()).max(512),
+  })
+  .strict();
+const PolicyReceipt = z
+  .object({ path: policyFile, sha256: sha, content: z.string().max(128 * 1024) })
+  .strict();
 const SourcePolicy = z.object({
   paths: z.array(policyPath).min(1),
   optionalPaths: z.array(policyPath).optional(),
@@ -43,6 +64,7 @@ export interface PublishedKnowledgeSource {
   excludePaths?: string[];
   excludePathSegments?: string[];
   excludeHiddenPaths?: boolean;
+  spokePolicy?: z.infer<typeof PolicyEnrollment>;
 }
 export interface KnowledgePublicationBridgeConfig {
   publisherUrl: string;
@@ -60,6 +82,7 @@ const Manifest = z
     sourceIdentity: sha,
     revision,
     ...SourcePolicy.shape,
+    spokePolicy: PolicyReceipt.optional(),
     files: z
       .array(
         z
@@ -96,6 +119,13 @@ export class KnowledgePublicationBridge {
   ) {
     // Validate without reconstructing source: property order belongs to publisher identity.
     SourcePolicy.parse(config.source);
+    if (config.source.spokePolicy !== undefined) {
+      const enrollment = PolicyEnrollment.parse(config.source.spokePolicy);
+      parsePortableSpokePolicy(
+        { version: 1, portableRoots: [], privateRoots: enrollment.requiredPrivateRoots },
+        enrollment.requiredPrivateRoots,
+      );
+    }
     this.config = structuredClone(config);
     const url = new URL(config.publisherUrl);
     if (
@@ -182,8 +212,13 @@ export class KnowledgePublicationBridge {
     if (!isAbsolute(bundle.seed)) throw new Error('Bundle seed must be absolute');
     const baselineBytes = await readFile(join(bundle.seed, '..', 'baseline.json'));
     const baseline = z
-      .object({ files: z.record(z.string(), z.object({ sha256: sha })) })
+      .object({
+        files: z.record(z.string(), z.object({ sha256: sha })),
+        spokePolicy: PolicyReceipt.optional(),
+      })
       .parse(JSON.parse(baselineBytes.toString('utf8')));
+    if (!isDeepStrictEqual(baseline.spokePolicy, manifest.spokePolicy))
+      throw new Error('Bundle portable policy differs from published source');
     const published = new Map(manifest.files.map((file) => [file.path, file.sha256]));
     for (const [path, file] of Object.entries(baseline.files)) {
       if (path.endsWith('.md') && (!safePath(path) || published.get(path) !== file.sha256))
@@ -225,13 +260,31 @@ export class KnowledgePublicationBridge {
     if (hash(raw) !== selection.manifestSha256) throw new Error('Publication manifest changed');
     const manifest = Manifest.parse(JSON.parse(raw.toString()));
     const source = this.config.source;
+    let spokes: ReturnType<typeof parsePortableSpokePolicy> | undefined;
+    if (source.spokePolicy) {
+      if (
+        !manifest.spokePolicy ||
+        manifest.spokePolicy.path !== source.spokePolicy.path ||
+        hash(manifest.spokePolicy.content) !== manifest.spokePolicy.sha256
+      )
+        throw new Error('Publication portable policy differs from enrolled source');
+      spokes = parsePortableSpokePolicyText(
+        manifest.spokePolicy.content,
+        source.spokePolicy.requiredPrivateRoots,
+      );
+    } else if (manifest.spokePolicy) {
+      throw new Error('Publication portable policy is not enrolled');
+    }
+    const optionalPaths = spokes
+      ? [...(source.optionalPaths ?? []), ...portableSpokePaths(spokes)]
+      : source.optionalPaths;
     if (
       manifest.revision !== selection.revision ||
       manifest.source !== source.id ||
       manifest.acceptedRef !== source.ref ||
       manifest.sourceIdentity !== hash(JSON.stringify(source)) ||
       JSON.stringify(manifest.paths) !== JSON.stringify(source.paths) ||
-      JSON.stringify(manifest.optionalPaths) !== JSON.stringify(source.optionalPaths) ||
+      JSON.stringify(manifest.optionalPaths) !== JSON.stringify(optionalPaths) ||
       JSON.stringify(manifest.excludePaths) !== JSON.stringify(source.excludePaths) ||
       JSON.stringify(manifest.excludePathSegments) !== JSON.stringify(source.excludePathSegments) ||
       manifest.excludeHiddenPaths !== source.excludeHiddenPaths
@@ -244,9 +297,11 @@ export class KnowledgePublicationBridge {
       manifest.files.some(
         (file) =>
           !file.path.endsWith('.md') ||
-          ![...source.paths, ...(source.optionalPaths ?? [])].some((policy) =>
+          (![...source.paths, ...(source.optionalPaths ?? [])].some((policy) =>
             selected(file.path, policy),
-          ) ||
+          ) &&
+            !(spokes && portableSpokePathSelected(spokes, file.path))) ||
+          (spokes && !portableSpokePathPermitted(spokes, file.path)) ||
           source.excludePaths?.some((policy) => selected(file.path, policy)) ||
           file.path.split('/').some((part) => source.excludePathSegments?.includes(part)) ||
           (source.excludeHiddenPaths && file.path.split('/').some((part) => part.startsWith('.'))),
