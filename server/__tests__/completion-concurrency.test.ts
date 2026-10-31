@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import { EventStore } from '../event-store.js';
@@ -14,6 +14,10 @@ import { join } from 'node:path';
 
 const measure = process.env.MITZO_MEASURE_COMPLETION;
 const reportPath = process.env.MITZO_COMPLETION_REPORT;
+const cleanup: (() => void)[] = [];
+afterEach(() => {
+  for (const dispose of cleanup.splice(0).reverse()) dispose();
+});
 
 it.each(measure ? Array.from({ length: 11 }, (_, i) => i) : [0])(
   'keeps two persisted synthetic sessions flowing with replay, held maintenance and interrupted recovery (sample %s)',
@@ -68,8 +72,12 @@ it.each(measure ? Array.from({ length: 11 }, (_, i) => i) : [0])(
         },
       });
     });
+    cleanup.push(() => sql.mockRestore());
     const root = mkdtempSync(join(tmpdir(), 'mitzo-completion-concurrency-'));
+    cleanup.push(() => rmSync(root, { recursive: true, force: true }));
     const native = new CodexConversationStore(join(root, 'native.db'));
+    cleanup.push(() => native.close());
+    const db = (native as unknown as { db: Database.Database }).db;
     const account = {
       accountId: 'offline',
       accountLabel: 'Offline',
@@ -77,20 +85,28 @@ it.each(measure ? Array.from({ length: 11 }, (_, i) => i) : [0])(
       model: 'synthetic',
       profileRevision: 'r1',
     };
-    for (const id of ['alpha', 'beta']) {
-      native.create(id, account, `/offline/${id}`);
-      native.bindThread(id, account, `thread-${id}`);
-      for (let i = 0; i < 200; i++) {
-        const commandId = `${id}-history-${i}`;
-        native.enqueue(id, account, { id: commandId, prompt: 'retained' });
-        const command = native.claimNext(id, account)!;
-        native.recordNativeTurnAck(id, account, command, `thread-${id}`, commandId);
-        native.finish(id, account, commandId, 'completed', commandId);
+    // Static history has no observer of intermediate commits. Preserve store
+    // transitions in one committed fixture; live stream writes stay independent.
+    db.transaction(() => {
+      for (const id of ['alpha', 'beta']) {
+        native.create(id, account, `/offline/${id}`);
+        native.bindThread(id, account, `thread-${id}`);
+        for (let i = 0; i < 200; i++) {
+          const commandId = `${id}-history-${i}`;
+          native.enqueue(id, account, { id: commandId, prompt: 'retained' });
+          const command = native.claimNext(id, account)!;
+          native.recordNativeTurnAck(id, account, command, `thread-${id}`, commandId);
+          native.finish(id, account, commandId, 'completed', commandId);
+        }
       }
-    }
+    })();
+    expect(db.inTransaction).toBe(false);
     const events = new EventStore(':memory:');
+    cleanup.push(() => events.close());
     const sessions = new SessionRegistry();
+    cleanup.push(() => sessions.dispose());
     const connections = new ConnectionRegistry();
+    cleanup.push(() => connections.dispose());
     connections.setEventStore(events);
     let release!: () => void;
     const maintenance = vi.fn(
@@ -271,12 +287,6 @@ it.each(measure ? Array.from({ length: 11 }, (_, i) => i) : [0])(
       measuring = false;
       release?.();
       await Promise.resolve();
-      connections.dispose();
-      sessions.dispose();
-      events.close();
-      native.close();
-      sql.mockRestore();
-      rmSync(root, { recursive: true, force: true });
     }
   },
 );

@@ -33,6 +33,10 @@ import { chmodSync, closeSync, openSync, lstatSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
 import { AgentSandboxContextScopeSchema } from '@mitzo/protocol';
 import { z } from 'zod';
+import {
+  interruptedEffectCalls,
+  type SettledInterruptedEffects,
+} from './codex-interrupted-effects.js';
 const HostBundleUpgrade = z.strictObject({
   version: z.literal(1),
   custody: HostCodexCustodySchema,
@@ -2876,9 +2880,14 @@ export class CodexConversationStore {
     target: CodexNativeTurnTarget,
     workspaceDigest: string,
     policyRevision?: string,
+    interruptedEffects?: SettledInterruptedEffects,
+    assertCurrent?: () => void,
   ) {
     this.db
       .transaction(() => {
+        // A busy-wait for the write lock cannot extend an earlier authority
+        // observation. The original caller rechecks synchronously under lock.
+        assertCurrent?.();
         const phase = this.assertCompletionPhaseTarget(id, binding, target, true);
         this.assertNoPendingThreadDispatch(id, binding);
         this.assertNoPendingThreadOwnership(id, binding);
@@ -2894,7 +2903,39 @@ export class CodexConversationStore {
             'SELECT completion_phases,status FROM codex_commands WHERE conversation_id=? AND id=?',
           )
           .get(id, target.commandId) as { completion_phases: string | null; status: string };
-        if (!['running', 'completed'].includes(row.status))
+        if (row.status === 'interrupted' && interruptedEffects && !phase.priorEffectsUnknown) {
+          const calls = interruptedEffectCalls(interruptedEffects, id, target);
+          if (!assertCurrent) throw Error('Interrupted effect recovery authority unavailable');
+          const receipts = this.db
+            .prepare(
+              `SELECT call_id,turn_id,tool_name,request_hash,
+            result_content,result_is_error FROM codex_tools WHERE conversation_id=? AND command_id=?`,
+            )
+            .all(id, target.commandId) as Array<{
+            call_id: string;
+            turn_id: string | null;
+            tool_name: string | null;
+            request_hash: string | null;
+            result_content: string | null;
+            result_is_error: number | null;
+          }>;
+          const byId = new Map(receipts.map((receipt) => [receipt.call_id, receipt]));
+          if (
+            calls.length !== receipts.length ||
+            calls.some((call) => {
+              const receipt = byId.get(call.callId);
+              return (
+                !receipt ||
+                receipt.turn_id !== target.turnId ||
+                receipt.tool_name !== call.toolName ||
+                receipt.request_hash !== call.requestHash ||
+                receipt.result_content === null ||
+                receipt.result_is_error !== 0
+              );
+            })
+          )
+            throw Error('Interrupted native host effects lack matching successful receipts');
+        } else if (!['running', 'completed'].includes(row.status))
           throw Error('Completion phase requires the exact completed native outcome');
         this.saveCompletionPhases(
           id,
