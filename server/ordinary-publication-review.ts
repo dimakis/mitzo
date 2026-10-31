@@ -1,3 +1,4 @@
+import type { JsonValue } from './connections/types.js';
 import { AdviserHarnessFailure } from './adviser-harness-failure.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -198,13 +199,26 @@ export function createOrdinaryPublicationReview(deps: {
               verdict: 'incomplete',
               reason: 'context_request_incomplete',
             });
-          if (round + 1 === MAX_REVIEW_ROUNDS)
+          if (round + 1 === MAX_REVIEW_ROUNDS) {
+            const requests = result.requests.map((request) => {
+              const detail: Record<string, JsonValue> = { kind: request.kind };
+              if (request.kind === 'read') {
+                detail.path = request.path;
+                if (request.startLine !== undefined) detail.startLine = request.startLine;
+                if (request.endLine !== undefined) detail.endLine = request.endLine;
+              } else {
+                detail.query = request.query;
+                if (request.pathPrefix !== undefined) detail.pathPrefix = request.pathPrefix;
+              }
+              return detail;
+            });
             throw new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE', {
               reason: 'context_round_limit',
               verdict: 'incomplete',
               scope,
-              requests: result.requests,
+              requests,
             });
+          }
           input.observePhase?.('review_context');
           const context = await captured.context(result.requests, knownInstructions, reviewSignal);
           reviewSignal.throwIfAborted();

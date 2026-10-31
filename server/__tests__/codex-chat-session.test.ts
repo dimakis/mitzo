@@ -7323,6 +7323,7 @@ it.each([
         profile: {
           accountId: 'work',
           accountLabel: 'Work',
+          email: 'work@example.invalid',
           planType: 'api',
           model: 'test-model',
           sandboxProvider: 'openai-work',

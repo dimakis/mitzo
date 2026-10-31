@@ -512,14 +512,10 @@ it('returns incomplete when context requests exhaust the bounded rounds instead 
                 reviewedAllEvidence: false,
                 verdict: 'context_required',
                 findings: [],
-                requests: [
-                  {
-                    kind: 'read',
-                    path: round === 5 ? 'unavailable-final-context.ts' : 'route.ts',
-                    startLine: 1,
-                    endLine: 1,
-                  },
-                ],
+                requests:
+                  round === 5
+                    ? [{ kind: 'search', query: 'unavailable-final-context', pathPrefix: '.' }]
+                    : [{ kind: 'read', path: 'route.ts', startLine: 1, endLine: 1 }],
               }),
             },
           };
@@ -528,7 +524,10 @@ it('returns incomplete when context requests exhaust the bounded rounds instead 
   );
   await expect(f.review(f.input)).rejects.toMatchObject({
     code: 'PUBLICATION_REVIEW_UNAVAILABLE',
-    details: { reason: 'context_round_limit' },
+    details: {
+      reason: 'context_round_limit',
+      requests: [{ kind: 'search', query: 'unavailable-final-context' }],
+    },
   });
   expect(f.session).toHaveBeenCalledTimes(5);
 });

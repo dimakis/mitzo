@@ -320,7 +320,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-publication-review-composition.test.ts':
     '337160d4bd9333362511814d8caef8ea883e111e1f36e1bf1befda4911fab6f6',
   '../__tests__/ordinary-publication-review.test.ts':
-    'd9314847c8644ef462e2751a4dbb3b602168b282c1c982c43383d947c7491e2d',
+    '1bbd0362e2c93cbafc79b42ddaaaf1ac158c52679fb71df48a63054c0e16a176',
   '../__tests__/prepared-repository-delivery-flow.test.ts':
     'f259503bb6fa7ae581791f269c11d7ec573e3f3781a4ded4fc1f183c812b3d0a',
   '../__tests__/prepared-repository-publication-flow.test.ts':
@@ -330,7 +330,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-publication-review-context.ts':
     '881523f9c6845ecee7c5e81b95eddc2f902eb27066ad348cd34fa9a29011c71f',
   '../ordinary-publication-review.ts':
-    'ca5d5c1becc12e924b8ddf4ebd2ce83741bf3c327dc512afea61f06dbbfd2b0b',
+    '9b81c96e7d1f76d374a821a7d3be9eac93ce8bac3315783ebdf4869d8be0a0ab',
   '../__tests__/prepared-repository-native-public-tool-rollover.test.ts':
     '3f37ba34c311207689c552a04ef016d74f611e21b7f5b970d398d1b0c57000e1',
   '../__tests__/prepared-repository-native-public-tool-rollover-queued.test.ts':
@@ -661,7 +661,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     'be08f4bf4223ebd63bdc931187c39fa571d915ad2bb710ef2f9773a72b63b85d',
   '../__tests__/codex-chat-session.test.ts':
-    'ebdde22d24a723625b434a978f66a784535c44c4751081fbfa2f23b10e59bc8a',
+    '9782b5248fa27563749b82ad312033f119c086a1b0d4a5a3726d4e89fc137db6',
 
   '../__tests__/codex-conversation.test.ts':
     '42c38d12b71420ebf494b8e6ef374295aea1d5bc9ad06e93b7e6e793a13fed25',
