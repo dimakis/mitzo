@@ -148,6 +148,13 @@ it('runs two independent tool-less reviews on complete committed text and pins t
     reasoningEffort: 'low',
   });
   expect(f.session.mock.calls[0][0].systemPrompt).not.toBe(f.session.mock.calls[1][0].systemPrompt);
+  for (const [config] of f.session.mock.calls) {
+    const schema = JSON.parse(config.systemPrompt.split('Response JSON schema: ')[1]);
+    expect(schema.properties.unresolvedNeeds.items.maxLength).toBe(200);
+    expect(schema.properties.findings.items.properties.summary.maxLength).toBe(600);
+    expect(schema.properties.requests.maxItems).toBe(8);
+  }
+
   expect(f.session.mock.calls[0][2]).toMatchObject({
     authSessionId: 'auth',
     operatorConnectionId: 'operator',
