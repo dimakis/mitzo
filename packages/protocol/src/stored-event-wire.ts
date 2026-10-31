@@ -31,7 +31,7 @@ export function storedEventToClientMessage(
     return {
       type: privateType,
       ...(event.type === 'ordinary_reply_source' &&
-      event.payload.version === 1 &&
+      (event.payload.version === 1 || event.payload.version === 2) &&
       typeof event.payload.commandId === 'string' &&
       typeof event.payload.messageId === 'string'
         ? { messageId: event.payload.messageId, replyToMessageId: event.payload.commandId }

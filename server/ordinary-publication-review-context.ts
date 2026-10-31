@@ -139,6 +139,10 @@ export interface PublicationContextRead {
 export type PublicationContextRequest =
   | { kind: 'read'; path: string; startLine?: number; endLine?: number }
   | { kind: 'search'; query: string; pathPrefix?: string };
+/** Empty and dot denote the same repository-wide search as an omitted prefix. */
+export function publicationSearchPrefix(prefix: string | undefined): string | undefined {
+  return prefix === '' || prefix === '.' ? undefined : prefix;
+}
 export interface PublicationContextSearch {
   query: string;
   pathPrefix?: string;
@@ -220,14 +224,18 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
   };
   for (const path of [...files].sort()) await add(path);
   const candidates = new Map<string, string>();
-  const candidate = (path: string, reason: string) => {
-    if (!files.has(path) && all.has(path) && !candidates.has(path)) candidates.set(path, reason);
+  const linkedFrom = new Map<string, Set<string>>();
+  const candidate = (path: string, reason: string, origin?: string) => {
+    if (!files.has(path) && all.has(path)) {
+      if (!candidates.has(path)) candidates.set(path, reason);
+      if (origin) linkedFrom.set(path, new Set([...(linkedFrom.get(path) ?? []), origin]));
+    }
   };
   for (const file of contents) {
     for (const path of importTargets(file.path, file.content, all)) candidate(path, 'dependency');
     if (/(?:^|\/)(?:AGENTS|CLAUDE)\.md$|(?:^|\/)SKILL\.md$/.test(file.path))
       for (const path of linkedPaths(file.path, file.content, all))
-        candidate(path, 'linked_requirement');
+        candidate(path, 'instruction_link', file.path);
   }
   for (const path of ['package.json', 'tsconfig.json']) candidate(path, 'build_contract');
   const references = async (paths: string[]) => {
@@ -264,13 +272,14 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
     reason: string;
     bytes: number;
     included: boolean;
+    linkedFrom?: string[];
   }> = [];
   let automaticBytes = 0;
-  // Requirements precede implementation context. Full contents are never
+  // Instruction links precede implementation context; relevance remains a reviewer judgment. Full contents are never
   // silently truncated: larger candidates remain explicitly available by range.
   const ordered = [...candidates].sort(
     ([a, reasonA], [b, reasonB]) =>
-      (reasonA === 'linked_requirement' ? -1 : 0) - (reasonB === 'linked_requirement' ? -1 : 0) ||
+      (reasonA === 'instruction_link' ? -1 : 0) - (reasonB === 'instruction_link' ? -1 : 0) ||
       a.localeCompare(b),
   );
   for (const [path, reason] of ordered.slice(0, MAX_DISCOVERY_PATHS)) {
@@ -279,7 +288,13 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
       Number.isSafeInteger(size) &&
       size <= MAX_AUTOMATIC_FILE_BYTES &&
       automaticBytes + size <= MAX_AUTOMATIC_CONTEXT_BYTES;
-    contextCandidates.push({ path, reason, bytes: size, included });
+    contextCandidates.push({
+      path,
+      reason,
+      bytes: size,
+      included,
+      ...(linkedFrom.has(path) ? { linkedFrom: [...linkedFrom.get(path)!].sort() } : {}),
+    });
     if (included) {
       const content = await add(path);
       files.add(path);
@@ -288,12 +303,12 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
           const policyText = await add(policy);
           files.add(policy);
           for (const linked of linkedPaths(policy, policyText, all))
-            candidate(linked, 'linked_requirement');
+            candidate(linked, 'instruction_link', policy);
         }
       automaticBytes += size;
-      if (reason === 'linked_requirement')
+      if (reason === 'instruction_link')
         for (const linked of linkedPaths(path, content, all))
-          candidate(linked, 'linked_requirement');
+          candidate(linked, 'instruction_link', path);
     }
   }
   const packet = {
@@ -383,7 +398,7 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
             instructions,
           });
         } else {
-          const prefix = request.pathPrefix;
+          const prefix = publicationSearchPrefix(request.pathPrefix);
           if (
             !request.query ||
             request.query.length > 120 ||

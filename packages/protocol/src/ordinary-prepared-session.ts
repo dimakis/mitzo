@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CollaborationSettingsSchema } from './collaboration-conversation.js';
 import { OrdinaryWorkspaceSettingsSchema } from './ordinary-workspace.js';
+import { isOrdinaryCodexWorkspaceBinding } from './session-runtime-binding.js';
 
 const id = z.string().min(1).max(200).regex(/^\S+$/);
 /** Private application allocation proof. A prepared session has no provider thread or command. */
@@ -46,10 +47,7 @@ export const OrdinarySessionPreparationReceiptV2Schema = z
     (receipt) =>
       receipt.workspaceId !== receipt.sessionId &&
       receipt.workspaceId !== receipt.settings.workspace.preparationId &&
-      (receipt.settings.binding.execution.location === 'local'
-        ? receipt.settings.binding.account.provider === 'openai-codex'
-        : ['openai', 'openai-codex'].includes(receipt.settings.binding.account.provider)) &&
-      receipt.settings.binding.harness.implementation === 'codex' &&
+      isOrdinaryCodexWorkspaceBinding(receipt.settings.binding) &&
       receipt.settings.selection.context.source === 'none' &&
       receipt.settings.selection.permission.revision === 0,
     'An ordinary preparation requires distinct identities and the supported Codex route',

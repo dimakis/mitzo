@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import type { CapabilityExecutor } from '../connections/capabilities/types.js';
 import {
   GithubPublicationReviewError,
+  type GithubPublicationReviewFailureCode,
   markGithubPublicationNotDispatched,
 } from '../github-publication-review-failure.js';
 
@@ -142,25 +143,31 @@ describe('CapabilityService', () => {
       expect(f.recover).not.toHaveBeenCalled();
     },
   );
-  it('returns trusted review findings before approval without dispatching a publication', async () => {
-    const details = {
-      findings: [{ severity: 'high', path: 'changed.ts', message: 'Missing guard' }],
-    };
-    const f = await fixture({
-      preflight: async () => {
-        throw new GithubPublicationReviewError('PUBLICATION_REVIEW_BLOCKED', details);
-      },
-    });
-    const operation = await f.service.invoke(request(), new AbortController().signal);
-    expect(operation).toMatchObject({
-      status: 'failed',
-      failureCode: 'PUBLICATION_REVIEW_BLOCKED',
-      result: { review: { code: 'PUBLICATION_REVIEW_BLOCKED', details } },
-    });
-    expect(f.approve).not.toHaveBeenCalled();
-    expect(f.execute).not.toHaveBeenCalled();
-    expect(f.store.get(operation.id)?.result).toEqual(operation.result);
-  });
+  it.each<{ code: GithubPublicationReviewFailureCode; details: JsonValue }>([
+    {
+      code: 'PUBLICATION_REVIEW_BLOCKED' as const,
+      details: { findings: [{ severity: 'high', path: 'changed.ts', message: 'Missing guard' }] },
+    },
+    { code: 'PUBLICATION_PREFLIGHT_FAILED' as const, details: { stage: 'reconstruction' } },
+  ])(
+    'persists trusted $code diagnostics before approval without dispatching a publication',
+    async ({ code, details }) => {
+      const f = await fixture({
+        preflight: async () => {
+          throw new GithubPublicationReviewError(code, details);
+        },
+      });
+      const operation = await f.service.invoke(request(), new AbortController().signal);
+      expect(operation).toMatchObject({
+        status: 'failed',
+        failureCode: code,
+        result: { review: { code, details } },
+      });
+      expect(f.approve).not.toHaveBeenCalled();
+      expect(f.execute).not.toHaveBeenCalled();
+      expect(f.store.get(operation.id)?.result).toEqual(operation.result);
+    },
+  );
   it('persists the executor preflight projection and recovery intent before approval', async () => {
     const approvalInput = {
       repository: 'acme/widget',

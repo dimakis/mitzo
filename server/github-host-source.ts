@@ -88,8 +88,14 @@ async function boundary(source: Source) {
   if ((await lstat(join(source.repositoryPath, '.git'))).isSymbolicLink())
     throw new Error('Git storage is ambiguous');
   const dirs = await git(source, ['rev-parse', '--absolute-git-dir', '--git-common-dir']);
-  for (const path of dirs.stdout.toString('utf8').trim().split('\n')) {
-    const absolute = resolve(source.repositoryPath, path);
+  const storageDirectories = new Set(
+    dirs.stdout
+      .toString('utf8')
+      .trim()
+      .split('\n')
+      .map((path) => resolve(source.repositoryPath, path)),
+  );
+  for (const absolute of storageDirectories) {
     const canonical = await realpath(absolute);
     if (
       canonical !== absolute ||

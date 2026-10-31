@@ -29,6 +29,44 @@ existing serial tool execution and checkpoint owner; it does not acquire Codex
 thread/recovery APIs. Runtime failures are sanitized and retained for reconnecting
 viewers with an actionable reason and stable diagnostic reference.
 
+## Interrupted turns after Stop or transport loss
+
+An interrupted native turn is a different outcome from the completed-turn
+callback incident below. Stop and an unexpected native transport exit can both
+retain an original, successfully observed downstream completion phase while the
+native command remains interrupted. A later native status of `interrupted`
+alone cannot settle its effects.
+
+Guarded recovery of already saved queued work reads exact terminal metadata first.
+Completed and failed turns never hydrate retained results. Eligible interrupted
+turns use `thread/items/list` filtered to the original turn, one item per page,
+with at most 128 item reads and a final metadata identity/status check. Authority
+is revalidated at each additional I/O boundary. Missing/foreign/duplicate items,
+invalid or repeated cursors, budget exhaustion and an oversized individual item
+retain the fence. The 4 MiB frame limit is unchanged; full-turn fallback is forbidden.
+It accepts only error-free interrupted observations containing recognized
+settled items; commands must have completed with exit code zero. Every dynamic
+host call must also match the original command/turn/call/tool/request hash and a
+successful durable result. Receipts are read together under the recovery write
+transaction. Missing, pending, failed, foreign, file-change, collaboration and
+unsupported native items remain fenced. The original observed downstream phase,
+account, workspace, policy, attempt and generation must still qualify; final
+synchronous authority is checked after acquiring the writer lock.
+
+This reconciles effects and permits only the saved FIFO successor. It keeps the
+original command interrupted and never replays its input, tools or hooks. Native
+lineage replacement must first settle the original effects under the same rules.
+Ordinary Send remains blocked before proof; exposing it on a merely inspectable
+phase could create another uncertain main admission during startup.
+
+A separate `unconfirmed dispatch` banner describes the main admission ledger.
+Bootstrap claims that receipt before login/runtime preparation completes. A
+failure can therefore leave an uncertain main receipt without a native command
+row. Settling an earlier native turn does not clear that receipt, and absence of
+a row alone is not new historical replay authority. Preserve the original input
+and custody for a separately qualified recovery. A merged source change is not
+evidence that either an existing receipt or a running deployment was repaired.
+
 ## Exact historical repair
 
 This is a prepared operator operation, **not production activation authorization**.

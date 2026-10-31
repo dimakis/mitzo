@@ -126,6 +126,7 @@ export function useExplicitLocalChat(
   const [inventory, setInventory] = useState<ExplicitLocalInventory | null>(null);
   const [enrollment, setEnrollment] = useState<'loading' | 'off' | 'on' | 'unknown'>('loading');
   const [attempt, setAttempt] = useState(0);
+  const metadataReadStarted = useRef(false);
   const [error, setError] = useState('');
   const [metaFailure, setMetaFailure] = useState<{ sessionId: string; message: string } | null>(
     null,
@@ -233,6 +234,8 @@ export function useExplicitLocalChat(
   }, [draftId, enabled, sessionId, attempt]);
   useEffect(() => {
     if (!sessionId) return;
+    const shareMount = !metadataReadStarted.current;
+    metadataReadStarted.current = true;
     setMetaFailure(null);
     setMetadataLoadingForSession(sessionId);
     const controller = new AbortController();
@@ -251,9 +254,13 @@ export function useExplicitLocalChat(
     }, RUNTIME_READ_TIMEOUT_MS);
     void Promise.resolve()
       .then(() =>
-        apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/meta`, {
-          signal: controller.signal,
-        }),
+        apiFetch(
+          `/api/sessions/${encodeURIComponent(sessionId)}/meta`,
+          {
+            signal: controller.signal,
+          },
+          shareMount ? 'session-metadata-mount' : undefined,
+        ),
       )
       .then(async (response) => {
         if (!response.ok) throw Error('Metadata unavailable');

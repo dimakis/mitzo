@@ -6,6 +6,7 @@ import {
   type CollaborationMessageSource,
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
+import { ordinaryCodexCommandExecution } from './ordinary-codex-command-execution.js';
 
 const id = z.string().min(1).max(200).regex(/^\S+$/);
 const Source = z.strictObject({
@@ -14,44 +15,64 @@ const Source = z.strictObject({
   providerThreadId: id,
   providerTurnId: id,
 });
-const RetainedSource = Source.extend({ version: z.literal(1) });
+const TurnIdentity = Source.omit({ messageId: true }).strip();
+const Execution = TurnIdentity.strict().extend({
+  executionFingerprint: z.string().min(1).max(256),
+});
+const RetainedSource = z.discriminatedUnion('version', [
+  Source.extend({ version: z.literal(1) }),
+  Source.extend({
+    version: z.literal(2),
+    executionFingerprint: Execution.shape.executionFingerprint,
+  }),
+]);
 type SourceStore = Pick<
   EventStore,
-  'getSendCommand' | 'getOrdinaryCommandAdmission' | 'getOrdinaryReplySourceEvents' | 'append'
+  | 'getSendCommand'
+  | 'getOrdinaryCommandExecutionAdmission'
+  | 'readOrdinaryCommandExecutionEvidence'
+  | 'getOrdinaryReplySourceEvents'
+  | 'append'
 >;
-
-function ordinaryCommand(store: SourceStore, sessionId: string, commandId: string) {
-  const command = store.getSendCommand(commandId);
-  const admission = store.getOrdinaryCommandAdmission(commandId);
-  if (
-    !command ||
-    command.sessionId !== sessionId ||
-    command.error ||
-    !admission ||
-    admission.binding.version !== 2 ||
-    admission.binding.harness.implementation !== 'codex' ||
-    admission.state === 'reserved'
-  )
-    throw new CollaborationContractError('reply_conflict');
-  return admission;
+/** Called at the exact provider ACK by the existing native owner. This frozen
+ * reference pins provenance, not authority or a cached permission decision. */
+export function captureOrdinaryReplyExecution(store: SourceStore, sessionId: string, raw: unknown) {
+  const source = TurnIdentity.parse(raw);
+  const admission = ordinaryCodexCommandExecution(store, sessionId, source.commandId, {
+    requireClaimed: true,
+  });
+  return Object.freeze({ ...source, executionFingerprint: admission.requestFingerprint });
 }
 
-/** Called only by the existing owned driver's exact provider-ACK observer.
+/** Called by the owned driver for a renderer message from the accepted turn.
  * This private event binds generated renderer identity, never provider text or credentials.
  */
-export function recordOrdinaryReplySource(store: SourceStore, sessionId: string, raw: unknown) {
+export function recordOrdinaryReplySource(
+  store: SourceStore,
+  sessionId: string,
+  raw: unknown,
+  accepted: ReturnType<typeof captureOrdinaryReplyExecution>,
+) {
   const source = Source.parse(raw);
-  ordinaryCommand(store, sessionId, source.commandId);
+  const execution = Execution.parse(accepted);
+  const identity = TurnIdentity.parse(source);
+  const { executionFingerprint, ...acceptedIdentity } = execution;
+  const admission = ordinaryCodexCommandExecution(store, sessionId, source.commandId, {
+    requireClaimed: true,
+  });
+  if (
+    !isDeepStrictEqual(identity, acceptedIdentity) ||
+    admission.requestFingerprint !== executionFingerprint
+  )
+    throw new CollaborationContractError('reply_conflict');
+  const record = { version: 2 as const, ...source, executionFingerprint };
   const retained = store.getOrdinaryReplySourceEvents(sessionId, source.messageId);
   if (retained.length) {
-    if (
-      retained.length !== 1 ||
-      !isDeepStrictEqual(RetainedSource.parse(retained[0]), { version: 1, ...source })
-    )
+    if (retained.length !== 1 || !isDeepStrictEqual(RetainedSource.parse(retained[0]), record))
       throw new CollaborationContractError('reply_conflict');
     return;
   }
-  store.append(sessionId, 'ordinary_reply_source', { version: 1, ...source });
+  store.append(sessionId, 'ordinary_reply_source', record);
 }
 
 /** Composes EventStore's finalized visible-source reader with its ordinary command ledger.
@@ -76,7 +97,15 @@ export class OrdinaryCollaborationReplies {
     const mapping = RetainedSource.parse(mappings[0]);
     if (mapping.commandId !== source.commandId || mapping.messageId !== source.messageId)
       throw new CollaborationContractError('reply_conflict');
-    const admission = ordinaryCommand(this.store, source.conversationId, source.commandId);
+    const admission = ordinaryCodexCommandExecution(
+      this.store,
+      source.conversationId,
+      source.commandId,
+      {
+        historical: true,
+        fingerprint: mapping.version === 2 ? mapping.executionFingerprint : undefined,
+      },
+    );
     const visible = this.store.openCollaborationVisibleSource(source.conversationId, {
       sequence: source.throughSequence,
       messageId: source.messageId,

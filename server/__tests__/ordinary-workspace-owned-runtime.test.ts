@@ -31,6 +31,12 @@ vi.mock('../mcp-config.js', () => ({
   getMcpConfigPaths: () => [],
   loadFromFile: () => ({}),
 }));
+vi.mock('../openai-account-key-authority.js', () => ({
+  openAIAccountKeyAuthority: () => ({
+    assertReady: async () => {},
+    resolveKey: async () => 'synthetic-api-key',
+  }),
+}));
 beforeAll(() => setAuthRevocationStore(startupStore));
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
@@ -62,34 +68,51 @@ it('silently prepares an ordinary session with real readiness and private operat
   await expect(lstat(join(f.root, '.git'))).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
-it('admits the explicit ordinary first command through the real native bootstrap and existing dispatch owner', async () => {
-  const f = await ownedOrdinaryRuntimeFixture(cleanup),
-    first = f.first;
-  const outcome = await first
-    .create()
-    .admitPreparedFirst(first.receipt.allocationOperationId, first.request)
-    .then(
-      (value) => ({ value }),
-      (error) => ({ error: String(error) }),
+it.each([false, true])(
+  'admits and reopens the real ordinary first-command boundary (API account: %s)',
+  async (api) => {
+    const f = await ownedOrdinaryRuntimeFixture(cleanup, { api }),
+      first = f.first;
+    const driver = first.create();
+    const outcome = await driver
+      .admitPreparedFirst(first.receipt.allocationOperationId, first.request)
+      .then(
+        (value) => ({ value }),
+        (error) => ({ error: String(error) }),
+      );
+    expect({
+      outcome,
+      repositoryLookups: f.legacyLookup.mock.calls.length,
+      nativeLaunches: first.launch.mock.calls.length,
+    }).toEqual({
+      outcome: { value: { dispatched: true } },
+      repositoryLookups: 0,
+      nativeLaunches: 1,
+    });
+    expect(first.dispatch).toHaveBeenCalledOnce();
+    expect(f.forbidden).not.toHaveBeenCalled();
+    expect(
+      f.events.getOrdinaryWorkspaceSessionPreparation(first.receipt.allocationOperationId)
+        ?.firstCommandId,
+    ).toBe(first.request.clientMsgId);
+    expect(f.events.getOrdinaryLocalCommandAdmission(first.request.clientMsgId)?.state).toBe(
+      'consumed',
     );
-  expect({
-    outcome,
-    repositoryLookups: f.legacyLookup.mock.calls.length,
-    nativeLaunches: first.launch.mock.calls.length,
-  }).toEqual({ outcome: { value: { dispatched: true } }, repositoryLookups: 0, nativeLaunches: 1 });
-  expect(first.dispatch).toHaveBeenCalledOnce();
-  expect(f.forbidden).not.toHaveBeenCalled();
-  expect(
-    f.events.getOrdinaryWorkspaceSessionPreparation(first.receipt.allocationOperationId)
-      ?.firstCommandId,
-  ).toBe(first.request.clientMsgId);
-  expect(f.events.getOrdinaryLocalCommandAdmission(first.request.clientMsgId)?.state).toBe(
-    'consumed',
-  );
-  await expect(lstat(join(first.reserved.directory, '.git'))).rejects.toMatchObject({
-    code: 'ENOENT',
-  });
-});
+    await expect(lstat(join(first.reserved.directory, '.git'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    driver.close();
+    f.reopenStorage();
+    expect(f.events.getSessionRuntimeBinding(first.receipt.sessionId)?.account.provider).toBe(
+      api ? 'openai' : 'openai-codex',
+    );
+    await expect(
+      first.create().admitPreparedFirst(first.receipt.allocationOperationId, first.request),
+    ).resolves.toEqual({ dispatched: false });
+    expect(first.launch).toHaveBeenCalledOnce();
+    expect(first.dispatch).toHaveBeenCalledOnce();
+  },
+);
 
 it('keeps concurrent ordinary allocations independent and dispatches each exact first command once', async () => {
   const f = await ownedOrdinaryRuntimeFixture(cleanup),

@@ -26,6 +26,10 @@ it('does not provide execution or approval methods', () => {
 import { createHash } from 'node:crypto';
 import { canonicalJson } from '../connections/capabilities/input-validation.js';
 import type { ReviewPublicationDependencies } from '../symposium-review-publication.js';
+const inspectionFailure = {
+  code: 'PUBLICATION_PREFLIGHT_FAILED',
+  details: { stage: 'inspection' },
+};
 function fixture() {
   const tree = `100644 blob ${'a'.repeat(40)}\tfile.txt\0`;
   const hash = committedTreeDigest(tree);
@@ -191,7 +195,7 @@ it('uses real Git preflight validation and returns only a preview without reserv
 it('rejects a review hash that does not bind the actual committed tree', async () => {
   const f = fixture();
   f.record.snapshot.artifactHash = 'd'.repeat(64);
-  await expect(f.inspect()).rejects.toThrow('does not match');
+  await expect(f.inspect()).rejects.toMatchObject(inspectionFailure);
   expect(f.deps.publisher.policy).not.toHaveBeenCalled();
 });
 it('rechecks the lease after remote preflight reads', async () => {
@@ -377,7 +381,11 @@ it('accepts dotted OpenShell workspace identities without broadening sandbox nam
     ...f.deps.getLiveAttachment()!,
     sandboxName: 'sandbox.invalid',
   });
-  await expect(f.inspect()).rejects.toThrow('Sandbox identity is invalid');
+  f.deps.control.mockClear();
+  f.deps.publisher.policy.mockClear();
+  await expect(f.inspect()).rejects.toMatchObject(inspectionFailure);
+  expect(f.deps.control).not.toHaveBeenCalled();
+  expect(f.deps.publisher.policy).not.toHaveBeenCalled();
 });
 
 it('rejects a live attachment belonging to a different physical connection provider', async () => {

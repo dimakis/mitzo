@@ -7,6 +7,7 @@ import { AgentContextSnapshotSchema } from './agent-context-recipe.js';
 import { AccountBindingSchema } from './account-binding.js';
 import {
   SessionRuntimeBindingSchema,
+  isOrdinaryCodexWorkspaceBinding,
   type SessionRuntimeBinding,
 } from './session-runtime-binding.js';
 import { isRegisteredConversation } from './conversation-identity.js';
@@ -743,11 +744,7 @@ function assertOrdinaryWorkspaceRoute(
   if (
     ordinaryId !== undefined &&
     ordinaryId !== null &&
-    (binding.version !== 2 ||
-      binding.harness.implementation !== 'codex' ||
-      !(binding.execution.location === 'local'
-        ? binding.account.provider === 'openai-codex'
-        : ['openai', 'openai-codex'].includes(binding.account.provider)) ||
+    (!isOrdinaryCodexWorkspaceBinding(binding) ||
       (binding.execution.location === 'openshell' &&
         !OrdinaryOpenShellCommandAdmissionSchema.shape.workspace.shape.cwd.safeParse(cwd).success))
   )

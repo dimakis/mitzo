@@ -1,3 +1,6 @@
+import Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
+import { RepositoryPreparationCapacityError } from '../repository-preparation-capacity.js';
 import { cleanupStaleWorktrees } from '../worktree.js';
 import { execFileSync } from 'node:child_process';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -12,6 +15,7 @@ import {
   access,
   cp,
   utimes,
+  stat,
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -95,11 +99,58 @@ it('persists a pinned preparation across restart and claims it for only one conv
     'Example/Repo',
     new AbortController().signal,
   );
+  // Reuse this real prepare/reopen/claim journey for the shared ledger quota.
+  // Historical Local Mac sources do not allocate managed GitHub source copies.
+  const sourcePath = join(f.root, 'source'),
+    commonDirectory = join(sourcePath, '.git');
+  const root = await stat(sourcePath),
+    commonRoot = await stat(commonDirectory);
+  const localSource = {
+    repositoryId: 'fixture',
+    path: sourcePath,
+    root: { dev: root.dev, ino: root.ino },
+    commonDirectory,
+    commonRoot: { dev: commonRoot.dev, ino: commonRoot.ino },
+  };
+  const original = f.service.get(preview.id);
+  const seed = new Database(join(f.root, 'private', 'workspaces.db'));
+  try {
+    const insert = seed.prepare(
+      'INSERT INTO repository_workspaces(id,record,conversation_id) VALUES(?,?,NULL)',
+    );
+    seed.transaction(() => {
+      const add = (fields: Partial<typeof original>) => {
+        const id = randomUUID();
+        insert.run(id, JSON.stringify({ ...original, id, state: 'preparing', ...fields }));
+      };
+      for (let i = 0; i < 8; i++) add({ state: 'ready', connectionId: 'local', localSource });
+      for (let i = 0; i < 7; i++) add({});
+      add({ binding: { ...binding, accountId: 'other-account' } });
+      add({ sourceReleased: true });
+      add({ state: 'failed' });
+    })();
+  } finally {
+    seed.close();
+  }
   const ready = await f.service.prepare(preview.id, binding, new AbortController().signal);
   expect(ready).toMatchObject({
     state: 'ready',
     repository: 'example/repo',
     baseOid: expect.stringMatching(/^[a-f0-9]{40}$/),
+  });
+  const blocked = await f.service.preview(
+    binding,
+    'connection',
+    'Example/Repo',
+    new AbortController().signal,
+  );
+  await expect(
+    f.service.prepare(blocked.id, binding, new AbortController().signal),
+  ).rejects.toBeInstanceOf(RepositoryPreparationCapacityError);
+  expect(f.service.get(blocked.id).state).toBe('preview');
+  expect(f.prepare).toHaveBeenCalledOnce();
+  await expect(access(join(f.root, 'private', blocked.id))).rejects.toMatchObject({
+    code: 'ENOENT',
   });
   f.service.close();
   const restored = new RepositoryWorkspaces(join(f.root, 'private'), {

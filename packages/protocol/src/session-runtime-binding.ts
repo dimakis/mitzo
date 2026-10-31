@@ -63,3 +63,13 @@ export const SessionRuntimeBindingSchema = z.discriminatedUnion('version', [
 export type SessionRuntimeBindingV1 = z.infer<typeof SessionRuntimeBindingV1Schema>;
 export type SessionRuntimeBindingV2 = z.infer<typeof SessionRuntimeBindingV2Schema>;
 export type SessionRuntimeBinding = z.infer<typeof SessionRuntimeBindingSchema>;
+
+/** Private workspace route shape only; account and physical custody remain separate. */
+export function isOrdinaryCodexWorkspaceBinding(binding: SessionRuntimeBinding): boolean {
+  return (
+    binding.version === 2 &&
+    binding.harness.implementation === 'codex' &&
+    ['local', 'openshell'].includes(binding.execution.location) &&
+    ['openai', 'openai-codex'].includes(binding.account.provider)
+  );
+}

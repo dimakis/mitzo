@@ -14,7 +14,7 @@ export const inputSchema = z
       .string()
       .min(1)
       .max(4096)
-      .refine((path) => isAbsolute(path) && resolve(path) === path)
+      .refine((path) => isAbsolute(path) && resolve(path) === path && !path.includes('\0'))
       .describe('Existing absolute Mac checkout path, not a destination. Omit when using source.')
       .optional(),
     source: RepositorySourceIntentSchema.describe(

@@ -49,6 +49,7 @@ it.each([
   { path: '/private/SECRET', source: { kind: 'new', name: 'my-project' } },
   { source: { kind: 'new', name: '../SECRET' } },
   { path: 'relative/SECRET' },
+  { path: '/absolute/SECRET\0suffix' },
   { source: { kind: 'new' }, destination: '/private/SECRET' },
   { source: { kind: 'new' }, context: { approval: 'SECRET' } },
 ])('returns a safe correction for malformed repository input %j before effects', (input) => {

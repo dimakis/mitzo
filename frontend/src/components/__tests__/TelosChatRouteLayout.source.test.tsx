@@ -104,13 +104,12 @@ it.each([
     } as never);
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
+      vi.fn().mockImplementation(async () =>
+        Response.json({
           sessionId: 'planning',
           ...(boundElsewhere ? { telosWorkRoleContext: { itemId: 'other' } } : {}),
         }),
-      }),
+      ),
     );
     render(
       <MitzoStoreProvider value={createTestStore()}>

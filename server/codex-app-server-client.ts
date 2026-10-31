@@ -195,6 +195,7 @@ export class CodexTransportError extends Error {
         | 'invalid_json'
         | 'invalid_envelope'
         | 'notification_handler_failed'
+        | 'reply_provenance_failed'
         | 'child_exit'
         | 'process_error'
         | 'stream_error';
@@ -838,6 +839,7 @@ export class CodexAppServerClient {
         'thread/fork',
         'thread/read',
         'thread/turns/list',
+        'thread/items/list',
         'turn/start',
         'turn/steer',
         'turn/interrupt',

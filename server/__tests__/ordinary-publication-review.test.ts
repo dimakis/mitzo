@@ -1,3 +1,4 @@
+import { AdviserHarnessFailure } from '../adviser-harness-failure.js';
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -148,6 +149,15 @@ it('runs two independent tool-less reviews on complete committed text and pins t
     reasoningEffort: 'low',
   });
   expect(f.session.mock.calls[0][0].systemPrompt).not.toBe(f.session.mock.calls[1][0].systemPrompt);
+  for (const [config] of f.session.mock.calls) {
+    expect(config.systemPrompt).toContain('This is inference round 1 of 5');
+    expect(config.systemPrompt).toContain('Batch all currently known context needs');
+    const schema = JSON.parse(config.systemPrompt.split('Response JSON schema: ')[1]);
+    expect(schema.properties.unresolvedNeeds.items.maxLength).toBe(200);
+    expect(schema.properties.findings.items.properties.summary.maxLength).toBe(600);
+    expect(schema.properties.requests.maxItems).toBe(8);
+  }
+
   expect(f.session.mock.calls[0][2]).toMatchObject({
     authSessionId: 'auth',
     operatorConnectionId: 'operator',
@@ -160,6 +170,14 @@ it('runs two independent tool-less reviews on complete committed text and pins t
     expect(context).toContain('Unchanged route test requires status 200');
     expect(context).toContain('The unchanged route must preserve the documented response status.');
   }
+  const packet = JSON.parse(f.contexts[0].split('(JSON):\n')[1]).initialEvidence;
+  expect(packet.contextDiscovery.candidates).toContainEqual(
+    expect.objectContaining({
+      path: 'docs/requirements.md',
+      reason: 'instruction_link',
+      linkedFrom: ['AGENTS.md'],
+    }),
+  );
   expect(f.contexts[0]).not.toContain(f.directory);
   expect(receipt.evidenceSha256).toMatch(/^[a-f0-9]{64}$/);
   expect(receipt.reports).toMatchObject([
@@ -330,6 +348,8 @@ it('serves bounded Git context requests independently for each pass and reports 
                   : [
                       { kind: 'read', path: 'large-caller.ts', startLine: 1, endLine: 2 },
                       { kind: 'search', query: './route.js' },
+                      { kind: 'search', query: './route.js', pathPrefix: '' },
+                      { kind: 'search', query: './route.js', pathPrefix: '.' },
                     ],
                 unresolvedNeeds: [],
               }),
@@ -345,6 +365,12 @@ it('serves bounded Git context requests independently for each pass and reports 
   expect(rounds[3]).toContain('export const requiredBoundary = answer;');
   expect(rounds[1]).toContain('"remainingAfter":2500');
   expect(rounds[2]).not.toContain('"contextResponse"');
+  expect(receipt.reports?.[0].coverage.searches).toEqual([
+    { query: './route.js', matchedPathCount: 1 },
+    { query: './route.js', matchedPathCount: 1 },
+    { query: './route.js', matchedPathCount: 1 },
+  ]);
+
   expect(receipt.reports?.[0].coverage.contextReads).toContainEqual(
     expect.objectContaining({ path: 'large-caller.ts', startLine: 1, endLine: 2, complete: false }),
   );
@@ -352,6 +378,16 @@ it('serves bounded Git context requests independently for each pass and reports 
 
 it('refuses unresolved needed context and invalid Git paths', async () => {
   const f = await fixture();
+  const captured = await capturePublicationReviewEvidence(f.input);
+  for (const pathPrefix of ['..', '../outside', '/tmp', 'src/../']) {
+    await expect(
+      captured.context([{ kind: 'search', query: 'answer', pathPrefix }]),
+    ).rejects.toMatchObject({
+      code: 'PUBLICATION_REVIEW_UNAVAILABLE',
+      details: { reason: 'context_search_unavailable' },
+    });
+  }
+
   f.session.mockImplementation(
     async () =>
       ({
@@ -428,11 +464,14 @@ it('rechecks the original publisher at actual adviser dispatch after asynchronou
 
 it('returns incomplete when context requests exhaust the bounded rounds instead of approving a partial pass', async () => {
   const f = await fixture();
+  let round = 0;
   f.session.mockImplementation(
-    async () =>
+    async (config) =>
       ({
         provider: 'codex',
         async *turn(messages: Array<{ role: string; content: string }>) {
+          round++;
+          expect(config.systemPrompt).toContain(`This is inference round ${round} of 5`);
           const digest = /Evidence SHA-256: ([a-f0-9]{64})/.exec(
             messages.map((message) => message.content).join(''),
           )![1];
@@ -446,7 +485,14 @@ it('returns incomplete when context requests exhaust the bounded rounds instead 
                 reviewedAllEvidence: false,
                 verdict: 'context_required',
                 findings: [],
-                requests: [{ kind: 'read', path: 'route.ts', startLine: 1, endLine: 1 }],
+                requests: [
+                  {
+                    kind: 'read',
+                    path: round === 5 ? 'unavailable-final-context.ts' : 'route.ts',
+                    startLine: 1,
+                    endLine: 1,
+                  },
+                ],
               }),
             },
           };
@@ -541,4 +587,14 @@ it('reviews complete large source and generated context without dropping unchang
   expect(f.session).toHaveBeenCalledTimes(2);
   expect(f.contexts[0].match(/retained complete context/g)).toHaveLength(8006);
   expect(f.contexts[0]).toContain('end-of-reviewed-file');
+});
+
+it('delivers only a bounded native failure phase to the publication caller without retrying', async () => {
+  const f = await fixture();
+  f.session.mockRejectedValueOnce(new AdviserHarnessFailure('session_metadata'));
+  await expect(f.review(f.input)).rejects.toMatchObject({
+    code: 'PUBLICATION_REVIEW_UNAVAILABLE',
+    details: { reason: 'review_response_unavailable', phase: 'session_metadata' },
+  });
+  expect(f.session).toHaveBeenCalledOnce();
 });

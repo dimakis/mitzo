@@ -24,7 +24,7 @@ it('builds identical portable Git bytes without host clocks, configuration or in
     );
     const gitStage = script.slice(
       script.indexOf('# Create a fresh portable repository'),
-      script.indexOf('\nSOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE='),
+      script.indexOf('\nSOURCE_POLICY_RECEIPT='),
     );
     expect(gitStage).toContain('chore: seed isolated MGMT workspace');
     const source = join(root, 'source');

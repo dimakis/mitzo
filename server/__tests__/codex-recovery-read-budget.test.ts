@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
+import { observeNativeRecoveryTurn, interruptedEffectCalls } from '../codex-interrupted-effects.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 
 const stores: CodexConversationStore[] = [];
@@ -118,4 +119,93 @@ it('bounds exact recovery observations independently of completed history and qu
     );
   expect(reads).toBe(44);
   expect(rows).toBe(44);
+});
+
+it('pages interrupted results within frames and rejects incomplete or changing native evidence', async () => {
+  const target = {
+    commandId: 'original',
+    attempt: 1,
+    threadId: 'thread',
+    turnId: 'turn',
+    generation: 0,
+  };
+  const metadata = { data: [{ id: 'turn', status: 'interrupted', error: null }] };
+  const entry = (id: string, output = '') => ({
+    turnId: 'turn',
+    item: {
+      id,
+      type: 'commandExecution',
+      status: 'completed',
+      exitCode: 0,
+      aggregatedOutput: output,
+    },
+  });
+  const guard = vi.fn(async () => {});
+  const request = vi.fn(
+    async (method: string, params: Record<string, unknown>): Promise<unknown> => {
+      expect(params).toMatchObject({ threadId: 'thread', limit: 1 });
+      if (method === 'thread/turns/list') {
+        expect(params.itemsView).toBe('notLoaded');
+        return metadata;
+      }
+      expect(method).toBe('thread/items/list');
+      expect(params.turnId).toBe('turn');
+      // Individually legal retained items whose combined full turn exceeds 4 MiB.
+      const result = {
+        data: [entry(params.cursor ? 'second' : 'first', 'x'.repeat(2_200_000))],
+        nextCursor: params.cursor ? null : 'next',
+      };
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(4_194_304);
+      return result;
+    },
+  );
+  const result = await observeNativeRecoveryTurn(request, 'app', target, true, guard);
+  expect(interruptedEffectCalls(result.settledEffects!, 'app', target)).toEqual([]);
+  expect(request).toHaveBeenCalledTimes(4);
+  expect(guard).toHaveBeenCalledTimes(3);
+
+  for (const variant of [
+    'foreign',
+    'duplicate',
+    'cursor',
+    'missing',
+    'budget',
+    'empty',
+    'changed',
+    'oversized',
+  ] as const) {
+    let reads = 0,
+      pages = 0;
+    const invalid = vi.fn(async (method: string): Promise<unknown> => {
+      if (method === 'thread/turns/list')
+        return ++reads === 2 && variant === 'changed'
+          ? { data: [{ id: 'replacement', status: 'completed', error: null }] }
+          : metadata;
+      pages++;
+      if (variant === 'oversized') throw Error('frame_too_large');
+      if (variant === 'missing') return { data: [] };
+      if (variant === 'empty') return { data: [], nextCursor: 'next' };
+      return {
+        data: [
+          {
+            ...entry(variant === 'duplicate' ? 'same' : String(pages)),
+            turnId: variant === 'foreign' ? 'other' : 'turn',
+          },
+        ],
+        nextCursor:
+          variant === 'cursor' || variant === 'duplicate'
+            ? 'next'
+            : variant === 'budget'
+              ? String(pages)
+              : null,
+      };
+    });
+    await expect(observeNativeRecoveryTurn(invalid, 'app', target, true, guard)).rejects.toThrow();
+    expect(pages).toBeLessThanOrEqual(128);
+    expect(
+      invalid.mock.calls.some(
+        ([method]) => !['thread/turns/list', 'thread/items/list'].includes(method),
+      ),
+    ).toBe(false);
+  }
 });

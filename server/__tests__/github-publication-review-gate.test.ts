@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
+import { GithubPublicationReviewError } from '../github-publication-review-failure.js';
 import {
   createGithubArtifactPublishPrExecutor,
   type GithubArtifactPublishDependencies,
@@ -140,8 +141,9 @@ it('reviews the frozen host artifact before approval and revalidates the private
 
 it('stops before approval and publication when independent review fails, preserving host cleanup', async () => {
   const f = fixture();
-  vi.mocked(f.review).mockRejectedValue(Error('Review has blocking findings'));
-  await expect(f.executor.preflight!(f.context)).rejects.toThrow('blocking findings');
+  const failure = new GithubPublicationReviewError('PUBLICATION_REVIEW_BLOCKED', { findings: [] });
+  vi.mocked(f.review).mockRejectedValue(failure);
+  await expect(f.executor.preflight!(f.context)).rejects.toBe(failure);
   expect(f.deps.host.cleanup).toHaveBeenCalledOnce();
   expect(f.deps.host.push).not.toHaveBeenCalled();
 });
@@ -235,4 +237,31 @@ it('never creates a missing PR while recovering an uncertain reviewed publicatio
   ).rejects.toThrow(/pending/i);
   expect(f.deps.host.create).not.toHaveBeenCalled();
   expect(f.deps.host.push).not.toHaveBeenCalled();
+});
+
+it.each([
+  'inspection',
+  'branch_policy',
+  'export',
+  'reconstruction',
+  'review',
+  'lookup',
+  'cleanup',
+] as const)('returns a safe %s diagnostic before any approval or GitHub write', async (stage) => {
+  const f = fixture();
+  const failure = Error('https://secret-token@github.com/private/repo credential=SECRET');
+  if (stage === 'inspection') vi.mocked(f.deps.inspect).mockRejectedValue(failure);
+  if (stage === 'branch_policy') vi.mocked(f.deps.host.policy).mockRejectedValue(failure);
+  if (stage === 'export') vi.mocked(f.deps.exportBundle).mockRejectedValue(failure);
+  if (stage === 'reconstruction') vi.mocked(f.deps.host.reconstruct).mockRejectedValue(failure);
+  if (stage === 'review') vi.mocked(f.review).mockRejectedValue(failure);
+  if (stage === 'lookup') vi.mocked(f.deps.host.findOpen).mockRejectedValue(failure);
+  if (stage === 'cleanup') vi.mocked(f.deps.host.cleanup).mockRejectedValue(failure);
+  const error = await f.executor.preflight!(f.context).catch((error: unknown) => error);
+  expect(error).toBeInstanceOf(GithubPublicationReviewError);
+  expect(error).toMatchObject({ code: 'PUBLICATION_PREFLIGHT_FAILED', details: { stage } });
+  expect(JSON.stringify(error)).not.toMatch(/SECRET|secret-token|private\/repo/);
+  expect(f.deps.host.push).not.toHaveBeenCalled();
+  expect(f.deps.host.create).not.toHaveBeenCalled();
+  expect(f.deps.host.update).not.toHaveBeenCalled();
 });

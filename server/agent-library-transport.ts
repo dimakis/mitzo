@@ -1,16 +1,10 @@
-import { createHash, randomUUID } from 'node:crypto';
-import {
-  PROFILE_BUILDER_ID,
-  profileBuilderDefinitionForRevision,
-  DEFAULT_MITZO_PROFILE_ID,
-  DEFAULT_MITZO_PROFILE_REVISION,
-  defaultMitzoProfileDefinition,
-  AgentLibraryVersionSchema,
-  type AgentProfileSelection,
-} from '@mitzo/protocol';
+import { randomUUID } from 'node:crypto';
+import { AgentLibraryVersionSchema, type AgentProfileSelection } from '@mitzo/protocol';
 import { registerAuthSession, isAuthSessionCurrent, type AuthSession } from './auth.js';
 import { custodianControllerClient } from './symposium-custodian-mode.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
+import { readBuiltinAgentLibraryProfile } from './builtin-agent-library-profile.js';
+export { readBuiltinAgentLibraryProfile } from './builtin-agent-library-profile.js';
 
 const operators = new Map<string, AuthSession>();
 export function captureAgentLibraryAuthorization(connectionId?: string) {
@@ -66,27 +60,6 @@ export async function withAgentLibraryRecoveryAuthorization<T>(
   } finally {
     release();
   }
-}
-/** Builtin identity is code-owned and never resolved through the user Library. */
-export function readBuiltinAgentLibraryProfile(selection: AgentProfileSelection) {
-  if (selection.kind === 'builtin') {
-    const definition =
-      selection.profileId === DEFAULT_MITZO_PROFILE_ID &&
-      selection.revision === DEFAULT_MITZO_PROFILE_REVISION
-        ? structuredClone(defaultMitzoProfileDefinition)
-        : selection.profileId === PROFILE_BUILDER_ID
-          ? profileBuilderDefinitionForRevision(selection.revision)
-          : undefined;
-    if (!definition) return null;
-    return {
-      kind: 'builtin' as const,
-      profileId: selection.profileId,
-      revision: selection.revision,
-      definition,
-      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
-    };
-  }
-  return null;
 }
 export async function readAgentLibraryProfile(
   selection: AgentProfileSelection,

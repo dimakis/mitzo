@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream';
 import {
   CodexAppServerClient,
   CodexServerRequestResolvedError,
+  CodexTransportError,
 } from '../codex-app-server-client.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
@@ -74,6 +75,20 @@ function nativeTransportFixture() {
 }
 
 describe('owned Codex lifecycle bridge', () => {
+  it('retains a bounded reply provenance failure before lease closure reenters transport shutdown', () => {
+    const f = nativeTransportFixture();
+    vi.mocked(f.owner.onNotification).mockImplementation(() => {
+      throw new CodexTransportError('connection', { reason: 'reply_provenance_failed' });
+    });
+    f.reply({ method: 'item/agentMessage/delta', params: { threadId: 'thread' } });
+    expect(f.owner.onClose).toHaveBeenCalledOnce();
+    expect(f.owner.onClose).toHaveBeenCalledWith(
+      expect.objectContaining({
+        diagnostic: { reason: 'reply_provenance_failed' },
+      }),
+    );
+    expect(f.child.kill).toHaveBeenCalledOnce();
+  });
   it('dismisses one upstream-resolved RPC without closing the owned lease or the next request', async () => {
     const f = nativeTransportFixture();
     let pendingSignal: AbortSignal | undefined;
