@@ -39,6 +39,96 @@ it('reports invalid review fields without copying the model explanation', () => 
   });
   expect(JSON.stringify(failure)).not.toContain(secret);
 });
+import {
+  publicationReviewDependencies,
+  publicationReviewImports,
+  boundedReviewDependencyCandidates,
+} from '../ordinary-publication-review-dependencies.js';
+
+it('discovers only pinned literal dependencies without interpreting shell expressions', () => {
+  const binding = 'root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n';
+  const all = new Set(['scripts/lib/actual.sh', 'scripts/lib/missing.js', 'scripts/lib/actual.ts']);
+  expect([
+    ...publicationReviewImports('scripts/entry.sh', binding + 'bash "$root/lib/actual.sh"', all),
+  ]).toEqual([]);
+  expect([
+    ...publicationReviewDependencies(
+      'scripts/entry.sh',
+      binding + 'bash "$root/lib/actual.sh"',
+      all,
+    ),
+  ]).toEqual(['scripts/lib/actual.sh']);
+  for (const source of [
+    binding + 'root=/elsewhere\nbash "$root/lib/actual.sh"',
+    binding + 'export root=/elsewhere\nbash "$root/lib/actual.sh"',
+    binding + 'bash "$root/$(outside)/actual.sh"',
+    'root=/elsewhere\nbash "$root/lib/actual.sh"',
+    binding + 'bash "$root/lib/untracked.sh"',
+  ])
+    expect([...publicationReviewDependencies('scripts/entry.sh', source, all)]).toEqual([]);
+  const bounded = boundedReviewDependencyCandidates(
+    new Set(Array.from({ length: 130 }, (_, i) => `path-${i}`)),
+    128,
+  );
+  expect(bounded.paths).toHaveLength(128);
+  expect(bounded.omittedCount).toBe(2);
+  expect(boundedReviewDependencyCandidates(new Set(['unread']), 0)).toEqual({
+    paths: [],
+    omittedCount: 1,
+  });
+  expect([
+    ...publicationReviewDependencies('scripts/entry.ts', "import './lib/actual.js';", all),
+  ]).toEqual(['scripts/lib/actual.ts']);
+});
+
+it('rejects malformed reviewer output with bounded schema diagnostics and no response text', () => {
+  const valid = {
+    evidenceSha256: 'a'.repeat(64),
+    reviewedAllEvidence: false,
+    verdict: 'context_required',
+    findings: [],
+    requests: [{ kind: 'read', path: 'entry.sh' }],
+    unresolvedNeeds: ['x'.repeat(242)],
+  };
+  for (const [text, expected] of [
+    [
+      JSON.stringify(valid),
+      {
+        reason: 'review_response_invalid_schema',
+        phase: 'response_validation',
+        issues: [{ field: 'unresolvedNeeds.0', code: 'too_big', limit: 200 }],
+      },
+    ],
+    [
+      'PRIVATE_PROVIDER_RESPONSE {',
+      { reason: 'review_response_invalid_json', phase: 'response_validation' },
+    ],
+  ] as const) {
+    try {
+      parsePublicationReviewResponse(text);
+      throw Error('Unexpected acceptance');
+    } catch (error) {
+      expect(error).toMatchObject({ code: 'PUBLICATION_REVIEW_UNAVAILABLE', details: expected });
+      expect(JSON.stringify(error)).not.toContain('PRIVATE_PROVIDER_RESPONSE');
+    }
+  }
+  expect(() =>
+    parsePublicationReviewResponse(
+      JSON.stringify({ ...valid, unresolvedNeeds: ['x'.repeat(200)] }),
+    ),
+  ).not.toThrow();
+  const unknown = JSON.stringify({
+    ...valid,
+    unresolvedNeeds: [],
+    SECRET_UNKNOWN_KEY: 'PRIVATE_SECRET',
+  });
+  expect(() => parsePublicationReviewResponse(unknown)).toThrow();
+  try {
+    parsePublicationReviewResponse(unknown);
+  } catch (error) {
+    expect(JSON.stringify(error)).not.toContain('SECRET');
+  }
+});
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -179,6 +269,8 @@ it('runs two independent tool-less reviews on complete committed text and pins t
   for (const [config] of f.session.mock.calls) {
     expect(config.systemPrompt).toContain('This is inference round 1 of 5');
     expect(config.systemPrompt).toContain('Batch all currently known context needs');
+    expect(config.systemPrompt).toContain('existing representative coverage');
+    expect(config.systemPrompt).toContain('Each unresolvedNeeds entry must fit 200 characters');
     const schema = JSON.parse(config.systemPrompt.split('Response JSON schema: ')[1]);
     expect(schema.properties.unresolvedNeeds.items.maxLength).toBe(200);
     expect(schema.properties.findings.items.properties.summary.maxLength).toBe(600);
@@ -341,9 +433,50 @@ it('serves bounded Git context requests independently for each pass and reports 
   const large = [
     "import { answer } from './change.js';",
     'export const requiredBoundary = answer;',
-    ...Array.from({ length: 2500 }, (_, i) => `// Unchanged context line ${i}`),
+    ...Array.from({ length: 2500 }, (_, i) =>
+      i === 2499 ? "import './partial-only.js';" : `// Unchanged context line ${i}`,
+    ),
   ].join('\n');
   await writeFile(join(f.directory, 'large-caller.ts'), large);
+  await writeFile(join(f.directory, 'partial-only.ts'), 'UNREAD_PARTIAL_DEPENDENCY');
+  await mkdir(join(f.directory, 'scripts/lib'), { recursive: true });
+  const entry =
+    'script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nbash "$script_root/lib/implementation.sh"\n';
+  await writeFile(
+    join(f.directory, 'scripts/lib/implementation.sh'),
+    '# Complete delegated selection boundary\n' +
+      '# preserved implementation line\n'.repeat(500) +
+      'root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nbash "$root/indirect.sh"\n',
+  );
+  await Promise.all([
+    writeFile(join(f.directory, 'scripts/lib/indirect.sh'), 'UNREAD_RECURSIVE_DEPENDENCY'),
+    writeFile(join(f.directory, 'scripts/empty.sh'), ''),
+    writeFile(join(f.directory, 'scripts/empty-explicit.sh'), ''),
+    writeFile(join(f.directory, 'scripts/blob.dat'), Buffer.from([0xff])),
+    writeFile(join(f.directory, 'scripts/other.sh'), entry),
+  ]);
+  await mkdir(join(f.directory, 'scripts/guarded'), { recursive: true });
+  await writeFile(
+    join(f.directory, 'scripts/guarded/AGENTS.md'),
+    'UNREAD_INSTRUCTION'.repeat(3000),
+  );
+  await writeFile(
+    join(f.directory, 'scripts/guarded/implementation.sh'),
+    '# UNREAD_GUARDED_DEPENDENCY\n',
+  );
+  await writeFile(join(f.directory, 'scripts/huge.sh'), '# UNREAD_LARGE_DEPENDENCY\n'.repeat(3000));
+  await writeFile(
+    join(f.directory, 'scripts/entry.sh'),
+    entry +
+      'bash "$script_root/empty.sh"\nbash "$script_root/blob.dat"\n' +
+      'bash "$script_root/huge.sh"\nbash "$script_root/guarded/implementation.sh"\n' +
+      Array.from({ length: 10 }, (_, i) => `bash "$script_root/lib/tiny-${i}.sh"\n`).join(''),
+  );
+  await Promise.all(
+    Array.from({ length: 10 }, (_, i) =>
+      writeFile(join(f.directory, `scripts/lib/tiny-${i}.sh`), '# tiny deterministic dependency\n'),
+    ),
+  );
   f.git('add', '.');
   f.git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'unchanged large caller');
   f.git('update-ref', 'refs/remotes/origin/main', 'HEAD');
@@ -374,6 +507,9 @@ it('serves bounded Git context requests independently for each pass and reports 
                   ? []
                   : [
                       { kind: 'read', path: 'large-caller.ts', startLine: 1, endLine: 2 },
+                      { kind: 'read', path: 'scripts/entry.sh' },
+                      { kind: 'read', path: 'scripts/other.sh' },
+                      { kind: 'read', path: 'scripts/empty-explicit.sh' },
                       { kind: 'search', query: './route.js' },
                       { kind: 'search', query: './route.js', pathPrefix: '' },
                       { kind: 'search', query: './route.js', pathPrefix: '.' },
@@ -389,9 +525,51 @@ it('serves bounded Git context requests independently for each pass and reports 
   const receipt = await f.review({ ...f.input, sourceOid: f.git('rev-parse', 'HEAD') });
   expect(f.session).toHaveBeenCalledTimes(4);
   expect(rounds[1]).toContain('export const requiredBoundary = answer;');
+  for (const index of [1, 3]) {
+    expect(rounds[index]).toContain('Complete delegated selection boundary');
+    expect(rounds[index]).not.toContain('UNREAD_INSTRUCTION');
+    expect(rounds[index]).not.toContain('UNREAD_PARTIAL_DEPENDENCY');
+    expect(rounds[index]).not.toContain('UNREAD_RECURSIVE_DEPENDENCY');
+    expect(rounds[index]).toContain('non_text_dependency_or_instruction');
+    expect(rounds[index]).toContain('already_supplied_or_requested');
+    expect(rounds[index]).not.toContain('UNREAD_GUARDED_DEPENDENCY');
+    expect(rounds[index]).not.toContain('UNREAD_LARGE_DEPENDENCY');
+    expect(rounds[index]).toContain('automatic_context_budget');
+    expect(rounds[index]).toContain('automatic_file_budget');
+    expect(rounds[index].match(/preserved implementation line/g)).toHaveLength(500);
+  }
+  expect(receipt.reports?.[0].coverage.contextReads).toContainEqual(
+    expect.objectContaining({
+      path: 'scripts/lib/implementation.sh',
+      complete: true,
+      totalLines: 503,
+    }),
+  );
   expect(rounds[3]).toContain('export const requiredBoundary = answer;');
   expect(rounds[1]).toContain('"remainingAfter":2500');
   expect(rounds[2]).not.toContain('"contextResponse"');
+  const responses = JSON.parse(rounds[1].split('(JSON):\n')[1]).history[0].contextResponse;
+  const entryResponse = responses.find(
+    (response: { path?: string }) => response.path === 'scripts/entry.sh',
+  );
+  expect(entryResponse.dependencies).toContainEqual(
+    expect.objectContaining({
+      path: 'scripts/empty.sh',
+      totalLines: 0,
+      startLine: 0,
+      endLine: 0,
+      complete: true,
+    }),
+  );
+  expect(responses).toContainEqual(
+    expect.objectContaining({
+      path: 'scripts/empty-explicit.sh',
+      totalLines: 0,
+      startLine: 0,
+      endLine: 0,
+      complete: true,
+    }),
+  );
   expect(receipt.reports?.[0].coverage.searches).toEqual([
     { query: './route.js', matchedPathCount: 1 },
     { query: './route.js', matchedPathCount: 1 },
@@ -584,6 +762,13 @@ it('bounds expensive runtime qualification by evidence batches and refuses a rev
   await captured.context([{ kind: 'read', path: 'route.ts' }]);
   expect(assertRuntimeCurrent.mock.calls.length).toBeGreaterThanOrEqual(2);
   expect(assertRuntimeCurrent.mock.calls.length).toBeLessThan(8);
+  let contextChecks = 0;
+  assertRuntimeCurrent.mockImplementation(async () => {
+    if (++contextChecks > 1) throw Error('Original runtime revoked during requested context');
+  });
+  await expect(captured.context([{ kind: 'read', path: 'route.ts' }])).rejects.toThrow(
+    'Original runtime revoked during requested context',
+  );
   let checks = 0;
   await expect(
     capturePublicationReviewEvidence({
