@@ -1,3 +1,4 @@
+import { AdviserHarnessFailure, type AdviserHarnessPhase } from './adviser-harness-failure.js';
 import type { ModelSession, ModelSessionConfig } from '@mitzo/harness';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { AdviserRequest } from './terminal-adviser.js';
@@ -233,6 +234,7 @@ export async function createNativeAdviserSession(
         config.signal ?? AbortSignal.timeout(120000),
       );
       scope.assertSelection(binding, request.reasoningEffort);
+      let phase: AdviserHarnessPhase = 'workspace_prepare';
       const result = await runScopedAdviser(scope, async (observation) => {
         const { randomUUID } = await import('node:crypto');
         const { DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION } =
@@ -266,6 +268,7 @@ export async function createNativeAdviserSession(
           thinking: request.reasoningEffort ?? null,
         };
         const operationId = randomUUID();
+        phase = 'workspace_reserve';
         const record = await workspaces.reserveOrdinaryWorkspace({
           preparationId: prepared.preparationId,
           allocationOperationId: operationId,
@@ -296,10 +299,12 @@ export async function createNativeAdviserSession(
           }
         };
         scope.assertCurrent();
+        phase = 'dispatch_authority';
         await config.beforeDispatch?.();
         scope.assertCurrent();
         try {
           if (harness === 'codex') {
+            phase = 'session_metadata';
             chat.eventStore.prepareOrdinaryWorkspaceSession(
               {
                 sessionId,
@@ -318,6 +323,7 @@ export async function createNativeAdviserSession(
               },
             );
             const { dispatchOwnedOrdinaryCommand } = await import('./ordinary-scoped-command.js');
+            phase = 'command_dispatch';
             await dispatchOwnedOrdinaryCommand({
               transport: new NullTransport(),
               clientId,
@@ -350,6 +356,7 @@ export async function createNativeAdviserSession(
               onEnded: ended,
             });
           } else {
+            phase = 'command_dispatch';
             await workspaces.claimOrdinaryWorkspace({
               id: record.id,
               binding,
@@ -378,6 +385,7 @@ export async function createNativeAdviserSession(
                 ),
               );
           }
+          phase = 'provider_response';
           return {
             close: async () => {
               close();
@@ -388,6 +396,9 @@ export async function createNativeAdviserSession(
           close();
           throw error;
         }
+      }).catch(() => {
+        scope.signal.throwIfAborted();
+        throw new AdviserHarnessFailure(phase);
       });
       if (result.usage)
         yield {

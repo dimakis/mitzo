@@ -1,3 +1,4 @@
+import { AdviserHarnessFailure } from './adviser-harness-failure.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -198,7 +199,10 @@ export function createOrdinaryPublicationReview(deps: {
         } catch (error) {
           input.signal.throwIfAborted();
           if (error instanceof GithubPublicationReviewError) throw error;
-          unavailable('review_response_unavailable');
+          throw new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE', {
+            reason: 'review_response_unavailable',
+            ...(error instanceof AdviserHarnessFailure ? { phase: error.phase } : {}),
+          });
         }
         await assertOwner();
         if (result.evidenceSha256 !== currentDigest) unavailable('review_identity_mismatch');
