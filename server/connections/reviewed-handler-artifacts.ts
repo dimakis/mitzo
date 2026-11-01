@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/fixtures/legacy-backup-seed.ts':
+    '19c474f0a15114301c891dbfb1f8d0df8bcdb51484d44382adf467706f38412d',
   '../codex-native-file-change.ts':
     'd0e33490a60219baafbcad0bb58e013a7fedfc63deb8a0d3c6daa96ab17bc0f9',
   '../local-repository-preparation-input.ts':
@@ -137,7 +139,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/TodoView.test.tsx':
     '5200a57b447b294573b965aad4a972e042d353cbc15b62dfa6fb4ee53e528ace',
   '../__tests__/telos-collection.test.ts':
-    '0bc88057cd29dce5f786b79cfd8a0f4d99b46a858309907dc4f2996b2b0f19cd',
+    '2fda7469d905515dfe53ecf2e22f853e07688b9568ea7976358098a26c82652b',
   '../telos-collection.ts': '27f60ef7ad156623b9357bc2ac74c11df79030e1dab1703829de8f51576d4748',
   '../../tests/fixtures/telos-priority.tsx':
     '43bbbf84aeac8206f7fb7331e79bc7f29809f59e3eccfc62956d08ad0c7892e7',
@@ -2498,7 +2500,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/legacy-backup-process-fixture.ts':
     '0a6e49585716a5af196873d1b792868afcc41d4b07e9e4df4753f1d98c5de2de',
   '../../tests/integration/telos-s9/integrated-candidate/legacy-backup-seed.ts':
-    'bc685172c3f6fb0d3a759bf4d577b5f8a3fb777d530d09e2cdba3aa1447c3acd',
+    '9237fa9a4417b96f12ef4380cf27c7ece514ae8f6fea3ee1209446e6cd0ecac5',
   '../../tests/integration/telos-s9/integrated-candidate/lost-response-browser.contract.ts':
     '9ee7379ea5855e721a80e9ab107a2713c820fcd5525e49ef7b9eecba68ee714c',
   '../../tests/integration/telos-s9/integrated-candidate/navigation-context-browser.contract.ts':

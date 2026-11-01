@@ -4,7 +4,7 @@ import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js'
 import { TelosItemStore } from '../telos-item-store.js';
 import { TelosWorkStore } from '../telos-work-store.js';
 import { renewDueTelosSnoozes } from '../telos-snooze.js';
-import { createLegacyBackupSeed } from '../../tests/integration/telos-s9/integrated-candidate/legacy-backup-seed.js';
+import { createLegacyBackupSeed } from './fixtures/legacy-backup-seed.js';
 
 const fixtures: ReturnType<typeof createTelosCanonicalData>[] = [];
 afterEach(() => {
