@@ -94,7 +94,14 @@ checkouts or recreate review authority after restart.
 Two independent scopes, five rounds per scope, existing deadlines and all
 publication/revocation checks remain. Context I/O receives the pass deadline.
 Response parsing reports bounded fixed schema fields/codes instead of discarding
-the cause or returning model text in diagnostics. A last-round context request
+the cause or returning model text in diagnostics. Each pass permits one corrected
+response after JSON/schema rejection and one narrowed context request after a
+search exceeds its path limit. Both consume the existing five rounds and
+two-minute pass deadline. Rejected responses are never repaired or accepted;
+only fixed feedback enters that pass’s history. An overbroad search rejects the
+whole batch before file reads; no rejected results count as coverage, and a
+successful context batch is required before approval. Identity, authority,
+provider, path and integrity failures remain terminal. A last-round context request
 returns an explicit incomplete outcome; no extra inference or context read is
 performed. Evidence guidance calls for concrete consumers and proportional test
 coverage, without recursive dependency heuristics or automatic model fallback.

@@ -16,6 +16,62 @@ import {
   publicationSearchPrefix,
 } from '../ordinary-publication-review-context.js';
 import { parsePublicationReviewResponse } from '../ordinary-publication-review-response.js';
+import { PublicationReviewRefinements } from '../ordinary-publication-review-refinement.js';
+import { GithubPublicationReviewError } from '../github-publication-review-failure.js';
+
+it('bounds corrective feedback and never treats rejected context as delivered evidence', () => {
+  const refinements = new PublicationReviewRefinements();
+  const invalid = new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE', {
+    reason: 'review_response_invalid_schema',
+    issues: [{ field: 'PRIVATE_UNKNOWN_FIELD', message: 'PRIVATE_PROVIDER_RESPONSE' }],
+  });
+  expect(refinements.response(invalid, 0)).toBeUndefined();
+  const feedback = refinements.response(invalid, 1);
+  expect(feedback).toMatchObject({ reason: 'review_response_invalid_schema' });
+  expect(refinements.response(invalid, 1)).toBeUndefined();
+  const broad = new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE', {
+    reason: 'context_search_limit',
+    requestIndex: 1,
+    matchedPathCount: 129,
+    limit: 128,
+  });
+  expect(refinements.context(broad, 1)).toBeUndefined();
+  expect(refinements.context(broad, 2)).toMatchObject({
+    reason: 'context_search_limit',
+    requestIndex: 1,
+    matchedPathCount: 129,
+    limit: 128,
+  });
+  expect(() => refinements.assertApprovalReady()).toThrow();
+  expect(refinements.context(broad, 2)).toBeUndefined();
+  refinements.contextDelivered();
+  expect(() => refinements.assertApprovalReady()).not.toThrow();
+  expect(JSON.stringify(feedback)).not.toContain('PRIVATE');
+});
+
+it('never refines authority, provider, identity, path or integrity failures', () => {
+  for (const reason of [
+    'review_identity_mismatch',
+    'context_path_unavailable',
+    'context_search_unavailable',
+  ]) {
+    const error = new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE', { reason });
+    const refinements = new PublicationReviewRefinements();
+    expect(refinements.response(error, 1)).toBeUndefined();
+    expect(refinements.context(error, 2)).toBeUndefined();
+  }
+  const refinements = new PublicationReviewRefinements();
+  expect(refinements.response(new AdviserHarnessFailure('provider_response'), 1)).toBeUndefined();
+  expect(refinements.context(new Error('revoked'), 2)).toBeUndefined();
+  expect(
+    refinements.context(
+      new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE', {
+        reason: 'context_search_limit',
+      }),
+      2,
+    ),
+  ).toBeUndefined();
+});
 
 it('accepts directory search prefixes with trailing separators without resolving unsafe paths', () => {
   for (const prefix of ['memory/', 'memory///'])
@@ -141,6 +197,9 @@ it('rejects malformed reviewer output with bounded schema diagnostics and no res
     expect(JSON.stringify(error)).not.toContain('SECRET');
   }
 });
+
+const reviewContext = (text: string) =>
+  JSON.parse(text.split('(JSON):\n')[1].split('\nEnd of pinned JSON evidence.')[0]);
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -301,7 +360,7 @@ it('runs two independent tool-less reviews on complete committed text and pins t
     expect(context).toContain('Unchanged route test requires status 200');
     expect(context).toContain('The unchanged route must preserve the documented response status.');
   }
-  const packet = JSON.parse(f.contexts[0].split('(JSON):\n')[1]).initialEvidence;
+  const packet = reviewContext(f.contexts[0]).initialEvidence;
   expect(packet.contextDiscovery.candidates).toContainEqual(
     expect.objectContaining({
       path: 'docs/requirements.md',
@@ -489,12 +548,32 @@ it('serves bounded Git context requests independently for each pass and reports 
       writeFile(join(f.directory, `scripts/lib/tiny-${i}.sh`), '# tiny deterministic dependency\n'),
     ),
   );
+  await mkdir(join(f.directory, 'search-limit'));
+  await Promise.all(
+    Array.from({ length: 129 }, (_, index) =>
+      writeFile(
+        join(f.directory, `search-limit/${String(index).padStart(3, '0')}.txt`),
+        'common score marker',
+      ),
+    ),
+  );
   f.git('add', '.');
   f.git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'unchanged large caller');
   f.git('update-ref', 'refs/remotes/origin/main', 'HEAD');
   await writeFile(join(f.directory, 'change.ts'), 'export const answer = 3;\n');
   f.git('add', 'change.ts');
   f.git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'reviewed helper change');
+  const captured = await capturePublicationReviewEvidence({
+    ...f.input,
+    sourceOid: f.git('rev-parse', 'HEAD'),
+  });
+  await expect(
+    captured.context([
+      { kind: 'search', query: 'common score marker', pathPrefix: 'search-limit' },
+      { kind: 'read', path: '../outside-secret' },
+    ]),
+  ).rejects.toMatchObject({ details: { reason: 'context_path_unavailable' } });
+  expect(f.session).not.toHaveBeenCalled();
   const rounds: string[] = [];
   f.session.mockImplementation(
     async (config) =>
@@ -504,33 +583,51 @@ it('serves bounded Git context requests independently for each pass and reports 
           const context = messages.map((message) => message.content).join('');
           rounds.push(context);
           const digest = [...context.matchAll(/Evidence SHA-256: ([a-f0-9]{64})/g)].at(-1)![1];
-          const requested = context.includes('"contextResponse"');
+          const attempt = rounds.length;
+          const requested = attempt === 5 || attempt === 7;
+          const baseRequests = [
+            { kind: 'read', path: 'large-caller.ts', startLine: 1, endLine: 2 },
+            { kind: 'read', path: 'scripts/entry.sh' },
+            { kind: 'read', path: 'scripts/other.sh' },
+            { kind: 'read', path: 'scripts/empty-explicit.sh' },
+            { kind: 'search', query: './route.js' },
+            { kind: 'search', query: './route.js', pathPrefix: '' },
+            { kind: 'search', query: './route.js', pathPrefix: '.' },
+            { kind: 'search', query: 'indirect.sh', pathPrefix: 'scripts/lib/' },
+          ];
           yield {
             type: 'content_block_delta',
             index: 0,
             delta: {
               type: 'text_delta',
               text: JSON.stringify({
-                evidenceSha256: digest,
-                reviewedAllEvidence: requested,
-                verdict: requested ? 'approve' : 'context_required',
+                evidenceSha256: attempt === 1 ? digest.slice(2) : digest,
+                reviewedAllEvidence: requested || attempt === 1,
+                verdict: requested || attempt === 1 ? 'approve' : 'context_required',
                 findings: [],
-                requests: requested
-                  ? []
-                  : [
-                      { kind: 'read', path: 'large-caller.ts', startLine: 1, endLine: 2 },
-                      { kind: 'read', path: 'scripts/entry.sh' },
-                      { kind: 'read', path: 'scripts/other.sh' },
-                      { kind: 'read', path: 'scripts/empty-explicit.sh' },
-                      { kind: 'search', query: './route.js' },
-                      { kind: 'search', query: './route.js', pathPrefix: '' },
-                      { kind: 'search', query: './route.js', pathPrefix: '.' },
-                      {
-                        kind: 'search',
-                        query: 'indirect.sh',
-                        pathPrefix: 'scripts/lib/',
-                      },
-                    ],
+                coverageSummary:
+                  attempt === 1 ? 'PRIVATE_REJECTED_RESPONSE' : 'Reviewed supplied context',
+                requests:
+                  requested || attempt === 1
+                    ? []
+                    : attempt === 2
+                      ? [
+                          { kind: 'read', path: 'scripts/entry.sh' },
+                          {
+                            kind: 'search',
+                            query: 'common score marker',
+                            pathPrefix: 'search-limit',
+                          },
+                        ]
+                      : attempt === 4
+                        ? [
+                            {
+                              kind: 'search',
+                              query: 'common score marker',
+                              pathPrefix: 'search-limit/000.txt',
+                            },
+                          ]
+                        : baseRequests,
                 unresolvedNeeds: [],
               }),
             },
@@ -540,9 +637,14 @@ it('serves bounded Git context requests independently for each pass and reports 
       }) as unknown as ModelSession,
   );
   const receipt = await f.review({ ...f.input, sourceOid: f.git('rev-parse', 'HEAD') });
-  expect(f.session).toHaveBeenCalledTimes(4);
-  expect(rounds[1]).toContain('export const requiredBoundary = answer;');
-  for (const index of [1, 3]) {
+  expect(f.session).toHaveBeenCalledTimes(7);
+  expect(rounds[3]).toContain('export const requiredBoundary = answer;');
+  expect(rounds[1]).toContain('review_response_invalid_schema');
+  expect(rounds[2]).toContain('context_search_limit');
+  expect(rounds[2]).not.toContain('Complete delegated selection boundary');
+  expect(rounds.slice(1).join('')).not.toContain('PRIVATE_REJECTED_RESPONSE');
+  expect(receipt.reports?.map((report) => report.coverage.rounds)).toEqual([5, 2]);
+  for (const index of [4, 6]) {
     expect(rounds[index]).toContain('Complete delegated selection boundary');
     expect(rounds[index]).not.toContain('UNREAD_INSTRUCTION');
     expect(rounds[index]).not.toContain('UNREAD_PARTIAL_DEPENDENCY');
@@ -562,10 +664,13 @@ it('serves bounded Git context requests independently for each pass and reports 
       totalLines: 503,
     }),
   );
-  expect(rounds[3]).toContain('export const requiredBoundary = answer;');
-  expect(rounds[1]).toContain('"remainingAfter":2500');
-  expect(rounds[2]).not.toContain('"contextResponse"');
-  const responses = JSON.parse(rounds[1].split('(JSON):\n')[1]).history[0].contextResponse;
+  expect(rounds[6]).toContain('export const requiredBoundary = answer;');
+  expect(rounds[4]).toContain('"remainingAfter":2500');
+  expect(rounds[5]).not.toContain('"contextResponse"');
+  expect(rounds[5]).not.toContain('review_response_invalid_schema');
+  const responses = reviewContext(rounds[4]).history.find((entry: { contextResponse?: unknown }) =>
+    Array.isArray(entry.contextResponse),
+  ).contextResponse;
   const entryResponse = responses.find(
     (response: { path?: string }) => response.path === 'scripts/entry.sh',
   );
@@ -596,6 +701,7 @@ it('serves bounded Git context requests independently for each pass and reports 
       pathPrefix: 'scripts/lib',
       matchedPathCount: 1,
     },
+    { query: 'common score marker', pathPrefix: 'search-limit/000.txt', matchedPathCount: 1 },
   ]);
 
   expect(receipt.reports?.[0].coverage.contextReads).toContainEqual(
@@ -745,16 +851,40 @@ it('refuses an approve verdict with a blocking finding', async () => {
   f.setBlocker();
   await expect(f.review(f.input)).rejects.toThrow(/defect|review/i);
 });
-it('does not run inference for another account or a cancelled/revoked owner', async () => {
+it('does not run inference for another account or refine after owner revocation', async () => {
   const f = await fixture();
   await expect(
     f.review({ ...f.input, operation: { ...f.input.operation, accountId: 'other' } }),
   ).rejects.toThrow();
-  f.current.mockImplementation(() => {
-    throw Error('revoked');
-  });
-  await expect(f.review(f.input)).rejects.toThrow('revoked');
   expect(f.session).not.toHaveBeenCalled();
+  f.session.mockImplementation(
+    async () =>
+      ({
+        provider: 'codex',
+        async *turn() {
+          yield {
+            type: 'content_block_delta',
+            index: 0,
+            delta: {
+              type: 'text_delta',
+              text: JSON.stringify({
+                evidenceSha256: 'short',
+                reviewedAllEvidence: true,
+                verdict: 'approve',
+                findings: [],
+              }),
+            },
+          };
+          f.current.mockImplementation(() => {
+            throw Error('revoked');
+          });
+        },
+      }) as unknown as ModelSession,
+  );
+  await expect(f.review(f.input)).rejects.toThrow('revoked');
+  expect(f.session).toHaveBeenCalledTimes(1);
+  await expect(f.review(f.input)).rejects.toThrow('revoked');
+  expect(f.session).toHaveBeenCalledTimes(1);
 });
 it('rejects oversized committed evidence before inference rather than approving truncated content', async () => {
   const f = await fixture();

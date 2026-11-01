@@ -64,6 +64,11 @@ committed source. Two isolated review passes inspect complete changed files,
 applicable policies and relevant unchanged context from pinned Git objects. Each
 pass can request bounded additional source reads and literal searches. Missing
 context, evidence limits, malformed output or blocking findings stop publication.
+Within the same five-round/two-minute pass budget, one malformed JSON/schema
+response can be corrected and one overbroad search can be narrowed. The host
+never rewrites reviewer output, raises the search bound or accepts rejected
+context as coverage. An overbroad batch must be followed by successful context
+delivery before approval; repeated errors and exhausted budgets stop review.
 The change set and deleted-file contents come from the unique pinned merge base,
 so upstream-only changes do not count as task changes. Evidence also binds the
 current base tip; unrelated or ambiguous histories stop review.

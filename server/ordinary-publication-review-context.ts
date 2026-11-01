@@ -379,6 +379,7 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
       signal: AbortSignal = input.signal,
     ) {
       signal.throwIfAborted();
+      const requested = structuredClone(requests);
       await assertBatchCurrent();
       signal.throwIfAborted();
       const contextInput = { ...input, signal };
@@ -389,7 +390,7 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
       const response: Array<unknown> = [];
       const instructionPaths = new Set<string>();
       const fullPaths = new Set(knownFullPaths);
-      const explicitReads = new Set(requests.filter((r) => r.kind === 'read').map((r) => r.path));
+      const explicitReads = new Set(requested.filter((r) => r.kind === 'read').map((r) => r.path));
       let dependencyBytes = 0;
       let dependencyFiles = 0;
       let dependencyMetadataCount = 0;
@@ -418,9 +419,72 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
           fullPaths.add(path);
         }
       };
-      for (const request of requests) {
+      // Search discovery is read-only and pinned. Reject an overbroad batch
+      // before reading file contents so correction does not repeat discarded reads.
+      const searchResults = new Map<number, PublicationContextSearch>();
+      const validatedSearches = new Map<number, { query: string; pathPrefix?: string }>();
+      for (const [requestIndex, request] of requested.entries()) {
         if (request.kind === 'read') {
           if (!pathAllowed(request.path)) publicationReviewUnavailable('context_path_unavailable');
+          continue;
+        }
+        const prefix = publicationSearchPrefix(request.pathPrefix);
+        if (
+          !request.query ||
+          request.query.length > 120 ||
+          request.query.includes('\0') ||
+          (prefix !== undefined &&
+            (posix.normalize(prefix) !== prefix ||
+              prefix.startsWith('/') ||
+              prefix === '..' ||
+              prefix.startsWith('../') ||
+              ![...all].some((path) => path === prefix || path.startsWith(prefix + '/'))))
+        )
+          publicationReviewUnavailable('context_search_unavailable');
+        validatedSearches.set(requestIndex, {
+          query: request.query,
+          ...(prefix ? { pathPrefix: prefix } : {}),
+        });
+      }
+      for (const [requestIndex, request] of validatedSearches) {
+        const prefix = request.pathPrefix;
+        const found = await git(
+          contextInput,
+          [
+            'grep',
+            '-l',
+            '-z',
+            '-I',
+            '-F',
+            '-e',
+            request.query,
+            source,
+            '--',
+            ...(prefix ? [`:(literal)${prefix}`] : []),
+          ],
+          true,
+        );
+        const matchedPaths = found
+          .split('\0')
+          .filter(Boolean)
+          .map((entry) => entry.slice(source.length + 1));
+        if (matchedPaths.some((path) => !all.has(path)))
+          publicationReviewUnavailable('context_search_unavailable');
+        if (matchedPaths.length > MAX_DISCOVERY_PATHS)
+          throw new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE', {
+            reason: 'context_search_limit',
+            requestIndex,
+            matchedPathCount: matchedPaths.length,
+            limit: MAX_DISCOVERY_PATHS,
+          });
+        searchResults.set(requestIndex, {
+          query: request.query,
+          ...(prefix ? { pathPrefix: prefix } : {}),
+          matchedPaths,
+        });
+      }
+      for (const [requestIndex, request] of requested.entries()) {
+        if (request.kind === 'read') {
           const content = await read(request.path);
           const { coverage, text } = contextReadCoverage(request.path, content, request);
           reads.push(coverage);
@@ -508,55 +572,13 @@ export async function capturePublicationReviewEvidence(rawInput: GithubPublicati
             dependencyDiscovery: { candidateCount: discovered.size, omittedCount },
           });
         } else {
-          const prefix = publicationSearchPrefix(request.pathPrefix);
-          if (
-            !request.query ||
-            request.query.length > 120 ||
-            request.query.includes('\0') ||
-            (prefix !== undefined &&
-              (posix.normalize(prefix) !== prefix ||
-                prefix.startsWith('/') ||
-                prefix === '..' ||
-                prefix.startsWith('../') ||
-                ![...all].some((path) => path === prefix || path.startsWith(prefix + '/'))))
-          )
-            publicationReviewUnavailable('context_search_unavailable');
-          const found = await git(
-            contextInput,
-            [
-              'grep',
-              '-l',
-              '-z',
-              '-I',
-              '-F',
-              '-e',
-              request.query,
-              source,
-              '--',
-              ...(prefix ? [`:(literal)${prefix}`] : []),
-            ],
-            true,
-          );
-          const matchedPaths = found
-            .split('\0')
-            .filter(Boolean)
-            .map((entry) => entry.slice(source.length + 1));
-          if (
-            matchedPaths.length > MAX_DISCOVERY_PATHS ||
-            matchedPaths.some((path) => !all.has(path))
-          )
-            publicationReviewUnavailable('context_search_limit');
-          const search = {
-            query: request.query,
-            ...(prefix ? { pathPrefix: prefix } : {}),
-            matchedPaths,
-          };
+          const search = searchResults.get(requestIndex)!;
           searches.push(search);
           response.push({
             kind: 'search',
             ...search,
             complete: true,
-            matchCount: matchedPaths.length,
+            matchCount: search.matchedPaths.length,
           });
         }
       }

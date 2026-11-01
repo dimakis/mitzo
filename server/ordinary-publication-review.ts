@@ -24,6 +24,7 @@ import {
 import { TextAdviser, type AdviserSessionFactory } from './terminal-adviser.js';
 import { createTerminalAdviserSession } from './terminal-adviser-model.js';
 import { assertGithubPublicationReviewOwnerCurrent } from './github-publishing-tool.js';
+import { PublicationReviewRefinements } from './ordinary-publication-review-refinement.js';
 
 const MAX_REVIEW_ROUNDS = 5;
 export interface OrdinaryPublicationReviewOwner {
@@ -109,7 +110,11 @@ export function createOrdinaryPublicationReview(deps: {
     await assertOwner();
     const reports: GithubPublicationReviewReport[] = [];
     for (const [pass, scope] of scopes.entries()) {
-      const history: Array<{ request: PublicationReviewResponse; contextResponse: unknown }> = [];
+      const history: Array<
+        | { request: PublicationReviewResponse; contextResponse: unknown }
+        | { responseError: JsonValue }
+      > = [];
+      const refinements = new PublicationReviewRefinements();
       const reads: PublicationContextRead[] = [],
         searches: PublicationContextSearch[] = [];
       const knownFullPaths = new Set(captured.fullContextPaths);
@@ -135,10 +140,11 @@ export function createOrdinaryPublicationReview(deps: {
           'Partial reads report exact totalLines and remainingBefore/remainingAfter; never treat a partial range as the whole file. Request remaining relevant context, or return incomplete if you cannot complete review. No source content or search result is silently truncated. ' +
           'Full-file reads may include complete direct literal dependency candidates within a bounded extra budget. They are discovery hints, not proof of applicability; excluded candidates remain unread, and supplied files are not recursively expanded. Each unresolvedNeeds entry must fit 200 characters; coverageSummary must fit 600 characters. ' +
           'Context history records only your own earlier structured requests and exact host replies in this pass; no other reviewer output is present. ' +
+          'A responseError means the prior response was rejected, not repaired or accepted. A contextResponse error means the entire context batch was rejected without delivering its requested contents; narrow the identified search and resubmit still-needed context. Never count rejected requests as completed evidence. Corrections consume this same five-round budget and deadline. ' +
           'Return ONLY JSON matching the response schema, including every string-length and array-count bound. Echo the current Evidence SHA-256 in evidenceSha256. ' +
           'Approval requires reviewedAllEvidence:true, zero blocking findings, no outstanding requests and no unresolved needed context. Do not include secrets or long source excerpts. ' +
           `Response JSON schema: ${reviewResultSchema}`;
-        const text = `Evidence SHA-256: ${currentDigest}\nPinned committed review evidence and this pass context history (JSON):\n${JSON.stringify({ initialEvidence: captured.packet, history })}`;
+        const text = `Evidence SHA-256: ${currentDigest}\nPinned committed review evidence and this pass context history (JSON):\n${JSON.stringify({ initialEvidence: captured.packet, history })}\nEnd of pinned JSON evidence. Host current Evidence SHA-256: ${currentDigest}`;
         if (Buffer.byteLength(text, 'utf8') > PUBLICATION_REVIEW_MAX_EVIDENCE_BYTES)
           unavailable('context_evidence_limit');
         const messages: Array<{ role: 'user'; content: string }> = [];
@@ -180,7 +186,12 @@ export function createOrdinaryPublicationReview(deps: {
           );
           result = parsePublicationReviewResponse(response.text);
         } catch (error) {
-          input.signal.throwIfAborted();
+          reviewSignal.throwIfAborted();
+          const feedback = refinements.response(error, MAX_REVIEW_ROUNDS - round - 1);
+          if (feedback) {
+            history.push({ responseError: feedback });
+            continue;
+          }
           if (error instanceof GithubPublicationReviewError) throw error;
           throw new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE', {
             reason: 'review_response_unavailable',
@@ -221,12 +232,25 @@ export function createOrdinaryPublicationReview(deps: {
             });
           }
           input.observePhase?.('review_context');
-          const context = await captured.context(result.requests, knownFullPaths, reviewSignal);
+          let context: Awaited<ReturnType<typeof captured.context>>;
+          try {
+            context = await captured.context(result.requests, knownFullPaths, reviewSignal);
+          } catch (error) {
+            reviewSignal.throwIfAborted();
+            const feedback = refinements.context(error, MAX_REVIEW_ROUNDS - round - 1);
+            if (!feedback) throw error;
+            history.push({
+              request: result,
+              contextResponse: { error: feedback, complete: false },
+            });
+            continue;
+          }
           reviewSignal.throwIfAborted();
           for (const path of context.fullPaths) knownFullPaths.add(path);
           reads.push(...context.reads);
           searches.push(...context.searches);
           history.push({ request: result, contextResponse: context.response });
+          refinements.contextDelivered();
           continue;
         }
         if (
@@ -242,6 +266,7 @@ export function createOrdinaryPublicationReview(deps: {
             verdict: result.verdict,
             unresolvedNeeds: result.unresolvedNeeds,
           });
+        refinements.assertApprovalReady();
         reports.push({
           reportId: randomUUID(),
           scope,

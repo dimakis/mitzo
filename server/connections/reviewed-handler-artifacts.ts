@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.14';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.817-publication-directory-prefix';
+  'v1.0.818-publication-review-refinement';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../ordinary-publication-review-refinement.ts':
+    '579d7c8b3e2f9e32edb2d56be0c9d73f8111b592adb44adbbbd0cd4486e900e3',
   '../__tests__/fixtures/legacy-backup-seed.ts':
     '19c474f0a15114301c891dbfb1f8d0df8bcdb51484d44382adf467706f38412d',
   '../codex-native-file-change.ts':
@@ -34,7 +36,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-publication-review-dependencies.ts':
     'db768f4653898cc9ee1783e04a66274bf64150610bbe7f434bd733e4f0b8cacd',
   '../../docs/design/repository-publication-architecture.md':
-    'd460d587e61292167347f107716c047ea1f5b6a090c3b003272aeb8007bd1ef1',
+    'eacbdf9918577d0fc7d30a8bafd497c934b88de3eb08d9ead1430f7f26a944f8',
   '../__tests__/repository-materialization.test.ts':
     '130ac86bcbcb9f4b76cf145c7bbd38ca2c4775527e5a2d7c7de89a8fbe44137a',
   '../ordinary-publication-review-response.ts':
@@ -310,7 +312,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../post-adoption-wire-admission.ts':
     '5d3824c6783a2565d4803af8f213c080c96cdad8d18d49537ef125f992f59d3d',
   '../../docs/operations/prepared-repository-chat-flow.md':
-    '2891869dae4de4f2e03ca19b8bcc3f08c1b5946fa5c09be3caf93bd238827b38',
+    '594f334be5a9883730613c3bd7970a147ad18bd145d5e6192cb4b1e9ab64f04f',
   '../../frontend/src/lib/__tests__/reviewed-outbox-storage.test.ts':
     'ea9d8dd311e212e565682f45bda0300114483131306e53d93d7fd9af7a8939e4',
   '../../skills/land-pr/SKILL.md':
@@ -330,7 +332,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-publication-review-composition.test.ts':
     '337160d4bd9333362511814d8caef8ea883e111e1f36e1bf1befda4911fab6f6',
   '../__tests__/ordinary-publication-review.test.ts':
-    '8b22e22a432a4865c5f8b14dfcba9dd47cf81a6f47e404b006a1acc0bec6be05',
+    'da7005c3c35003ec155acb2bc2aae3315782e665febe0037e781bf149e68984f',
   '../__tests__/prepared-repository-delivery-flow.test.ts':
     'f259503bb6fa7ae581791f269c11d7ec573e3f3781a4ded4fc1f183c812b3d0a',
   '../__tests__/prepared-repository-publication-flow.test.ts':
@@ -338,9 +340,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../github-publication-review-failure.ts':
     'ca19b3e58380dfed0e00474829c9b958de1ace79ddf5680ca35b453ec3497f42',
   '../ordinary-publication-review-context.ts':
-    '17cad9f0303d79132df6fa9c6a955c75ba90bdb36a775269331cceb74b7c55c7',
+    'ee8a725296088bf89a587b814ec8914e46391107de89ab93f025944d6720b25c',
   '../ordinary-publication-review.ts':
-    'd44dbecc8bfdda71ef9e152491969eef97f0f3eab5a9bec1ca26457617e508b5',
+    '9afff94f583c4894198d1bdb96072d0be477e7ccb4913adfe9fc9563d88921a5',
   '../__tests__/prepared-repository-native-public-tool-rollover.test.ts':
     '3f37ba34c311207689c552a04ef016d74f611e21b7f5b970d398d1b0c57000e1',
   '../__tests__/prepared-repository-native-public-tool-rollover-queued.test.ts':
