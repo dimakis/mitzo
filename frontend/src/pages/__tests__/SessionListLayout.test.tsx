@@ -83,7 +83,8 @@ it('scrolls search and filters with the conversation rows', () => {
   expect(scroller?.contains(screen.getByLabelText('Conversation filters'))).toBe(true);
 });
 
-it('updates activity labels without moving existing conversations', () => {
+it('batches meaningful promotions after browsing while tool updates stay in place', () => {
+  vi.useFakeTimers();
   const previous = mocks.overview.activities;
   const view = render(
     <MemoryRouter>
@@ -96,7 +97,8 @@ it('updates activity labels without moving existing conversations', () => {
     );
   const initial = titles();
   try {
-    for (const state of ['working', 'waiting', 'done', 'idle']) {
+    for (const state of ['working', 'waiting']) {
+      fireEvent.pointerDown(screen.getByRole('link', { name: 'Open Review UI' }), { pointerId: 1 });
       mocks.overview.activities = [...previous].reverse().map((activity) => ({
         ...activity,
         state: activity.sessionId === 'one' ? state : 'idle',
@@ -109,11 +111,21 @@ it('updates activity labels without moving existing conversations', () => {
         </MemoryRouter>,
       );
       expect(titles()).toEqual(initial);
+      act(() => vi.advanceTimersByTime(5000));
+      expect(titles()).toEqual(initial);
       if (state === 'waiting') expect(screen.getByText('Permission needed')).toBeTruthy();
-      if (state === 'done') expect(screen.getByText('Finished')).toBeTruthy();
+      fireEvent.pointerUp(document, { pointerId: 1 });
+      act(() => vi.advanceTimersByTime(1100));
+      act(() => vi.advanceTimersByTime(1000));
+      expect(titles()).toEqual(
+        state === 'waiting'
+          ? ['Review UI', 'Live chat outside history page', 'Older chat']
+          : initial,
+      );
     }
   } finally {
     mocks.overview.activities = previous;
+    vi.useRealTimers();
   }
 });
 

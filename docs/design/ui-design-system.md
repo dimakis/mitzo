@@ -163,14 +163,23 @@ Use grouped bordered rows and quiet surfaces for lists. Put the most useful titl
 
 Chats keeps search and status filters inside the conversation list's scrolling
 area on phones and desktop. The page heading and desktop preview keep their
-existing owners. During a visit, each chat retains its initially observed
-chronological position through activity events and history refreshes; labels,
-timestamps, filter membership and counts remain live. New rows enter at their
-observed date, including older pagination results. Returning to Chats starts a
-fresh chronological view. Existing search, filter, row and preview styles and
-shared tokens remain authoritative. Unit regressions cover retained ordering and
-history hydration; the intercepted session-library browser fixture covers scrolling,
-keyboard access and status changes in both themes across phone and desktop.
+existing owners. Recency advances on a new user message, completion, or entering
+an attention state; tool output, repeated status snapshots, history refreshes and
+done-to-idle aging only update metadata. Promotions batch for 600ms with at least
+2.5 seconds between batches. Scrolling, held pointers/touches, keyboard focus,
+editing, swipe actions, search and open menus/dialogs defer moves. Browsing resumes
+after a one-second idle interval; pending meaningful events survive later status
+changes. New rows enter chronologically, including older pages; insertions during
+browsing wait below existing rows until the pending batch is released.
+
+Shared `MotionList` preserves keyed row identity, focus and the first visible
+conversation while animating position changes through the standard 200ms motion
+token. Swipe transforms remain on the inner row. Initial rendering and ordinary
+metadata updates do not replay motion; interruption, unmount and Reduce Motion
+cancel owned animations. Existing search, filter, row and preview styles and
+shared tokens remain authoritative. Focused unit and intercepted session-library
+browser regressions cover ordering, browsing, scrolling and motion. Rendered
+validation requires the permitted macOS browser host; CI retains browser captures.
 
 Chat load errors distinguish an initial request from a refresh of a previously loaded
 list. A failed refresh retains its rows beside the existing error and Retry control,
