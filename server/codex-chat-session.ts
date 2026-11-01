@@ -3711,6 +3711,22 @@ async function openCodexChatBound(
       if (name === REQUEST_GITHUB_PUBLISH) return githubPublishing(input, signal, callContext);
       const capability = capabilityTools.bindings.get(name);
       if (capability && capabilityTools.service) {
+        const originalCallCurrent = callContext.assertCurrentSync;
+        if (!originalCallCurrent) throw Error('Original native capability call required');
+        const assertCallCurrent = () => {
+          signal.throwIfAborted();
+          originalCallCurrent();
+        };
+        const assertCapabilityCurrent = Object.assign(
+          async () => {
+            assertCallCurrent();
+            // The ordinary publisher captures its physical owner centrally.
+            if (ownedHost && capability.capabilityId !== 'github.publish-pr')
+              await assertHostCurrent();
+            assertCallCurrent();
+          },
+          { assertCurrentSync: assertCallCurrent },
+        );
         const operation = await capabilityTools.service.invoke(
           {
             ...capability,
@@ -3729,7 +3745,7 @@ async function openCodexChatBound(
           },
           signal,
           capabilityApprovalForConversation(options.registry, options.conversationId),
-          ...(ownedHost ? [assertHostCurrent] : []),
+          assertCapabilityCurrent,
         );
         return {
           content: JSON.stringify({

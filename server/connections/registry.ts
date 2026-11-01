@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { GITHUB_PR_DESCRIPTION_MAX_LENGTH } from '../github-publication-approval.js';
 import { z } from 'zod';
 import {
   compileCustomRestReadonly,
@@ -686,7 +687,7 @@ const capabilities: readonly CapabilityTemplate[] = [
         repositoryPath: { type: 'string', minLength: 1, maxLength: 256 },
         baseBranch: { type: 'string', minLength: 1, maxLength: 128 },
         title: { type: 'string', minLength: 1, maxLength: 128 },
-        body: { type: 'string', maxLength: 65_536 },
+        body: { type: 'string', maxLength: GITHUB_PR_DESCRIPTION_MAX_LENGTH },
         draft: { type: 'boolean' },
       },
       required: ['connectionId', 'repositoryPath', 'baseBranch', 'title', 'body', 'draft'],
@@ -891,7 +892,7 @@ const reviewedCapabilityContracts = Object.freeze({
         repositoryPath: { type: 'string', minLength: 1, maxLength: 256 },
         baseBranch: { type: 'string', minLength: 1, maxLength: 128 },
         title: { type: 'string', minLength: 1, maxLength: 128 },
-        body: { type: 'string', maxLength: 65_536 },
+        body: { type: 'string', maxLength: GITHUB_PR_DESCRIPTION_MAX_LENGTH },
         draft: { type: 'boolean' },
       },
       required: ['connectionId', 'repositoryPath', 'baseBranch', 'title', 'body', 'draft'],

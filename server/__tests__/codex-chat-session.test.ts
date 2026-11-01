@@ -1599,6 +1599,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       request: import('../connections/capabilities/types.js').CapabilityRequest,
       signal: AbortSignal,
       approve: import('../connections/capabilities/types.js').CapabilityApproval,
+      current?: import('../connections/capabilities/types.js').CapabilityCurrentAssertion,
     ) => {
       // The production service validates unknown tool input before it becomes
       // approval-card data. This session fixture supplies that already-typed
@@ -1615,6 +1616,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
         },
         signal,
       );
+      await current?.();
       return {
         id: 'operation-1',
         status: approved ? 'verification_pending' : 'denied',
@@ -1756,8 +1758,22 @@ it('preserves image attachments while binding a trusted capability, forcing appr
     await expect(
       executeTool(tool!.name, capabilityInput, new AbortController().signal, {
         turnId: 'turn-1',
-        callId: 'call-1',
+        callId: 'missing-call',
       }),
+    ).rejects.toThrow('Original native capability call required');
+    expect(invoke).not.toHaveBeenCalled();
+    let callCurrent = true;
+    const nativeCall = Object.defineProperty(
+      { turnId: 'turn-1', callId: 'call-1' },
+      'assertCurrentSync',
+      {
+        value: () => {
+          if (!callCurrent) throw Error('Original native call expired');
+        },
+      },
+    );
+    await expect(
+      executeTool(tool!.name, capabilityInput, new AbortController().signal, nativeCall),
     ).resolves.toMatchObject({ isError: true });
     expect(invoke).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1767,7 +1783,12 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       }),
       expect.any(AbortSignal),
       expect.anything(),
+      expect.any(Function),
     );
+    const capturedCall = invoke.mock.calls[0][3]!;
+    callCurrent = false;
+    await expect(capturedCall()).rejects.toThrow('Original native call expired');
+    expect(() => capturedCall.assertCurrentSync!()).toThrow('Original native call expired');
     expect(mocks.permissionHandler).toHaveBeenCalledWith(
       'ExecuteProviderCapability',
       expect.any(Object),

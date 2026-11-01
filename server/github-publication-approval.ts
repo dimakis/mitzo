@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 
+/** GitHub's supported description length, shared by validation and transport. */
+export const GITHUB_PR_DESCRIPTION_MAX_LENGTH = 65_536;
+
 const digest = (text: string) => createHash('sha256').update(text).digest('hex');
 /** Display budgets limit previews, never the committed source or requested metadata.
  * The source OID and complete-value hashes bind approval to the full artifact. */

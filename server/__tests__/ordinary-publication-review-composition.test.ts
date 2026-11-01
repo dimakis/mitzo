@@ -198,7 +198,13 @@ it('publishes without model review and fences every ordinary capability entry po
     expect(alias.status).toBe('succeeded');
     expect(nativeCurrent).toHaveBeenCalled();
     const pushed = mocks.push.mock.calls.length;
-    for (const revoked of ['operator', 'runtime', 'native-call', 'caller-await'] as const) {
+    for (const revoked of [
+      'operator',
+      'runtime',
+      'native-call',
+      'caller-await',
+      'caller-sync',
+    ] as const) {
       let callCurrent = true;
       let reconstructed = false;
       mocks.authCurrent = true;
@@ -217,26 +223,36 @@ it('publishes without model review and fences every ordinary capability entry po
         reconstructed = true;
         return { directory: '/private/offline-checkout' };
       });
+      const callerCurrent = ['native-call', 'caller-await', 'caller-sync'].includes(revoked)
+        ? Object.assign(
+            async () => {
+              if (!callCurrent) throw Error('Native callback expired');
+              if (reconstructed && revoked === 'caller-await') {
+                await Promise.resolve();
+                mocks.authCurrent = false;
+              }
+              if (reconstructed && revoked === 'caller-sync') {
+                await Promise.resolve();
+                callCurrent = false;
+              }
+            },
+            {
+              assertCurrentSync: () => {
+                if (!callCurrent) throw Error('Native callback expired');
+              },
+            },
+          )
+        : undefined;
       const result = await runtime.capabilities.invoke(
         request(`revoke-${revoked}`),
         new AbortController().signal,
         async () => true,
-        ...(['native-call', 'caller-await'].includes(revoked)
-          ? [
-              async () => {
-                if (!callCurrent) throw Error('Native callback expired');
-                if (revoked === 'caller-await' && reconstructed) {
-                  await Promise.resolve();
-                  mocks.authCurrent = false;
-                }
-              },
-            ]
-          : []),
+        callerCurrent,
       );
       expect(result.status, revoked).toBe('failed');
       expect(mocks.push).toHaveBeenCalledTimes(pushed);
     }
-    expect(mocks.cleanup).toHaveBeenCalledTimes(6);
+    expect(mocks.cleanup).toHaveBeenCalledTimes(7);
     mocks.authCurrent = true;
     mocks.push.mockRejectedValueOnce(new Error('Lost push response'));
     const uncertainRequest = request('lost-response');
@@ -255,7 +271,7 @@ it('publishes without model review and fences every ordinary capability entry po
     );
     expect(recovered.status).toBe('succeeded');
     expect(mocks.push).toHaveBeenCalledTimes(previousPushes);
-    expect(mocks.cleanup).toHaveBeenCalledTimes(7);
+    expect(mocks.cleanup).toHaveBeenCalledTimes(8);
   } finally {
     publisher.close();
     clearLiveCapabilityConversationBinding('conversation');

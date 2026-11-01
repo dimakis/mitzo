@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../github-publication-approval.ts':
-    '85393640e45acb780c1ff0d6fee468c8273013759fd4e9c0d5e1a002c62445a3',
+    'b0cd80c4578b8d3ef19d40817c369d39860be0c94013dcc2d4b470478d4a865d',
   '../__tests__/fixtures/legacy-backup-seed.ts':
     '19c474f0a15114301c891dbfb1f8d0df8bcdb51484d44382adf467706f38412d',
   '../codex-native-file-change.ts':
@@ -323,7 +323,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/github-publishing-tool.test.ts':
     '65e9571d72fca7393ee25b423d60fdb1bc3a904f006a6c96bcd8140d161945e6',
   '../__tests__/ordinary-publication-review-composition.test.ts':
-    '581d778a841e2bc25b6c1259a335c35e327683049d05ebd6b615ac3928105705',
+    '95cea4bbb8daf3916641c49aa9516723bbee14cff130ee363e4fb8734146d14b',
   '../__tests__/prepared-repository-delivery-flow.test.ts':
     'f259503bb6fa7ae581791f269c11d7ec573e3f3781a4ded4fc1f183c812b3d0a',
   '../__tests__/prepared-repository-publication-flow.test.ts':
@@ -660,7 +660,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     'be08f4bf4223ebd63bdc931187c39fa571d915ad2bb710ef2f9773a72b63b85d',
   '../__tests__/codex-chat-session.test.ts':
-    '9116b19ef187986c696cd9feb2e25855167c65dc039af6b49634720eaf10d627',
+    'f7dbc49e2a662557ee0fc3cc166ec3759c260b276fccf790fbff94aa63444d6f',
 
   '../__tests__/codex-conversation.test.ts':
     '7e6119f3df5ba07ccc2e86a090eff6167fc966aaeb3e430e2f8e5753f7fb2844',
@@ -1390,7 +1390,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../codex-runtime-diagnostics.ts':
     'e0fd62830434a09572aec4eeb541165d367d4500b4be034797c675aa0c8145d5',
   'capabilities/approval.ts': '416b0297828af8fd7193f2ffcb3218515f9a10f649b87a0f323239a8e2fd0343',
-  'capabilities/types.ts': 'fb8e9a48b3efceccdd762c7aa7b1fcd39872fd8cfa9585a06964c08cff9ce168',
+  'capabilities/types.ts': '757ede721607e8b7a88f17508b9183685e937a62b774e9a47cbc77ed58dfb175',
   '../notification-center.ts': '517cbaf2ee73fa178c818f0ea5750e4bab8fc42a503729e9adb2570c06b4304b',
   '../notification-routes.ts': 'e43523f346d383f9f22dcfe3687840314c33a5fbbdd165c368eff22f89bfb1a4',
   '../symposium-custodian-publication.ts':
@@ -1555,17 +1555,17 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-credential-tools.ts':
     '64f298b06072fa8486b424b91f5e3c6dd4f5bd01a8501fc69817901e5b2f27ef',
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
-  'registry.ts': 'b8f3f432ca2c92658aefe628ba868d9bcaa39c897078b8642c290e79b15e5ac9',
+  'registry.ts': '37e1ac34bb0c81ed20cc9f59ba39b13001f7464836fda812d5825ca7e0108fa4',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',
   'capabilities/github-publish-pr.ts':
     'b444d0f23d41232302bcacfc8f51ed9841fbf302e6a1888fd1a3190019c83524',
   'capabilities/github-publish-pr-transport.ts':
-    'a2c0386650f1c9fe410a5732bfeb2ea570011bfeb2a05fe307d0af0463a53e65',
+    '9a10ad58e433e870ccd1a0295b7f66979af733a502ff4541aa7289b792223b31',
   '../github-host-source.ts': '048650e54ba225c98199594d2023e5fc4eae923f42e2c578ce2be558ae5f0854',
   '../github-publishing-tool.ts':
-    '9891179faf6345aecba16db3e402717e1e0d9bc04fe6c982ae638ef0b4c300cb',
+    'b16fc3ccdbd08fb70116d0eff660d88b928320e652a805ff06ac1b10afe79b67',
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
   '../openai-key-management.ts': '450dec85b8cb0f483a218b2da8e1362f3d7c6c7ec378f95ab6b4727fc52187cd',
@@ -1649,7 +1649,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '4289834fb795911bc8952a141dd592ad695621e3e43fa590de1395094a5a1c95',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '0c900cde7368e7de6015e1e21454b77110535b5f8a441d537cf2f492762143ee',
+  '../codex-chat-session.ts': '98af750cce1a80646741cb6f47e4e4b230db26f0f1078871173d13d9de371163',
   '../connections-runtime.ts': 'de21635b9b9315d9d4a6317492902aa41377758ea7b67224bf0f3c86a3de9da4',
   'capabilities/operation-store.ts':
     '60c15c84c9cfddbbf30b01b215b1d7551271715f5cce5b3b4fd85092f7e575eb',

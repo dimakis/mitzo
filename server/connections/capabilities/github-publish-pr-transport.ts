@@ -1,4 +1,5 @@
 import { isGitBranchName } from '../../git-branch.js';
+import { GITHUB_PR_DESCRIPTION_MAX_LENGTH } from '../../github-publication-approval.js';
 import { execFile } from 'node:child_process';
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -404,7 +405,7 @@ function gitEnvironment() {
 }
 // A supported 65,536-character description can require six JSON bytes per
 // character. Reserve the existing 128 KiB allowance for the remaining PR data.
-const pullRequestResponseBytes = 65_536 * 6 + 128 * 1024;
+const pullRequestResponseBytes = GITHUB_PR_DESCRIPTION_MAX_LENGTH * 6 + 128 * 1024;
 const pullRequestLookupPageSize = 2;
 /** Shared by subprocess owners; injected credential runners retain their own
  * environment and dispatch fences. Supported PR bodies use complete JSON on stdin. */

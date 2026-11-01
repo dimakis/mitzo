@@ -1,4 +1,5 @@
 import { githubRepositoryConnections } from './github-repository-connections.js';
+import { GITHUB_PR_DESCRIPTION_MAX_LENGTH } from './github-publication-approval.js';
 import { realpathSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -28,7 +29,10 @@ import { capabilityApprovalForConversation } from './connections/capabilities/ap
 import { canonicalJson } from './connections/capabilities/input-validation.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
-import type { CapabilityOperation } from './connections/capabilities/types.js';
+import type {
+  CapabilityCurrentAssertion,
+  CapabilityOperation,
+} from './connections/capabilities/types.js';
 export const REQUEST_GITHUB_PUBLISH = 'RequestGithubPublish';
 // Shared across runtime replacements; closing one runtime cannot release its active operation.
 const publishingAdmissions = new Set<string>();
@@ -129,7 +133,7 @@ function captureGithubPublicationOwner(runtimeId: string, conversationId: string
  * RequestGithubPublish; read-only reconciliation does not create new authority. */
 export function captureGithubPublicationOperationAuthority(
   operation: CapabilityOperation,
-  callerCurrent?: () => Promise<void>,
+  callerCurrent?: CapabilityCurrentAssertion,
 ): () => Promise<void> {
   const live = getLiveCapabilityConversationBinding(operation.conversationId);
   if (
@@ -152,11 +156,13 @@ export function captureGithubPublicationOperationAuthority(
   const owner = reuse
     ? { assertCurrent: callerCurrent!, assertCurrentSync: produced!.assertCurrentSync }
     : captureGithubPublicationOwner(live.runtimeOwnerId, operation.conversationId);
+  const callerSync = callerCurrent?.assertCurrentSync;
   assertBinding();
   return async () => {
     assertBinding();
     await owner.assertCurrent();
     if (callerCurrent && !reuse) await callerCurrent();
+    callerSync?.();
     owner.assertCurrentSync();
     assertBinding();
   };
@@ -192,7 +198,7 @@ export const GithubPublishingFields = {
   repositoryPath: z.string().min(1).max(256),
   baseBranch: z.string().min(1).max(128),
   title: z.string().min(1).max(128),
-  body: z.string().max(65_536).describe('Pull request description'),
+  body: z.string().max(GITHUB_PR_DESCRIPTION_MAX_LENGTH).describe('Pull request description'),
   draft: z.boolean(),
 };
 const Input = z.object(GithubPublishingFields).strict();
