@@ -163,9 +163,11 @@ Use grouped bordered rows and quiet surfaces for lists. Put the most useful titl
 
 Chat load errors distinguish an initial request from a refresh of a previously loaded
 list. A failed refresh retains its rows beside the existing error and Retry control,
-including in Today's recent sessions. Draft confirmation describes storage on the
-current device, appears only after the current revision is saved, and disappears
-when an empty composer has no retained draft. Failed writes remain explicit alerts.
+including in Today's recent sessions. Draft feedback says **Draft autosaves on this
+device** after a retained draft enters storage. It describes autosave rather than
+claiming that an asynchronous write has completed. Keep its node mounted through
+revision checks and its copy stable through background writes, including screenshot
+attachments. Hide it when an empty composer has no retained draft. Failed writes remain explicit alerts.
 These changes reuse existing list/error and composer status styles.
 
 Isolated actual SessionList and ChatInput renders were checked offline in mobile

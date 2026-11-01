@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { ChatInput, type ChatInputDraftControl } from '../ChatInput';
 import { renderToString } from 'react-dom/server';
 import { createChatDraft, getChatDraft, saveChatDraft } from '../../lib/chat-drafts';
+import { chatStorage, CHAT_STORAGE_CHANGED } from '../../lib/large-chat-storage';
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
 vi.mock('../SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 vi.mock('../MicButton', () => ({ MicButton: () => null }));
@@ -14,6 +15,35 @@ afterEach(() => {
   localStorage.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
+});
+
+it('keeps attachment autosave feedback and composer focus stable across background writes', () => {
+  let pending = false;
+  vi.spyOn(chatStorage, 'pending', 'get').mockImplementation(() => pending);
+  const draft = {
+    ...createChatDraft(),
+    text: 'Review this screenshot',
+    images: [{ data: 'abc', preview: 'data:image/png;base64,abc', mediaType: 'image/png' }],
+  };
+  render(
+    <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={draft} />,
+  );
+  const input = screen.getByLabelText('Message Mitzo');
+  input.focus();
+  const status = screen.getByRole('status');
+  expect(status.textContent).toBe('Draft autosaves on this device');
+  for (const text of ['Review this screenshot a', 'Review this screenshot again']) {
+    pending = true;
+    fireEvent.change(input, { target: { value: text } });
+    expect(screen.getByRole('status')).toBe(status);
+    expect(status.textContent).toBe('Draft autosaves on this device');
+    pending = false;
+    act(() => window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED)));
+    expect(screen.getByRole('status')).toBe(status);
+    expect(status.textContent).toBe('Draft autosaves on this device');
+    expect(document.activeElement).toBe(input);
+    expect(getChatDraft(draft.id)?.text).toBe(text);
+  }
 });
 
 it('flushes an intentionally removed empty rich draft from its owned settings seed', () => {
@@ -87,11 +117,11 @@ it('does not announce a save before the composer has persisted content', () => {
     <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={draft} />,
   );
   expect(html).not.toContain('Saved to Drafts');
-  expect(html).not.toContain('Draft saved on this device');
+  expect(html).not.toContain('Draft autosaves on this device');
   expect(getChatDraft(draft.id)).toBeNull();
 });
 
-it('announces a confirmed local save only while the composer has a stored draft', () => {
+it('shows autosave feedback only while the composer has a retained draft', () => {
   const draft = createChatDraft();
   render(
     <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={draft} />,
@@ -100,7 +130,7 @@ it('announces a confirmed local save only while the composer has a stored draft'
   expect(getChatDraft(draft.id)).toBeNull();
 
   fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'Just a test.' } });
-  expect(screen.getByRole('status').textContent).toBe('Draft saved on this device');
+  expect(screen.getByRole('status').textContent).toBe('Draft autosaves on this device');
   expect(getChatDraft(draft.id)?.text).toBe('Just a test.');
 
   fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: '' } });
@@ -113,7 +143,7 @@ it('replaces the save confirmation with a warning when a newer edit cannot be st
   render(
     <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={draft} />,
   );
-  expect(screen.getByRole('status').textContent).toBe('Draft saved on this device');
+  expect(screen.getByRole('status').textContent).toBe('Draft autosaves on this device');
   const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
     throw new Error('Storage full');
   });
@@ -127,7 +157,7 @@ it('replaces the save confirmation with a warning when a newer edit cannot be st
   storage.mockRestore();
   fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'Recovered edit' } });
   expect(screen.queryByRole('alert')).toBeNull();
-  expect(screen.getByRole('status').textContent).toBe('Draft saved on this device');
+  expect(screen.getByRole('status').textContent).toBe('Draft autosaves on this device');
   expect(getChatDraft(draft.id)?.text).toBe('Recovered edit');
 });
 
@@ -178,7 +208,7 @@ it.each(['failed', 'uncertain', 'accepted'] as const)(
     expect(send.mock.calls[0][1]).toEqual(draft.images);
     expect(getChatDraft(draft.id)).not.toBeNull();
     expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
-    expect(screen.queryByText('Draft saved on this device')).toBeNull();
+    expect(screen.queryByText('Draft autosaves on this device')).toBeNull();
     act(() => receipt?.(status));
     view.unmount();
     expect(getChatDraft(draft.id) === null).toBe(status === 'accepted');

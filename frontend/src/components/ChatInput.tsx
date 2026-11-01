@@ -1374,23 +1374,24 @@ export function ChatInput({
     textareaRef.current?.focus();
   }
 
+  const saveFailed = currentSave?.failed || chatStorage.failed;
+  const showSaveStatus =
+    !!currentSave && (saveFailed || (currentSave.stored && !hideSubmittedText));
+
   return (
     <div className={`chat-input chat-input--compact${expanded ? ' chat-input--expanded' : ''}`}>
-      {currentSave &&
-        (currentSave.failed ||
-          chatStorage.failed ||
-          (currentSave.stored && !hideSubmittedText)) && (
-          <p
-            className="chat-draft-save-status"
-            role={currentSave.failed || chatStorage.failed ? 'alert' : 'status'}
-          >
-            {currentSave.failed || chatStorage.failed
-              ? 'Couldn’t save this draft on this device. Keep it open and free some storage before leaving.'
-              : chatStorage.pending
-                ? 'Saving draft on this device…'
-                : 'Draft saved on this device'}
-          </p>
-        )}
+      {/* Keep this node stable across revision checks; background writes must not replay it. */}
+      <p
+        className="chat-draft-save-status"
+        hidden={!showSaveStatus}
+        role={saveFailed ? 'alert' : 'status'}
+      >
+        {showSaveStatus
+          ? saveFailed
+            ? 'Couldn’t save this draft on this device. Keep it open and free some storage before leaving.'
+            : 'Draft autosaves on this device'
+          : null}
+      </p>
       {attachmentError && (
         <p className="chat-draft-save-status" role="alert">
           {attachmentError}
