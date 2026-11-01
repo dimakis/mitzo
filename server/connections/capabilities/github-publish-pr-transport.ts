@@ -590,38 +590,6 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       sourceBranchProtected,
     };
   }
-  async refreshBase(input: {
-    directory: string;
-    repository: string;
-    baseBranch: string;
-    signal: AbortSignal;
-    assertRuntimeCurrent?: () => Promise<void>;
-  }) {
-    checked(input.repository, safeRepository, 'Repository is invalid');
-    checked(input.baseBranch, safeBranch, 'Base branch is invalid');
-    // Only this publisher's private reconstruction can retain a review artifact.
-    if (
-      !this.cleanupParents.has(join(input.directory, '..')) ||
-      this.cleanups.has(join(input.directory, '..'))
-    )
-      throw Error('Publication artifact owner unavailable');
-    await input.assertRuntimeCurrent?.();
-    input.signal.throwIfAborted();
-    await this.runHost(
-      'git',
-      [
-        '-C',
-        input.directory,
-        'fetch',
-        '--no-tags',
-        `https://github.com/${input.repository}.git`,
-        `refs/heads/${input.baseBranch}:refs/remotes/origin/${input.baseBranch}`,
-      ],
-      input.signal,
-    );
-    await input.assertRuntimeCurrent?.();
-    input.signal.throwIfAborted();
-  }
   async reconstruct(input: {
     repository: string;
     sourceBranch: string;

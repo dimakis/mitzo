@@ -162,6 +162,8 @@ describe('github.publish-pr capability', () => {
   it('uses the production service preflight card for approval, execution, and durable ambiguous recovery', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'mitzo-github-service-'));
     const f = fixture({ inspection: { changedFiles: ['deleted.ts', 'src/index.ts'] } });
+    const publicationInput = { ...input, body: 'Long PR description. '.repeat(1000) };
+    f.pull.body = publicationInput.body;
     const capability: CapabilityTemplate = {
       id: 'github.publish-pr',
       version: 1,
@@ -178,7 +180,7 @@ describe('github.publish-pr capability', () => {
           repositoryPath: { type: 'string', minLength: 1, maxLength: 256 },
           baseBranch: { type: 'string', minLength: 1, maxLength: 128 },
           title: { type: 'string', minLength: 1, maxLength: 128 },
-          body: { type: 'string', maxLength: 512 },
+          body: { type: 'string', maxLength: 65_536 },
           draft: { type: 'boolean' },
         },
         required: ['connectionId', 'repositoryPath', 'baseBranch', 'title', 'body', 'draft'],
@@ -227,7 +229,7 @@ describe('github.publish-pr capability', () => {
           conversationId: 'conversation-1',
           turnId: 'turn-1',
           idempotencyKey: 'approved',
-          input,
+          input: publicationInput,
         },
         new AbortController().signal,
       );
@@ -248,7 +250,10 @@ describe('github.publish-pr capability', () => {
       expect(f.host.update).toHaveBeenCalledTimes(1);
 
       vi.mocked(f.host.create).mockRejectedValueOnce(new Error('lost response'));
-      vi.mocked(f.host.findOpen).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+      vi.mocked(f.host.findOpen)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
       const ambiguous = await service.invoke(
         {
           capabilityId: capability.id,
@@ -259,7 +264,7 @@ describe('github.publish-pr capability', () => {
           conversationId: 'conversation-1',
           turnId: 'turn-2',
           idempotencyKey: 'ambiguous',
-          input,
+          input: publicationInput,
         },
         new AbortController().signal,
       );
@@ -271,6 +276,52 @@ describe('github.publish-pr capability', () => {
         }),
       });
       expect(store.get(ambiguous.id)?.recoveryIntent).toEqual(ambiguous.recoveryIntent);
+      vi.mocked(f.host.reconstruct).mockRejectedValueOnce(new Error('reconstruction failed'));
+      const notDispatched = await service.invoke(
+        {
+          capabilityId: capability.id,
+          capabilityVersion: capability.version,
+          connectionId: connection.id,
+          connectionRevision: connection.revision,
+          accountId: 'account-1',
+          conversationId: 'conversation-1',
+          turnId: 'turn-3',
+          idempotencyKey: 'pre-push-failure',
+          input: publicationInput,
+        },
+        new AbortController().signal,
+      );
+      expect(notDispatched.status).toBe('failed');
+      expect(f.host.push).toHaveBeenCalledTimes(2);
+      const manyPaths = Array.from(
+        { length: 100 },
+        (_, index) => `src/${index}-${'path'.repeat(100)}.ts`,
+      );
+      vi.mocked(f.sandbox.inspect).mockResolvedValue(inspection({ changedFiles: manyPaths }));
+      const largeReceipt = await service.invoke(
+        {
+          capabilityId: capability.id,
+          capabilityVersion: capability.version,
+          connectionId: connection.id,
+          connectionRevision: connection.revision,
+          accountId: 'account-1',
+          conversationId: 'conversation-1',
+          turnId: 'turn-4',
+          idempotencyKey: 'large-metadata',
+          input: publicationInput,
+        },
+        new AbortController().signal,
+      );
+      expect(largeReceipt).toMatchObject({
+        status: 'succeeded',
+        externalResultId: f.pull.url,
+        result: { changedFileCount: 100, changedFilesOmitted: expect.any(Number) },
+      });
+      expect(JSON.stringify(largeReceipt.recoveryIntent).length).toBeLessThan(8192);
+      expect(largeReceipt.recoveryIntent).not.toHaveProperty('body');
+      expect(f.host.update).toHaveBeenLastCalledWith(
+        expect.objectContaining({ body: publicationInput.body }),
+      );
     } finally {
       if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = oldNodeEnv;
@@ -662,31 +713,9 @@ describe('github.publish-pr capability', () => {
     expect(bundlePath).not.toBe(clone.at(-1));
     expect(JSON.stringify(calls)).not.toContain('SENTINEL_TOKEN');
     await expect(stat(bundlePath)).resolves.toMatchObject({ mode: expect.any(Number) });
-    const refresh = {
-      directory: rebuilt.directory,
-      repository: 'acme/widgets',
-      baseBranch: 'main',
-      signal: new AbortController().signal,
-    };
-    const fence = vi.fn(async () => {});
-    await publisher.refreshBase({ ...refresh, assertRuntimeCurrent: fence });
-    expect(fence).toHaveBeenCalledTimes(2);
-    expect(calls.at(-1)).toEqual([
-      '-C',
-      rebuilt.directory,
-      'fetch',
-      '--no-tags',
-      'https://github.com/acme/widgets.git',
-      'refs/heads/main:refs/remotes/origin/main',
-    ]);
-    await expect(
-      publisher.refreshBase({ ...refresh, directory: join(rebuilt.directory, 'unowned') }),
-    ).rejects.toThrow('owner');
     const cleanup = publisher.cleanup(rebuilt.cleanupDirectory!);
     expect(publisher.cleanup(rebuilt.cleanupDirectory!)).toBe(cleanup);
-    await expect(publisher.refreshBase(refresh)).rejects.toThrow('owner');
     await cleanup;
-    await expect(publisher.refreshBase(refresh)).rejects.toThrow('owner');
     await expect(stat(rebuilt.cleanupDirectory!)).rejects.toThrow();
   });
   it('reads only the controller GitHub login for publishing identity verification', async () => {
@@ -960,7 +989,7 @@ describe('github.publish-pr capability', () => {
     ).rejects.toThrow('changed after approval');
     expect(f.sandbox.exportBundle).not.toHaveBeenCalled();
   });
-  it('binds the exact approved source OID and rejects approval-card overflow before export', async () => {
+  it('binds the exact approved source OID and admits more than 64 changed files', async () => {
     const f = fixture();
     const preflight = await f.executor.preflight!(context());
     vi.mocked(f.sandbox.inspect).mockResolvedValueOnce(inspection({ sourceOid: 'b'.repeat(40) }));
@@ -970,14 +999,43 @@ describe('github.publish-pr capability', () => {
     const many = fixture({
       inspection: { changedFiles: Array.from({ length: 65 }, (_, i) => `src/${i}`) },
     });
-    await expect(many.executor.preflight!(context())).rejects.toThrow('summary');
+    await expect(many.executor.preflight!(context())).resolves.toMatchObject({
+      approvalInput: { changedFileCount: '65' },
+    });
     expect(many.sandbox.exportBundle).not.toHaveBeenCalled();
   });
-  it('rejects changed-file text that cannot fit the exact permission card serialization', async () => {
-    const hostile = Array.from({ length: 64 }, () => '\\"'.repeat(60));
-    const f = fixture({ inspection: { changedFiles: hostile } });
-    await expect(f.executor.preflight!(context())).rejects.toThrow('complete approval projection');
-    expect(f.sandbox.exportBundle).not.toHaveBeenCalled();
+  it('previews long changed-file lists and binds approval to every omitted path and full PR description', async () => {
+    const files = Array.from({ length: 80 }, (_, index) => `src/${index}-${'long'.repeat(40)}.ts`);
+    const f = fixture({ inspection: { changedFiles: files } });
+    const body = 'Description '.repeat(2000);
+    const fullContext = context({ input: { ...input, body } });
+    const preflight = await f.executor.preflight!(fullContext);
+    expect(preflight.approvalInput).toMatchObject({
+      changedFileCount: '80',
+      bodyPreviewTruncated: true,
+    });
+    expect(preflight.approvalInput!.changedFilesOmitted).not.toBe('0');
+    expect(preflight.approvalInput!.bodySha256).toMatch(/^[a-f0-9]{64}$/);
+    // Changing an omitted path or description beyond the preview invalidates approval.
+    vi.mocked(f.sandbox.inspect).mockResolvedValueOnce(
+      inspection({ changedFiles: [...files.slice(0, -1), 'different.ts'] }),
+    );
+    await expect(
+      f.executor.execute({ ...fullContext, approvalInput: preflight.approvalInput }),
+    ).rejects.toThrow('changed after approval');
+    await expect(
+      f.executor.execute({
+        ...fullContext,
+        input: { ...input, body: body + 'changed' },
+        approvalInput: preflight.approvalInput,
+      }),
+    ).rejects.toThrow('changed after approval');
+    const published = { ...f.pull, body };
+    vi.mocked(f.host.create).mockResolvedValueOnce(published);
+    await expect(
+      f.executor.execute({ ...fullContext, approvalInput: preflight.approvalInput }),
+    ).resolves.toMatchObject({ externalResultId: published.url });
+    expect(f.host.create).toHaveBeenCalledWith(expect.objectContaining({ body }));
   });
   it('uses host-authoritative default and protection policy before any export', async () => {
     const f = fixture();
@@ -1013,6 +1071,14 @@ describe('github.publish-pr capability', () => {
     vi.mocked(nonFastForward.host.push).mockRejectedValueOnce(new Error('non-fast-forward'));
     await expect(nonFastForward.executor.execute(context())).rejects.toThrow('non-fast-forward');
     expect(nonFastForward.host.cleanup).toHaveBeenCalledWith('/tmp/mitzo-github-publish-test');
+    const cleanupFailure = fixture();
+    vi.mocked(cleanupFailure.host.cleanup).mockRejectedValueOnce(new Error('retry cleanup'));
+    await expect(cleanupFailure.executor.execute(context())).resolves.toHaveProperty(
+      'externalResultId',
+    );
+    await cleanupFailure.executor.releasePreflight!(operation.id);
+    await cleanupFailure.executor.releasePreflight!(operation.id);
+    expect(cleanupFailure.host.cleanup).toHaveBeenCalledTimes(2);
   });
   it('creates, verifies, and reports a pull request without exposing credentials', async () => {
     const f = fixture();
@@ -1119,6 +1185,12 @@ describe('github.publish-pr capability', () => {
     );
     expect(f.host.push).not.toHaveBeenCalled();
     expect(f.host.create).not.toHaveBeenCalled();
+    vi.mocked(f.host.read).mockResolvedValueOnce(null);
+    await expect(
+      f.executor.recover({ ...recovered, externalResultId: null }, new AbortController().signal),
+    ).rejects.toThrow('recovery remains pending');
+    expect(f.host.create).not.toHaveBeenCalled();
+    expect(f.host.update).not.toHaveBeenCalled();
   });
   it('recovers one authoritative head/base PR after metadata changes without another create', async () => {
     const f = fixture();
@@ -1180,7 +1252,7 @@ describe('github.publish-pr capability', () => {
       ),
     ).resolves.toEqual({ outcome: 'verified' });
   });
-  it('recreates a missing PR only after the durable branch OID is verified', async () => {
+  it('keeps a missing PR ambiguous after verifying its durable branch OID', async () => {
     const f = fixture();
     vi.mocked(f.host.read).mockResolvedValueOnce(null);
     await expect(
@@ -1202,9 +1274,9 @@ describe('github.publish-pr capability', () => {
         },
         new AbortController().signal,
       ),
-    ).resolves.toEqual({ outcome: 'verified' });
+    ).rejects.toThrow('recovery remains pending');
     expect(f.host.push).not.toHaveBeenCalled();
-    expect(f.host.create).toHaveBeenCalledTimes(1);
+    expect(f.host.create).not.toHaveBeenCalled();
   });
   it('recovers a matching closed PR from all states without creating or mutating it', async () => {
     const f = fixture();

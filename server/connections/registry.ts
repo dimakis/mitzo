@@ -284,7 +284,7 @@ function parseCapabilityTemplate(value: unknown): CapabilityTemplate {
   if (!parsed.success) throw new Error('Invalid capability template');
   const template = parsed.data as CapabilityTemplate;
   uniqueTemplateReferences(template.connectionTemplates, 'capability provider template reference');
-  assertCompleteApprovalProjection(template.inputSchema);
+  assertCompleteApprovalProjection(template.inputSchema, template.id);
   return Object.freeze({
     ...template,
     connectionTemplates: Object.freeze(
@@ -686,7 +686,7 @@ const capabilities: readonly CapabilityTemplate[] = [
         repositoryPath: { type: 'string', minLength: 1, maxLength: 256 },
         baseBranch: { type: 'string', minLength: 1, maxLength: 128 },
         title: { type: 'string', minLength: 1, maxLength: 128 },
-        body: { type: 'string', maxLength: 512 },
+        body: { type: 'string', maxLength: 65_536 },
         draft: { type: 'boolean' },
       },
       required: ['connectionId', 'repositoryPath', 'baseBranch', 'title', 'body', 'draft'],
@@ -891,7 +891,7 @@ const reviewedCapabilityContracts = Object.freeze({
         repositoryPath: { type: 'string', minLength: 1, maxLength: 256 },
         baseBranch: { type: 'string', minLength: 1, maxLength: 128 },
         title: { type: 'string', minLength: 1, maxLength: 128 },
-        body: { type: 'string', maxLength: 512 },
+        body: { type: 'string', maxLength: 65_536 },
         draft: { type: 'boolean' },
       },
       required: ['connectionId', 'repositoryPath', 'baseBranch', 'title', 'body', 'draft'],
@@ -1004,7 +1004,7 @@ const executors: Readonly<Record<string, BoundHandler<CapabilityExecutor>>> = nu
       'github.publish-pr@1',
       reviewedCapabilityContracts['github.publish-pr@1'],
       reviewedGithubPublicationImplementationRevision,
-      '648e15f76dc29a023849c486add2cf81a2433c5f67b50830c87e63c18081f655',
+      '29287adbe9600bb71a3e20cab2ee879a7d525ffc2abb83e8d655a35479873aa7',
       executorGoldenOutput,
       approvalRequiredExecutor,
     ),

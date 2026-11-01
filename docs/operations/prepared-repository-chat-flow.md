@@ -41,64 +41,17 @@ provider invocation.
 
 ## Commit and publication
 
-For an ordinary Mitzo chat with `RequestGithubPublish`, use its host review path
-when native subagent tools are unavailable. After the checks and local commit,
-request publication through that tool. Before any push, the host runs two fresh,
-independent reviews over the exact committed change: correctness/integration and
-behavior/test/security. The host may serialize those isolated passes to respect
-resource limits. These are qualifying independent reviews only when their returned
-receipt identifies the committed artifact and evidence, both passes completed,
-and no blocking findings remain. Fix returned findings, commit, and request a
-fresh review for changed work. Do not treat a request, missing receipt, incomplete
-coverage or the absence of a native subagent tool as review approval. The host
-still requires the publication approval and rechecks the reviewed artifact before
-publishing. Required CI, Centaur, merge and deployment gates remain separate.
+For an ordinary Mitzo chat, commit the selected work and use `RequestGithubPublish` to create or update its feature-branch PR. The tool does not run AI reviews, select a review model or assemble source into an inference packet. The former 800,000-byte review-evidence budget, review-round limits and model-response requirements do not apply to PR creation. Local development reviews and CI/Centaur/human PR reviews are independent of the publishing operation.
 
-Standalone task Git metadata includes empty real reflog parent directories before
-publication into the task. The projector admits only the required fixed directory
-chain; arbitrary reflog files, symlinks and substitute paths remain forbidden.
-The trusted commit executor continues to stage only selected files.
+Changed-file counts and long paths do not gate publication. Approval and result cards show explicitly bounded file previews with the complete count and list hash. PR descriptions accept up to 65,536 characters; long descriptions have an explicit preview, full byte count and full-content hash in approval, while execution sends the original complete text. Recovery stores only bounded identity/lookup fields because it never resubmits a description or creates another PR. Existing committed-bundle transfer and GitHub limits remain distinct from model-review budgets.
 
-Ordinary `RequestGithubPublish` prepares a host-owned reconstruction of the exact
-committed source. Two isolated review passes inspect complete changed files,
-applicable policies and relevant unchanged context from pinned Git objects. Each
-pass can request bounded additional source reads and literal searches. Missing
-context, evidence limits, malformed output or blocking findings stop publication.
-Within the same five-round/two-minute pass budget, one malformed JSON/schema
-response can be corrected and one overbroad search can be narrowed. The host
-never rewrites reviewer output, raises the search bound or accepts rejected
-context as coverage. An overbroad batch must be followed by successful context
-delivery before approval; repeated errors and exhausted budgets stop review.
-The change set and deleted-file contents come from the unique pinned merge base,
-so upstream-only changes do not count as task changes. Evidence also binds the
-current base tip; unrelated or ambiguous histories stop review.
-These reviews cannot execute tools or checks; their reports state that limitation.
-The originating account, model, operator and permission selection remain fenced
-through asynchronous allocation and dispatch.
+Publication still checks the signed operator, exact active call, current account and connection, repository and branch scope, committed source identity and explicit operation authorization. Those checks remain fresh around asynchronous work and at mutation boundaries. A renewed verified primary-operator login can publish without rewriting the conversation's creator provenance. Native callback expiry, authorization revocation and runtime replacement stop further work; publication has no dependency on model or thinking settings.
 
-Creating-login IDs remain provenance. A renewed verified primary-operator login
-can request review; the review then retains and rechecks that current signed
-authorization. Provider requests use the exact invoking command's model and
-thinking selection. Startup metadata and later queued commands cannot retarget
-that review.
+The host reconstructs the committed Git artifact, pushes the approved feature branch, creates or updates the PR, and verifies the resulting PR and branch before reporting success. Credentials remain on the controller. Restart and ambiguous writes use read-only recovery before another attempt; a missing PR is not invented as a successful publication.
 
-Credential-free reads address pinned objects in the private host reconstruction.
-Runtime qualification surrounds each complete evidence batch; individual Git
-reads retain cancellation checks. A genuine captured publishing owner privately
-records its exact runtime callback, so the combined owner check qualifies that
-same runtime once per boundary. Copies, wrappers and unrelated callbacks retain
-independent checks; no successful validation is cached. An asynchronous adviser
-setup hook still requires a fresh check afterward. Qualification before inference
-and publication remains separate. This avoids multiplying a full physical task check by every
-unchanged source file while still refusing a batch whose owner was revoked.
+Standalone task Git metadata includes empty real reflog parent directories before publication into the task. The projector admits only the required fixed directory chain; arbitrary reflog files, symlinks and substitute paths remain forbidden. The trusted commit executor continues to stage only selected files.
 
-An approved review receipt is private, short-lived and tied to the exact operation,
-source, connection and original owner. User approval follows review and binds that
-evidence. Execution reconstructs and verifies the source again before any push.
-Restarting does not manufacture a replacement receipt. Read-only recovery may
-observe an existing PR; it cannot create a missing one. A positively proved failure
-before push permits a fresh reviewed request. A possibly dispatched write retains
-its uncertainty for verification.
+Required CI, repository merge checks, Centaur and deployment authorization remain separate. Opening or updating a PR is not approval to merge or deploy. Symposium retains its separately owned sealed-artifact publication contract.
 
 Interrupted native recovery preserves known terminal command failures and completed
 file patches. An observed nonzero exit settles a failed shell command; it does not
@@ -113,13 +66,13 @@ subsequent turn uses freshly admitted current permissions.
 
 ## Effects to verify
 
-| Order | Required consequence                                                                                                   |
-| ----- | ---------------------------------------------------------------------------------------------------------------------- |
-| 1     | Repository adoption leaves the composer able to submit the next explicit prompt.                                       |
-| 2     | Retries, response loss and reconnect retain one command identity and dispatch at most once.                            |
-| 3     | Later prompts, images and newer drafts survive acceptance and local storage pressure.                                  |
-| 4     | Trusted commits preserve unrelated files; review and approval remain bound to the original owner and committed source. |
-| 5     | Publication returns a verified PR receipt, while restart and ambiguous writes cannot create an unreviewed duplicate.   |
+| Order | Required consequence                                                                                                           |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 1     | Repository adoption leaves the composer able to submit the next explicit prompt.                                               |
+| 2     | Retries, response loss and reconnect retain one command identity and dispatch at most once.                                    |
+| 3     | Later prompts, images and newer drafts survive acceptance and local storage pressure.                                          |
+| 4     | Trusted commits preserve unrelated files; publication approval remains bound to the current signed owner and committed source. |
+| 5     | Publication returns a verified PR receipt, while restart and ambiguous writes cannot create a duplicate.                       |
 
 Offline regressions use real SQLite, admission, native FIFO and Git object
 operations with synthetic provider responses and GitHub effects. They do not use

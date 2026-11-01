@@ -24,6 +24,7 @@ export const CAPABILITY_OPERATION_PHASES = [
   'branch_policy',
   'export',
   'reconstruction',
+  // Historical diagnostic values remain readable for retained operations.
   'review',
   'review_first',
   'review_second',

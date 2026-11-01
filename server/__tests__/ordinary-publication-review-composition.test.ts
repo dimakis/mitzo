@@ -4,12 +4,7 @@ import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  review: vi.fn(),
-  factory: vi.fn(),
   executorDependencies: undefined as unknown,
-}));
-vi.mock('../ordinary-publication-review.js', () => ({
-  createOrdinaryPublicationReview: mocks.factory.mockImplementation(() => mocks.review),
 }));
 vi.mock('../connections/capabilities/github-publish-pr.js', async (original) => {
   const actual =
@@ -26,7 +21,7 @@ vi.mock('../connections/capabilities/github-publish-pr.js', async (original) => 
 });
 import { createConnectionsRuntime } from '../connections-runtime.js';
 
-it('installs the authenticated independent review owner in the ordinary production publisher', () => {
+it('publishes ordinary PRs without constructing a model reviewer', () => {
   const directory = mkdtempSync(join(tmpdir(), 'mitzo-publication-composition-'));
   const runtime = createConnectionsRuntime({
     directory,
@@ -36,9 +31,7 @@ it('installs the authenticated independent review owner in the ordinary producti
     githubPublishEnabled: true,
   });
   try {
-    expect(mocks.factory).toHaveBeenCalledOnce();
-    expect(mocks.factory.mock.calls[0][0]).toMatchObject({ resolveOwner: expect.any(Function) });
-    expect(mocks.executorDependencies).toMatchObject({ reviewCommittedChange: mocks.review });
+    expect(mocks.executorDependencies).not.toHaveProperty('reviewCommittedChange');
   } finally {
     runtime.store.close();
     runtime.capabilityStore.close();

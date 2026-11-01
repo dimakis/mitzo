@@ -2441,8 +2441,6 @@ it.each([
     expect(Object.keys(invocation!)).toEqual(['turnId', 'callId']);
     expect(structuredClone(invocation)).toEqual({ turnId: input.turnId, callId: input.callId });
     expect(() => invocation!.assertCurrentSync!()).not.toThrow();
-    const selection = invocation!.captureInferenceSelection!();
-    expect(() => selection.assertCurrentSync()).not.toThrow();
     if (outcome === 'aborted') controller.abort();
     if (outcome === 'closed') f.c.close();
     if (outcome === 'turn-completed')
@@ -2453,7 +2451,6 @@ it.each([
     if (outcome === 'mutated-input') actualInput!.file_path = 'substituted';
     if (['aborted', 'closed', 'turn-completed', 'mutated-input'].includes(outcome)) {
       expect(() => invocation!.assertCurrentSync!()).toThrow();
-      expect(() => selection.assertCurrentSync()).toThrow();
     }
     if (outcome === 'result-write-failure')
       vi.spyOn(f.store, 'recordToolResult').mockImplementationOnce(() => {
@@ -2472,7 +2469,7 @@ it.each([
   },
 );
 
-it('pins private inference selection to the invoking command rather than startup or a queued future command', async () => {
+it('pins original native call authority across a queued future command', async () => {
   const f = await setup();
   await f.c.send({
     id: 'current',
@@ -2489,17 +2486,8 @@ it('pins private inference selection to the invoking command rather than startup
     entered = resolve;
   });
   let invocation: Parameters<CodexConversationOptions['executeTool']>[3] | undefined;
-  let selection:
-    | {
-        commandId: string;
-        model: string;
-        reasoningEffort?: string | null;
-        assertCurrentSync(): void;
-      }
-    | undefined;
   f.conversationOptions.executeTool = async (_name, _input, _signal, context) => {
     invocation = context;
-    selection = context.captureInferenceSelection!();
     entered();
     await held;
     return { content: 'published', isError: false };
@@ -2522,22 +2510,11 @@ it('pins private inference selection to the invoking command rather than startup
     }),
   ]);
   expect(Object.keys(invocation!)).toEqual(['turnId', 'callId']);
-  expect(Object.isFrozen(selection)).toBe(true);
-  expect(selection).toMatchObject({
-    commandId: 'current',
-    model: 'other-model',
-    reasoningEffort: 'high',
-  });
   await f.c.send({ id: 'future', prompt: 'later', model: 'test-model', reasoningEffort: 'low' });
-  expect(() => selection!.assertCurrentSync()).not.toThrow();
-  expect(invocation!.captureInferenceSelection!()).toMatchObject({
-    model: 'other-model',
-    reasoningEffort: 'high',
-  });
+  expect(() => invocation!.assertCurrentSync!()).not.toThrow();
   release();
   await callback;
-  expect(() => selection!.assertCurrentSync()).toThrow();
-  expect(() => invocation!.captureInferenceSelection!()).toThrow();
+  expect(() => invocation!.assertCurrentSync!()).toThrow();
 });
 
 it.each(['native', 'no-policy'] as const)(

@@ -402,9 +402,6 @@ export async function openResponsesChat(options: Options) {
     () => hostGithubPublishingSource(options.session, options.publishingGitStorageRoots),
     options.session,
     assertRuntimeCurrent,
-    {
-      explicitSelection: () => runner.currentInferenceSelection(),
-    },
   );
   let interrupted = false;
   let activeTurnFinalized: Promise<void> | undefined;
@@ -528,11 +525,12 @@ The selected account supplies model inference; Local host describes where the to
           });
           if (keychainResult) return keychainResult;
           if (block.name === REQUEST_GITHUB_PUBLISH) {
-            const call = { turnId: publishingTurnId, callId: block.id };
-            Object.defineProperty(call, 'captureInferenceSelection', {
-              value: () => runner.captureInferenceSelection(),
+            const authority = runner.captureActiveCallAuthority();
+            return githubPublishing(input, signal, {
+              turnId: publishingTurnId,
+              callId: block.id,
+              assertCurrentSync: authority.assertCurrentSync,
             });
-            return githubPublishing(input, signal, call);
           }
           if (block.name === REQUEST_WEB_ACCESS) {
             return createWebAccessTool(

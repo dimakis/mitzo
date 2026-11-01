@@ -3713,16 +3713,8 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     // private native invocation facet explicitly, retaining the original lease fence.
     const publicationCall = (callId: string) => {
       const context = { turnId: 'turn', callId };
-      Object.defineProperty(context, 'captureInferenceSelection', {
-        value: () => {
-          f.lease.assertCurrentSync();
-          return Object.freeze({
-            commandId: 'owned-command',
-            model: f.expected.selection.model,
-            reasoningEffort: f.expected.selection.thinking ?? null,
-            assertCurrentSync: () => f.lease.assertCurrentSync(),
-          });
-        },
+      Object.defineProperty(context, 'assertCurrentSync', {
+        value: () => f.lease.assertCurrentSync(),
       });
       return Object.freeze(context);
     };

@@ -3,12 +3,11 @@ import { readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { expect, it, vi } from 'vitest';
-import { resolvePending, type ModelSession } from '@mitzo/harness';
+import { resolvePending } from '@mitzo/harness';
 import { preparedRepositoryDeliveryFlow } from './fixtures/prepared-repository-delivery-flow.js';
 import { cleanups, git } from './fixtures/prepared-repository-native-consumer.js';
 import { createConnectionsRuntime, setConnectionsRuntime } from '../connections-runtime.js';
 import { closeCapabilityOperationStores } from '../capability-operation-owner.js';
-import type { AdviserSessionFactory } from '../terminal-adviser.js';
 import type { GithubHostCommandRunner } from '../connections/capabilities/github-publish-pr-transport.js';
 
 const offline = vi.hoisted(() => ({ host: vi.fn(), adviser: vi.fn() }));
@@ -31,8 +30,8 @@ vi.mock('../connections/capabilities/github-publish-pr-transport.js', async (ori
   };
 });
 // Retain the individual 120-second production admission/review deadlines.
-// CI custody reads took 7–12 seconds versus about 2 seconds locally; this
-// envelope covers four admissions, two reviews and commit/verification work.
+// CI custody reads took 7–12 seconds versus about 2 seconds locally; retain
+// the existing envelope for admissions and commit/verification work.
 vi.setConfig({ testTimeout: process.env.CI ? 900_000 : 420_000 });
 const execute = promisify(execFile);
 const localGit = async (args: readonly string[], signal: AbortSignal) =>
@@ -49,7 +48,7 @@ const localGit = async (args: readonly string[], signal: AbortSignal) =>
   });
 
 it.each([false, true])(
-  'commits, reviews, approves and publishes with API account=%s, then accepts another prompt',
+  'commits and publishes a large ordinary PR without model reviews with API account=%s, then accepts another prompt',
   async (api) => {
     const flow = await preparedRepositoryDeliveryFlow({ publicationFlow: true, api });
     // A deployed tool description changes the persisted surface of an existing
@@ -90,58 +89,17 @@ it.each([false, true])(
     expect(git(target, 'rev-parse', 'origin/main')).toBe(base);
     const sourceDirty = join(source, 'user-owned-unfinished.txt');
     await writeFile(sourceDirty, 'Preserve the user unfinished source work');
-    await writeFile(join(target, 'task.txt'), 'Reviewed selected task change');
+    await writeFile(
+      join(target, 'task.txt'),
+      'Selected task change\n' + 'large committed evidence\n'.repeat(40_000),
+    );
     await writeFile(join(target, 'user-note.txt'), 'Explicitly selected second commit');
 
     const order: string[] = [];
     const approvals: Array<{ toolName: unknown; toolInput: unknown; reviewCount: number }> = [];
-    const reviewContexts: string[] = [];
-    const reviewConfigurations: Parameters<AdviserSessionFactory>[] = [];
-    offline.adviser.mockImplementation((async (config, request, owner) => {
-      reviewConfigurations.push([config, request, owner]);
-      expect(config.tools).toEqual([]);
-      expect(request.accountId).toBe(flow.binding.accountId);
-      expect(request.model).toBe('publication-model');
-      expect(request.reasoningEffort).toBe('high');
-      expect(config.model).toBe('publication-model');
-      expect(config.reasoningEffort).toBe('high');
-      expect(owner).toMatchObject({
-        authSessionId: flow.f.auth.id,
-        operatorConnectionId: flow.f.dependencies.operatorConnectionId,
-        feature: { kind: 'github-publication' },
-      });
-      await config.beforeDispatch?.();
-      return {
-        provider: 'codex',
-        async *turn(messages: Array<{ role: string; content: string }>) {
-          const context = messages.map((message) => message.content).join('');
-          reviewContexts.push(context);
-          order.push(`review-${reviewContexts.length}`);
-          expect(context).toContain('Reviewed selected task change');
-          expect(context).toContain('Explicitly selected second commit');
-          expect(context).not.toContain('Preserve the user unfinished source work');
-          const evidence = /Evidence SHA-256: ([a-f0-9]{64})/.exec(context)!;
-          expect(evidence).not.toBeNull();
-          yield {
-            type: 'content_block_delta',
-            index: 0,
-            delta: {
-              type: 'text_delta',
-              text: JSON.stringify({
-                evidenceSha256: evidence[1],
-                reviewedAllEvidence: true,
-                verdict: 'approve',
-                findings: [],
-                requests: [],
-                unresolvedNeeds: [],
-                coverageSummary: 'Offline review fixture inspected the complete supplied artifact.',
-              }),
-            },
-          };
-        },
-      } as ModelSession;
-    }) satisfies AdviserSessionFactory);
+    offline.adviser.mockReset().mockRejectedValue(new Error('No review model is configured'));
 
+    const prBody = 'Offline complete publication flow.\n' + 'Publication details.\n'.repeat(1000);
     let publishedHead: string | undefined;
     let createdPull: Record<string, unknown> | undefined;
     offline.host.mockImplementation((async (command, args, signal) => {
@@ -163,7 +121,7 @@ it.each([false, true])(
         if (args.includes('push')) {
           order.push('push');
           expect(order).toContain('publication-approval');
-          expect(reviewContexts).toHaveLength(2);
+          expect(offline.adviser).not.toHaveBeenCalled();
           publishedHead = git(args[1], 'rev-parse', 'HEAD');
           expect(args.slice(2)).toEqual([
             'push',
@@ -208,8 +166,8 @@ it.each([false, true])(
         createdPull = {
           html_url: 'https://github.com/example/repo/pull/42',
           number: 42,
-          title: 'Reviewed prepared task',
-          body: 'Offline complete publication flow.',
+          title: 'Prepared task',
+          body: prBody,
           draft: true,
           state: 'open',
           head: { ref: flow.adopted.featureBranch },
@@ -294,8 +252,8 @@ it.each([false, true])(
       }),
     ).toBe(true);
     await flow.complete(warmup);
-    const commandId = `${flow.sessionId}-commit-review-publish`;
-    const followup = `${flow.sessionId}-continue-after-reviewed-publication`;
+    const commandId = `${flow.sessionId}-commit-publish`;
+    const followup = `${flow.sessionId}-continue-after-publication`;
     const rpcErrors: string[] = [];
     const originalRpc = flow.f.rpc.request.getMockImplementation()!;
     flow.f.rpc.request.mockImplementation(
@@ -318,7 +276,7 @@ it.each([false, true])(
         clientMsgId: commandId,
         selection: { ...flow.originalBody.selection, model: 'publication-model', thinking: 'high' },
         payload: {
-          text: 'Commit task.txt first, then explicitly commit user-note.txt separately. Review and publish a draft PR.',
+          text: 'Commit task.txt first, then explicitly commit user-note.txt separately. Publish a draft PR.',
         },
       }),
     ).toBe(true);
@@ -364,7 +322,7 @@ it.each([false, true])(
           approvals.push({
             toolName: event.toolName,
             toolInput: event.toolInput,
-            reviewCount: reviewContexts.length,
+            reviewCount: offline.adviser.mock.calls.length,
           });
           if (event.toolName === 'ExecuteProviderCapability') {
             order.push('publication-approval');
@@ -410,7 +368,7 @@ it.each([false, true])(
       });
       expect(git(target, 'status', '--porcelain')).toBe('');
       // A future explicit command projects A/low as the latest settings. The
-      // currently invoking B/high native callback remains the review authority.
+      // currently invoking B/high native callback remains the publication owner.
       expect(
         flow.store.getState().sendLocalFirstCommand({
           ...flow.originalBody,
@@ -442,11 +400,11 @@ it.each([false, true])(
         model: 'publication-model',
         reasoningEffort: 'high',
       });
-      const content = await call('RequestGithubPublish', 'publish-reviewed', {
+      const content = await call('RequestGithubPublish', 'publish-committed', {
         repositoryPath: target,
         baseBranch: 'main',
-        title: 'Reviewed prepared task',
-        body: 'Offline complete publication flow.',
+        title: 'Prepared task',
+        body: prBody,
         draft: true,
       });
       const receipt = JSON.parse(content);
@@ -456,14 +414,6 @@ it.each([false, true])(
         result: {
           pullRequestUrl: 'https://github.com/example/repo/pull/42',
           draft: true,
-          review: {
-            receiptId: expect.any(String),
-            evidenceSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
-            reports: [
-              { verdict: 'approve', model: 'publication-model' },
-              { verdict: 'approve', model: 'publication-model' },
-            ],
-          },
         },
       });
       expect(runtime.capabilityStore.get(receipt.operationId)).toMatchObject({
@@ -472,7 +422,7 @@ it.each([false, true])(
       });
       expect(publishedHead).toBe(git(target, 'rev-parse', 'HEAD'));
     });
-    expect(reviewConfigurations).toHaveLength(2);
+    expect(offline.adviser).not.toHaveBeenCalled();
     expect(flow.f.native.read(flow.sessionId, flow.binding)).toMatchObject({
       threadId: 'publication-after-deploy',
       threadGeneration: 1,
@@ -485,14 +435,11 @@ it.each([false, true])(
       'GitCommit',
       'ExecuteProviderCapability',
     ]);
-    expect(approvals[2].reviewCount).toBe(2);
-    expect(approvals[2].toolInput).toContain('reviewReceiptId');
-    expect(reviewConfigurations[0][0].systemPrompt).not.toBe(
-      reviewConfigurations[1][0].systemPrompt,
-    );
-    expect(order.filter((event) => event.startsWith('review-'))).toEqual(['review-1', 'review-2']);
+    expect(approvals[2].reviewCount).toBe(0);
+    expect(approvals[2].toolInput).not.toContain('reviewReceiptId');
+    expect(approvals[2].toolInput).toContain('bodyPreviewTruncated');
     const approvalIndex = order.indexOf('publication-approval');
-    expect(approvalIndex).toBeGreaterThan(order.indexOf('review-2'));
+    expect(approvalIndex).toBeGreaterThanOrEqual(0);
     for (const event of ['push', 'create', 'read-pr', 'read-branch', 'receipt'])
       expect(order.indexOf(event)).toBeGreaterThan(approvalIndex);
     expect(order.indexOf('receipt')).toBeGreaterThan(order.indexOf('read-branch'));
@@ -529,6 +476,6 @@ it.each([false, true])(
     expect(flow.f.native.readHostCustody(flow.sessionId, flow.binding)).toEqual(priorCustody);
     expect(git(target, 'rev-parse', 'HEAD')).toBe(publishedHead);
     expect(order.filter((event) => event === 'create')).toHaveLength(1);
-    expect(reviewConfigurations).toHaveLength(2);
+    expect(offline.adviser).not.toHaveBeenCalled();
   },
 );

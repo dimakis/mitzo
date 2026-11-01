@@ -413,7 +413,7 @@ export class CapabilityService {
     if (!grant || grant.status !== 'active' || !grant.accountIds.includes(request.accountId))
       throw new Error('Capability grant is unavailable');
     const input = validateCapabilityInput(template.inputSchema, request.input);
-    assertCompleteApprovalProjection(template.inputSchema);
+    assertCompleteApprovalProjection(template.inputSchema, template.id);
     // Some reviewed contracts repeat the connection ID in their structured
     // input for executor readability. It is a consistency assertion, never a
     // selector: the trusted request binding above remains authoritative.

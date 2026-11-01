@@ -15,9 +15,9 @@ function digest(value: string): string {
 
 export function capabilityApprovalPayload(request: Parameters<CapabilityApproval>[0]) {
   const payload = {
-    // The complete executor input is shown verbatim. A digest binds that
-    // visible representation to the durable operation without hiding any
-    // action-affecting content behind an abbreviated preview.
+    // The executor supplies its semantic approval input. GitHub source and
+    // long content use explicit previews with complete-value hashes; action
+    // selectors remain visible and the durable projection is bound exactly.
     input: request.input,
     inputSha256: digest(canonicalJson(request.input)),
     capabilityId: request.capabilityId,

@@ -37,7 +37,7 @@ async function fixture(
   };
   const oid = 'c'.repeat(40),
     signal = new AbortController().signal;
-  const body = `Reviewed change\nReview record: review\nSHA256: ${scope.recordHash}`;
+  let body = `Reviewed change\nReview record: review\nSHA256: ${scope.recordHash}`;
   let created = false,
     loseResponse = false,
     staleMetadata = false,
@@ -179,6 +179,10 @@ async function fixture(
     exportBundle,
     artifact,
     grant,
+    setBody: (value: string) => {
+      body = value;
+      input.publication.body = value;
+    },
     revoke: () => {
       current = false;
     },
@@ -476,8 +480,13 @@ it('HTTP disconnect after approved mocked dispatch leaves canonical verification
 
 it('reconciles only the original pending operation after fresh auth without another grant or write', async () => {
   const f = await fixture();
+  f.setBody('Sealed publication details. '.repeat(50) + f.input.publication.body);
   f.loseResponse();
   const pending = await f.service.invoke(f.input, f.signal, async () => true);
+  expect(String((pending.approvalInput as Record<string, unknown>).body).length).toBeGreaterThan(
+    512,
+  );
+  expect((pending.recoveryIntent as Record<string, unknown>).body).toBe(f.input.publication.body);
   f.operators.delete('operator');
   f.operators.add('fresh');
   const before = structuredClone(pending);

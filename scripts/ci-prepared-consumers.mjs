@@ -24,8 +24,8 @@ export const preparedConsumerCases = Object.freeze([
     name: 'publication',
     file: 'server/__tests__/prepared-repository-publication-flow.test.ts',
     cases: Object.freeze([
-      'commits, reviews, approves and publishes with API account=false, then accepts another prompt',
-      'commits, reviews, approves and publishes with API account=true, then accepts another prompt',
+      'commits and publishes a large ordinary PR without model reviews with API account=false, then accepts another prompt',
+      'commits and publishes a large ordinary PR without model reviews with API account=true, then accepts another prompt',
     ]),
   }),
 ]);

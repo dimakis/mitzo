@@ -1,3 +1,5 @@
+// Retain legacy review failure diagnostics for saved operations. No model review
+// runs in ordinary PR publication; this module also owns safe preflight/dispatch errors.
 import type { JsonValue } from './connections/types.js';
 
 const undispatched = new WeakSet<Error>();

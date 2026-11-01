@@ -1,8 +1,8 @@
-# Repository materialization and bounded publication review
+# Repository materialization and PR publication
 
 A prepared source, a Ready sandbox and a model response prove different things.
 Repository commands now require target materialization evidence; publication
-retains one reviewed artifact through approval and records its phase independently
+keeps committed artifacts bound to publication approval and records its phase independently
 of mutation/recovery state. Existing workspace and capability owners remain the
 only lifecycle authorities.
 
@@ -74,41 +74,18 @@ still supplies no authentication or execution authority.
 The capability operation continues to own idempotency, forced semantic approval,
 external dispatch and read-after-write verification. Its additional `phase` is an
 observation: it cannot authorize work or change uncertain-write recovery state.
-Preflight, each review pass, context acquisition, approval, push, PR mutation and
+Preflight, approval, push, PR mutation and
 verification are distinguishable without retaining raw provider/Git errors.
 
-The production GitHub publisher retains one private reconstruction through its
-bounded review/approval lifetime. At execution it refreshes the upstream base in
-that same artifact, re-inspects the live source, re-exports its committed evidence
-and revalidates the exact semantic receipt before push. Changed upstream evidence
-still requires fresh review. Older adapters without a refresh capability retain
-the original reconstruction behavior rather than skipping that fence.
+Ordinary PR creation and updates perform no model review. The publisher checks current authorization, repository and branch scope and exact committed source, then reconstructs, pushes and verifies the PR through the existing capability operation. Source is not packed into AI context, and review evidence-size, inference-round and model-availability limits cannot block publication.
 
-The review receipt is consumed synchronously before execution awaits. Approval
-denial, cancellation and service completion release preparation through the same
-executor owner; a fifteen-minute timer bounds abandoned live preparations. Cleanup
-failure cannot convert a verified external write to an apparent failure and is
-recorded in the existing audit log. Private artifact cleanup does not remove task
-checkouts or recreate review authority after restart.
+The signed publisher and native invocation remain bound independently of inference settings. Runtime replacement, operator revocation, account changes and native callback expiry are checked at approval, I/O and mutation boundaries. Publication authorization and read-after-write recovery remain mandatory; normal PR reviews and merge gates run separately.
 
-Two independent scopes, five rounds per scope, existing deadlines and all
-publication/revocation checks remain. Context I/O receives the pass deadline.
-Response parsing reports bounded fixed schema fields/codes instead of discarding
-the cause or returning model text in diagnostics. Each pass permits one corrected
-response after JSON/schema rejection and one narrowed context request after a
-search exceeds its path limit. Both consume the existing five rounds and
-two-minute pass deadline. Rejected responses are never repaired or accepted;
-only fixed feedback enters that pass’s history. An overbroad search rejects the
-whole batch before file reads; no rejected results count as coverage, and a
-successful context batch is required before approval. Identity, authority,
-provider, path and integrity failures remain terminal. A last-round context request
-returns an explicit incomplete outcome; no extra inference or context read is
-performed. Evidence guidance calls for concrete consumers and proportional test
-coverage, without recursive dependency heuristics or automatic model fallback.
+The obsolete pre-publication reviewer, optional executor review hook, private review-receipt cache, abandoned-review timers, review-only base refresh and inference-selection capture facets are removed. Symposium retains its separately enforced sealed-artifact contract. Private reconstruction cleanup does not remove task checkouts; uncertainty about an external write is reconciled before retry.
 
 ## Validation and activation
 
-Extend the existing adviser, metadata, operation, review and workspace fixtures.
+Extend the existing adviser, metadata, operation, publication and workspace fixtures.
 A small real-Git fixture additionally exercises the actual importer because an
 upload-argv assertion cannot prove Git identity survived transport. It covers
 exact refs, ignored-file exclusion, replay preservation and corrupt transfer.
