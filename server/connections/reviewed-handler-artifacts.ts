@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.15';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.819-ordinary-pr-publication';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.820-development-merge-ci';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -86,7 +86,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'a990461605a67ae715379ab6691b08dbc0d917d5f8432b01fcfeac971f240fac',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../__tests__/github-native-read-projection.test.ts':
-    '45a9df455bf32d99487cdc268dbdbc4d206e9155290c7bf47c608c56d41145c7',
+    'cd9cf09c77ed6b1e8f60088b640572780cf1f1e94eb17f91394715d70e730cd1',
   '../../packages/harness/__tests__/session-registry.test.ts':
     '6e591b4bdd01533af3c5efd8d826dd91651c7ebccf17ed6b918ccf89f1339d93',
   '../__tests__/worktree-upstream-base.test.ts':
@@ -1929,7 +1929,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useTelosRoleSetup.ts':
     'cbded6cb6136a45627de2b563b433cfc4b9f80c248035dcdbbfb05c79d9810d8',
   '../research-instructions.ts': '43b6b28df80b4b1e306619c7089c5e3e1326cfc97253f810a1732ce67bf9c082',
-  '../github-read-summary.ts': '96451bc704358f41e66c402a42e1b2d89015276bc8839879e301fcc5574a1dcb',
+  '../github-read-summary.ts': '765dc9e78ae76ed47bcd1b37b2ab541f23f448ba738c4f18594419a8efef6f81',
   '../../frontend/src/components/AgentActivity.tsx':
     '570b44de92608d95d90f76e669510bfad0f1a277a6c3a9892a9ff472349f8166',
   '../../frontend/src/lib/web-access-outcome.ts':

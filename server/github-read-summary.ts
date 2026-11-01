@@ -18,6 +18,20 @@ const ITEM_FIELDS = [
   'path',
   'type',
   'sha',
+  'filename',
+  'previous_filename',
+  'additions',
+  'deletions',
+  'changes',
+  'head_sha',
+  'head_branch',
+  'run_id',
+  'run_attempt',
+  'workflow_id',
+  'run_number',
+  'event',
+  'expired',
+  'size_in_bytes',
   'size',
   'state',
   'draft',
@@ -80,14 +94,22 @@ function listEndpoint(sourceUrl: string) {
   if (url.origin !== 'https://api.github.com' || url.username || url.password) return;
   const endpoint = url.pathname.match(/^\/repos\/[^/]+\/[^/]+\/(.+?)\/?$/)?.[1];
   if (!endpoint) return;
-  const list = /^(issues|pulls|commits|contributors|releases|tags)$/.test(endpoint);
+  const list =
+    /^(issues|pulls|commits|contributors|releases|tags)$/.test(endpoint) ||
+    /^pulls\/\d+\/files$/.test(endpoint);
   const wrapper = /^git\/trees\/[^/]+$/.test(endpoint)
     ? 'tree'
     : /^commits\/[^/]+\/check-runs$/.test(endpoint)
       ? 'check_runs'
       : endpoint === 'actions/workflows'
         ? 'workflows'
-        : undefined;
+        : endpoint === 'actions/runs' || /^actions\/workflows\/[^/]+\/runs$/.test(endpoint)
+          ? 'workflow_runs'
+          : /^actions\/runs\/\d+\/jobs$/.test(endpoint)
+            ? 'jobs'
+            : /^(?:actions\/artifacts|actions\/runs\/\d+\/artifacts)$/.test(endpoint)
+              ? 'artifacts'
+              : undefined;
   const contents = /^contents(?:\/.*)?$/.test(endpoint);
   return list || wrapper || contents ? { url, endpoint, wrapper, contents } : undefined;
 }

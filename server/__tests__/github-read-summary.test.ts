@@ -232,3 +232,47 @@ it('retains pagination when a transport exposes repeated Link headers', async ()
     last: next,
   });
 });
+
+it.each([
+  ['actions/runs/42/jobs', 'jobs'],
+  ['actions/runs/42/artifacts', 'artifacts'],
+  ['actions/artifacts', 'artifacts'],
+])('retains diagnostic identities and completeness for %s', (endpoint, wrapper) => {
+  const result = summary(
+    {
+      total_count: 11,
+      [wrapper]: [
+        {
+          id: 5,
+          run_id: 42,
+          head_sha: 'abc',
+          run_attempt: 2,
+          status: 'completed',
+          conclusion: 'failure',
+          expired: false,
+          size_in_bytes: 123,
+          repository: { noise: 'verbose' },
+        },
+      ],
+    },
+    `https://api.github.com/repos/example/project/${endpoint}?per_page=1&page=2`,
+  );
+  expect(result).toMatchObject({
+    total_count: 11,
+    returned: 1,
+    omitted: 0,
+    pagination: { page: '2', per_page: '1' },
+    items: [
+      {
+        id: 5,
+        run_id: 42,
+        head_sha: 'abc',
+        run_attempt: 2,
+        conclusion: 'failure',
+        expired: false,
+        size_in_bytes: 123,
+      },
+    ],
+  });
+  expect(result.items[0]).not.toHaveProperty('repository');
+});
