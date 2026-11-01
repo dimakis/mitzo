@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.14';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.814-native-approval-timeout-denial';
+  'v1.0.815-native-adviser-text-response';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2181,7 +2181,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/adviser-harness-runtime.test.ts':
     'c222356834e1377f55b141789fcc05c9839dd2a5d5501ca78308c739024da86f',
   '../__tests__/adviser-native-policy.test.ts':
-    '09973887519fc171658e95e25177a23a10a357bac379b77b64056a8958340c29',
+    '90bb9c5eb3e68693d18a2c643458a657c17d8b8350401824798fe3efc9738fe7',
   '../__tests__/adviser-sdk-startup.test.ts':
     '1a92c5db6825285f97ab97db57fcc8ee631a7cc41877b7716f818614ece0a3f1',
   '../__tests__/adviser-task-scope.test.ts':
@@ -2246,7 +2246,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ac311607c69114d86322ad600a9ed79b0d946d9cd6a2552c91448154b4ffd050',
   '../adviser-harness-runtime.ts':
     'b67f6d6aece8de6294b3c75ad254e6e919145e444248c231c960c2bd735f9d00',
-  '../adviser-task-scope.ts': 'df363d0b947536bf7489ae94010d25bb6c071d380f6b5eef26584d89601a3145',
+  '../adviser-task-scope.ts': '5c7882de9b0b65f8438c0df9381109a52b78c9e5801df9f70109d999be9b0e41',
   '../deliberate-admission.ts': '91ec6b675083b5a134b869c007e2067efd1a3439004768768bf2b23615390bfc',
   '../deliberate-route.ts': 'd1901cc19fdc9bb0cbb75f5c1936f0bbe495e0a62391fa5786c9d7b10208fe75',
   '../fusion-admission.ts': '1dbc1594e04d4abfd8c05440e738faf0bfdbae453da70c79b882d674c09e6ee4',
