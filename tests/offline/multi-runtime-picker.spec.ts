@@ -173,6 +173,46 @@ for (const appearance of ['dark', 'light'] as const) {
       await expect(back).toBeFocused();
       await expect(panel.locator('.quick-settings-editor:not([inert])')).toHaveCount(1);
       await expect(panel.locator('.quick-settings-row[hidden]:visible')).toHaveCount(0);
+      if (field === 'execution') {
+        // Reuse this mounted phone/desktop journey to exercise browser disabled
+        // controls while another owner retains recovery state. Never dispatch it.
+        const previous = await page.evaluate(() => {
+          const store = (
+            window as unknown as {
+              __mitzoStore: ReturnType<typeof import('@mitzo/client').createMitzoStore>;
+            }
+          ).__mitzoStore;
+          const { messages, localCommand } = store.getState();
+          store.setState({
+            messages: { ...messages, running: true },
+            localCommand: { state: 'blocked', originDraftId: 'another-draft' },
+          });
+          return { running: messages.running, localCommand };
+        });
+        await panel.getByRole('button', { name: 'Local Mac', exact: true }).click();
+        await expect(panel.getByRole('button', { name: 'Local Mac', exact: true })).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
+        await panel.getByRole('button', { name: 'OpenShell', exact: true }).click();
+        await expect(panel.getByRole('button', { name: 'OpenShell', exact: true })).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
+        await page.evaluate((previous) => {
+          const store = (
+            window as unknown as {
+              __mitzoStore: ReturnType<typeof import('@mitzo/client').createMitzoStore>;
+            }
+          ).__mitzoStore;
+          if (store.getState().localCommand?.originDraftId !== 'another-draft')
+            throw Error('Editing the draft changed retained recovery ownership');
+          store.setState({
+            messages: { ...store.getState().messages, running: previous.running },
+            localCommand: previous.localCommand,
+          });
+        }, previous);
+      }
       expect(
         await panel.locator('.quick-settings-row[hidden]').evaluateAll((rows) => {
           const focus = document.activeElement;

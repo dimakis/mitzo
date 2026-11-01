@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
@@ -199,6 +199,47 @@ function briefingFixture(reviewed = true) {
   return { draft, source, inventory };
 }
 for (const Page of [ChatView, DesktopChatView]) {
+  it.each(['prior-running', 'blocked-recovery'])(
+    `${Page.name} lets a new draft select Local Mac while retaining %s without changing its command`,
+    async (scenario) => {
+      const { draft, inventory } = briefingFixture();
+      delete draft.settings.launch;
+      draft.settings.runtimeSelection!.execution = { location: 'openshell', targetId: null };
+      draft.settings.runtimeSelection!.capabilityRevision = null;
+      saveChatDraft(draft);
+      vi.mocked(apiFetch).mockImplementation(async (url) =>
+        Response.json(String(url).includes('/capabilities') ? inventory : []),
+      );
+      const view = mount(Page, `/chat?draft=${draft.id}`);
+      await waitFor(() => expect(view.select).toHaveBeenCalledWith(draft.id));
+      const retainedCommand = { state: 'blocked', originDraftId: 'another-draft' };
+      act(() =>
+        view.store.setState(
+          scenario === 'prior-running'
+            ? { messages: { ...view.store.getState().messages, running: true } }
+            : { localCommand: retainedCommand },
+        ),
+      );
+      openAgentSettings();
+      fireEvent.click(await screen.findByRole('button', { name: /^Run on,/ }));
+      const local = screen.getByRole('button', { name: 'Local Mac' });
+      expect(local).toHaveProperty('disabled', false);
+      fireEvent.click(local);
+      expect(local.getAttribute('aria-pressed')).toBe('true');
+      expect(screen.getByRole('button', { name: 'OpenShell' }).getAttribute('aria-pressed')).toBe(
+        'false',
+      );
+      if (scenario === 'blocked-recovery')
+        expect(view.store.getState().localCommand).toBe(retainedCommand);
+      expect(view.owned).not.toHaveBeenCalled();
+      expect(view.send).not.toHaveBeenCalled();
+      // A command belonging to this draft still freezes its original choices.
+      act(() =>
+        view.store.setState({ localCommand: { state: 'pending', originDraftId: draft.id } }),
+      );
+      expect(local).toHaveProperty('disabled', true);
+    },
+  );
   it(`${Page.name} sends a reviewed saved briefing through the owned first command with pinned source/account/model`, async () => {
     const { draft, source, inventory } = briefingFixture();
     vi.mocked(apiFetch).mockImplementation(async (url) =>
