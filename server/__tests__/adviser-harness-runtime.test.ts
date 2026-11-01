@@ -1,11 +1,13 @@
 import { expect, it, vi } from 'vitest';
 import { runScopedAdviser } from '../adviser-harness-runtime.js';
 import { AdviserTaskScope } from '../adviser-task-scope.js';
-const makeScope = (signal = new AbortController().signal) => {
+const makeScope = (signal = new AbortController().signal, publication = false) => {
   const scope = new AdviserTaskScope(
     {
       authSessionId: 'operator',
-      feature: { kind: 'terminal', terminalId: 'term' },
+      feature: publication
+        ? { kind: 'github-publication', operationId: 'publication' }
+        : { kind: 'terminal', terminalId: 'term' },
       accountId: 'work',
       model: 'gpt-6-luna',
       instructions: 'Explain',
@@ -18,19 +20,19 @@ const makeScope = (signal = new AbortController().signal) => {
   return scope;
 };
 type Observation = Parameters<Parameters<typeof runScopedAdviser>[1]>[0];
-const text = (owner: Observation, value: string) => {
-  owner.onQueryEvent({ type: 'message_start', sessionId: 'task', messageId: 'reply' });
+const text = (owner: Observation, value: string, messageId = 'reply') => {
+  owner.onQueryEvent({ type: 'message_start', sessionId: 'task', messageId });
   owner.onQueryEvent({
     type: 'block_start',
     sessionId: 'task',
-    messageId: 'reply',
+    messageId,
     blockId: 'b0',
     blockType: 'text',
   });
   owner.onQueryEvent({
     type: 'block_delta',
     sessionId: 'task',
-    messageId: 'reply',
+    messageId,
     blockId: 'b0',
     blockType: 'text',
     delta: value,
@@ -49,6 +51,34 @@ it('projects real query-loop text block events, requires a provider result and a
   });
   await expect(runScopedAdviser(makeScope(), dispatch)).resolves.toEqual({ text: 'hello' });
   expect(cleaned).toBe(true);
+});
+it('projects the final publication message without progress prose while bounding every text byte', async () => {
+  const scope = makeScope(new AbortController().signal, true);
+  const close = vi.fn();
+  await expect(
+    runScopedAdviser(scope, async (owner) => {
+      text(owner, 'I am tracing the changed contract.', 'progress');
+      text(owner, '{"verdict":', 'final');
+      owner.onQueryEvent({
+        type: 'block_delta',
+        sessionId: 'task',
+        messageId: 'final',
+        blockId: 'b0',
+        blockType: 'text',
+        delta: '"context_required"}',
+      });
+      owner.onQueryEvent({ type: 'session_end', sessionId: 'task' });
+      return { close };
+    }),
+  ).resolves.toEqual({ text: '{"verdict":"context_required"}' });
+  expect(close).toHaveBeenCalledOnce();
+  await expect(
+    runScopedAdviser(makeScope(new AbortController().signal, true), async (owner) => {
+      text(owner, 'x'.repeat(20000), 'progress');
+      text(owner, 'y'.repeat(20000), 'final');
+      return { close };
+    }),
+  ).rejects.toThrow('limit');
 });
 it('refuses foreign session output, failed/missing terminal, cancellation and oversized text without redispatch', async () => {
   const close = vi.fn(async () => {});

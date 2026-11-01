@@ -120,6 +120,15 @@ export class AdviserTaskScope {
       web_search: 'disabled',
       project_doc_max_bytes: 0,
       'skills.config': skills.map(({ path }) => ({ path, enabled: false })),
+      // This task returns assistant text. A code-mode text() result is tool
+      // output and cannot substitute for the independently reviewed response.
+      // Override the ordinary native runtime's execution dispatchers here.
+      'features.code_mode': false,
+      'features.code_mode_host': false,
+      'features.shell_tool': false,
+      'features.unified_exec': false,
+      'features.exec_permission_approvals': false,
+      'features.request_permissions_tool': false,
       'features.apps': false,
       'features.plugins': false,
       'features.hooks': false,

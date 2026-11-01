@@ -73,8 +73,10 @@ export function createCodexNativeApprovalHandler(options: {
     signal: AbortSignal,
     context: CodexNativeApprovalContext,
   ): Promise<Record<string, unknown>> => {
-    const deny = (cancel = false): Record<string, unknown> =>
-      method === 'item/permissions/requestApproval'
+    let returningDenial = false;
+    const deny = (cancel = false): Record<string, unknown> => {
+      returningDenial = true;
+      return method === 'item/permissions/requestApproval'
         ? { permissions: {}, scope: 'turn' }
         : {
             decision:
@@ -86,6 +88,7 @@ export function createCodexNativeApprovalHandler(options: {
                 ? 'cancel'
                 : 'decline',
           };
+    };
     const parsed = NativeApprovalRequestSchema.safeParse({ method, id: context.requestId, params });
     if (!parsed.success) return deny();
     const request = parsed.data;
@@ -100,8 +103,8 @@ export function createCodexNativeApprovalHandler(options: {
     const expiresAt = request.params.startedAtMs + timeoutMs;
     const expiry = new AbortController();
     const currentSignal = AbortSignal.any([signal, expiry.signal]);
-    const assertCurrent = () => {
-      currentSignal.throwIfAborted();
+    const assertCurrent = (allowExpiredDenial = false) => {
+      (allowExpiredDenial ? signal : currentSignal).throwIfAborted();
       if (
         !request.params.itemId.trim() ||
         !identity.threadId.trim() ||
@@ -114,7 +117,7 @@ export function createCodexNativeApprovalHandler(options: {
         context.turnId !== identity.turnId ||
         context.assertCurrentSync !== assertOwner ||
         !isDeepStrictEqual(context.fileChangePaths, fileChangePaths) ||
-        Date.now() >= expiresAt ||
+        (!allowExpiredDenial && Date.now() >= expiresAt) ||
         request.params.startedAtMs > Date.now() + 30_000
       )
         throw Error('Native approval is no longer current');
@@ -152,7 +155,10 @@ export function createCodexNativeApprovalHandler(options: {
         fileChangePaths,
       );
       const finalFence = () => {
-        assertCurrent();
+        // A denial carries no permission grant. Its expired review window must
+        // not close the transport, while parent cancellation, owner identity
+        // and filesystem/receipt fences still apply at reply delivery.
+        assertCurrent(returningDenial);
         assertGrantCurrent();
         assertPreparedCurrent();
       };

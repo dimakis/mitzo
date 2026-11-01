@@ -74,3 +74,30 @@ export function observeLocalCodexSyncPhase<T>(phase: Phase, work: () => T): T {
     observation.end(outcome);
   }
 }
+
+/** Failed native approval fences must remain diagnosable after the lifecycle
+ * bridge retires their owner. Emit fixed labels only and preserve the exact
+ * original exception, including native cancellation identities. Success adds
+ * no spans, reads, owner checks or log entries.
+ */
+export function observeNativeApprovalCheck(
+  stage: 'before_handler' | 'handler' | 'after_handler' | 'reply',
+  check: 'signal' | 'identity' | 'file_items' | 'execution_policy',
+  work: () => void,
+): void {
+  try {
+    work();
+  } catch (error) {
+    try {
+      trace.getActiveSpan()?.addEvent('native_approval.check_failed', { stage, check });
+    } catch {
+      /* Diagnostics cannot replace a cancellation or owner failure. */
+    }
+    try {
+      log.warn('Native approval current check failed', { stage, check });
+    } catch {
+      /* Preserve the original failure even when logging is unavailable. */
+    }
+    throw error;
+  }
+}

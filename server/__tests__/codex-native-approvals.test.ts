@@ -248,6 +248,10 @@ describe('native approval adapter with the existing pending owner', () => {
     expect(resolvePending(id, 'once', undefined, 'session')).toBe(false);
     expect(getPendingRequestsBySession('session')).toEqual([]);
     expect(f.fences.length).toBe(1);
+    expect(f.fences[0]).not.toThrow();
+    vi.useFakeTimers();
+    vi.setSystemTime(f.params.startedAtMs + 60_001);
+    expect(f.fences[0]).toThrow();
   });
 
   it('returns an explicit session grant for only the displayed permission profile', async () => {
@@ -423,7 +427,7 @@ describe('native approval adapter with the existing pending owner', () => {
   it.each(['deny', 'cancel', 'expired', 'stale'] as const)(
     'never grants on %s',
     async (outcome) => {
-      const f = setup('agent', 50);
+      const f = setup('agent', outcome === 'expired' ? 50 : 60_000);
       const result = f.handler(
         'item/permissions/requestApproval',
         f.params,
@@ -439,6 +443,13 @@ describe('native approval adapter with the existing pending owner', () => {
       }
       expect(await result).toEqual({ permissions: {}, scope: 'turn' });
       expect(getPendingRequestsBySession('session')).toEqual([]);
+      if (outcome === 'expired' || outcome === 'deny') {
+        // The lifecycle bridge runs these fences before sending the denial.
+        // Expiry must not turn a no-grant response into a closed transport.
+        for (const fence of f.fences) expect(fence).not.toThrow();
+        f.revoke();
+      }
+      for (const fence of f.fences) expect(fence).toThrow();
     },
   );
 

@@ -21,7 +21,9 @@ type TaskDispatch = (input: TaskObservation) => Promise<{ close(): Promise<void>
  * command receipts and cancellation; this feature never retries a dispatch. */
 export async function runScopedAdviser(scope: AdviserTaskScope, dispatch: TaskDispatch) {
   scope.assertCurrent();
+  const finalMessageOnly = scope.feature().kind === 'github-publication';
   let text = '',
+    totalTextLength = 0,
     settled = false;
   let messageId: string | undefined;
   const blocks = new Set<string>();
@@ -63,6 +65,7 @@ export async function runScopedAdviser(scope: AdviserTaskScope, dispatch: TaskDi
               throw Error('Adviser message identity unavailable');
             messageId = event.messageId;
             blocks.clear();
+            if (finalMessageOnly) text = '';
           }
           if (event.type === 'block_start' && event.blockType === 'text') {
             if (event.messageId !== messageId || typeof event.blockId !== 'string')
@@ -77,8 +80,9 @@ export async function runScopedAdviser(scope: AdviserTaskScope, dispatch: TaskDi
               typeof event.delta !== 'string'
             )
               throw Error('Adviser text block identity differs');
+            totalTextLength += event.delta.length;
+            if (totalTextLength > 32768) throw Error('Adviser response exceeded limit');
             text += event.delta;
-            if (text.length > 32768) throw Error('Adviser response exceeded limit');
           }
           if (event.type === 'session_end' && !settled) {
             const measured = event.usage as Record<string, unknown> | undefined;
