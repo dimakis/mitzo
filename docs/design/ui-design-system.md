@@ -219,6 +219,12 @@ File-header actions use quiet secondary controls and a restrained accent for Edi
 or Save. Discard remains a visibly labelled destructive action; Done remains
 neutral. Save, loading, error and conflict states retain the existing behavior.
 Colors, fonts, spacing, focus, radii and motion come from the shared token source.
+Viewing keeps Back, a compact filename/branch column and file actions in one row.
+Long names truncate visually while retaining their full text and title. On phones,
+Read uses its named icon without a visible label; Edit stays labelled. Preserve
+44px targets and let explicit editing actions wrap when required. The shell owns
+the mobile safe area once. See [compact display validation](compact-display-validation.md)
+for the preview and current verification limits.
 
 ## Saved document revisions
 

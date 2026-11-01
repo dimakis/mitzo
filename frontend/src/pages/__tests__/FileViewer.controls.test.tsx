@@ -99,6 +99,15 @@ function showViewer() {
 }
 
 describe('FileViewer quiet controls', () => {
+  it('keeps full document and branch names available when compact labels are truncated', () => {
+    showViewer();
+    expect(screen.getByText('document.md').getAttribute('title')).toBe('document.md');
+    expect(screen.getByText('main').getAttribute('title')).toBe('main');
+    expect(
+      screen.getByRole('button', { name: 'Read', exact: true }).getAttribute('aria-label'),
+    ).toBe('Read');
+  });
+
   it('groups viewing actions and accents only Edit while preserving Read and Share', () => {
     showViewer();
     const actions = screen.getByRole('group', { name: 'File actions' });

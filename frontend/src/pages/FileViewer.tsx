@@ -102,7 +102,7 @@ function FileViewerDocument() {
 
   return (
     <div className="viewer-page" ref={viewportRef}>
-      <header className="viewer-header">
+      <header className={`viewer-header${editor.editing ? ' viewer-header--editing' : ''}`}>
         <MitzoLogo />
         {(state.isViewing || state.canGoUp || fromRoute) && (
           <button
@@ -125,8 +125,14 @@ function FileViewerDocument() {
           </button>
         )}
         <div className="viewer-header-context">
-          <span className="viewer-header-title">{state.isViewing ? fileName : dirName}</span>
-          {displayBranch && <span className="viewer-header-branch">{displayBranch}</span>}
+          <span className="viewer-header-title" title={state.isViewing ? fileName : dirName}>
+            {state.isViewing ? fileName : dirName}
+          </span>
+          {displayBranch && (
+            <span className="viewer-header-branch" title={displayBranch}>
+              {displayBranch}
+            </span>
+          )}
         </div>
 
         <div className="viewer-header-actions" role="group" aria-label="File actions">
@@ -153,7 +159,14 @@ function FileViewerDocument() {
           {state.isViewing && isMarkdown && !editor.editing && reader.available && (
             <button
               type="button"
-              className={`viewer-header-action${reader.state !== 'idle' ? ' viewer-header-action--active' : ''}`}
+              className={`viewer-header-action viewer-header-reader${reader.state !== 'idle' ? ' viewer-header-action--active' : ''}`}
+              aria-label={
+                reader.state === 'loading'
+                  ? 'Loading...'
+                  : reader.state === 'playing'
+                    ? 'Stop'
+                    : 'Read'
+              }
               aria-pressed={reader.state !== 'idle'}
               aria-busy={reader.state === 'loading'}
               onClick={() => {
@@ -175,11 +188,13 @@ function FileViewerDocument() {
                 }
                 size={16}
               />
-              {reader.state === 'loading'
-                ? 'Loading...'
-                : reader.state === 'playing'
-                  ? 'Stop'
-                  : 'Read'}
+              <span className="viewer-header-reader-label">
+                {reader.state === 'loading'
+                  ? 'Loading...'
+                  : reader.state === 'playing'
+                    ? 'Stop'
+                    : 'Read'}
+              </span>
             </button>
           )}
           {state.isViewing && isEditable && !editor.editing && (
