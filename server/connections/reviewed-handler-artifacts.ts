@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
  */
 export const reviewedHandlerImplementationRevision = 'v1.0.2';
 
-export const reviewedGithubPublicationImplementationRevision = 'v1.0.15';
+export const reviewedGithubPublicationImplementationRevision = 'v1.0.14';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
