@@ -47,3 +47,16 @@ Generate another self-contained local preview with
 revision under `mockups/compact-file-viewer/` and embeds the actual components,
 shared CSS, icons, sample responses and memory-only storage. Changing the viewport,
 appearance or view resets the sample state; it never contacts a live service.
+
+The third preview revision responds to the user's phone screenshot: Screen, Theme
+and View now occupy one three-column row. Short selected values keep the native
+selects compact without reducing their shared control height or base text size.
+The light preset still uses Teal/Georgia and the dark preset Mint/System. Preview
+control styling is scoped so it cannot override the actual application's selects.
+The offline fixture also opens the delivered HTML and checks the toolbar from
+280px through desktop widths, theme/view/screen selection and keyboard navigation.
+The regenerated artifact passed the DOM smoke check for document rendering, all
+three labelled controls, light Teal/Georgia, the screenshot draft and 320px selection.
+The focused component/design run again passed 133 tests with one existing skip;
+the browser listing includes all nine compact-display cases across three projects.
+Browser execution remains pending under the host restriction described above.

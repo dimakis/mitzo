@@ -53,6 +53,47 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+test('preview controls share one row on phones and retain local interactions', async ({ page }) => {
+  const html = await readFile('mockups/compact-file-viewer/v003.html', 'utf8');
+  await page.route('**/preview', (route) =>
+    route.fulfill({ contentType: 'text/html', body: html }),
+  );
+  await page.goto('/preview');
+  const controls = page.locator('.preview-controls');
+  await expect(page.getByRole('button', { name: 'File options', exact: true })).toBeVisible();
+  for (const width of [280, 320, 393, 1280]) {
+    await page.setViewportSize({ width, height: 852 });
+    const boxes = [];
+    for (const select of await controls.getByRole('combobox').all()) {
+      await expect(select).toBeInViewport();
+      const box = (await select.boundingBox())!;
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      boxes.push(box);
+    }
+    expect(boxes).toHaveLength(3);
+    expect(
+      Math.max(...boxes.map((box) => box.y)) - Math.min(...boxes.map((box) => box.y)),
+    ).toBeLessThan(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  }
+  await page.setViewportSize({ width: 320, height: 852 });
+  await page.getByLabel('Theme', { exact: true }).selectOption('light');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(page.locator('html')).toHaveAttribute('data-accent', 'teal');
+  await expect(page.locator('html')).toHaveAttribute('data-font', 'georgia');
+  await page.getByLabel('View', { exact: true }).selectOption('/chat');
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toBeVisible();
+  await page.getByLabel('Screen', { exact: true }).selectOption('320');
+  expect((await page.locator('#root').boundingBox())!.width).toBeLessThanOrEqual(320);
+  await expect(page.getByText('Draft autosaves on this device', { exact: true })).toBeVisible();
+  await controls.getByLabel('Theme', { exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(controls.getByLabel('View', { exact: true })).toBeFocused();
+});
+
 for (const theme of ['dark', 'light']) {
   test(`compact document header and screenshot autosave (${theme})`, async ({
     page,

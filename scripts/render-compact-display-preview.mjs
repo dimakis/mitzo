@@ -39,10 +39,10 @@ const html = `<!doctype html><html lang="en" data-theme="dark" data-accent="mint
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Compact file viewer and steady draft status</title><style>${tokens}
 body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:var(--font-ui)}
-.preview-controls{display:flex;flex-wrap:wrap;gap:var(--space-3);padding:var(--space-3);align-items:center;border-bottom:1px solid var(--color-border)}
-.preview-controls label{display:grid;gap:var(--space-1);font-size:var(--text-xs);color:var(--color-muted)}
-select{font:inherit;min-height:var(--control-height);background:var(--color-surface);color:var(--color-text);border:1px solid var(--color-border);border-radius:var(--radius-control);padding:var(--space-2)}
-select:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
+.preview-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-2);padding:var(--space-2);align-items:center;border-bottom:1px solid var(--color-border)}
+.preview-controls label{display:grid;min-width:0;gap:var(--space-1);font-size:var(--text-xs);color:var(--color-muted)}
+.preview-controls select{box-sizing:border-box;width:100%;min-width:0;font:inherit;font-size:var(--text-base);min-height:var(--control-height);background:var(--color-surface);color:var(--color-text);border:1px solid var(--color-border);border-radius:var(--radius-control);padding:var(--space-2)}
+.preview-controls select:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
 .preview-caption{font-size:var(--text-sm);color:var(--color-muted);padding:0 var(--space-3)}
 .preview-stage{overflow:auto;padding:var(--space-3);display:flex;justify-content:center}
 #root{position:relative;isolation:isolate;transform:translateZ(0);flex-shrink:0;border:1px solid var(--color-border);max-width:100%;height:852px;background:var(--color-bg);overflow:hidden}
@@ -50,9 +50,9 @@ select:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
 #root .chat-page,#root .viewer-page{height:100%}
 </style></head><body>
 <div class="preview-controls">
-<label>Screen<select id="screen"><option value="393">Phone</option><option value="320">Small phone</option><option value="1280">Desktop</option></select></label>
-<label>Appearance<select id="theme"><option value="dark">Dark · Mint · System</option><option value="light">Light · Teal · Georgia</option></select></label>
-<label>View<select id="view"><option value="/files?path=v001.md">Document</option><option value="/chat">Screenshot draft</option></select></label>
+<label>Screen<select id="screen"><option value="393">Phone</option><option value="320">320px</option><option value="1280">Desktop</option></select></label>
+<label>Theme<select id="theme"><option value="dark">Dark</option><option value="light">Light</option></select></label>
+<label>View<select id="view"><option value="/files?path=v001.md">File</option><option value="/chat">Draft</option></select></label>
 </div>
 <p class="preview-caption">Actual components with sample content. All preview edits stay in memory; switching views resets them. Browser layout verification is pending.</p>
 <div class="preview-stage"><div id="root" aria-label="Compact Mitzo preview"></div></div>
@@ -67,7 +67,7 @@ function showPreview(){
   document.getElementById('root').style.width=window.compactDisplayWidth+'px';
   window.renderCompactDisplay?.();
 }
-document.querySelectorAll('select').forEach(control=>control.addEventListener('change',showPreview));
+document.querySelectorAll('.preview-controls select').forEach(control=>control.addEventListener('change',showPreview));
 showPreview();
 (async()=>{
   const bytes=Uint8Array.from(atob('${payload}'),c=>c.charCodeAt(0));
