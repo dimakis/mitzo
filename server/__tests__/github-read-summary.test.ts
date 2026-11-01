@@ -238,19 +238,27 @@ it.each([
   ['actions/runs/42/artifacts', 'artifacts'],
   ['actions/artifacts', 'artifacts'],
 ])('retains diagnostic identities and completeness for %s', (endpoint, wrapper) => {
+  const workflowRun = {
+    id: 42,
+    repository_id: 1,
+    head_repository_id: 2,
+    head_branch: 'fix',
+    head_sha: 'abc',
+  };
+  const identity =
+    wrapper === 'artifacts'
+      ? { expired: false, size_in_bytes: 123, workflow_run: workflowRun }
+      : { run_id: 42, head_sha: 'abc', run_attempt: 2, status: 'completed', conclusion: 'failure' };
   const result = summary(
     {
       total_count: 11,
       [wrapper]: [
         {
           id: 5,
-          run_id: 42,
-          head_sha: 'abc',
-          run_attempt: 2,
-          status: 'completed',
-          conclusion: 'failure',
-          expired: false,
-          size_in_bytes: 123,
+          ...identity,
+          ...(wrapper === 'artifacts'
+            ? { workflow_run: { ...workflowRun, noise: 'verbose' } }
+            : {}),
           repository: { noise: 'verbose' },
         },
       ],
@@ -265,14 +273,10 @@ it.each([
     items: [
       {
         id: 5,
-        run_id: 42,
-        head_sha: 'abc',
-        run_attempt: 2,
-        conclusion: 'failure',
-        expired: false,
-        size_in_bytes: 123,
+        ...identity,
       },
     ],
   });
   expect(result.items[0]).not.toHaveProperty('repository');
+  expect(result.items[0]).not.toHaveProperty('workflow_run.noise');
 });

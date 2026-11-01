@@ -60,6 +60,7 @@ const DETAIL_FIELDS = {
   pull_request: ['url', 'html_url', 'merged_at'],
   author: ['name', 'date'],
   verification: ['verified', 'reason'],
+  workflow_run: ['id', 'repository_id', 'head_repository_id', 'head_branch', 'head_sha'],
 } as const;
 
 function itemSummary(value: unknown) {
@@ -70,6 +71,8 @@ function itemSummary(value: unknown) {
     result.labels = item.labels.map((label) => fields(label, DETAIL_FIELDS.labels));
   if (item.pull_request)
     result.pull_request = fields(item.pull_request, DETAIL_FIELDS.pull_request);
+  if (item.workflow_run)
+    result.workflow_run = fields(item.workflow_run, DETAIL_FIELDS.workflow_run);
   if (item.commit) {
     const commit = record(item.commit);
     result.commit = {
@@ -125,6 +128,7 @@ export function githubReadProjection(sourceUrl: string): string | undefined {
     | if $item.user then .user = ($item.user | ${pick(DETAIL_FIELDS.user)}) else . end
     | if ($item.labels | type) == "array" then .labels = ($item.labels | map(${pick(DETAIL_FIELDS.labels)})) else . end
     | if $item.pull_request then .pull_request = ($item.pull_request | ${pick(DETAIL_FIELDS.pull_request)}) else . end
+    | if $item.workflow_run then .workflow_run = ($item.workflow_run | ${pick(DETAIL_FIELDS.workflow_run)}) else . end
     | if $item.commit then .commit = {
         author: ($item.commit.author | ${pick(DETAIL_FIELDS.author)}),
         verification: ($item.commit.verification | ${pick(DETAIL_FIELDS.verification)})

@@ -162,10 +162,29 @@ it('projects changed-file patches and Actions runs before the native stdout cap'
       },
     ],
   };
+  const artifactsUrl = 'https://api.github.com/repos/example/project/actions/artifacts';
+  const workflowRun = {
+    id: 42,
+    repository_id: 1,
+    head_repository_id: 2,
+    head_branch: 'fix',
+    head_sha: 'abc',
+  };
+  const artifacts = {
+    total_count: 8,
+    artifacts: [
+      {
+        id: 5,
+        name: 'build',
+        workflow_run: { ...workflowRun, noise: 'large metadata'.repeat(10000) },
+      },
+    ],
+  };
   const summaries = [];
   for (const [body, url] of [
     [files, filesUrl],
     [runs, runsUrl],
+    [artifacts, artifactsUrl],
   ] as const) {
     expect(Buffer.byteLength(JSON.stringify(body))).toBeGreaterThan(65536);
     const bounded = project(body, url);
@@ -185,6 +204,11 @@ it('projects changed-file patches and Actions runs before the native stdout cap'
     returned: 1,
     items: [{ id: 42, head_sha: 'abc', run_attempt: 2, conclusion: 'failure' }],
   });
+  expect(summaries[2]).toMatchObject({
+    total_count: 8,
+    items: [{ id: 5, name: 'build', workflow_run: workflowRun }],
+  });
+  expect(summaries[2].items[0].workflow_run).not.toHaveProperty('noise');
   expect(
     trustedGitHubReadRequest('/repos/example/project/pulls/7/files', 'full').args,
   ).not.toContain('--jq');
