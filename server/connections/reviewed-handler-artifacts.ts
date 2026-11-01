@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.15';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.822-artifact-workflow-identity';
+  'v1.0.823-new-chat-execution-editing';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -176,7 +176,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/DesktopChatView.test.tsx':
     'd428bba8fe0a4552cdcd44f0141df1a84aea8c7a65b64a20d6a79524f5e72669',
   '../../frontend/src/pages/__tests__/ChatViewBriefingRuntime.test.tsx':
-    '4cbeb2c110547d8d43bc68435e4d30d1c5ebd7e5775e1b9de6dc3f6c67bd1764',
+    '21226240345dd5fb1c11dea0a88950bec37537d022f9f85ba0bdb78833d924ec',
   '../../frontend/src/pages/__tests__/ChatViewAccounts.test.tsx':
     '7d7b8dc1e73170c195b868d5d42b0c89e1afb3d0cc801d212d3e71054d9f9eee',
   '../../frontend/src/lib/discard-chat-draft.ts':
@@ -1305,15 +1305,15 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/chat-drafts.ts':
     '9e962d890b6059a58c24afc836df640bfa7af21e7c0d0c40605eb956c0ae8c8c',
   '../../frontend/src/lib/chat-runtime-selection.ts':
-    'b47f7b6cc1bd0d261c7c57560204a1e5d18edd72f58e34e7e9fd63eba1244de0',
+    'e9575afee57124d8747a2c1d71efb196df90e33ea946b7e96be3eb66a098b2ea',
   '../../frontend/src/lib/explicit-local-chat.ts':
     '52560ed7208f22b837948dee38c28dc6644f281be2be6415f2f63578fb647a91',
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     '4c114400fccd3b18189a36cf15dcc5507652956330907ea1ae6b382ddb5541c0',
   '../../frontend/src/pages/ChatView.tsx':
-    '53aed34282b46141e57f605c6327d9e139e36a69c686241a3b5a2ef4262e911f',
+    'b0eb68c2653a142ab25f19cf18d05e41b4e185155659fea688ddb1e72df48533',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'ba1e038cef0e7f4f962a525496815bd3f80d0260ba3d1dff59f28488c6b6596b',
+    'b1d276089f7ae4dfa6369b250e0b866a4b28e541ff0c1c5c17d9cb65d01072e2',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
@@ -2102,7 +2102,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/builtin-agent-picker.spec.ts':
     '613616b1e3917605d3b16f92eca6ba6250858a55649d879313c2387a7bacbd00',
   '../../tests/offline/multi-runtime-picker.spec.ts':
-    'e93cc43d0923dbfc905dfcdbf587f63f1125313ff0b85cfa9499e0b5a5c58ee8',
+    '57d196c1043c17f089b8664f8b841234e0a76d852b433728965b19242ac2cd98',
   '../../tests/offline/repository-preparation-recovery.spec.ts':
     '0ba15af8dbfc076f0eb5d57ecb6012f089018e6918394b83aec8fe5c0c978d7f',
   '../__tests__/ordinary-repository-preparation-api.test.ts':

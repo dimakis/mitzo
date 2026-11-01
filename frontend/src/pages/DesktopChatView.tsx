@@ -26,6 +26,7 @@ import {
   selectedRuntimeRoute,
 } from '../lib/chat-runtime-route';
 import { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
+import { isChatExecutionLocked } from '../lib/chat-runtime-selection';
 import { AgentSettingsFields } from '../components/AgentSettingsPicker';
 import { ChatExecutionPicker } from '../components/ChatExecutionPicker';
 import {
@@ -1240,10 +1241,12 @@ export function DesktopChatView() {
       presentation="settings"
       executionLocked={preparedExecutionLocked}
       runtime={localRuntime}
-      disabled={
-        (messages.running && !localRuntime.continuation) ||
-        (!!localCommand && localCommand.state !== 'consumed')
-      }
+      disabled={isChatExecutionLocked({
+        draftId: draftEnabled ? newChatDraft.draft.id : null,
+        running: messages.running,
+        continuation: localRuntime.continuation,
+        command: localCommand,
+      })}
     />
   );
   const runtimeModelLabel =

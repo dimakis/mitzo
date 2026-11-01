@@ -115,6 +115,15 @@ checks cover both account routes, both themes and mobile/desktop layouts.
 Inspected offline captures: [phone](assets/default-openshell-context-mobile-dark.png)
 and [desktop](assets/default-openshell-context-desktop-light.png).
 
+The existing Run on cards remain editable for a new draft when another owner has
+retained delivery recovery or a previous conversation's running flag is present.
+Only this draft's submitted command or prepared repository freezes its execution
+choices. Editing never changes or retries a retained command; the outbox retains
+its dispatch and recovery fences. Mobile and desktop share the ownership rule.
+This changes editing eligibility only, preserving the approved sheet, controls,
+tokens and motion. Existing chat-view and intercepted picker fixtures exercise
+both environments and retain the original command without provider calls.
+
 `frontend/src/styles/tokens.css` owns every app palette literal and font stack. It loads before component styles in the production and fixture entry points. Components use semantic variables in CSS and React inline styles. The old `--accent`, `--ui-font`, `--text`, `--bg`, and `--workspace-*` names are aliases to that same source; never give them a second palette.
 
 - Actions and selection: `--color-accent`, with `--color-on-accent` for filled controls. Accent panels derive from the accent and background using `color-mix`.

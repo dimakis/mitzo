@@ -27,6 +27,21 @@ export const ChatRuntimeSelectionSchema = z.strictObject({
 });
 export type ChatRuntimeSelection = z.infer<typeof ChatRuntimeSelectionSchema>;
 
+/** Editing a new draft cannot retarget a retained delivery. Only its own submitted
+ * command freezes these choices; global recovery and dispatch fences stay owned
+ * by the outbox. A previous conversation's running flag has no draft ownership.
+ */
+export function isChatExecutionLocked(input: {
+  draftId: string | null;
+  running: boolean;
+  continuation: boolean;
+  command: { state: string; originDraftId?: string } | null;
+}) {
+  const { draftId, running, continuation, command } = input;
+  if (draftId !== null) return command?.originDraftId === draftId && command.state !== 'consumed';
+  return (running && !continuation) || (!!command && command.state !== 'consumed');
+}
+
 /** Narrow projection of validated picker metadata, independent of wire transport.
  * Available means selectable in this snapshot; the server still admits dispatch.
  */
