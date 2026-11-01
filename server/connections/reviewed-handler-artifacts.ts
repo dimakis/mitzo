@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.14';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.816-native-publication-review-response';
+  'v1.0.817-publication-directory-prefix';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -330,7 +330,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-publication-review-composition.test.ts':
     '337160d4bd9333362511814d8caef8ea883e111e1f36e1bf1befda4911fab6f6',
   '../__tests__/ordinary-publication-review.test.ts':
-    'c7b32b53028188fc4cc993f5e2d85d5aecfc3adb3d9ac01f357d1270742a15b4',
+    '8b22e22a432a4865c5f8b14dfcba9dd47cf81a6f47e404b006a1acc0bec6be05',
   '../__tests__/prepared-repository-delivery-flow.test.ts':
     'f259503bb6fa7ae581791f269c11d7ec573e3f3781a4ded4fc1f183c812b3d0a',
   '../__tests__/prepared-repository-publication-flow.test.ts':
@@ -338,7 +338,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../github-publication-review-failure.ts':
     'ca19b3e58380dfed0e00474829c9b958de1ace79ddf5680ca35b453ec3497f42',
   '../ordinary-publication-review-context.ts':
-    'f78507f2cd2b5581361995ae40f1787a1fff7df49a3b05e893bdd9afad0d0dba',
+    '17cad9f0303d79132df6fa9c6a955c75ba90bdb36a775269331cceb74b7c55c7',
   '../ordinary-publication-review.ts':
     'd44dbecc8bfdda71ef9e152491969eef97f0f3eab5a9bec1ca26457617e508b5',
   '../__tests__/prepared-repository-native-public-tool-rollover.test.ts':

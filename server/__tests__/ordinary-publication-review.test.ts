@@ -11,8 +11,20 @@ import {
   createOrdinaryPublicationReview,
   type OrdinaryPublicationReviewOwner,
 } from '../ordinary-publication-review.js';
-import { capturePublicationReviewEvidence } from '../ordinary-publication-review-context.js';
+import {
+  capturePublicationReviewEvidence,
+  publicationSearchPrefix,
+} from '../ordinary-publication-review-context.js';
 import { parsePublicationReviewResponse } from '../ordinary-publication-review-response.js';
+
+it('accepts directory search prefixes with trailing separators without resolving unsafe paths', () => {
+  for (const prefix of ['memory/', 'memory///'])
+    expect(publicationSearchPrefix(prefix)).toBe('memory');
+  for (const prefix of [undefined, '', '.'])
+    expect(publicationSearchPrefix(prefix)).toBeUndefined();
+  for (const prefix of ['/', '//', '/tmp/', '..', '../outside', 'src/../'])
+    expect(publicationSearchPrefix(prefix)).not.toBeUndefined();
+});
 
 it('reports invalid review fields without copying the model explanation', () => {
   const secret = 'sensitive explanation '.repeat(20);
@@ -513,6 +525,11 @@ it('serves bounded Git context requests independently for each pass and reports 
                       { kind: 'search', query: './route.js' },
                       { kind: 'search', query: './route.js', pathPrefix: '' },
                       { kind: 'search', query: './route.js', pathPrefix: '.' },
+                      {
+                        kind: 'search',
+                        query: 'indirect.sh',
+                        pathPrefix: 'scripts/lib/',
+                      },
                     ],
                 unresolvedNeeds: [],
               }),
@@ -574,6 +591,11 @@ it('serves bounded Git context requests independently for each pass and reports 
     { query: './route.js', matchedPathCount: 1 },
     { query: './route.js', matchedPathCount: 1 },
     { query: './route.js', matchedPathCount: 1 },
+    {
+      query: 'indirect.sh',
+      pathPrefix: 'scripts/lib',
+      matchedPathCount: 1,
+    },
   ]);
 
   expect(receipt.reports?.[0].coverage.contextReads).toContainEqual(
@@ -584,7 +606,7 @@ it('serves bounded Git context requests independently for each pass and reports 
 it('refuses unresolved needed context and invalid Git paths', async () => {
   const f = await fixture();
   const captured = await capturePublicationReviewEvidence(f.input);
-  for (const pathPrefix of ['..', '../outside', '/tmp', 'src/../']) {
+  for (const pathPrefix of ['..', '../outside', '/tmp', 'src/../', '/', '//', '../', '/tmp/']) {
     await expect(
       captured.context([{ kind: 'search', query: 'answer', pathPrefix }]),
     ).rejects.toMatchObject({
