@@ -399,9 +399,7 @@
     max-width: none;
     margin: 0;
   }
-  .conversation-library > .session-list-header,
-  .conversation-library > .conversation-search,
-  .conversation-library > .conversation-filters {
+  .conversation-library > .session-list-header {
     max-width: none;
   }
 }

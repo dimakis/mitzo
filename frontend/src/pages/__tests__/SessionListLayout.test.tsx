@@ -74,6 +74,49 @@ vi.mock('../../components/SessionInspector', async (importOriginal) => {
   };
 });
 afterEach(cleanup);
+it('scrolls search and filters with the conversation rows', () => {
+  mount();
+  const scroller = screen.getByText('Older chat').closest('.session-list-scroll');
+  expect(scroller?.contains(screen.getByRole('searchbox', { name: 'Search conversations' }))).toBe(
+    true,
+  );
+  expect(scroller?.contains(screen.getByLabelText('Conversation filters'))).toBe(true);
+});
+
+it('updates activity labels without moving existing conversations', () => {
+  const previous = mocks.overview.activities;
+  const view = render(
+    <MemoryRouter>
+      <SessionList />
+    </MemoryRouter>,
+  );
+  const titles = () =>
+    [...view.container.querySelectorAll('.session-list .session-item-summary')].map(
+      (element) => element.textContent,
+    );
+  const initial = titles();
+  try {
+    for (const state of ['working', 'waiting', 'done', 'idle']) {
+      mocks.overview.activities = [...previous].reverse().map((activity) => ({
+        ...activity,
+        state: activity.sessionId === 'one' ? state : 'idle',
+        waitReason: 'permission',
+        lastEventAt: activity.sessionId === 'one' ? 1000 : 50,
+      }));
+      view.rerender(
+        <MemoryRouter>
+          <SessionList />
+        </MemoryRouter>,
+      );
+      expect(titles()).toEqual(initial);
+      if (state === 'waiting') expect(screen.getByText('Permission needed')).toBeTruthy();
+      if (state === 'done') expect(screen.getByText('Finished')).toBeTruthy();
+    }
+  } finally {
+    mocks.overview.activities = previous;
+  }
+});
+
 function mount() {
   render(
     <MemoryRouter initialEntries={['/sessions']}>

@@ -161,6 +161,17 @@ Use grouped bordered rows and quiet surfaces for lists. Put the most useful titl
 
 ## Drafts and updates
 
+Chats keeps search and status filters inside the conversation list's scrolling
+area on phones and desktop. The page heading and desktop preview keep their
+existing owners. During a visit, each chat retains its initially observed
+chronological position through activity events and history refreshes; labels,
+timestamps, filter membership and counts remain live. New rows enter at their
+observed date, including older pagination results. Returning to Chats starts a
+fresh chronological view. Existing search, filter, row and preview styles and
+shared tokens remain authoritative. Unit regressions cover retained ordering and
+history hydration; the intercepted session-library browser fixture covers scrolling,
+keyboard access and status changes in both themes across phone and desktop.
+
 Chat load errors distinguish an initial request from a refresh of a previously loaded
 list. A failed refresh retains its rows beside the existing error and Retry control,
 including in Today's recent sessions. Draft confirmation describes storage on the

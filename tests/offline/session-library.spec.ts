@@ -206,6 +206,40 @@ for (const theme of ['dark', 'light'])
       lastEventAt: sessions[index].lastModified,
       ...extra,
     });
+    const rows = page.locator('.session-list .session-item-summary');
+    const initialOrder = await rows.allTextContents();
+    for (const state of ['working', 'waiting', 'done', 'idle'] as const) {
+      await page.evaluate(
+        (activities) => {
+          window.dispatchEvent(new CustomEvent('offline-session-activity', { detail: activities }));
+        },
+        [activity(11, state, { waitReason: 'permission', lastEventAt: Date.now() + 60000 })],
+      );
+      await expect(rows).toHaveText(initialOrder);
+      const label = {
+        working: 'Working',
+        waiting: 'Permission needed',
+        done: 'Finished',
+        idle: 'Idle',
+      }[state]!;
+      await expect(page.locator('.session-list .session-item').last()).toContainText(label);
+    }
+    const scroller = page.locator('.session-list-scroll');
+    const searchBox = page.getByRole('searchbox', { name: 'Search conversations' });
+    await searchBox.focus();
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'All', exact: true })).toBeFocused();
+    await scroller.evaluate((element) => {
+      element.scrollTop = 400;
+    });
+    await expect(searchBox).not.toBeInViewport();
+    await expect(page.getByRole('button', { name: 'All', exact: true })).not.toBeInViewport();
+    await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath(`session-library-scrolled-${theme}.png`) });
+    await scroller.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await expect(searchBox).toBeInViewport();
     await page.evaluate(
       (activities) => {
         window.dispatchEvent(new CustomEvent('offline-session-activity', { detail: activities }));

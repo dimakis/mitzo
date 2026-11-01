@@ -21,6 +21,7 @@ import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { selectionChanged } from '../lib/haptics';
 import { useSessionList } from '../hooks/useSessionList';
+import { useStableSessionOrder } from '../hooks/useStableSessionOrder';
 import type { QuickAction } from '../hooks/useSessionList';
 import { useSessionSearch } from '../hooks/useSessionSearch';
 import { useSessionOverview, type SessionActivity } from '../hooks/useSessionOverview';
@@ -402,7 +403,7 @@ export function SessionList() {
       isActive: !['idle', 'done'].includes(a.state),
     });
   }
-  const all = [...combined.values()].sort((a, b) => b.lastModified - a.lastModified);
+  const all = useStableSessionOrder([...combined.values()]);
   const active = all.filter((s) => s.isActive);
   const attention = all.filter((s) => {
     const activity = byId.get(s.id);
@@ -513,29 +514,6 @@ export function SessionList() {
           </details>
         </div>
       </header>
-      <div className="conversation-search">
-        <input
-          type="search"
-          aria-label="Search conversations"
-          placeholder="Search conversations…"
-          value={search.query}
-          onChange={(e) => search.setQuery(e.target.value)}
-        />
-        {search.active && <button onClick={search.clear}>Clear search</button>}
-      </div>
-      {!search.active && (
-        <div className="conversation-filters" aria-label="Conversation filters">
-          <button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
-            All
-          </button>
-          <button aria-pressed={filter === 'active'} onClick={() => setFilter('active')}>
-            Active <span>{active.length}</span>
-          </button>
-          <button aria-pressed={filter === 'attention'} onClick={() => setFilter('attention')}>
-            Needs you <span>{attention.length}</span>
-          </button>
-        </div>
-      )}
       <ResizableSessionLayout
         preview={
           desktop && selectedPreview ? (
@@ -548,6 +526,29 @@ export function SessionList() {
         }
       >
         <div className="session-list-scroll">
+          <div className="conversation-search">
+            <input
+              type="search"
+              aria-label="Search conversations"
+              placeholder="Search conversations…"
+              value={search.query}
+              onChange={(e) => search.setQuery(e.target.value)}
+            />
+            {search.active && <button onClick={search.clear}>Clear search</button>}
+          </div>
+          {!search.active && (
+            <div className="conversation-filters" aria-label="Conversation filters">
+              <button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
+                All
+              </button>
+              <button aria-pressed={filter === 'active'} onClick={() => setFilter('active')}>
+                Active <span>{active.length}</span>
+              </button>
+              <button aria-pressed={filter === 'attention'} onClick={() => setFilter('attention')}>
+                Needs you <span>{attention.length}</span>
+              </button>
+            </div>
+          )}
           <ConversationPins
             sessions={all}
             selectedId={desktop ? selectedPreview?.id : undefined}
