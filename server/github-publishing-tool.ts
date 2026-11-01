@@ -36,6 +36,7 @@ interface PublicationCall {
   callId: string;
   assertCurrentSync?(): void;
 }
+const operatorCalls = new WeakSet<PublicationCall>();
 interface OperatorPublishingRegistration {
   registry: SessionRegistry;
   conversationId: () => string;
@@ -123,7 +124,12 @@ export async function requestOperatorGithubPublication(
   )
     throw new Error('The live publishing account or runtime changed');
   const call = { turnId: 'operator-' + randomUUID(), callId: randomUUID() };
-  return active.execute(input, signal, call);
+  operatorCalls.add(call);
+  try {
+    return await active.execute(input, signal, call);
+  } finally {
+    operatorCalls.delete(call);
+  }
 }
 export const GithubPublishingFields = {
   repositoryPath: z.string().min(1).max(256),
@@ -150,6 +156,7 @@ export function createGithubPublishingTool(
   source: () => GithubPublishingSource | undefined,
   ownerSession?: ReturnType<SessionRegistry['get']>,
   assertRuntimeCurrent?: () => Promise<void>,
+  requireNativeCall = false,
 ) {
   const runtimeOwnerId = randomUUID();
   let closed = false;
@@ -463,6 +470,12 @@ export function createGithubPublishingTool(
     publishingAdmissions.add(conversationId);
     registration.activeInvocation = call;
     try {
+      if (
+        requireNativeCall &&
+        !operatorCalls.has(call) &&
+        typeof call.assertCurrentSync !== 'function'
+      )
+        throw Error('Original native publication call required');
       const owner = captureGithubPublicationOwner(runtimeOwnerId, conversationId, call.turnId);
       return await run(input, signal, call, owner.assertCurrent);
     } catch {

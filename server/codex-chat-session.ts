@@ -2145,6 +2145,7 @@ async function openCodexChatBound(
         : hostGithubPublishingSource(options.session, options.publishingGitStorageRoots),
     undefined,
     ownedHost ? assertHostCurrent : undefined,
+    true,
   );
   const events = new AsyncQueue<Record<string, unknown>>();
   let closed = false;

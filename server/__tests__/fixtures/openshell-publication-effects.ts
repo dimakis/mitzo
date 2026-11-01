@@ -3,7 +3,6 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { expect, type Mock } from 'vitest';
-import type { ModelSession } from '@mitzo/harness';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { AdviserSessionFactory } from '../../terminal-adviser.js';
 import type { GithubHostCommandRunner } from '../../connections/capabilities/github-publish-pr-transport.js';
@@ -51,41 +50,8 @@ process.stdout.write(execFileSync(call[0],call.slice(1),{env:{PATH:process.env.P
 `,
     { mode: 0o755 },
   );
-  const reviews: string[] = [];
   const order: string[] = [];
-  input.adviser.mockImplementation((async (config, request) => {
-    expect(request.accountId).toBe(input.account.accountId);
-    expect(request.model).toBe('first');
-    expect(config.tools).toEqual([]);
-    await config.beforeDispatch?.();
-    return {
-      provider: 'codex',
-      async *turn(messages) {
-        const content = messages.map((message) => message.content).join('');
-        expect(content).toContain('Edited inside the synthetic OpenShell task');
-        reviews.push(content);
-        order.push('review');
-        const evidence = /Evidence SHA-256: ([a-f0-9]{64})/.exec(content)!;
-        expect(evidence).not.toBeNull();
-        yield {
-          type: 'content_block_delta',
-          index: 0,
-          delta: {
-            type: 'text_delta',
-            text: JSON.stringify({
-              evidenceSha256: evidence[1],
-              reviewedAllEvidence: true,
-              verdict: 'approve',
-              findings: [],
-              requests: [],
-              unresolvedNeeds: [],
-              coverageSummary: 'Complete offline artifact evidence inspected.',
-            }),
-          },
-        };
-      },
-    } as ModelSession;
-  }) satisfies AdviserSessionFactory);
+  input.adviser.mockReset().mockRejectedValue(new Error('No publication review model configured'));
   let publishedHead: string | undefined;
   let pull: Record<string, unknown> | undefined;
   input.host.mockImplementation((async (command, args, signal) => {
@@ -99,7 +65,7 @@ process.stdout.write(execFileSync(call[0],call.slice(1),{env:{PATH:process.env.P
         );
       if (args.includes('push')) {
         expect(order).toContain('approval');
-        expect(reviews).toHaveLength(2);
+        expect(input.adviser).not.toHaveBeenCalled();
         publishedHead = git('-C', args[1], 'rev-parse', 'HEAD');
         order.push('push');
         return execute('/usr/bin/git', [...args], { env, signal, encoding: 'utf8' });
@@ -188,7 +154,6 @@ process.stdout.write(execFileSync(call[0],call.slice(1),{env:{PATH:process.env.P
   });
   return {
     runtime,
-    reviews,
     order,
     cli,
     git,

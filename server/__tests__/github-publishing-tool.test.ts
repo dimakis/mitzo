@@ -13,7 +13,10 @@ vi.mock('@mitzo/harness', async (original) => ({
   ...(await original<typeof import('@mitzo/harness')>()),
   buildPermissionHandler: () => mocks.approve,
 }));
-import { createGithubPublishingTool } from '../github-publishing-tool.js';
+import {
+  createGithubPublishingTool,
+  requestOperatorGithubPublication,
+} from '../github-publishing-tool.js';
 import {
   login,
   authenticateToken,
@@ -46,11 +49,18 @@ it('publishes without a model or inference selection', async () => {
   f.session.model = undefined;
   f.session.accountBinding!.model = '';
   // Construct after selecting the account; no model is needed by publication.
-  const execute = createGithubPublishingTool('conversation', f.registry, () => ({
-    runtime: 'host',
-    workspace: '/workspace',
-    gitStorageRoots: [],
-  }));
+  const execute = createGithubPublishingTool(
+    'conversation',
+    f.registry,
+    () => ({
+      runtime: 'host',
+      workspace: '/workspace',
+      gitStorageRoots: [],
+    }),
+    undefined,
+    undefined,
+    true,
+  );
   f.execute.close();
   const assertCurrentSync = vi.fn();
   expect(
@@ -62,6 +72,19 @@ it('publishes without a model or inference selection', async () => {
   ).toMatchObject({ isError: false });
   expect(assertCurrentSync).toHaveBeenCalled();
   expect(f.invoke).toHaveBeenCalledOnce();
+  expect(
+    await execute(input, new AbortController().signal, { turnId: 'missing', callId: 'authority' }),
+  ).toMatchObject({ isError: true });
+  expect(f.invoke).toHaveBeenCalledOnce();
+  expect(
+    await requestOperatorGithubPublication(
+      'conversation',
+      f.registry,
+      input,
+      new AbortController().signal,
+    ),
+  ).toMatchObject({ isError: false });
+  expect(f.invoke).toHaveBeenCalledTimes(2);
   execute.close();
 });
 it.each(['operator', 'native call'] as const)(
@@ -481,7 +504,6 @@ it('reports a safe source-resolution failure without inventing a recorded operat
   expect(f.invoke).not.toHaveBeenCalled();
 });
 it('operator publication uses the existing live tool and forced approval, and closes with its runtime', async () => {
-  const { requestOperatorGithubPublication } = await import('../github-publishing-tool.js');
   const f = fixture('openai-codex');
   expect(
     await requestOperatorGithubPublication(
@@ -503,7 +525,6 @@ it('operator publication uses the existing live tool and forced approval, and cl
   ).rejects.toThrow(/live/);
 });
 it('does not let an operator use a superseded account or a closed runtime', async () => {
-  const { requestOperatorGithubPublication } = await import('../github-publishing-tool.js');
   const f = fixture('openai-codex');
   const binding = f.session.accountBinding!;
   f.session.accountBinding = { ...binding, accountId: 'replacement' };
@@ -523,7 +544,6 @@ it('does not let an operator use a superseded account or a closed runtime', asyn
   expect(f.invoke).not.toHaveBeenCalled();
 });
 it('follows a newly assigned SDK conversation ID while retaining its original session and account', async () => {
-  const { requestOperatorGithubPublication } = await import('../github-publishing-tool.js');
   const f = fixture('anthropic-vertex');
   f.execute.close();
   let conversationId = '';
@@ -582,7 +602,6 @@ it('follows a newly assigned SDK conversation ID while retaining its original se
   ).rejects.toThrow(/live/);
 });
 it('does not restore a superseded publisher when its replacement closes', async () => {
-  const { requestOperatorGithubPublication } = await import('../github-publishing-tool.js');
   const f = fixture('openai');
   const replacement = createGithubPublishingTool(
     'conversation',

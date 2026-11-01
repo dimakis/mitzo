@@ -453,7 +453,7 @@ it.each([false, true])(
     });
     const operation = publication.runtime.capabilityStore.get(receipt.operationId);
     expect(cards).toHaveLength(1);
-    expect(publication.reviews).toHaveLength(2);
+    expect(offline.adviser).not.toHaveBeenCalled();
     callbacks.onNotification('item/agentMessage/delta', {
       threadId: 'remote-thread',
       turnId: 'remote-turn-2',

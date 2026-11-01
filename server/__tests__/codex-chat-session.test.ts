@@ -3682,6 +3682,12 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     findBySessionId: () => ({ clientId: 'owned-client', session: f.opts.session }),
     get: () => f.opts.session,
   } as never;
+  f.opts.session.ownerConnectionId = 'owned-client';
+  const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
+  const releasePublisher = bindAgentLibraryTransport('owned-client', {
+    id: 'owned-publisher-login',
+    expiresAt: Date.now() + 60000,
+  });
   let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
   try {
     chat = await openCodexChat(f.opts);
@@ -3724,18 +3730,18 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         execute(name, {}, new AbortController().signal, { turnId: 'turn', callId: name }),
       ).rejects.toThrow('Tool unavailable for owned local Codex chat');
     expect(f.lease.assertCurrent).not.toHaveBeenCalled();
-    const missingSelection = await execute(
+    const missingAuthority = await execute(
       'RequestGithubPublish',
       {},
       new AbortController().signal,
       {
         turnId: 'turn',
-        callId: 'missing-private-selection',
+        callId: 'missing-private-authority',
       },
     );
-    expect(missingSelection.isError).toBe(true);
-    expect(JSON.parse(missingSelection.content)).toMatchObject({
-      code: 'PUBLICATION_REVIEW_UNAVAILABLE',
+    expect(missingAuthority.isError).toBe(true);
+    expect(JSON.parse(missingAuthority.content)).toMatchObject({
+      code: 'GITHUB_PUBLICATION_FAILED',
       operationRecorded: false,
     });
     await expect(
@@ -3830,6 +3836,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     expect(mcpExecute).toHaveBeenCalledOnce();
   } finally {
     chat?.close();
+    releasePublisher();
     setConnectionsRuntime(null);
     f.eventStore.close();
     nativeFactory.mockRestore();

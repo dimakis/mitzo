@@ -3,8 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile, chmod, rm, realpath } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { ManagedSession, ModelSession, SessionRegistry } from '@mitzo/harness';
-import type { AdviserSessionFactory } from '../terminal-adviser.js';
+import type { ManagedSession, SessionRegistry } from '@mitzo/harness';
 import { login, authenticateToken, revokeAuthSession } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 const mocks = vi.hoisted(() => ({ approve: vi.fn(), reviewSession: vi.fn() }));
@@ -184,50 +183,13 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
       get: () => session,
     } as unknown as SessionRegistry;
     // This integration fixture keeps the real signed operator, owner capture,
-    // committed-artifact review and approval gate. Only adviser inference is synthetic.
+    // publication approval. External effects remain confined to the fixture.
     const auth = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
     if (!auth) throw Error('Offline signed publication operator required');
     const releaseOperator = bindAgentLibraryTransport(session.ownerConnectionId!, auth);
-    mocks.reviewSession.mockReset();
-    mocks.reviewSession.mockImplementation((async (config, request, owner) => {
-      expect(config.tools).toEqual([]);
-      expect(request).toMatchObject({
-        accountId: 'selected',
-        model: 'fixture',
-        reasoningEffort: null,
-      });
-      expect(owner).toMatchObject({
-        authSessionId: auth.id,
-        operatorConnectionId: session.ownerConnectionId,
-        feature: { kind: 'github-publication' },
-      });
-      await config.beforeDispatch?.();
-      const adviser: ModelSession = {
-        provider: 'codex',
-        async *turn(messages) {
-          const evidence = /Evidence SHA-256: ([a-f0-9]{64})/.exec(
-            messages.map((message) => message.content).join(''),
-          );
-          if (!evidence) throw Error('Complete host review evidence required');
-          yield {
-            type: 'content_block_delta',
-            index: 0,
-            delta: {
-              type: 'text_delta',
-              text: JSON.stringify({
-                evidenceSha256: evidence[1],
-                reviewedAllEvidence: true,
-                verdict: 'approve',
-                findings: [],
-                requests: [],
-                unresolvedNeeds: [],
-              }),
-            },
-          };
-        },
-      };
-      return adviser;
-    }) satisfies AdviserSessionFactory);
+    mocks.reviewSession
+      .mockReset()
+      .mockRejectedValue(new Error('No publication review model configured'));
     const approvalReviewCounts: number[] = [];
     mocks.approve.mockReset();
     mocks.approve.mockImplementation(async (_name, input) => {
@@ -264,14 +226,13 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
           body: 'Only committed changes',
           draft: true,
         },
-        // The compound journey now includes two fresh host review passes and
-        // revalidation before the existing push/PR/remote-head verification.
+        // Retain the existing operation deadline; no review model is involved.
         AbortSignal.timeout(40000),
         { turnId: 'turn', callId: 'call' },
       );
       const detail = JSON.parse(result.content);
-      expect(mocks.reviewSession).toHaveBeenCalledTimes(2);
-      expect(approvalReviewCounts).toEqual([2]);
+      expect(mocks.reviewSession).not.toHaveBeenCalled();
+      expect(approvalReviewCounts).toEqual([0]);
       if (!approved) {
         expect(detail).toMatchObject({ status: 'denied' });
         expect(git(upstream, 'for-each-ref', '--format=%(refname)', 'refs/heads')).toBe(
@@ -286,9 +247,9 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
         result: {
           pullRequestUrl: 'https://github.com/example/repo/pull/17',
           originalSourceOid: original,
-          review: { reports: [{ verdict: 'approve' }, { verdict: 'approve' }] },
         },
       });
+      expect(detail.result).not.toHaveProperty('review');
       expect(mocks.approve).toHaveBeenCalledTimes(1);
       const card = mocks.approve.mock.calls[0]![1];
       expect(card.input).toMatchObject({

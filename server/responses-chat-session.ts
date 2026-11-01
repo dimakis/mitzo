@@ -402,6 +402,7 @@ export async function openResponsesChat(options: Options) {
     () => hostGithubPublishingSource(options.session, options.publishingGitStorageRoots),
     options.session,
     assertRuntimeCurrent,
+    true,
   );
   let interrupted = false;
   let activeTurnFinalized: Promise<void> | undefined;
