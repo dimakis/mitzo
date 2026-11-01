@@ -1700,6 +1700,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       expect.objectContaining({ images: [{ data: 'cHJldmlldw==', mediaType: 'image/png' }] }),
     );
     expect(getLiveCapabilityConversationBinding('capability-conversation')).toMatchObject({
+      runtimeOwnerId: expect.stringMatching(/^[a-f0-9-]{36}$/),
       accountId: 'work',
       connectionId: 'github-connection',
       connectionRevision: 4,

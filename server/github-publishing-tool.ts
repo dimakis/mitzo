@@ -28,6 +28,7 @@ import { capabilityApprovalForConversation } from './connections/capabilities/ap
 import { canonicalJson } from './connections/capabilities/input-validation.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import type { CapabilityOperation } from './connections/capabilities/types.js';
 export const REQUEST_GITHUB_PUBLISH = 'RequestGithubPublish';
 // Shared across runtime replacements; closing one runtime cannot release its active operation.
 const publishingAdmissions = new Set<string>();
@@ -37,6 +38,18 @@ interface PublicationCall {
   assertCurrentSync?(): void;
 }
 const operatorCalls = new WeakSet<PublicationCall>();
+// Private producer provenance permits reusing an already qualified publishing
+// assertion; arbitrary caller callbacks cannot stand in for signed authority.
+const publicationAssertions = new WeakMap<
+  () => Promise<void>,
+  {
+    runtimeId: string;
+    conversationId: string;
+    accountId: string;
+    turnId?: string;
+    assertCurrentSync(): void;
+  }
+>();
 interface OperatorPublishingRegistration {
   registry: SessionRegistry;
   conversationId: () => string;
@@ -53,7 +66,7 @@ interface OperatorPublishingRegistration {
 // Runtime identity is stable before an SDK assigns its conversation ID.
 const operatorPublishing = new Map<string, OperatorPublishingRegistration>();
 /** Capture the signed publisher and exact live call, independently of any model. */
-function captureGithubPublicationOwner(runtimeId: string, conversationId: string, turnId: string) {
+function captureGithubPublicationOwner(runtimeId: string, conversationId: string, turnId?: string) {
   const active = operatorPublishing.get(runtimeId);
   if (!active || active.conversationId() !== conversationId)
     throw Error('Exact live publishing runtime required');
@@ -69,7 +82,7 @@ function captureGithubPublicationOwner(runtimeId: string, conversationId: string
   if (ownedAuth && !ordinaryOperatorOwnsConversation(ownedAuth, authSessionId))
     throw Error('Original publishing operator required for publication');
   const binding = structuredClone(session.accountBinding);
-  const invocation = active.activeInvocation;
+  const invocation = turnId === undefined ? undefined : active.activeInvocation;
   if (turnId !== undefined && (!invocation || invocation.turnId !== turnId))
     throw Error('Exact active publication invocation required for publication');
   const assertSync = () => {
@@ -82,7 +95,7 @@ function captureGithubPublicationOwner(runtimeId: string, conversationId: string
       session.ownerConnectionId !== operatorConnectionId ||
       !isDeepStrictEqual(session.accountBinding, binding) ||
       !isDeepStrictEqual(active.account, binding) ||
-      active.activeInvocation !== invocation ||
+      (turnId !== undefined && active.activeInvocation !== invocation) ||
       (session.ownedLocalAuthSessionId ?? session.ordinaryRuntimeOwner?.authSessionId) !==
         ownedAuth ||
       effectivePermissionMode(session) === 'ask' ||
@@ -102,7 +115,51 @@ function captureGithubPublicationOwner(runtimeId: string, conversationId: string
       assertSync();
     },
   });
+  publicationAssertions.set(owner.assertCurrent, {
+    runtimeId,
+    conversationId,
+    accountId: binding.accountId,
+    turnId,
+    assertCurrentSync: owner.assertCurrentSync,
+  });
   return owner;
+}
+/** The ordinary service captures this once before any async operation work.
+ * HTTP and capability aliases must retain the same signed publisher/source as
+ * RequestGithubPublish; read-only reconciliation does not create new authority. */
+export function captureGithubPublicationOperationAuthority(
+  operation: CapabilityOperation,
+  callerCurrent?: () => Promise<void>,
+): () => Promise<void> {
+  const live = getLiveCapabilityConversationBinding(operation.conversationId);
+  if (
+    !live?.runtimeOwnerId ||
+    live.accountId !== operation.accountId ||
+    live.connectionId !== operation.connectionId ||
+    live.connectionRevision !== operation.connectionRevision
+  )
+    throw Error('Exact live publishing binding required');
+  const assertBinding = () => {
+    if (getLiveCapabilityConversationBinding(operation.conversationId) !== live)
+      throw Error('Original publishing source changed');
+  };
+  const produced = callerCurrent && publicationAssertions.get(callerCurrent);
+  const reuse =
+    produced?.runtimeId === live.runtimeOwnerId &&
+    produced.conversationId === operation.conversationId &&
+    produced.accountId === operation.accountId &&
+    produced.turnId === operation.turnId;
+  const owner = reuse
+    ? { assertCurrent: callerCurrent!, assertCurrentSync: produced!.assertCurrentSync }
+    : captureGithubPublicationOwner(live.runtimeOwnerId, operation.conversationId);
+  assertBinding();
+  return async () => {
+    assertBinding();
+    await owner.assertCurrent();
+    if (callerCurrent && !reuse) await callerCurrent();
+    owner.assertCurrentSync();
+    assertBinding();
+  };
 }
 export async function requestOperatorGithubPublication(
   conversationId: string,

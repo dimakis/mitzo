@@ -323,7 +323,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/github-publishing-tool.test.ts':
     '65e9571d72fca7393ee25b423d60fdb1bc3a904f006a6c96bcd8140d161945e6',
   '../__tests__/ordinary-publication-review-composition.test.ts':
-    'ec4361d478fe43418034e8f4b4116939023e22da7205de657506c475f0f17ef1',
+    '581d778a841e2bc25b6c1259a335c35e327683049d05ebd6b615ac3928105705',
   '../__tests__/prepared-repository-delivery-flow.test.ts':
     'f259503bb6fa7ae581791f269c11d7ec573e3f3781a4ded4fc1f183c812b3d0a',
   '../__tests__/prepared-repository-publication-flow.test.ts':
@@ -660,7 +660,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     'be08f4bf4223ebd63bdc931187c39fa571d915ad2bb710ef2f9773a72b63b85d',
   '../__tests__/codex-chat-session.test.ts':
-    '354ff9f95e565c26e817ca39a3e869ad96c3a18b9346093933dc863b5dac5c89',
+    '9116b19ef187986c696cd9feb2e25855167c65dc039af6b49634720eaf10d627',
 
   '../__tests__/codex-conversation.test.ts':
     '7e6119f3df5ba07ccc2e86a090eff6167fc966aaeb3e430e2f8e5753f7fb2844',
@@ -1562,10 +1562,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   'capabilities/github-publish-pr.ts':
     'b444d0f23d41232302bcacfc8f51ed9841fbf302e6a1888fd1a3190019c83524',
   'capabilities/github-publish-pr-transport.ts':
-    'dfa4977ba3483ea68bb577031ab865a5bcb4e3f9e4c4db29edd1947b48f94c87',
+    'a2c0386650f1c9fe410a5732bfeb2ea570011bfeb2a05fe307d0af0463a53e65',
   '../github-host-source.ts': '048650e54ba225c98199594d2023e5fc4eae923f42e2c578ce2be558ae5f0854',
   '../github-publishing-tool.ts':
-    'aa5ef831d612492fd5b7ce9d7617fc7e65c0ef0084dbdb27e474468f2922101e',
+    '9891179faf6345aecba16db3e402717e1e0d9bc04fe6c982ae638ef0b4c300cb',
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
   '../openai-key-management.ts': '450dec85b8cb0f483a218b2da8e1362f3d7c6c7ec378f95ab6b4727fc52187cd',
@@ -1649,11 +1649,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '4289834fb795911bc8952a141dd592ad695621e3e43fa590de1395094a5a1c95',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '5df8bcfd63dcc49852259ce592825889a80df5b86a7f972e8fd47ec463b3eb96',
-  '../connections-runtime.ts': '9123265d5f672a9174519721b74ff0b29798f6161768d69e57b3ca7b670bc10e',
+  '../codex-chat-session.ts': '0c900cde7368e7de6015e1e21454b77110535b5f8a441d537cf2f492762143ee',
+  '../connections-runtime.ts': 'de21635b9b9315d9d4a6317492902aa41377758ea7b67224bf0f3c86a3de9da4',
   'capabilities/operation-store.ts':
     '60c15c84c9cfddbbf30b01b215b1d7551271715f5cce5b3b4fd85092f7e575eb',
-  'capabilities/service.ts': '5716e501d629df7b16f1498d1d7b2fecbd99ab3a4de4deef13675187585ca22c',
+  'capabilities/service.ts': '509712c26d0cfa1709f5ed612a7da79e2a2c686aa53ca93419db1ef18c0f8d56',
   '../github-seeded-source.ts': 'df6cd2643ac24cb5d85e136c3f82c400e8f50456a69993396e25808455613c92',
   '../github-seed-baselines.ts': 'bb64d20a4a422de8e0c88979ee9dc8101d51fc2c63d8660eb5d991d08d496d2e',
   '../github-seeded-publication.ts':

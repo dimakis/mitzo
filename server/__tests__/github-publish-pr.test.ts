@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   realpath,
+  readFile,
   rename,
   rm,
   stat,
@@ -344,39 +345,94 @@ describe('github.publish-pr capability', () => {
       }),
     ).toMatchObject({ id: '12', repository: 'acme/widgets' });
   });
-  it('reads a known closed PR by its URL number instead of searching only open PRs', async () => {
+  it('preserves complete multibyte descriptions across create, update and read-only recovery', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'mitzo-fake-gh-'));
     const gh = join(directory, 'gh');
-    const payload = JSON.stringify({
+    const body = '界'.repeat(50_000);
+    const pr = {
       id: 99887766,
       number: 12,
       html_url: 'https://github.com/acme/widgets/pull/12',
       state: 'closed',
       title: input.title,
-      body: input.body,
+      body,
       draft: false,
       head: { ref: 'feature/safe' },
       base: { ref: 'main', repo: { full_name: 'acme/widgets' } },
-    });
+    };
+    const payload = JSON.stringify(pr);
+    expect(Buffer.byteLength(payload)).toBeGreaterThan(128 * 1024);
+    await writeFile(join(directory, 'one.json'), payload);
+    await writeFile(join(directory, 'list.json'), JSON.stringify([pr]));
     await writeFile(
       gh,
-      `#!/bin/sh\ncase "$*" in *'repos/acme/widgets/pulls/12'*) printf '%s' '${payload}' ;; *) exit 1 ;; esac\n`,
+      `#!/bin/sh
+case "$3:$4" in
+  GET:repos/acme/widgets/pulls) /bin/cat '${directory}/list.json' ;;
+  POST:repos/acme/widgets/pulls|PATCH:repos/acme/widgets/pulls/12) /bin/cat > '${directory}/request.json'; /bin/cat '${directory}/one.json' ;;
+  GET:repos/acme/widgets/pulls/12) /bin/cat '${directory}/one.json' ;;
+  *) exit 1 ;;
+esac
+`,
       { mode: 0o700 },
     );
-    await chmod(gh, 0o700);
     const originalPath = process.env.PATH;
     process.env.PATH = directory;
     try {
+      // Exercise the actual child-process byte boundary, not an injected runner
+      // that bypasses maxBuffer. The fake gh performs only local fixture reads.
+      const publisher = new GitHubCliHostPublisher();
+      const request = {
+        repository: 'acme/widgets',
+        sourceBranch: 'feature/safe',
+        baseBranch: 'main',
+        operationId: 'op',
+        signal: new AbortController().signal,
+      };
+      const created = await publisher.create({
+        ...request,
+        title: input.title,
+        body,
+        draft: false,
+      });
+      expect(created).toMatchObject({ id: '12', body });
+      expect(JSON.parse(await readFile(join(directory, 'request.json'), 'utf8'))).toEqual({
+        head: request.sourceBranch,
+        base: request.baseBranch,
+        title: input.title,
+        body,
+        draft: false,
+      });
       await expect(
-        new GitHubCliHostPublisher().read({
-          repository: 'acme/widgets',
-          sourceBranch: 'feature/safe',
-          baseBranch: 'main',
-          externalResultId: 'https://github.com/acme/widgets/pull/12',
-          operationId: 'op',
-          signal: new AbortController().signal,
+        publisher.update({
+          ...request,
+          pullRequest: created,
+          title: input.title,
+          body,
+          draft: false,
         }),
-      ).resolves.toMatchObject({ id: '12', sourceBranch: 'feature/safe' });
+      ).resolves.toMatchObject({ body });
+      expect(JSON.parse(await readFile(join(directory, 'request.json'), 'utf8'))).toEqual({
+        title: input.title,
+        body,
+      });
+      await expect(
+        publisher.read({ ...request, externalResultId: pr.html_url }),
+      ).resolves.toMatchObject({ id: '12', sourceBranch: 'feature/safe', body });
+      await expect(publisher.read(request)).resolves.toMatchObject({
+        id: '12',
+        state: 'closed',
+        body,
+      });
+      // JSON escaping can expand each supported character to six bytes. Two
+      // such bodies must fit before the lookup can report ambiguity.
+      const ambiguous = JSON.stringify([
+        pr,
+        { ...pr, number: 13, html_url: 'https://github.com/acme/widgets/pull/13' },
+      ]).replaceAll('界', '\\u754c');
+      expect(Buffer.byteLength(ambiguous)).toBeGreaterThan(512 * 1024);
+      await writeFile(join(directory, 'list.json'), ambiguous);
+      await expect(publisher.read(request)).rejects.toThrow(/lookup is (?:incomplete|ambiguous)/);
     } finally {
       process.env.PATH = originalPath;
       await rm(directory, { recursive: true, force: true });
@@ -454,7 +510,7 @@ describe('github.publish-pr capability', () => {
     expect(found).toBeNull();
     expect(runner).toHaveBeenCalledWith(
       'gh',
-      expect.arrayContaining(['state=open']),
+      expect.arrayContaining(['state=open', 'per_page=2']),
       expect.any(AbortSignal),
     );
   });
@@ -498,7 +554,7 @@ describe('github.publish-pr capability', () => {
     ).resolves.toMatchObject({ id: '12', state: 'closed', merged: true });
     expect(runner).toHaveBeenCalledWith(
       'gh',
-      expect.arrayContaining(['state=all', 'per_page=100']),
+      expect.arrayContaining(['state=all', 'per_page=2']),
       expect.any(AbortSignal),
     );
   });

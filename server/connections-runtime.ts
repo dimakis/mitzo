@@ -1,3 +1,4 @@
+import { captureGithubPublicationOperationAuthority } from './github-publishing-tool.js';
 import { readGoogleWorkspaceResponse } from './google-workspace-read.js';
 import {
   inspectHostGithubRepository,
@@ -536,6 +537,10 @@ export function createConnectionsRuntime(options: {
     ...(options.capabilityExecutors ?? {}),
   });
   const capabilities = new CapabilityService({
+    captureMutationAuthority: (operation, callerCurrent) =>
+      operation.capabilityId === 'github.publish-pr'
+        ? captureGithubPublicationOperationAuthority(operation, callerCurrent)
+        : callerCurrent,
     ownsOperation: (operation) => !operation.connectionId.startsWith('sealed-publication-'),
     store: capabilityStore,
     executorRegistry,

@@ -4185,6 +4185,7 @@ async function openCodexChatBound(
     await duringCodexStartup('conversation_initialization', () => runtime.initialize());
     if (!options.ownedLocal && managedCapabilityConnection && options.binding?.accountId) {
       bindLiveCapabilityConversation(options.conversationId, {
+        runtimeOwnerId: githubPublishing.runtimeOwnerId,
         accountId: options.binding.accountId,
         connectionId: managedCapabilityConnection.id,
         connectionRevision: managedCapabilityConnection.revision,
