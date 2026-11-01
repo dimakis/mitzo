@@ -1,4 +1,5 @@
 import { isGitBranchName } from '../../git-branch.js';
+import { GITHUB_PR_DESCRIPTION_MAX_LENGTH } from '../../github-publication-approval.js';
 import { execFile } from 'node:child_process';
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -402,19 +403,56 @@ function gitEnvironment() {
       : {}),
   };
 }
-async function host(
-  command: string,
-  args: readonly string[],
-  signal: AbortSignal,
-  maxBuffer = 128 * 1024,
-) {
+// A supported 65,536-character description can require six JSON bytes per
+// character. Reserve the existing 128 KiB allowance for the remaining PR data.
+const pullRequestResponseBytes = GITHUB_PR_DESCRIPTION_MAX_LENGTH * 6 + 128 * 1024;
+const pullRequestLookupPageSize = 2;
+/** Shared by subprocess owners; injected credential runners retain their own
+ * environment and dispatch fences. Supported PR bodies use complete JSON on stdin. */
+export function githubHostCommandPlan(command: string, args: readonly string[]) {
+  const method = args[0] === 'api' && args[1] === '--method' ? args[2] : undefined;
+  const endpoint = args[3];
+  const pullRequest =
+    command === 'gh' &&
+    !!method &&
+    /^repos\/[^/]+\/[^/]+\/pulls(?:\/[1-9][0-9]*)?$/.test(endpoint ?? '');
+  const list = pullRequest && method === 'GET' && endpoint.endsWith('/pulls');
+  const maxBuffer = pullRequest
+    ? pullRequestResponseBytes * (list ? pullRequestLookupPageSize : 1)
+    : 128 * 1024;
+  if (!pullRequest || (method !== 'POST' && method !== 'PATCH')) return { args, maxBuffer };
+  const fields: Record<string, string | boolean> = {};
+  for (let index = 4; index < args.length; index += 2) {
+    const field = args[index + 1];
+    const separator = field?.indexOf('=') ?? -1;
+    if (separator < 1) return { args, maxBuffer };
+    const name = field.slice(0, separator);
+    const value = field.slice(separator + 1);
+    if (args[index] === '-f' && ['head', 'base', 'title', 'body'].includes(name))
+      fields[name] = value;
+    else if (args[index] === '-F' && name === 'draft' && ['true', 'false'].includes(value))
+      fields[name] = value === 'true';
+    else return { args, maxBuffer };
+  }
+  if (typeof fields.body !== 'string') return { args, maxBuffer };
+  return { args: [...args.slice(0, 4), '--input', '-'], input: JSON.stringify(fields), maxBuffer };
+}
+async function host(command: string, args: readonly string[], signal: AbortSignal) {
   try {
-    return await exec(command, [...args], {
+    const request = githubHostCommandPlan(command, args);
+    const pending = exec(command, [...request.args], {
       env: gitEnvironment(),
       signal,
-      maxBuffer,
+      maxBuffer: request.maxBuffer,
       windowsHide: true,
     });
+    if (request.input !== undefined) {
+      // No asynchronous preparation is inserted between the caller's final
+      // authority check and spawn. Early process failure may close stdin;
+      // execFile still owns the command outcome and sanitized error below.
+      pending.child.stdin!.on('error', () => {}).end(request.input);
+    }
+    return await pending;
   } catch (error) {
     // `git`/`gh` errors may include an authenticated remote URL or HTTP
     // diagnostics. Preserve neither across the capability boundary.
@@ -590,38 +628,6 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       sourceBranchProtected,
     };
   }
-  async refreshBase(input: {
-    directory: string;
-    repository: string;
-    baseBranch: string;
-    signal: AbortSignal;
-    assertRuntimeCurrent?: () => Promise<void>;
-  }) {
-    checked(input.repository, safeRepository, 'Repository is invalid');
-    checked(input.baseBranch, safeBranch, 'Base branch is invalid');
-    // Only this publisher's private reconstruction can retain a review artifact.
-    if (
-      !this.cleanupParents.has(join(input.directory, '..')) ||
-      this.cleanups.has(join(input.directory, '..'))
-    )
-      throw Error('Publication artifact owner unavailable');
-    await input.assertRuntimeCurrent?.();
-    input.signal.throwIfAborted();
-    await this.runHost(
-      'git',
-      [
-        '-C',
-        input.directory,
-        'fetch',
-        '--no-tags',
-        `https://github.com/${input.repository}.git`,
-        `refs/heads/${input.baseBranch}:refs/remotes/origin/${input.baseBranch}`,
-      ],
-      input.signal,
-    );
-    await input.assertRuntimeCurrent?.();
-    input.signal.throwIfAborted();
-  }
   async reconstruct(input: {
     repository: string;
     sourceBranch: string;
@@ -734,6 +740,8 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
         `base=${input.baseBranch}`,
         '-f',
         'state=open',
+        '-f',
+        `per_page=${pullRequestLookupPageSize}`,
       ],
       input.signal,
     );
@@ -774,15 +782,15 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
         '-f',
         'state=all',
         '-f',
-        'per_page=100',
+        `per_page=${pullRequestLookupPageSize}`,
       ],
       input.signal,
     );
     const list = z.array(z.unknown()).safeParse(JSON.parse(stdout));
-    // A full first page is ambiguous rather than permission to overlook an
-    // older closed PR on a later page and duplicate the approved mutation.
-    if (!list.success || list.data.length === 100)
-      throw new Error('GitHub pull request lookup is incomplete');
+    if (!list.success) throw new Error('GitHub pull request lookup is invalid');
+    // Two matches already establish ambiguity. A larger page cannot make the
+    // result unique, so never download or overlook additional full PR bodies.
+    if (list.data.length > 1) throw new Error('GitHub pull request lookup is ambiguous');
     const pullRequests = list.data.map((item) => {
       const value = parseGithubPullRequest(item);
       if (!value) throw new Error('GitHub pull request lookup is invalid');
@@ -793,7 +801,6 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
         id: value.id,
       });
     });
-    if (pullRequests.length > 1) throw new Error('GitHub pull request lookup is ambiguous');
     return pullRequests[0] ?? null;
   }
   async create(input: {

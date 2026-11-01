@@ -138,6 +138,7 @@ export function createSymposiumReviewPublicationExecutor(
           return value;
         };
       const executor = createGithubPublishPrExecutor({
+        approvalMetadata: 'verbatim',
         sandbox: { inspect: guarded(prepared.inspect), exportBundle: guarded(deps.exportBundle) },
         host: {
           policy: guarded((input) => deps.publisher.policy(input)),
@@ -234,6 +235,7 @@ export function createSymposiumReviewPublicationExecutor(
         return pr;
       };
       const executor = createGithubPublishPrExecutor({
+        approvalMetadata: 'verbatim',
         sandbox: { inspect: forbidden, exportBundle: forbidden },
         host: {
           ...deps.publisher,

@@ -377,7 +377,7 @@
     "id": "mitzo:RequestGithubPublish",
     "version": 1,
     "name": "RequestGithubPublish",
-    "description": "Request host-backed independent review and approval to publish committed workspace changes to a GitHub feature branch and create or update its pull request. In ordinary chats, Mitzo reviews the exact committed artifact in two independent read-only passes before publication approval; use this tool when native subagent tools are unavailable. Blocking findings are returned for correction. Mitzo resolves the repository and configured GitHub connection for this session account; credentials remain on the controller. Supply the absolute repository path in the current workspace, base branch, title, body and draft choice; do not use direct GitHub writes.",
+    "description": "Publish committed workspace changes to a GitHub feature branch and create or update its pull request after publication authorization. This tool performs no AI code review and does not require a review model. Mitzo resolves the repository and configured GitHub connection for this session account; credentials remain on the controller. Supply the absolute repository path in the current workspace, base branch, title, body and draft choice; do not use direct GitHub writes.",
     "source": "GitHub publishing",
     "required": false,
     "behavior": "write",

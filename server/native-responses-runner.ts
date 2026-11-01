@@ -119,25 +119,15 @@ export class NativeResponsesRunner {
   getSelectedModel() {
     return this.selectedModel;
   }
-  currentInferenceSelection() {
-    return { model: this.selectedModel, reasoningEffort: this.reasoningEffort ?? null };
-  }
-  captureInferenceSelection() {
+  captureActiveCallAuthority() {
     const active = this.active;
-    if (!active) throw Error('Active provider inference selection required');
-    active.signal.throwIfAborted();
-    const selected = this.currentInferenceSelection();
-    return Object.freeze({
-      ...selected,
-      assertCurrentSync: () => {
-        active.signal.throwIfAborted();
-        if (
-          this.active !== active ||
-          !isDeepStrictEqual(this.currentInferenceSelection(), selected)
-        )
-          throw Error('Original provider inference selection changed');
-      },
-    });
+    if (!active) throw Error('Active provider call required');
+    const assertCurrentSync = () => {
+      active.signal.throwIfAborted();
+      if (this.active !== active) throw Error('Original provider call expired');
+    };
+    assertCurrentSync();
+    return Object.freeze({ assertCurrentSync });
   }
   waitUntilIdle() {
     if (!this.active) return Promise.resolve();

@@ -35,21 +35,19 @@ Select `$ARGUMENTS` (PR URL, repo/number or current branch). Read repo rules; re
 2. Integrate the base when required by a dependency, an actual conflict, a known upstream fix, or when this PR reaches its final landing turn and strict protection requires it. Do not rebase every waiting PR whenever main moves. Prefer a merge of the base that preserves remote history; never force-push as a routine shepherd action.
 3. Investigate every active finding against the code. Fix and verify valid in-scope blockers. Reject invalid/resolved findings with concrete evidence. Record explicitly non-blocking follow-ups without adding a blocking round; never silently downgrade a blocker.
 4. Ask only when a genuine unresolved product/security/data decision prevents a correct fix. Routine implementation fixes already within the user's task do not need another approval. Reply to and resolve review threads only where authorized by the task or invoked workflow; never pretend a reviewer approved a fix.
-5. Run focused offline checks within repository resource limits; complete local review below, then push and await required CI. Never remove coverage, weaken checks or mark failures green. CI optimizations must retain coverage.
+5. Run focused offline checks within repository resource limits; use local review below where available, then push and await required CI. Never remove coverage, weaken checks or mark failures green. CI optimizations must retain coverage.
 
 Batch known fixes before pushing. Run `npm run check:source-artifacts`; retain and regenerate source pins for changed/extracted files. See [CI delivery](../../docs/operations/ci-delivery.md) for complete preflight, retry and timing rules.
 
 Preserve deployment/live-test restrictions; landing does not authorize deployment. Real model-backed tests follow the user's test model/account rules; ordinary review is separate.
 
-## Local review before push
+## Local development review
 
-Before the first reviewable push, run two read-only subagents concurrently within host capacity: correctness/integration/affected callers, and behavior/test adequacy/failure cases. Each must be independent of implementation in its scope. Add security review for concrete permission/security/data risks. These focused roles alone do not satisfy the full-pass rule below.
+Use focused read-only subagents when available: correctness/integration/affected callers, and behavior/test adequacy/failure cases. Add security review for concrete permission/security/data risks. Give reviewers the diff, requirements, repository rules and candidate SHA; consolidate findings and reuse unchanged coverage during follow-ups.
 
-Without native delegation, ordinary Mitzo may use `RequestGithubPublish` host review under [this contract](../../docs/operations/prepared-repository-chat-flow.md). Every other gate below remains.
+Local reviews assist development; they are not a gate on creating or updating a PR. If delegation is unavailable or review is incomplete, record that state on the PR and continue through the normal PR review workflow. `RequestGithubPublish` publishes committed work with repository, branch and operation authorization; it performs no AI code review. Do not require model availability, a review receipt or a review evidence-size budget to open a PR.
 
-Give both the diff, requirements, repo rules, base and candidate SHA (or full tracked/untracked fingerprint). Keep it stable. Record reviewer/report IDs, scope, limits and evidence-backed findings: severity, location and failure scenario. Consolidate and fix blockers together; document rejected/resolved dispositions. Request focused follow-ups on batched fixes, affected callers and prior findings; reuse unchanged coverage. Repeat only for unresolved blockers or material scope changes; report persistent blockers instead of looping.
-
-Complete missing local coverage while CI runs. Reuse qualifying reviews and follow-ups; verify actual candidate coverage before pushing. Use only exposed, permitted delegation; respect resource/live-test limits and avoid parallel broad suites. If unavailable or denied, report unfinished coverage, continue other preparation, and obtain independent review through an authorized host before pushing. Never bypass with another CLI or self-approve. Local review never replaces Centaur or changes its timing, configuration or final gate.
+Required tests, CI, Centaur and final merge approval remain separate. Opening a PR does not mark its code approved or authorize merging or deployment.
 
 ## Review convergence
 

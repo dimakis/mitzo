@@ -2145,19 +2145,7 @@ async function openCodexChatBound(
         : hostGithubPublishingSource(options.session, options.publishingGitStorageRoots),
     undefined,
     ownedHost ? assertHostCurrent : undefined,
-    {
-      requireNativeSelection: true,
-      explicitSelection: () => {
-        const settings =
-          options.eventStore.getOrdinaryWorkspaceConversationSettings(options.conversationId) ??
-          options.eventStore.getOrdinaryConversationSettings(options.conversationId);
-        if (!settings) throw Error('Explicit operator publication selection unavailable');
-        return {
-          model: settings.selection.model,
-          reasoningEffort: settings.selection.thinking ?? null,
-        };
-      },
-    },
+    true,
   );
   const events = new AsyncQueue<Record<string, unknown>>();
   let closed = false;
@@ -3723,6 +3711,22 @@ async function openCodexChatBound(
       if (name === REQUEST_GITHUB_PUBLISH) return githubPublishing(input, signal, callContext);
       const capability = capabilityTools.bindings.get(name);
       if (capability && capabilityTools.service) {
+        const originalCallCurrent = callContext.assertCurrentSync;
+        if (!originalCallCurrent) throw Error('Original native capability call required');
+        const assertCallCurrent = () => {
+          signal.throwIfAborted();
+          originalCallCurrent();
+        };
+        const assertCapabilityCurrent = Object.assign(
+          async () => {
+            assertCallCurrent();
+            // The ordinary publisher captures its physical owner centrally.
+            if (ownedHost && capability.capabilityId !== 'github.publish-pr')
+              await assertHostCurrent();
+            assertCallCurrent();
+          },
+          { assertCurrentSync: assertCallCurrent },
+        );
         const operation = await capabilityTools.service.invoke(
           {
             ...capability,
@@ -3741,7 +3745,7 @@ async function openCodexChatBound(
           },
           signal,
           capabilityApprovalForConversation(options.registry, options.conversationId),
-          ...(ownedHost ? [assertHostCurrent] : []),
+          assertCapabilityCurrent,
         );
         return {
           content: JSON.stringify({
@@ -4197,6 +4201,7 @@ async function openCodexChatBound(
     await duringCodexStartup('conversation_initialization', () => runtime.initialize());
     if (!options.ownedLocal && managedCapabilityConnection && options.binding?.accountId) {
       bindLiveCapabilityConversation(options.conversationId, {
+        runtimeOwnerId: githubPublishing.runtimeOwnerId,
         accountId: options.binding.accountId,
         connectionId: managedCapabilityConnection.id,
         connectionRevision: managedCapabilityConnection.revision,

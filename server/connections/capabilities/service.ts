@@ -80,6 +80,12 @@ function persistedApprovalProjection(
 }
 
 export interface CapabilityServiceOptions {
+  /** Capture once for a newly admitted mutation, before any async boundary.
+   * Existing read-only recovery must not acquire replacement mutation authority. */
+  captureMutationAuthority?(
+    operation: CapabilityOperation,
+    callerCurrent?: () => Promise<void>,
+  ): (() => Promise<void>) | undefined;
   ownsOperation?(operation: CapabilityOperation): boolean;
   /** Synchronous retained-owner fence immediately before recovery persistence. */
   beforeRecoveryPersist?(operation: CapabilityOperation): void;
@@ -413,7 +419,7 @@ export class CapabilityService {
     if (!grant || grant.status !== 'active' || !grant.accountIds.includes(request.accountId))
       throw new Error('Capability grant is unavailable');
     const input = validateCapabilityInput(template.inputSchema, request.input);
-    assertCompleteApprovalProjection(template.inputSchema);
+    assertCompleteApprovalProjection(template.inputSchema, template.id);
     // Some reviewed contracts repeat the connection ID in their structured
     // input for executor readability. It is a consistency assertion, never a
     // selector: the trusted request binding above remains authoritative.
@@ -439,6 +445,9 @@ export class CapabilityService {
       Object.assign(operation, this.options.store.recordPhase(operation.id, phase));
     };
     try {
+      assertRuntimeCurrent =
+        this.options.captureMutationAuthority?.(operation, assertRuntimeCurrent) ??
+        assertRuntimeCurrent;
       const executor = this.options.executorRegistry.resolve(template);
       // An executor may turn the validated request into a narrower, reviewed
       // action card. Persist that exact projection and recovery lookup before

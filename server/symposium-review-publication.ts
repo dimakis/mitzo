@@ -277,6 +277,7 @@ export function createSymposiumReviewPublicationPreflight(deps: ReviewPublicatio
         throw new Error('Publication mutation is unavailable');
       };
       const executor = createGithubPublishPrExecutor({
+        approvalMetadata: 'verbatim',
         sandbox: { inspect, exportBundle: forbidden },
         host: {
           policy: (request) => deps.publisher.policy(request),

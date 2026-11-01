@@ -24,6 +24,7 @@ export const CAPABILITY_OPERATION_PHASES = [
   'branch_policy',
   'export',
   'reconstruction',
+  // Historical diagnostic values remain readable for retained operations.
   'review',
   'review_first',
   'review_second',
@@ -87,6 +88,10 @@ export interface CapabilityConnection {
   status: string;
   desiredAccountIds: readonly string[];
 }
+
+/** An async physical qualification may retain an exact synchronous call fence.
+ * It is server-owned callback metadata, never serialized capability input. */
+export type CapabilityCurrentAssertion = (() => Promise<void>) & { assertCurrentSync?: () => void };
 
 export interface CapabilityExecutionContext {
   /** `operation.id` is the mandatory external idempotency and recovery key. */

@@ -1599,6 +1599,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       request: import('../connections/capabilities/types.js').CapabilityRequest,
       signal: AbortSignal,
       approve: import('../connections/capabilities/types.js').CapabilityApproval,
+      current?: import('../connections/capabilities/types.js').CapabilityCurrentAssertion,
     ) => {
       // The production service validates unknown tool input before it becomes
       // approval-card data. This session fixture supplies that already-typed
@@ -1615,6 +1616,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
         },
         signal,
       );
+      await current?.();
       return {
         id: 'operation-1',
         status: approved ? 'verification_pending' : 'denied',
@@ -1700,6 +1702,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       expect.objectContaining({ images: [{ data: 'cHJldmlldw==', mediaType: 'image/png' }] }),
     );
     expect(getLiveCapabilityConversationBinding('capability-conversation')).toMatchObject({
+      runtimeOwnerId: expect.stringMatching(/^[a-f0-9-]{36}$/),
       accountId: 'work',
       connectionId: 'github-connection',
       connectionRevision: 4,
@@ -1755,8 +1758,22 @@ it('preserves image attachments while binding a trusted capability, forcing appr
     await expect(
       executeTool(tool!.name, capabilityInput, new AbortController().signal, {
         turnId: 'turn-1',
-        callId: 'call-1',
+        callId: 'missing-call',
       }),
+    ).rejects.toThrow('Original native capability call required');
+    expect(invoke).not.toHaveBeenCalled();
+    let callCurrent = true;
+    const nativeCall = Object.defineProperty(
+      { turnId: 'turn-1', callId: 'call-1' },
+      'assertCurrentSync',
+      {
+        value: () => {
+          if (!callCurrent) throw Error('Original native call expired');
+        },
+      },
+    );
+    await expect(
+      executeTool(tool!.name, capabilityInput, new AbortController().signal, nativeCall),
     ).resolves.toMatchObject({ isError: true });
     expect(invoke).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1766,7 +1783,12 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       }),
       expect.any(AbortSignal),
       expect.anything(),
+      expect.any(Function),
     );
+    const capturedCall = invoke.mock.calls[0][3]!;
+    callCurrent = false;
+    await expect(capturedCall()).rejects.toThrow('Original native call expired');
+    expect(() => capturedCall.assertCurrentSync!()).toThrow('Original native call expired');
     expect(mocks.permissionHandler).toHaveBeenCalledWith(
       'ExecuteProviderCapability',
       expect.any(Object),
@@ -3682,6 +3704,12 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     findBySessionId: () => ({ clientId: 'owned-client', session: f.opts.session }),
     get: () => f.opts.session,
   } as never;
+  f.opts.session.ownerConnectionId = 'owned-client';
+  const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
+  const releasePublisher = bindAgentLibraryTransport('owned-client', {
+    id: 'owned-publisher-login',
+    expiresAt: Date.now() + 60000,
+  });
   let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
   try {
     chat = await openCodexChat(f.opts);
@@ -3713,16 +3741,8 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     // private native invocation facet explicitly, retaining the original lease fence.
     const publicationCall = (callId: string) => {
       const context = { turnId: 'turn', callId };
-      Object.defineProperty(context, 'captureInferenceSelection', {
-        value: () => {
-          f.lease.assertCurrentSync();
-          return Object.freeze({
-            commandId: 'owned-command',
-            model: f.expected.selection.model,
-            reasoningEffort: f.expected.selection.thinking ?? null,
-            assertCurrentSync: () => f.lease.assertCurrentSync(),
-          });
-        },
+      Object.defineProperty(context, 'assertCurrentSync', {
+        value: () => f.lease.assertCurrentSync(),
       });
       return Object.freeze(context);
     };
@@ -3732,18 +3752,18 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         execute(name, {}, new AbortController().signal, { turnId: 'turn', callId: name }),
       ).rejects.toThrow('Tool unavailable for owned local Codex chat');
     expect(f.lease.assertCurrent).not.toHaveBeenCalled();
-    const missingSelection = await execute(
+    const missingAuthority = await execute(
       'RequestGithubPublish',
       {},
       new AbortController().signal,
       {
         turnId: 'turn',
-        callId: 'missing-private-selection',
+        callId: 'missing-private-authority',
       },
     );
-    expect(missingSelection.isError).toBe(true);
-    expect(JSON.parse(missingSelection.content)).toMatchObject({
-      code: 'PUBLICATION_REVIEW_UNAVAILABLE',
+    expect(missingAuthority.isError).toBe(true);
+    expect(JSON.parse(missingAuthority.content)).toMatchObject({
+      code: 'GITHUB_PUBLICATION_FAILED',
       operationRecorded: false,
     });
     await expect(
@@ -3838,6 +3858,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     expect(mcpExecute).toHaveBeenCalledOnce();
   } finally {
     chat?.close();
+    releasePublisher();
     setConnectionsRuntime(null);
     f.eventStore.close();
     nativeFactory.mockRestore();

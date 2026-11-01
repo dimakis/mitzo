@@ -65,6 +65,60 @@ it('uses bounded sterile execution and keeps host credential only in the fixed e
   ])
     expect(options.env[key]).toBeUndefined();
 });
+it('shares complete PR input and UTF-8 response budgets with the ordinary publisher', async () => {
+  const body = '界'.repeat(50_000);
+  const end = vi.fn();
+  const stdin = { on: vi.fn() as ReturnType<typeof vi.fn>, end };
+  stdin.on.mockReturnValue(stdin);
+  execute.mockImplementation((_command, _args, _options, callback) => {
+    callback(null, '{}', '');
+    return { stdin };
+  });
+  const signal = AbortSignal.timeout(1000);
+  await knowledgeHostCommand(
+    'gh',
+    [
+      'api',
+      '--method',
+      'POST',
+      'repos/owner/repo/pulls',
+      '-f',
+      'head=feature/task',
+      '-f',
+      'base=main',
+      '-f',
+      'title=Title',
+      '-f',
+      `body=${body}`,
+      '-F',
+      'draft=true',
+    ],
+    signal,
+  );
+  expect(execute.mock.calls[0][1]).toEqual([
+    'api',
+    '--method',
+    'POST',
+    'repos/owner/repo/pulls',
+    '--input',
+    '-',
+  ]);
+  expect(JSON.parse(end.mock.calls[0][0])).toEqual({
+    head: 'feature/task',
+    base: 'main',
+    title: 'Title',
+    body,
+    draft: true,
+  });
+  expect(execute.mock.calls[0][2].maxBuffer).toBe(512 * 1024);
+  await knowledgeHostCommand(
+    'gh',
+    ['api', '--method', 'GET', 'repos/owner/repo/pulls', '-f', 'per_page=2'],
+    signal,
+  );
+  expect(execute.mock.calls[1][2].maxBuffer).toBe(1024 * 1024);
+  expect(end).toHaveBeenCalledOnce();
+});
 it('uses the same enrolled GitHub CLI account for tokenless API and private Git authentication', async () => {
   vi.stubEnv('GH_TOKEN', '');
   vi.stubEnv('GITHUB_TOKEN', '');

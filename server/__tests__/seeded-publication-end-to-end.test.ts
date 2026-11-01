@@ -3,8 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile, chmod, rm, realpath } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { ManagedSession, ModelSession, SessionRegistry } from '@mitzo/harness';
-import type { AdviserSessionFactory } from '../terminal-adviser.js';
+import type { ManagedSession, SessionRegistry } from '@mitzo/harness';
 import { login, authenticateToken, revokeAuthSession } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 const mocks = vi.hoisted(() => ({ approve: vi.fn(), reviewSession: vi.fn() }));
@@ -92,6 +91,8 @@ const p=cp.spawnSync('/usr/bin/git',mapped,{env:process.env,encoding:'utf8'});pr
         String.raw`
 const endpoint=args.find(x=>x==='user'||x.startsWith('repos/'));const method=args.includes('--method')?args[args.indexOf('--method')+1]:'GET';
 const fields=Object.fromEntries(args.filter((_,i)=>i>0&&['-f','-F'].includes(args[i-1])).map(x=>{const p=x.indexOf('=');return[x.slice(0,p),x.slice(p+1)]}));
+const input=args.indexOf('--input');
+if(input>=0){if(args[input+1]!=='-')throw Error('unsupported fixture request input');Object.assign(fields,JSON.parse(fs.readFileSync(0,'utf8')))}
 const emit=x=>process.stdout.write(JSON.stringify(x));const file=root+'/pull.json';
 if(endpoint==='user')emit({login:'operator'});
 else if(endpoint==='repos/example/repo')emit({default_branch:'main',full_name:'example/repo'});
@@ -99,7 +100,7 @@ else if(endpoint?.startsWith('repos/example/repo/rules/branches/'))emit([]);
 else if(endpoint?.startsWith('repos/example/repo/branches/')){
  try{const branch=decodeURIComponent(endpoint.slice('repos/example/repo/branches/'.length));const sha=cp.execFileSync('/usr/bin/git',['-C',root+'/upstream','rev-parse','refs/heads/'+branch],{encoding:'utf8',stdio:['pipe','pipe','pipe']}).trim();emit({protected:false,commit:{sha}})}catch{console.error('404');process.exit(1)}
 }else if(endpoint==='repos/example/repo/pulls'&&method==='POST'){
- const pull={html_url:'https://github.com/example/repo/pull/17',number:17,title:fields.title,body:fields.body,draft:fields.draft==='true',state:'open',merged:false,head:{ref:fields.head},base:{ref:fields.base,repo:{full_name:'example/repo'}}};fs.writeFileSync(file,JSON.stringify(pull));emit(pull);
+ const pull={html_url:'https://github.com/example/repo/pull/17',number:17,title:fields.title,body:fields.body,draft:fields.draft===true||fields.draft==='true',state:'open',merged:false,head:{ref:fields.head},base:{ref:fields.base,repo:{full_name:'example/repo'}}};fs.writeFileSync(file,JSON.stringify(pull));emit(pull);
 }else if(endpoint==='repos/example/repo/pulls')emit(fs.existsSync(file)?[JSON.parse(fs.readFileSync(file))]:[]);
 else if(endpoint==='repos/example/repo/pulls/17')emit(JSON.parse(fs.readFileSync(file)));
 else{console.error('unsupported fixture request');process.exit(1)}
@@ -184,50 +185,13 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
       get: () => session,
     } as unknown as SessionRegistry;
     // This integration fixture keeps the real signed operator, owner capture,
-    // committed-artifact review and approval gate. Only adviser inference is synthetic.
+    // publication approval. External effects remain confined to the fixture.
     const auth = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
     if (!auth) throw Error('Offline signed publication operator required');
     const releaseOperator = bindAgentLibraryTransport(session.ownerConnectionId!, auth);
-    mocks.reviewSession.mockReset();
-    mocks.reviewSession.mockImplementation((async (config, request, owner) => {
-      expect(config.tools).toEqual([]);
-      expect(request).toMatchObject({
-        accountId: 'selected',
-        model: 'fixture',
-        reasoningEffort: null,
-      });
-      expect(owner).toMatchObject({
-        authSessionId: auth.id,
-        operatorConnectionId: session.ownerConnectionId,
-        feature: { kind: 'github-publication' },
-      });
-      await config.beforeDispatch?.();
-      const adviser: ModelSession = {
-        provider: 'codex',
-        async *turn(messages) {
-          const evidence = /Evidence SHA-256: ([a-f0-9]{64})/.exec(
-            messages.map((message) => message.content).join(''),
-          );
-          if (!evidence) throw Error('Complete host review evidence required');
-          yield {
-            type: 'content_block_delta',
-            index: 0,
-            delta: {
-              type: 'text_delta',
-              text: JSON.stringify({
-                evidenceSha256: evidence[1],
-                reviewedAllEvidence: true,
-                verdict: 'approve',
-                findings: [],
-                requests: [],
-                unresolvedNeeds: [],
-              }),
-            },
-          };
-        },
-      };
-      return adviser;
-    }) satisfies AdviserSessionFactory);
+    mocks.reviewSession
+      .mockReset()
+      .mockRejectedValue(new Error('No publication review model configured'));
     const approvalReviewCounts: number[] = [];
     mocks.approve.mockReset();
     mocks.approve.mockImplementation(async (_name, input) => {
@@ -264,14 +228,13 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
           body: 'Only committed changes',
           draft: true,
         },
-        // The compound journey now includes two fresh host review passes and
-        // revalidation before the existing push/PR/remote-head verification.
+        // Retain the existing operation deadline; no review model is involved.
         AbortSignal.timeout(40000),
         { turnId: 'turn', callId: 'call' },
       );
       const detail = JSON.parse(result.content);
-      expect(mocks.reviewSession).toHaveBeenCalledTimes(2);
-      expect(approvalReviewCounts).toEqual([2]);
+      expect(mocks.reviewSession).not.toHaveBeenCalled();
+      expect(approvalReviewCounts).toEqual([0]);
       if (!approved) {
         expect(detail).toMatchObject({ status: 'denied' });
         expect(git(upstream, 'for-each-ref', '--format=%(refname)', 'refs/heads')).toBe(
@@ -286,18 +249,29 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
         result: {
           pullRequestUrl: 'https://github.com/example/repo/pull/17',
           originalSourceOid: original,
-          review: { reports: [{ verdict: 'approve' }, { verdict: 'approve' }] },
         },
       });
+      expect(detail.result).not.toHaveProperty('review');
       expect(mocks.approve).toHaveBeenCalledTimes(1);
       const card = mocks.approve.mock.calls[0]![1];
       expect(card.input).toMatchObject({
         repository: 'example/repo',
         originalSourceOid: original,
         changedFiles: '["note.txt"]',
+        title: 'Approved task delta',
+        body: 'Only committed changes',
+        draft: true,
+        baseBranch: 'main',
       });
       expect(mocks.approve.mock.calls[0]![2]).toMatchObject({ forcePrompt: true });
       const branch = detail.result.sourceBranch;
+      expect(JSON.parse(await readFile(join(root, 'pull.json'), 'utf8'))).toMatchObject({
+        title: card.input.title,
+        body: card.input.body,
+        draft: card.input.draft,
+        head: { ref: card.input.sourceBranch },
+        base: { ref: card.input.baseBranch },
+      });
       expect(git(upstream, 'rev-parse', branch)).toBe(detail.result.sourceOid);
       expect(git(upstream, 'show', branch + ':note.txt')).toBe('changed');
       expect(git(upstream, 'show', branch + ':upstream-only.txt')).toBe('must survive');

@@ -583,7 +583,7 @@ it('cleans a reconstructed host directory if seal verification fails before push
     valid = false;
     return { directory: '/mock-host' };
   });
-  expect((await f.invoke()).status).toBe('verification_pending');
+  expect((await f.invoke()).status).toBe('failed');
   expect(f.publisher.cleanup).toHaveBeenCalledWith('/mock-host');
   expect(f.publisher.push).not.toHaveBeenCalled();
 });
