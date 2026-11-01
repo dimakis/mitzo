@@ -289,7 +289,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../private-repository-publication-entries.ts':
     '53eff4aa7fe9aa5cee5648e2908dd76f421446b78c865f6d52f3a1386047181f',
   '../__tests__/seeded-publication-end-to-end.test.ts':
-    '79ae2151c1d39faad29a430c7f2575dcab49a1296f68d544dfdc1ee8ec76de0c',
+    'cfbe97ca38aeeb3f06eb1a95289fe111dcf31051bbe957e1f743123fb25d7df8',
   '../../skills/auto-pr-shepherd/SKILL.md':
     '0ff883dfdf11953bded6163fe2dd030ee1a2a88fc004d6002bcd7d5ea6d2d68d',
   '../../skills/autopilot/SKILL.md':

@@ -91,6 +91,8 @@ const p=cp.spawnSync('/usr/bin/git',mapped,{env:process.env,encoding:'utf8'});pr
         String.raw`
 const endpoint=args.find(x=>x==='user'||x.startsWith('repos/'));const method=args.includes('--method')?args[args.indexOf('--method')+1]:'GET';
 const fields=Object.fromEntries(args.filter((_,i)=>i>0&&['-f','-F'].includes(args[i-1])).map(x=>{const p=x.indexOf('=');return[x.slice(0,p),x.slice(p+1)]}));
+const input=args.indexOf('--input');
+if(input>=0){if(args[input+1]!=='-')throw Error('unsupported fixture request input');Object.assign(fields,JSON.parse(fs.readFileSync(0,'utf8')))}
 const emit=x=>process.stdout.write(JSON.stringify(x));const file=root+'/pull.json';
 if(endpoint==='user')emit({login:'operator'});
 else if(endpoint==='repos/example/repo')emit({default_branch:'main',full_name:'example/repo'});
@@ -98,7 +100,7 @@ else if(endpoint?.startsWith('repos/example/repo/rules/branches/'))emit([]);
 else if(endpoint?.startsWith('repos/example/repo/branches/')){
  try{const branch=decodeURIComponent(endpoint.slice('repos/example/repo/branches/'.length));const sha=cp.execFileSync('/usr/bin/git',['-C',root+'/upstream','rev-parse','refs/heads/'+branch],{encoding:'utf8',stdio:['pipe','pipe','pipe']}).trim();emit({protected:false,commit:{sha}})}catch{console.error('404');process.exit(1)}
 }else if(endpoint==='repos/example/repo/pulls'&&method==='POST'){
- const pull={html_url:'https://github.com/example/repo/pull/17',number:17,title:fields.title,body:fields.body,draft:fields.draft==='true',state:'open',merged:false,head:{ref:fields.head},base:{ref:fields.base,repo:{full_name:'example/repo'}}};fs.writeFileSync(file,JSON.stringify(pull));emit(pull);
+ const pull={html_url:'https://github.com/example/repo/pull/17',number:17,title:fields.title,body:fields.body,draft:fields.draft===true||fields.draft==='true',state:'open',merged:false,head:{ref:fields.head},base:{ref:fields.base,repo:{full_name:'example/repo'}}};fs.writeFileSync(file,JSON.stringify(pull));emit(pull);
 }else if(endpoint==='repos/example/repo/pulls')emit(fs.existsSync(file)?[JSON.parse(fs.readFileSync(file))]:[]);
 else if(endpoint==='repos/example/repo/pulls/17')emit(JSON.parse(fs.readFileSync(file)));
 else{console.error('unsupported fixture request');process.exit(1)}
@@ -256,9 +258,20 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
         repository: 'example/repo',
         originalSourceOid: original,
         changedFiles: '["note.txt"]',
+        title: 'Approved task delta',
+        body: 'Only committed changes',
+        draft: true,
+        baseBranch: 'main',
       });
       expect(mocks.approve.mock.calls[0]![2]).toMatchObject({ forcePrompt: true });
       const branch = detail.result.sourceBranch;
+      expect(JSON.parse(await readFile(join(root, 'pull.json'), 'utf8'))).toMatchObject({
+        title: card.input.title,
+        body: card.input.body,
+        draft: card.input.draft,
+        head: { ref: card.input.sourceBranch },
+        base: { ref: card.input.baseBranch },
+      });
       expect(git(upstream, 'rev-parse', branch)).toBe(detail.result.sourceOid);
       expect(git(upstream, 'show', branch + ':note.txt')).toBe('changed');
       expect(git(upstream, 'show', branch + ':upstream-only.txt')).toBe('must survive');
