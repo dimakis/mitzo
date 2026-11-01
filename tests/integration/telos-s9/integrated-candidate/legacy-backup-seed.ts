@@ -23,6 +23,9 @@ export function createLegacyBackupSeed() {
   expect(createHash('sha256').update(schema).digest('hex')).toBe(manifest.schemas.upgraded);
   db.exec(schema);
   const stamp = '2025-01-02T03:04:05+00:00';
+  // This journey preserves a snoozed item, rather than exercising expiry.
+  // Keep its deadline ahead of the real child processes' calendar day.
+  const snoozedUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const hints = {
     repos: ['example/old-repo'],
     paths: ['notes/legacy.md'],
@@ -61,7 +64,7 @@ export function createLegacyBackupSeed() {
       9,
       1,
       0.7,
-      status === 'snoozed' ? '2026-11-01' : null,
+      status === 'snoozed' ? snoozedUntil : null,
       'legacy-accounting-goal',
       'historical-' + id,
       JSON.stringify(context),

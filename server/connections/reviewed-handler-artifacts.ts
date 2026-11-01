@@ -137,7 +137,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/TodoView.test.tsx':
     '5200a57b447b294573b965aad4a972e042d353cbc15b62dfa6fb4ee53e528ace',
   '../__tests__/telos-collection.test.ts':
-    'b92845a1c736c94956269b3203cc773e3132046b37613ff4633be51fddd56ea5',
+    '0bc88057cd29dce5f786b79cfd8a0f4d99b46a858309907dc4f2996b2b0f19cd',
   '../telos-collection.ts': '27f60ef7ad156623b9357bc2ac74c11df79030e1dab1703829de8f51576d4748',
   '../../tests/fixtures/telos-priority.tsx':
     '43bbbf84aeac8206f7fb7331e79bc7f29809f59e3eccfc62956d08ad0c7892e7',
@@ -2498,7 +2498,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/legacy-backup-process-fixture.ts':
     '0a6e49585716a5af196873d1b792868afcc41d4b07e9e4df4753f1d98c5de2de',
   '../../tests/integration/telos-s9/integrated-candidate/legacy-backup-seed.ts':
-    'f0f245ccb9dc5e5efc7695331516550ceb63fe157b016c6806ac1bdc2932e612',
+    'bc685172c3f6fb0d3a759bf4d577b5f8a3fb777d530d09e2cdba3aa1447c3acd',
   '../../tests/integration/telos-s9/integrated-candidate/lost-response-browser.contract.ts':
     '9ee7379ea5855e721a80e9ab107a2713c820fcd5525e49ef7b9eecba68ee714c',
   '../../tests/integration/telos-s9/integrated-candidate/navigation-context-browser.contract.ts':
