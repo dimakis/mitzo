@@ -203,6 +203,12 @@ qualification remain required. Staging remains stood down; production activation
 requires a separate explicit user action. Any later real model test must select
 a supported Luna model and name its charged account before execution.
 
+## Host development commands
+
+Owned Local Mac chats run the installed `gh` and Git through native Codex execution and its existing approval flow. The native profile permits reading the host's default `~/.config/gh` login; it does not inject a GitHub token or route commands through Telos, OpenShell or a dedicated merge executor. Native tools share access to this credential store, so this is the ordinary trusted host execution model, not credential isolation. Other host file services retain their GitHub credential denial. Explicit account/runtime protections still win if the GitHub configuration aliases protected storage.
+
+Network access stays restricted pending native approval. Task checkout Git writes retain their current scope; external linked-worktree administration requires an exact native filesystem grant. A remote PR branch update does not refresh the local checkout. CI, reviews and exact-head merge guards remain required. The changed read ceiling requires fresh native admission rather than widening a running thread's installed profile. No live GitHub or model acceptance, runtime activation or deployment is implied by offline tests.
+
 ## Deployment declaration renewal
 
 The canonical `scripts/create-release.sh` delegates activation to `scripts/deploy.sh`.

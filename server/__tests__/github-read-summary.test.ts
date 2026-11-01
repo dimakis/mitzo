@@ -232,3 +232,51 @@ it('retains pagination when a transport exposes repeated Link headers', async ()
     last: next,
   });
 });
+
+it.each([
+  ['actions/runs/42/jobs', 'jobs'],
+  ['actions/runs/42/artifacts', 'artifacts'],
+  ['actions/artifacts', 'artifacts'],
+])('retains diagnostic identities and completeness for %s', (endpoint, wrapper) => {
+  const workflowRun = {
+    id: 42,
+    repository_id: 1,
+    head_repository_id: 2,
+    head_branch: 'fix',
+    head_sha: 'abc',
+  };
+  const identity =
+    wrapper === 'artifacts'
+      ? { expired: false, size_in_bytes: 123, workflow_run: workflowRun }
+      : { run_id: 42, head_sha: 'abc', run_attempt: 2, status: 'completed', conclusion: 'failure' };
+  const result = summary(
+    {
+      total_count: 11,
+      [wrapper]: [
+        {
+          id: 5,
+          ...identity,
+          ...(wrapper === 'artifacts'
+            ? { workflow_run: { ...workflowRun, noise: 'verbose' } }
+            : {}),
+          repository: { noise: 'verbose' },
+        },
+      ],
+    },
+    `https://api.github.com/repos/example/project/${endpoint}?per_page=1&page=2`,
+  );
+  expect(result).toMatchObject({
+    total_count: 11,
+    returned: 1,
+    omitted: 0,
+    pagination: { page: '2', per_page: '1' },
+    items: [
+      {
+        id: 5,
+        ...identity,
+      },
+    ],
+  });
+  expect(result.items[0]).not.toHaveProperty('repository');
+  expect(result.items[0]).not.toHaveProperty('workflow_run.noise');
+});

@@ -130,3 +130,86 @@ it.each(['contents/file.txt', 'git/trees/main', 'commits/main/check-runs', 'acti
     }
   },
 );
+
+it('projects changed-file patches and Actions runs before the native stdout cap', () => {
+  const filesUrl = 'https://api.github.com/repos/example/project/pulls/7/files?per_page=2';
+  const files = [
+    {
+      filename: 'src/fix.ts',
+      previous_filename: 'src/old.ts',
+      sha: 'a'.repeat(40),
+      status: 'renamed',
+      additions: 2,
+      deletions: 1,
+      changes: 3,
+      patch: 'large diff'.repeat(10000),
+    },
+  ];
+  const runsUrl =
+    'https://api.github.com/repos/example/project/actions/runs?head_sha=abc&per_page=2';
+  const runs = {
+    total_count: 8,
+    workflow_runs: [
+      {
+        id: 42,
+        name: 'CI',
+        head_sha: 'abc',
+        run_attempt: 2,
+        status: 'completed',
+        conclusion: 'failure',
+        html_url: 'https://github.com/example/project/actions/runs/42',
+        repository: { noise: 'large metadata'.repeat(10000) },
+      },
+    ],
+  };
+  const artifactsUrl = 'https://api.github.com/repos/example/project/actions/artifacts';
+  const workflowRun = {
+    id: 42,
+    repository_id: 1,
+    head_repository_id: 2,
+    head_branch: 'fix',
+    head_sha: 'abc',
+  };
+  const artifacts = {
+    total_count: 8,
+    artifacts: [
+      {
+        id: 5,
+        name: 'build',
+        workflow_run: { ...workflowRun, noise: 'large metadata'.repeat(10000) },
+      },
+    ],
+  };
+  const summaries = [];
+  for (const [body, url] of [
+    [files, filesUrl],
+    [runs, runsUrl],
+    [artifacts, artifactsUrl],
+  ] as const) {
+    expect(Buffer.byteLength(JSON.stringify(body))).toBeGreaterThan(65536);
+    const bounded = project(body, url);
+    expect(Buffer.byteLength(bounded)).toBeLessThan(2048);
+    const native = JSON.parse(githubReadSummary(bounded, url));
+    summaries.push(native);
+    expect(native).toEqual(JSON.parse(githubReadSummary(JSON.stringify(body), url)));
+  }
+  expect(summaries[0].items[0]).toMatchObject({
+    filename: 'src/fix.ts',
+    previous_filename: 'src/old.ts',
+    additions: 2,
+    deletions: 1,
+  });
+  expect(summaries[1]).toMatchObject({
+    total_count: 8,
+    returned: 1,
+    items: [{ id: 42, head_sha: 'abc', run_attempt: 2, conclusion: 'failure' }],
+  });
+  expect(summaries[2]).toMatchObject({
+    total_count: 8,
+    items: [{ id: 5, name: 'build', workflow_run: workflowRun }],
+  });
+  expect(summaries[2].items[0].workflow_run).not.toHaveProperty('noise');
+  expect(
+    trustedGitHubReadRequest('/repos/example/project/pulls/7/files', 'full').args,
+  ).not.toContain('--jq');
+});
