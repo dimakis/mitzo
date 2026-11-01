@@ -39,7 +39,12 @@ export function protectCodexProfileRoots(roots: string[]) {
   }
 }
 
-export function privateCodexRoots(extraRoots: string[] = []): string[] {
+type PrivatePathOptions = { allowHostGithubCredentials?: boolean };
+
+export function privateCodexRoots(
+  extraRoots: string[] = [],
+  options: PrivatePathOptions = {},
+): string[] {
   protectCodexProfileRoots(configuredKnowledgeLibraryPrivatePaths());
   protectCodexProfileRoots(workspaceRuntimePrivateFiles());
   return [
@@ -56,10 +61,13 @@ export function privateCodexRoots(extraRoots: string[] = []): string[] {
       '.config/gcloud',
       '.config/openshell',
       '.config/gws',
-      '.config/gh',
       '.cursor/mcp.json',
       'Library/Keychains',
     ].map((p) => join(homedir(), p)),
+    // Owned Local Mac native execution uses the ordinary host gh login. Omit
+    // only this default entry; explicit/runtime protections still win after
+    // canonicalization, including when gh's directory aliases private storage.
+    ...(!options.allowHostGithubCredentials ? [join(homedir(), '.config', 'gh')] : []),
     join(process.cwd(), '.env'),
     ...(process.env.MITZO_KEYCHAIN_HELPER ? [process.env.MITZO_KEYCHAIN_HELPER] : []),
     ...(process.env.MITZO_KEYCHAIN_CONNECTIONS_DIR
@@ -84,8 +92,11 @@ export function isPrivateCodexPath(path: string, extraRoots: string[] = []) {
 }
 
 /** Freeze known private roots for one delivery/query, retaining canonical alias checks. */
-export function privateCodexPathSnapshot(extraRoots: string[] = []) {
-  const roots = privateCodexRoots(extraRoots);
+export function privateCodexPathSnapshot(
+  extraRoots: string[] = [],
+  options: PrivatePathOptions = {},
+) {
+  const roots = privateCodexRoots(extraRoots, options);
   return {
     roots,
     isPrivate: (path: string) => {

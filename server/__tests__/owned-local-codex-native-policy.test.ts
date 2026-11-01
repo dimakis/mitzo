@@ -1,5 +1,5 @@
 import { mkdtempSync, mkdirSync, symlinkSync, rmSync, writeFileSync, realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
@@ -9,7 +9,12 @@ const state = vi.hoisted(() => ({
   configured: [] as string[],
   broken: false,
   loads: 0,
+  home: undefined as string | undefined,
 }));
+vi.mock('node:os', async (original) => {
+  const os = await original<typeof import('node:os')>();
+  return { ...os, homedir: () => state.home ?? os.homedir() };
+});
 vi.mock('../account-profiles.js', () => ({
   loadAccountProfiles: () => {
     state.loads++;
@@ -29,7 +34,85 @@ vi.mock('../workspace-runtime-private-paths.js', () => ({
 }));
 import * as privatePaths from '../codex-private-path.js';
 import { composeOwnedLocalNativeExecutionPolicy } from '../owned-local-codex-native-policy.js';
+import { codexNativePermissionProfiles } from '../codex-native-execution-policy.js';
+import { nativeGrantFence } from '../codex-native-grant-fence.js';
+import { NativeApprovalRequestSchema } from '../codex-native-permission-protocol.js';
 import type { ManagedSession } from '../session-registry.js';
+
+it('uses the host GitHub CLI login with native network and external Git approvals, retaining other credential denials', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-native-github-')));
+  try {
+    state.home = join(root, 'home');
+    mkdirSync(join(state.home, '.config', 'gh'), { recursive: true });
+    const cwd = join(root, 'task'),
+      github = join(homedir(), '.config', 'gh');
+    mkdirSync(cwd);
+    const session = { cwd, mode: 'agent', worktreePaths: new Map() } as ManagedSession;
+    const input = {
+      session,
+      binding: { accountId: 'fixture', profileRevision: 'revision' } as never,
+      assertCurrentSync: () => {},
+    };
+    for (const mode of ['ask', 'agent', 'auto'] as const) {
+      session.mode = mode;
+      const policy = composeOwnedLocalNativeExecutionPolicy(input);
+      expect(policy.deniedRoots).not.toContain(realpathSync(github));
+      expect(policy.approvalPolicy).toBe('on-request');
+      for (const profile of Object.values(codexNativePermissionProfiles(policy).permissions)) {
+        expect(profile.filesystem).not.toHaveProperty(github);
+        expect(profile.filesystem).not.toHaveProperty(`${github}{,/**}`);
+        expect(profile.network.enabled).toBe(false);
+      }
+      const request = NativeApprovalRequestSchema.parse({
+        method: 'item/commandExecution/requestApproval',
+        id: 'native-gh',
+        params: {
+          threadId: 'thread',
+          turnId: 'turn',
+          itemId: 'item',
+          startedAtMs: Date.now(),
+          kind: 'command',
+          environmentId: 'local',
+          command: 'gh pr checks 358 --repo owner/repo',
+          additionalPermissions: {
+            network: { enabled: true },
+            fileSystem: { read: [github], write: [join(root, 'git-administration')] },
+          },
+        },
+      });
+      expect(() =>
+        nativeGrantFence(request, policy.deniedRoots, policy.writeProtectedRoots)(),
+      ).not.toThrow();
+      expect(policy.deniedRoots).toEqual(
+        expect.arrayContaining(
+          privatePaths.privateCodexPathSnapshot().roots.filter((path) => path !== github),
+        ),
+      );
+    }
+    // The exception belongs only to native Local Mac execution, not host file services.
+    expect(privatePaths.privateCodexPathSnapshot().isPrivate(github)).toBe(true);
+    const narrow = composeOwnedLocalNativeExecutionPolicy({ ...input, readableRoots: [cwd] });
+    expect(narrow.readableRoots).toEqual([cwd]);
+    expect(narrow.temporaryAccess).toBeUndefined();
+    // Explicit account protection still wins if an operator stores runtime authority here.
+    state.denied = [github];
+    expect(composeOwnedLocalNativeExecutionPolicy(input).deniedRoots).toContain(
+      realpathSync(github),
+    );
+    state.denied = [];
+    const runtime = join(root, 'runtime');
+    mkdirSync(runtime);
+    rmSync(github, { recursive: true });
+    symlinkSync(runtime, github);
+    state.configured = [runtime];
+    expect(composeOwnedLocalNativeExecutionPolicy(input).deniedRoots).toContain(runtime);
+  } finally {
+    state.home = undefined;
+    state.configured = [];
+    state.denied = ['/offline/account'];
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 it('takes one fresh complete denial snapshot per composition, retaining aliases and observed retired roots', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-native-snapshot-')));

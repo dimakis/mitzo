@@ -60,6 +60,12 @@ Required tests, CI, Centaur and final merge approval remain separate. Opening a 
 - Before requesting review, check active/queued jobs for this PR/SHA. A CI wait is not missing review. Inspect uncertain outcomes before retrying; never duplicate qualifying review.
 - Prefer automatic follow-up after fixes. At its cycle limit, use the deployed service's documented forced follow-up with a concrete reason and intact safety checks; the cap does not warrant full review. Preserve configured service, credentials and model; never expose secrets.
 
+## Local Mac commands
+
+Use native `gh` and Git with the host's existing GitHub CLI login. Network access and external linked-worktree Git administration use the normal native approvals; request the exact missing scope. No Telos assignment or GitHub command wrapper is needed. Native tools can read the host GitHub CLI credential store, so never print or copy tokens.
+
+`gh pr update-branch` updates the remote branch. Synchronize the task checkout through its authorized Git path before further edits or publishing, and inspect remote state before retrying an interrupted mutation. Preserve the gates below.
+
 ## Final gate and merge
 
 For Centaur-governed repositories, require the trusted publisher's non-dismissed **final LGTM**, recommendation **`merge`**, and **zero new and unresolved blocking findings** for the exact live head. That report may combine the retained thorough review with verified follow-ups or explicit trusted continuity evidence; a fresh full pass on every SHA is not required. `fix`, `human_decision`, missing or stale evidence blocks merge. Verify the repository's required `Centaur final LGTM` status and its configured App identity, not only text in a comment. Use a repository-provided gate helper where available, after checking it implements the current contract.

@@ -61,7 +61,9 @@ export function composeOwnedLocalNativeExecutionPolicyForWorkspace(
     throw Error('Native workspace unavailable');
   // One fresh complete snapshot for this composition only. Every invocation
   // reloads the actual profile roots and retained/configured private roots.
-  const privatePaths = privateCodexPathSnapshot(loadAccountProfiles().privateCodexRoots());
+  const privatePaths = privateCodexPathSnapshot(loadAccountProfiles().privateCodexRoots(), {
+    allowHostGithubCredentials: true,
+  });
   const deniedRoots = privatePaths.roots;
   const workspaces = [...selection.workspaceRoots];
   const selectors = workspaceRuntimeSelectorEntries();
@@ -112,5 +114,6 @@ Automatic review is unavailable on this account until its reviewer and billing r
 Escalations use explicit human review unless the existing workspace owner proves an already authorized exact task-root grant.
 Denied, cancelled and expired requests do not authorize execution. Never claim execution without a native result.
 Use native Git for normal add, commit and merge operations on the admitted task branch in the admitted task checkout; Agent and Auto include its .git metadata writes. Linked worktrees can still require exact permission for external Git administration.
+Use native gh with the host's existing GitHub CLI login for CI diagnostics, PR branch updates and merges. Network access and external Git administration use native approvals; request the exact missing permission instead of retrying an unchanged fence. The host GitHub CLI credential store is readable by native tools; do not print or copy credentials. No Telos assignment is required. A remote branch update does not synchronize the local checkout. Inspect remote state before retrying an interrupted mutation, and preserve required CI/review gates when merging.
 GitCommit is a separate narrow selected-file service where supplied, limited to 64 files and a clean index. Use native Git for larger commits or merges. Authenticated integrations remain trusted Mitzo tools where supplied.
 `;
