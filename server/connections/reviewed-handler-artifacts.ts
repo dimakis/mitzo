@@ -663,7 +663,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'b0d3b69b4b6ab701e7360364fcf5f4a7a3173d6e42835c3c4355de1d6d5e1541',
 
   '../__tests__/codex-conversation.test.ts':
-    '5c68f23badd1a67e0cf4552a0520b109f82ea8c226d76b4dae9fd2f8df1db320',
+    '7e6119f3df5ba07ccc2e86a090eff6167fc966aaeb3e430e2f8e5753f7fb2844',
   '../__tests__/codex-native-approvals.test.ts':
     '6217655cb4e5eb93fda42cde47accf415e0da1879ace6ea04c3f526914fe19db',
   '../__tests__/codex-native-artifact-qualification.test.ts':

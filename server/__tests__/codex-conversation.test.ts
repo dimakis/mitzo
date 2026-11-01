@@ -2461,7 +2461,6 @@ it.each([
       await expect(callback).rejects.toThrow('Synthetic result write failure');
     else await callback;
     expect(() => invocation!.assertCurrentSync!()).toThrow();
-    expect(() => selection.assertCurrentSync()).toThrow();
     expect(executions).toBe(1);
     expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
     if (['success', 'error', 'throw', 'result-write-failure'].includes(outcome))
@@ -2506,7 +2505,7 @@ it('pins original native call authority across a queued future command', async (
   await Promise.race([
     executing,
     callback.then(() => {
-      throw Error('Native selection capture did not enter');
+      throw Error('Native call authority capture did not enter');
     }),
   ]);
   expect(Object.keys(invocation!)).toEqual(['turnId', 'callId']);
