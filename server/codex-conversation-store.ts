@@ -1,3 +1,4 @@
+import { callbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import {
   CodexSteerInputSchema,
   type CodexSteerInput,
@@ -661,6 +662,7 @@ export class CodexConversationStore {
         ['result_content', 'TEXT'],
         ['result_is_error', 'INTEGER'],
         ['result_content_items', 'TEXT'],
+        ['result_effect_outcome', 'TEXT'],
       ] as const)
         if (!toolColumns.some((column) => column.name === name))
           this.db.exec(`ALTER TABLE codex_tools ADD COLUMN ${name} ${type}`);
@@ -2873,6 +2875,67 @@ export class CodexConversationStore {
       })
       .immediate();
   }
+  /** Reconciliation-only cold entry. The original terminal and error history
+   * survive; fresh native evidence cannot admit input or run a queue. */
+  reconcileRetainedInterruptedEffects(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+    expectedPhase: CompletionPhaseReceipt,
+    policy: CodexNativeExecutionPolicy,
+    effects: SettledInterruptedEffects,
+    assertCurrent: () => void,
+  ): void {
+    this.db
+      .transaction(() => {
+        assertCurrent();
+        if (
+          !isDeepStrictEqual(
+            this.completionPhase(id, binding, target.commandId, target.attempt),
+            expectedPhase,
+          ) ||
+          !isDeepStrictEqual(this.nativeRecoveryTarget(id, binding), target) ||
+          this.commandStatus(id, binding, target.commandId) !== 'interrupted'
+        )
+          throw Error('Retained reconciliation target changed');
+        // Revalidate original external authority under the writer lock. The
+        // snapshot check above is consumed once; later checks retain that authority.
+        this.reconcileNativeRecovery(
+          id,
+          binding,
+          target,
+          'interrupted',
+          target.threadId,
+          target.generation,
+        );
+        const current = () => {
+          assertCurrent();
+        };
+        const digest = createHash('sha256').update(this.read(id, binding).cwd).digest('hex');
+        if (expectedPhase.policyRevision !== policy.policyRevision)
+          this.reconcileHistoricalNativeCompletionPhase(
+            id,
+            binding,
+            target,
+            digest,
+            policy,
+            effects,
+            current,
+          );
+        else
+          this.reconcileCompletionPhase(
+            id,
+            binding,
+            target,
+            digest,
+            policy.policyRevision,
+            effects,
+            current,
+          );
+        this.acknowledgeRecovery(id, binding, target);
+      })
+      .immediate();
+  }
   /** A fresh account/workspace authority boundary supplies this reconciliation.
    * It consumes original success evidence and never invokes a hook or tool. */
   reconcileCompletionPhase(
@@ -2910,7 +2973,7 @@ export class CodexConversationStore {
           const receipts = this.db
             .prepare(
               `SELECT call_id,turn_id,tool_name,request_hash,
-            result_content,result_is_error FROM codex_tools WHERE conversation_id=? AND command_id=?`,
+            result_content,result_is_error,result_effect_outcome FROM codex_tools WHERE conversation_id=? AND command_id=?`,
             )
             .all(id, target.commandId) as Array<{
             call_id: string;
@@ -2919,8 +2982,37 @@ export class CodexConversationStore {
             request_hash: string | null;
             result_content: string | null;
             result_is_error: number | null;
+            result_effect_outcome: string | null;
           }>;
           const byId = new Map(receipts.map((receipt) => [receipt.call_id, receipt]));
+          let legacyOwnedReads = false;
+          if (
+            calls.some(
+              (call) =>
+                call.isError &&
+                call.readOnly &&
+                byId.get(call.callId)?.result_effect_outcome === null,
+            )
+          ) {
+            // Old owned-local sources disabled project hooks. Positive original
+            // custody plus accepted policy qualify only this historical cohort.
+            // Other owners and explicit unknown outcomes gain no read inference.
+            try {
+              const originalNative = this.readNativeExecution(id, binding, {
+                id: target.commandId,
+                attempt: target.attempt,
+              });
+              legacyOwnedReads =
+                !!this.readHostCustody(id, binding) &&
+                originalNative?.phase === 'accepted' &&
+                originalNative.turnId === target.turnId &&
+                originalNative.threadId === target.threadId &&
+                originalNative.generation === target.generation &&
+                originalNative.policy.policyRevision === phase.policyRevision;
+            } catch {
+              /* Unavailable original owned-local evidence retains the fence. */
+            }
+          }
           if (
             calls.length !== receipts.length ||
             calls.some((call) => {
@@ -2931,11 +3023,16 @@ export class CodexConversationStore {
                 receipt.tool_name !== call.toolName ||
                 receipt.request_hash !== call.requestHash ||
                 receipt.result_content === null ||
-                receipt.result_is_error !== 0
+                receipt.result_is_error !== Number(call.isError) ||
+                !(
+                  receipt.result_effect_outcome === 'settled' ||
+                  (receipt.result_effect_outcome === null &&
+                    (!call.isError || (call.readOnly && legacyOwnedReads)))
+                )
               );
             })
           )
-            throw Error('Interrupted native host effects lack matching successful receipts');
+            throw Error('Interrupted native host effects lack matching settled receipts');
         } else if (!['running', 'completed'].includes(row.status))
           throw Error('Completion phase requires the exact completed native outcome');
         this.saveCompletionPhases(
@@ -5398,7 +5495,7 @@ export class CodexConversationStore {
       this.read(id, b);
       const row = this.db
         .prepare(
-          `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error,result_content_items
+          `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error,result_content_items,result_effect_outcome
         FROM codex_tools WHERE conversation_id=? AND call_id=?`,
         )
         .get(id, callId) as
@@ -5410,6 +5507,7 @@ export class CodexConversationStore {
             result_content: string | null;
             result_is_error: number | null;
             result_content_items: string | null;
+            result_effect_outcome: string | null;
           }
         | undefined;
       if (
@@ -5424,17 +5522,27 @@ export class CodexConversationStore {
         if (
           row.result_content !== checked.content ||
           row.result_is_error !== Number(checked.isError) ||
-          row.result_content_items !== items
+          row.result_content_items !== items ||
+          (row.result_effect_outcome !== null &&
+            row.result_effect_outcome !== callbackOutcome(checked))
         )
           throw new Error('Codex tool result changed');
         return;
       }
       this.db
         .prepare(
-          `UPDATE codex_tools SET result_content=?,result_is_error=?,result_content_items=?
+          `UPDATE codex_tools SET result_content=?,result_is_error=?,result_content_items=?,result_effect_outcome=?
         WHERE conversation_id=? AND command_id=? AND call_id=?`,
         )
-        .run(checked.content, Number(checked.isError), items, id, commandId, callId);
+        .run(
+          checked.content,
+          Number(checked.isError),
+          items,
+          callbackOutcome(checked),
+          id,
+          commandId,
+          callId,
+        );
     })();
   }
   replayToolResult(
@@ -5447,7 +5555,7 @@ export class CodexConversationStore {
     this.read(id, b);
     const row = this.db
       .prepare(
-        `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error,result_content_items
+        `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error,result_content_items,result_effect_outcome
       FROM codex_tools WHERE conversation_id=? AND call_id=?`,
       )
       .get(id, callId) as
@@ -5459,6 +5567,7 @@ export class CodexConversationStore {
           result_content: string | null;
           result_is_error: number | null;
           result_content_items: string | null;
+          result_effect_outcome: string | null;
         }
       | undefined;
     if (
@@ -5475,13 +5584,21 @@ export class CodexConversationStore {
       Buffer.byteLength(row.result_content_items) > MAX_CODEX_RICH_RESULT_BYTES
     )
       throw Error('Stored tool result exceeds bound');
-    return normalizeCodexToolResult({
+    if (
+      row.result_effect_outcome !== null &&
+      !['settled', 'unknown'].includes(row.result_effect_outcome)
+    )
+      throw Error('Stored tool effect outcome invalid');
+    const replay = normalizeCodexToolResult({
       content: row.result_content,
       isError: row.result_is_error === 1,
       ...(row.result_content_items !== null
         ? { contentItems: JSON.parse(row.result_content_items) }
         : {}),
     });
+    return row.result_effect_outcome === null
+      ? replay
+      : retainCallbackOutcome(replay, row.result_effect_outcome as 'settled' | 'unknown');
   }
   recoverAtStartup(ownerKind?: 'ordinary' | 'symposium') {
     this.db.transaction(() => {

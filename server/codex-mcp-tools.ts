@@ -1,3 +1,4 @@
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { createHash } from 'node:crypto';
 import { context, trace, SpanStatusCode } from '@opentelemetry/api';
 import { tracer } from './tracing.js';
@@ -335,13 +336,16 @@ export async function connectCodexMcpTools(
               : 'approval_unavailable';
         const failure = codexToolFailureResult(new CodexToolFailure(code), false);
         // Preserve the permission owner's existing public reason, never an executor exception.
-        return {
-          ...failure,
-          content: JSON.stringify({
-            ...JSON.parse(failure.content),
-            reason: decision.message ?? 'Execution was not approved',
-          }),
-        };
+        return retainCallbackOutcome(
+          {
+            ...failure,
+            content: JSON.stringify({
+              ...JSON.parse(failure.content),
+              reason: decision.message ?? 'Execution was not approved',
+            }),
+          },
+          'settled',
+        );
       }
       options.assertRuntimeCurrent?.();
       const result = await tool.peer.callTool(

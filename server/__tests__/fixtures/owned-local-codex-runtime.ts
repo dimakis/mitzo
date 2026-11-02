@@ -402,6 +402,7 @@ export async function ownedRuntimeFixture(
       'signal'
     >,
     request: CommandRequest,
+    reconciliationOnly = false,
   ) {
     const commandId = request.clientMsgId;
     const rpc = {
@@ -435,8 +436,12 @@ export async function ownedRuntimeFixture(
       close: vi.fn(),
     };
     const launch = vi.fn(() => {
-      expect(events.getOrdinaryLocalCommandAdmission(commandId)?.state).toBe('uncertain');
-      expect(workspace.getHostReservation(reservation).state).toBe('reserved');
+      expect(events.getOrdinaryLocalCommandAdmission(commandId)?.state).toBe(
+        reconciliationOnly ? 'consumed' : 'uncertain',
+      );
+      expect(workspace.getHostReservation(reservation).state).toBe(
+        reconciliationOnly ? 'claimed' : 'reserved',
+      );
       return rpc;
     });
     const dispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {
