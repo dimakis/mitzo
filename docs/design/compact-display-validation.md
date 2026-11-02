@@ -68,3 +68,13 @@ option and refreshed the three changed source fingerprints with runtime revision
 133 focused component/design tests with the same existing skip, and source
 artifact verification passed. Full compiler/build and rendered acceptance remain
 required CI gates.
+
+CI also exposed stale autosave-copy and unmounted-node expectations in the existing
+draft and ordinary-chat browser journeys. Those now assert stable autosave wording
+and hidden empty feedback. The ordinary-chat reload still requires exact durable
+draft bytes through `expectPersistedChatDraft`, separately from the status copy.
+Both changed test fingerprints advance with runtime revision
+`v1.0.827-offline-draft-feedback-contract`. The focused browser listing discovers
+95 cases including startup across the three projects; execution remains in CI.
+Generated preview wrappers are formatted without changing their embedded
+application payloads, and the generator formats each newly created revision.
