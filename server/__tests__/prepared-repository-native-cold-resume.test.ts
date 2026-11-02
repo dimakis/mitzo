@@ -268,14 +268,22 @@ it('reconciles the interrupted automatic prepared continuation after restart wit
     true,
     true,
   );
+  const eventsDb = (f.events as unknown as { db: Database.Database }).db;
   const before = {
     receipt: f.events.getOrdinaryLocalCommandExecutionAdmission(command.id),
     command: f.native.commands(id, binding).find((item) => item.id === command.id)!,
     custody: f.native.readHostCustody(id, binding),
+    sends: eventsDb.prepare('SELECT * FROM send_commands WHERE session_id=?').all(id),
   };
   const edited = join(target.directory, 'retained-jira-policy.txt');
   await writeFile(edited, 'Uncommitted implementation remains');
   f.runtime.close();
+  // Generic startup recovery must leave historical pre-adoption receipts to
+  // their original owner while the native effect fence is reconciled below.
+  expect(() => f.events.recoverPendingSendCommands()).not.toThrow();
+  expect(eventsDb.prepare('SELECT * FROM send_commands WHERE session_id=?').all(id)).toEqual(
+    before.sends,
+  );
   const request = f.rpc.request.getMockImplementation()!;
   const freshClient = {
     ...f.rpc,
@@ -301,7 +309,6 @@ it('reconciles the interrupted automatic prepared continuation after restart wit
     command.id,
   );
   const claims = vi.spyOn(f.events, 'claimOrdinaryLocalCommandDispatch');
-  const eventsDb = (f.events as unknown as { db: Database.Database }).db;
   const originalAdmission = (
     eventsDb
       .prepare('SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?')
@@ -332,6 +339,9 @@ it('reconciles the interrupted automatic prepared continuation after restart wit
     environmentContinuation: before.command.environmentContinuation,
   });
   expect(f.events.getOrdinaryLocalCommandExecutionAdmission(command.id)).toEqual(before.receipt);
+  expect(eventsDb.prepare('SELECT * FROM send_commands WHERE session_id=?').all(id)).toEqual(
+    before.sends,
+  );
   expect(f.native.readHostCustody(id, binding)).toEqual(before.custody);
   expect(await readFile(edited, 'utf8')).toBe('Uncommitted implementation remains');
   expect(dispatch).not.toHaveBeenCalled();

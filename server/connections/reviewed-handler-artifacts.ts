@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.833-settled-tool-recovery';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.834-settled-tool-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,6 +25,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../retained-local-codex-effects.ts':
     '8ff098e6878bd4268ea71168f98a7b1a8b91bf9efb642ff3b9faff068232c0c8',
   '../builtin-tool-behavior.ts': '683d38d640c8761277009183b8d0f9aca56da587a78b37a97d774f2d16a382a5',
+  '../../packages/protocol/__tests__/ordinary-local-admission.test.ts':
+    '8fdde207ca4b1f8b91a527969c374d12b9c4b1e5f8b6c66004c89dfb7fa4ebc0',
+  '../../packages/protocol/__tests__/ordinary-local-vertex-admission.test.ts':
+    '0eef1a8439df83ea06b6e2c18c5554c9da728df31bf7aa4631665ac1bd1158c9',
+  '../../packages/protocol/__tests__/fixtures/ordinary-admission-recovery.ts':
+    '3303ed6935b5973d55ee587f894bd06b68e7f1f5fa65c5c7bd72a6317ca23046',
   '../prepared-repository-workspace-read.ts':
     '3594b274540f0f422b4a3b5f29b45c8792e7e283fe0becf2838191ec089c16ee',
   '../native-project-instructions.ts':
@@ -1651,7 +1657,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '27de6e399040ee80c78416a5023f27d42f6a5ccfbe707ffd58bd09bd2e7b4ef9',
   '../../packages/protocol/src/event-store.ts':
-    '29039232a7fa58cd6c1ff9b09c9dc5269b7370f37a61dd359261caccd71bebe8',
+    '1af6ceeb8a1d89f609f0017d322fdcf344cde56acc56e334f6e706719453db07',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
@@ -3047,7 +3053,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/prepared-repository-native-public.ts':
     'fa1c0f06efc2edfe535ddf1ce48da6119af9002b58d4a9580c62b0154468369b',
   '../__tests__/prepared-repository-native-cold-resume.test.ts':
-    'bb3d0246d3bc62086f3119a16845895c2cc67e3d2d1a44633ff447e3c0549e02',
+    '923bed11cb1d0f10e9c75e3059dda1b72ed012a87859ab02a8779db61965413b',
   '../__tests__/prepared-repository-native-owner-guards.test.ts':
     '67cab013db98d0ae62657aa5262cf5bf345a29a2dca94997ca6223a58fcad42c',
   '../__tests__/prepared-repository-native-public-completed.test.ts':
