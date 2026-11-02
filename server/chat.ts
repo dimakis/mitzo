@@ -3407,11 +3407,7 @@ export async function continueOwnedLocalCodexQueue(
   );
   const effectsId =
     !undispatchedId && !registry.findBySessionId(sessionId)
-      ? reconcilableLocalCodexCommand(
-          eventStore,
-          native,
-          sessionId,
-          authorization.id,
+      ? reconcilableLocalCodexCommand(eventStore, native, sessionId, authorization.id, () =>
           meta.ordinaryWorkspaceId ? getOrdinaryWorkspaces(true) : getRepositoryWorkspaces(true),
         )
       : undefined;

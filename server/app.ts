@@ -3684,9 +3684,10 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
               getCodexConversationStore(),
               meta.sessionId,
               auth.id,
-              meta.ordinaryWorkspaceId
-                ? getOrdinaryWorkspaces(true)
-                : getRepositoryWorkspaces(true),
+              () =>
+                meta.ordinaryWorkspaceId
+                  ? getOrdinaryWorkspaces(true)
+                  : getRepositoryWorkspaces(true),
             ))),
       ),
     };

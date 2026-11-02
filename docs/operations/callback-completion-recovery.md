@@ -104,6 +104,8 @@ writer boundaries, and consumes exact native terminal/item evidence. It closes
 the temporary lease without admitting input, starting a provider turn, replaying
 a tool or pumping the queue. Ordinary Send stays blocked until proof succeeds.
 The old command remains interrupted and its failed tool results are preserved.
+Missing or unavailable preparation state hides this action while session metadata
+remains readable; inspecting availability cannot initialize missing workspace state.
 
 This cold action excludes adviser, Symposium and Telos/contributor scopes.
 Qualified prepared/adopted repositories reuse the existing canonical ancestry,

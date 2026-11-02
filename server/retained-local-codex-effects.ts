@@ -134,16 +134,24 @@ export function retainedLocalCodexRecoveryReservation(
   };
 }
 
-/** Read-only action support. It grants neither Send nor authority to settle effects. */
+/** Read-only action support. Resolve optional persistence inside qualification:
+ * absent state hides the action without breaking metadata. This grants neither
+ * Send nor authority to settle effects. */
 export function reconcilableLocalCodexCommand(
   events: EventStore,
   native: CodexConversationStore,
   id: string,
   auth: string,
-  workspace: RepositoryWorkspaces,
+  workspace: RepositoryWorkspaces | (() => RepositoryWorkspaces),
 ): string | undefined {
   try {
-    return capture(events, native, id, auth, workspace).target.commandId;
+    return capture(
+      events,
+      native,
+      id,
+      auth,
+      typeof workspace === 'function' ? workspace() : workspace,
+    ).target.commandId;
   } catch {
     return undefined;
   }

@@ -5,12 +5,18 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { EventStore } from '../event-store.js';
+type EffectsEligibility =
+  typeof import('../retained-local-codex-effects.js').reconcilableLocalCodexCommand;
 
 const fixture = vi.hoisted(() => ({
   auth: { id: 'original-operator', expiresAt: Date.now() + 3600000 },
   native: { hasConversation: () => false },
   eligible: vi.fn((): string | undefined => 'saved-command'),
-  effectsEligible: vi.fn((): string | undefined => undefined),
+  effectsEligible: vi.fn<EffectsEligibility>(() => undefined),
+  originalEffects: undefined as EffectsEligibility | undefined,
+  workspace: vi.fn(() => {
+    throw Error('Repository preparation state is unavailable');
+  }),
   continue: vi.fn(async () => {}),
   authorize: vi.fn(),
   queue: { paused: true, connected: false, queued: 1, interrupted: 0 },
@@ -36,9 +42,14 @@ vi.mock('../retained-local-codex-recovery.js', async (original) => ({
   ...(await original<object>()),
   recoverableLocalCodexCommand: fixture.eligible,
 }));
-vi.mock('../retained-local-codex-effects.js', async (original) => ({
+vi.mock('../retained-local-codex-effects.js', async (original) => {
+  const actual = await original<typeof import('../retained-local-codex-effects.js')>();
+  fixture.originalEffects = actual.reconcilableLocalCodexCommand;
+  return { ...actual, reconcilableLocalCodexCommand: fixture.effectsEligible };
+});
+vi.mock('../repository-workspace-runtime.js', async (original) => ({
   ...(await original<object>()),
-  reconcilableLocalCodexCommand: fixture.effectsEligible,
+  getRepositoryWorkspaces: fixture.workspace,
 }));
 vi.mock('../chat.js', async (original) => ({
   ...(await original<object>()),
@@ -74,6 +85,7 @@ beforeAll(async () => {
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubEnv('TELOS_DB_PATH', join(root, 'todo.db'));
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'codex-private'));
   vi.stubGlobal(
     'fetch',
     vi.fn(() => {
@@ -151,7 +163,7 @@ it('projects local Work API Codex queue and actor-qualified saved continuation',
     fixture.native,
     id,
     fixture.auth.id,
-    expect.anything(),
+    expect.any(Function),
   );
   vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '0');
   fixture.eligible.mockClear();
@@ -161,6 +173,16 @@ it('projects local Work API Codex queue and actor-qualified saved continuation',
   );
   expect(fixture.eligible).not.toHaveBeenCalled();
   expect(fixture.effectsEligible).not.toHaveBeenCalled();
+  // Keep the actual helper/factory error boundary in this HTTP projection case.
+  // A missing isolated store must suppress the action without breaking metadata.
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
+  fixture.effectsEligible.mockImplementationOnce(fixture.originalEffects!);
+  fixture.workspace.mockClear();
+  const missingWorkspace = await request(app).get(`/api/sessions/${id}/meta`);
+  expect(missingWorkspace.status).toBe(200);
+  expect(missingWorkspace.body.codexQueue.canContinue).toBe(false);
+  expect(fixture.effectsEligible).toHaveBeenCalledOnce();
+  expect(fixture.workspace).toHaveBeenCalledWith(true);
   expect(fixture.continue).not.toHaveBeenCalled();
 });
 it('includes local Work API Codex in existing queue details route', async () => {
