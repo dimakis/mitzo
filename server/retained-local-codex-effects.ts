@@ -92,6 +92,19 @@ function capture(
     !isDeepStrictEqual(native.nativeRecoveryTarget(id, binding), target)
   )
     throw unavailable();
+  const execution = native.readNativeExecution(id, binding, {
+    id: target.commandId,
+    attempt: target.attempt,
+  });
+  if (
+    execution?.phase !== 'accepted' ||
+    execution.threadId !== target.threadId ||
+    execution.turnId !== target.turnId ||
+    execution.generation !== target.generation ||
+    execution.policy.cwd !== meta.cwd ||
+    execution.policy.policyRevision !== phase.policyRevision
+  )
+    throw unavailable();
   const admission = events.getOrdinaryLocalCommandExecutionAdmission(target.commandId);
   const send = events.getSendCommand(target.commandId);
   if (
@@ -111,7 +124,7 @@ function capture(
     native.read(id, binding).cwd !== meta.cwd
   )
     throw unavailable();
-  return { meta, binding, runtime, custody, target, phase, admission, send, prepared };
+  return { meta, binding, runtime, custody, target, phase, execution, admission, send, prepared };
 }
 /** One original reservation projection for both undispatched-input recovery and
  * inspection-only recovery. Ordinary roots retain their allocation fingerprint. */
@@ -282,8 +295,9 @@ export async function reconcileRetainedLocalCodexEffects(options: {
                   cwd: expected.workspace.cwd,
                   workspaceRoots: [expected.workspace.cwd],
                   mode: expected.selection.permission.mode,
-                  authSessionId: original.custody.authSessionId,
+                  authSessionId: auth,
                 }),
+                original.execution.policy.bindingRevision,
               ),
             action,
           ),
@@ -355,10 +369,9 @@ export async function reconcileRetainedLocalCodexEffects(options: {
             cwd: expected.workspace.cwd,
             mode: expected.selection.permission.mode,
             workspaceRoots: [expected.workspace.cwd],
-            // Preserve the original policy's identity for historical matching.
-            // Current operator authority is still checked by every owner above.
-            authSessionId: original.custody.authSessionId,
+            authSessionId: auth,
           }),
+          original.execution.policy.bindingRevision,
         );
         // Native metadata/items do not read checkout contents. Reuse the
         // original lease's account-only I/O fence for those reads; revalidate

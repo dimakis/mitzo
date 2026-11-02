@@ -427,6 +427,9 @@ it('reconciles an already dispatched cold turn with a failed read and no success
   native.bindThread(id, binding, 'original-thread');
   native.enqueue(id, binding, { id: f.request.clientMsgId, prompt: f.request.payload.text });
   const command = native.claimNext(id, binding)!;
+  // A later accepted turn can belong to a reconnecting login rather than the
+  // creating login retained in chat custody. Neither is the current actor below.
+  const executionLogin = randomUUID();
   const policy = composeOwnedLocalNativeExecutionPolicyForWorkspace(
     {
       binding,
@@ -436,7 +439,7 @@ it('reconciles an already dispatched cold turn with a failed read and no success
       cwd: original.workspace.directory!,
       mode: original.expected.selection.permission.mode,
       workspaceRoots: [original.workspace.directory!],
-      authSessionId: native.readHostCustody(id, binding)!.authSessionId,
+      authSessionId: executionLogin,
     }),
   );
   native.prepareNativeExecution(id, binding, command, 'original-thread', policy);
@@ -481,6 +484,7 @@ it('reconciles an already dispatched cold turn with a failed read and no success
   const token = await login(process.env.AUTH_PASSPHRASE!);
   const actor = (await authenticateToken(token!))!;
   expect(actor.id).not.toBe(custody.authSessionId);
+  expect(actor.id).not.toBe(executionLogin);
   const connectionId = randomUUID();
   cleanups.push(() => revokeAuthSession(actor), bindAgentLibraryTransport(connectionId, actor));
   const baseRequest = probe.rpc.request.getMockImplementation()!;

@@ -106,8 +106,10 @@ a tool or pumping the queue. Ordinary Send stays blocked until proof succeeds.
 The old command remains interrupted and its failed tool results are preserved.
 Missing or unavailable preparation state hides this action while session metadata
 remains readable; inspecting availability cannot initialize missing workspace state.
-A renewed verified login retains the original policy binding identity for historical
-matching while current operator, revocation and lease checks still govern inspection.
+A renewed verified login retains the exact accepted command's policy binding identity
+for historical matching while current operator, revocation and lease checks still govern
+inspection. A turn accepted after an earlier reconnect can have a different identity
+from the chat's creating login; custody identity alone cannot reconstruct that policy.
 
 This cold action excludes adviser, Symposium and Telos/contributor scopes.
 Qualified prepared/adopted repositories reuse the existing canonical ancestry,
