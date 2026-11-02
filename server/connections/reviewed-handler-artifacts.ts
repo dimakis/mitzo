@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.831-workspace-admission';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.832-startup-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/protocol/__tests__/ordinary-local-admission.test.ts':
+    '8fdde207ca4b1f8b91a527969c374d12b9c4b1e5f8b6c66004c89dfb7fa4ebc0',
+  '../../packages/protocol/__tests__/ordinary-local-vertex-admission.test.ts':
+    '0eef1a8439df83ea06b6e2c18c5554c9da728df31bf7aa4631665ac1bd1158c9',
+  '../../packages/protocol/__tests__/fixtures/ordinary-admission-recovery.ts':
+    '3303ed6935b5973d55ee587f894bd06b68e7f1f5fa65c5c7bd72a6317ca23046',
   '../prepared-repository-workspace-read.ts':
     '09bed5e0f7fd14ca28628bcc5a7a78b8d2e333c3a13a72d18d495daa635eb467',
   '../native-project-instructions.ts':
@@ -1648,7 +1654,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '27de6e399040ee80c78416a5023f27d42f6a5ccfbe707ffd58bd09bd2e7b4ef9',
   '../../packages/protocol/src/event-store.ts':
-    '29039232a7fa58cd6c1ff9b09c9dc5269b7370f37a61dd359261caccd71bebe8',
+    '1af6ceeb8a1d89f609f0017d322fdcf344cde56acc56e334f6e706719453db07',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
