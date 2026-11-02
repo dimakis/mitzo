@@ -54,7 +54,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('preview controls share one row on phones and retain local interactions', async ({ page }) => {
-  const html = await readFile('mockups/compact-file-viewer/v003.html', 'utf8');
+  const html = await readFile('mockups/compact-file-viewer/v004.html', 'utf8');
   await page.route('**/preview', (route) =>
     route.fulfill({ contentType: 'text/html', body: html }),
   );

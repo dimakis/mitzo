@@ -3,7 +3,7 @@ import { readFile, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import process from 'node:process';
 import { gzipSync } from 'node:zlib';
-import { format } from 'prettier';
+import { format, resolveConfig } from 'prettier';
 
 // Bundle the real components with a sample backend and memory-only storage.
 const result = await build({
@@ -51,9 +51,9 @@ body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:var
 #root .chat-page,#root .viewer-page{height:100%}
 </style></head><body>
 <div class="preview-controls">
-<label>Screen<select id="screen"><option value="393">Phone</option><option value="320">320px</option><option value="1280">Desktop</option></select></label>
-<label>Theme<select id="theme"><option value="dark">Dark</option><option value="light">Light</option></select></label>
-<label>View<select id="view"><option value="/files?path=v001.md">File</option><option value="/chat">Draft</option></select></label>
+<label>Screen<select id="screen" aria-label="Screen"><option value="393">Phone</option><option value="320">320px</option><option value="1280">Desktop</option></select></label>
+<label>Theme<select id="theme" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></label>
+<label>View<select id="view" aria-label="View"><option value="/files?path=v001.md">File</option><option value="/chat">Draft</option></select></label>
 </div>
 <p class="preview-caption">Actual components with sample content. All preview edits stay in memory; switching views resets them. Browser layout verification is pending.</p>
 <div class="preview-stage"><div id="root" aria-label="Compact Mitzo preview"></div></div>
@@ -74,7 +74,7 @@ showPreview();
   const bytes=Uint8Array.from(atob('${payload}'),c=>c.charCodeAt(0));
   const data=JSON.parse(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text());
   const style=document.createElement('style');style.textContent=data.css;document.head.prepend(style);
-  const script=document.createElement('script');script.src=URL.createObjectURL(new Blob([data.code],{type:'application/javascript'}));document.body.append(script);
+  const script=document.createElement('script');script.textContent=data.code;document.body.append(script);
 })().catch(error=>{document.getElementById('root').textContent='Preview could not load: '+error.message;});
 </script></body></html>`;
 const directory = 'mockups/compact-file-viewer';
@@ -83,5 +83,7 @@ const existing = new Set(await readdir(directory));
 let revision = 1;
 while (existing.has(`v${String(revision).padStart(3, '0')}.html`)) revision++;
 const path = `${directory}/v${String(revision).padStart(3, '0')}.html`;
-await writeFile(path, await format(html, { parser: 'html' }), { flag: 'wx' });
+await writeFile(path, await format(html, { ...(await resolveConfig(path)), parser: 'html' }), {
+  flag: 'wx',
+});
 process.stdout.write(path + '\n');

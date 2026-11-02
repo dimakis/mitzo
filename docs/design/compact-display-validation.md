@@ -80,3 +80,15 @@ Both changed test fingerprints advance with runtime revision
 95 cases including startup across the three projects; execution remains in CI.
 Generated preview wrappers are formatted without changing their embedded
 application payloads, and the generator formats each newly created revision.
+
+Run `41436177063` passed compiler/build, core/design, all four unit shards,
+browser interaction and every macOS owner. The desktop compact header/composer
+cases passed in both themes, and their retained captures were inspected. Remaining
+compact-display failures exposed fixture issues: missing mobile shell CSS, exact
+label lookup in the generated preview, and WebKit's intercepted blob-script load.
+The fixture now includes the real shell stylesheet. Preview revision `v004`
+retains the design while labelling its controls explicitly and executing its
+decompressed script inline. Earlier revisions remain retained. The generator
+resolves repository formatting settings. A DOM smoke check of `v004` passed
+document rendering, all three labelled controls, light Teal/Georgia and composer
+navigation without DOM errors; rendered acceptance still requires the next CI run.

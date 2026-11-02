@@ -9,6 +9,7 @@ import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/appearance.css';
 import '../../frontend/src/styles/workspace.css';
+import '../../frontend/src/styles/mobile-workspace.css';
 import '../../frontend/src/styles/workspace-chat.css';
 import '../../frontend/src/styles/chat-drafts.css';
 import '../../frontend/src/styles/motion.css';
