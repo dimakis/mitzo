@@ -1,3 +1,4 @@
+import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import {
   getRepositoryWorkspaces,
   readRepositoryWorkspaceForConversation,
@@ -164,18 +165,19 @@ export function createNativeToolExecutor(
       content,
       is_error,
     });
+    const refused = (content: string) => retainCallbackOutcome(result(content, true), 'settled');
     try {
       signal.throwIfAborted();
       await options.assertRuntimeCurrentAsync?.();
       options.assertRuntimeCurrent?.();
       const session = registry.get(clientId);
-      if (!session?.cwd) return result('Session workspace is unavailable', true);
+      if (!session?.cwd) return refused('Session workspace is unavailable');
       if (
         effectivePermissionMode(session) === 'ask' &&
         !['Read', 'AskUserQuestion', 'GitHubRead'].includes(block.name)
       )
-        return result('Ask mode only permits read-only native tools', true);
-      if (!Object.hasOwn(schemas, block.name)) return result('Native tool is unavailable', true);
+        return refused('Ask mode only permits read-only native tools');
+      if (!Object.hasOwn(schemas, block.name)) return refused('Native tool is unavailable');
       const parsed = schemas[block.name as keyof typeof schemas].safeParse(block.input);
       if (!parsed.success) {
         if (
@@ -185,18 +187,15 @@ export function createNativeToolExecutor(
               issue.code === 'too_big' && issue.path.length === 1 && issue.path[0] === 'files',
           )
         )
-          return result(
+          return refused(
             'GitCommit supports at most 64 selected files. Use native Git in the admitted task checkout for larger commits and merges.',
-            true,
           );
-        return result(
-          toolInputError(
-            'native tool input',
-            schemas[block.name as keyof typeof schemas],
-            parsed.error,
-          ).content,
-          true,
+        const invalid = toolInputError(
+          'native tool input',
+          schemas[block.name as keyof typeof schemas],
+          parsed.error,
         );
+        return copyCallbackOutcome(invalid, result(invalid.content, true));
       }
       if (block.name === 'AskUserQuestion') {
         const permission = await canUseTool(block.name, parsed.data, {
@@ -206,7 +205,7 @@ export function createNativeToolExecutor(
         signal.throwIfAborted();
         return permission.behavior === 'allow'
           ? result(JSON.stringify({ answers: permission.updatedInput?.answers }))
-          : result(permission.message, true);
+          : refused(permission.message);
       }
       if (block.name === 'GitHubRead' && 'endpoint' in parsed.data) {
         const input = {
@@ -246,15 +245,15 @@ export function createNativeToolExecutor(
         for (const requested of parsed.data.files) {
           const canonical = await canonicalPath(resolve(root, requested));
           if (privatePathSnapshot()(canonical) || isWorkspaceRuntimeAuthorityWritePath(canonical))
-            return result('Private provider storage or runtime authority is unavailable', true);
+            return refused('Private provider storage or runtime authority is unavailable');
           if (canonical === root || !canonical.startsWith(root + '/'))
-            return result('Git commit path is outside the session workspace', true);
+            return refused('Git commit path is outside the session workspace');
           const info = await lstat(canonical).catch((error: NodeJS.ErrnoException) => {
             if (error.code !== 'ENOENT') throw error;
             return null;
           });
           if (info && !info.isFile())
-            return result('Git commit paths must be regular files or tracked deletions', true);
+            return refused('Git commit paths must be regular files or tracked deletions');
           const file = relative(root, canonical);
           files.push(file);
           if (info) {
@@ -267,7 +266,7 @@ export function createNativeToolExecutor(
               afterRead.size !== info.size ||
               afterRead.mtimeMs !== info.mtimeMs
             )
-              return result('Git commit path changed while preparing approval; retry', true);
+              return refused('Git commit path changed while preparing approval; retry');
             approvedIdentities.set(file, {
               dev: info.dev,
               ino: info.ino,
@@ -282,15 +281,15 @@ export function createNativeToolExecutor(
           forcePrompt: true,
         });
         signal.throwIfAborted();
-        if (permission.behavior !== 'allow') return result(permission.message, true);
+        if (permission.behavior !== 'allow') return refused(permission.message);
         if (!isDeepStrictEqual(permission.updatedInput, input))
-          return result('Tool input changed during approval; retry the tool', true);
+          return refused('Tool input changed during approval; retry the tool');
         if (
           registry.get(clientId) !== session ||
           effectivePermissionMode(session) === 'ask' ||
           checkSkillPolicy(registry, clientId, block.name) === 'deny'
         )
-          return result('Session permissions changed; retry the tool', true);
+          return refused('Session permissions changed; retry the tool');
         const repositoryTask = session.sessionId
           ? readRepositoryWorkspaceForConversation(session.sessionId)
           : undefined;
@@ -339,11 +338,11 @@ export function createNativeToolExecutor(
             : {}),
         });
         signal.throwIfAborted();
-        if (permission.behavior !== 'allow') return result(permission.message, true);
+        if (permission.behavior !== 'allow') return refused(permission.message);
         if (!isDeepStrictEqual(permission.updatedInput, input))
-          return result('Tool input changed during approval; retry the tool', true);
+          return refused('Tool input changed during approval; retry the tool');
         if (registry.get(clientId) !== session || effectivePermissionMode(session) === 'ask')
-          return result('Session permissions changed; retry the tool', true);
+          return refused('Session permissions changed; retry the tool');
         // Resolve login roots anew; an unreadable account configuration fails closed.
         const deniedRoots = privateCodexRoots(loadAccountProfiles().privateCodexRoots());
         const roots = session.worktreePaths.size
@@ -369,12 +368,11 @@ export function createNativeToolExecutor(
             ),
           )
         )
-          return result(
+          return refused(
             'Command workspace overlaps workspace runtime authority. Move operator enrollment and runtime files outside writable task roots.',
-            true,
           );
         if (writableRoots.some((p) => privatePathSnapshot()(p)))
-          return result('Private provider storage is unavailable', true);
+          return refused('Private provider storage is unavailable');
         await options.assertRuntimeCurrentAsync?.();
         options.assertRuntimeCurrent?.();
         const output = await executeSandboxedCommand({
@@ -404,8 +402,8 @@ export function createNativeToolExecutor(
         return result(output.content, output.isError);
       }
       const input = { ...parsed.data };
-      if ('questions' in input || 'command' in input) return result('Invalid tool input', true);
-      if (!('file_path' in input)) return result('Invalid file tool input', true);
+      if ('questions' in input || 'command' in input) return refused('Invalid tool input');
+      if (!('file_path' in input)) return refused('Invalid file tool input');
       const isPrivate = privatePathSnapshot();
       const forcePrompt =
         options.forcePrompt === true ||
@@ -416,18 +414,14 @@ export function createNativeToolExecutor(
         try {
           roots.push({ canonical: await realpath(entry.path), original: entry.path });
         } catch {
-          return result(
-            'Session worktree is unavailable; restore the workspace before retrying',
-            true,
-          );
+          return refused('Session worktree is unavailable; restore the workspace before retrying');
         }
       }
       const approvedPath = await canonicalPath(resolve(session.cwd, input.file_path));
       input.file_path = approvedPath;
-      if (isPrivate(input.file_path))
-        return result('Private provider storage is unavailable', true);
+      if (isPrivate(input.file_path)) return refused('Private provider storage is unavailable');
       if (block.name !== 'Read' && isWorkspaceRuntimeAuthorityWritePath(approvedPath))
-        return result('Workspace runtime authority is unavailable for writes', true);
+        return refused('Workspace runtime authority is unavailable for writes');
       // Present the checked path under the registry's original root alias. This keeps
       // the shared guard and lazy creation working without mutating registry entries.
       const root = roots.find(
@@ -452,22 +446,22 @@ export function createNativeToolExecutor(
         forcePrompt,
       });
       signal.throwIfAborted();
-      if (permission.behavior !== 'allow') return result(permission.message, true);
+      if (permission.behavior !== 'allow') return refused(permission.message);
       // The shared handler returns the checked input. Never execute unchecked replacements.
       if (!isDeepStrictEqual(permission.updatedInput, input))
-        return result('Tool input changed during approval; retry the tool', true);
+        return refused('Tool input changed during approval; retry the tool');
       if (
         (await canonicalPath(input.file_path)) !== approvedPath ||
         privatePathSnapshot()(input.file_path) ||
         (block.name !== 'Read' && isWorkspaceRuntimeAuthorityWritePath(input.file_path))
       )
-        return result('Tool path changed or became private during approval; retry the tool', true);
+        return refused('Tool path changed or became private during approval; retry the tool');
       if (
         registry.get(clientId) !== session ||
         (block.name !== 'Read' && effectivePermissionMode(session) === 'ask') ||
         checkSkillPolicy(registry, clientId, block.name) === 'deny'
       )
-        return result('Session permissions changed before file execution; retry the tool', true);
+        return refused('Session permissions changed before file execution; retry the tool');
       await options.assertRuntimeCurrentAsync?.();
       options.assertRuntimeCurrent?.();
       const operation = await executeNativeFileOperation(

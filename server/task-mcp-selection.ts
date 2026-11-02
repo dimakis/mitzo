@@ -1,3 +1,4 @@
+import { retainReadOnlyCallbackOutcome } from './turn-callbacks.js';
 import type {
   AgentToolCatalogEntry,
   AgentToolReference,
@@ -77,6 +78,11 @@ export async function connectSelectedTaskMcpTools(
       return { wireName: tool.definition.name, reference };
     });
     const names = new Set(admitted.map((entry) => entry.wireName));
+    const reads = new Set(
+      admitted
+        .filter((entry) => entry.reference.id === 'mitzo:TaskStatus')
+        .map((entry) => entry.wireName),
+    );
     return {
       ...peer,
       admitted,
@@ -84,7 +90,9 @@ export async function connectSelectedTaskMcpTools(
       execute: (...args: Parameters<typeof peer.execute>) => {
         if (!names.has(args[0])) throw Error('Task tool is not selected');
         options.assertRuntimeCurrent?.();
-        return peer.execute(...args);
+        return reads.has(args[0])
+          ? retainReadOnlyCallbackOutcome(args[3], () => peer.execute(...args))
+          : peer.execute(...args);
       },
     };
   } catch (error) {

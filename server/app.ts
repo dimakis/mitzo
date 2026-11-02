@@ -1,3 +1,4 @@
+import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
 import { createQueuedMessageReceiptHandler } from './queued-message-receipt.js';
 import { assertOrdinaryContributorControlAllowed } from './ordinary-contributor-execution.js';
 import { installChatCommandJson } from './chat-command-json.js';
@@ -3667,15 +3668,27 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       ...codexQueue,
       canContinue: Boolean(
         !meta.isHidden &&
+        process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED === '1' &&
         (!codexQueue.connected || codexQueue.paused) &&
         auth &&
         auth.expiresAt > Date.now() &&
-        recoverableLocalCodexCommand(
+        (recoverableLocalCodexCommand(
           eventStore,
           getCodexConversationStore(),
           meta.sessionId,
           auth.id,
-        ),
+        ) ||
+          (!registry.findBySessionId(meta.sessionId) &&
+            reconcilableLocalCodexCommand(
+              eventStore,
+              getCodexConversationStore(),
+              meta.sessionId,
+              auth.id,
+              () =>
+                meta.ordinaryWorkspaceId
+                  ? getOrdinaryWorkspaces(true)
+                  : getRepositoryWorkspaces(true),
+            ))),
       ),
     };
   }

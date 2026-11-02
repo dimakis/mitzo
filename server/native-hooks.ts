@@ -1,3 +1,4 @@
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -106,16 +107,19 @@ export class NativeHooks {
       signal.throwIfAborted();
       return appendCodexToolFeedback(result, context);
     } catch (error) {
-      return {
-        content: executed
-          ? error instanceof CodexToolResultBoundError
-            ? 'Tool ran, but its result exceeded the supported bound after hook feedback. Inspect current state and request a smaller result before retrying.'
-            : 'Tool ran, but its post-tool hook failed or was interrupted. Inspect current state before retrying.'
-          : error instanceof Error
-            ? error.message
-            : 'Project hook blocked the tool.',
-        isError: true,
-      };
+      return retainCallbackOutcome(
+        {
+          content: executed
+            ? error instanceof CodexToolResultBoundError
+              ? 'Tool ran, but its result exceeded the supported bound after hook feedback. Inspect current state and request a smaller result before retrying.'
+              : 'Tool ran, but its post-tool hook failed or was interrupted. Inspect current state before retrying.'
+            : error instanceof Error
+              ? error.message
+              : 'Project hook blocked the tool.',
+          isError: true,
+        },
+        'unknown',
+      );
     }
   }
   private matching(event: Event, input: Record<string, unknown>) {

@@ -1,4 +1,7 @@
-import type { FrozenHostQualifiedWorkspaceReadOwner } from './frozen-host-codex-bootstrap.js';
+import type {
+  FrozenHostQualifiedWorkspaceReadOwner,
+  FrozenHostCodexBootstrapLease,
+} from './frozen-host-codex-bootstrap.js';
 import type { CodexNativeExecutionPolicy } from './codex-native-execution-policy.js';
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import { withPreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
@@ -66,4 +69,40 @@ export async function withPreparedRepositoryWorkspaceRead(
       scope.assertCurrentSync();
     },
   );
+}
+
+/** Shared lease-bound topology read for cold resume and inspection-only recovery.
+ * The original lease verifies account identity around the same physical action. */
+export async function withPreparedRepositoryLeaseRead(
+  currentLease: () => FrozenHostCodexBootstrapLease,
+  signal: AbortSignal,
+  commandId: string,
+  policy: (owner: FrozenHostQualifiedWorkspaceReadOwner) => CodexNativeExecutionPolicy,
+  action: (access: LocalRepositoryReadAccess) => Promise<void>,
+): Promise<void> {
+  const lease = currentLease();
+  const withReadOwner = lease.withQualifiedWorkspaceReadOwner;
+  if (!withReadOwner) throw Error('Original prepared workspace read owner unavailable');
+  let completed = false;
+  const result: unknown = await Reflect.apply(withReadOwner, lease, [
+    signal,
+    async (owner: FrozenHostQualifiedWorkspaceReadOwner) => {
+      const selectedPolicy = () => policy(owner);
+      await withPreparedRepositoryWorkspaceRead(
+        owner,
+        selectedPolicy(),
+        commandId,
+        { selectedPolicy },
+        action,
+      );
+      completed = true;
+    },
+  ]);
+  if (
+    result !== undefined ||
+    !completed ||
+    lease !== currentLease() ||
+    lease.withQualifiedWorkspaceReadOwner !== withReadOwner
+  )
+    throw Error('Prepared workspace read owner changed');
 }

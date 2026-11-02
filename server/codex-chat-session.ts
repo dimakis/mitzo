@@ -1,3 +1,4 @@
+import { copyCallbackOutcome } from './turn-callbacks.js';
 import {
   RepositoryMaterializationSchema,
   repositoryMaterializationMigrationMatches,
@@ -2011,7 +2012,7 @@ async function openCodexChatBound(
       rawOutputBytes: Buffer.byteLength(result.content),
       deliveredOutputBytes: Buffer.byteLength(content),
     });
-    return { ...result, content };
+    return copyCallbackOutcome(result, { ...result, content });
   };
   const connectionTools = sessionCredentialTools(
     options.conversationId,
@@ -2515,7 +2516,7 @@ async function openCodexChatBound(
       rawOutputBytes: Buffer.byteLength(result.content),
       deliveredOutputBytes: Buffer.byteLength(content),
     });
-    return { ...result, content };
+    return copyCallbackOutcome(result, { ...result, content });
   };
   let acceptedReplyExecution: ReturnType<typeof captureOrdinaryReplyExecution> | undefined;
   const runtimeOptions: CodexConversationOptions = {
@@ -4163,7 +4164,10 @@ async function openCodexChatBound(
                 ...(input.view === 'summary' || input.view === 'full' ? { view: input.view } : {}),
               },
             };
-          return { content: result.content, isError: !!result.is_error };
+          return copyCallbackOutcome(result, {
+            content: result.content,
+            isError: !!result.is_error,
+          });
         },
       ) ?? Promise.reject(new Error('Host tools are unavailable inside OpenShell')));
       if (!options.ownedLocal || name !== 'GitHubRead' || result.isError || !approvedGitHubRead)

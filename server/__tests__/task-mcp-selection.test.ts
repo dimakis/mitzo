@@ -1,3 +1,4 @@
+import { callbackOutcome } from '../turn-callbacks.js';
 import { expect, it, vi } from 'vitest';
 import { AgentToolReferencesSchema } from '@mitzo/protocol';
 import { agentToolCatalog } from '../agent-tool-catalog.js';
@@ -184,6 +185,21 @@ it('keeps configured receipt tools and scoped task tools together without launch
     const permission = vi.fn(async () => ({ behavior: 'allow' as const }));
     for (const tool of peers.definitions)
       expect((await peers.execute(tool.name, {}, permission, f.abort.signal)).isError).toBe(false);
+    f.call.mockImplementationOnce(async () =>
+      Object.assign({ content: [{ type: 'text', text: 'read failed' }] }, { isError: true }),
+    );
+    const taskWire = task.definitions[0].name;
+    expect(callbackOutcome(await peers.execute(taskWire, {}, permission, f.abort.signal))).toBe(
+      'settled',
+    );
+    configuredCall.mockImplementationOnce(async () =>
+      Object.assign({ content: [{ type: 'text', text: 'peer failure' }] }, { isError: true }),
+    );
+    expect(
+      callbackOutcome(
+        await peers.execute(configured.definitions[0].name, {}, permission, f.abort.signal),
+      ),
+    ).toBe('unknown');
     expect(permission).toHaveBeenCalledWith('mcp__task-board__TaskStatus', {}, f.abort.signal);
     expect(permission).toHaveBeenCalledWith(
       'mcp__selected__search',
@@ -191,8 +207,8 @@ it('keeps configured receipt tools and scoped task tools together without launch
       f.abort.signal,
       expect.objectContaining({ sessionGrantKey: expect.stringContaining('configured-mcp:') }),
     );
-    expect(f.call).toHaveBeenCalledOnce();
-    expect(configuredCall).toHaveBeenCalledOnce();
+    expect(f.call).toHaveBeenCalledTimes(2);
+    expect(configuredCall).toHaveBeenCalledTimes(2);
     await expect(async () =>
       peers!.execute('mcp__task-board__TaskSet', {}, permission, f.abort.signal),
     ).rejects.toThrow(/not selected/);

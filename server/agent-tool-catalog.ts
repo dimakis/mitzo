@@ -1,3 +1,4 @@
+import { builtinToolBehavior } from './builtin-tool-behavior.js';
 import { googleWorkspaceReadDefinition } from './google-workspace-read.js';
 import { localRepositoryPreparationDefinition } from './local-repository-preparation-tool.js';
 import { localRepositoryToolDefinitions } from './session-local-repository-tools.js';
@@ -24,36 +25,6 @@ import { telosWorkControlDefinitions } from './telos-work-control-tools.js';
 import { telosWorkDefinitions } from './telos-work-tools.js';
 import { sessionHistoryToolDefinitions } from './session-history-tools.js';
 
-const reads = new Set([
-  'DiscoverLocalRepository',
-  'InspectLocalRepository',
-  'Read',
-  'GitHubRead',
-  'GoogleWorkspaceRead',
-  'ListConnections',
-  'GetConnectionGuide',
-  'GetConnectionSetup',
-  'GetSecretRelay',
-  'ListRepositories',
-  'GetRepositoryChatPreparation',
-  'SymposiumReadProfiles',
-  'AgentReadTasks',
-  'TelosGetItem',
-  'TelosListItems',
-  'TelosSearchItems',
-  'TelosFindArtifacts',
-  'TelosReadArtifact',
-  'ReadKnowledge',
-  'SearchPastSessions',
-  'ReadPastSession',
-]);
-const mixed = new Set([
-  'TelosManageItem',
-  'Bash',
-  'ConnectionRequest',
-  'HomeAssistantDashboard',
-  'AgentCommunication',
-]);
 /** Read-only projection of executable registrations. No server discovery or credential reads. */
 export function agentToolCatalog(): AgentToolCatalogEntry[] {
   const groups = [
@@ -96,14 +67,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
       description: tool.description,
       source,
       required: tool.name === 'AskUserQuestion',
-      behavior:
-        tool.name === 'AskUserQuestion'
-          ? ('interaction' as const)
-          : reads.has(tool.name)
-            ? ('read' as const)
-            : mixed.has(tool.name)
-              ? ('mixed' as const)
-              : ('write' as const),
+      behavior: builtinToolBehavior(tool.name),
       routes:
         source === 'Google Workspace' ||
         source === 'Agent communication' ||

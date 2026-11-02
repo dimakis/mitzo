@@ -1,3 +1,4 @@
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { ToolDefinition } from '@mitzo/harness';
@@ -43,10 +44,15 @@ const descriptions = {
   InvokeIntegrationTool:
     'Call a described integration tool using its toolId, catalogRevision and arguments. Existing tool-specific hooks, permissions and approvals still apply.',
 };
-const reply = (value: unknown, isError = false): CodexToolResult => ({
-  content: JSON.stringify(value),
-  isError,
-});
+// Local catalog replies are produced before any delegated tool executes.
+const reply = (value: unknown, isError = false): CodexToolResult =>
+  retainCallbackOutcome(
+    {
+      content: JSON.stringify(value),
+      isError,
+    },
+    'settled',
+  );
 
 /** Presentation of an already selected catalog, never a source of execution authority.
  * The fixed bridge keeps app-server's tool registry immutable. The original MCP
