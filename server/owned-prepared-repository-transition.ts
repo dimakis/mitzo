@@ -1,3 +1,4 @@
+import { assertPreparedRepositoryAdmissionFacts } from './prepared-repository-transition.js';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { freezePendingHostTaskData } from './pending-host-task.js';
@@ -382,28 +383,12 @@ export function reconcilePreparedRepositoryTransitionProjection(owners: {
   const facts = freezePendingHostTaskData(structuredClone(marker.facts));
   owners.workspace.assertPreparedRepositoryTransitionAdopted(facts, marker.childCommandId);
   const anchor = owners.events.observePreparedRepositoryContinuation(marker.childCommandId);
-  const transition = anchor.preparedRepositoryTransition!;
-  if (
-    facts.request.conversationId !== owners.conversationId ||
-    !isDeepStrictEqual(facts.request.binding, owners.binding) ||
-    !isDeepStrictEqual(anchor.binding, facts.request.runtimeBinding) ||
-    !isDeepStrictEqual(transition.source, {
-      ...facts.request.nativeTarget,
-      callId: facts.request.prepareCallId,
-      requestHash: facts.request.requestHash,
-      resultSha256: facts.resultSha256,
-    }) ||
-    !isDeepStrictEqual(transition.oldWorkspace, facts.oldWorkspace) ||
-    transition.newWorkspace.id !== facts.newWorkspace.id ||
-    transition.newWorkspace.directory !== facts.newWorkspace.directory ||
-    transition.newWorkspace.featureBranch !== facts.newWorkspace.featureBranch ||
-    transition.newWorkspace.baseOid !== facts.newWorkspace.baseOid ||
-    transition.newWorkspace.taskIdentitySha256 !==
-      createHash('sha256').update(JSON.stringify(facts.newWorkspace.taskIdentity)).digest('hex') ||
-    transition.consumedScopeSha256 !== facts.consumedScopeSha256 ||
-    transition.materializedRecordSha256 !== facts.materializedRecordSha256
-  )
-    throw Error('Prepared repository recovery evidence changed');
+  const transition = assertPreparedRepositoryAdmissionFacts(
+    facts,
+    anchor,
+    owners.conversationId,
+    owners.binding,
+  );
   const meta = owners.events.getSession(owners.conversationId);
   const native = owners.native.read(owners.conversationId, owners.binding);
   if (

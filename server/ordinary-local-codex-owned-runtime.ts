@@ -1,3 +1,4 @@
+import { reconcileRetainedLocalCodexEffects } from './retained-local-codex-effects.js';
 import { assembleCommandPrompt } from './message-reply-context.js';
 import { MessageReplyIdSchema } from '@mitzo/protocol';
 import {
@@ -65,7 +66,10 @@ import {
   performPreparedRepositoryPrimaryTransition,
   reconcilePreparedRepositoryTransitionProjection,
 } from './owned-prepared-repository-transition.js';
-import { withPreparedRepositoryWorkspaceRead } from './prepared-repository-workspace-read.js';
+import {
+  withPreparedRepositoryLeaseRead,
+  withPreparedRepositoryWorkspaceRead,
+} from './prepared-repository-workspace-read.js';
 import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from './owned-local-codex-native-policy.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
 import type { CredentialSetupNotification } from './credential-setup-continuation.js';
@@ -276,6 +280,26 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
     );
     proof.prepareQueue();
     return this.admitCommand(request, true, undefined, proof);
+  }
+  /** Explicit reconciliation only: no coordinator claim, enqueue or model turn. */
+  async reconcileRetainedEffects(): Promise<void> {
+    this.assertCurrent();
+    if (
+      !this.owners.enabled ||
+      custodianControllerMode ||
+      custodianOwnerMode ||
+      !hasPersistentRevocationAuthority()
+    )
+      throw unavailable();
+    if (this.#admission || !this.owners.nativeStore || !this.#authSessionId) throw unavailable();
+    await reconcileRetainedLocalCodexEffects({
+      ...this.owners,
+      native: this.owners.nativeStore,
+      runtime: this.#runtime,
+      authSessionId: this.#authSessionId,
+      signal: this.#signal,
+      assertCurrent: () => this.assertCurrent(),
+    });
   }
   private async admitCommand(
     raw: unknown,
@@ -559,48 +583,31 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           ? new PreparedRepositoryWorkspaceOwner(this.owners.workspace, coldFacts, coldPrimary, {
               assertCurrentSync: assertColdEvidence,
               withReadAccess: async (operationSignal, action) => {
-                const lease = coldCurrentLease();
-                if (!lease || (this.#lease && this.#lease !== lease)) throw unavailable();
-                const withReadOwner = lease.withQualifiedWorkspaceReadOwner;
-                if (!withReadOwner) throw unavailable();
-                let completed = false;
-                const result: unknown = await Reflect.apply(withReadOwner, lease, [
-                  AbortSignal.any([this.#signal, operationSignal]),
-                  async (current) => {
-                    const selectedPolicy = () =>
-                      composeOwnedLocalNativeExecutionPolicyForWorkspace(
-                        {
-                          binding: lease.binding,
-                          readableRoots: this.owners.nativeExecutionReadRoots,
-                          assertCurrentSync: () => current.assertCurrentSync(),
-                        },
-                        () => ({
-                          cwd: coldFacts.newWorkspace.directory,
-                          workspaceRoots: [coldFacts.newWorkspace.directory],
-                          mode: this.owners.eventStore.getSession(this.#reservation.conversationId)!
-                            .mode,
-                          authSessionId: this.#authSessionId,
-                        }),
-                      );
-                    await withPreparedRepositoryWorkspaceRead(
-                      current,
-                      selectedPolicy(),
-                      this.owners.commandId,
-                      {
-                        selectedPolicy,
-                      },
-                      action,
-                    );
-                    completed = true;
+                await withPreparedRepositoryLeaseRead(
+                  () => {
+                    const lease = coldCurrentLease();
+                    if (!lease || (this.#lease && this.#lease !== lease)) throw unavailable();
+                    return lease;
                   },
-                ]);
-                if (
-                  result !== undefined ||
-                  !completed ||
-                  lease !== coldCurrentLease() ||
-                  lease.withQualifiedWorkspaceReadOwner !== withReadOwner
-                )
-                  throw unavailable();
+                  AbortSignal.any([this.#signal, operationSignal]),
+                  this.owners.commandId,
+                  (current) =>
+                    composeOwnedLocalNativeExecutionPolicyForWorkspace(
+                      {
+                        binding: current.binding,
+                        readableRoots: this.owners.nativeExecutionReadRoots,
+                        assertCurrentSync: () => current.assertCurrentSync(),
+                      },
+                      () => ({
+                        cwd: coldFacts.newWorkspace.directory,
+                        workspaceRoots: [coldFacts.newWorkspace.directory],
+                        mode: this.owners.eventStore.getSession(this.#reservation.conversationId)!
+                          .mode,
+                        authSessionId: this.#authSessionId,
+                      }),
+                    ),
+                  action,
+                );
               },
             })
           : undefined;

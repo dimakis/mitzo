@@ -35,6 +35,17 @@ export function copyCallbackOutcome<T extends object>(source: object, target: T)
   return retained ? retainCallbackOutcome(target, retained) : target;
 }
 
+/** A reviewed read-only adapter may settle a returned failure. Cancellation and
+ * any explicit original-owner uncertainty are retained; exceptions are untouched. */
+export async function retainReadOnlyCallbackOutcome<T extends object | undefined>(
+  signal: AbortSignal,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const result = await operation();
+  if (result && !signal.aborted && !outcomes.has(result)) retainCallbackOutcome(result, 'settled');
+  return result;
+}
+
 /** Original in-memory callbacks only. A reconstructed owner cannot manufacture
  * settlement, replay a tool, or treat a missing durable result as success. */
 export class TurnCallbacks {

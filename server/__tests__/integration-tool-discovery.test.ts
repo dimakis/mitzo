@@ -1,3 +1,4 @@
+import { callbackOutcome } from '../turn-callbacks.js';
 import { expect, it, vi } from 'vitest';
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
 import { credentialConnectionToolDefinitions } from '../credential-connection-tools.js';
@@ -119,7 +120,9 @@ it('rejects unknown, malformed, or stale invocation requests before the executor
     { toolId: 'wire_0', catalogRevision: 'old', arguments: [] },
     { toolId: 'wire_0', catalogRevision: 'old', arguments: {}, unexpected: true },
   ]) {
-    expect((await discovery.execute('InvokeIntegrationTool', input, signal())).isError).toBe(true);
+    const result = await discovery.execute('InvokeIntegrationTool', input, signal());
+    expect(result.isError).toBe(true);
+    expect(callbackOutcome(result)).toBe('settled');
   }
   expect((await discovery.execute('ListIntegrationTools', { limit: 1000 }, signal())).isError).toBe(
     true,

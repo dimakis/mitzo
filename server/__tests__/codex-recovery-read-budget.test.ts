@@ -222,6 +222,8 @@ it('settles observed terminal command failures and applied patches without repla
   const valid = [
     { type: 'commandExecution', id: 'not-found', status: 'failed', exitCode: 127 },
     { type: 'commandExecution', id: 'cancelled-shell', status: 'failed', exitCode: 130 },
+    { type: 'webSearch', id: 'searched', query: 'release notes' },
+    { type: 'imageView', id: 'viewed', path: '/task/image.png' },
     {
       type: 'fileChange',
       id: 'patch',
@@ -248,28 +250,30 @@ it('settles observed terminal command failures and applied patches without repla
     ]);
   }
   for (const item of [
+    { type: 'webSearch', id: 'pending-search', query: 'notes', status: 'inProgress' },
+    { type: 'imageView', id: 'missing-image-path' },
     { ...valid[0], exitCode: null },
     { ...valid[0], exitCode: 0 },
     { ...valid[0], exitCode: 1.5 },
     { ...valid[0], exitCode: -1 },
     { ...valid[0], status: 'inProgress' },
-    { ...valid[2], status: 'failed' },
-    { ...valid[2], status: 'inProgress' },
-    { ...valid[2], changes: [] },
-    { ...valid[2], changes: [{ path: '/task/fix.ts', kind: { type: 'update' }, diff: '' }] },
+    { ...valid[4], status: 'failed' },
+    { ...valid[4], status: 'inProgress' },
+    { ...valid[4], changes: [] },
+    { ...valid[4], changes: [{ path: '/task/fix.ts', kind: { type: 'update' }, diff: '' }] },
     {
-      ...valid[2],
+      ...valid[4],
       changes: [{ path: '/task/fix.ts', kind: { type: 'update', move_path: 42 }, diff: '' }],
     },
     {
-      ...valid[2],
+      ...valid[4],
       changes: [{ path: '/task/fix.ts', kind: { type: 'update', movePath: null }, diff: '' }],
     },
     {
-      ...valid[2],
+      ...valid[4],
       changes: [{ path: '/task/fix.ts', kind: { type: 'add', move_path: '/other' }, diff: '' }],
     },
-    { ...valid[2], changes: [{ path: '/task/fix.ts', kind: { type: 'future' }, diff: '' }] },
+    { ...valid[4], changes: [{ path: '/task/fix.ts', kind: { type: 'future' }, diff: '' }] },
   ])
     await expect(
       observeNativeRecoveryTurn(request(item), 'app', target, true, async () => {}),

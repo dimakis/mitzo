@@ -2566,9 +2566,12 @@ export class EventStore {
   }
 
   recoverPendingSendCommands(options: { excludeSymposium?: boolean } = {}): void {
+    // Ordinary receipts belong to their own recovery/dispatch owners, including
+    // historical or corrupt receipts. Their presence excludes generic recovery;
+    // validating them against today's session here can abort the entire startup.
     const rows = this.db!.prepare(
       `SELECT client_msg_id, session_id, payload FROM send_commands c
-      WHERE error IS NULL AND session_id != '' AND (c.preparing = 1 OR NOT EXISTS (
+      WHERE error IS NULL AND c.ordinary_admission IS NULL AND session_id != '' AND (c.preparing = 1 OR NOT EXISTS (
         SELECT 1 FROM events e WHERE e.session_id = c.session_id AND e.type = 'user_message'
         AND json_extract(e.payload, '$.messageId') = c.client_msg_id
       )) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.session_id=c.session_id
@@ -2583,11 +2586,7 @@ export class EventStore {
       // Deliberation receipts intentionally have no user_message event, so
       // generic send recovery must not turn a completed or ambiguous execution
       // into a poisoned receipt before the execution gate can re-evaluate it.
-      if (
-        this.getExecutionAdmission(row.session_id, row.client_msg_id) ||
-        this.getOrdinaryCommandAdmission(row.client_msg_id)
-      )
-        continue;
+      if (this.getExecutionAdmission(row.session_id, row.client_msg_id)) continue;
       const error =
         'Server restarted before message execution was confirmed. Please check the conversation and retry.';
       this.failSendCommand(row.client_msg_id, error);

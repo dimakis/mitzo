@@ -1,3 +1,4 @@
+import { isReadOnlyBuiltinToolCall } from '../builtin-tool-behavior.js';
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { agentToolCatalog } from '../agent-tool-catalog.js';
@@ -249,4 +250,33 @@ it.each([
   const excluded = {};
   bindAgentToolSelection(excluded, { tools: [] } as never, 'codex-owned-local');
   expect(agentToolAllowed(excluded, name)).toBe(false);
+});
+
+it('shares reviewed read identities with recovery and qualifies mixed operations narrowly', () => {
+  for (const tool of agentToolCatalog().filter(
+    (tool) => tool.id.startsWith('mitzo:') && tool.source !== 'Task Board',
+  )) {
+    expect(isReadOnlyBuiltinToolCall(tool.name, {})).toBe(tool.behavior === 'read');
+  }
+  for (const [name, input] of [
+    ['RequestWebAccess', { operation: 'fetch' }],
+    ['ConnectionRequest', { method: 'GET' }],
+    ['ConnectionRequest', { method: 'HEAD' }],
+    ['TelosManageItem', { operation: 'read' }],
+  ] as const)
+    expect(isReadOnlyBuiltinToolCall(name, input)).toBe(true);
+  for (const [name, input] of [
+    ['RequestWebAccess', { operation: 'search' }],
+    ['RequestWebAccess', { operation: 'request_access' }],
+    ['RequestWebAccess', { operation: 'revoke_access' }],
+    ['ConnectionRequest', { method: 'POST' }],
+    ['ConnectionRequest', { method: 'get' }],
+    ['TelosManageItem', { operation: 'update' }],
+    ['RequestGithubPublish', {}],
+    ['PrepareLocalRepository', {}],
+    ['api_unreviewed', { method: 'GET' }],
+    ['mcp__external__Read', { readOnlyHint: true }],
+    ['InvokeIntegrationTool', { toolId: 'Read' }],
+  ] as const)
+    expect(isReadOnlyBuiltinToolCall(name, input)).toBe(false);
 });

@@ -155,3 +155,11 @@ CSS transformation tests cover phone/desktop bounds, comma alternatives and
 retained pointer/motion conditions. The browser fixture now checks the masthead
 geometry even at a wide outer viewport and verifies search navigation/querying.
 Rendered acceptance and screenshots remain required in CI.
+
+For the user-authorized landing, accepted main `a4d2c51` is integrated. Its changes
+are server-side recovery and refresh behavior; the compact viewer, composer,
+branding and preview declarations are unchanged. The only conflict was the
+shared revision marker, now `v1.0.835-settled-recovery-and-compact-display`.
+Fingerprints from both sides are retained and source verification passes. The
+combined branch passes 137 focused design/viewer/draft/preview checks, with one
+existing design skip. Exact combined-head CI and Centaur approval remain required.

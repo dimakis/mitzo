@@ -1,3 +1,4 @@
+import { callbackOutcome } from '../turn-callbacks.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { ApiToolCatalog } from '../api-tool-catalog.js';
@@ -150,9 +151,11 @@ it.each(['permission', 'connection', 'configuration', 'cancellation', 'session-g
       if (kind === 'cancellation') controller.abort();
       return { behavior: 'allow', updatedInput: input };
     });
-    expect(
-      (await f.tools.execute(f.tools.definitions[0].name, {}, controller.signal))?.isError,
-    ).toBe(true);
+    const result = await f.tools.execute(f.tools.definitions[0].name, {}, controller.signal);
+    expect(result?.isError).toBe(true);
+    expect(callbackOutcome(result)).toBe(
+      ['cancellation', 'connection', 'session-grant'].includes(kind) ? 'unknown' : 'settled',
+    );
     expect(f.send).not.toHaveBeenCalled();
     expect(f.vault.read).not.toHaveBeenCalled();
   },

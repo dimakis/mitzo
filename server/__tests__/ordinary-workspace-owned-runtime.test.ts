@@ -1,3 +1,5 @@
+import { retainedLocalCodexRecoveryReservation } from '../retained-local-codex-effects.js';
+import { OrdinaryLocalWorkspaceOwner } from '../ordinary-local-workspace-owner.js';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { lstat, rename, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -91,6 +93,19 @@ it.each([false, true])(
     });
     expect(first.dispatch).toHaveBeenCalledOnce();
     expect(f.forbidden).not.toHaveBeenCalled();
+    const retained = f.workspaces.getOrdinaryWorkspace(first.reserved.id);
+    const reservation = retainedLocalCodexRecoveryReservation(
+      f.events.getSession(first.reserved.conversationId)!,
+      retained,
+      retained.settings.binding,
+    );
+    expect(reservation.commandFingerprint).toBe(retained.preparationFingerprint);
+    expect(() =>
+      new OrdinaryLocalWorkspaceOwner(f.workspaces, 'ordinary', reservation).assertCurrentSync(
+        retained.directory,
+      ),
+    ).not.toThrow();
+
     expect(
       f.events.getOrdinaryWorkspaceSessionPreparation(first.receipt.allocationOperationId)
         ?.firstCommandId,

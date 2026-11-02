@@ -1,3 +1,4 @@
+import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
 import { createQueuedMessageReceiptHandler } from './queued-message-receipt.js';
 import { assertOrdinaryContributorControlAllowed } from './ordinary-contributor-execution.js';
 import { installChatCommandJson } from './chat-command-json.js';
@@ -3667,15 +3668,27 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       ...codexQueue,
       canContinue: Boolean(
         !meta.isHidden &&
+        process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED === '1' &&
         (!codexQueue.connected || codexQueue.paused) &&
         auth &&
         auth.expiresAt > Date.now() &&
-        recoverableLocalCodexCommand(
+        (recoverableLocalCodexCommand(
           eventStore,
           getCodexConversationStore(),
           meta.sessionId,
           auth.id,
-        ),
+        ) ||
+          (!registry.findBySessionId(meta.sessionId) &&
+            reconcilableLocalCodexCommand(
+              eventStore,
+              getCodexConversationStore(),
+              meta.sessionId,
+              auth.id,
+              () =>
+                meta.ordinaryWorkspaceId
+                  ? getOrdinaryWorkspaces(true)
+                  : getRepositoryWorkspaces(true),
+            ))),
       ),
     };
   }
@@ -5352,8 +5365,14 @@ app.get(
     return view.data === 'active' ? next() : operatorAuthMiddleware(req, res, next);
   },
   async (req, res) => {
+    if (req.query.refresh === 'true') {
+      res.status(400).json({
+        code: 'source_refresh_not_supported',
+        error: 'This endpoint only reloads saved Telos items.',
+      });
+      return;
+    }
     const profile = req.query.profile as string | undefined;
-    const refresh = req.query.refresh === 'true';
     const databasePath = telosDatabasePath();
     const view = TelosWorkLifecycleListSchema.parse(req.query.view ?? 'active');
 
@@ -5364,13 +5383,8 @@ app.get(
     }
 
     try {
-      const args = [TODO_SCRIPT];
-      if (refresh && profile) {
-        args.push('--refresh', '--profile', profile);
-      } else {
-        args.push('--list');
-        if (profile) args.push('--profile', profile);
-      }
+      const args = [TODO_SCRIPT, '--list'];
+      if (profile) args.push('--profile', profile);
 
       const { stdout } = await execFileAsync('python3', args, {
         timeout: TODO_TIMEOUT_MS,

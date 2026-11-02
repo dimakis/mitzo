@@ -42,6 +42,9 @@ export function composeOwnedLocalNativeExecutionPolicyForWorkspace(
     workspaceRoots: readonly string[];
     authSessionId?: string;
   }>,
+  // Qualified inspection may retain the exact accepted command identity.
+  // Current scope and owner authority are still recomputed and checked below.
+  retainedBindingRevision?: string,
 ) {
   const originalCurrent = input.assertCurrentSync;
   const current = () => {
@@ -84,15 +87,17 @@ export function composeOwnedLocalNativeExecutionPolicyForWorkspace(
     (path) => !privatePaths.isPrivate(path),
   );
   const policy = codexNativeExecutionPolicy({
-    bindingRevision: createHash('sha256')
-      .update(
-        JSON.stringify([
-          input.binding.accountId,
-          input.binding.profileRevision,
-          selection.authSessionId,
-        ]),
-      )
-      .digest('hex'),
+    bindingRevision:
+      retainedBindingRevision ??
+      createHash('sha256')
+        .update(
+          JSON.stringify([
+            input.binding.accountId,
+            input.binding.profileRevision,
+            selection.authSessionId,
+          ]),
+        )
+        .digest('hex'),
     mode: selection.mode,
     cwd: selection.cwd,
     readableRoots: input.readableRoots ?? ['/'],
