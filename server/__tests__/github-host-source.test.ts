@@ -1,5 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, writeFile, symlink, rm, realpath, access, readdir } from 'node:fs/promises';
+import {
+  mkdtemp,
+  writeFile,
+  readFile,
+  symlink,
+  rm,
+  realpath,
+  access,
+  readdir,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -8,6 +17,7 @@ import {
   exportHostGithubBundle,
   resolveHostGithubRepository,
 } from '../github-host-source.js';
+import { hostGithubPublishingSource } from '../github-publishing-tool.js';
 vi.mock('node:fs/promises', async (original) => {
   const actual = await original<typeof import('node:fs/promises')>();
   return { ...actual, readdir: vi.fn(actual.readdir) };
@@ -19,8 +29,6 @@ afterEach(async () => {
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-host-publish-')));
   roots.push(root);
-  const privateDirectory = await mkdtemp(join(tmpdir(), 'mitzo-git-private-'));
-  roots.push(privateDirectory);
   const git = (...args: string[]) =>
     execFileSync(
       'git',
@@ -52,7 +60,6 @@ async function fixture() {
     input: {
       workspace: root,
       gitStorageRoots: [] as string[],
-      privateDirectory,
       repositoryPath: root,
       baseBranch: 'main',
       signal: new AbortController().signal,
@@ -72,11 +79,42 @@ it('inspects and exports committed host work without network or credentials', as
     commitsAhead: 1,
     changedFiles: ['note.txt'],
     symlinkFree: true,
-    status: '',
   });
+  // Prepared standalone tasks retain the acquired base in controller metadata,
+  // while their private Git metadata contains only the feature branch.
+  await writeFile(join(f.root, 'note.txt'), 'staged');
+  f.git('add', 'note.txt');
+  await writeFile(join(f.root, 'note.txt'), 'unstaged');
+  await writeFile(join(f.root, 'preview.html'), 'untracked preview');
+  const index = await readFile(join(f.root, '.git/index'));
+  const pending = f.git('status', '--short');
+  expect(await inspectHostGithubRepository(f.input)).toEqual(result);
+  const baseOid = f.git('rev-parse', 'origin/main');
+  const exportInput = {
+    ...f.input,
+    sourceBranch: 'feature',
+    sourceOid: result.sourceOid,
+    maxBytes: 1024 * 1024,
+  };
+  expect((await exportHostGithubBundle(exportInput)).toString('utf8', 0, 16)).toContain(
+    'git bundle',
+  );
+  f.git('update-ref', '-d', 'refs/remotes/origin/main');
+  await writeFile(join(f.root, '.git/shallow'), baseOid + '\n');
+  const source = hostGithubPublishingSource({ cwd: f.root }, [], {
+    directory: f.root,
+    connectionId: 'local',
+    repository: 'local/source-id',
+    baseBranch: 'main',
+    baseOid,
+  });
+  const preparedInput = { ...f.input, ...source };
+  expect(source).toHaveProperty('preparedBase.baseOid', baseOid);
+  expect(source!.preparedBase).not.toHaveProperty('repository');
+  expect(await inspectHostGithubRepository(preparedInput)).toEqual(result);
   vi.mocked(readdir).mockClear();
   const bundle = await exportHostGithubBundle({
-    ...f.input,
+    ...preparedInput,
     sourceBranch: 'feature',
     sourceOid: result.sourceOid,
     maxBytes: 1024 * 1024,
@@ -85,6 +123,32 @@ it('inspects and exports committed host work without network or credentials', as
     vi.mocked(readdir).mock.calls.filter(([path]) => path === join(f.root, '.git')),
   ).toHaveLength(1);
   expect(bundle.toString('utf8', 0, 16)).toContain('git bundle');
+  expect(f.git('status', '--short')).toBe(pending);
+  expect(await readFile(join(f.root, '.git/index'))).toEqual(index);
+  expect(await readFile(join(f.root, 'preview.html'), 'utf8')).toBe('untracked preview');
+  expect(await readFile(join(f.root, 'note.txt'), 'utf8')).toBe('unstaged');
+  expect(f.git('show', 'HEAD:note.txt')).toBe('change');
+
+  await expect(
+    inspectHostGithubRepository({
+      ...preparedInput,
+      preparedBase: { ...source!.preparedBase!, repository: 'other/repo' },
+    }),
+  ).rejects.toThrow('Prepared publishing base does not match');
+  // Other configured PR targets keep their real tracking-ref path; the main
+  // preparation OID cannot stand in for an unrelated requested base.
+  f.git('update-ref', 'refs/remotes/origin/release', baseOid);
+  const alternate = { ...preparedInput, baseBranch: 'release' };
+  expect(await inspectHostGithubRepository(alternate)).toEqual(result);
+  expect(
+    (await exportHostGithubBundle({ ...exportInput, ...alternate })).toString('utf8', 0, 16),
+  ).toContain('git bundle');
+  await expect(
+    inspectHostGithubRepository({
+      ...preparedInput,
+      preparedBase: { ...source!.preparedBase!, baseBranch: 'other' },
+    }),
+  ).rejects.toThrow('Publishing base branch is unavailable');
   await expect(
     exportHostGithubBundle({
       ...f.input,
@@ -100,6 +164,9 @@ it('rejects path escape and symlinked Git storage before reading it', async () =
   await expect(
     inspectHostGithubRepository({ ...f.input, repositoryPath: outside.root }),
   ).rejects.toThrow();
+  f.git('config', 'core.worktree', outside.root);
+  await expect(inspectHostGithubRepository(f.input)).rejects.toThrow('workspace is ambiguous');
+  f.git('config', '--unset', 'core.worktree');
   await rm(join(f.root, '.git'), { recursive: true });
   await symlink(join(outside.root, '.git'), join(f.root, '.git'));
   await expect(inspectHostGithubRepository(f.input)).rejects.toThrow();

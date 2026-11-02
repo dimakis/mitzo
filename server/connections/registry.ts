@@ -1005,7 +1005,7 @@ const executors: Readonly<Record<string, BoundHandler<CapabilityExecutor>>> = nu
       'github.publish-pr@1',
       reviewedCapabilityContracts['github.publish-pr@1'],
       reviewedGithubPublicationImplementationRevision,
-      '29287adbe9600bb71a3e20cab2ee879a7d525ffc2abb83e8d655a35479873aa7',
+      'b2a8ec89293c095d6566c0def554c176e9334eeb0f88676a367fad3ce25199cb',
       executorGoldenOutput,
       approvalRequiredExecutor,
     ),

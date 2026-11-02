@@ -146,6 +146,7 @@ interface Options {
   /** Server-owned initial/retained command fence before the first active turn exists. */
   assertStartupCurrent?: () => void;
   publishingGitStorageRoots?: readonly string[];
+  repositoryWorkspace?: import('./repository-chat-startup.js').RepositoryChatWorkspace;
   resume?: boolean;
   conversationId: string;
   binding: AccountBinding;
@@ -399,7 +400,12 @@ export async function openResponsesChat(options: Options) {
   const githubPublishing = createGithubPublishingTool(
     options.conversationId,
     options.registry,
-    () => hostGithubPublishingSource(options.session, options.publishingGitStorageRoots),
+    () =>
+      hostGithubPublishingSource(
+        options.session,
+        options.publishingGitStorageRoots,
+        options.repositoryWorkspace,
+      ),
     options.session,
     assertRuntimeCurrent,
     true,

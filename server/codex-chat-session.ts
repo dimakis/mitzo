@@ -2142,8 +2142,12 @@ async function openCodexChatBound(
               sandboxName: managedOpenShell.sandboxName,
             }
           : undefined
-        : hostGithubPublishingSource(options.session, options.publishingGitStorageRoots),
-    undefined,
+        : hostGithubPublishingSource(
+            options.session,
+            options.publishingGitStorageRoots,
+            options.repositoryWorkspace,
+          ),
+    options.session,
     ownedHost ? assertHostCurrent : undefined,
     true,
   );

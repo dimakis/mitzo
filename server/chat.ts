@@ -2627,6 +2627,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         onAgentContextAccepted: agentContext ? acceptAgentContext : undefined,
         mcpServers: allMcpServers,
         onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
+        repositoryWorkspace,
         publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
           .filter(Boolean)
           .map((root) => join(root, '.git')),
@@ -6198,6 +6199,7 @@ export async function startOwnedLocalResponsesCommand(
         assertStartupCurrent: () => owner.assertSetupSync(selected.commandId),
         store: native,
         resume: selected.resume,
+        repositoryWorkspace: selected.workspace,
         conversationId: sessionId,
         binding: selected.binding,
         ...(selected.binding.provider === 'google-vertex'
@@ -6220,9 +6222,9 @@ export async function startOwnedLocalResponsesCommand(
         env,
         configuredSourceEnv: nativeExecutionEnv(),
         mcpServers: loadMcpServers(),
-        publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
-          .filter(Boolean)
-          .map((root) => join(root, '.git')),
+        publishingGitStorageRoots: selected.workspace.taskIdentity?.localSource
+          ? [selected.workspace.taskIdentity.localSource.commonDirectory]
+          : [],
       });
       owner.assertSetupSync(selected.commandId);
       session.queryInstance = query;

@@ -209,6 +209,14 @@ Owned Local Mac chats run the installed `gh` and Git through native Codex execut
 
 Network access stays restricted pending native approval. Task checkout Git writes retain their current scope; external linked-worktree administration requires an exact native filesystem grant. A remote PR branch update does not refresh the local checkout. CI, reviews and exact-head merge guards remain required. The changed read ceiling requires fresh native admission rather than widening a running thread's installed profile. No live GitHub or model acceptance, runtime activation or deployment is implied by offline tests.
 
+Approval-backed PR publication carries the admitted repository's acquired base OID
+through the live publishing owner. Standalone task checkouts need no remote-tracking
+ref for that base: inspection and bundle export use the same retained commit without
+fetching into or rewriting the active task. Other PR bases require their own existing
+tracking ref. Local preparation's synthetic `local/...` label is not a GitHub identity;
+the publisher resolves the actual origin and rechecks managed repository access at
+the existing approval, export and delivery boundaries.
+
 ## Deployment declaration renewal
 
 The canonical `scripts/create-release.sh` delegates activation to `scripts/deploy.sh`.

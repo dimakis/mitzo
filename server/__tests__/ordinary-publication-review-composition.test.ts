@@ -188,6 +188,20 @@ it('publishes without model review and fences every ordinary capability entry po
       async () => true,
     );
     expect(direct.status).toBe('succeeded');
+    mocks.authCurrent = false;
+    const revokedBeforePreflight = await runtime.capabilities.invoke(
+      request('revoked-before-preflight'),
+      new AbortController().signal,
+      async () => true,
+    );
+    expect(revokedBeforePreflight).toMatchObject({
+      status: 'failed',
+      phase: 'authority',
+      failureCode: 'PUBLICATION_AUTHORITY_CHANGED',
+      result: { review: { details: { stage: 'authority', reason: 'operator_unavailable' } } },
+    });
+    expect(mocks.push).toHaveBeenCalledOnce();
+    mocks.authCurrent = true;
     const nativeCurrent = vi.fn(async () => {});
     const alias = await runtime.capabilities.invoke(
       request('dynamic-alias'),
@@ -250,6 +264,19 @@ it('publishes without model review and fences every ordinary capability entry po
         callerCurrent,
       );
       expect(result.status, revoked).toBe('failed');
+      expect(result.failureCode, revoked).toBe('PUBLICATION_AUTHORITY_CHANGED');
+      expect(result.result, revoked).toMatchObject({
+        review: {
+          details: {
+            stage: 'authority',
+            reason: ['native-call', 'caller-sync'].includes(revoked)
+              ? 'native_call_stale'
+              : revoked === 'runtime'
+                ? 'source_changed'
+                : 'operator_unavailable',
+          },
+        },
+      });
       expect(mocks.push).toHaveBeenCalledTimes(pushed);
     }
     expect(mocks.cleanup).toHaveBeenCalledTimes(7);

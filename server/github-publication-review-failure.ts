@@ -17,6 +17,8 @@ export function consumeGithubPublicationNotDispatched(error: unknown): boolean {
 }
 
 const messages = {
+  PUBLICATION_AUTHORITY_CHANGED:
+    'The publishing operator or runtime changed. Local commits are preserved. Check the operation status before retrying; the reported reason identifies which authority check failed.',
   PUBLICATION_PREFLIGHT_FAILED:
     'Publication preflight could not complete. Local commits are preserved and no GitHub write was dispatched. Use the reported stage and operation ID to inspect controller logs and traces before retrying.',
   PUBLICATION_REVIEW_REQUIRED:
