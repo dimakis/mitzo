@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.825-committed-publication-lifetime';
+  'v1.0.826-compact-display-draft-feedback';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1271,7 +1271,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    'cc17cf56575d4e6f76851fca70af650fbc81bf33a2acd49996282fa073091b17',
+    '98026c301adee060029f98eab52cc10b8112ba5add98c3b5e515a056983ddaad',
   '../../frontend/src/components/ComposerTools.tsx':
     '40c818bb1683a26d083960c6666d6c46003d293bd78319f51cf07e73655d0d1f',
   '../../frontend/src/components/ContextPanel.tsx':
@@ -1976,7 +1976,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/TodoWorkspace.tsx':
     '4ef4ba56945500aa99e4cfb550b7c059a33406f532a1e6ad89a006fadae618d3',
   '../../frontend/src/pages/FileViewer.tsx':
-    '9b8b8637790030d943979c66e8788af95a7e488122fe15bb9cad4e29c0b2fc80',
+    '7c316928d70d584ddfae311b83d326309ad18f82ceef2b4ad2f9ef660675995b',
   '../../frontend/src/components/TelosChatFrame.tsx':
     '3264d9f5eb462995b7901fe81e8fd9dc34107af5ca2e4c672c606704c26a9f0d',
   '../../frontend/src/components/TelosChatList.tsx':
@@ -2720,7 +2720,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ChatInputImagePreview.test.tsx':
     '0a33a348447418092c3cba5897e4f23bfa70e44f6728b756025e15e8d0c6655a',
   '../../frontend/src/components/__tests__/ChatInputSavedDraft.test.tsx':
-    'a6919a81d69d50887917ec3ff016dbbe2cf4e3c38d9372dc1457653ce028e282',
+    '25d4406566cb994c660947fb6cd361423d1dd07c14e004fe2fc7459d67e876ff',
   '../../frontend/src/components/__tests__/ChatInputSendReceipt.test.tsx':
     '22c04046312ef9d015cf34ac7864773baa776c1fd99ab873096fc7ef79b676b6',
   '../../frontend/src/components/__tests__/ChatInputVoiceOwnership.test.tsx':

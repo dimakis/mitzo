@@ -60,3 +60,11 @@ three labelled controls, light Teal/Georgia, the screenshot draft and 320px sele
 The focused component/design run again passed 133 tests with one existing skip;
 the browser listing includes all nine compact-display cases across three projects.
 Browser execution remains pending under the host restriction described above.
+
+Landing preflight on 2 November integrated accepted main `7970842` without UI
+changes or conflicts. It corrected an unsupported Testing Library `exact` query
+option and refreshed the three changed source fingerprints with runtime revision
+`v1.0.826-compact-display-draft-feedback`. The combined branch again passed all
+133 focused component/design tests with the same existing skip, and source
+artifact verification passed. Full compiler/build and rendered acceptance remain
+required CI gates.

@@ -103,9 +103,7 @@ describe('FileViewer quiet controls', () => {
     showViewer();
     expect(screen.getByText('document.md').getAttribute('title')).toBe('document.md');
     expect(screen.getByText('main').getAttribute('title')).toBe('main');
-    expect(
-      screen.getByRole('button', { name: 'Read', exact: true }).getAttribute('aria-label'),
-    ).toBe('Read');
+    expect(screen.getByRole('button', { name: 'Read' }).getAttribute('aria-label')).toBe('Read');
   });
 
   it('groups viewing actions and accents only Edit while preserving Read and Share', () => {
