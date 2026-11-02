@@ -984,8 +984,16 @@ esac
       externalResultId: 'https://GitHub.com/Acme/Widgets/pull/12',
     });
   });
+  it('publishes committed work with staged, unstaged and untracked workspace changes', async () => {
+    const f = fixture({ inspection: { status: 'MM src/index.ts\n?? preview.html' } });
+    const preflight = await f.executor.preflight!(context());
+    await expect(
+      f.executor.execute(context({ approvalInput: preflight.approvalInput })),
+    ).resolves.toMatchObject({ externalResultId: f.pull.url });
+    expect(f.sandbox.exportBundle).toHaveBeenCalled();
+    expect(f.host.push).toHaveBeenCalledOnce();
+  });
   it.each([
-    ['dirty tree', { status: ' M src/index.ts' }, 'dirty'],
     ['detached HEAD', { sourceBranch: null }, 'detached'],
     ['default branch', { sourceBranch: 'main' }, 'protected'],
     ['protected branch', { sourceBranchProtected: true }, 'protected'],

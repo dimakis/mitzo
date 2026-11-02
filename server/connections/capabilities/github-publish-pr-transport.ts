@@ -149,8 +149,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
         'Seeded workspace history has no unambiguous baseline',
       );
     const seedOid = roots[0]!;
-    const [status, originalSourceOid, sourceBranch, seedTreeOid, count, files] = await Promise.all([
-      read('-c', 'core.fsmonitor=false', 'status', '--porcelain=v1', '--untracked-files=all'),
+    const [originalSourceOid, sourceBranch, seedTreeOid, count, files] = await Promise.all([
       read('rev-parse', 'HEAD'),
       read('symbolic-ref', '--quiet', '--short', 'HEAD'),
       read('rev-parse', seedOid + '^{tree}'),
@@ -179,7 +178,6 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
         'Seeded workspace has no committed task change',
       );
     return {
-      status,
       seedOid,
       seedTreeOid,
       originalSourceOid,
@@ -251,13 +249,7 @@ finally:
     signal: AbortSignal;
   }): Promise<GithubSandboxInspection> {
     checked(input.baseBranch, safeBranch, 'Base branch is invalid');
-    const [status, sourceOid, source, origin, count, files] = await Promise.all([
-      this.git(
-        input.sandboxName,
-        input.repositoryPath,
-        ['status', '--porcelain=v1', '--untracked-files=all'],
-        input.signal,
-      ),
+    const [sourceOid, source, origin, count, files] = await Promise.all([
       this.git(input.sandboxName, input.repositoryPath, ['rev-parse', 'HEAD'], input.signal),
       this.git(
         input.sandboxName,
@@ -307,7 +299,6 @@ finally:
       throw new Error('OpenShell Git inspection is invalid');
     return {
       canonicalRepositoryPath: input.repositoryPath,
-      status,
       sourceBranch,
       sourceOid: sourceOid.trim(),
       // Default/protected status is host-authoritative; this local checkout

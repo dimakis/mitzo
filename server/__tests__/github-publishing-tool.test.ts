@@ -81,6 +81,34 @@ it('retains the explicit runtime session before its registry registration is pub
   ).toMatchObject({ isError: false });
   execute.close();
 });
+it.each(['native call', 'runtime'] as const)(
+  'preserves %s cancellation at the effect fence',
+  async (boundary) => {
+    let cancelled = false;
+    const check = () => {
+      if (cancelled) throw new DOMException('Cancelled', 'AbortError');
+    };
+    const f = fixture('openai-codex', boundary === 'runtime' ? async () => check() : undefined);
+    f.invoke.mockImplementation(async (_request, _signal, _approval, current) => {
+      cancelled = true;
+      await expect(current()).rejects.toMatchObject({ name: 'AbortError' });
+      return { id: 'operation', status: 'cancelled', failureCode: 'CANCELLED' };
+    });
+    try {
+      const result = await f.execute(input, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'call',
+        ...(boundary === 'native call' ? { assertCurrentSync: check } : {}),
+      });
+      expect(JSON.parse(result.content)).toMatchObject({
+        status: 'cancelled',
+        failureCode: 'CANCELLED',
+      });
+    } finally {
+      f.execute.close();
+    }
+  },
+);
 it('publishes without a model or inference selection', async () => {
   const f = fixture('openai-codex');
   f.session.model = undefined;

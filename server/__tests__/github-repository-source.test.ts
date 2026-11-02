@@ -278,14 +278,12 @@ it('lets the independent checkout commit changes and export them through the exi
     repositoryPath: target,
     baseBranch: 'main',
     signal: f.signal,
-    privateDirectory: join(f.root, 'inspection'),
   };
   const inspection = await inspectHostGithubRepository(source);
   expect(inspection).toMatchObject({
     sourceBranch: 'mitzo/task-123',
     commitsAhead: 1,
     changedFiles: ['file.txt'],
-    status: '',
   });
   const bundle = await exportHostGithubBundle({
     ...source,
