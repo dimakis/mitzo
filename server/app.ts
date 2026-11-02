@@ -5352,8 +5352,14 @@ app.get(
     return view.data === 'active' ? next() : operatorAuthMiddleware(req, res, next);
   },
   async (req, res) => {
+    if (req.query.refresh === 'true') {
+      res.status(400).json({
+        code: 'source_refresh_not_supported',
+        error: 'This endpoint only reloads saved Telos items.',
+      });
+      return;
+    }
     const profile = req.query.profile as string | undefined;
-    const refresh = req.query.refresh === 'true';
     const databasePath = telosDatabasePath();
     const view = TelosWorkLifecycleListSchema.parse(req.query.view ?? 'active');
 
@@ -5364,13 +5370,8 @@ app.get(
     }
 
     try {
-      const args = [TODO_SCRIPT];
-      if (refresh && profile) {
-        args.push('--refresh', '--profile', profile);
-      } else {
-        args.push('--list');
-        if (profile) args.push('--profile', profile);
-      }
+      const args = [TODO_SCRIPT, '--list'];
+      if (profile) args.push('--profile', profile);
 
       const { stdout } = await execFileAsync('python3', args, {
         timeout: TODO_TIMEOUT_MS,
